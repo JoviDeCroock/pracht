@@ -2312,7 +2312,7 @@ function isTypeofOperand(source: string, start: number, length: number): boolean
 
   // Runtime member access happens before `typeof` and can invoke an accessor
   // that mutates the registry. A TypeScript type query is erased, however, so
-  // member access in a top-level type alias remains harmless. TypeScript
+  // member access in an erased TypeScript type position remains harmless. TypeScript
   // non-null assertions are transparent at runtime, so look through them
   // before deciding which form this is.
   let after = skipInsignificant(source, start + length);
@@ -2321,7 +2321,16 @@ function isTypeofOperand(source: string, start: number, length: number): boolean
   }
   const readsMember =
     source[after] === "." || source[after] === "[" || source.startsWith("?.", after);
-  return !readsMember || isInsideTopLevelTypeAlias(source, keywordStart);
+  return !readsMember || isInsideErasedTypePosition(source, keywordStart);
+}
+
+function isInsideErasedTypePosition(source: string, end: number): boolean {
+  return (
+    isInsideTopLevelTypeAlias(source, end) ||
+    isInsideInterfaceDeclaration(source, end) ||
+    isInsideVariableTypeAnnotation(source, end) ||
+    isInsideFunctionSignatureType(source, end)
+  );
 }
 
 function isInsideTopLevelTypeAlias(source: string, end: number): boolean {
@@ -2352,6 +2361,205 @@ function isInsideTopLevelTypeAlias(source: string, end: number): boolean {
     /(?:=|\||&|,|:|<|\(|\[|\{|\?|=>)$/.test(precedingLine) ||
     /\b(?:as|extends|in|infer|is|keyof|readonly)\s*$/.test(precedingLine)
   );
+}
+
+function isInsideInterfaceDeclaration(source: string, end: number): boolean {
+  const declaration =
+    /(?:^|[;\r\n}])\s*(?:export\s+)?(?:declare\s+)?interface\s+[A-Za-z_$][A-Za-z0-9_$]*/g;
+
+  for (const match of source.slice(0, end).matchAll(declaration)) {
+    if (match.index == null) continue;
+    const bodyStart = findTypeDeclarationBodyStart(source, match.index + match[0].length);
+    if (bodyStart === -1 || bodyStart >= end) continue;
+    const bodyEnd = findMatchingBrace(source, bodyStart, "{", "}");
+    if (bodyEnd === -1 || end < bodyEnd) return true;
+  }
+
+  return false;
+}
+
+function findTypeDeclarationBodyStart(source: string, start: number): number {
+  let angles = 0;
+  let brackets = 0;
+  let parentheses = 0;
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "<") angles += 1;
+    else if (char === ">" && source[index - 1] !== "=" && angles > 0) angles -= 1;
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+    else if (char === "{" && angles === 0 && brackets === 0 && parentheses === 0) return index;
+    else if (char === ";" && angles === 0 && brackets === 0 && parentheses === 0) return -1;
+  }
+
+  return -1;
+}
+
+function isInsideVariableTypeAnnotation(source: string, end: number): boolean {
+  let declarationStart = -1;
+  for (const match of source.slice(0, end).matchAll(/\b(?:const|let|var)\b/g)) {
+    if (match.index == null) continue;
+    const before = source.slice(0, match.index).trimEnd().at(-1);
+    if (before === ".") continue;
+    declarationStart = match.index + match[0].length;
+  }
+  if (declarationStart === -1) return false;
+
+  let angles = 0;
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  let hasAnnotation = false;
+  let hasInitializer = false;
+
+  for (let index = declarationStart; index < end; index += 1) {
+    const char = source[index];
+    const atDeclarationLevel = angles === 0 && braces === 0 && brackets === 0 && parentheses === 0;
+    if (atDeclarationLevel && char === ";") return false;
+    if (atDeclarationLevel && (char === "\n" || char === "\r")) {
+      const next = skipInsignificant(source, index + 1);
+      if (
+        next < end &&
+        (startsStaticStatement(source.slice(next), { insideTypeAssertion: false }) ||
+          startsIdentifierExpressionStatement(source, index, next))
+      ) {
+        return false;
+      }
+    }
+    if (atDeclarationLevel && char === ",") {
+      hasAnnotation = false;
+      hasInitializer = false;
+      continue;
+    }
+    if (atDeclarationLevel && char === ":") hasAnnotation = true;
+    if (atDeclarationLevel && char === "=" && source[index + 1] !== ">") {
+      hasInitializer = true;
+    }
+
+    if (char === "<") angles += 1;
+    else if (char === ">" && source[index - 1] !== "=" && angles > 0) angles -= 1;
+    else if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+  }
+
+  return hasAnnotation && !hasInitializer;
+}
+
+function isInsideFunctionSignatureType(source: string, end: number): boolean {
+  let searchFrom = end;
+  while (searchFrom > 0) {
+    const parametersStart = findEnclosingOpeningBrace(source, searchFrom, "(", ")");
+    if (parametersStart === -1) break;
+    const parametersEnd = findMatchingBrace(source, parametersStart, "(", ")");
+    if (
+      parametersEnd >= end &&
+      isFunctionParameterList(source, parametersStart, parametersEnd) &&
+      isInsideParameterTypeAnnotation(source, parametersStart + 1, end)
+    ) {
+      return true;
+    }
+    searchFrom = parametersStart - 1;
+  }
+
+  for (let parametersEnd = end - 1; parametersEnd >= 0; parametersEnd -= 1) {
+    if (source[parametersEnd] !== ")") continue;
+    const parametersStart = findMatchingOpeningBrace(source, parametersEnd, "(", ")");
+    if (parametersStart === -1) continue;
+    if (!isFunctionParameterList(source, parametersStart, parametersEnd)) continue;
+    const annotationStart = skipInsignificant(source, parametersEnd + 1);
+    if (
+      source[annotationStart] === ":" &&
+      annotationStart < end &&
+      isInsideFunctionReturnType(source, annotationStart + 1, end)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isFunctionParameterList(source: string, start: number, end: number): boolean {
+  const prefix = source.slice(0, start).trimEnd();
+  if (/\bfunction\s*\*?\s*(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?$/.test(prefix)) return true;
+
+  const after = skipInsignificant(source, end + 1);
+  if (source.startsWith("=>", after)) return true;
+
+  const precedingWord = /([A-Za-z_$][A-Za-z0-9_$]*)\s*$/.exec(prefix)?.[1];
+  if (
+    !precedingWord ||
+    new Set(["catch", "for", "if", "switch", "while", "with"]).has(precedingWord)
+  ) {
+    return false;
+  }
+  return source[after] === "{" || source[after] === ":" || source[after] === ";";
+}
+
+function isInsideFunctionReturnType(source: string, start: number, end: number): boolean {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  let angles = 0;
+
+  for (let index = skipInsignificant(source, start); index < end; index += 1) {
+    const char = source[index];
+    const atTypeLevel = braces === 0 && brackets === 0 && parentheses === 0 && angles === 0;
+    if (atTypeLevel && char === "{") {
+      const prefix = source.slice(start, index).trimEnd();
+      const preceding = prefix.at(-1);
+      if (preceding && !"|&(<[,?:=".includes(preceding)) return false;
+    }
+    if (atTypeLevel && source.startsWith("=>", index)) {
+      const preceding = source.slice(start, index).trimEnd().at(-1);
+      if (preceding !== ")") return false;
+      index += 1;
+      continue;
+    }
+
+    if (char === "<") angles += 1;
+    else if (char === ">" && source[index - 1] !== "=" && angles > 0) angles -= 1;
+    else if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+  }
+
+  return true;
+}
+
+function isInsideParameterTypeAnnotation(source: string, start: number, end: number): boolean {
+  let braces = 0;
+  let brackets = 0;
+  let parentheses = 0;
+  let segmentStart = start;
+
+  for (let index = start; index < end; index += 1) {
+    const char = source[index];
+    const atParameterLevel = braces === 0 && brackets === 0 && parentheses === 0;
+    if (atParameterLevel && char === ",") segmentStart = index + 1;
+    if (char === "{") braces += 1;
+    else if (char === "}") braces = Math.max(0, braces - 1);
+    else if (char === "[") brackets += 1;
+    else if (char === "]") brackets = Math.max(0, brackets - 1);
+    else if (char === "(") parentheses += 1;
+    else if (char === ")") parentheses = Math.max(0, parentheses - 1);
+  }
+
+  const parameter = source.slice(segmentStart, end);
+  const annotation = findTopLevelPatternCharacter(parameter, ":");
+  if (annotation === -1) return false;
+  const initializer = findTopLevelPatternCharacter(parameter, "=");
+  return initializer === -1;
 }
 
 function isStaticPropertyName(source: string, start: number, length: number): boolean {

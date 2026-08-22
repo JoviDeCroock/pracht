@@ -754,6 +754,30 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it.each([
+    ["an interface member", "interface CapabilityTypes { notes: typeof capabilities.notes }"],
+    ["an ambient variable annotation", "declare const notes: typeof capabilities.notes;"],
+    ["a variable annotation", "const notes: typeof capabilities.notes = undefined as never;"],
+    [
+      "a function parameter annotation",
+      "function inspect(notes: typeof capabilities.notes): void {}",
+    ],
+    [
+      "a function return annotation",
+      "function inspect(): typeof capabilities.notes { throw new Error(); }",
+    ],
+  ])("ignores type-only queries in %s", (_description, declaration) => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([
+      { name: "notes", file: "./capabilities/notes.ts" },
+    ]);
+  });
+
   it.each(["capabilities.trigger", 'capabilities["trigger"]', "capabilities!.trigger"])(
     "keeps a registry read through runtime typeof %s opaque",
     (query) => {
@@ -772,6 +796,30 @@ describe("capability static extraction", () => {
       expect(extractCapabilityRegistrations(source)).toEqual([]);
     },
   );
+
+  it.each([
+    ["a typed variable initializer", "const observed: string = typeof capabilities.trigger;"],
+    [
+      "a default parameter initializer",
+      "function inspect(observed: string = typeof capabilities.trigger): void {}",
+    ],
+    ["an annotated function body", "function inspect(): void { typeof capabilities.trigger; }"],
+    ["an annotated arrow body", "const inspect = (): string => typeof capabilities.trigger;"],
+  ])("keeps a registry read through runtime typeof in %s opaque", (_description, declaration) => {
+    const source = `
+      const capabilities = {
+        get trigger() {
+          this.notes = "./capabilities/runtime.ts";
+          return 0;
+        },
+        notes: "./capabilities/original.ts",
+      };
+      ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
+  });
 
   it.each(["string", "(() => void)", "Promise<string>"])(
     "keeps a runtime typeof read after the closed semicolonless type alias %s opaque",
