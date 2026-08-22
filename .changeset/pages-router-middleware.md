@@ -76,6 +76,13 @@ template, and other ordinary expression wrappers are classified the same way,
 while short-circuit, conditional, and optional-chain branches remain
 conservative.
 
+Hoisted `var` bindings now retain their initial `undefined` value during
+evaluation-order analysis, so an alias created before a later callable
+initializer is rejected instead of being mistaken for working middleware.
+Capability registry use counting also recognizes erased type queries inside
+generic arrow functions, anonymous functions, and methods, preserving static
+registrations and their client-import boundary.
+
 Nested assignments are recorded in runtime evaluation order, so the outer assignment's
 final callable value is not overwritten by an earlier right-hand-side write in
 the static result.

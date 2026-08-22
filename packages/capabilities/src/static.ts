@@ -399,6 +399,34 @@ function collectTopLevelBindingWrites(
 ): Map<string, StaticBindingWrite[]> {
   const writes = new Map<string, StaticBindingWrite[]>();
   const directDeclarators = new Set<StaticAnalysisNode>();
+  const hoistedFunctionBindings = new Map(
+    nodeArray(program.body).flatMap((rawStatement) => {
+      const statement =
+        rawStatement.type === "ExportNamedDeclaration"
+          ? asStaticAnalysisNode(rawStatement.declaration)
+          : rawStatement;
+      const name =
+        statement?.type === "FunctionDeclaration" ? getStaticIdentifierName(statement.id) : null;
+      return name && statement ? [[name, statement] as const] : [];
+    }),
+  );
+
+  // Module-scoped `var` bindings exist as `undefined` before any initializer
+  // runs. Recording that hoisted value lets an earlier alias observe the same
+  // value JavaScript does instead of borrowing a callable initializer that is
+  // evaluated later in the module.
+  for (const name of collectModuleScopedVarBindings(program)) {
+    // A same-named function declaration initializes the shared binding during
+    // module instantiation, before any `var` initializer or alias executes.
+    const hoistedFunction = hoistedFunctionBindings.get(name);
+    writes.set(name, [
+      {
+        position: Number.NEGATIVE_INFINITY,
+        unconditional: true,
+        value: hoistedFunction,
+      },
+    ]);
+  }
 
   for (const rawStatement of nodeArray(program.body)) {
     const statement =
@@ -632,7 +660,6 @@ function collectTopLevelBindingWritesFromNode(
           : Number.NEGATIVE_INFINITY;
     for (const name of collectStaticBindingNames(node.id)) {
       if (shadowedBindings.has(name)) continue;
-      if (isDirectDeclarator && !writes.has(name)) continue;
       const bindingWrites = writes.get(name) ?? [];
       bindingWrites.push({
         position: start,
@@ -1167,14 +1194,28 @@ function isBindingKnownNonCallableAt(
   position: number,
   knownNonCallableBindings: ReadonlySet<string>,
   bindingWrites: ReadonlyMap<string, readonly StaticBindingWrite[]>,
+  seenBindings = new Set<string>(),
 ): boolean {
+  if (seenBindings.has(name)) return false;
+  const nextSeenBindings = new Set([...seenBindings, name]);
   const latestWrite = bindingWrites
     .get(name)
     ?.filter((write) => write.position < position)
     .at(-1);
   if (!latestWrite) return knownNonCallableBindings.has(name);
   if (!latestWrite.unconditional || latestWrite.value === UNRESOLVED_STATIC_BINDING) return false;
-  return isStaticallyNonCallable(latestWrite.value);
+  if (isStaticallyNonCallable(latestWrite.value)) return true;
+
+  const referencedName = getStaticReferencedBindingName(latestWrite.value);
+  return referencedName
+    ? isBindingKnownNonCallableAt(
+        referencedName,
+        latestWrite.position,
+        knownNonCallableBindings,
+        bindingWrites,
+        nextSeenBindings,
+      )
+    : false;
 }
 
 function getStaticReferencedBindingName(value: unknown): string | null {
@@ -2497,12 +2538,28 @@ function isInsideFunctionTypeParameters(source: string, end: number): boolean {
     if (parametersStart === -1) return false;
     const parametersEnd = findMatchingTypeAngle(source, parametersStart);
     const prefix = source.slice(0, parametersStart).trimEnd();
-    if (
-      parametersEnd >= end &&
-      source[skipInsignificant(source, parametersEnd + 1)] === "(" &&
-      /\bfunction\s*\*?\s*[A-Za-z_$][A-Za-z0-9_$]*$/.test(prefix)
-    ) {
-      return true;
+    if (parametersEnd >= end) {
+      const valueParametersStart = skipInsignificant(source, parametersEnd + 1);
+      if (source[valueParametersStart] === "(") {
+        const valueParametersEnd = findMatchingBrace(source, valueParametersStart, "(", ")");
+        const afterValueParameters =
+          valueParametersEnd === -1 ? -1 : skipInsignificant(source, valueParametersEnd + 1);
+        const isFunction = /\bfunction\s*\*?\s*(?:[A-Za-z_$][A-Za-z0-9_$]*)?$/.test(prefix);
+        const isArrow =
+          afterValueParameters !== -1 &&
+          (source.startsWith("=>", afterValueParameters) ||
+            (source[afterValueParameters] === ":" &&
+              hasArrowFunctionReturnType(source, afterValueParameters + 1)));
+        const methodName = /[A-Za-z_$][A-Za-z0-9_$]*$/.exec(prefix);
+        const beforeMethod = methodName ? methodName.index - 1 : -1;
+        const isMethod =
+          methodName?.index != null &&
+          isMethodDeclarationPrefix(source, beforeMethod, methodName.index) &&
+          afterValueParameters !== -1 &&
+          (source[afterValueParameters] === "{" || source[afterValueParameters] === ":");
+
+        if (isFunction || isArrow || isMethod) return true;
+      }
     }
     searchFrom = parametersStart - 1;
   }

@@ -125,6 +125,23 @@ describe("middleware export classification", () => {
     ["for (var middleware = () => {}; false; ) {}\nexport { middleware };", true],
     ["middleware = () => {};\nvar middleware = 1;\nexport { middleware };", false],
     ["middleware = 1;\nvar middleware = () => {};\nexport { middleware };", true],
+    [
+      "var candidate = middleware;\nvar middleware = () => {};\nexport { candidate as middleware };",
+      false,
+    ],
+    ["export var middleware = candidate;\nvar candidate = () => {};", false],
+    [
+      "var middleware = () => {};\nvar candidate = middleware;\nexport { candidate as middleware };",
+      true,
+    ],
+    [
+      "var candidate = middleware;\nfunction middleware() {}\nvar middleware;\nexport { candidate as middleware };",
+      true,
+    ],
+    [
+      "var candidate = middleware;\nfunction middleware() {}\nvar middleware = {};\nexport { candidate as middleware };",
+      true,
+    ],
     ["export var middleware = () => {};\n{ var middleware = 1; }", false],
     ["export var middleware = () => {};\nfor (var middleware = 1; false; ) {}", false],
     ["let middleware = 1;\nfor (middleware of [() => {}]) {}\nexport { middleware };", true],
@@ -783,6 +800,22 @@ describe("capability static extraction", () => {
       "function inspect<T extends typeof capabilities.notes>(): void {}",
     ],
     [
+      "a generic arrow constraint",
+      "const inspect = <T extends typeof capabilities.notes>(): void => {};",
+    ],
+    [
+      "an anonymous generic function constraint",
+      "const inspect = function<T extends typeof capabilities.notes>(): void {};",
+    ],
+    [
+      "a generic class method constraint",
+      "class Helper { inspect<T extends typeof capabilities.notes>(): void {} }",
+    ],
+    [
+      "a generic object method constraint",
+      "const helper = { inspect<T extends typeof capabilities.notes>(): void {} };",
+    ],
+    [
       "an interface method parameter",
       "interface CapabilityTypes { inspect(notes: typeof capabilities.notes); }",
     ],
@@ -796,6 +829,22 @@ describe("capability static extraction", () => {
     expect(extractCapabilityRegistrations(source)).toEqual([
       { name: "notes", file: "./capabilities/notes.ts" },
     ]);
+  });
+
+  it("keeps runtime comparisons containing typeof registry members opaque", () => {
+    const source = `
+      const capabilities = {
+        get trigger() {
+          this.notes = "./capabilities/runtime.ts";
+          return 0;
+        },
+        notes: "./capabilities/original.ts",
+      };
+      const observed = value < typeof capabilities.trigger > (other);
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(extractCapabilityRegistrations(source)).toEqual([]);
   });
 
   it.each(["capabilities.trigger", 'capabilities["trigger"]', "capabilities!.trigger"])(
