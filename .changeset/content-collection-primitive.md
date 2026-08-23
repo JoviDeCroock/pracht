@@ -20,16 +20,35 @@ assets, and client build output.
 
 Curated `llms.txt`/`llms-full.txt`, raw-source assets, and app-owned
 page/basic-search capability fields are opt-in helpers rather than core
-framework policy. The docs application now proves the integration by compiling its
-Markdown routes and generating both LLM artifacts from the collection; the old
-second filesystem/manifest reader has been removed.
+framework policy. String `llms.txt` section matches use locale-neutral routes so
+localized documents are not silently omitted, while match callbacks can still
+select one locale deliberately. Artifact helper options are validated where
+they are configured, and generator failures identify their collection and
+`artifacts[n]` position. The docs application now proves the integration by
+compiling its Markdown routes and generating both LLM artifacts from the
+collection; the old second filesystem/manifest reader has been removed.
 
 Explicit registries now leave unregistered Markdown sources available to other
 Vite plugins, locale-neutral id lookups retain the configured default locale,
 `routePrefix: "never"` collections allow translations to share one route, and
 locale-neutral route lookups select the configured default regardless of
-`supported` ordering. Development artifact failures no longer block unrelated
-Vite or application requests.
+`supported` ordering. Generated aliases cover only missing locales, follow the
+configured fallback source, and reject callback or explicit route collisions,
+including same-id translations and aliases where multiple missing locales
+would otherwise collapse onto one path. Development artifact failures no
+longer block unrelated Vite or application requests.
+
+Production builds now reconcile every generated collection route with the
+resolved app manifest and report unserved documents with their route,
+collection, and source. The policy defaults to `"warn"`, with `"error"` and
+`"ignore"` options for strict builds and data-only collections. Dynamic and
+catch-all routes are supported; static exports trust only concrete dynamic SSG
+output and SPA routes backed by a static fallback, while preserving route
+precedence. The prototype-safe internal manifest is consumed before client
+output is published. JSON builds keep warnings on stderr, and public files,
+earlier Vite output, or multiple plugin instances cannot silently replace the
+internal content manifests. Static verification identifies the registry and
+defers exact source ownership to this build-time reconciliation.
 
 Add `@pracht/markdown`, the official collection compiler for Markdown route
 modules, together with cached `?pracht&pracht-static` responsive WebP variants
@@ -37,7 +56,9 @@ and reusable plain image props in `@pracht/image`. Relative Markdown images are
 resolved as sibling Vite imports and rendered as hydration-free `<img>` markup;
 SVG and animated originals retain their encoded format, and server-only graph
 assets are published to the client output, including root-level Vite asset
-directories.
+directories. The package also publishes `@pracht/markdown/client` declarations
+for `*.md` and `*.markdown` route modules, and compiled modules default their
+head to non-empty `title` frontmatter when no explicit head hook is configured.
 
 Harden the complete authoring and deployment path: cache registry indexes,
 invalidate changed, added, and removed sources through lexical or symbolic
@@ -47,16 +68,18 @@ default locale, malformed capability lookups fail closed, and empty YAML
 frontmatter is accepted.
 
 Generated artifacts now carry content types across Node, Cloudflare, Netlify,
-and Vercel through adapter-native routing; preserve Vite resource-query imports;
-and reject collisions with public files, generated bundle output, prerendered
-pages, exact request-time page or API paths, clean-URL `index.html` aliases,
-concrete ISG paths served by adapter functions, core `llms.txt`, OpenAPI output,
-other case-folded or parent/child artifacts, Pracht's `/_pracht` namespace, and
-Netlify's root `/_headers` and `/_redirects` control files, including descendants
-that would turn those required files into directories. Artifact filenames must
-be portable and canonical, while Vercel header routes escape literal artifact
-path syntax. Netlify also applies exact generated headers to bypassed static
-paths and rejects manifest entries that would become wildcard rules.
+and Vercel through adapter-native routing; preserve Vite `?raw`, `?url`,
+`?worker`, and `?sharedworker` resource-query imports; and reject collisions
+with public files, generated bundle output, prerendered pages, exact
+request-time page or API paths, clean-URL `index.html` aliases, concrete ISG
+paths served by adapter functions, core `llms.txt`, OpenAPI output, other
+case-folded or parent/child artifacts, Pracht's `/_pracht` namespace, and
+Netlify's root `/_headers` and `/_redirects` control files, including
+descendants that would turn those required files into directories. Artifact
+filenames must be portable and canonical, while Vercel header routes escape
+literal artifact path syntax. Netlify also applies exact generated headers to
+bypassed static paths and rejects manifest entries that would become wildcard
+rules.
 Locale fallback records ignore prototype-inherited keys, and Markdown image
 markers remain stable when identical projects are built from different checkout
 paths. Locale fallback targets are validated before collection snapshots are
