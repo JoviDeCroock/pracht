@@ -272,6 +272,9 @@ import docs from "virtual:pracht/content/docs";
 `prachtContent()` serializes the documents, locale fallback configuration, and
 route aliases into that module. The deployed server therefore performs lookup
 without `node:fs` or a copied source tree on Cloudflare, Vercel, and Node.
+The virtual-module suffix matches the collection name literally, including `%`;
+an encoded suffix remains supported when an import cannot spell the name
+directly.
 Compiled and frontmatter values included in a runtime snapshot must be
 JSON-serializable; a build fails with the offending value path otherwise. JSON
 object keys retain their data semantics in the generated module, including

@@ -91,19 +91,27 @@ function createApp(capabilityModule: unknown, options: Record<string, unknown> =
       }),
       "./middleware/api-marker.ts": async () => ({
         middleware: async (
-          args: { context: { middlewareOrder?: string[] } },
+          args: {
+            context: { middlewareOrder?: string[]; middlewarePathnames?: string[] };
+            pathname?: string;
+          },
           next: () => Promise<Response>,
         ) => {
           (args.context.middlewareOrder ??= []).push("api");
+          (args.context.middlewarePathnames ??= []).push(args.pathname ?? "");
           return next();
         },
       }),
       "./middleware/capability-marker.ts": async () => ({
         middleware: async (
-          args: { context: { middlewareOrder?: string[] } },
+          args: {
+            context: { middlewareOrder?: string[]; middlewarePathnames?: string[] };
+            pathname?: string;
+          },
           next: () => Promise<Response>,
         ) => {
           (args.context.middlewareOrder ??= []).push("capability");
+          (args.context.middlewarePathnames ??= []).push(args.pathname ?? "");
           return next();
         },
       }),
@@ -341,6 +349,32 @@ describe("capability HTTP projection", () => {
     expect(await response.json()).toEqual({
       ok: true,
       data: { notes: ["api,capability"] },
+    });
+  });
+
+  it("passes the canonical matched path to middleware for trailing-slash requests", async () => {
+    const capability = createSearchCapability({
+      middleware: ["capabilityMarker"],
+      async run({ context }: { context: Record<string, unknown> }) {
+        return { notes: context.middlewarePathnames as string[] };
+      },
+    });
+    const { app, registry } = createApp(capability, {
+      api: { middleware: ["apiMarker"] },
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postCapability("/api/capabilities/notes/search/", { query: "hello" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      ok: true,
+      data: {
+        notes: ["/api/capabilities/notes/search", "/api/capabilities/notes/search"],
+      },
     });
   });
 

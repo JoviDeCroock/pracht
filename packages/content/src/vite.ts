@@ -58,7 +58,16 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
 
     resolveId(id) {
       if (!id.startsWith(CONTENT_MODULE_PREFIX)) return null;
-      const name = decodeURIComponent(id.slice(CONTENT_MODULE_PREFIX.length));
+      const specifier = id.slice(CONTENT_MODULE_PREFIX.length);
+      const exact = collections.find((collection) => collection.name === specifier);
+      let name = exact?.name;
+      if (name === undefined) {
+        try {
+          name = decodeURIComponent(specifier);
+        } catch {
+          return null;
+        }
+      }
       return collections.some((collection) => collection.name === name)
         ? `${RESOLVED_CONTENT_MODULE_PREFIX}${encodeURIComponent(name)}`
         : null;

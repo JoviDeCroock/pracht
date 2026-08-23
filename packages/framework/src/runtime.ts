@@ -682,7 +682,7 @@ export async function handlePrachtRequest<TContext>(
           registry,
           request: options.request,
           url,
-          pathname: routePathname,
+          pathname: capabilityMatch.httpPath ?? routePathname,
           exposeErrors: exposeDiagnostics,
           apiMiddlewareFiles: (options.app.api.middleware ?? []).flatMap((name) => {
             const middlewareFile = options.app.middleware[name];

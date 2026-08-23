@@ -17,6 +17,9 @@ per-source memoization, deterministic build iteration, loader and Markdown
 helpers, and validated static asset generation. Its Vite integration reuses the
 same registry for route-module transforms, watcher invalidation, live dev
 assets, and client build output.
+Virtual collection imports match literal names before decoding an encoded
+specifier, so names containing `%` remain addressable and malformed unmatched
+escapes fail closed instead of throwing during Vite resolution.
 
 Curated `llms.txt`/`llms-full.txt`, raw-source assets, and app-owned
 page/basic-search capability fields are opt-in helpers rather than core
@@ -78,8 +81,8 @@ Netlify's root `/_headers` and `/_redirects` control files, including
 descendants that would turn those required files into directories. Artifact
 filenames must be portable and canonical, while Vercel header routes escape
 literal artifact path syntax. Netlify also applies exact generated headers to
-bypassed static paths and rejects manifest entries that would become wildcard
-rules.
+bypassed static paths and skips wildcard or placeholder manifest entries rather
+than broadening generated header rules.
 Locale fallback records ignore prototype-inherited keys, and Markdown image
 markers remain stable when identical projects are built from different checkout
 paths. Locale fallback targets are validated before collection snapshots are
@@ -94,7 +97,8 @@ arguments use Pracht's matched base-free pathname, including app-level
 not-found loaders; development artifacts honor Vite's configured deployment
 base, locale alias collisions include the target locale, and artifact content
 types must parse as portable HTTP media types that can be represented by Web
-response headers.
+response headers. Capability HTTP middleware also receives the canonical
+matched path when a request uses the accepted trailing slash.
 Artifacts inside an `/assets/` path override adapter-wide immutable caching with
 a revalidation policy because their filenames are not required to contain a
 content hash.

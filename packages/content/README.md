@@ -201,6 +201,8 @@ import docs from "virtual:pracht/content/docs";
 The suffix is the collection `name`. This module embeds the documents and
 locale/fallback indexes into the server bundle, so it works in Cloudflare,
 Vercel, and dist-only Node deployments without source files or `node:fs`.
+Collection names are matched literally, including names containing `%`; an
+encoded suffix remains supported when an import cannot spell the name directly.
 
 A snapshot carries `raw` and `body` alongside `compiled`, roughly two to three
 times the content size. An application that neither negotiates Markdown nor

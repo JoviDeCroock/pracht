@@ -954,8 +954,9 @@ resolution.
   security headers the function applies everywhere else. A hand-authored
   `_headers` copied from Vite's configured `publicDir` wins — including the
   default `public/_headers` — so pracht skips generating one and warns.
-  Manifest entries must name exact paths; wildcard and `:placeholder` syntax is
-  rejected before it can broaden a generated header rule.
+  Header manifest entries with wildcard or `:placeholder` syntax cannot be
+  expressed exactly: header-less entries are ignored, and entries carrying
+  headers are skipped with a build warning rather than broadening the rule.
   Default and prefix-shaped exclusions are also omitted from the function's
   `includedFiles`, keeping large bypassed asset trees outside its bundle. The
   generated config lists each remaining client file explicitly because the

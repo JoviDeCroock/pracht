@@ -228,6 +228,9 @@ The app-level API middleware configured with
 endpoint before request parsing and before the capability's own middleware.
 This keeps centralized authentication, authorization, rate limiting, and
 custom CSRF policy consistent across explicit and generated API endpoints.
+One trailing slash is accepted when matching an endpoint. Both middleware
+layers receive the canonical slashless matched `pathname`, while `request.url`
+retains the URL sent by the caller.
 
 Custom paths must be exact same-origin pathnames beginning with `/`. Protocol-
 relative URLs, backslashes, dot-segment normalization, query strings, and

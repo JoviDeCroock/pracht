@@ -111,6 +111,20 @@ describe("prachtContent", () => {
     expect(code).not.toContain("node:fs");
   });
 
+  it("resolves literal percent signs in collection names without throwing", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const collection = defineCollection({ name: "100%", root: temporaryDirectory });
+    const [plugin] = prachtContent({ collections: [collection] });
+    const resolveId = hookHandler(plugin.resolveId);
+
+    expect(resolveId.call({} as never, "virtual:pracht/content/100%", undefined, {} as never)).toBe(
+      "\0virtual:pracht/content/100%25",
+    );
+    expect(
+      resolveId.call({} as never, "virtual:pracht/content/missing%", undefined, {} as never),
+    ).toBeNull();
+  });
+
   it("omits opted-out source representations from the generated module", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
