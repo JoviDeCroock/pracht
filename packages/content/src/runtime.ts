@@ -7,13 +7,13 @@ import {
 import { normalizeRoutePath } from "./route-path.ts";
 import { normalizeSnapshotFields } from "./snapshot.ts";
 import type {
-  ContentCollection,
   ContentCollectionSnapshot,
-  ContentDocument,
   ContentLocaleOptions,
   ContentLookupOptions,
   ContentResolution,
   ContentRouteAlias,
+  ContentRuntimeDocument,
+  ContentSnapshotCollection,
 } from "./types.ts";
 
 /** Rehydrate a Vite-generated collection snapshot without filesystem access. */
@@ -22,16 +22,12 @@ export function defineSnapshotCollection<
   TCompiled = string,
 >(
   snapshot: ContentCollectionSnapshot<TFrontmatter, TCompiled>,
-): ContentCollection<TFrontmatter, TCompiled> {
+): ContentSnapshotCollection<TFrontmatter, TCompiled> {
   if (!snapshot || typeof snapshot !== "object" || !Array.isArray(snapshot.documents)) {
     throw new TypeError("defineSnapshotCollection() expects a content collection snapshot.");
   }
 
-  // `raw` and `body` are absent when the collection opted out of embedding
-  // them. Every other reader keeps the plain `ContentDocument` shape, so the
-  // narrowing stays a documented property of that collection rather than an
-  // optional field every consumer has to handle.
-  const documents = Object.freeze(
+  const documents: readonly ContentRuntimeDocument<TFrontmatter, TCompiled>[] = Object.freeze(
     snapshot.documents.map((document) =>
       Object.freeze({
         ...document,
@@ -39,12 +35,12 @@ export function defineSnapshotCollection<
         source: `virtual:pracht/content/${encodeURIComponent(snapshot.name)}/${document.relativeSource}`,
       }),
     ),
-  ) as readonly ContentDocument<TFrontmatter, TCompiled>[];
+  );
   const locales = normalizeSnapshotLocales(snapshot.locales);
   const snapshotFields = normalizeSnapshotFields(snapshot.fields);
-  const byId = new Map<string, Map<string, ContentDocument<TFrontmatter, TCompiled>>>();
-  const byRoute = new Map<string, Map<string, ContentDocument<TFrontmatter, TCompiled>>>();
-  const bySource = new Map<string, ContentDocument<TFrontmatter, TCompiled>>();
+  const byId = new Map<string, Map<string, ContentRuntimeDocument<TFrontmatter, TCompiled>>>();
+  const byRoute = new Map<string, Map<string, ContentRuntimeDocument<TFrontmatter, TCompiled>>>();
+  const bySource = new Map<string, ContentRuntimeDocument<TFrontmatter, TCompiled>>();
   const routeAliases = new Map<string, ContentRouteAlias>();
 
   for (const document of documents) {
@@ -55,7 +51,7 @@ export function defineSnapshotCollection<
   }
   for (const alias of snapshot.routeAliases) routeAliases.set(alias.path, alias);
 
-  const collection: ContentCollection<TFrontmatter, TCompiled> = {
+  const collection: ContentSnapshotCollection<TFrontmatter, TCompiled> = {
     name: snapshot.name,
     root: `virtual:pracht/content/${encodeURIComponent(snapshot.name)}`,
     extensions: Object.freeze([...snapshot.extensions]),
@@ -93,40 +89,16 @@ export function defineSnapshotCollection<
     ownsSource(source) {
       return bySource.has(cleanSource(source));
     },
-
-    async loadSource(source, raw) {
-      const document = bySource.get(cleanSource(source));
-      if (!document) {
-        throw new Error(
-          `Source ${JSON.stringify(source)} is not registered in content collection ${JSON.stringify(snapshot.name)}.`,
-        );
-      }
-      if (raw !== undefined && raw !== document.raw) {
-        throw new Error("A generated content snapshot cannot compile updated source text.");
-      }
-      return document;
-    },
-
-    async renderModule() {
-      return undefined;
-    },
-
-    async emitArtifacts() {
-      return [];
-    },
-
-    async snapshot() {
-      return snapshot;
-    },
-
-    invalidate() {},
   };
 
   async function resolveLookup(
     kind: "id" | "route",
     key: string,
     options: ContentLookupOptions = {},
-  ): Promise<ContentResolution<TFrontmatter, TCompiled> | undefined> {
+  ): Promise<
+    | ContentResolution<TFrontmatter, TCompiled, ContentRuntimeDocument<TFrontmatter, TCompiled>>
+    | undefined
+  > {
     const directRoute = kind === "route" ? byRoute.get(key) : undefined;
     const alias = kind === "route" && !directRoute ? routeAliases.get(key) : undefined;
     const localized =
@@ -151,9 +123,9 @@ export function defineSnapshotCollection<
 }
 
 function addLookup<TFrontmatter extends Record<string, unknown>, TCompiled>(
-  lookup: Map<string, Map<string, ContentDocument<TFrontmatter, TCompiled>>>,
+  lookup: Map<string, Map<string, ContentRuntimeDocument<TFrontmatter, TCompiled>>>,
   key: string,
-  document: ContentDocument<TFrontmatter, TCompiled>,
+  document: ContentRuntimeDocument<TFrontmatter, TCompiled>,
 ): void {
   const localized = lookup.get(key) ?? new Map();
   localized.set(document.locale ?? NO_LOCALE, document);

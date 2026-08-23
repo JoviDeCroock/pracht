@@ -252,10 +252,10 @@ prachtContent({ collections: [docs], unroutedDocuments: "error" });
 
 With `pracht build --json`, reconciliation warnings are written to stderr so
 stdout remains valid machine-readable JSON. Vite's configured `publicDir`
-cannot contain `_pracht/content-headers.json` or
-`_pracht/content-routes.json` (including portable file/directory collisions),
-and an already-emitted Vite output cannot occupy either path, because those
-paths are reserved for the plugin-to-CLI build channel. Register all
+cannot contain `_pracht/content-manifest.json` (including portable
+file/directory collisions), and an already-emitted Vite output cannot occupy
+that path. The versioned manifest is the plugin's single artifact-and-route
+contribution to the CLI and is deleted before publication. Register all
 collections through one `prachtContent()` call.
 
 `pracht verify` cannot perform this check: it reads the Vite config as text and
@@ -291,12 +291,17 @@ The option is deliberately narrow: `compiled` is what routes render, and
 frontmatter is what they index, so neither can be dropped.
 
 An omitted field is absent on the snapshot's documents rather than a throwing
-accessor, matching the plain object shape the rest of the runtime API returns,
-and `collection.snapshotFields` reports what a collection carries. Because the
-mismatch is otherwise invisible — Markdown negotiation returns nothing, search
-matches nothing — `markdownRepresentation()` rejects a missing selected field,
-and both capability helpers reject a body-free collection when the capability
-is constructed rather than when it runs.
+accessor, matching the plain object shape the rest of the runtime API returns.
+Generated modules expose a lookup-only `ContentSnapshotCollection`, and their
+`ContentRuntimeDocument` type makes `raw` and `body` optional; the
+filesystem-backed authoring `ContentCollection` retains required source fields
+plus compilation, artifact, snapshot, and invalidation methods.
+`collection.snapshotFields` reports what a runtime registry carries. Because a
+missing representation can still be overlooked at runtime — Markdown
+negotiation returns nothing, search matches nothing —
+`markdownRepresentation()` rejects a missing selected field, and both
+capability helpers reject a body-free collection when the capability is
+constructed rather than when it runs.
 
 Applications can add `@pracht/content/virtual` to `compilerOptions.types` for a
 generic declaration and optionally augment their named virtual module with

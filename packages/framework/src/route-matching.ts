@@ -126,6 +126,16 @@ export function matchRouteSegments(
   return targetIndex === targetSegments.length ? params : null;
 }
 
+/** Match one declared route pattern against a concrete pathname. */
+export function matchRoutePath(pattern: string, pathname: string): RouteParams | null {
+  return matchRouteSegments(parseRouteSegments(pattern), splitPathSegments(pathname));
+}
+
+/** Whether a declared route pattern contains a parameter or catch-all segment. */
+export function routePathIsDynamic(pattern: string): boolean {
+  return parseRouteSegments(pattern).some((segment) => segment.type !== "static");
+}
+
 /**
  * Match a pathname against an already-resolved app. The client router always
  * holds a `ResolvedPrachtApp`, so unlike `matchAppRoute` this never falls

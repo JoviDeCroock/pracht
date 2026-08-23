@@ -24,6 +24,7 @@ Route modules may export the page as a function default export or as a named
 
 - `handlePrachtRequest()` — server renderer that produces full HTML with hydration markers
 - `matchAppRoute()` — segment-based route matching
+- `matchRoutePath()` / `routePathIsDynamic()` — shared single-pattern primitives for build tooling
 
 `handlePrachtRequest()` sanitizes unexpected 5xx errors by default so raw server
 messages do not leak into SSR HTML or route-state JSON. Explicit

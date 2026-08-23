@@ -1,5 +1,5 @@
 import { normalizeRoutePath } from "./route-path.ts";
-import type { ContentCollection, ContentDocument } from "./types.ts";
+import type { ContentDocument, ContentRegistry, ContentRuntimeDocument } from "./types.ts";
 
 export interface ContentLoaderArgs {
   params: Record<string, string>;
@@ -13,11 +13,15 @@ export interface ContentLoaderOptions<
   TFrontmatter extends Record<string, unknown>,
   TCompiled,
   TOutput,
+  TDocument extends ContentRuntimeDocument<TFrontmatter, TCompiled> = ContentDocument<
+    TFrontmatter,
+    TCompiled
+  >,
 > {
   /** Resolve the collection route from loader args. Defaults to the matched route pathname. */
   path?: (args: ContentLoaderArgs) => string;
   locale?: (args: ContentLoaderArgs) => string | undefined;
-  select?: (document: ContentDocument<TFrontmatter, TCompiled>) => TOutput;
+  select?: (document: TDocument) => TOutput;
   /** Called for a missing document. Defaults to throwing a 404 Response. */
   notFound?: (path: string) => unknown;
 }
@@ -26,10 +30,14 @@ export interface ContentLoaderOptions<
 export function contentLoader<
   TFrontmatter extends Record<string, unknown>,
   TCompiled,
-  TOutput = ContentDocument<TFrontmatter, TCompiled>,
+  TDocument extends ContentRuntimeDocument<TFrontmatter, TCompiled> = ContentDocument<
+    TFrontmatter,
+    TCompiled
+  >,
+  TOutput = TDocument,
 >(
-  collection: ContentCollection<TFrontmatter, TCompiled>,
-  options: ContentLoaderOptions<TFrontmatter, TCompiled, TOutput> = {},
+  collection: ContentRegistry<TFrontmatter, TCompiled, TDocument>,
+  options: ContentLoaderOptions<TFrontmatter, TCompiled, TOutput, TDocument> = {},
 ): (args: ContentLoaderArgs) => Promise<TOutput> {
   return async (args) => {
     const path = options.path?.(args) ?? args.pathname ?? new URL(args.request.url).pathname;
@@ -64,7 +72,7 @@ export function contentLoader<
 
 /** Select the server-only representation a route module exports as `markdown`. */
 export function markdownRepresentation<TFrontmatter extends Record<string, unknown>, TCompiled>(
-  document: ContentDocument<TFrontmatter, TCompiled>,
+  document: Pick<ContentRuntimeDocument<TFrontmatter, TCompiled>, "body" | "raw">,
   representation: "raw" | "body" = "raw",
 ): string {
   const value = representation === "body" ? document.body : document.raw;

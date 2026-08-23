@@ -187,10 +187,11 @@ preserves every valid collection name, including prototype-named keys such as
 `prachtContent()` to select the reconciliation policy.
 Warnings remain visible on stderr when `pracht build --json` reserves stdout
 for the JSON report. Vite's configured `publicDir` cannot occupy the internal
-`_pracht/content-headers.json` or `_pracht/content-routes.json` build-manifest
-paths, including portable file/directory collisions, and an already-emitted
-Vite output cannot occupy either path. Register all collections through one
-`prachtContent()` call.
+`_pracht/content-manifest.json` build-manifest path, including portable
+file/directory collisions, and an already-emitted Vite output cannot occupy it.
+This versioned file carries both artifact metadata and generated routes to the
+CLI, which consumes it before publication. Register all collections through
+one `prachtContent()` call.
 
 For request-time loaders and capabilities, import the generated snapshot rather
 than the filesystem-backed authoring collection:
@@ -218,12 +219,15 @@ defineCollection({
 });
 ```
 
-An omitted field is absent on snapshot documents, and `collection.snapshotFields`
-reports what a collection carries. `markdownRepresentation()` needs `raw` (or
-`body`) and throws an actionable error when the selected representation was
-omitted. Both capability helpers need `body`; building one over a body-free
-snapshot throws where the capability is wired up rather than answering every
-query with nothing.
+An omitted field is absent on snapshot documents. Generated modules expose a
+lookup-only `ContentSnapshotCollection`; its `ContentRuntimeDocument` type
+makes `raw` and `body` optional. The filesystem-backed authoring
+`ContentCollection` keeps required source fields and the compiler/artifact
+lifecycle. `collection.snapshotFields` reports what a runtime registry carries.
+`markdownRepresentation()` needs `raw` (or `body`) and throws an actionable
+error when the selected representation was omitted. Both capability helpers
+need `body`; building one over a body-free snapshot throws where the capability
+is wired up rather than answering every query with nothing.
 
 Frontmatter and compiled values used this way must be JSON-serializable. JSON
 object keys retain their data semantics in the generated module, including

@@ -311,13 +311,13 @@ describe("prachtContent", () => {
     );
     expect(emitFile).toHaveBeenCalledWith(
       expect.objectContaining({
-        fileName: "_pracht/content-headers.json",
+        fileName: "_pracht/content-manifest.json",
         source: expect.stringContaining('"cache-control": "public, max-age=0, must-revalidate"'),
       }),
     );
     expect(emitFile).toHaveBeenCalledWith(
       expect.objectContaining({
-        fileName: "_pracht/content-headers.json",
+        fileName: "_pracht/content-manifest.json",
         source: expect.stringContaining('"content-type": "application/json"'),
       }),
     );
@@ -344,15 +344,19 @@ describe("prachtContent", () => {
     );
 
     const call = emitFile.mock.calls.find(
-      ([file]) => file.fileName === "_pracht/content-routes.json",
+      ([file]) => file.fileName === "_pracht/content-manifest.json",
     );
     expect(JSON.parse(call?.[0].source)).toEqual({
-      policy: "warn",
-      collections: {
-        docs: [
-          { path: "/docs/guide", source: "en/guide.md" },
-          { path: "/nl/docs/guide", source: "en/guide.md" },
-        ],
+      version: 1,
+      artifacts: {},
+      routes: {
+        policy: "warn",
+        collections: {
+          docs: [
+            { path: "/docs/guide", source: "en/guide.md" },
+            { path: "/nl/docs/guide", source: "en/guide.md" },
+          ],
+        },
       },
     });
   });
@@ -379,15 +383,19 @@ describe("prachtContent", () => {
     );
 
     const call = emitFile.mock.calls.find(
-      ([file]) => file.fileName === "_pracht/content-routes.json",
+      ([file]) => file.fileName === "_pracht/content-manifest.json",
     );
     const manifest = JSON.parse(call?.[0].source);
-    expect(Object.hasOwn(manifest.collections, "__proto__")).toBe(true);
+    expect(Object.hasOwn(manifest.routes.collections, "__proto__")).toBe(true);
     expect(manifest).toEqual({
-      policy: "error",
-      collections: Object.fromEntries([
-        ["__proto__", [{ path: "/docs/guide", source: "guide.md" }]],
-      ]),
+      version: 1,
+      artifacts: {},
+      routes: {
+        policy: "error",
+        collections: Object.fromEntries([
+          ["__proto__", [{ path: "/docs/guide", source: "guide.md" }]],
+        ]),
+      },
     });
   });
 
@@ -409,7 +417,7 @@ describe("prachtContent", () => {
     );
 
     expect(
-      emitFile.mock.calls.some(([file]) => file.fileName === "_pracht/content-routes.json"),
+      emitFile.mock.calls.some(([file]) => file.fileName === "_pracht/content-manifest.json"),
     ).toBe(false);
   });
 
@@ -423,10 +431,10 @@ describe("prachtContent", () => {
       hookHandler(plugin.generateBundle).call(
         { emitFile: vi.fn() } as never,
         {} as never,
-        { "_PRACHT/CONTENT-ROUTES.JSON": {} } as never,
+        { "_PRACHT/CONTENT-MANIFEST.JSON": {} } as never,
         false,
       ),
-    ).rejects.toThrow(/content routes manifest collides with existing Vite build output/);
+    ).rejects.toThrow(/content build manifest collides with existing Vite build output/);
   });
 
   it("rejects an unknown unroutedDocuments policy", () => {
@@ -435,10 +443,10 @@ describe("prachtContent", () => {
     );
   });
 
-  it("rejects artifacts that collide with the internal content headers manifest", async () => {
+  it("rejects artifacts that collide with the reserved internal build namespace", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");
-    for (const path of ["/_PRACHT/content-headers.json", "/_pracht"]) {
+    for (const path of ["/_PRACHT/content-manifest.json", "/_pracht"]) {
       const collection = defineCollection({
         name: "docs",
         root: temporaryDirectory,
@@ -449,7 +457,7 @@ describe("prachtContent", () => {
 
       await expect(
         generateBundle.call({ emitFile: vi.fn() } as never, {} as never, {} as never, false),
-      ).rejects.toThrow(/internal content headers manifest/);
+      ).rejects.toThrow(/reserved \/_pracht build output namespace/);
     }
   });
 

@@ -7,9 +7,11 @@ import {
   group,
   matchApiRoute,
   matchAppRoute,
+  matchRoutePath,
   resolveApiRoutes,
   resolveApp,
   route,
+  routePathIsDynamic,
   timeRevalidate,
 } from "../src/index.ts";
 
@@ -272,6 +274,21 @@ describe("typed route href helpers", () => {
     expect(href("product", { params: { id: "1" }, search: "tab=details" })).toBe(
       "/products/1?tab=details",
     );
+  });
+});
+
+describe("matchRoutePath", () => {
+  it("shares the runtime matcher for static, dynamic, and catch-all paths", () => {
+    expect(matchRoutePath("/docs/:slug", "/docs/guide")).toEqual({ slug: "guide" });
+    expect(matchRoutePath("/docs/:rest*", "/docs/guides/intro")).toEqual({
+      rest: "guides/intro",
+    });
+    expect(matchRoutePath("/docs/:rest*", "/docs")).toEqual({ rest: "" });
+    expect(matchRoutePath("/docs/:slug", "/other/guide")).toBeNull();
+    expect(matchRoutePath("/docs/:slug", "/docs/%E0")).toBeNull();
+    expect(routePathIsDynamic("/docs/guide")).toBe(false);
+    expect(routePathIsDynamic("/docs/:slug")).toBe(true);
+    expect(routePathIsDynamic("/docs/:rest*")).toBe(true);
   });
 });
 

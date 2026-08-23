@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -15,6 +15,7 @@ import {
   collectUnroutedContentDocuments,
   expandContentArtifactHeaders,
   formatUnroutedContentDocuments,
+  readContentBuildManifest,
   reportBuildWarning,
   resolveGeneratedArtifactOutputPath,
   resolvePrerenderOutputPath,
@@ -22,6 +23,50 @@ import {
 } from "../src/commands/build.ts";
 
 const clientDir = resolve("/tmp/pracht-app/dist/client");
+
+describe("readContentBuildManifest", () => {
+  it("consumes one versioned artifact-and-route contribution", () => {
+    const output = mkdtempSync(join(tmpdir(), "pracht-content-manifest-"));
+    const manifestPath = resolve(output, "_pracht/content-manifest.json");
+    try {
+      mkdirSync(resolve(output, "_pracht"));
+      writeFileSync(
+        manifestPath,
+        JSON.stringify({
+          version: 1,
+          artifacts: { "/llms.txt": { "content-type": "text/markdown" } },
+          routes: {
+            policy: "warn",
+            collections: { docs: [{ path: "/docs/guide", source: "guide.md" }] },
+          },
+        }),
+      );
+
+      expect(readContentBuildManifest(output)).toMatchObject({
+        version: 1,
+        artifacts: { "/llms.txt": { "content-type": "text/markdown" } },
+        routes: { policy: "warn" },
+      });
+      expect(existsSync(manifestPath)).toBe(false);
+    } finally {
+      rmSync(output, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects a malformed optional route contribution", () => {
+    const output = mkdtempSync(join(tmpdir(), "pracht-content-manifest-"));
+    try {
+      mkdirSync(resolve(output, "_pracht"));
+      writeFileSync(
+        resolve(output, "_pracht/content-manifest.json"),
+        JSON.stringify({ version: 1, artifacts: {}, routes: null }),
+      );
+      expect(() => readContentBuildManifest(output)).toThrow(/content build manifest is invalid/);
+    } finally {
+      rmSync(output, { force: true, recursive: true });
+    }
+  });
+});
 
 describe("resolvePrerenderOutputPath", () => {
   it("resolves normal prerender routes inside dist/client", () => {
@@ -136,10 +181,10 @@ describe("assertNoPublicContentArtifactCollisions", () => {
     const publicDir = mkdtempSync(join(tmpdir(), "pracht-content-public-"));
     try {
       mkdirSync(resolve(publicDir, "_pracht"));
-      writeFileSync(resolve(publicDir, "_pracht/content-routes.json"), "{}");
+      writeFileSync(resolve(publicDir, "_pracht/content-manifest.json"), "{}");
 
       expect(() => assertNoPublicContentMetadataCollisions(publicDir)).toThrow(
-        /public\/_pracht\/content-routes\.json.*internal content build manifests/,
+        /public\/_pracht\/content-manifest\.json.*internal content build manifests/,
       );
     } finally {
       rmSync(publicDir, { force: true, recursive: true });
@@ -278,8 +323,11 @@ export default {
       this.emitFile({ type: "asset", fileName: "content.txt", source: "generated" });
       this.emitFile({
         type: "asset",
-        fileName: "_pracht/content-headers.json",
-        source: JSON.stringify({ "/content.txt": { "content-type": "text/plain" } }),
+        fileName: "_pracht/content-manifest.json",
+        source: JSON.stringify({
+          version: 1,
+          artifacts: { "/content.txt": { "content-type": "text/plain" } },
+        }),
       });
     },
   }],
@@ -299,7 +347,7 @@ export default {
     const root = mkdtempSync(join(tmpdir(), "pracht-content-reserved-public-"));
     try {
       mkdirSync(resolve(root, "static/_pracht"), { recursive: true });
-      writeFileSync(resolve(root, "static/_pracht/content-routes.json"), "not json");
+      writeFileSync(resolve(root, "static/_pracht/content-manifest.json"), "not json");
       writeFileSync(
         resolve(root, "vite.config.mjs"),
         `const CLIENT = "\\0virtual:pracht/client";
@@ -325,7 +373,7 @@ export default {
       );
 
       await expect(runBuild(root, { analyzeJson: true })).rejects.toThrow(
-        /static\/_pracht\/content-routes\.json.*internal content build manifests/,
+        /static\/_pracht\/content-manifest\.json.*internal content build manifests/,
       );
     } finally {
       rmSync(root, { force: true, recursive: true });

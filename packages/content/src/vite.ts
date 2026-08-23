@@ -8,8 +8,7 @@ import type { ContentArtifact, ContentCollectionSnapshot } from "./types.ts";
 
 const CONTENT_MODULE_PREFIX = "virtual:pracht/content/";
 const RESOLVED_CONTENT_MODULE_PREFIX = `\0${CONTENT_MODULE_PREFIX}`;
-export const CONTENT_HEADERS_FILE = "_pracht/content-headers.json";
-export const CONTENT_ROUTES_FILE = "_pracht/content-routes.json";
+export const CONTENT_BUILD_MANIFEST_FILE = "_pracht/content-manifest.json";
 
 export interface ViteContentCollection {
   readonly name: string;
@@ -42,6 +41,12 @@ export interface PrachtContentOptions {
 interface ContentRoutesManifest {
   policy: UnroutedDocumentPolicy;
   collections: Record<string, Array<{ path: string; source: string }>>;
+}
+
+interface ContentBuildManifest {
+  version: 1;
+  artifacts: Record<string, Record<string, string>>;
+  routes?: ContentRoutesManifest;
 }
 
 /**
@@ -171,27 +176,11 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
             "x-content-type-options": "nosniff",
           };
         }
-        if (artifacts.length > 0) {
-          const existing = outputFileNames.find((output) =>
-            outputPathsCollide(output, CONTENT_HEADERS_FILE),
-          );
-          if (existing) {
-            throw new Error(
-              `Pracht's internal content headers manifest collides with existing Vite build output ${JSON.stringify(existing)}.`,
-            );
-          }
-          this.emitFile({
-            type: "asset",
-            fileName: CONTENT_HEADERS_FILE,
-            source: `${JSON.stringify(headers, null, 2)}\n`,
-          });
-        }
-
-        // Hand the CLI the routes this registry generates so `pracht build`
-        // can reconcile them against the app manifest, which stays a separate
-        // hand-maintained reader. The CLI consumes and deletes this file before
-        // the client output is published, so it never ships. Artifacts can
-        // never collide with it: the `_pracht/` namespace is already reserved.
+        // Hand the CLI one versioned description of content-owned output and
+        // generated routes. The CLI consumes it before publishing dist/client.
+        // Keeping both contracts in one channel prevents one half from being
+        // produced or interpreted without the other.
+        let routes: ContentRoutesManifest | undefined;
         if (unroutedDocuments !== "ignore") {
           const collectionEntries: Array<[string, ContentRoutesManifest["collections"][string]]> =
             [];
@@ -223,21 +212,29 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
               ],
             ]);
           }
-          const manifest: ContentRoutesManifest = {
+          routes = {
             policy: unroutedDocuments,
             collections: Object.fromEntries(collectionEntries),
           };
+        }
+
+        if (artifacts.length > 0 || routes) {
           const existing = outputFileNames.find((output) =>
-            outputPathsCollide(output, CONTENT_ROUTES_FILE),
+            outputPathsCollide(output, CONTENT_BUILD_MANIFEST_FILE),
           );
           if (existing) {
             throw new Error(
-              `Pracht's internal content routes manifest collides with existing Vite build output ${JSON.stringify(existing)}.`,
+              `Pracht's internal content build manifest collides with existing Vite build output ${JSON.stringify(existing)}.`,
             );
           }
+          const manifest: ContentBuildManifest = {
+            version: 1,
+            artifacts: headers,
+            ...(routes ? { routes } : {}),
+          };
           this.emitFile({
             type: "asset",
-            fileName: CONTENT_ROUTES_FILE,
+            fileName: CONTENT_BUILD_MANIFEST_FILE,
             source: `${JSON.stringify(manifest, null, 2)}\n`,
           });
         }
@@ -398,12 +395,8 @@ async function collectArtifacts(
   for (const collection of collections) {
     for (const artifact of await collection.emitArtifacts()) {
       const fileName = artifactFileName(artifact.path);
-      if (outputPathsCollide(fileName, CONTENT_HEADERS_FILE)) {
-        throw new Error(
-          `Content artifact ${JSON.stringify(artifact.path)} collides with Pracht's internal content headers manifest. Configure a different artifact path.`,
-        );
-      }
-      if (portableOutputKey(fileName).startsWith("_pracht/")) {
+      const outputKey = portableOutputKey(fileName);
+      if (outputKey === "_pracht" || outputKey.startsWith("_pracht/")) {
         throw new Error(
           `Content artifact ${JSON.stringify(artifact.path)} uses Pracht's reserved /_pracht build output namespace. Configure a different artifact path.`,
         );

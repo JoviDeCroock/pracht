@@ -1,7 +1,7 @@
 import type { CapabilityRunArgs, JsonSchema } from "@pracht/capabilities";
 
 import { normalizeRoutePath } from "./path.ts";
-import type { ContentCollection, ContentDocument, ContentSnapshotFields } from "./types.ts";
+import type { ContentRegistry, ContentRuntimeDocument, ContentSnapshotFields } from "./types.ts";
 
 interface ContentPageInput {
   locale?: string;
@@ -51,8 +51,9 @@ export interface ContentCapabilityFields<TInput, TOutput> {
 export function createContentPageCapability<
   TFrontmatter extends Record<string, unknown>,
   TCompiled,
+  TDocument extends ContentRuntimeDocument<TFrontmatter, TCompiled>,
 >(
-  collection: ContentCollection<TFrontmatter, TCompiled>,
+  collection: ContentRegistry<TFrontmatter, TCompiled, TDocument>,
   options: ContentCapabilityOptions = {},
 ): ContentCapabilityFields<ContentPageInput, ContentPageOutput> {
   assertBodyIsEmbedded(collection, "createContentPageCapability");
@@ -102,7 +103,7 @@ export function createContentPageCapability<
         return missingPage(path, input.locale);
       }
       return {
-        content: document.body,
+        content: documentBody(document, collection.name),
         found: true,
         locale: document.locale ?? "",
         path: document.path,
@@ -137,8 +138,9 @@ function missingPage(path: string, locale: string | undefined): ContentPageOutpu
 export function createContentSearchCapability<
   TFrontmatter extends Record<string, unknown>,
   TCompiled,
+  TDocument extends ContentRuntimeDocument<TFrontmatter, TCompiled>,
 >(
-  collection: ContentCollection<TFrontmatter, TCompiled>,
+  collection: ContentRegistry<TFrontmatter, TCompiled, TDocument>,
   options: ContentCapabilityOptions = {},
 ): ContentCapabilityFields<ContentSearchInput, ContentSearchOutput> {
   assertBodyIsEmbedded(collection, "createContentSearchCapability");
@@ -195,13 +197,13 @@ export function createContentSearchCapability<
 }
 
 function rankDocument<TFrontmatter extends Record<string, unknown>, TCompiled>(
-  document: ContentDocument<TFrontmatter, TCompiled>,
+  document: ContentRuntimeDocument<TFrontmatter, TCompiled>,
   terms: readonly string[],
   titleField?: string,
 ): ContentSearchResult | undefined {
   const title = documentTitle(document, titleField);
   const lowerTitle = title.toLocaleLowerCase();
-  const normalizedBody = normalizeBody(document.body);
+  const normalizedBody = normalizeBody(documentBody(document));
   const lowerBody = normalizedBody.toLocaleLowerCase();
   let score = 0;
   let firstMatch = -1;
@@ -222,11 +224,21 @@ function rankDocument<TFrontmatter extends Record<string, unknown>, TCompiled>(
 }
 
 function documentTitle<TFrontmatter extends Record<string, unknown>, TCompiled>(
-  document: ContentDocument<TFrontmatter, TCompiled>,
+  document: ContentRuntimeDocument<TFrontmatter, TCompiled>,
   field = "title",
 ): string {
   const value = document.frontmatter[field];
   return typeof value === "string" && value ? value : document.path;
+}
+
+function documentBody(
+  document: Pick<ContentRuntimeDocument, "body">,
+  collectionName?: string,
+): string {
+  if (typeof document.body === "string") return document.body;
+  throw new Error(
+    `Content${collectionName ? ` collection ${JSON.stringify(collectionName)}` : ""} returned a document without an embedded body after the capability was constructed.`,
+  );
 }
 
 function tokenize(query: string): string[] {

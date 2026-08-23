@@ -154,3 +154,18 @@ the snapshot omitted. Scanned collections follow in-root symbolic links
 (escaping or dangling links are skipped), collection roots outside Vite's
 watched root are added to the dev watcher, and the authoring and snapshot
 runtimes share one locale and route-path implementation.
+
+Filesystem-backed authoring collections and generated runtime snapshots now
+have separate public contracts. `ContentCollection` retains compilation,
+artifact, invalidation, and full-source methods; generated modules expose a
+lookup-only `ContentSnapshotCollection` whose `ContentRuntimeDocument` type
+truthfully marks trimmed `raw` and `body` fields as optional. The runtime no
+longer fills authoring-only methods with no-op implementations or casts trimmed
+documents to a type with required source representations.
+
+The content Vite plugin now hands the CLI one versioned internal manifest for
+artifact metadata and route reconciliation instead of two independently
+produced files. The CLI also uses `@pracht/core`'s exported `matchRoutePath()`
+and `routePathIsDynamic()` primitives, so build-time reconciliation and
+request-time routing share the same dynamic, catch-all, and percent-decoding
+semantics.

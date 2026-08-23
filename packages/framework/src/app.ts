@@ -32,7 +32,12 @@ import {
   splitPathSegments,
 } from "./route-matching.ts";
 
-export { buildHref, buildPathFromSegments } from "./route-matching.ts";
+export {
+  buildHref,
+  buildPathFromSegments,
+  matchRoutePath,
+  routePathIsDynamic,
+} from "./route-matching.ts";
 
 // Manifest validation is a dev/build-time aid: `import.meta.env.DEV` is
 // statically `false` in production Vite bundles, so this folds to `false`

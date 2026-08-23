@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild, type Plugin } from "vite";
+import { matchRoutePath, routePathIsDynamic } from "@pracht/core";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
@@ -105,28 +106,6 @@ function indentBlock(block: string): string {
     .join("\n");
 }
 
-function readContentArtifactHeaders(clientDir: string): Record<string, Record<string, string>> {
-  const metadataPath = resolve(clientDir, "_pracht/content-headers.json");
-  if (!existsSync(metadataPath)) return {};
-  const parsed: unknown = JSON.parse(readFileSync(metadataPath, "utf8"));
-  rmSync(metadataPath, { force: true });
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("The content artifact headers manifest is invalid.");
-  }
-  for (const [path, headers] of Object.entries(parsed)) {
-    if (
-      !path.startsWith("/") ||
-      !headers ||
-      typeof headers !== "object" ||
-      Array.isArray(headers) ||
-      Object.values(headers).some((value) => typeof value !== "string")
-    ) {
-      throw new Error("The content artifact headers manifest is invalid.");
-    }
-  }
-  return parsed as Record<string, Record<string, string>>;
-}
-
 interface ContentRouteEntry {
   path: string;
   source: string;
@@ -137,14 +116,18 @@ interface ContentRoutesManifest {
   collections: Record<string, readonly ContentRouteEntry[]>;
 }
 
+interface ContentBuildManifest {
+  version: 1;
+  artifacts: Record<string, Record<string, string>>;
+  routes?: ContentRoutesManifest;
+}
+
 /**
- * Read and remove the content plugin's generated route manifest.
- *
- * Like the artifact headers manifest, this is an internal build channel: it is
- * deleted here so it never reaches the published client output.
+ * Read and remove the content plugin's single versioned build contribution.
+ * It is an internal channel and never reaches the published client output.
  */
-function readContentRoutesManifest(clientDir: string): ContentRoutesManifest | null {
-  const manifestPath = resolve(clientDir, "_pracht/content-routes.json");
+export function readContentBuildManifest(clientDir: string): ContentBuildManifest | null {
+  const manifestPath = resolve(clientDir, "_pracht/content-manifest.json");
   if (!existsSync(manifestPath)) return null;
   const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
   rmSync(manifestPath, { force: true });
@@ -152,54 +135,53 @@ function readContentRoutesManifest(clientDir: string): ContentRoutesManifest | n
     !parsed ||
     typeof parsed !== "object" ||
     Array.isArray(parsed) ||
-    !["error", "warn", "ignore"].includes((parsed as ContentRoutesManifest).policy) ||
-    typeof (parsed as ContentRoutesManifest).collections !== "object" ||
-    (parsed as ContentRoutesManifest).collections === null
+    (parsed as { version?: unknown }).version !== 1 ||
+    typeof (parsed as { artifacts?: unknown }).artifacts !== "object" ||
+    (parsed as { artifacts?: unknown }).artifacts === null ||
+    Array.isArray((parsed as { artifacts?: unknown }).artifacts)
   ) {
-    throw new Error("The content routes manifest is invalid.");
+    throw new Error("The content build manifest is invalid.");
   }
-  for (const entries of Object.values((parsed as ContentRoutesManifest).collections)) {
+  const manifest = parsed as ContentBuildManifest;
+  for (const [path, headers] of Object.entries(manifest.artifacts)) {
     if (
-      !Array.isArray(entries) ||
-      entries.some(
-        (entry) =>
-          !entry ||
-          typeof entry !== "object" ||
-          typeof entry.path !== "string" ||
-          !entry.path.startsWith("/") ||
-          typeof entry.source !== "string",
-      )
+      !path.startsWith("/") ||
+      !headers ||
+      typeof headers !== "object" ||
+      Array.isArray(headers) ||
+      Object.values(headers).some((value) => typeof value !== "string")
     ) {
-      throw new Error("The content routes manifest is invalid.");
+      throw new Error("The content build manifest is invalid.");
     }
   }
-  return parsed as ContentRoutesManifest;
-}
-
-/**
- * Whether a route pattern (`/docs/:slug`, `/files/:rest*`) matches a concrete
- * path. Deliberately a local copy of the framework's segment rules rather than
- * a new `@pracht/core` export: the CLI needs only this direction.
- */
-function routePatternMatches(pattern: string, path: string): boolean {
-  const patternSegments = pattern.split("/").filter(Boolean);
-  const pathSegments = path.split("/").filter(Boolean);
-  for (let index = 0; index < patternSegments.length; index += 1) {
-    const segment = patternSegments[index];
-    if (segment === "*" || (segment.startsWith(":") && segment.endsWith("*"))) {
-      // A catch-all consumes the rest, including zero remaining segments —
-      // matching the framework's `matchRouteSegments` semantics.
-      return pathSegments.length >= index;
+  if (Object.hasOwn(manifest, "routes") && manifest.routes !== undefined) {
+    if (
+      !manifest.routes ||
+      typeof manifest.routes !== "object" ||
+      Array.isArray(manifest.routes) ||
+      !["error", "warn", "ignore"].includes(manifest.routes.policy) ||
+      typeof manifest.routes.collections !== "object" ||
+      manifest.routes.collections === null
+    ) {
+      throw new Error("The content build manifest is invalid.");
     }
-    if (index >= pathSegments.length) return false;
-    if (segment.startsWith(":")) continue;
-    if (segment !== pathSegments[index]) return false;
+    for (const entries of Object.values(manifest.routes.collections)) {
+      if (
+        !Array.isArray(entries) ||
+        entries.some(
+          (entry) =>
+            !entry ||
+            typeof entry !== "object" ||
+            typeof entry.path !== "string" ||
+            !entry.path.startsWith("/") ||
+            typeof entry.source !== "string",
+        )
+      ) {
+        throw new Error("The content build manifest is invalid.");
+      }
+    }
   }
-  return patternSegments.length === pathSegments.length;
-}
-
-function routePatternIsDynamic(pattern: string): boolean {
-  return pattern.split("/").some((segment) => segment === "*" || segment.startsWith(":"));
+  return manifest;
 }
 
 interface ContentRoutePattern {
@@ -213,7 +195,7 @@ export function collectContentRoutePatterns(
   hasSpaFallback = false,
 ): ContentRoutePattern[] {
   return routes.map((route) => {
-    const dynamic = routePatternIsDynamic(route.path);
+    const dynamic = routePathIsDynamic(route.path);
     return {
       path: route.path,
       servesUnprerenderedPaths:
@@ -233,7 +215,7 @@ export function collectUnroutedContentDocuments(
     for (const entry of entries) {
       if (served.has(entry.path)) continue;
       const matchingRoute = routePatterns.find((pattern) =>
-        routePatternMatches(typeof pattern === "string" ? pattern : pattern.path, entry.path),
+        Boolean(matchRoutePath(typeof pattern === "string" ? pattern : pattern.path, entry.path)),
       );
       if (
         matchingRoute &&
@@ -327,7 +309,7 @@ export function assertNoPublicContentMetadataCollisions(
   publicDirLabel = "public",
 ): void {
   const publicFiles = collectPublicFiles(publicDir);
-  const reservedMetadataPaths = ["_pracht/content-headers.json", "_pracht/content-routes.json"];
+  const reservedMetadataPaths = ["_pracht/content-manifest.json"];
   const collision = publicFiles.find((publicFile) =>
     reservedMetadataPaths.some((metadataPath) =>
       portableOutputPathsCollide(metadataPath, publicFile),
@@ -534,8 +516,9 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
   if (publicDir && existsSync(publicDir)) {
     assertNoPublicContentMetadataCollisions(publicDir, publicDirLabel);
   }
-  const contentArtifactHeaders = readContentArtifactHeaders(clientDir);
-  const contentRoutes = readContentRoutesManifest(clientDir);
+  const contentBuildManifest = readContentBuildManifest(clientDir);
+  const contentArtifactHeaders = contentBuildManifest?.artifacts ?? {};
+  const contentRoutes = contentBuildManifest?.routes;
 
   if (publicDir && existsSync(publicDir)) {
     assertNoPublicContentArtifactCollisions(contentArtifactHeaders, publicDir, publicDirLabel);

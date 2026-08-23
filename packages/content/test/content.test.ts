@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
   contentLoader,
@@ -839,7 +839,15 @@ describe("collection integration helpers", () => {
 
     const runtime = defineSnapshotCollection(snapshot);
     expect(runtime.snapshotFields).toEqual({ body: true, raw: false });
+    expect(runtime).not.toHaveProperty("loadSource");
+    expect(runtime).not.toHaveProperty("renderModule");
+    expect(runtime).not.toHaveProperty("emitArtifacts");
+    expect(runtime).not.toHaveProperty("invalidate");
     const document = await runtime.getByRoute("/docs/page");
+    expectTypeOf(document).toEqualTypeOf<
+      import("../src/index.ts").ContentRuntimeDocument<Record<string, unknown>, string> | undefined
+    >();
+    expectTypeOf(document?.raw).toEqualTypeOf<string | undefined>();
     expect(document?.body).toBe("Body");
     expect(document?.raw).toBeUndefined();
     expect(() => markdownRepresentation(document!, "raw")).toThrow(
