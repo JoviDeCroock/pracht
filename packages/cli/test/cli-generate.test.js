@@ -201,6 +201,67 @@ export default async () => ({ plugins: createPlugins() });`,
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
+  it("uses the production build config when checking for a static adapter", () => {
+    const appDir = createRepoTempDir("pracht-cli-pages-middleware-production-static-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from ${JSON.stringify(resolve(repoRoot, "packages/vite-plugin/src/index.ts"))};
+import { staticAdapter } from ${JSON.stringify(resolve(repoRoot, "packages/adapter-static/src/index.ts"))};
+
+export default ({ command, mode }) => ({
+  plugins: [
+    pracht({
+      pagesDir: "/src/pages",
+      ...(command === "build" && mode === "production" ? { adapter: staticAdapter() } : {}),
+    }),
+  ],
+});`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
+  it("resolves thenable Vite plugins when checking for a static adapter", () => {
+    const appDir = createRepoTempDir("pracht-cli-pages-middleware-thenable-static-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from ${JSON.stringify(resolve(repoRoot, "packages/vite-plugin/src/index.ts"))};
+import { staticAdapter } from ${JSON.stringify(resolve(repoRoot, "packages/adapter-static/src/index.ts"))};
+
+export default {
+  plugins: [
+    Promise.resolve(pracht({ pagesDir: "/src/pages", adapter: staticAdapter() })),
+  ],
+};`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("refuses to duplicate an existing pages middleware extension", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-existing-");
     writePagesApp(appDir);

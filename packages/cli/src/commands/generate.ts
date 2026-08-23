@@ -534,9 +534,12 @@ type PrachtPluginApi = {
   };
 };
 
-function flattenPlugins(value: unknown): unknown[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((plugin) => (Array.isArray(plugin) ? flattenPlugins(plugin) : [plugin]));
+async function flattenPlugins(value: unknown): Promise<unknown[]> {
+  const resolved = await value;
+  if (Array.isArray(resolved)) {
+    return (await Promise.all(resolved.map((plugin) => flattenPlugins(plugin)))).flat();
+  }
+  return resolved === false || resolved == null ? [] : [resolved];
 }
 
 /** Load the actual Vite config and inspect the adapter selected by the Pracht plugin. */
@@ -546,14 +549,15 @@ async function usesStaticAdapter(
   if (!project.configFile) return false;
 
   const loaded = await loadConfigFromFile(
-    { command: "serve", isPreview: false, isSsrBuild: false, mode: "development" },
+    { command: "build", isPreview: false, isSsrBuild: false, mode: "production" },
     project.configFile,
     project.root,
     "silent",
   );
   if (!loaded) return false;
 
-  return flattenPlugins(loaded.config.plugins).some((plugin) => {
+  const plugins = await flattenPlugins(loaded.config.plugins);
+  return plugins.some((plugin) => {
     if (!plugin || typeof plugin !== "object") return false;
     const candidate = plugin as { api?: PrachtPluginApi; name?: unknown };
     return candidate.name === "pracht" && candidate.api?.pracht?.staticTarget === true;

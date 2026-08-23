@@ -27,8 +27,9 @@ boundary does not depend on interpreting registry source syntax.
 `pracht generate middleware --name _middleware` and the matching MCP tool
 scaffold the pages middleware file, reject duplicates, and refuse pure static
 exports. Static-target detection now executes the Vite config and inspects the
-adapter metadata on the selected Pracht plugin, so config functions, aliases,
-and future JavaScript syntax need no separate source interpreter.
+adapter metadata on the selected Pracht plugin in the production build lane,
+including Vite's nested and thenable plugin entries, so config functions,
+aliases, and future JavaScript syntax need no separate source interpreter.
 
 Pages middleware edits participate in the existing HMR flow. The routing docs,
 starter copy, examples, and bundled migration/scaffolding skills describe the
