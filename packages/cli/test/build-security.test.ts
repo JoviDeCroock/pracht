@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -213,6 +213,35 @@ describe("assertNoPublicContentArtifactCollisions", () => {
       ).not.toThrow();
     } finally {
       rmSync(publicDir, { force: true, recursive: true });
+    }
+  });
+
+  it("follows public directory symlinks without treating the mount as a file", () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-content-public-symlink-"));
+    const publicDir = resolve(root, "public");
+    const sharedDir = resolve(root, "shared");
+    try {
+      mkdirSync(publicDir);
+      mkdirSync(sharedDir);
+      writeFileSync(resolve(sharedDir, "existing.txt"), "public");
+      const symlinkType = process.platform === "win32" ? "junction" : "dir";
+      symlinkSync(sharedDir, resolve(publicDir, "shared"), symlinkType);
+      symlinkSync(publicDir, resolve(sharedDir, "public-loop"), symlinkType);
+
+      expect(() =>
+        assertNoPublicContentArtifactCollisions(
+          { "/shared/generated.txt": { "content-type": "text/plain" } },
+          publicDir,
+        ),
+      ).not.toThrow();
+      expect(() =>
+        assertNoPublicContentArtifactCollisions(
+          { "/shared/existing.txt": { "content-type": "text/plain" } },
+          publicDir,
+        ),
+      ).toThrow(/collides with.*public\/shared\/existing\.txt/);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
     }
   });
 

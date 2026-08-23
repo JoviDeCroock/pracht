@@ -595,7 +595,7 @@ export function collectPagesVerification(
   }
 }
 
-const MARKDOWN_PAGE_RE = /\.mdx?$/;
+const MARKDOWN_PAGE_RE = /\.(?:mdx?|markdown)$/;
 // Plugin specifiers that transform Markdown/MDX into a renderable module,
 // matched against the raw vite config text. Necessarily a heuristic: a custom
 // or re-exported plugin is invisible here, which is why this warns and says so
@@ -608,7 +608,7 @@ const MARKDOWN_PLUGIN_HINTS = ["@mdx-js/rollup", "vite-plugin-mdx", "vite-plugin
 const CONTENT_REGISTRY_HINT = "@pracht/content/vite";
 
 /**
- * A `.md` / `.mdx` route is registered like any other, but nothing renders it
+ * A `.md`, `.markdown`, or `.mdx` route is registered like any other, but nothing renders it
  * unless a transform plugin is configured: Vite hands the raw Markdown to the
  * JS parser, so the route 500s at request time with `Invalid Character` and
  * `pracht build` fails with a raw parser stack. Both `doctor` and `verify`

@@ -112,6 +112,10 @@ loaders, and Markdown preserves custom Marked image renderers for root-relative,
 remote, and data image sources. Netlify builds preserve hand-authored `_headers`
 files copied from the configured Vite public directory without allowing an
 unused default `public/_headers` to suppress generated deployment headers.
+Public-directory collision checks follow directory symlinks without treating
+their mount points as files, while still rejecting nested generated artifacts
+that overwrite copied files. Static verification recognizes `.markdown` route
+modules alongside `.md` and `.mdx` when warning about missing transforms.
 
 Shared pass-through static images now keep a live backing source when another
 identical SVG or animated image is edited or removed during development.

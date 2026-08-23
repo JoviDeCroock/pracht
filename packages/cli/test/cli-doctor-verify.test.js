@@ -735,17 +735,18 @@ export default defineConfig({
       routesSource: `import { defineApp, route } from "@pracht/core";
 
 export const app = defineApp({
-  routes: [route("/guide", "./routes/guide.md", { id: "guide", render: "ssg" })],
+  routes: [route("/guide", "./routes/guide.markdown", { id: "guide", render: "ssg" })],
 });
 `,
     });
-    writeProjectFile(appDir, "src/routes/guide.md", "# Guide\n");
+    writeProjectFile(appDir, "src/routes/guide.markdown", "# Guide\n");
 
     const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
 
     expect(
       report.checks.some(
-        (check) => check.status === "warning" && check.message.includes("src/routes/guide.md"),
+        (check) =>
+          check.status === "warning" && check.message.includes("src/routes/guide.markdown"),
       ),
     ).toBe(true);
   });

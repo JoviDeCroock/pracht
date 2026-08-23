@@ -4,7 +4,9 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { register } from "node:module";
@@ -300,17 +302,23 @@ function findContentArtifactOutputCollision(
 
 function collectPublicFiles(publicDir: string): string[] {
   const publicFiles: string[] = [];
-  const collect = (directory: string): void => {
+  const collect = (directory: string, ancestorDirectories: ReadonlySet<string>): void => {
+    const realDirectory = realpathSync.native(directory);
+    if (ancestorDirectories.has(realDirectory)) return;
+
+    const nextAncestorDirectories = new Set(ancestorDirectories);
+    nextAncestorDirectories.add(realDirectory);
+
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const absolutePath = resolve(directory, entry.name);
-      if (entry.isDirectory()) {
-        collect(absolutePath);
+      if (statSync(absolutePath).isDirectory()) {
+        collect(absolutePath, nextAncestorDirectories);
         continue;
       }
       publicFiles.push(relative(publicDir, absolutePath).split(sep).join("/"));
     }
   };
-  collect(publicDir);
+  collect(publicDir, new Set());
   return publicFiles;
 }
 
