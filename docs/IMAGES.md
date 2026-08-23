@@ -117,8 +117,10 @@ explicit `loader` prop still opts that individual image back into loader URL
 generation. Output is cached in Vite's `cacheDir` by source bytes and transform
 options, served directly by `pracht dev`, and emitted as ordinary client
 assets for production, including when `build.assetsDir` is empty and assets
-are placed directly at the output root. The source original is not copied when
-variants are available. Images that exist only in an SSR or hydration-disabled
+are placed directly at the output root. Cache entries are refreshed whenever
+they are reused and dropped after 30 days without a hit, so edited images do
+not leave their old encodes behind forever. The source original is not copied
+when variants are available. Images that exist only in an SSR or hydration-disabled
 route graph are written to `dist/client` so adapters and prerendered HTML share
 the same public files; set `staticOutDir` when an integration serves a different
 client directory.
@@ -132,10 +134,12 @@ prachtImage({
 ```
 
 Widths above the intrinsic source width are omitted, and the intrinsic width
-is always included. SVG and animated sources retain their original encoded
-bytes instead of being flattened into static WebP variants; those originals
-are still published to the client asset directory when discovered only by an
-SSR or hydration-disabled graph. Root-relative `publicDir` images remain
+is always included, capped at WebP's 16383px per-side limit. An over-sized
+panorama therefore gets one clamped variant instead of failing the build, and
+`staticWidths` rejects anything above 16383 outright. SVG and animated sources
+retain their original encoded bytes instead of being flattened into static
+WebP variants; those originals are still published to the client asset
+directory when discovered only by an SSR or hydration-disabled graph. Root-relative `publicDir` images remain
 stable, unprocessed public URLs and bypass the configured runtime loader when
 statically imported. Static variants require an absolute Vite `base` (`/` or a
 pathname such as `/docs/`); a relative base cannot produce URLs that are

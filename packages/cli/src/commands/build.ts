@@ -185,7 +185,8 @@ function routePatternMatches(pattern: string, path: string): boolean {
   for (let index = 0; index < patternSegments.length; index += 1) {
     const segment = patternSegments[index];
     if (segment === "*" || (segment.startsWith(":") && segment.endsWith("*"))) {
-      // A catch-all consumes the rest, but must still have something to take.
+      // A catch-all consumes the rest, including zero remaining segments —
+      // matching the framework's `matchRouteSegments` semantics.
       return pathSegments.length >= index;
     }
     if (index >= pathSegments.length) return false;

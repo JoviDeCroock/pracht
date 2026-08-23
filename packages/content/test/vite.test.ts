@@ -26,6 +26,15 @@ function hookHandler<T extends (...args: any[]) => any>(hook: T | { handler: T }
   return typeof hook === "function" ? hook : hook.handler;
 }
 
+/** Read back the snapshot a generated collection module embeds. */
+function loadedSnapshot(result: unknown): Record<string, any> {
+  const code =
+    typeof result === "string" ? result : ((result as { code?: string } | null)?.code ?? "");
+  const serialized = /JSON\.parse\((".*")\)/.exec(code)?.[1];
+  if (!serialized) throw new Error("Expected a serialized snapshot");
+  return JSON.parse(JSON.parse(serialized));
+}
+
 describe("prachtContent", () => {
   it("transforms registered sources through the collection compiler", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
@@ -102,6 +111,49 @@ describe("prachtContent", () => {
     expect(code).not.toContain("node:fs");
   });
 
+  it("omits opted-out source representations from the generated module", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      snapshot: { body: false, raw: false },
+    });
+    const [plugin] = prachtContent({ collections: [collection] });
+
+    const snapshot = loadedSnapshot(
+      await hookHandler(plugin.load).call({} as never, "\0virtual:pracht/content/docs"),
+    );
+
+    expect(snapshot.fields).toEqual({ body: false, raw: false });
+    expect(snapshot.documents).toEqual([
+      {
+        compiled: "Body",
+        frontmatter: { title: "Page" },
+        id: "page",
+        path: "/page",
+        relativeSource: "page.md",
+      },
+    ]);
+  });
+
+  it("keeps every source representation in a generated module by default", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+    const [plugin] = prachtContent({ collections: [collection] });
+
+    const snapshot = loadedSnapshot(
+      await hookHandler(plugin.load).call({} as never, "\0virtual:pracht/content/docs"),
+    );
+
+    expect(snapshot.fields).toBeUndefined();
+    expect(snapshot.documents[0]).toMatchObject({
+      body: "Body",
+      raw: "---\ntitle: Page\n---\nBody",
+    });
+  });
+
   it("runs a bundled collection snapshot after the source tree is removed", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     const source = join(temporaryDirectory, "page.md");
@@ -149,12 +201,14 @@ describe("prachtContent", () => {
     let change: ((file: string) => void) | undefined;
     const runtimeModule = {};
     const invalidateModule = vi.fn();
+    const add = vi.fn();
     const server = {
       moduleGraph: {
         getModuleById: vi.fn(() => runtimeModule),
         invalidateModule,
       },
       watcher: {
+        add,
         on(event: string, handler: (file: string) => void) {
           if (event === "change") change = handler;
         },
@@ -169,6 +223,9 @@ describe("prachtContent", () => {
 
     expect(code).toContain('\\"body\\":\\"Second\\"');
     expect(invalidateModule).toHaveBeenCalledWith(runtimeModule);
+    // A root outside Vite's own project root emits no events until it is
+    // watched explicitly, which would serve stale content for the session.
+    expect(add).toHaveBeenCalledWith(temporaryDirectory);
   });
 
   it("emits deploy-safe headers for production artifacts in the asset namespace", async () => {

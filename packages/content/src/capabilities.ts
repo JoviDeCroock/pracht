@@ -1,7 +1,7 @@
 import type { CapabilityRunArgs, JsonSchema } from "@pracht/capabilities";
 
 import { normalizeRoutePath } from "./path.ts";
-import type { ContentCollection, ContentDocument } from "./types.ts";
+import type { ContentCollection, ContentDocument, ContentSnapshotFields } from "./types.ts";
 
 interface ContentPageInput {
   locale?: string;
@@ -55,6 +55,7 @@ export function createContentPageCapability<
   collection: ContentCollection<TFrontmatter, TCompiled>,
   options: ContentCapabilityOptions = {},
 ): ContentCapabilityFields<ContentPageInput, ContentPageOutput> {
+  assertBodyIsEmbedded(collection, "createContentPageCapability");
   return {
     input: {
       type: "object",
@@ -111,6 +112,23 @@ export function createContentPageCapability<
   };
 }
 
+/**
+ * Both helpers answer from `document.body`. A snapshot generated with
+ * `snapshot: { body: false }` has none, and would otherwise report every page
+ * as empty and every query as unmatched. Fail where the collection is wired up
+ * instead, which is the first moment the mismatch is visible.
+ */
+function assertBodyIsEmbedded(
+  collection: { name: string; snapshotFields?: ContentSnapshotFields },
+  helper: string,
+): void {
+  if (collection.snapshotFields?.body === false) {
+    throw new TypeError(
+      `${helper}() needs document bodies, but content collection ${JSON.stringify(collection.name)} was defined with \`snapshot: { body: false }\`. Embed the body again or serve this capability from a separate index.`,
+    );
+  }
+}
+
 function missingPage(path: string, locale: string | undefined): ContentPageOutput {
   return { content: "", found: false, locale: locale ?? "", path, title: "" };
 }
@@ -123,6 +141,7 @@ export function createContentSearchCapability<
   collection: ContentCollection<TFrontmatter, TCompiled>,
   options: ContentCapabilityOptions = {},
 ): ContentCapabilityFields<ContentSearchInput, ContentSearchOutput> {
+  assertBodyIsEmbedded(collection, "createContentSearchCapability");
   return {
     input: {
       type: "object",

@@ -1,3 +1,4 @@
+import { normalizeRoutePath } from "./route-path.ts";
 import type { ContentCollection, ContentDocument } from "./types.ts";
 
 export interface ContentLoaderArgs {
@@ -32,11 +33,23 @@ export function contentLoader<
 ): (args: ContentLoaderArgs) => Promise<TOutput> {
   return async (args) => {
     const path = options.path?.(args) ?? args.pathname ?? new URL(args.request.url).pathname;
-    const document = await collection.getByRoute(path, { locale: options.locale?.(args) });
-    if (!document) {
+    function missing(): never {
       if (options.notFound) throw options.notFound(path);
       throw new Response("Not Found", { status: 404 });
     }
+
+    // A dynamic app route such as `/docs/:slug` happily matches and forwards an
+    // attacker-shaped pathname like `/docs/%2e%2e`. Route normalization rejects
+    // those, which would surface as a 500; they name no document, so answer
+    // exactly as a missing one does.
+    let route: string;
+    try {
+      route = normalizeRoutePath(path);
+    } catch {
+      missing();
+    }
+    const document = await collection.getByRoute(route, { locale: options.locale?.(args) });
+    if (!document) missing();
     return options.select ? options.select(document) : (document as unknown as TOutput);
   };
 }

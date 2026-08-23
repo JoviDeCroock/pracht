@@ -8,6 +8,30 @@ WebP variants, and work in SSR, SSG, and zero-hydration routes.
 Install `sharp` as a development dependency when the collection contains local
 images; it runs only during development and builds.
 
+## Trust model
+
+**Compiled Markdown is executed as HTML.** The generated route module renders
+its markup through `dangerouslySetInnerHTML`, and nothing is sanitized, so raw
+HTML embedded in a document — `<script>` tags, `onerror` handlers,
+`javascript:` links — runs in the browser exactly as written. This matches how
+MDX and other build-time compilers treat source files: a collection is
+repo-authored code, reviewed like the rest of the codebase.
+
+Only compile content you trust. If documents come from a CMS, a database, or
+anything a user can write, sanitize the HTML before it reaches the page: strip
+raw HTML in a custom `parse`, or run the compiled markup through a sanitizer
+such as `sanitize-html` or DOMPurify inside the `render` hook.
+
+```ts
+import sanitizeHtml from "sanitize-html";
+
+export const posts = defineMarkdownCollection({
+  name: "posts",
+  root: new URL("./content/posts", import.meta.url),
+  render: ({ html }) => sanitizeHtml(html),
+});
+```
+
 ```ts
 import { defineMarkdownCollection } from "@pracht/markdown";
 
@@ -56,5 +80,8 @@ root-relative public, remote, and data image URLs.
 
 Use `images: { placeholder: "blur" }` to opt into inline blur styles. The
 default is `"empty"`, which avoids changing an application's CSP requirements.
-Generated image markers use collection-relative source paths, keeping route
+`images.sizes` overrides the browser layout hint; left unset, each image gets
+`(max-width: <intrinsic width>px) 100vw, <intrinsic width>px`, so a browser
+laying the image out in a narrow prose column requests a matching variant
+instead of the widest one. Generated image markers use collection-relative source paths, keeping route
 module output stable when the same project is built from a different checkout.

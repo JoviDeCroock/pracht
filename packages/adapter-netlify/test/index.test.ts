@@ -161,18 +161,61 @@ describe("netlifyAdapter", () => {
   });
 
   it.each(["/docs/*", "/docs/:slug"])(
-    "rejects exact build headers that Netlify would broaden for %s",
+    "warns and skips exact build headers that Netlify would broaden for %s",
     async (pathname) => {
       const root = await tempDir();
       await mkdir(join(root, "dist/server"), { recursive: true });
       await writeFile(
         join(root, "dist/server/headers-manifest.json"),
-        JSON.stringify({ [pathname]: { "cache-control": "public, max-age=60" } }),
+        JSON.stringify({
+          [pathname]: { "cache-control": "public, max-age=60" },
+          "/feed.data": { "content-type": "application/json" },
+        }),
       );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-      await expect(finalizeNetlifyBuild(root)).rejects.toThrow(/Invalid static header rule/);
+      await finalizeNetlifyBuild(root);
+
+      // A `getStaticPaths()` slug may legitimately contain `*`, so the build
+      // drops the unrepresentable rule instead of failing — and never widens
+      // it to the other paths the pattern would match.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(JSON.stringify(pathname)));
+      const headersFile = await readFile(join(root, "dist/client/_headers"), "utf-8");
+      expect(headersFile).not.toContain(pathname);
+      expect(headersFile).not.toContain("max-age=60");
+      expect(headersFile).toContain("/feed.data\n  content-type: application/json");
     },
   );
+
+  it("keeps header-less prerendered paths that Netlify cannot match exactly", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    // `pracht build` lists every prerendered page in the headers manifest,
+    // including the header-less ones that were never going to emit a rule.
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/docs/a*b": {}, "/feed.data": { "content-type": "application/json" } }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await finalizeNetlifyBuild(root);
+
+    expect(warn).not.toHaveBeenCalled();
+    const headersFile = await readFile(join(root, "dist/client/_headers"), "utf-8");
+    expect(headersFile).not.toContain("/docs/a*b");
+    expect(headersFile).toContain("/feed.data\n  content-type: application/json");
+  });
+
+  it("rejects malformed headers on paths Netlify cannot match exactly", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/docs/a*b": { "x-safe\n/evil": "injected" } }),
+    );
+
+    await expect(finalizeNetlifyBuild(root)).rejects.toThrow(/Invalid header/);
+  });
 
   it("preserves hand-authored _headers copied from the default publicDir", async () => {
     const root = await tempDir();

@@ -23,6 +23,8 @@ export type {
   ContentResolution,
   ContentRouteAlias,
   ContentSnapshotDocument,
+  ContentSnapshotFields,
+  ContentSnapshotOptions,
   ContentSource,
   DefineCollectionOptions,
   MaybePromise,

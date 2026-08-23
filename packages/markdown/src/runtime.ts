@@ -50,9 +50,12 @@ export function renderMarkdownImage(
     src: metadata,
     alt: descriptor.alt,
     ...(descriptor.title === undefined ? {} : { title: descriptor.title }),
-    sizes: options.sizes ?? "100vw",
+    // Only forward an explicitly configured `sizes`. Left unset, `getImageProps`
+    // derives `(max-width: <intrinsic>px) 100vw, <intrinsic>px` from the static
+    // variants, which keeps desktop browsers from downloading the widest variant
+    // for an image constrained by a prose column.
+    ...(options.sizes === undefined ? {} : { sizes: options.sizes }),
     placeholder: options.placeholder ?? "empty",
-    ...(options.quality === undefined ? {} : { quality: options.quality }),
   });
 
   const attributes: string[] = [];

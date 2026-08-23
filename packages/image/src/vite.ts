@@ -1,5 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import {
   basename,
   dirname,
@@ -48,6 +57,19 @@ const DEFAULT_STATIC_QUALITY = 75;
 const DEFAULT_STATIC_WIDTHS = [320, 640, 960, 1280, 1920] as const;
 const STATIC_IMAGE_QUERY = "pracht-static";
 const STATIC_CACHE_VERSION = "pracht-static-image-v1";
+/**
+ * WebP stores each dimension in 14 bits, so no side of an encoded image may
+ * exceed 16383px. Both the configured widths and the intrinsic-width variant
+ * are capped to it: a panorama should ship one clamped variant, not fail the
+ * build with a raw encoder error.
+ */
+const WEBP_MAX_DIMENSION = 16_383;
+/**
+ * Generated variants that have not been used for this long are dropped from
+ * the disk cache. Entries are touched on every hit, so anything older belongs
+ * to an image that has since been edited, renamed, or deleted.
+ */
+const STATIC_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 const SHARP_INSTALL_HINT =
   '[pracht/image] "?pracht" image imports require the optional "sharp" dependency ' +
@@ -66,7 +88,12 @@ interface SharpMetadata {
 interface SharpPipeline {
   metadata(): Promise<SharpMetadata>;
   rotate(): SharpPipeline;
-  resize(options: { width: number; withoutEnlargement: boolean }): SharpPipeline;
+  resize(options: {
+    width: number;
+    height?: number;
+    fit?: "inside";
+    withoutEnlargement: boolean;
+  }): SharpPipeline;
   webp(options: { quality: number }): SharpPipeline;
   toBuffer(): Promise<Uint8Array>;
 }
@@ -152,10 +179,18 @@ export async function analyzeImage(
 
   // Animated GIF/WebP: sharp reads the first frame by default, which is
   // exactly what a placeholder should show. `.rotate()` applies the EXIF
-  // orientation so the blur matches how the full image displays.
+  // orientation so the blur matches how the full image displays. The height
+  // cap only binds beyond a ~2048:1 portrait aspect ratio — every ordinary
+  // image resizes byte-identically — but without it a source narrower than
+  // `blurWidth` and taller than WebP's limit fails to encode at all.
   const blur = await sharp(source)
     .rotate()
-    .resize({ width: options.blurWidth, withoutEnlargement: true })
+    .resize({
+      width: options.blurWidth,
+      height: WEBP_MAX_DIMENSION,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
     .webp({ quality: options.blurQuality })
     .toBuffer();
 
@@ -226,7 +261,24 @@ interface ResolvedImage {
 
 interface StaticAsset {
   contentType: `image/${string}`;
-  source: Uint8Array;
+  /**
+   * Where the bytes are read from at emit/serve time: the disk cache entry for
+   * a generated WebP variant, or the original file for pass-through sources.
+   * Holding the path instead of the buffer keeps whole images out of RAM for
+   * the length of a build and for the lifetime of a dev server.
+   */
+  path: string;
+  /**
+   * Source files that produced this asset. `watchChange` removes the edited
+   * source so its now-unreachable variants do not accumulate across a dev
+   * session; an asset is dropped once no source claims it.
+   */
+  sources: Set<string>;
+}
+
+/** Vite ids, watcher paths, and Windows drive paths must compare equal. */
+function toPosixPath(value: string): string {
+  return value.replace(/\\/g, "/");
 }
 
 async function resolvePublicFile(publicDir: string, source: string): Promise<string | undefined> {
@@ -294,10 +346,13 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
   }
   if (
     staticWidths.length === 0 ||
-    staticWidths.some((width) => !Number.isInteger(width) || width < 1 || width > 16_384)
+    staticWidths.some(
+      (width) => !Number.isInteger(width) || width < 1 || width > WEBP_MAX_DIMENSION,
+    )
   ) {
     throw new Error(
-      "prachtImage({ staticWidths }) expects one or more integer widths between 1 and 16384.",
+      `prachtImage({ staticWidths }) expects one or more integer widths between 1 and ${WEBP_MAX_DIMENSION}; ` +
+        "WebP cannot encode a dimension above that.",
     );
   }
   const importSharp = createSharpImporter(options.loadSharp ?? (() => import("sharp")));
@@ -321,11 +376,76 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
     return `${base.endsWith("/") ? base : `${base}/`}${fileName}`;
   }
 
+  function staticCacheDir(): string {
+    return join(cacheDir, "pracht-image");
+  }
+
+  /**
+   * Record a generated (or pass-through) asset by path. The same content hash
+   * can legitimately be produced by two sources, so ownership is a set: an
+   * entry only disappears once every source that claimed it is gone.
+   */
+  function registerStaticAsset(
+    fileName: string,
+    contentType: `image/${string}`,
+    path: string,
+    filePath: string,
+  ): void {
+    const existing = staticAssets.get(fileName);
+    if (existing) {
+      existing.sources.add(toPosixPath(filePath));
+      return;
+    }
+    staticAssets.set(fileName, {
+      contentType,
+      path,
+      sources: new Set([toPosixPath(filePath)]),
+    });
+  }
+
+  async function readStaticAsset(fileName: string, asset: StaticAsset): Promise<Buffer> {
+    try {
+      return await readFile(asset.path);
+    } catch (error) {
+      throw new Error(
+        `[pracht/image] Could not read the bytes for static asset ${JSON.stringify(fileName)} ` +
+          `from ${JSON.stringify(asset.path)} (generated from ${[...asset.sources]
+            .map((source) => JSON.stringify(source))
+            .join(", ")}): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  let cachePrune: Promise<void> | undefined;
+  /**
+   * Age-based prune of the generated-variant cache, run once per plugin
+   * instance. Without it, every image edit leaves its previous encodes behind
+   * forever. Best effort by design: an unreadable or unwritable cache
+   * directory must never fail a build.
+   */
+  function pruneStaticCache(): Promise<void> {
+    cachePrune ??= (async () => {
+      const directory = staticCacheDir();
+      const entries = await readdir(directory).catch(() => [] as string[]);
+      const cutoff = Date.now() - STATIC_CACHE_MAX_AGE_MS;
+      await Promise.all(
+        entries.map(async (entry) => {
+          const entryPath = join(directory, entry);
+          const stats = await stat(entryPath).catch(() => undefined);
+          if (!stats?.isFile() || stats.mtimeMs >= cutoff) return;
+          await unlink(entryPath).catch(() => undefined);
+        }),
+      );
+    })().catch(() => undefined);
+    return cachePrune;
+  }
+
   async function createStaticVariants(
     sharp: SharpFactory,
     source: Uint8Array,
     filePath: string,
     intrinsicWidth: number,
+    intrinsicHeight: number,
   ): Promise<PrachtImageMetadata["variants"]> {
     const metadata = await sharp(source).metadata();
     if (metadata.format === "svg" || (metadata.pages ?? 1) > 1) {
@@ -340,7 +460,9 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
         .slice(0, 12);
       const fileName = posix.join(assetsDir, `${stem}.${hash}${extension}`);
       const contentType = contentTypeForOriginal(metadata.format, extension);
-      staticAssets.set(fileName, { contentType, source });
+      // Pass-through sources are emitted byte-for-byte, so the original file
+      // is its own cache entry — no need to keep a second copy in memory.
+      registerStaticAsset(fileName, contentType, filePath, filePath);
       return [
         {
           src: staticAssetUrl(fileName),
@@ -350,9 +472,20 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       ];
     }
 
-    const widths = [
-      ...new Set([...staticWidths.filter((width) => width < intrinsicWidth), intrinsicWidth]),
-    ];
+    // Resizing by width scales the height with it, so the widest encodable
+    // variant is bounded by whichever WebP limit binds first. A 20000x8
+    // panorama caps at 16383px wide; an 8x20000 stripe caps at the width whose
+    // scaled height still fits. Clamping keeps the largest variant honest
+    // instead of handing sharp a request it cannot encode.
+    const maxWidth = Math.max(
+      1,
+      Math.min(
+        intrinsicWidth,
+        WEBP_MAX_DIMENSION,
+        Math.floor((WEBP_MAX_DIMENSION * intrinsicWidth) / intrinsicHeight),
+      ),
+    );
+    const widths = [...new Set([...staticWidths.filter((width) => width < maxWidth), maxWidth])];
     const stem = basename(filePath, extname(filePath)).replace(/[^a-zA-Z0-9_-]+/g, "-") || "image";
     const variants = [];
     for (const width of widths) {
@@ -370,17 +503,22 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
         .digest("hex")
         .slice(0, 12);
       const fileName = posix.join(assetsDir, `${stem}.${width}.${hash}.webp`);
-      const cachedPath = join(cacheDir, "pracht-image", `${hash}.webp`);
-      let output = await readFile(cachedPath).catch(() => undefined);
-      if (!output) {
-        output = Buffer.from(
+      const cachedPath = join(staticCacheDir(), `${hash}.webp`);
+      const cached = await stat(cachedPath).catch(() => undefined);
+      if (cached?.isFile()) {
+        // Touch on hit so the age-based prune only ever reaches entries whose
+        // source image no longer exists in this shape.
+        const now = new Date();
+        await utimes(cachedPath, now, now).catch(() => undefined);
+      } else {
+        const output = Buffer.from(
           await sharp(source)
             .rotate()
             .resize({ width, withoutEnlargement: true })
             .webp({ quality: staticQuality })
             .toBuffer(),
         );
-        await mkdir(join(cacheDir, "pracht-image"), { recursive: true });
+        await mkdir(staticCacheDir(), { recursive: true });
         const temporaryPath = `${cachedPath}.${process.pid}.${randomUUID()}.tmp`;
         try {
           await writeFile(temporaryPath, output);
@@ -389,14 +527,13 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
           // Another build may have atomically populated the same content key.
           // Reuse its complete bytes; never accept a partially written cache
           // entry and never fail merely because equivalent work won the race.
-          const concurrent = await readFile(cachedPath).catch(() => undefined);
-          if (!concurrent) throw error;
-          output = concurrent;
+          const concurrent = await stat(cachedPath).catch(() => undefined);
+          if (!concurrent?.isFile()) throw error;
         } finally {
           await unlink(temporaryPath).catch(() => undefined);
         }
       }
-      staticAssets.set(fileName, { contentType: "image/webp", source: output });
+      registerStaticAsset(fileName, "image/webp", cachedPath, filePath);
       variants.push({ src: staticAssetUrl(fileName), width, type: "image/webp" as const });
     }
     return variants;
@@ -431,9 +568,25 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
             `${error instanceof Error ? error.message : String(error)}`,
         );
       }
-      const variants = staticImport
-        ? await createStaticVariants(sharp, source, filePath, analyzed.width)
-        : undefined;
+      let variants: PrachtImageMetadata["variants"];
+      if (staticImport) {
+        try {
+          variants = await createStaticVariants(
+            sharp,
+            source,
+            filePath,
+            analyzed.width,
+            analyzed.height,
+          );
+        } catch (error) {
+          // Encoder and cache failures are reported against the import that
+          // caused them; a bare sharp message names no file at all.
+          throw new Error(
+            `[pracht/image] Failed to generate static variants for "${filePath}": ` +
+              `${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
       return createImageModuleCode(assetId, analyzed, variants, staticQuery);
     })();
     // Drop failed transforms so a fixed image (or a later sharp install) is
@@ -457,6 +610,11 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       cacheDir = config.cacheDir;
       staticOutDir = resolve(root, options.staticOutDir ?? "dist/client");
       isSsrBuild = Boolean(config.build.ssr);
+    },
+    buildStart() {
+      // Vite runs this once per environment on both builds and dev-server
+      // startup; the prune memoizes itself so the work happens once.
+      return pruneStaticCache();
     },
     async resolveId(source, importer) {
       if (!isPrachtImageId(source)) return null;
@@ -512,19 +670,25 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
         if (!entry) return next();
         const method = (request.method ?? "GET").toUpperCase();
         if (method !== "GET" && method !== "HEAD") return next();
-        response.statusCode = 200;
-        response.setHeader("cache-control", "no-store");
-        response.setHeader("content-type", entry[1].contentType);
-        response.setHeader("x-content-type-options", "nosniff");
-        response.end(method === "HEAD" ? undefined : entry[1].source);
+        const respond = (source?: Uint8Array): void => {
+          response.statusCode = 200;
+          response.setHeader("cache-control", "no-store");
+          response.setHeader("content-type", entry[1].contentType);
+          response.setHeader("x-content-type-options", "nosniff");
+          response.end(source);
+        };
+        // Variant bytes live on disk, so a HEAD needs no read at all and a GET
+        // materializes them for the duration of the response only.
+        if (method === "HEAD") return respond();
+        readStaticAsset(entry[0], entry[1]).then(respond, next);
       });
     },
-    generateBundle() {
+    async generateBundle() {
       const consumer = this.environment?.config?.consumer;
       const isServerBundle = consumer ? consumer === "server" : isSsrBuild;
       if (isServerBundle) return;
       for (const [fileName, asset] of staticAssets) {
-        this.emitFile({ type: "asset", fileName, source: asset.source });
+        this.emitFile({ type: "asset", fileName, source: await readStaticAsset(fileName, asset) });
       }
     },
     async writeBundle() {
@@ -550,10 +714,20 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
           );
         }
         await mkdir(dirname(outputPath), { recursive: true });
-        await writeFile(outputPath, asset.source);
+        await writeFile(outputPath, await readStaticAsset(fileName, asset));
       }
     },
     watchChange(filePath) {
+      const changed = toPosixPath(filePath);
+
+      // Variants are content-hashed, so an edit makes every entry generated
+      // from the old bytes permanently unreachable. Drop them here or a long
+      // dev session accumulates one dead set of variants per save.
+      for (const [fileName, asset] of staticAssets) {
+        if (!asset.sources.delete(changed)) continue;
+        if (asset.sources.size === 0) staticAssets.delete(fileName);
+      }
+
       if (this.environment.mode !== "dev") return;
 
       // publicDir modules use a root-relative URL as their module id, so Vite's
@@ -562,7 +736,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       // watcher reports a change; source-directory ids are already covered by
       // Vite and the duplicate invalidation is harmless.
       for (const [moduleId, resolved] of resolvedImages) {
-        if (resolved.filePath.replace(/\\/g, "/") !== filePath.replace(/\\/g, "/")) continue;
+        if (toPosixPath(resolved.filePath) !== changed) continue;
         const module = this.environment.moduleGraph.getModuleById(moduleId);
         if (module) this.environment.moduleGraph.invalidateModule(module);
       }

@@ -74,6 +74,12 @@ async function compileMarkdown<TFrontmatter extends Record<string, unknown>>(
     },
   });
 
+  // Compiled Markdown is emitted verbatim into `dangerouslySetInnerHTML`, so
+  // raw HTML in a document — including `<script>`, event handlers, and
+  // `javascript:` hrefs — executes. That is the build-time trust model shared
+  // with MDX: collections are repo-authored source, not user input. Anything
+  // sourced from a CMS or from end users must be sanitized before it reaches
+  // here, either in `parse` or in a `render` hook.
   const parsed = await marked.parse(input.body);
   const context = { html: parsed, input };
   const rendered = options.render ? await options.render(context) : parsed;
@@ -146,5 +152,6 @@ export function defineMarkdownCollection<
     compile: (input) => compileMarkdown(input, options),
     module: (document) => moduleCode(document, options),
     ...(options.artifacts === undefined ? {} : { artifacts: options.artifacts }),
+    ...(options.snapshot === undefined ? {} : { snapshot: options.snapshot }),
   });
 }

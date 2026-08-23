@@ -602,7 +602,6 @@ function parseNetlifyHeadersManifest(source: string): HeadersManifest {
     if (
       !pathname.startsWith("/") ||
       hasNetlifyRuleWhitespaceOrControl(pathname) ||
-      isNetlifyPathPattern(pathname) ||
       !rawHeaders ||
       typeof rawHeaders !== "object" ||
       Array.isArray(rawHeaders)
@@ -625,6 +624,25 @@ function parseNetlifyHeadersManifest(source: string): HeadersManifest {
       }
       headers[name] = value;
     }
+
+    // Every prerendered page contributes an entry, most of them header-less.
+    // They emit no `_headers` rule, so nothing about the path can matter.
+    if (Object.keys(headers).length === 0) continue;
+
+    // `*` and a `:`-leading segment are Netlify pattern syntax, so `_headers`
+    // cannot express an exact match for such a path. A `getStaticPaths()` slug
+    // may legitimately contain either (`encodeURIComponent` leaves `*` alone),
+    // and broadening the rule to other paths is worse than dropping it — warn
+    // and skip instead of failing an otherwise valid build.
+    if (isNetlifyPathPattern(pathname)) {
+      console.warn(
+        `@pracht/adapter-netlify skipped the build headers for ${JSON.stringify(pathname)}: ` +
+          'Netlify reads "*" and ":placeholder" in `_headers` as path patterns, so the rule ' +
+          "would apply to other paths instead of matching this one exactly.",
+      );
+      continue;
+    }
+
     manifest[pathname] = headers;
   }
   return manifest;

@@ -45,6 +45,21 @@ describe("defineMarkdownCollection", () => {
     expect(module).toContain("renderMarkdownImages");
   });
 
+  it("forwards the snapshot opt-out to the underlying collection", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-markdown-"));
+    roots.push(root);
+    await writeFile(join(root, "post.md"), "# Title\n");
+    const collection = defineMarkdownCollection({
+      name: "trimmed",
+      root,
+      snapshot: { raw: false },
+    });
+
+    const snapshot = await collection.snapshot();
+    expect(snapshot.fields).toEqual({ body: true, raw: false });
+    expect(snapshot.documents[0]).not.toHaveProperty("raw");
+  });
+
   it("anchors bare relative image paths so Vite does not resolve them as packages", async () => {
     const { collection, source } = await fixture("![Alt](photo.jpg)\n![Nested](sub/photo.jpg)\n");
 
@@ -150,6 +165,25 @@ describe("renderMarkdownImage", () => {
     expect(html).toContain('height="400"');
     expect(html).toContain('alt="A &lt;photo&gt; &amp; &quot;caption&quot;"');
     expect(html).toContain('title="Title &quot;quoted&quot;"');
+    // No configured `sizes`: the intrinsic-width default keeps a prose column
+    // from requesting the widest variant.
+    expect(html).toContain('sizes="(max-width: 640px) 100vw, 640px"');
+  });
+
+  it("lets an explicit sizes option override the intrinsic-width default", () => {
+    const descriptor = { source: "./photo.jpg", alt: "Photo", marker: "marker" };
+    const metadata = {
+      src: "/assets/photo.640.webp",
+      width: 640,
+      height: 400,
+      variants: [
+        { src: "/assets/photo.320.webp", width: 320, type: "image/webp" as const },
+        { src: "/assets/photo.640.webp", width: 640, type: "image/webp" as const },
+      ],
+    };
+
+    expect(renderMarkdownImage(descriptor, metadata, { sizes: "50vw" })).toContain('sizes="50vw"');
+    expect(renderMarkdownImage(descriptor, metadata)).not.toContain('sizes="100vw"');
   });
 
   it("keeps dollar patterns in alt text out of the replacement grammar", () => {

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { extname } from "node:path";
+import { extname, isAbsolute } from "node:path";
 import type { Connect, Plugin, ViteDevServer } from "vite";
 
 import { artifactFileName } from "./path.ts";
@@ -12,6 +12,8 @@ export const CONTENT_ROUTES_FILE = "_pracht/content-routes.json";
 
 export interface ViteContentCollection {
   readonly name: string;
+  /** Absolute directory holding the collection sources. */
+  readonly root: string;
   emitArtifacts(): Promise<readonly ContentArtifact[]>;
   invalidate(source?: string): void;
   ownsSource(source: string): boolean;
@@ -291,6 +293,15 @@ function registerInvalidation(
   server: ViteDevServer,
   collections: readonly ViteContentCollection[],
 ): void {
+  // Vite only watches its own project root. A collection rooted elsewhere — a
+  // monorepo's shared docs directory, say — would never emit an event, leaving
+  // development serving the content captured at server start.
+  for (const collection of collections) {
+    if (typeof collection.root === "string" && isAbsolute(collection.root)) {
+      server.watcher.add(collection.root);
+    }
+  }
+
   const invalidate = (file: string) => {
     for (const collection of collections) {
       if (!collection.ownsSource(file)) continue;

@@ -1,13 +1,13 @@
 ---
 "@pracht/content": minor
-"@pracht/core": patch
+"@pracht/core": minor
 "@pracht/cli": patch
 "@pracht/adapter-cloudflare": patch
 "@pracht/adapter-netlify": patch
 "@pracht/adapter-node": patch
 "@pracht/image": minor
 "@pracht/markdown": minor
-"@pracht/test": patch
+"@pracht/test": minor
 ---
 
 Add the opt-in, server-only `@pracht/content` collection primitive. One
@@ -107,3 +107,31 @@ loaders, and Markdown preserves custom Marked image renderers for root-relative,
 remote, and data image sources. Netlify builds preserve hand-authored `_headers`
 files copied from the configured Vite public directory without allowing an
 unused default `public/_headers` to suppress generated deployment headers.
+
+Netlify builds no longer fail on prerendered page paths that `_headers` cannot
+express as an exact match (a `*` or leading-`:` segment): header-less entries
+are skipped, entries with headers are skipped with a build warning naming the
+path, and malformed header names or values still fail the build. `contentLoader()`
+treats malformed request pathnames as not-found instead of throwing, matching
+the capability helpers.
+
+Static image variants clamp encoding to WebP's 16383-pixel limit on both axes
+instead of failing the build on very large sources, `staticWidths` validation
+rejects widths above that limit, and encoder failures name the offending source
+file. The image disk cache is pruned of entries unused for 30 days, cache hits
+keep live entries fresh, edited sources evict their stale in-memory variants,
+and variant bytes are read lazily from the cache at emission instead of being
+held in memory for the whole build.
+
+Markdown images without a configured `sizes` now inherit `@pracht/image`'s
+intrinsic-width default instead of `100vw`, and the unreachable markdown
+`quality` option is removed. The Markdown trust model — compiled output is
+executed as HTML; feed it only trusted content — is now documented.
+
+Collections accept `snapshot: { raw?, body? }` to trim source representations
+from runtime snapshots, forwarded by `defineMarkdownCollection()`; capability
+helpers that need a trimmed field fail at construction with an actionable
+error. Scanned collections follow in-root symbolic links (escaping or dangling
+links are skipped), collection roots outside Vite's watched root are added to
+the dev watcher, and the authoring and snapshot runtimes share one locale and
+route-path implementation.

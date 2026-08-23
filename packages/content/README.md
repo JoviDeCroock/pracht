@@ -68,6 +68,13 @@ fail before output is emitted. Routes and output paths must be safe,
 root-relative URL paths; source paths cannot escape the collection root,
 including through an explicitly registered symbolic link. Symbolic collection
 roots remain addressable through the canonical module IDs emitted by Vite.
+
+A scan follows symbolic files and directories inside the root and guards
+against link cycles. A link whose target leaves the root, or whose target no
+longer exists, is skipped rather than failing the collection the way an
+explicitly registered escaping link does. A link onto content the scan already
+reaches names the same document twice, so the direct path wins and the link
+registers no second route.
 Custom and explicit locale routes cannot shadow generated fallback aliases,
 including aliases for documents with the same id; generated
 `routePrefix: "never"` routes may still share one locale-neutral path.
@@ -141,7 +148,9 @@ collection's `module` hook in every Vite environment; resource queries such as
 The second serves generated artifacts with GET/HEAD beneath Vite's configured
 base in development and emits identical static files in client builds.
 File watcher events invalidate only the affected memoized document and the
-shared route/source index. Artifact `contentType` values are carried into
+shared route/source index. Every collection root is added to the development
+watcher, so a root outside Vite's project root — a monorepo's shared docs
+directory, for example — still invalidates on edit. Artifact `contentType` values are carried into
 Pracht's production headers manifest and applied by the Node, Cloudflare,
 Netlify, and Vercel adapters as well as the development response. Malformed,
 non-portable, non-ByteString, or control-character values fail before
@@ -192,6 +201,26 @@ import docs from "virtual:pracht/content/docs";
 The suffix is the collection `name`. This module embeds the documents and
 locale/fallback indexes into the server bundle, so it works in Cloudflare,
 Vercel, and dist-only Node deployments without source files or `node:fs`.
+
+A snapshot carries `raw` and `body` alongside `compiled`, roughly two to three
+times the content size. An application that neither negotiates Markdown nor
+searches bodies can drop either from the generated module:
+
+```ts
+defineCollection({
+  name: "docs",
+  root: new URL("./content/docs", import.meta.url),
+  // Both default to true. The authoring collection keeps every field.
+  snapshot: { raw: false },
+});
+```
+
+An omitted field is absent on snapshot documents, and `collection.snapshotFields`
+reports what a collection carries. `markdownRepresentation()` needs `raw` (or
+`body`), and both capability helpers need `body`; building one over a
+body-free snapshot throws where the capability is wired up rather than
+answering every query with nothing.
+
 Frontmatter and compiled values used this way must be JSON-serializable. JSON
 object keys retain their data semantics in the generated module, including
 prototype-named keys such as `__proto__`. Add `@pracht/content/virtual` to
@@ -204,7 +233,9 @@ the module locally with application-specific frontmatter and compiled types.
 loader without making `@pracht/core` a dependency. It uses Pracht's matched,
 base-free loader `pathname` by default; structural callers outside Pracht can
 provide `pathname` or override `path`. Use `select` to keep loader data
-serializable and small. `markdownRepresentation(document, "raw" | "body")`
+serializable and small. A pathname a dynamic route matched but no document can
+carry — `/docs/%2e%2e`, an encoded NUL, a backslash segment — takes the same
+404 path as a missing document instead of failing the request. `markdownRepresentation(document, "raw" | "body")`
 selects the string a generated route module can export as its server-only
 `markdown` representation.
 

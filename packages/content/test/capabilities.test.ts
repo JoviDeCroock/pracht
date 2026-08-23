@@ -6,6 +6,7 @@ import { defineCapability } from "@pracht/capabilities";
 
 import { createContentPageCapability, createContentSearchCapability } from "../src/capabilities.ts";
 import { defineCollection } from "../src/index.ts";
+import { defineSnapshotCollection } from "../src/runtime.ts";
 
 let temporaryDirectory: string | undefined;
 
@@ -84,6 +85,27 @@ describe("content capabilities", () => {
     });
 
     expect(output.results[0].snippet).toContain("needle");
+  });
+
+  it("refuses to build page or search fields over a body-free snapshot", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-capabilities-"));
+    await writeFile(join(temporaryDirectory, "guide.md"), "Deploy safely with an adapter.");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      snapshot: { body: false },
+    });
+    const runtime = defineSnapshotCollection(await collection.snapshot());
+
+    // Wiring time, not query time: a silent empty result set is the failure
+    // mode worth ruling out.
+    expect(() => createContentSearchCapability(runtime)).toThrow(
+      /createContentSearchCapability\(\) needs document bodies.*"docs".*snapshot: \{ body: false \}/s,
+    );
+    expect(() => createContentPageCapability(runtime)).toThrow(
+      /createContentPageCapability\(\) needs document bodies/,
+    );
+    expect(() => createContentSearchCapability(collection)).not.toThrow();
   });
 
   it("returns a missing result for invalid paths and unsupported locales", async () => {

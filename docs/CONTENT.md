@@ -53,6 +53,11 @@ that do want a supported Markdown route-module compiler. It wraps
 page markup, head, and artifacts, and keeps raw Markdown available to Pracht's
 content negotiation.
 
+Compiled Markdown is executed as HTML without sanitization — the build-time
+trust model. Only feed it trusted, repo-authored content; sanitize CMS- or
+user-sourced Markdown in `parse` or `render` before it compiles. See the
+[`@pracht/markdown` trust model](../packages/markdown/README.md#trust-model).
+
 ```ts
 import { prachtContent } from "@pracht/content/vite";
 import { prachtImage } from "@pracht/image/vite";
@@ -95,6 +100,14 @@ Explicit sources are checked again after symbolic links are resolved, so a
 link inside the collection cannot read or publish a file outside the root. A
 symbolic collection root is supported: canonical module IDs still resolve to
 the registered source.
+
+Discovery follows symbolic files and directories under the root and stops when
+a link points back at a directory it is already inside. The containment rule is
+unchanged, but discovery applies it differently from registration: an escaping
+or dangling link found by a scan is incidental, so it is skipped instead of
+failing the collection the way a deliberately registered one does. A link that
+only re-exposes content the scan already reaches resolves to the direct path,
+which keeps one file from claiming two routes.
 Ambiguous source, route/locale, id/locale, and artifact registrations throw
 instead of letting ordering select a winner. Custom or explicit locale routes
 also cannot shadow a missing locale's generated fallback alias, even when both
@@ -143,14 +156,18 @@ retains the exact original source. `compile(input)` may return any value: HTML,
 an AST, a page model, or a search record. Filesystem loads reuse compilation
 while mtime and size are unchanged. Vite supplies the live transformed source
 and clears the affected entry plus the cached registry on add/change/unlink.
-Repeated lookups otherwise reuse the same route/source index instead of
-rescanning the collection root.
+Every collection root joins the development watcher, so a root outside Vite's
+own project root still reports those events. Repeated lookups otherwise reuse
+the same route/source index instead of rescanning the collection root.
 
 Failed parsing or compilation is never cached. The next request/build retries,
 which keeps a temporary authoring error from poisoning the development server.
 
 `contentLoader()` uses the framework's matched, base-free loader `pathname` by
 default, so collection routes stay independent of the configured deployment base.
+A dynamic route such as `/docs/:slug` also matches pathnames no document can
+carry, like `/docs/%2e%2e`; the loader answers those with its not-found path
+rather than surfacing the route rejection as a request failure.
 
 ## Static artifacts
 
@@ -260,6 +277,20 @@ JSON-serializable; a build fails with the offending value path otherwise. JSON
 object keys retain their data semantics in the generated module, including
 prototype-named keys such as `__proto__`.
 
+Each document embeds `raw`, `body`, and `compiled`, so a snapshot costs roughly
+two to three times the content it describes. `defineCollection({ snapshot: {
+raw: false, body: false } })` drops either representation from the generated
+module; both default to true and the authoring collection always keeps them.
+The option is deliberately narrow: `compiled` is what routes render, and
+frontmatter is what they index, so neither can be dropped.
+
+An omitted field is absent on the snapshot's documents rather than a throwing
+accessor, matching the plain object shape the rest of the runtime API returns,
+and `collection.snapshotFields` reports what a collection carries. Because the
+mismatch is otherwise invisible — Markdown negotiation returns nothing, search
+matches nothing — both capability helpers reject a body-free collection when
+the capability is constructed rather than when it runs.
+
 Applications can add `@pracht/content/virtual` to `compilerOptions.types` for a
 generic declaration and optionally augment their named virtual module with
 more specific document types.
@@ -279,7 +310,8 @@ malformed routes or unsupported locales as a missing result rather than an
 execution failure.
 
 The basic search helper scores title matches above body matches and requires
-every query term. Localized collections advertise their supported locales in
+every query term. Both helpers read `document.body`, so a collection whose
+snapshot omits it is refused when the helper is called. Localized collections advertise their supported locales in
 the input schema, while locale hints do not filter unlocalized collections. It
 is an integration example and a useful small-site default, not a mandatory
 search architecture. Larger sites should build an index by iterating the same

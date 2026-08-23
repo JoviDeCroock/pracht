@@ -414,6 +414,47 @@ describe("defineCollection", () => {
     await expect(collection.all()).rejects.toThrow(/after resolving symbolic links/);
   });
 
+  it("follows symbolic files and directories that stay inside the collection root", async () => {
+    const root = await fixture({
+      ".shared/page.md": "Shared page",
+      ".shared/section/nested.md": "Shared section",
+      "guides/own.md": "Own",
+      "page.md": "Page",
+    });
+    await symlink(join(root, ".shared/page.md"), join(root, "linked-page.md"));
+    await symlink(join(root, ".shared/section"), join(root, "linked-section"), "dir");
+    // Links onto already scanned content name the same document twice, and a
+    // link back at an ancestor would recurse until the stack blows.
+    await symlink(join(root, "page.md"), join(root, "duplicate.md"));
+    await symlink(join(root, "guides"), join(root, "duplicate-guides"), "dir");
+    await symlink(root, join(root, "guides/loop"), "dir");
+    const collection = defineCollection({ name: "docs", root });
+
+    const documents = await collection.all();
+
+    expect(documents.map((document) => document.path)).toEqual([
+      "/guides/own",
+      "/linked-page",
+      "/linked-section/nested",
+      "/page",
+    ]);
+    expect((await collection.getByRoute("/linked-page"))?.body).toBe("Shared page");
+    expect((await collection.getByRoute("/linked-section/nested"))?.body).toBe("Shared section");
+  });
+
+  it("skips scanned symbolic links whose target escapes the collection root", async () => {
+    const root = await fixture({ "inside.md": "Inside" });
+    const outside = await fixture({ "outside.md": "Outside", "section/deep.md": "Deep" });
+    await symlink(join(outside, "outside.md"), join(root, "linked.md"));
+    await symlink(join(outside, "section"), join(root, "linked-section"), "dir");
+    await symlink(join(root, "missing.md"), join(root, "dangling.md"));
+    const collection = defineCollection({ name: "docs", root });
+
+    // Unlike an explicit registration, an incidental link found by a scan must
+    // not fail the whole collection.
+    await expect(collection.all()).resolves.toMatchObject([{ path: "/inside" }]);
+  });
+
   it("matches Vite-canonicalized sources when the collection root is symbolic", async () => {
     const root = await fixture({ "page.md": "Same" });
     const parent = await fixture({});
@@ -736,5 +777,65 @@ describe("collection integration helpers", () => {
     await expect(
       loader({ params: {}, request: new Request("https://example.com/missing") }),
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("answers 404 for pathnames a dynamic route forwards but no document can carry", async () => {
+    const root = await fixture({ "page.md": "Body" });
+    const collection = defineCollection({ name: "docs", root, routeBase: "/docs" });
+    const notFound = vi.fn((path: string) => new Response(path, { status: 404 }));
+    const loader = contentLoader(collection, { notFound });
+
+    for (const pathname of ["/docs/%2e%2e", "/docs/%00", "/docs/\\page", "/docs/%zz", "docs"]) {
+      await expect(
+        loader({ params: {}, pathname, request: new Request("https://example.com/docs") }),
+      ).rejects.toMatchObject({ status: 404 });
+    }
+    expect(notFound).toHaveBeenCalledTimes(5);
+    expect(notFound).toHaveBeenCalledWith("/docs/%2e%2e");
+  });
+
+  it("omits opted-out representations from the snapshot without changing the collection", async () => {
+    const root = await fixture({ "page.md": "---\ntitle: Page\n---\nBody" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      snapshot: { raw: false },
+    });
+
+    expect(collection.snapshotFields).toEqual({ body: true, raw: true });
+    await expect(collection.getByRoute("/docs/page")).resolves.toMatchObject({
+      body: "Body",
+      raw: "---\ntitle: Page\n---\nBody",
+    });
+
+    const snapshot = await collection.snapshot();
+    expect(snapshot.fields).toEqual({ body: true, raw: false });
+    expect(Object.hasOwn(snapshot.documents[0], "raw")).toBe(false);
+
+    const runtime = defineSnapshotCollection(snapshot);
+    expect(runtime.snapshotFields).toEqual({ body: true, raw: false });
+    const document = await runtime.getByRoute("/docs/page");
+    expect(document?.body).toBe("Body");
+    expect(document?.raw).toBeUndefined();
+  });
+
+  it("keeps every snapshot representation by default and validates the opt-out", async () => {
+    const root = await fixture({ "page.md": "Body" });
+    const snapshot = await defineCollection({ name: "docs", root }).snapshot();
+
+    expect(snapshot.fields).toBeUndefined();
+    expect(snapshot.documents[0]).toMatchObject({ body: "Body", raw: "Body" });
+    expect(defineSnapshotCollection(snapshot).snapshotFields).toEqual({ body: true, raw: true });
+
+    expect(() => defineCollection({ name: "docs", root, snapshot: null as never })).toThrow(
+      /snapshot must be an object/,
+    );
+    expect(() =>
+      defineCollection({ name: "docs", root, snapshot: { raw: "no" as never } }),
+    ).toThrow(/snapshot\.raw must be a boolean/);
+    expect(() =>
+      defineCollection({ name: "docs", root, snapshot: { compiled: false } as never }),
+    ).toThrow(/snapshot does not support "compiled"/);
   });
 });

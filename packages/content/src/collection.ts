@@ -6,11 +6,19 @@ import { MIMEType } from "node:util";
 
 import { parseFrontmatter } from "./frontmatter.ts";
 import {
+  NO_LOCALE,
+  type NormalizedContentLocales,
+  assertSupportedLocale,
+  resolveLocaleOrder,
+  resolveRequestedLocale,
+} from "./locale.ts";
+import {
   artifactFileName,
   isInsideRoot,
   normalizeRelativeSource,
   normalizeRoutePath,
 } from "./path.ts";
+import { ALL_SNAPSHOT_FIELDS, assertSnapshotOptions, normalizeSnapshotFields } from "./snapshot.ts";
 import type {
   ContentArtifact,
   ContentCollection,
@@ -48,8 +56,6 @@ interface CachedDocument<TFrontmatter extends Record<string, unknown>, TCompiled
   raw?: string;
 }
 
-const NO_LOCALE = "\0";
-
 export function defineCollection<
   TFrontmatter extends Record<string, unknown> = Record<string, unknown>,
   TCompiled = string,
@@ -67,6 +73,7 @@ export function defineCollection<
   );
   const routeBase = normalizeRoutePath(options.routeBase ?? "/", "content routeBase");
   const locales = normalizeLocales(options.locales);
+  const snapshotFields = normalizeSnapshotFields(options.snapshot);
   let realRoot: string | undefined;
   const explicitSources = options.sources
     ? Object.freeze(options.sources.map((source) => ({ ...source })))
@@ -80,6 +87,9 @@ export function defineCollection<
     root,
     extensions,
     locales,
+    // The authoring collection reads the filesystem, so it always carries every
+    // representation. `snapshot` only trims what the generated module embeds.
+    snapshotFields: ALL_SNAPSHOT_FIELDS,
 
     async all() {
       const registry = await buildRegistry();
@@ -117,7 +127,10 @@ export function defineCollection<
 
     ownsSource(source) {
       const clean = resolveCollectionSource(source);
-      return collectionSourceIdentity(clean) !== undefined && extensions.includes(extname(clean));
+      // Extension first: Vite calls this for every module id, and the identity
+      // check canonicalizes through `realpathSync`, which throws ENOENT for
+      // every virtual id before returning undefined.
+      return extensions.includes(extname(clean)) && collectionSourceIdentity(clean) !== undefined;
     },
 
     async loadSource(source, raw) {
@@ -206,13 +219,25 @@ export function defineCollection<
       const registry = await buildRegistry();
       const documents = await Promise.all(
         registry.descriptors.map(async (descriptor) => {
-          const { locale, source: _source, ...document } = await loadDescriptor(descriptor);
-          return locale === undefined ? document : { ...document, locale };
+          const {
+            body,
+            locale,
+            raw,
+            source: _source,
+            ...document
+          } = await loadDescriptor(descriptor);
+          return {
+            ...document,
+            ...(snapshotFields.body ? { body } : {}),
+            ...(snapshotFields.raw ? { raw } : {}),
+            ...(locale === undefined ? {} : { locale }),
+          };
         }),
       );
       return {
         name: options.name,
         extensions: [...extensions],
+        ...(snapshotFields.body && snapshotFields.raw ? {} : { fields: { ...snapshotFields } }),
         ...(locales
           ? {
               locales: {
@@ -601,6 +626,7 @@ function assertOptions<TFrontmatter extends Record<string, unknown>, TCompiled>(
   if (options.sources && !Array.isArray(options.sources)) {
     throw new TypeError("defineCollection() sources must be an array.");
   }
+  assertSnapshotOptions(options.snapshot);
 }
 
 function normalizeRoot(root: string | URL): string {
@@ -613,9 +639,7 @@ function normalizeRoot(root: string | URL): string {
 
 function normalizeLocales(
   locales: ContentLocaleOptions | undefined,
-):
-  | (ContentLocaleOptions & { supported: readonly string[]; sourceDirectories: boolean })
-  | undefined {
+): (NormalizedContentLocales & { sourceDirectories: boolean }) | undefined {
   if (!locales) return undefined;
   if (typeof locales.default !== "string" || !locales.default) {
     throw new TypeError("Content locales.default must be a non-empty string.");
@@ -663,22 +687,68 @@ function validateLocaleFallbacks(
 }
 
 async function scanSources(root: string, extensions: readonly string[]): Promise<ContentSource[]> {
-  const sources: ContentSource[] = [];
-  async function visit(directory: string): Promise<void> {
+  const realRoot = await realpath(root);
+  // Keyed by canonical file path. A link and its target are one document, so
+  // the direct path wins and the link is dropped rather than registered a
+  // second time under another route.
+  const found = new Map<string, { linked: boolean; source: string }>();
+
+  // `ancestors` holds the canonical path of every directory on the current
+  // recursion branch, so a link pointing back at one of them stops instead of
+  // walking forever. Siblings still get scanned.
+  async function visit(
+    directory: string,
+    realDirectory: string,
+    linkedBranch: boolean,
+    ancestors: readonly string[],
+  ): Promise<void> {
+    if (ancestors.includes(realDirectory)) return;
+    const branch = [...ancestors, realDirectory];
     const entries = await readdir(directory, { withFileTypes: true });
     entries.sort((left, right) => compare(left.name, right.name));
     for (const entry of entries) {
       if (entry.name.startsWith(".")) continue;
       const absolute = resolve(directory, entry.name);
-      if (entry.isDirectory()) {
-        await visit(absolute);
-      } else if (entry.isFile() && extensions.includes(extname(entry.name))) {
-        sources.push({ source: normalizeRelativeSource(root, absolute) });
+      // A symbolic link reports neither isFile() nor isDirectory(), so a linked
+      // page or section would otherwise be dropped from discovery even though
+      // an explicit registry accepts one. Resolve it, and skip the ones whose
+      // target leaves the collection root: loading such a source is rejected
+      // anyway, and an incidental link found by a scan must not fail the whole
+      // collection the way a deliberate registration does.
+      const symbolic = entry.isSymbolicLink();
+      const link = symbolic ? await resolveScanLink(absolute, realRoot) : undefined;
+      if (symbolic && !link) continue;
+      const real = link?.real ?? resolve(realDirectory, entry.name);
+      if (link ? link.directory : entry.isDirectory()) {
+        await visit(absolute, real, linkedBranch || symbolic, branch);
+      } else if ((link ? link.file : entry.isFile()) && extensions.includes(extname(entry.name))) {
+        const linked = linkedBranch || symbolic;
+        const existing = found.get(real);
+        if (existing && !(existing.linked && !linked)) continue;
+        found.set(real, { linked, source: normalizeRelativeSource(root, absolute) });
       }
     }
   }
-  await visit(root);
-  return sources;
+
+  await visit(root, realRoot, false, []);
+  return [...found.values()]
+    .map(({ source }) => ({ source }))
+    .sort((left, right) => compare(left.source, right.source));
+}
+
+async function resolveScanLink(
+  absolute: string,
+  realRoot: string,
+): Promise<{ directory: boolean; file: boolean; real: string } | undefined> {
+  try {
+    const real = await realpath(absolute);
+    if (!isInsideRoot(realRoot, real)) return undefined;
+    const target = await stat(absolute);
+    return { directory: target.isDirectory(), file: target.isFile(), real };
+  } catch {
+    // A dangling or unreadable link names no content source.
+    return undefined;
+  }
 }
 
 function routeId(relativePath: string): string {
@@ -689,73 +759,11 @@ function routeId(relativePath: string): string {
 
 function localeRoutePrefix(
   locale: string | undefined,
-  locales:
-    | (ContentLocaleOptions & { supported: readonly string[]; sourceDirectories: boolean })
-    | undefined,
+  locales: NormalizedContentLocales | undefined,
 ): string {
   if (!locale || !locales || locales.routePrefix === "never") return "";
   const strategy = locales.routePrefix ?? "non-default";
   return strategy === "always" || locale !== locales.default ? `/${locale}` : "";
-}
-
-function resolveRequestedLocale(
-  requested: string | undefined,
-  locales:
-    | (ContentLocaleOptions & { supported: readonly string[]; sourceDirectories: boolean })
-    | undefined,
-  candidates: Map<string, SourceDescriptor>,
-  inferFromRoute: boolean,
-): string | undefined {
-  if (!locales) return undefined;
-  const locale = requested ?? locales.default;
-  assertSupportedLocale(locale, locales, "lookup");
-  if (
-    inferFromRoute &&
-    requested === undefined &&
-    !candidates.has(locale) &&
-    candidates.size === 1
-  ) {
-    return [...candidates.values()][0].locale;
-  }
-  return locale;
-}
-
-function resolveLocaleOrder(
-  requested: string | undefined,
-  allowFallback: boolean,
-  locales:
-    | (ContentLocaleOptions & { supported: readonly string[]; sourceDirectories: boolean })
-    | undefined,
-): Array<string | undefined> {
-  if (!locales || !requested) return [undefined];
-  if (!allowFallback) return [requested];
-
-  const configured = locales.fallback;
-  let fallbacks: readonly string[];
-  if (typeof configured === "string") {
-    fallbacks = requested === locales.default ? [] : [configured];
-  } else if (Array.isArray(configured)) {
-    fallbacks = requested === locales.default ? [] : configured;
-  } else if (configured) {
-    const record = configured as Readonly<Record<string, string | readonly string[]>>;
-    const value = Object.hasOwn(record, requested) ? record[requested] : undefined;
-    fallbacks = typeof value === "string" ? [value] : (value ?? []);
-  } else {
-    fallbacks = requested === locales.default ? [] : [locales.default];
-  }
-
-  const order = [requested];
-  for (const locale of fallbacks) {
-    assertSupportedLocale(locale, locales, `fallback for ${JSON.stringify(requested)}`);
-    if (!order.includes(locale)) order.push(locale);
-  }
-  return order;
-}
-
-function assertSupportedLocale(locale: string, locales: ContentLocaleOptions, label: string): void {
-  if (!locales.supported.includes(locale)) {
-    throw new TypeError(`${label} uses unsupported content locale ${JSON.stringify(locale)}.`);
-  }
 }
 
 function assertValidArtifactContentType(contentType: unknown, path: string): void {

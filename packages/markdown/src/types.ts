@@ -3,6 +3,7 @@ import type {
   ContentCompileInput,
   ContentLocaleOptions,
   ContentPathContext,
+  ContentSnapshotOptions,
   ContentSource,
   MaybePromise,
   ParsedContent,
@@ -17,12 +18,13 @@ export interface MarkdownImageDescriptor {
 }
 
 export interface MarkdownImageOptions {
-  /** Browser layout hint. Defaults to `100vw`. */
+  /**
+   * Browser layout hint. Left unset, `@pracht/image` derives it from the
+   * image's intrinsic width: `(max-width: <width>px) 100vw, <width>px`.
+   */
   sizes?: string;
   /** Opt into the build-generated blur placeholder. Defaults to `empty`. */
   placeholder?: "blur" | "empty";
-  /** Quality passed to runtime loaders when static variants are unavailable. */
-  quality?: number;
 }
 
 export interface CompiledMarkdown {
@@ -57,4 +59,6 @@ export interface DefineMarkdownCollectionOptions<
   ) => MaybePromise<Record<string, unknown> | undefined>;
   images?: MarkdownImageOptions;
   artifacts?: readonly ContentArtifactGenerator<TFrontmatter, CompiledMarkdown>[];
+  /** Forwarded to `defineCollection`: trim `raw`/`body` from runtime snapshots. */
+  snapshot?: ContentSnapshotOptions;
 }
