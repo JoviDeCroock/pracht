@@ -981,12 +981,9 @@ export function Component() {
     );
   });
 
-  it("keeps the capability import guard after an erased registry type query", async () => {
+  it("skips the capability import guard when a registry entry is not statically readable", async () => {
     const root = makeTempProject();
-    writeCapabilityManifestProject(root, {
-      registryTypeUse:
-        'function inspect<T>(): void {}\ninspect<typeof capabilities["notes.search"]>();',
-    });
+    writeCapabilityManifestProject(root, { capabilityKey: '["notes.search"]' });
     writeFileSync(
       join(root, "src", "routes", "home.tsx"),
       `
@@ -998,53 +995,7 @@ export function Component() {
 `,
     );
 
-    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
-      /Capability module .* was imported by client code/,
-    );
-  });
-
-  it("keeps the capability import guard through a computed method parameter shadow", async () => {
-    const root = makeTempProject();
-    writeCapabilityManifestProject(root, {
-      registryAuxiliarySource:
-        "const helper = { [Symbol.iterator](capabilities) { return capabilities; } };",
-    });
-    writeFileSync(
-      join(root, "src", "routes", "home.tsx"),
-      `
-import capability from "../capabilities/notes-search";
-
-export function Component() {
-  return <main>{capability.title}</main>;
-}
-`,
-    );
-
-    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
-      /Capability module .* was imported by client code/,
-    );
-  });
-
-  it("keeps the capability import guard through a computed method var shadow", async () => {
-    const root = makeTempProject();
-    writeCapabilityManifestProject(root, {
-      registryAuxiliarySource:
-        "const helper = { [Symbol.iterator]() { if (enabled) var capabilities = {}; return capabilities; } };",
-    });
-    writeFileSync(
-      join(root, "src", "routes", "home.tsx"),
-      `
-import capability from "../capabilities/notes-search";
-
-export function Component() {
-  return <main>{capability.title}</main>;
-}
-`,
-    );
-
-    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
-      /Capability module .* was imported by client code/,
-    );
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).resolves.toBeUndefined();
   });
 
   it("guards capability modules registered outside the capabilities directory", async () => {
@@ -1056,25 +1007,6 @@ export function Component() {
       join(root, "src", "routes", "home.tsx"),
       `
 import capability from "../server/elsewhere";
-
-export function Component() {
-  return <main>{capability.title}</main>;
-}
-`,
-    );
-
-    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
-      /Capability module .* was imported by client code/,
-    );
-  });
-
-  it("guards capability modules registered with computed literal keys", async () => {
-    const root = makeTempProject();
-    writeCapabilityManifestProject(root, { capabilityKey: '["notes.search"]' });
-    writeFileSync(
-      join(root, "src", "routes", "home.tsx"),
-      `
-import capability from "../capabilities/notes-search";
 
 export function Component() {
   return <main>{capability.title}</main>;

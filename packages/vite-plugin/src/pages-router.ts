@@ -112,16 +112,16 @@ export function findPagesMiddlewareFile(
   if (middlewareFile && !exportsMiddleware(readFileSync(middlewareFile, "utf-8"), middlewareFile)) {
     throw new Error(
       `[pracht] Pages middleware ${JSON.stringify(relative(pagesDir, middlewareFile).replace(/\\/g, "/"))} does not ` +
-        "export a `middleware` function. It must `export const middleware: MiddlewareFn = " +
-        "(args, next) => …` (a default export is not used); refusing to build routes that " +
-        "would fail closed at request time.",
+        "export `middleware`. It must declare a named value export such as " +
+        "`export const middleware: MiddlewareFn = (args, next) => …` (a default export is not " +
+        "used). The runtime validates that the exported value is callable.",
     );
   }
 
   return middlewareFile;
 }
 
-/** Whether a middleware module statically exposes a binding named `middleware`. */
+/** Whether a middleware module explicitly exports, or may re-export, `middleware`. */
 function exportsMiddleware(source: string, file: string): boolean {
   return hasNamedMiddlewareExport(parseAst(source, { lang: getRolldownLang(file) }));
 }

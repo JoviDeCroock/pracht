@@ -163,7 +163,7 @@ export function collectManifestVerification(
 
 type MiddlewareParserLanguage = "js" | "jsx" | "ts" | "tsx";
 
-/** Whether `source` statically exposes a runtime binding named `middleware`. */
+/** Whether `source` explicitly exports, or may re-export, `middleware`. */
 export function exportsMiddleware(source: string, file = "middleware.ts"): boolean {
   try {
     return hasNamedMiddlewareExport(parseAst(source, { lang: middlewareParserLanguage(file) }));
@@ -186,11 +186,8 @@ function middlewareParserLanguage(file: string): MiddlewareParserLanguage {
 }
 
 /**
- * A registered middleware module that does not export `middleware` used to be
- * skipped at runtime, so an auth gate could be wired in the manifest and
- * absent in production while every check here passed. The runtime now refuses
- * to serve such a route; this check reports the same mistake before a request
- * ever reaches it.
+ * Check the statically decidable part of the contract: the module must name a
+ * `middleware` export. The runtime remains authoritative for callability.
  */
 function collectMiddlewareExportChecks(
   checks: Check[],
@@ -219,8 +216,9 @@ function collectMiddlewareExportChecks(
     createCheck(
       "error",
       `Middleware module(s) without a \`middleware\` export: ${missing.join(", ")}. ` +
-        "Middleware must `export const middleware: MiddlewareFn = (args, next) => …` " +
-        "(a default export is not used); routes referencing them fail at request time.",
+        "Middleware must declare a named value export such as " +
+        "`export const middleware: MiddlewareFn = (args, next) => …` (a default export is not " +
+        "used). The runtime validates that the exported value is callable.",
     ),
   );
 }

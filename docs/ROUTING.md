@@ -925,8 +925,12 @@ Scope and limits:
   requests and still traverse middleware with the visitor request. That can
   vary the JSON response but cannot protect the already-public static HTML,
   so cookie- or session-based gating belongs on `ssr`/`spa` routes.
-- The module must export `middleware`; a module that does not fails build,
-  `doctor`, and `verify`, and requests to page routes fail closed at runtime.
+- The module must declare a named `middleware` export; a module that does not
+  fails build, `doctor`, and `verify`. Those checks intentionally do not model
+  the exported value: value `export *` declarations are treated as unknown,
+  and the request runtime performs the authoritative
+  `typeof middleware === "function"` check and fails closed when it is not
+  callable.
 - The 404 page renders without middleware — it is a not-found response, not
   a route.
 

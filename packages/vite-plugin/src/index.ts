@@ -152,6 +152,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
   const prachtPlugin: Plugin = {
     name: "pracht",
+    // Inter-plugin metadata lets tooling that executes the Vite config inspect
+    // the adapter Pracht actually selected without reinterpreting config source.
+    api: {
+      pracht: {
+        staticTarget: resolved.adapter.staticTarget === true,
+      },
+    },
     enforce: "pre",
 
     config(_config, env) {

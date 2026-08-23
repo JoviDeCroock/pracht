@@ -718,46 +718,33 @@ describe("generatePagesManifestSource", () => {
     );
 
     expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
-      /does not export a `middleware` function/,
+      /does not export `middleware`/,
     );
   });
 
   it.each([
-    ["numeric middleware export", "export const middleware = 1;\n"],
-    ["uninitialized middleware export", "export let middleware;\n"],
-    ["type-only star re-export", 'export type * from "./middleware-types";\n'],
+    ["non-callable value", "export const middleware = 1;\n"],
     ["namespace re-export", 'export * as middleware from "./middleware";\n'],
-    [
-      "namespace import alias",
-      'import * as candidate from "./middleware";\nexport { candidate as middleware };\n',
-    ],
-    ["non-callable object destructuring", "export const { middleware } = { middleware: 1 };\n"],
-    ["non-callable array destructuring", "export const [middleware] = [null];\n"],
-    ["unresolved local alias", "export { missing as middleware };\n"],
-    [
-      "local type alias exported as a value",
-      "type Contract = (_args: unknown, next: () => unknown) => unknown;\nexport { Contract as middleware };\n",
-    ],
-    [
-      "local interface exported as a value",
-      "interface Contract { (_args: unknown, next: () => unknown): unknown }\nexport { Contract as middleware };\n",
-    ],
-    [
-      "type-only import exported as a value",
-      'import type { MiddlewareFn as Contract } from "@pracht/core";\nexport { Contract as middleware };\n',
-    ],
-    [
-      "ambient declaration exported as a value",
-      "declare const Contract: unknown;\nexport { Contract as middleware };\n",
-    ],
-  ])("rejects a %s as pages middleware", (_description, source) => {
+    ["value star re-export", 'export * from "./middleware";\n'],
+  ])("accepts %s syntax and leaves callability to runtime", (_description, source) => {
     const pagesDir = makeTempPagesDir();
 
     writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
     writeFileSync(join(pagesDir, "_middleware.ts"), source);
 
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir }),
+    ).not.toThrow();
+  });
+
+  it("rejects a type-only star export because it cannot provide a runtime binding", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_middleware.ts"), 'export type * from "./types";\n');
+
     expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
-      /does not export a `middleware` function/,
+      /does not export `middleware`/,
     );
   });
 

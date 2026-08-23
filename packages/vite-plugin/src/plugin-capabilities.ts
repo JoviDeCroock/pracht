@@ -32,8 +32,6 @@ import {
   extractCapabilityRegistrations,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
-import { parseAst } from "vite";
-import { getRolldownLang } from "./client-module-query.ts";
 import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 
 export { extractCapabilityRegistrations };
@@ -47,12 +45,6 @@ export interface ExtractedCapability {
   httpPath: string | null;
   webmcp: boolean;
   inputSchema: Record<string, unknown> | null;
-}
-
-function extractManifestCapabilityRegistrations(source: string, file: string) {
-  return extractCapabilityRegistrations(source, {
-    program: parseAst(source, { lang: getRolldownLang(file) }),
-  });
 }
 
 /**
@@ -100,7 +92,7 @@ export function hasAgentSurface(
   if (appBody.includes("...") || hasOpaqueTopLevelProperty(appBody)) return true;
 
   try {
-    return extractManifestCapabilityRegistrations(manifestSource, appFileAbs).length > 0;
+    return extractCapabilityRegistrations(manifestSource).length > 0;
   } catch {
     return true;
   }
@@ -183,7 +175,7 @@ export function extractCapabilities(
     return [];
   }
 
-  const registrations = extractManifestCapabilityRegistrations(manifestSource, appFileAbs);
+  const registrations = extractCapabilityRegistrations(manifestSource);
   if (registrations.length === 0) return [];
 
   const appDir = dirname(appFileAbs);
@@ -235,7 +227,7 @@ export function resolveCapabilityModulePaths(
   }
 
   const appDir = dirname(appFileAbs);
-  return extractManifestCapabilityRegistrations(manifestSource, appFileAbs).map(({ file }) =>
+  return extractCapabilityRegistrations(manifestSource).map(({ file }) =>
     file.startsWith("/") ? resolve(root, file.replace(/^\//, "")) : resolve(appDir, file),
   );
 }

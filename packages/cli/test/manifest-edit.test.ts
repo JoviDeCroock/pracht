@@ -113,12 +113,10 @@ describe("ensureCoreNamedImport", () => {
 describe("exportsMiddleware", () => {
   it.each([
     ["export const middleware: MiddlewareFn = async (a, n) => n();", true],
-    ["export const helper = 1, middleware = async (a, n) => n();", true],
     ["export function middleware(a, n) { return n(); }", true],
     ["export async function middleware(a, n) { return n(); }", true],
-    ["const mw = 1;\nexport { mw as middleware };", false],
-    ["const middleware = 1;\nexport { middleware };", false],
-    ["const middleware = createAuth();\nexport { middleware };", true],
+    ["const mw = 1;\nexport { mw as middleware };", true],
+    ["const middleware = 1;\nexport { middleware };", true],
     ["export const { middleware } = createAuth();", true],
     ["export const { mw: middleware } = createAuth();", true],
     // A type annotation sits between the pattern and `=` in a .ts module.
@@ -133,37 +131,12 @@ describe("exportsMiddleware", () => {
     ["export const { middleware: mw } = createAuth();", false],
     ["export const [mw] = createAuth();", false],
     ['export * from "./shared.ts";', true],
-    // A local alias only exports a runtime value when its binding exists.
-    ["export { a, mw as middleware, b };", false],
-    ["const type = 1;\nexport { type as middleware };", false],
-    ['export { type middleware } from "./types.ts";', false],
-    ['export { type Middleware as middleware } from "./types.ts";', false],
-    ["type Contract = () => void;\nexport { Contract as middleware };", false],
-    ["interface Contract { (): void }\nexport { Contract as middleware };", false],
-    [
-      'import type { MiddlewareFn as Contract } from "@pracht/core";\nexport { Contract as middleware };',
-      false,
-    ],
-    [
-      'import type {\n  MiddlewareFn as Contract,\n} from "@pracht/core";\nexport { Contract as middleware };',
-      false,
-    ],
-    ["declare const Contract: unknown;\nexport { Contract as middleware };", false],
-    [
-      "interface Contract { (): void }\nconst Contract = () => {};\nexport { Contract as middleware };",
-      true,
-    ],
+    ["export { a, mw as middleware, b };", true],
     // `middleware as default` exports `default`, not `middleware` — the exact
     // mistake this check exists to catch.
     ["const middleware = 1;\nexport { middleware as default };", false],
     ["export default async (a, n) => n();", false],
     ["export const authMiddleware = 1;", false],
-    ["namespace Helpers { export const middleware = () => {}; }\nexport { Helpers };", false],
-    ['import * as candidate from "./middleware.ts";\nexport { candidate as middleware };', false],
-    ["export const { middleware } = { middleware: 1 };", false],
-    ["export const [middleware] = [null];", false],
-    ["export const { middleware } = { middleware: () => {} };", true],
-    ["const { candidate } = { candidate: 1 };\nexport { candidate as middleware };", false],
     ["export { a, middleware as thing, b };", false],
     // Comments and strings are masked, so neither can fake an export.
     ["// export const middleware = 1;\nexport default 1;", false],

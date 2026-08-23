@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { defineCommand } from "citty";
-import { parseAst } from "vite";
+import { loadConfigFromFile } from "vite";
 
 import {
   ensureTrailingNewline,
@@ -120,7 +120,7 @@ const middlewareCommand = defineCommand({
   async run({ args }) {
     try {
       const project = readProjectConfig(process.cwd());
-      outputResult(generateMiddleware(args.name, project), Boolean(args.json));
+      outputResult(await generateMiddleware(args.name, project), Boolean(args.json));
     } catch (error) {
       handleCliError(error, { json: Boolean(args.json) });
     }
@@ -458,7 +458,10 @@ export function generateShell(name: string, project: ProjectConfig): GenerateRes
   };
 }
 
-export function generateMiddleware(name: string, project: ProjectConfig): GenerateResult {
+export async function generateMiddleware(
+  name: string,
+  project: ProjectConfig,
+): Promise<GenerateResult> {
   if (project.mode === "pages") {
     // Pages router apps have exactly one middleware seam: a root-level
     // `_middleware.ts` applied to every page route. The requested name is a
@@ -469,13 +472,6 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
         "Pages router apps register middleware through a single root-level `_middleware.ts` " +
           "applied to every page route. Run `pracht generate middleware --name _middleware`, or " +
           "eject to an explicit manifest for named per-route middleware.",
-      );
-    }
-
-    if (usesStaticAdapter(project)) {
-      throw new Error(
-        "Pure static exports cannot use request middleware. Use a serverful adapter before " +
-          "generating pages `_middleware.ts`.",
       );
     }
 
@@ -491,6 +487,13 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
           .join(
             ", ",
           )} already exists. Pages apps support exactly one root-level \`_middleware\` file.`,
+      );
+    }
+
+    if (await usesStaticAdapter(project)) {
+      throw new Error(
+        "Pure static exports cannot use request middleware. Use a serverful adapter before " +
+          "generating pages `_middleware.ts`.",
       );
     }
 
@@ -525,657 +528,36 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
   };
 }
 
-type ConfigAstNode = {
-  type: string;
-  [key: string]: unknown;
-};
-
-function asConfigAstNode(value: unknown): ConfigAstNode | null {
-  if (!value || typeof value !== "object") return null;
-  const type = (value as { type?: unknown }).type;
-  return typeof type === "string" ? (value as ConfigAstNode) : null;
-}
-
-function configAstNodes(value: unknown): ConfigAstNode[] {
-  if (!Array.isArray(value)) return [];
-  return value.map(asConfigAstNode).filter((node): node is ConfigAstNode => node !== null);
-}
-
-function unwrapConfigExpression(value: unknown): ConfigAstNode | null {
-  let node = asConfigAstNode(value);
-  while (
-    node &&
-    (node.type === "ParenthesizedExpression" ||
-      node.type === "TSAsExpression" ||
-      node.type === "TSNonNullExpression" ||
-      node.type === "TSSatisfiesExpression" ||
-      node.type === "TSTypeAssertion")
-  ) {
-    node = asConfigAstNode(node.expression);
-  }
-  return node;
-}
-
-function configPropertyName(value: unknown): string | null {
-  const node = asConfigAstNode(value);
-  if (node?.type === "Identifier" && typeof node.name === "string") return node.name;
-  if (node?.type === "Literal" && typeof node.value === "string") return node.value;
-  return null;
-}
-
-function configMemberPropertyName(value: unknown): string | null {
-  const node = asConfigAstNode(value);
-  if (node?.type !== "MemberExpression") return null;
-  const property = asConfigAstNode(node.property);
-  if (node.computed === true && property?.type !== "Literal") return null;
-  return configPropertyName(property);
-}
-
-const SHADOWED_CONFIG_BINDING = Symbol("shadowed-config-binding");
-const FUNCTION_VAR_CONFIG_BINDING = Symbol("function-var-config-binding");
-type FunctionVarConfigBinding = {
-  [FUNCTION_VAR_CONFIG_BINDING]: true;
-  value: unknown | typeof SHADOWED_CONFIG_BINDING;
-};
-type ConfigBinding = unknown | typeof SHADOWED_CONFIG_BINDING | FunctionVarConfigBinding;
-type ConfigBindings = ReadonlyMap<string, ConfigBinding>;
-
-function isFunctionVarConfigBinding(value: unknown): value is FunctionVarConfigBinding {
-  return Boolean(value && typeof value === "object" && FUNCTION_VAR_CONFIG_BINDING in value);
-}
-
-function configBindingValue(bindings: ConfigBindings, name: string): ConfigBinding | undefined {
-  const binding = bindings.get(name);
-  return isFunctionVarConfigBinding(binding) ? binding.value : binding;
-}
-
-function configBindingNames(value: unknown): string[] {
-  const node = asConfigAstNode(value);
-  if (!node) return [];
-  if (node.type === "Identifier" && typeof node.name === "string") return [node.name];
-  if (node.type === "RestElement" || node.type === "AssignmentPattern") {
-    return configBindingNames(node.argument ?? node.left);
-  }
-  if (node.type === "ArrayPattern") {
-    return (Array.isArray(node.elements) ? node.elements : []).flatMap(configBindingNames);
-  }
-  if (node.type === "ObjectPattern") {
-    return configAstNodes(node.properties).flatMap((property) =>
-      configBindingNames(property.type === "RestElement" ? property.argument : property.value),
-    );
-  }
-  return [];
-}
-
-function configBlockBindings(block: ConfigAstNode, parentBindings: ConfigBindings): ConfigBindings {
-  const bindings = new Map(parentBindings);
-
-  for (const rawStatement of configAstNodes(block.body)) {
-    const statement =
-      rawStatement.type === "ExportNamedDeclaration"
-        ? asConfigAstNode(rawStatement.declaration)
-        : rawStatement;
-    if (!statement) continue;
-
-    if (statement.type === "VariableDeclaration") {
-      for (const declaration of configAstNodes(statement.declarations)) {
-        const names = configBindingNames(declaration.id);
-        for (const name of names) {
-          if (statement.kind === "var" && isFunctionVarConfigBinding(bindings.get(name))) {
-            continue;
-          }
-          const isResolvableConst =
-            statement.kind === "const" &&
-            names.length === 1 &&
-            asConfigAstNode(declaration.id)?.type === "Identifier";
-          bindings.set(name, isResolvableConst ? declaration.init : SHADOWED_CONFIG_BINDING);
-        }
-      }
-    } else if (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") {
-      const name = configPropertyName(statement.id);
-      if (name) bindings.set(name, SHADOWED_CONFIG_BINDING);
-    }
-  }
-
-  return bindings;
-}
-
-function configBlockLexicalBindingNames(
-  block: ConfigAstNode,
-  includeFunctionDeclarations: boolean,
-): Set<string> {
-  const names = new Set<string>();
-
-  for (const rawStatement of configAstNodes(block.body)) {
-    const statement =
-      rawStatement.type === "ExportNamedDeclaration"
-        ? asConfigAstNode(rawStatement.declaration)
-        : rawStatement;
-    if (!statement) continue;
-
-    if (statement.type === "VariableDeclaration" && statement.kind !== "var") {
-      for (const declaration of configAstNodes(statement.declarations)) {
-        for (const name of configBindingNames(declaration.id)) names.add(name);
-      }
-    } else if (
-      statement.type === "ClassDeclaration" ||
-      (includeFunctionDeclarations && statement.type === "FunctionDeclaration")
-    ) {
-      const name = configPropertyName(statement.id);
-      if (name) names.add(name);
-    }
-  }
-
-  return names;
-}
-
-function configFunctionVarBindings(fn: ConfigAstNode): Map<string, ConfigBinding> {
-  const varInitializers = new Map<string, unknown[]>();
-  const assignedBindings = new Set<string>();
-
-  const visit = (
-    value: unknown,
-    shadowedBindings: ReadonlySet<string>,
-    isFunctionBody = false,
-  ): void => {
-    const node = asConfigAstNode(value);
-    if (!node) return;
-    if (
-      node.type === "FunctionDeclaration" ||
-      node.type === "FunctionExpression" ||
-      node.type === "ArrowFunctionExpression" ||
-      node.type === "ClassDeclaration" ||
-      node.type === "ClassExpression" ||
-      node.type === "StaticBlock"
-    ) {
-      return;
-    }
-
-    if (node.type === "CatchClause") {
-      const catchShadowed = new Set([...shadowedBindings, ...configBindingNames(node.param)]);
-      visit(node.body, catchShadowed);
-      return;
-    }
-
-    if (node.type === "BlockStatement") {
-      const blockShadowed = new Set([
-        ...shadowedBindings,
-        ...configBlockLexicalBindingNames(node, !isFunctionBody),
-      ]);
-      for (const statement of configAstNodes(node.body)) visit(statement, blockShadowed);
-      return;
-    }
-
-    if (node.type === "VariableDeclaration" && node.kind === "var") {
-      for (const declaration of configAstNodes(node.declarations)) {
-        for (const name of configBindingNames(declaration.id)) {
-          if (shadowedBindings.has(name)) continue;
-          const initializers = varInitializers.get(name) ?? [];
-          if (declaration.init !== undefined && declaration.init !== null) {
-            initializers.push(declaration.init);
-          }
-          varInitializers.set(name, initializers);
-        }
-      }
-    }
-
-    if (node.type === "AssignmentExpression" || node.type === "UpdateExpression") {
-      const target = node.type === "AssignmentExpression" ? node.left : node.argument;
-      for (const name of configBindingNames(target)) {
-        if (!shadowedBindings.has(name)) assignedBindings.add(name);
-      }
-    }
-
-    for (const [key, child] of Object.entries(node)) {
-      if (key === "type" || key === "loc") continue;
-      if (Array.isArray(child)) {
-        for (const item of child) visit(item, shadowedBindings);
-      } else {
-        visit(child, shadowedBindings);
-      }
-    }
+type PrachtPluginApi = {
+  pracht?: {
+    staticTarget?: boolean;
   };
+};
 
-  visit(fn.body, new Set(), true);
-  return new Map(
-    [...varInitializers].map(([name, initializers]) => [
-      name,
-      {
-        [FUNCTION_VAR_CONFIG_BINDING]: true,
-        value:
-          initializers.length === 1 && !assignedBindings.has(name)
-            ? initializers[0]
-            : SHADOWED_CONFIG_BINDING,
-      },
-    ]),
+function flattenPlugins(value: unknown): unknown[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((plugin) => (Array.isArray(plugin) ? flattenPlugins(plugin) : [plugin]));
+}
+
+/** Load the actual Vite config and inspect the adapter selected by the Pracht plugin. */
+async function usesStaticAdapter(
+  project: Pick<ProjectConfig, "configFile" | "root">,
+): Promise<boolean> {
+  if (!project.configFile) return false;
+
+  const loaded = await loadConfigFromFile(
+    { command: "serve", isPreview: false, isSsrBuild: false, mode: "development" },
+    project.configFile,
+    project.root,
+    "silent",
   );
-}
+  if (!loaded) return false;
 
-function configFunctionBindings(fn: ConfigAstNode, parentBindings: ConfigBindings): ConfigBindings {
-  const bindings = new Map(parentBindings);
-  for (const parameter of Array.isArray(fn.params) ? fn.params : []) {
-    for (const name of configBindingNames(parameter)) {
-      bindings.set(name, SHADOWED_CONFIG_BINDING);
-    }
-  }
-  const functionName = configPropertyName(fn.id);
-  if (functionName) bindings.set(functionName, SHADOWED_CONFIG_BINDING);
-  for (const [name, binding] of configFunctionVarBindings(fn)) {
-    bindings.set(name, binding);
-  }
-  return bindings;
-}
-
-function visitConfigAst(
-  value: unknown,
-  visit: (node: ConfigAstNode, bindings: ConfigBindings) => boolean,
-  bindings: ConfigBindings = new Map(),
-  seenBindings = new Set<string>(),
-  enterFunctionBody = false,
-): boolean {
-  if (Array.isArray(value)) {
-    return value.some((item) => visitConfigAst(item, visit, bindings, seenBindings));
-  }
-  const node = asConfigAstNode(value);
-  if (!node) return false;
-
-  if (node.type === "Identifier" && typeof node.name === "string" && bindings.has(node.name)) {
-    if (seenBindings.has(node.name)) return false;
-    const binding = configBindingValue(bindings, node.name);
-    if (binding === SHADOWED_CONFIG_BINDING) return visit(node, bindings);
-    return visitConfigAst(
-      binding,
-      visit,
-      bindings,
-      new Set([...seenBindings, node.name]),
-      enterFunctionBody,
-    );
-  }
-
-  if (visit(node, bindings)) return true;
-  const isFunction =
-    node.type === "FunctionDeclaration" ||
-    node.type === "FunctionExpression" ||
-    node.type === "ArrowFunctionExpression";
-  if (isFunction && !enterFunctionBody) return false;
-  let childBindings = bindings;
-  if (isFunction) {
-    childBindings = configFunctionBindings(node, bindings);
-  } else if (node.type === "BlockStatement") {
-    childBindings = configBlockBindings(node, bindings);
-  }
-
-  if (node.type === "CatchClause") {
-    const catchBindings = new Map(bindings);
-    for (const name of configBindingNames(node.param)) {
-      catchBindings.set(name, SHADOWED_CONFIG_BINDING);
-    }
-    return visitConfigAst(node.body, visit, catchBindings, seenBindings);
-  }
-
-  return Object.entries(node).some(([key, child]) => {
-    if (key === "type" || key === "loc") return false;
-    // A non-computed property/member name is syntax, not a reference to a
-    // top-level config binding with the same spelling.
-    if (node.type === "Property" && key === "key" && node.computed !== true) return false;
-    if (node.type === "MemberExpression" && key === "property" && node.computed !== true) {
-      return false;
-    }
-    return visitConfigAst(
-      child,
-      visit,
-      childBindings,
-      seenBindings,
-      node.type === "CallExpression" && key === "callee",
-    );
+  return flattenPlugins(loaded.config.plugins).some((plugin) => {
+    if (!plugin || typeof plugin !== "object") return false;
+    const candidate = plugin as { api?: PrachtPluginApi; name?: unknown };
+    return candidate.name === "pracht" && candidate.api?.pracht?.staticTarget === true;
   });
-}
-
-function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
-  if (!project.rawConfig) return false;
-
-  try {
-    const program = parseAst(project.rawConfig, { lang: "ts" }) as unknown as ConfigAstNode;
-    const prachtFactories = new Set<string>();
-    const prachtNamespaces = new Set<string>();
-    const staticFactories = new Set<string>();
-    const staticNamespaces = new Set<string>();
-    const viteConfigFactories = new Set<string>();
-    const viteNamespaces = new Set<string>();
-    const bindings = new Map<string, unknown>();
-    let commonJsExport: unknown;
-
-    const requiredModuleSource = (value: unknown): string | null => {
-      const call = unwrapConfigExpression(value);
-      if (call?.type !== "CallExpression") return null;
-      const callee = asConfigAstNode(call.callee);
-      const argument = configAstNodes(call.arguments)[0];
-      return callee?.type === "Identifier" &&
-        callee.name === "require" &&
-        argument?.type === "Literal" &&
-        typeof argument.value === "string"
-        ? argument.value
-        : null;
-    };
-
-    const registerCommonJsImport = (declaration: ConfigAstNode): boolean => {
-      const importSource = requiredModuleSource(declaration.init);
-      if (
-        importSource !== "@pracht/vite-plugin" &&
-        importSource !== "@pracht/adapter-static" &&
-        importSource !== "vite"
-      ) {
-        return false;
-      }
-      const pattern = asConfigAstNode(declaration.id);
-      if (pattern?.type === "Identifier" && typeof pattern.name === "string") {
-        if (importSource === "@pracht/vite-plugin") prachtNamespaces.add(pattern.name);
-        else if (importSource === "@pracht/adapter-static") staticNamespaces.add(pattern.name);
-        else if (importSource === "vite") viteNamespaces.add(pattern.name);
-        return true;
-      }
-      if (pattern?.type !== "ObjectPattern") return true;
-      for (const property of configAstNodes(pattern.properties)) {
-        if (property.type !== "Property") continue;
-        const importedName = configPropertyName(property.key);
-        const localName = configPropertyName(property.value);
-        if (!localName) continue;
-        if (importSource === "@pracht/vite-plugin" && importedName === "pracht") {
-          prachtFactories.add(localName);
-        } else if (importSource === "@pracht/adapter-static" && importedName === "staticAdapter") {
-          staticFactories.add(localName);
-        } else if (importSource === "vite" && importedName === "defineConfig") {
-          viteConfigFactories.add(localName);
-        }
-      }
-      return true;
-    };
-
-    for (const statement of configAstNodes(program.body)) {
-      if (statement.type === "ImportDeclaration") {
-        const importSource = asConfigAstNode(statement.source)?.value;
-        for (const specifier of configAstNodes(statement.specifiers)) {
-          const localName = configPropertyName(specifier.local);
-          if (!localName) continue;
-          if (
-            importSource === "@pracht/vite-plugin" &&
-            specifier.type === "ImportNamespaceSpecifier"
-          ) {
-            prachtNamespaces.add(localName);
-          } else if (
-            importSource === "@pracht/vite-plugin" &&
-            specifier.type === "ImportSpecifier" &&
-            configPropertyName(specifier.imported) === "pracht"
-          ) {
-            prachtFactories.add(localName);
-          } else if (
-            importSource === "@pracht/adapter-static" &&
-            specifier.type === "ImportNamespaceSpecifier"
-          ) {
-            staticNamespaces.add(localName);
-          } else if (
-            importSource === "@pracht/adapter-static" &&
-            specifier.type === "ImportSpecifier" &&
-            configPropertyName(specifier.imported) === "staticAdapter"
-          ) {
-            staticFactories.add(localName);
-          } else if (importSource === "vite" && specifier.type === "ImportNamespaceSpecifier") {
-            viteNamespaces.add(localName);
-          } else if (
-            importSource === "vite" &&
-            specifier.type === "ImportSpecifier" &&
-            configPropertyName(specifier.imported) === "defineConfig"
-          ) {
-            viteConfigFactories.add(localName);
-          }
-        }
-      }
-
-      const declarationStatement =
-        statement.type === "ExportNamedDeclaration"
-          ? asConfigAstNode(statement.declaration)
-          : statement;
-      if (
-        declarationStatement?.type === "VariableDeclaration" &&
-        declarationStatement.kind === "const"
-      ) {
-        for (const declaration of configAstNodes(declarationStatement.declarations)) {
-          if (registerCommonJsImport(declaration)) continue;
-          const name = configPropertyName(declaration.id);
-          if (name) bindings.set(name, declaration.init);
-        }
-      } else if (declarationStatement?.type === "FunctionDeclaration") {
-        const name = configPropertyName(declarationStatement.id);
-        if (name) bindings.set(name, declarationStatement);
-      }
-
-      const expression =
-        statement.type === "ExpressionStatement" ? asConfigAstNode(statement.expression) : null;
-      const assignmentLeft =
-        expression?.type === "AssignmentExpression" && expression.operator === "="
-          ? asConfigAstNode(expression.left)
-          : null;
-      if (
-        assignmentLeft?.type === "MemberExpression" &&
-        configMemberPropertyName(assignmentLeft) === "exports" &&
-        configPropertyName(assignmentLeft.object) === "module"
-      ) {
-        commonJsExport = expression?.right;
-      } else if (
-        assignmentLeft?.type === "MemberExpression" &&
-        configMemberPropertyName(assignmentLeft) === "default" &&
-        configPropertyName(assignmentLeft.object) === "exports"
-      ) {
-        commonJsExport = expression?.right;
-      } else if (statement.type === "TSExportAssignment") {
-        commonJsExport = statement.expression;
-      }
-    }
-
-    const resolveConfigBinding = (
-      value: unknown,
-      activeBindings: ConfigBindings,
-      seen = new Set<string>(),
-    ): ConfigAstNode | null => {
-      const node = unwrapConfigExpression(value);
-      if (node?.type !== "Identifier" || typeof node.name !== "string") return node;
-      if (seen.has(node.name)) return node;
-      const initializer = configBindingValue(activeBindings, node.name);
-      if (initializer === SHADOWED_CONFIG_BINDING) return null;
-      if (initializer === undefined) return node;
-      return resolveConfigBinding(initializer, activeBindings, new Set([...seen, node.name]));
-    };
-
-    type ConfigPropertyResolution =
-      | { kind: "absent" }
-      | { kind: "unknown" }
-      | { kind: "value"; value: unknown };
-
-    const isAdapterNeutralPrimitiveSpread = (
-      value: ConfigAstNode | null,
-      activeBindings: ConfigBindings,
-    ): boolean => {
-      if (!value) return false;
-      if (
-        value.type === "Identifier" &&
-        value.name === "undefined" &&
-        !activeBindings.has("undefined")
-      ) {
-        return true;
-      }
-      if (value.type !== "Literal") return false;
-      return (
-        value.value === null ||
-        new Set(["boolean", "bigint", "number", "string"]).has(typeof value.value)
-      );
-    };
-
-    const resolveConfigObjectProperty = (
-      object: ConfigAstNode,
-      name: string,
-      activeBindings: ConfigBindings,
-      seen = new Set<ConfigAstNode>(),
-    ): ConfigPropertyResolution => {
-      if (seen.has(object)) return { kind: "unknown" };
-      const nextSeen = new Set([...seen, object]);
-      let resolved: ConfigPropertyResolution = { kind: "absent" };
-
-      // Object properties use last-write-wins semantics. Resolve statically
-      // known object spreads in source order so the adapter seen here matches
-      // the adapter that the pracht plugin receives at runtime.
-      for (const property of configAstNodes(object.properties)) {
-        if (property.type === "SpreadElement") {
-          const spread = resolveConfigBinding(property.argument, activeBindings);
-          // Object-spreading nullish and primitive literals cannot contribute
-          // an `adapter` or `staticTarget` property. Preserve the preceding
-          // statically resolved value instead of making it opaque.
-          if (isAdapterNeutralPrimitiveSpread(spread, activeBindings)) continue;
-          if (spread?.type !== "ObjectExpression") {
-            resolved = { kind: "unknown" };
-            continue;
-          }
-          const spreadProperty = resolveConfigObjectProperty(
-            spread,
-            name,
-            activeBindings,
-            nextSeen,
-          );
-          if (spreadProperty.kind !== "absent") resolved = spreadProperty;
-          continue;
-        }
-
-        if (property.type !== "Property") continue;
-        const propertyName = configPropertyName(property.key);
-        if (property.computed === true && asConfigAstNode(property.key)?.type !== "Literal") {
-          resolved = { kind: "unknown" };
-        } else if (propertyName === name) {
-          resolved = { kind: "value", value: property.value };
-        }
-      }
-
-      return resolved;
-    };
-
-    const isStaticAdapterExpression = (
-      value: unknown,
-      activeBindings: ConfigBindings,
-      seen = new Set<string>(),
-    ): boolean => {
-      const node = unwrapConfigExpression(value);
-      if (!node) return false;
-
-      if (node.type === "Identifier" && typeof node.name === "string") {
-        if (seen.has(node.name)) return false;
-        const initializer = configBindingValue(activeBindings, node.name);
-        if (initializer === SHADOWED_CONFIG_BINDING) return false;
-        if (initializer === undefined) return staticFactories.has(node.name);
-        return isStaticAdapterExpression(
-          initializer,
-          activeBindings,
-          new Set([...seen, node.name]),
-        );
-      }
-
-      if (node.type === "ObjectExpression") {
-        const staticTargetProperty = resolveConfigObjectProperty(
-          node,
-          "staticTarget",
-          activeBindings,
-        );
-        const staticTarget =
-          staticTargetProperty.kind === "value"
-            ? unwrapConfigExpression(staticTargetProperty.value)
-            : null;
-        return staticTarget?.type === "Literal" && staticTarget.value === true;
-      }
-
-      if (node.type !== "CallExpression") return false;
-      const callee = resolveConfigBinding(node.callee, activeBindings);
-      if (callee?.type === "Identifier" && typeof callee.name === "string") {
-        return staticFactories.has(callee.name);
-      }
-      if (
-        callee?.type !== "MemberExpression" ||
-        configMemberPropertyName(callee) !== "staticAdapter"
-      ) {
-        return false;
-      }
-      const objectName = configPropertyName(resolveConfigBinding(callee.object, activeBindings));
-      return objectName !== null && staticNamespaces.has(objectName);
-    };
-
-    const defaultExport = configAstNodes(program.body).find(
-      (statement) => statement.type === "ExportDefaultDeclaration",
-    );
-    const namedDefaultExport = configAstNodes(program.body)
-      .filter(
-        (statement) =>
-          statement.type === "ExportNamedDeclaration" &&
-          statement.exportKind !== "type" &&
-          !statement.source,
-      )
-      .flatMap((statement) => configAstNodes(statement.specifiers))
-      .find(
-        (specifier) =>
-          specifier.type === "ExportSpecifier" &&
-          specifier.exportKind !== "type" &&
-          configPropertyName(specifier.exported) === "default",
-      );
-    const defaultExportValue =
-      defaultExport?.declaration ?? namedDefaultExport?.local ?? commonJsExport;
-    let exportedConfig: unknown = defaultExportValue
-      ? (resolveConfigBinding(defaultExportValue, bindings) ?? defaultExportValue)
-      : program;
-
-    const exportedConfigNode = asConfigAstNode(exportedConfig);
-    if (defaultExportValue && exportedConfigNode?.type === "CallExpression") {
-      const callee = resolveConfigBinding(exportedConfigNode.callee, bindings);
-      const namespaceName =
-        callee?.type === "MemberExpression" && configMemberPropertyName(callee) === "defineConfig"
-          ? configPropertyName(callee.object)
-          : null;
-      const isDefineConfigCall =
-        (callee?.type === "Identifier" &&
-          typeof callee.name === "string" &&
-          viteConfigFactories.has(callee.name)) ||
-        (callee?.type === "MemberExpression" &&
-          namespaceName !== null &&
-          viteNamespaces.has(namespaceName));
-      if (isDefineConfigCall) {
-        const argument = configAstNodes(exportedConfigNode.arguments)[0];
-        if (argument) exportedConfig = resolveConfigBinding(argument, bindings) ?? argument;
-      }
-    }
-
-    return visitConfigAst(
-      exportedConfig,
-      (node, activeBindings) => {
-        if (node.type !== "CallExpression") return false;
-        const callee = resolveConfigBinding(node.callee, activeBindings);
-        const namespaceName =
-          callee?.type === "MemberExpression" && configMemberPropertyName(callee) === "pracht"
-            ? configPropertyName(resolveConfigBinding(callee.object, activeBindings))
-            : null;
-        const isPrachtCall =
-          (callee?.type === "Identifier" &&
-            typeof callee.name === "string" &&
-            (callee.name === "pracht" || prachtFactories.has(callee.name))) ||
-          (callee?.type === "MemberExpression" &&
-            namespaceName !== null &&
-            prachtNamespaces.has(namespaceName));
-        if (!isPrachtCall) return false;
-        const options = resolveConfigBinding(configAstNodes(node.arguments)[0], activeBindings);
-        if (options?.type !== "ObjectExpression") return false;
-        const adapter = resolveConfigObjectProperty(options, "adapter", activeBindings);
-        return adapter.kind === "value" && isStaticAdapterExpression(adapter.value, activeBindings);
-      },
-      bindings,
-      new Set(),
-      true,
-    );
-  } catch {
-    return false;
-  }
 }
 
 export interface CapabilityArgs {
