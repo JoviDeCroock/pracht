@@ -480,6 +480,55 @@ function collectTopLevelBindingWritesFromNode(
   const node = asStaticAnalysisNode(value);
   if (!node) return;
 
+  const invokedFunction =
+    node.type === "CallExpression" && node.optional !== true
+      ? getImmediatelyInvokedFunction(node.callee)
+      : null;
+  if (invokedFunction) {
+    // A direct, synchronous IIFE runs after its arguments are evaluated. Walk
+    // its body with the function's own bindings shadowed so writes to captured
+    // module bindings are observed without confusing local writes for them.
+    for (const argument of nodeArray(node.arguments)) {
+      collectTopLevelBindingWritesFromNode(
+        argument,
+        writes,
+        unconditionalExpressions,
+        shadowedBindings,
+        directDeclarators,
+      );
+    }
+    const body = asStaticAnalysisNode(invokedFunction.body);
+    const functionBindings = new Set([
+      ...shadowedBindings,
+      ...nodeArray(invokedFunction.params).flatMap((parameter) =>
+        collectStaticBindingNames(parameter),
+      ),
+      ...(getStaticIdentifierName(invokedFunction.id)
+        ? [getStaticIdentifierName(invokedFunction.id)!]
+        : []),
+      ...(body?.type === "BlockStatement"
+        ? collectRuntimeScopeVarBindings(nodeArray(body.body))
+        : []),
+    ]);
+    for (const parameter of nodeArray(invokedFunction.params)) {
+      collectTopLevelBindingWritesFromNode(
+        parameter,
+        writes,
+        unconditionalExpressions,
+        functionBindings,
+        directDeclarators,
+      );
+    }
+    collectTopLevelBindingWritesFromNode(
+      body,
+      writes,
+      unconditionalExpressions,
+      functionBindings,
+      directDeclarators,
+    );
+    return;
+  }
+
   if (
     node.type === "FunctionDeclaration" ||
     node.type === "ArrowFunctionExpression" ||
@@ -672,7 +721,16 @@ function collectTopLevelBindingWritesFromNode(
     return;
   }
 
-  for (const [key, child] of Object.entries(node)) {
+  const orderedChildren =
+    node.type === "VariableDeclarator" && isStaticDestructuringPattern(node.id)
+      ? [node.init, node.id]
+      : node.type === "AssignmentExpression" && isStaticDestructuringPattern(node.left)
+        ? [node.right, node.left]
+        : null;
+
+  for (const [key, child] of orderedChildren
+    ? orderedChildren.map((child, index) => [String(index), child] as const)
+    : Object.entries(node)) {
     if (key === "type" || key === "loc" || key === "span") continue;
     if (Array.isArray(child)) {
       for (const item of child) {
@@ -786,6 +844,7 @@ function collectUnconditionallyEvaluatedStatement(
   if (statement.type === "VariableDeclaration") {
     for (const declarator of nodeArray(statement.declarations)) {
       collectUnconditionallyEvaluatedExpressions(declarator.init, expressions);
+      collectAssignmentTargetEvaluation(declarator.id, expressions);
     }
     return;
   }
@@ -933,6 +992,11 @@ function collectDefinitelyEnteredStatement(
     return true;
   }
 
+  if (statement.type === "ReturnStatement" || statement.type === "ThrowStatement") {
+    collectUnconditionallyEvaluatedExpressions(statement.argument, expressions);
+    return false;
+  }
+
   if (
     statement.type === "IfStatement" ||
     statement.type === "WhileStatement" ||
@@ -1063,9 +1127,16 @@ function collectUnconditionallyEvaluatedExpressions(
   }
 
   if (node.type === "AssignmentExpression") {
-    collectAssignmentTargetEvaluation(node.left, expressions);
-    if (node.operator !== "&&=" && node.operator !== "||=" && node.operator !== "??=") {
+    const isLogicalAssignment =
+      node.operator === "&&=" || node.operator === "||=" || node.operator === "??=";
+    if (isStaticDestructuringPattern(node.left) && !isLogicalAssignment) {
       collectUnconditionallyEvaluatedExpressions(node.right, expressions);
+      collectAssignmentTargetEvaluation(node.left, expressions);
+    } else {
+      collectAssignmentTargetEvaluation(node.left, expressions);
+      if (!isLogicalAssignment) {
+        collectUnconditionallyEvaluatedExpressions(node.right, expressions);
+      }
     }
     return;
   }
@@ -1096,6 +1167,9 @@ function collectUnconditionallyEvaluatedExpressions(
       for (const argument of nodeArray(node.arguments)) {
         collectUnconditionallyEvaluatedExpressions(argument, expressions);
       }
+      const invokedFunction = getImmediatelyInvokedFunction(node.callee);
+      const body = invokedFunction ? asStaticAnalysisNode(invokedFunction.body) : null;
+      if (body) collectDefinitelyEnteredStatement(body, expressions);
     }
     return;
   }
@@ -1123,6 +1197,34 @@ function collectUnconditionallyEvaluatedExpressions(
       collectUnconditionallyEvaluatedExpressions(child, expressions);
     }
   }
+}
+
+function getImmediatelyInvokedFunction(value: unknown): StaticAnalysisNode | null {
+  let node = asStaticAnalysisNode(value);
+  while (
+    node &&
+    (node.type === "ParenthesizedExpression" ||
+      node.type === "TSAsExpression" ||
+      node.type === "TSNonNullExpression" ||
+      node.type === "TSSatisfiesExpression" ||
+      node.type === "TSTypeAssertion" ||
+      node.type === "TypeCastExpression")
+  ) {
+    node = asStaticAnalysisNode(node.expression);
+  }
+  if (
+    (node?.type === "FunctionExpression" || node?.type === "ArrowFunctionExpression") &&
+    node.async !== true &&
+    node.generator !== true
+  ) {
+    return node;
+  }
+  return null;
+}
+
+function isStaticDestructuringPattern(value: unknown): boolean {
+  const node = asStaticAnalysisNode(value);
+  return node?.type === "ObjectPattern" || node?.type === "ArrayPattern";
 }
 
 function collectOptionalChainPrefix(value: unknown, expressions: Set<StaticAnalysisNode>): void {
@@ -2013,8 +2115,13 @@ function hasSingleStaticBindingUse(
 ): boolean {
   const searchable = maskCommentsAndStrings(source);
   const shadowedRanges = [
-    ...findBindingShadowRanges(searchable, name, declarationIndex),
-    ...findAstFunctionBindingShadowRanges(program, name),
+    ...findBindingShadowRanges(
+      searchable,
+      name,
+      declarationIndex,
+      findAstNamedExpressionNameStarts(program, name),
+    ),
+    ...findAstBindingShadowRanges(program, name),
   ];
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const identifier = new RegExp(`(?<![A-Za-z0-9_$])${escapedName}(?![A-Za-z0-9_$])`, "g");
@@ -2046,7 +2153,7 @@ function hasSingleStaticBindingUse(
  * at the first parameter so a computed method key remains an observable use of
  * the outer registry, while the parameter scope and body use the local binding.
  */
-function findAstFunctionBindingShadowRanges(program: unknown, name: string): StaticSourceRange[] {
+function findAstBindingShadowRanges(program: unknown, name: string): StaticSourceRange[] {
   const ranges: StaticSourceRange[] = [];
 
   const visit = (value: unknown): void => {
@@ -2083,6 +2190,13 @@ function findAstFunctionBindingShadowRanges(program: unknown, name: string): Sta
       }
     }
 
+    if (node.type === "ClassExpression" && getStaticIdentifierName(node.id) === name) {
+      const classId = asStaticAnalysisNode(node.id);
+      if (typeof classId?.start === "number" && typeof node.end === "number") {
+        ranges.push({ start: classId.start, end: node.end });
+      }
+    }
+
     for (const [key, child] of Object.entries(node)) {
       if (key === "type" || key === "loc" || key === "span") continue;
       if (Array.isArray(child)) {
@@ -2095,6 +2209,33 @@ function findAstFunctionBindingShadowRanges(program: unknown, name: string): Sta
 
   visit(program);
   return ranges;
+}
+
+function findAstNamedExpressionNameStarts(program: unknown, name: string): ReadonlySet<number> {
+  const starts = new Set<number>();
+
+  const visit = (value: unknown): void => {
+    const node = asStaticAnalysisNode(value);
+    if (!node) return;
+    if (
+      (node.type === "FunctionExpression" || node.type === "ClassExpression") &&
+      getStaticIdentifierName(node.id) === name
+    ) {
+      const id = asStaticAnalysisNode(node.id);
+      if (typeof id?.start === "number") starts.add(id.start);
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "type" || key === "loc" || key === "span") continue;
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item);
+      } else {
+        visit(child);
+      }
+    }
+  };
+
+  visit(program);
+  return starts;
 }
 
 /** Find `var` declarations owned by this function without entering nested scopes. */
@@ -2139,6 +2280,7 @@ function findBindingShadowRanges(
   source: string,
   name: string,
   declarationIndex: number,
+  namedExpressionNameStarts: ReadonlySet<number> = new Set(),
 ): { start: number; end: number }[] {
   const ranges: { start: number; end: number }[] = [];
   const functionBodyRanges: { start: number; end: number }[] = [];
@@ -2229,6 +2371,7 @@ function findBindingShadowRanges(
     if (match.index == null) continue;
     const nameIndex = match.index + match[0].lastIndexOf(name);
     if (nameIndex === declarationIndex || isAtModuleTopLevel(source, match.index)) continue;
+    if (namedExpressionNameStarts.has(nameIndex)) continue;
     if (/^var\b/.test(match[0])) {
       const functionRange = functionBodyRanges
         .filter(({ start, end }) => match.index! >= start && match.index! < end)

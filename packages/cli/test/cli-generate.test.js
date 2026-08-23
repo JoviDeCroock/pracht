@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -175,6 +175,33 @@ describe("@pracht/cli generate", () => {
       `import { pracht } from "@pracht/vite-plugin";
 import { staticAdapter } from "@pracht/adapter-static";
 export default { plugins: [pracht({ pagesDir: "/src/pages", adapter: staticAdapter() })] };`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
+  it("refuses pages middleware for a CommonJS pure static export", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-static-cjs-");
+    writePagesApp(appDir);
+    rmSync(join(appDir, "vite.config.ts"));
+    writeProjectFile(
+      appDir,
+      "vite.config.cjs",
+      `const { pracht: framework } = require("@pracht/vite-plugin");
+const adapters = require("@pracht/adapter-static");
+module.exports = {
+  plugins: [framework({ pagesDir: "/src/pages", adapter: adapters.staticAdapter() })],
+};`,
     );
 
     const result = spawnSync(

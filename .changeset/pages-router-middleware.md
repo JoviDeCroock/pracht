@@ -358,3 +358,15 @@ a sequence ending in a middleware function remains valid. Pages middleware
 generation also resolves a local Vite config re-exported through
 `export { config as default }`, keeping unrelated static-config helpers from
 overriding the selected serverful adapter.
+
+Middleware export validation now follows destructuring evaluation order and
+direct synchronous IIFEs, so computed keys and immediately invoked bodies cannot
+hide the final non-callable value of an exported middleware binding. Parsed
+manifest analysis also distinguishes named class and function expressions from
+declarations, preventing a local expression name from hiding mutations of the
+outer capability registry.
+
+Pages middleware generation recognizes CommonJS and TypeScript CommonJS Vite
+configs that import Pracht, Vite, or the static adapter through `require()` and
+export through `module.exports`, refusing unsupported request middleware for
+pure static applications regardless of the config module format.

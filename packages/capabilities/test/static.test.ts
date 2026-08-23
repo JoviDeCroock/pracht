@@ -72,6 +72,22 @@ describe("middleware export classification", () => {
       false,
     ],
     [
+      "let middleware = () => {}, value;\n({ [middleware = 1]: value } = (middleware = () => {}, {}));\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {}, value;\n({ [middleware = () => {}]: value } = (middleware = 1, {}));\nexport { middleware };",
+      true,
+    ],
+    [
+      "let middleware = () => {};\nconst { [middleware = 1]: value } = (middleware = () => {}, {});\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\nconst { [middleware = () => {}]: value } = (middleware = 1, {});\nexport { middleware };",
+      true,
+    ],
+    [
       "let middleware = () => {}, target = {};\n[target[middleware = 1]] = [0];\nexport { middleware };",
       false,
     ],
@@ -93,6 +109,15 @@ describe("middleware export classification", () => {
       true,
     ],
     ["let middleware = 1;\nmiddleware = 2;\nexport { middleware };", false],
+    ["let middleware = () => {};\n(() => { middleware = 1; })();\nexport { middleware };", false],
+    [
+      "let middleware = () => {};\n(function () { middleware = 1; })();\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\n(() => { const middleware = 1; return middleware; })();\nexport { middleware };",
+      true,
+    ],
     ["let middleware = () => {};\nmiddleware++;\nexport { middleware };", false],
     [
       "let candidate = () => {};\ncandidate = 1;\nconst middleware = candidate;\nexport { middleware };",
@@ -952,6 +977,27 @@ describe("capability static extraction", () => {
       }),
     ).toEqual([]);
   });
+
+  it.each(["class capabilities {}", "function capabilities() {}"])(
+    "does not hide an outer registry mutation behind a named expression %s",
+    (namedExpression) => {
+      const source = `
+        const capabilities = { notes: "./capabilities/original.ts" };
+        function mutateRegistry() {
+          capabilities.notes = "./capabilities/runtime.ts";
+          const Helper = ${namedExpression};
+        }
+        mutateRegistry();
+        export const app = defineApp({ capabilities, routes: [] });
+      `;
+
+      expect(
+        extractCapabilityRegistrations(source, {
+          program: parseAst(source, { lang: "js" }),
+        }),
+      ).toEqual([]);
+    },
+  );
 
   it.each(["capabilities.trigger", 'capabilities["trigger"]', "capabilities!.trigger"])(
     "keeps a registry read through runtime typeof %s opaque",

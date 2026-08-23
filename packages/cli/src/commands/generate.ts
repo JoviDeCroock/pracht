@@ -843,6 +843,53 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
     const viteConfigFactories = new Set<string>();
     const viteNamespaces = new Set<string>();
     const bindings = new Map<string, unknown>();
+    let commonJsExport: unknown;
+
+    const requiredModuleSource = (value: unknown): string | null => {
+      const call = unwrapConfigExpression(value);
+      if (call?.type !== "CallExpression") return null;
+      const callee = asConfigAstNode(call.callee);
+      const argument = configAstNodes(call.arguments)[0];
+      return callee?.type === "Identifier" &&
+        callee.name === "require" &&
+        argument?.type === "Literal" &&
+        typeof argument.value === "string"
+        ? argument.value
+        : null;
+    };
+
+    const registerCommonJsImport = (declaration: ConfigAstNode): boolean => {
+      const importSource = requiredModuleSource(declaration.init);
+      if (
+        importSource !== "@pracht/vite-plugin" &&
+        importSource !== "@pracht/adapter-static" &&
+        importSource !== "vite"
+      ) {
+        return false;
+      }
+      const pattern = asConfigAstNode(declaration.id);
+      if (pattern?.type === "Identifier" && typeof pattern.name === "string") {
+        if (importSource === "@pracht/vite-plugin") prachtNamespaces.add(pattern.name);
+        else if (importSource === "@pracht/adapter-static") staticNamespaces.add(pattern.name);
+        else if (importSource === "vite") viteNamespaces.add(pattern.name);
+        return true;
+      }
+      if (pattern?.type !== "ObjectPattern") return true;
+      for (const property of configAstNodes(pattern.properties)) {
+        if (property.type !== "Property") continue;
+        const importedName = configPropertyName(property.key);
+        const localName = configPropertyName(property.value);
+        if (!localName) continue;
+        if (importSource === "@pracht/vite-plugin" && importedName === "pracht") {
+          prachtFactories.add(localName);
+        } else if (importSource === "@pracht/adapter-static" && importedName === "staticAdapter") {
+          staticFactories.add(localName);
+        } else if (importSource === "vite" && importedName === "defineConfig") {
+          viteConfigFactories.add(localName);
+        }
+      }
+      return true;
+    };
 
     for (const statement of configAstNodes(program.body)) {
       if (statement.type === "ImportDeclaration") {
@@ -893,12 +940,35 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
         declarationStatement.kind === "const"
       ) {
         for (const declaration of configAstNodes(declarationStatement.declarations)) {
+          if (registerCommonJsImport(declaration)) continue;
           const name = configPropertyName(declaration.id);
           if (name) bindings.set(name, declaration.init);
         }
       } else if (declarationStatement?.type === "FunctionDeclaration") {
         const name = configPropertyName(declarationStatement.id);
         if (name) bindings.set(name, declarationStatement);
+      }
+
+      const expression =
+        statement.type === "ExpressionStatement" ? asConfigAstNode(statement.expression) : null;
+      const assignmentLeft =
+        expression?.type === "AssignmentExpression" && expression.operator === "="
+          ? asConfigAstNode(expression.left)
+          : null;
+      if (
+        assignmentLeft?.type === "MemberExpression" &&
+        configMemberPropertyName(assignmentLeft) === "exports" &&
+        configPropertyName(assignmentLeft.object) === "module"
+      ) {
+        commonJsExport = expression?.right;
+      } else if (
+        assignmentLeft?.type === "MemberExpression" &&
+        configMemberPropertyName(assignmentLeft) === "default" &&
+        configPropertyName(assignmentLeft.object) === "exports"
+      ) {
+        commonJsExport = expression?.right;
+      } else if (statement.type === "TSExportAssignment") {
+        commonJsExport = statement.expression;
       }
     }
 
@@ -1051,7 +1121,8 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
           specifier.exportKind !== "type" &&
           configPropertyName(specifier.exported) === "default",
       );
-    const defaultExportValue = defaultExport?.declaration ?? namedDefaultExport?.local;
+    const defaultExportValue =
+      defaultExport?.declaration ?? namedDefaultExport?.local ?? commonJsExport;
     let exportedConfig: unknown = defaultExportValue
       ? (resolveConfigBinding(defaultExportValue, bindings) ?? defaultExportValue)
       : program;
