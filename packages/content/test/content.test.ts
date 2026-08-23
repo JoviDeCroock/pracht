@@ -794,6 +794,30 @@ describe("collection integration helpers", () => {
     expect(notFound).toHaveBeenCalledWith("/docs/%2e%2e");
   });
 
+  it("answers 404 when loader args select an unsupported locale", async () => {
+    const root = await fixture({ "en/page.md": "Body" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      locales: { default: "en", supported: ["en", "fr"], routePrefix: "never" },
+    });
+    const notFound = vi.fn((path: string) => new Response(path, { status: 404 }));
+    const loader = contentLoader(collection, {
+      locale: ({ params }) => params.locale,
+      notFound,
+    });
+
+    await expect(
+      loader({
+        params: { locale: "de" },
+        pathname: "/docs/page",
+        request: new Request("https://example.com/de/docs/page"),
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(notFound).toHaveBeenCalledWith("/docs/page");
+  });
+
   it("omits opted-out representations from the snapshot without changing the collection", async () => {
     const root = await fixture({ "page.md": "---\ntitle: Page\n---\nBody" });
     const collection = defineCollection({

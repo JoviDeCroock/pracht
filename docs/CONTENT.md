@@ -167,7 +167,9 @@ which keeps a temporary authoring error from poisoning the development server.
 default, so collection routes stay independent of the configured deployment base.
 A dynamic route such as `/docs/:slug` also matches pathnames no document can
 carry, like `/docs/%2e%2e`; the loader answers those with its not-found path
-rather than surfacing the route rejection as a request failure.
+rather than surfacing the route rejection as a request failure. A `locale`
+selected from loader arguments takes the same path when it is not supported by
+the collection.
 
 ## Static artifacts
 
@@ -229,7 +231,8 @@ URL, `rawContentArtifacts()` publishes its source, and the page itself answers
 `pracht build` therefore reconciles the two. `prachtContent()` hands the CLI the
 routes its registry generates, the CLI matches them against the resolved app
 routes — including dynamic and catch-all patterns — and reports every document
-no route serves, naming its route, collection, and source file. The channel is
+or generated locale fallback alias no route serves, naming its route,
+collection, and source file. The channel is
 an internal build file that is consumed and deleted before the client output is
 published. For a static export, a dynamic SSG pattern only serves the concrete
 paths returned by `getStaticPaths()`; an omitted document is still reported

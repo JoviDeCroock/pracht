@@ -3,6 +3,7 @@ import { extname, isAbsolute } from "node:path";
 import type { Connect, Plugin, ViteDevServer } from "vite";
 
 import { artifactFileName } from "./path.ts";
+import { defineSnapshotCollection } from "./runtime.ts";
 import type { ContentArtifact, ContentCollectionSnapshot } from "./types.ts";
 
 const CONTENT_MODULE_PREFIX = "virtual:pracht/content/";
@@ -195,12 +196,30 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
             [];
           for (const collection of collections) {
             const snapshot = await collection.snapshot();
+            const runtime = defineSnapshotCollection(snapshot);
+            const aliases = await Promise.all(
+              snapshot.routeAliases.map(async (alias) => {
+                const resolution = await runtime.resolveByRoute(alias.path);
+                if (!resolution) {
+                  throw new Error(
+                    `Content collection ${JSON.stringify(collection.name)} generated an unresolved route alias ${JSON.stringify(alias.path)}.`,
+                  );
+                }
+                return {
+                  path: alias.path,
+                  source: resolution.document.relativeSource,
+                };
+              }),
+            );
             collectionEntries.push([
               collection.name,
-              snapshot.documents.map((document) => ({
-                path: document.path,
-                source: document.relativeSource,
-              })),
+              [
+                ...snapshot.documents.map((document) => ({
+                  path: document.path,
+                  source: document.relativeSource,
+                })),
+                ...aliases,
+              ],
             ]);
           }
           const manifest: ContentRoutesManifest = {

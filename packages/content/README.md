@@ -238,7 +238,9 @@ base-free loader `pathname` by default; structural callers outside Pracht can
 provide `pathname` or override `path`. Use `select` to keep loader data
 serializable and small. A pathname a dynamic route matched but no document can
 carry — `/docs/%2e%2e`, an encoded NUL, a backslash segment — takes the same
-404 path as a missing document instead of failing the request. `markdownRepresentation(document, "raw" | "body")`
+404 path as a missing document instead of failing the request. A locale selected
+from loader arguments does too when the collection does not support it.
+`markdownRepresentation(document, "raw" | "body")`
 selects the string a generated route module can export as its server-only
 `markdown` representation.
 

@@ -3,7 +3,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -277,11 +277,13 @@ describe("prachtContent", () => {
 
   it("hands the CLI the generated routes so the app manifest can be reconciled", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
-    await writeFile(join(temporaryDirectory, "guide.md"), "---\ntitle: Guide\n---\nBody");
+    await mkdir(join(temporaryDirectory, "en"));
+    await writeFile(join(temporaryDirectory, "en/guide.md"), "---\ntitle: Guide\n---\nBody");
     const collection = defineCollection({
       name: "docs",
       root: temporaryDirectory,
       routeBase: "/docs",
+      locales: { default: "en", supported: ["en", "nl"] },
     });
     const [, plugin] = prachtContent({ collections: [collection] });
     const emitFile = vi.fn();
@@ -298,7 +300,12 @@ describe("prachtContent", () => {
     );
     expect(JSON.parse(call?.[0].source)).toEqual({
       policy: "warn",
-      collections: { docs: [{ path: "/docs/guide", source: "guide.md" }] },
+      collections: {
+        docs: [
+          { path: "/docs/guide", source: "en/guide.md" },
+          { path: "/nl/docs/guide", source: "en/guide.md" },
+        ],
+      },
     });
   });
 

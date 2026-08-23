@@ -48,7 +48,15 @@ export function contentLoader<
     } catch {
       missing();
     }
-    const document = await collection.getByRoute(route, { locale: options.locale?.(args) });
+    const locale = options.locale?.(args);
+    if (
+      locale !== undefined &&
+      collection.locales &&
+      !collection.locales.supported.includes(locale)
+    ) {
+      missing();
+    }
+    const document = await collection.getByRoute(route, { locale });
     if (!document) missing();
     return options.select ? options.select(document) : (document as unknown as TOutput);
   };

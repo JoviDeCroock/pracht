@@ -128,6 +128,11 @@ live entries fresh, edited sources evict their stale in-memory variants, and
 variant bytes are read lazily from the cache at emission instead of being held
 in memory for the whole build.
 
+Build-time route reconciliation now includes generated locale fallback aliases
+and reports them with the source file that supplies the fallback. Content
+loaders route unsupported locale values through their configured not-found
+response instead of surfacing a collection lookup error.
+
 Markdown images without a configured `sizes` now inherit `@pracht/image`'s
 intrinsic-width default instead of `100vw`, and the unreachable markdown
 `quality` option is removed. The Markdown trust model — compiled output is
