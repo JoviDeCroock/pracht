@@ -1866,6 +1866,7 @@ export function extractManifestModuleRegistrations(
     manifestSource,
     registryValue,
     erasedTypeQueryRanges,
+    options.program,
   );
   const braceStart = skipInsignificant(registryValue, 0);
   if (registryValue[braceStart] !== "{") return [];
@@ -1878,6 +1879,7 @@ export function extractManifestModuleRegistrations(
       manifestSource,
       expression,
       erasedTypeQueryRanges,
+      options.program,
     );
     const file = extractModuleRefPath(resolvedExpression);
     if (file) entries.push({ name, file });
@@ -1920,6 +1922,7 @@ function resolveTopLevelBindingAliases(
   source: string,
   expression: string,
   erasedTypeQueryRanges: readonly StaticSourceRange[],
+  program: unknown,
 ): string {
   const seen = new Set<string>();
   const bindingChain: { declarationIndex: number; name: string }[] = [];
@@ -1939,7 +1942,13 @@ function resolveTopLevelBindingAliases(
       startsWithObjectLiteral(initializer) &&
       bindingChain.some(
         ({ declarationIndex, name }) =>
-          !hasSingleStaticBindingUse(source, name, declarationIndex, erasedTypeQueryRanges),
+          !hasSingleStaticBindingUse(
+            source,
+            name,
+            declarationIndex,
+            erasedTypeQueryRanges,
+            program,
+          ),
       )
     ) {
       // A `const` binding prevents reassignment, but its registry object can
@@ -1967,9 +1976,13 @@ function hasSingleStaticBindingUse(
   name: string,
   declarationIndex: number,
   erasedTypeQueryRanges: readonly StaticSourceRange[],
+  program: unknown,
 ): boolean {
   const searchable = maskCommentsAndStrings(source);
-  const shadowedRanges = findBindingShadowRanges(searchable, name, declarationIndex);
+  const shadowedRanges = [
+    ...findBindingShadowRanges(searchable, name, declarationIndex),
+    ...findAstFunctionBindingShadowRanges(program, name),
+  ];
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const identifier = new RegExp(`(?<![A-Za-z0-9_$])${escapedName}(?![A-Za-z0-9_$])`, "g");
   let uses = 0;
@@ -1992,6 +2005,53 @@ function hasSingleStaticBindingUse(
   }
 
   return uses === 1;
+}
+
+/**
+ * Parsed function ranges cover method spellings that the source fallback
+ * cannot safely recognize, such as computed, quoted, and private names. Start
+ * at the first parameter so a computed method key remains an observable use of
+ * the outer registry, while the parameter scope and body use the local binding.
+ */
+function findAstFunctionBindingShadowRanges(program: unknown, name: string): StaticSourceRange[] {
+  const ranges: StaticSourceRange[] = [];
+
+  const visit = (value: unknown): void => {
+    const node = asStaticAnalysisNode(value);
+    if (!node) return;
+
+    if (
+      node.type === "FunctionDeclaration" ||
+      node.type === "FunctionExpression" ||
+      node.type === "ArrowFunctionExpression"
+    ) {
+      const parameters = unknownArray(node.params);
+      if (parameters.some((parameter) => collectStaticBindingNames(parameter).includes(name))) {
+        const firstParameter = parameters
+          .map(asStaticAnalysisNode)
+          .find((parameter): parameter is StaticAnalysisNode => parameter !== null);
+        if (
+          firstParameter &&
+          typeof firstParameter.start === "number" &&
+          typeof node.end === "number"
+        ) {
+          ranges.push({ start: firstParameter.start, end: node.end });
+        }
+      }
+    }
+
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "type" || key === "loc" || key === "span") continue;
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item);
+      } else {
+        visit(child);
+      }
+    }
+  };
+
+  visit(program);
+  return ranges;
 }
 
 /**

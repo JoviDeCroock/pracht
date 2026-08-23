@@ -44,10 +44,12 @@ function writeCapabilityManifestProject(
   {
     capabilityKey = '"notes.search"',
     capabilityPath = "./capabilities/notes-search.ts",
+    registryAuxiliarySource,
     registryTypeUse,
   }: {
     capabilityKey?: string;
     capabilityPath?: string;
+    registryAuxiliarySource?: string;
     registryTypeUse?: string;
   } = {},
 ): void {
@@ -81,10 +83,12 @@ export default defineCapability({
   const registrySource = `{
     ${capabilityKey}: () => import(${JSON.stringify(capabilityPath)}),
   }`;
-  const registryDeclaration = registryTypeUse
-    ? `const capabilities = ${registrySource};\n${registryTypeUse}\n`
-    : "";
-  const registryValue = registryTypeUse ? "capabilities" : registrySource;
+  const registryDeclaration =
+    registryTypeUse || registryAuxiliarySource
+      ? `const capabilities = ${registrySource};\n${registryAuxiliarySource ?? ""}\n${registryTypeUse ?? ""}\n`
+      : "";
+  const registryValue =
+    registryTypeUse || registryAuxiliarySource ? "capabilities" : registrySource;
 
   writeFileSync(
     join(root, "src", "routes.ts"),
@@ -982,6 +986,28 @@ export function Component() {
     writeCapabilityManifestProject(root, {
       registryTypeUse:
         'function inspect<T>(): void {}\ninspect<typeof capabilities["notes.search"]>();',
+    });
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import capability from "../capabilities/notes-search";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+    );
+
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
+      /Capability module .* was imported by client code/,
+    );
+  });
+
+  it("keeps the capability import guard through a computed method parameter shadow", async () => {
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root, {
+      registryAuxiliarySource:
+        "const helper = { [Symbol.iterator](capabilities) { return capabilities; } };",
     });
     writeFileSync(
       join(root, "src", "routes", "home.tsx"),

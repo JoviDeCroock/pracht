@@ -317,3 +317,10 @@ binding. Registry extraction recognizes async, generator, and accessor methods
 whose parameters shadow a top-level registry, and pages middleware generation
 does not mistake a mutable serverful adapter binding for a shadowed static-adapter
 import.
+
+Pages middleware generation also respects function-scoped `var` adapter bindings
+declared inside nested control-flow blocks, so an outer adapter import cannot
+override the configuration that runs. Parsed manifest analysis recognizes
+computed, quoted, and private method parameter scopes as well, preserving static
+capability registrations and their client import guard when those methods shadow
+the registry name.

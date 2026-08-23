@@ -564,7 +564,22 @@ function configPropertyName(value: unknown): string | null {
 }
 
 const SHADOWED_CONFIG_BINDING = Symbol("shadowed-config-binding");
-type ConfigBindings = ReadonlyMap<string, unknown | typeof SHADOWED_CONFIG_BINDING>;
+const FUNCTION_VAR_CONFIG_BINDING = Symbol("function-var-config-binding");
+type FunctionVarConfigBinding = {
+  [FUNCTION_VAR_CONFIG_BINDING]: true;
+  value: unknown | typeof SHADOWED_CONFIG_BINDING;
+};
+type ConfigBinding = unknown | typeof SHADOWED_CONFIG_BINDING | FunctionVarConfigBinding;
+type ConfigBindings = ReadonlyMap<string, ConfigBinding>;
+
+function isFunctionVarConfigBinding(value: unknown): value is FunctionVarConfigBinding {
+  return Boolean(value && typeof value === "object" && FUNCTION_VAR_CONFIG_BINDING in value);
+}
+
+function configBindingValue(bindings: ConfigBindings, name: string): ConfigBinding | undefined {
+  const binding = bindings.get(name);
+  return isFunctionVarConfigBinding(binding) ? binding.value : binding;
+}
 
 function configBindingNames(value: unknown): string[] {
   const node = asConfigAstNode(value);
@@ -598,6 +613,9 @@ function configBlockBindings(block: ConfigAstNode, parentBindings: ConfigBinding
       for (const declaration of configAstNodes(statement.declarations)) {
         const names = configBindingNames(declaration.id);
         for (const name of names) {
+          if (statement.kind === "var" && isFunctionVarConfigBinding(bindings.get(name))) {
+            continue;
+          }
           const isResolvableConst =
             statement.kind === "const" &&
             names.length === 1 &&
@@ -614,6 +632,75 @@ function configBlockBindings(block: ConfigAstNode, parentBindings: ConfigBinding
   return bindings;
 }
 
+function configFunctionVarBindings(fn: ConfigAstNode): Map<string, ConfigBinding> {
+  const varInitializers = new Map<string, unknown[]>();
+  const assignedBindings = new Set<string>();
+
+  const visit = (value: unknown, shadowedBindings: ReadonlySet<string>): void => {
+    const node = asConfigAstNode(value);
+    if (!node) return;
+    if (
+      node.type === "FunctionDeclaration" ||
+      node.type === "FunctionExpression" ||
+      node.type === "ArrowFunctionExpression" ||
+      node.type === "ClassDeclaration" ||
+      node.type === "ClassExpression" ||
+      node.type === "StaticBlock"
+    ) {
+      return;
+    }
+
+    if (node.type === "CatchClause") {
+      const catchShadowed = new Set([...shadowedBindings, ...configBindingNames(node.param)]);
+      visit(node.body, catchShadowed);
+      return;
+    }
+
+    if (node.type === "VariableDeclaration" && node.kind === "var") {
+      for (const declaration of configAstNodes(node.declarations)) {
+        for (const name of configBindingNames(declaration.id)) {
+          if (shadowedBindings.has(name)) continue;
+          const initializers = varInitializers.get(name) ?? [];
+          if (declaration.init !== undefined && declaration.init !== null) {
+            initializers.push(declaration.init);
+          }
+          varInitializers.set(name, initializers);
+        }
+      }
+    }
+
+    if (node.type === "AssignmentExpression" || node.type === "UpdateExpression") {
+      const target = node.type === "AssignmentExpression" ? node.left : node.argument;
+      for (const name of configBindingNames(target)) {
+        if (!shadowedBindings.has(name)) assignedBindings.add(name);
+      }
+    }
+
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "type" || key === "loc") continue;
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item, shadowedBindings);
+      } else {
+        visit(child, shadowedBindings);
+      }
+    }
+  };
+
+  visit(fn.body, new Set());
+  return new Map(
+    [...varInitializers].map(([name, initializers]) => [
+      name,
+      {
+        [FUNCTION_VAR_CONFIG_BINDING]: true,
+        value:
+          initializers.length === 1 && !assignedBindings.has(name)
+            ? initializers[0]
+            : SHADOWED_CONFIG_BINDING,
+      },
+    ]),
+  );
+}
+
 function configFunctionBindings(fn: ConfigAstNode, parentBindings: ConfigBindings): ConfigBindings {
   const bindings = new Map(parentBindings);
   for (const parameter of Array.isArray(fn.params) ? fn.params : []) {
@@ -623,6 +710,9 @@ function configFunctionBindings(fn: ConfigAstNode, parentBindings: ConfigBinding
   }
   const functionName = configPropertyName(fn.id);
   if (functionName) bindings.set(functionName, SHADOWED_CONFIG_BINDING);
+  for (const [name, binding] of configFunctionVarBindings(fn)) {
+    bindings.set(name, binding);
+  }
   return bindings;
 }
 
@@ -640,7 +730,7 @@ function visitConfigAst(
 
   if (node.type === "Identifier" && typeof node.name === "string" && bindings.has(node.name)) {
     if (seenBindings.has(node.name)) return false;
-    const binding = bindings.get(node.name);
+    const binding = configBindingValue(bindings, node.name);
     if (binding === SHADOWED_CONFIG_BINDING) return visit(node, bindings);
     return visitConfigAst(binding, visit, bindings, new Set([...seenBindings, node.name]));
   }
@@ -753,7 +843,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       const node = unwrapConfigExpression(value);
       if (node?.type !== "Identifier" || typeof node.name !== "string") return node;
       if (seen.has(node.name)) return node;
-      const initializer = activeBindings.get(node.name);
+      const initializer = configBindingValue(activeBindings, node.name);
       if (initializer === SHADOWED_CONFIG_BINDING) return null;
       if (initializer === undefined) return node;
       return resolveConfigBinding(initializer, activeBindings, new Set([...seen, node.name]));
@@ -816,7 +906,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
 
       if (node.type === "Identifier" && typeof node.name === "string") {
         if (seen.has(node.name)) return false;
-        const initializer = activeBindings.get(node.name);
+        const initializer = configBindingValue(activeBindings, node.name);
         if (initializer === SHADOWED_CONFIG_BINDING) return false;
         if (initializer === undefined) return staticFactories.has(node.name);
         return isStaticAdapterExpression(

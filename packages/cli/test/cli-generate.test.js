@@ -375,6 +375,60 @@ export default defineConfig(() => {
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
   });
 
+  it("uses a function-scoped serverful var declared inside a nested block", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-hoisted-node-var-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter as adapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+export default defineConfig(() => {
+  if (true) {
+    var adapter = nodeAdapter;
+  }
+  return { plugins: [pracht({ pagesDir: "/src/pages", adapter: adapter() })] };
+});`,
+    );
+
+    runCli(["generate", "middleware", "--name", "_middleware"], { cwd: appDir });
+
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
+  });
+
+  it("uses a function-scoped static var declared inside a nested block", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-hoisted-static-var-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter as adapter } from "@pracht/adapter-node";
+export default defineConfig(() => {
+  if (true) {
+    var adapter = staticAdapter;
+  }
+  return { plugins: [pracht({ pagesDir: "/src/pages", adapter: adapter() })] };
+});`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("uses a mutable serverful adapter binding that shadows a static-adapter import", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-shadowed-static-import-");
     writePagesApp(appDir);
