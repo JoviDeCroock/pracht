@@ -59,5 +59,12 @@ export function markdownRepresentation<TFrontmatter extends Record<string, unkno
   document: ContentDocument<TFrontmatter, TCompiled>,
   representation: "raw" | "body" = "raw",
 ): string {
-  return representation === "body" ? document.body : document.raw;
+  const value = representation === "body" ? document.body : document.raw;
+  if (typeof value !== "string") {
+    throw new Error(
+      `markdownRepresentation() needs document ${representation}, but this runtime snapshot omitted it. ` +
+        `Enable \`snapshot: { ${representation}: true }\` for the collection or select an embedded representation.`,
+    );
+  }
+  return value;
 }

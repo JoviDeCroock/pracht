@@ -115,13 +115,14 @@ path, and malformed header names or values still fail the build. `contentLoader(
 treats malformed request pathnames as not-found instead of throwing, matching
 the capability helpers.
 
-Static image variants clamp encoding to WebP's 16383-pixel limit on both axes
-instead of failing the build on very large sources, `staticWidths` validation
-rejects widths above that limit, and encoder failures name the offending source
-file. The image disk cache is pruned of entries unused for 30 days, cache hits
-keep live entries fresh, edited sources evict their stale in-memory variants,
-and variant bytes are read lazily from the cache at emission instead of being
-held in memory for the whole build.
+Static image variants clamp encoding to WebP's 16383-pixel limit on both axes,
+including extreme portraits that cannot shrink below one pixel wide, instead
+of failing the build on very large sources. `staticWidths` validation rejects
+widths above that limit, and encoder failures name the offending source file.
+The image disk cache is pruned of entries unused for 30 days, cache hits keep
+live entries fresh, edited sources evict their stale in-memory variants, and
+variant bytes are read lazily from the cache at emission instead of being held
+in memory for the whole build.
 
 Markdown images without a configured `sizes` now inherit `@pracht/image`'s
 intrinsic-width default instead of `100vw`, and the unreachable markdown
@@ -131,7 +132,8 @@ executed as HTML; feed it only trusted content — is now documented.
 Collections accept `snapshot: { raw?, body? }` to trim source representations
 from runtime snapshots, forwarded by `defineMarkdownCollection()`; capability
 helpers that need a trimmed field fail at construction with an actionable
-error. Scanned collections follow in-root symbolic links (escaping or dangling
-links are skipped), collection roots outside Vite's watched root are added to
-the dev watcher, and the authoring and snapshot runtimes share one locale and
-route-path implementation.
+error, and `markdownRepresentation()` rejects a selected representation that
+the snapshot omitted. Scanned collections follow in-root symbolic links
+(escaping or dangling links are skipped), collection roots outside Vite's
+watched root are added to the dev watcher, and the authoring and snapshot
+runtimes share one locale and route-path implementation.

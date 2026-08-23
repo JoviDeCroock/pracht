@@ -288,8 +288,9 @@ An omitted field is absent on the snapshot's documents rather than a throwing
 accessor, matching the plain object shape the rest of the runtime API returns,
 and `collection.snapshotFields` reports what a collection carries. Because the
 mismatch is otherwise invisible — Markdown negotiation returns nothing, search
-matches nothing — both capability helpers reject a body-free collection when
-the capability is constructed rather than when it runs.
+matches nothing — `markdownRepresentation()` rejects a missing selected field,
+and both capability helpers reject a body-free collection when the capability
+is constructed rather than when it runs.
 
 Applications can add `@pracht/content/virtual` to `compilerOptions.types` for a
 generic declaration and optionally augment their named virtual module with

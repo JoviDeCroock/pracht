@@ -818,6 +818,10 @@ describe("collection integration helpers", () => {
     const document = await runtime.getByRoute("/docs/page");
     expect(document?.body).toBe("Body");
     expect(document?.raw).toBeUndefined();
+    expect(() => markdownRepresentation(document!, "raw")).toThrow(
+      /markdownRepresentation\(\) needs document raw.*snapshot: \{ raw: true \}/,
+    );
+    expect(markdownRepresentation(document!, "body")).toBe("Body");
   });
 
   it("keeps every snapshot representation by default and validates the opt-out", async () => {

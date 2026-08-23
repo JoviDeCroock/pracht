@@ -217,9 +217,10 @@ defineCollection({
 
 An omitted field is absent on snapshot documents, and `collection.snapshotFields`
 reports what a collection carries. `markdownRepresentation()` needs `raw` (or
-`body`), and both capability helpers need `body`; building one over a
-body-free snapshot throws where the capability is wired up rather than
-answering every query with nothing.
+`body`) and throws an actionable error when the selected representation was
+omitted. Both capability helpers need `body`; building one over a body-free
+snapshot throws where the capability is wired up rather than answering every
+query with nothing.
 
 Frontmatter and compiled values used this way must be JSON-serializable. JSON
 object keys retain their data semantics in the generated module, including

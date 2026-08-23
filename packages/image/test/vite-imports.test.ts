@@ -451,6 +451,23 @@ describe("static variants beyond WebP's dimension limit", () => {
     expect(code).toContain("data:image/webp;base64,");
   });
 
+  it("caps the height when an extreme portrait cannot shrink below one pixel wide", async () => {
+    const { dir, cacheDir } = await makeWorkspace();
+    const file = join(dir, "extreme-portrait.png");
+    await writeStripe(file, 1, 16_400);
+
+    const plugin = prachtImage({ staticWidths: [16] });
+    configureWith(plugin, cacheDir);
+    const code = await loadStatic(plugin, file);
+
+    expect(parseVariants(code).map((variant) => variant.width)).toEqual([1]);
+
+    const [emitted] = await emitClientAssets(plugin);
+    const meta = await sharp(Buffer.from(emitted.source)).metadata();
+    expect(meta.width).toBe(1);
+    expect(meta.height).toBeLessThanOrEqual(16_383);
+  });
+
   it("names the source file when a variant still cannot be encoded", async () => {
     const { dir, cacheDir } = await makeWorkspace();
     const file = join(dir, "photo.jpg");

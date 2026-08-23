@@ -56,7 +56,7 @@ const DEFAULT_BLUR_QUALITY = 70;
 const DEFAULT_STATIC_QUALITY = 75;
 const DEFAULT_STATIC_WIDTHS = [320, 640, 960, 1280, 1920] as const;
 const STATIC_IMAGE_QUERY = "pracht-static";
-const STATIC_CACHE_VERSION = "pracht-static-image-v1";
+const STATIC_CACHE_VERSION = "pracht-static-image-v2";
 /**
  * WebP stores each dimension in 14 bits, so no side of an encoded image may
  * exceed 16383px. Both the configured widths and the intrinsic-width variant
@@ -514,7 +514,12 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
         const output = Buffer.from(
           await sharp(source)
             .rotate()
-            .resize({ width, withoutEnlargement: true })
+            .resize({
+              width,
+              height: WEBP_MAX_DIMENSION,
+              fit: "inside",
+              withoutEnlargement: true,
+            })
             .webp({ quality: staticQuality })
             .toBuffer(),
         );
