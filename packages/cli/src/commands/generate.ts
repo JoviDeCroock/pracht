@@ -563,6 +563,14 @@ function configPropertyName(value: unknown): string | null {
   return null;
 }
 
+function configMemberPropertyName(value: unknown): string | null {
+  const node = asConfigAstNode(value);
+  if (node?.type !== "MemberExpression") return null;
+  const property = asConfigAstNode(node.property);
+  if (node.computed === true && property?.type !== "Literal") return null;
+  return configPropertyName(property);
+}
+
 const SHADOWED_CONFIG_BINDING = Symbol("shadowed-config-binding");
 const FUNCTION_VAR_CONFIG_BINDING = Symbol("function-var-config-binding");
 type FunctionVarConfigBinding = {
@@ -763,6 +771,7 @@ function visitConfigAst(
   visit: (node: ConfigAstNode, bindings: ConfigBindings) => boolean,
   bindings: ConfigBindings = new Map(),
   seenBindings = new Set<string>(),
+  enterFunctionBody = false,
 ): boolean {
   if (Array.isArray(value)) {
     return value.some((item) => visitConfigAst(item, visit, bindings, seenBindings));
@@ -774,16 +783,23 @@ function visitConfigAst(
     if (seenBindings.has(node.name)) return false;
     const binding = configBindingValue(bindings, node.name);
     if (binding === SHADOWED_CONFIG_BINDING) return visit(node, bindings);
-    return visitConfigAst(binding, visit, bindings, new Set([...seenBindings, node.name]));
+    return visitConfigAst(
+      binding,
+      visit,
+      bindings,
+      new Set([...seenBindings, node.name]),
+      enterFunctionBody,
+    );
   }
 
   if (visit(node, bindings)) return true;
-  let childBindings = bindings;
-  if (
+  const isFunction =
     node.type === "FunctionDeclaration" ||
     node.type === "FunctionExpression" ||
-    node.type === "ArrowFunctionExpression"
-  ) {
+    node.type === "ArrowFunctionExpression";
+  if (isFunction && !enterFunctionBody) return false;
+  let childBindings = bindings;
+  if (isFunction) {
     childBindings = configFunctionBindings(node, bindings);
   } else if (node.type === "BlockStatement") {
     childBindings = configBlockBindings(node, bindings);
@@ -805,7 +821,13 @@ function visitConfigAst(
     if (node.type === "MemberExpression" && key === "property" && node.computed !== true) {
       return false;
     }
-    return visitConfigAst(child, visit, childBindings, seenBindings);
+    return visitConfigAst(
+      child,
+      visit,
+      childBindings,
+      seenBindings,
+      node.type === "CallExpression" && key === "callee",
+    );
   });
 }
 
@@ -874,6 +896,9 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
           const name = configPropertyName(declaration.id);
           if (name) bindings.set(name, declaration.init);
         }
+      } else if (declarationStatement?.type === "FunctionDeclaration") {
+        const name = configPropertyName(declarationStatement.id);
+        if (name) bindings.set(name, declarationStatement);
       }
     }
 
@@ -999,13 +1024,14 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       if (callee?.type === "Identifier" && typeof callee.name === "string") {
         return staticFactories.has(callee.name);
       }
-      if (callee?.type !== "MemberExpression" || callee.computed === true) return false;
+      if (
+        callee?.type !== "MemberExpression" ||
+        configMemberPropertyName(callee) !== "staticAdapter"
+      ) {
+        return false;
+      }
       const objectName = configPropertyName(resolveConfigBinding(callee.object, activeBindings));
-      return (
-        objectName !== null &&
-        staticNamespaces.has(objectName) &&
-        configPropertyName(callee.property) === "staticAdapter"
-      );
+      return objectName !== null && staticNamespaces.has(objectName);
     };
 
     const defaultExport = configAstNodes(program.body).find(
@@ -1034,7 +1060,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
     if (defaultExportValue && exportedConfigNode?.type === "CallExpression") {
       const callee = resolveConfigBinding(exportedConfigNode.callee, bindings);
       const namespaceName =
-        callee?.type === "MemberExpression" && callee.computed !== true
+        callee?.type === "MemberExpression" && configMemberPropertyName(callee) === "defineConfig"
           ? configPropertyName(callee.object)
           : null;
       const isDefineConfigCall =
@@ -1042,10 +1068,8 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
           typeof callee.name === "string" &&
           viteConfigFactories.has(callee.name)) ||
         (callee?.type === "MemberExpression" &&
-          callee.computed !== true &&
           namespaceName !== null &&
-          viteNamespaces.has(namespaceName) &&
-          configPropertyName(callee.property) === "defineConfig");
+          viteNamespaces.has(namespaceName));
       if (isDefineConfigCall) {
         const argument = configAstNodes(exportedConfigNode.arguments)[0];
         if (argument) exportedConfig = resolveConfigBinding(argument, bindings) ?? argument;
@@ -1058,7 +1082,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
         if (node.type !== "CallExpression") return false;
         const callee = resolveConfigBinding(node.callee, activeBindings);
         const namespaceName =
-          callee?.type === "MemberExpression" && callee.computed !== true
+          callee?.type === "MemberExpression" && configMemberPropertyName(callee) === "pracht"
             ? configPropertyName(resolveConfigBinding(callee.object, activeBindings))
             : null;
         const isPrachtCall =
@@ -1066,10 +1090,8 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
             typeof callee.name === "string" &&
             (callee.name === "pracht" || prachtFactories.has(callee.name))) ||
           (callee?.type === "MemberExpression" &&
-            callee.computed !== true &&
             namespaceName !== null &&
-            prachtNamespaces.has(namespaceName) &&
-            configPropertyName(callee.property) === "pracht");
+            prachtNamespaces.has(namespaceName));
         if (!isPrachtCall) return false;
         const options = resolveConfigBinding(configAstNodes(node.arguments)[0], activeBindings);
         if (options?.type !== "ObjectExpression") return false;
@@ -1077,6 +1099,8 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
         return adapter.kind === "value" && isStaticAdapterExpression(adapter.value, activeBindings);
       },
       bindings,
+      new Set(),
+      true,
     );
   } catch {
     return false;

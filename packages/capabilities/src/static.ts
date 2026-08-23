@@ -354,6 +354,10 @@ function collectTopLevelBindingKinds(
  * in its body without creating an outer binding.
  */
 function collectModuleScopedVarBindings(program: StaticAnalysisNode): Set<string> {
+  return collectRuntimeScopeVarBindings(nodeArray(program.body));
+}
+
+function collectRuntimeScopeVarBindings(statements: readonly StaticAnalysisNode[]): Set<string> {
   const bindings = new Set<string>();
 
   const visit = (value: unknown, shadowedBindings: ReadonlySet<string>): void => {
@@ -399,7 +403,7 @@ function collectModuleScopedVarBindings(program: StaticAnalysisNode): Set<string
     }
   };
 
-  for (const statement of nodeArray(program.body)) visit(statement, new Set());
+  for (const statement of statements) visit(statement, new Set());
   return bindings;
 }
 
@@ -546,6 +550,37 @@ function collectTopLevelBindingWritesFromNode(
           directDeclarators,
         );
       }
+    }
+    return;
+  }
+
+  if (node.type === "TSModuleDeclaration") {
+    if (node.declare === true) return;
+    const body = asStaticAnalysisNode(node.body);
+    if (body?.type === "TSModuleBlock") {
+      const statements = nodeArray(body.body);
+      const moduleBindings = [
+        ...collectLexicalStatementBindings(statements),
+        ...collectRuntimeScopeVarBindings(statements),
+      ];
+      const moduleShadowed = new Set([...shadowedBindings, ...moduleBindings]);
+      for (const statement of statements) {
+        collectTopLevelBindingWritesFromNode(
+          statement,
+          writes,
+          unconditionalExpressions,
+          moduleShadowed,
+          directDeclarators,
+        );
+      }
+    } else {
+      collectTopLevelBindingWritesFromNode(
+        body,
+        writes,
+        unconditionalExpressions,
+        shadowedBindings,
+        directDeclarators,
+      );
     }
     return;
   }
@@ -716,7 +751,12 @@ function collectLexicalStatementBindings(statements: readonly StaticAnalysisNode
       for (const declarator of nodeArray(statement.declarations)) {
         bindings.push(...collectStaticBindingNames(declarator.id));
       }
-    } else if (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") {
+    } else if (
+      statement.type === "FunctionDeclaration" ||
+      statement.type === "ClassDeclaration" ||
+      statement.type === "TSEnumDeclaration" ||
+      statement.type === "TSModuleDeclaration"
+    ) {
       const name = getStaticIdentifierName(statement.id);
       if (name) bindings.push(name);
     }
@@ -731,40 +771,7 @@ function collectLexicalStatementBindings(statements: readonly StaticAnalysisNode
  * functions and classes to their own scopes.
  */
 function collectStaticBlockVarBindings(statements: readonly StaticAnalysisNode[]): string[] {
-  const bindings: string[] = [];
-
-  const visit = (value: unknown): void => {
-    const node = asStaticAnalysisNode(value);
-    if (!node) return;
-    if (
-      node.type === "FunctionDeclaration" ||
-      node.type === "FunctionExpression" ||
-      node.type === "ArrowFunctionExpression" ||
-      node.type === "ClassDeclaration" ||
-      node.type === "ClassExpression" ||
-      node.type === "StaticBlock"
-    ) {
-      return;
-    }
-
-    if (node.type === "VariableDeclaration" && node.kind === "var") {
-      for (const declarator of nodeArray(node.declarations)) {
-        bindings.push(...collectStaticBindingNames(declarator.id));
-      }
-    }
-
-    for (const [key, child] of Object.entries(node)) {
-      if (key === "type" || key === "loc" || key === "span") continue;
-      if (Array.isArray(child)) {
-        for (const item of child) visit(item);
-      } else {
-        visit(child);
-      }
-    }
-  };
-
-  for (const statement of statements) visit(statement);
-  return bindings;
+  return [...collectRuntimeScopeVarBindings(statements)];
 }
 
 function collectUnconditionallyEvaluatedStatement(
@@ -802,6 +809,28 @@ function collectUnconditionallyEvaluatedStatement(
 
   if (statement.type === "ClassDeclaration") {
     collectClassEvaluationExpressions(statement, expressions);
+    return;
+  }
+
+  if (statement.type === "TSEnumDeclaration") {
+    if (statement.declare === true) return;
+    const body = asStaticAnalysisNode(statement.body);
+    for (const member of nodeArray(body?.members)) {
+      collectUnconditionallyEvaluatedExpressions(member.initializer, expressions);
+    }
+    return;
+  }
+
+  if (statement.type === "TSModuleDeclaration") {
+    if (statement.declare === true) return;
+    const body = asStaticAnalysisNode(statement.body);
+    if (body?.type === "TSModuleBlock") {
+      for (const child of nodeArray(body.body)) {
+        collectUnconditionallyEvaluatedStatement(child, expressions);
+      }
+    } else if (body?.type === "TSModuleDeclaration") {
+      collectUnconditionallyEvaluatedStatement(body, expressions);
+    }
     return;
   }
 
@@ -2033,13 +2062,21 @@ function findAstFunctionBindingShadowRanges(program: unknown, name: string): Sta
       const parameterBindsName = parameters.some((parameter) =>
         collectStaticBindingNames(parameter).includes(name),
       );
+      const functionName = getStaticIdentifierName(node.id);
+      const functionExpressionBindsName =
+        node.type === "FunctionExpression" && functionName === name;
       const body = asStaticAnalysisNode(node.body);
       const varBindsName = body ? hasFunctionScopedVarBinding(body, name) : false;
-      if (parameterBindsName || varBindsName) {
+      if (parameterBindsName || functionExpressionBindsName || varBindsName) {
         const firstParameter = parameters
           .map(asStaticAnalysisNode)
           .find((parameter): parameter is StaticAnalysisNode => parameter !== null);
-        const rangeStart = parameterBindsName ? firstParameter?.start : body?.start;
+        const functionId = asStaticAnalysisNode(node.id);
+        const rangeStart = functionExpressionBindsName
+          ? functionId?.start
+          : parameterBindsName
+            ? firstParameter?.start
+            : body?.start;
         if (typeof rangeStart === "number" && typeof node.end === "number") {
           ranges.push({ start: rangeStart, end: node.end });
         }

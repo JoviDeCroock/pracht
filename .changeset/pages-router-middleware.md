@@ -325,6 +325,18 @@ computed, quoted, and private method parameter scopes as well, preserving static
 capability registrations and their client import guard when those methods shadow
 the registry name.
 
+Middleware callable analysis also evaluates runtime TypeScript enum and namespace
+initializers while preserving namespace-local bindings, so those declarations
+cannot hide a module-scope non-callable write. Named function expressions now own
+their local name during manifest registry use counting, keeping unrelated valid
+registrations visible to projection, verification, and client import guards.
+
+Pages middleware generation follows function declarations re-exported as the
+default Vite config and literal-computed Pracht or static-adapter namespace calls.
+It also ignores uninvoked nested helpers when determining the adapter selected by
+an exported config factory, avoiding both unsupported static scaffolds and false
+rejections of serverful configurations.
+
 Parsed manifest analysis also recognizes function-scoped `var` registry bindings
 inside computed, quoted, and private methods, so their local reads do not hide
 capability registrations or disable the client import guard. Pages middleware

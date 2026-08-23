@@ -43,6 +43,18 @@ describe("middleware export classification", () => {
       false,
     ],
     [
+      "let middleware: any = () => {};\nenum Setup { value = (middleware = 1) }\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware: any = () => {};\nnamespace Setup { export const value = (middleware = 1); }\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\nnamespace Setup { export const middleware = 1; }\nexport { middleware };",
+      true,
+    ],
+    [
       "let middleware = () => {};\ntry { middleware = 1; } finally {}\nexport { middleware };",
       false,
     ],
@@ -665,6 +677,20 @@ describe("capability static extraction", () => {
     const source = `
       const capabilities = { notes: "./capabilities/notes.ts" };
       ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(
+      extractCapabilityRegistrations(source, {
+        program: parseAst(source, { lang: "ts" }),
+      }),
+    ).toEqual([{ name: "notes", file: "./capabilities/notes.ts" }]);
+  });
+
+  it("uses a named function expression's local name scope when checking a registry", () => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      const helper = function capabilities() { return capabilities; };
       export const app = defineApp({ capabilities, routes: [] });
     `;
 
