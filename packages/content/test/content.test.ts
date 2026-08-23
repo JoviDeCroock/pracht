@@ -848,13 +848,25 @@ describe("collection integration helpers", () => {
     expect(markdownRepresentation(document!, "body")).toBe("Body");
   });
 
-  it("keeps every snapshot representation by default and validates the opt-out", async () => {
+  it("embeds body but not raw by default and validates the opt-out", async () => {
     const root = await fixture({ "page.md": "Body" });
     const snapshot = await defineCollection({ name: "docs", root }).snapshot();
 
-    expect(snapshot.fields).toBeUndefined();
-    expect(snapshot.documents[0]).toMatchObject({ body: "Body", raw: "Body" });
-    expect(defineSnapshotCollection(snapshot).snapshotFields).toEqual({ body: true, raw: true });
+    // `raw` duplicates source that route modules and build-time generators
+    // already carry, so the default snapshot drops it; `raw: true` opts in.
+    expect(snapshot.fields).toEqual({ body: true, raw: false });
+    expect(snapshot.documents[0]).toMatchObject({ body: "Body" });
+    expect(Object.hasOwn(snapshot.documents[0], "raw")).toBe(false);
+    expect(defineSnapshotCollection(snapshot).snapshotFields).toEqual({ body: true, raw: false });
+
+    const optedIn = await defineCollection({
+      name: "docs",
+      root,
+      snapshot: { raw: true },
+    }).snapshot();
+    expect(optedIn.fields).toBeUndefined();
+    expect(optedIn.documents[0]).toMatchObject({ body: "Body", raw: "Body" });
+    expect(defineSnapshotCollection(optedIn).snapshotFields).toEqual({ body: true, raw: true });
 
     expect(() => defineCollection({ name: "docs", root, snapshot: null as never })).toThrow(
       /snapshot must be an object/,

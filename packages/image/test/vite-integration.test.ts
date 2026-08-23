@@ -412,6 +412,66 @@ describe("prachtImage in the Vite dev server", () => {
   );
 
   it(
+    "keeps shared pass-through assets readable when their first source changes",
+    { timeout: 60_000 },
+    async () => {
+      const { createServer } = await import("vite");
+      const root = await makeRoot();
+      const firstSource = join(root, "a", "icon.svg");
+      const secondSource = join(root, "b", "icon.svg");
+      await Promise.all([mkdir(join(root, "a")), mkdir(join(root, "b"))]);
+      await Promise.all([
+        copyFile(fixture("icon.svg"), firstSource),
+        copyFile(fixture("icon.svg"), secondSource),
+      ]);
+      const expected = await readFile(secondSource);
+      const server = await createServer({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage()],
+        server: {
+          host: "127.0.0.1",
+          port: 0,
+          hmr: false,
+          watch: { usePolling: true, interval: 50 },
+        },
+      });
+
+      try {
+        await server.listen();
+        const first = await server.transformRequest("/a/icon.svg?pracht&pracht-static");
+        const second = await server.transformRequest("/b/icon.svg?pracht&pracht-static");
+        const firstPath = first?.code.match(/\/assets\/icon\.[a-f0-9]+\.svg/)?.[0];
+        const secondPath = second?.code.match(/\/assets\/icon\.[a-f0-9]+\.svg/)?.[0];
+        expect(firstPath).toBeDefined();
+        expect(secondPath).toBe(firstPath);
+
+        const module = await server.moduleGraph.getModuleByUrl("/a/icon.svg?pracht&pracht-static");
+        expect(module).toBeDefined();
+        await writeFile(
+          firstSource,
+          Buffer.concat([expected, Buffer.from("\n<!-- changed -->\n")]),
+        );
+        await utimes(firstSource, new Date(), new Date(Date.now() + 5000));
+
+        const deadline = Date.now() + 10_000;
+        while (module!.transformResult != null && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(module!.transformResult).toBeNull();
+
+        const address = server.httpServer?.address();
+        if (!address || typeof address !== "object") throw new Error("Vite did not expose a port");
+        const response = await fetch(`http://127.0.0.1:${address.port}${firstPath}`);
+        expect(response.status).toBe(200);
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(expected);
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
+  it(
     "invalidates Vite's transform cache when the image changes on disk",
     { timeout: 60_000 },
     async () => {

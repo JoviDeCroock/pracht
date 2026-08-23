@@ -91,12 +91,12 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
 
     async transform(code, id) {
       // Preserve Vite's resource-query contracts. By the time transform hooks
-      // run, built-ins such as ?raw, ?url, and the worker queries have already
-      // turned the source into JavaScript; compiling that JavaScript as
-      // Markdown would replace the requested representation with a Pracht
-      // route module. Internal queries such as ?pracht-client and HMR
-      // timestamps still represent the route module itself and must pass
-      // through the collection compiler.
+      // run, built-ins such as ?raw, ?url, the inline controls, and the worker
+      // queries have already turned the source into JavaScript; compiling that
+      // JavaScript as Markdown would replace the requested representation with
+      // a Pracht route module. Internal queries such as ?pracht-client and HMR
+      // timestamps still represent the route module itself and must pass through
+      // the collection compiler.
       const queryIndex = id.indexOf("?");
       const clean = queryIndex === -1 ? id : id.slice(0, queryIndex);
       if (queryIndex !== -1) {
@@ -104,6 +104,8 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
         if (
           query.has("raw") ||
           query.has("url") ||
+          query.has("inline") ||
+          query.has("no-inline") ||
           query.has("worker") ||
           query.has("sharedworker")
         ) {

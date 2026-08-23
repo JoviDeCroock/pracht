@@ -64,6 +64,12 @@ describe("prachtContent", () => {
       await transform.call({} as never, 'export default "/page.md"', `${source}?url`),
     ).toBeNull();
     expect(
+      await transform.call({} as never, 'export default "data:text/plain,..."', `${source}?inline`),
+    ).toBeNull();
+    expect(
+      await transform.call({} as never, 'export default "/page.md"', `${source}?no-inline`),
+    ).toBeNull();
+    expect(
       await transform.call(
         {} as never,
         "export default function WorkerWrapper() {}",
@@ -151,10 +157,29 @@ describe("prachtContent", () => {
     ]);
   });
 
-  it("keeps every source representation in a generated module by default", async () => {
+  it("embeds body but not raw in a generated module by default", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
     const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+    const [plugin] = prachtContent({ collections: [collection] });
+
+    const snapshot = loadedSnapshot(
+      await hookHandler(plugin.load).call({} as never, "\0virtual:pracht/content/docs"),
+    );
+
+    expect(snapshot.fields).toEqual({ body: true, raw: false });
+    expect(snapshot.documents[0]).toMatchObject({ body: "Body" });
+    expect(Object.hasOwn(snapshot.documents[0], "raw")).toBe(false);
+  });
+
+  it("keeps every source representation in a generated module with raw opted in", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      snapshot: { raw: true },
+    });
     const [plugin] = prachtContent({ collections: [collection] });
 
     const snapshot = loadedSnapshot(

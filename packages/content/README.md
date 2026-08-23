@@ -144,7 +144,8 @@ export default defineConfig({
 
 The first plugin transforms plain collection source imports through the
 collection's `module` hook in every Vite environment; resource queries such as
-`?raw`, `?url`, `?worker`, and `?sharedworker` retain Vite's built-in semantics.
+`?raw`, `?url`, `?inline`, `?no-inline`, `?worker`, and `?sharedworker` retain
+Vite's built-in semantics.
 The second serves generated artifacts with GET/HEAD beneath Vite's configured
 base in development and emits identical static files in client builds.
 File watcher events invalidate only the affected memoized document and the
@@ -204,16 +205,19 @@ Vercel, and dist-only Node deployments without source files or `node:fs`.
 Collection names are matched literally, including names containing `%`; an
 encoded suffix remains supported when an import cannot spell the name directly.
 
-A snapshot carries `raw` and `body` alongside `compiled`, roughly two to three
-times the content size. An application that neither negotiates Markdown nor
-searches bodies can drop either from the generated module:
+A snapshot can carry `raw` and `body` alongside `compiled`; each representation
+costs roughly its share of the content size again. By default a snapshot embeds
+`body` but not `raw` — compiled route modules and build-time artifact
+generators already carry the exact source, so duplicating it in the server
+bundle is opt-in:
 
 ```ts
 defineCollection({
   name: "docs",
   root: new URL("./content/docs", import.meta.url),
-  // Both default to true. The authoring collection keeps every field.
-  snapshot: { raw: false },
+  // `body` defaults to true, `raw` to false. The authoring collection
+  // keeps every field regardless.
+  snapshot: { raw: true },
 });
 ```
 

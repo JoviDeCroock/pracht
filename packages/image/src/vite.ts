@@ -269,11 +269,12 @@ interface StaticAsset {
    */
   path: string;
   /**
-   * Source files that produced this asset. `watchChange` removes the edited
-   * source so its now-unreachable variants do not accumulate across a dev
-   * session; an asset is dropped once no source claims it.
+   * Source files that produced this asset, paired with the path containing
+   * their bytes. Generated variants share a cache path, while pass-through
+   * assets retain one original path per source so a surviving duplicate can
+   * take over after another owner changes.
    */
-  sources: Set<string>;
+  sources: Map<string, string>;
 }
 
 /** Vite ids, watcher paths, and Windows drive paths must compare equal. */
@@ -382,8 +383,9 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
 
   /**
    * Record a generated (or pass-through) asset by path. The same content hash
-   * can legitimately be produced by two sources, so ownership is a set: an
-   * entry only disappears once every source that claimed it is gone.
+   * can legitimately be produced by two sources, so ownership retains each
+   * source's backing path: an entry only disappears once every source that
+   * claimed it is gone.
    */
   function registerStaticAsset(
     fileName: string,
@@ -393,13 +395,13 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
   ): void {
     const existing = staticAssets.get(fileName);
     if (existing) {
-      existing.sources.add(toPosixPath(filePath));
+      existing.sources.set(toPosixPath(filePath), path);
       return;
     }
     staticAssets.set(fileName, {
       contentType,
       path,
-      sources: new Set([toPosixPath(filePath)]),
+      sources: new Map([[toPosixPath(filePath), path]]),
     });
   }
 
@@ -409,7 +411,7 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
     } catch (error) {
       throw new Error(
         `[pracht/image] Could not read the bytes for static asset ${JSON.stringify(fileName)} ` +
-          `from ${JSON.stringify(asset.path)} (generated from ${[...asset.sources]
+          `from ${JSON.stringify(asset.path)} (generated from ${[...asset.sources.keys()]
             .map((source) => JSON.stringify(source))
             .join(", ")}): ${error instanceof Error ? error.message : String(error)}`,
       );
@@ -730,7 +732,9 @@ export function prachtImage(options: PrachtImageOptions = {}): Plugin {
       // dev session accumulates one dead set of variants per save.
       for (const [fileName, asset] of staticAssets) {
         if (!asset.sources.delete(changed)) continue;
-        if (asset.sources.size === 0) staticAssets.delete(fileName);
+        const nextPath = asset.sources.values().next().value;
+        if (nextPath === undefined) staticAssets.delete(fileName);
+        else asset.path = nextPath;
       }
 
       if (this.environment.mode !== "dev") return;
