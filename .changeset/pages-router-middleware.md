@@ -324,3 +324,9 @@ override the configuration that runs. Parsed manifest analysis recognizes
 computed, quoted, and private method parameter scopes as well, preserving static
 capability registrations and their client import guard when those methods shadow
 the registry name.
+
+Parsed manifest analysis also recognizes function-scoped `var` registry bindings
+inside computed, quoted, and private methods, so their local reads do not hide
+capability registrations or disable the client import guard. Pages middleware
+generation keeps nested lexical adapter assignments separate from a function's
+hoisted adapter binding when deciding whether the configured adapter is static.

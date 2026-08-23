@@ -429,6 +429,39 @@ export default defineConfig(() => {
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
+  it("ignores an assignment to a nested lexical adapter binding", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-lexical-adapter-assignment-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+export default defineConfig(() => {
+  var adapter = staticAdapter;
+  {
+    let adapter;
+    adapter = nodeAdapter;
+  }
+  return { plugins: [pracht({ pagesDir: "/src/pages", adapter: adapter() })] };
+});`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("uses a mutable serverful adapter binding that shadows a static-adapter import", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-shadowed-static-import-");
     writePagesApp(appDir);

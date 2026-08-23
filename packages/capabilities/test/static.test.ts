@@ -673,6 +673,33 @@ describe("capability static extraction", () => {
     ).toEqual([{ name: "notes", file: "./capabilities/notes.ts" }]);
   });
 
+  it.each([
+    [
+      "computed object method",
+      "const helper = { [Symbol.iterator]() { if (enabled) var capabilities = {}; return capabilities; } };",
+    ],
+    [
+      "quoted object method",
+      'const helper = { "inspect"() { if (enabled) var capabilities = {}; return capabilities; } };',
+    ],
+    [
+      "private class method",
+      "class Helper { #inspect() { if (enabled) var capabilities = {}; return capabilities; } }",
+    ],
+  ])("uses parsed %s var scope when checking a registry", (_description, declaration) => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(
+      extractCapabilityRegistrations(source, {
+        program: parseAst(source, { lang: "ts" }),
+      }),
+    ).toEqual([{ name: "notes", file: "./capabilities/notes.ts" }]);
+  });
+
   it("ignores uses shadowed by a nested lexical registry binding", () => {
     const source = `
       const capabilities = { notes: "./capabilities/notes.ts" };

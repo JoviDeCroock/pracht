@@ -632,11 +632,44 @@ function configBlockBindings(block: ConfigAstNode, parentBindings: ConfigBinding
   return bindings;
 }
 
+function configBlockLexicalBindingNames(
+  block: ConfigAstNode,
+  includeFunctionDeclarations: boolean,
+): Set<string> {
+  const names = new Set<string>();
+
+  for (const rawStatement of configAstNodes(block.body)) {
+    const statement =
+      rawStatement.type === "ExportNamedDeclaration"
+        ? asConfigAstNode(rawStatement.declaration)
+        : rawStatement;
+    if (!statement) continue;
+
+    if (statement.type === "VariableDeclaration" && statement.kind !== "var") {
+      for (const declaration of configAstNodes(statement.declarations)) {
+        for (const name of configBindingNames(declaration.id)) names.add(name);
+      }
+    } else if (
+      statement.type === "ClassDeclaration" ||
+      (includeFunctionDeclarations && statement.type === "FunctionDeclaration")
+    ) {
+      const name = configPropertyName(statement.id);
+      if (name) names.add(name);
+    }
+  }
+
+  return names;
+}
+
 function configFunctionVarBindings(fn: ConfigAstNode): Map<string, ConfigBinding> {
   const varInitializers = new Map<string, unknown[]>();
   const assignedBindings = new Set<string>();
 
-  const visit = (value: unknown, shadowedBindings: ReadonlySet<string>): void => {
+  const visit = (
+    value: unknown,
+    shadowedBindings: ReadonlySet<string>,
+    isFunctionBody = false,
+  ): void => {
     const node = asConfigAstNode(value);
     if (!node) return;
     if (
@@ -653,6 +686,15 @@ function configFunctionVarBindings(fn: ConfigAstNode): Map<string, ConfigBinding
     if (node.type === "CatchClause") {
       const catchShadowed = new Set([...shadowedBindings, ...configBindingNames(node.param)]);
       visit(node.body, catchShadowed);
+      return;
+    }
+
+    if (node.type === "BlockStatement") {
+      const blockShadowed = new Set([
+        ...shadowedBindings,
+        ...configBlockLexicalBindingNames(node, !isFunctionBody),
+      ]);
+      for (const statement of configAstNodes(node.body)) visit(statement, blockShadowed);
       return;
     }
 
@@ -686,7 +728,7 @@ function configFunctionVarBindings(fn: ConfigAstNode): Map<string, ConfigBinding
     }
   };
 
-  visit(fn.body, new Set());
+  visit(fn.body, new Set(), true);
   return new Map(
     [...varInitializers].map(([name, initializers]) => [
       name,

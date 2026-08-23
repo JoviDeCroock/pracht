@@ -1025,6 +1025,28 @@ export function Component() {
     );
   });
 
+  it("keeps the capability import guard through a computed method var shadow", async () => {
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root, {
+      registryAuxiliarySource:
+        "const helper = { [Symbol.iterator]() { if (enabled) var capabilities = {}; return capabilities; } };",
+    });
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import capability from "../capabilities/notes-search";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+    );
+
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
+      /Capability module .* was imported by client code/,
+    );
+  });
+
   it("guards capability modules registered outside the capabilities directory", async () => {
     // Registration is what makes a module server-only, not where it sits. A
     // directory-based guard would miss this one entirely.

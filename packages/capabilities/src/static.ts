@@ -2026,16 +2026,18 @@ function findAstFunctionBindingShadowRanges(program: unknown, name: string): Sta
       node.type === "ArrowFunctionExpression"
     ) {
       const parameters = unknownArray(node.params);
-      if (parameters.some((parameter) => collectStaticBindingNames(parameter).includes(name))) {
+      const parameterBindsName = parameters.some((parameter) =>
+        collectStaticBindingNames(parameter).includes(name),
+      );
+      const body = asStaticAnalysisNode(node.body);
+      const varBindsName = body ? hasFunctionScopedVarBinding(body, name) : false;
+      if (parameterBindsName || varBindsName) {
         const firstParameter = parameters
           .map(asStaticAnalysisNode)
           .find((parameter): parameter is StaticAnalysisNode => parameter !== null);
-        if (
-          firstParameter &&
-          typeof firstParameter.start === "number" &&
-          typeof node.end === "number"
-        ) {
-          ranges.push({ start: firstParameter.start, end: node.end });
+        const rangeStart = parameterBindsName ? firstParameter?.start : body?.start;
+        if (typeof rangeStart === "number" && typeof node.end === "number") {
+          ranges.push({ start: rangeStart, end: node.end });
         }
       }
     }
@@ -2052,6 +2054,39 @@ function findAstFunctionBindingShadowRanges(program: unknown, name: string): Sta
 
   visit(program);
   return ranges;
+}
+
+/** Find `var` declarations owned by this function without entering nested scopes. */
+function hasFunctionScopedVarBinding(value: unknown, name: string): boolean {
+  const node = asStaticAnalysisNode(value);
+  if (!node) return false;
+  if (
+    node.type === "FunctionDeclaration" ||
+    node.type === "FunctionExpression" ||
+    node.type === "ArrowFunctionExpression" ||
+    node.type === "ClassDeclaration" ||
+    node.type === "ClassExpression" ||
+    node.type === "StaticBlock"
+  ) {
+    return false;
+  }
+
+  if (
+    node.type === "VariableDeclaration" &&
+    node.kind === "var" &&
+    nodeArray(node.declarations).some((declaration) =>
+      collectStaticBindingNames(declaration.id).includes(name),
+    )
+  ) {
+    return true;
+  }
+
+  return Object.entries(node).some(([key, child]) => {
+    if (key === "type" || key === "loc" || key === "span") return false;
+    return Array.isArray(child)
+      ? child.some((item) => hasFunctionScopedVarBinding(item, name))
+      : hasFunctionScopedVarBinding(child, name);
+  });
 }
 
 /**
