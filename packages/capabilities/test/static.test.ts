@@ -110,9 +110,38 @@ describe("middleware export classification", () => {
     ],
     ["let middleware = 1;\nmiddleware = 2;\nexport { middleware };", false],
     ["let middleware = () => {};\n(() => { middleware = 1; })();\nexport { middleware };", false],
+    ["let middleware = () => {};\n(() => (middleware = 1))();\nexport { middleware };", false],
     [
       "let middleware = () => {};\n(function () { middleware = 1; })();\nexport { middleware };",
       false,
+    ],
+    [
+      "let middleware = () => {};\n(0, function () { middleware = 1; })();\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\n((value = (middleware = 1)) => {} )();\nexport { middleware };",
+      false,
+    ],
+    [
+      "let middleware = () => {};\n((value = (middleware = 1)) => {} )(0);\nexport { middleware };",
+      true,
+    ],
+    [
+      "let middleware = () => {};\n(async () => { middleware = 1; })();\nexport { middleware };",
+      false,
+    ],
+    [
+      "const middleware = () => {};\n(async () => { middleware = 1; })();\nexport { middleware };",
+      true,
+    ],
+    [
+      "let middleware = () => {};\n(async () => { observe(); middleware = 1; })();\nexport { middleware };",
+      true,
+    ],
+    [
+      "let middleware = () => {};\n(async (value = observe()) => { middleware = 1; })();\nexport { middleware };",
+      true,
     ],
     [
       "let middleware = () => {};\n(() => { const middleware = 1; return middleware; })();\nexport { middleware };",

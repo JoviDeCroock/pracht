@@ -417,6 +417,7 @@ function collectTopLevelBindingWrites(
 ): Map<string, StaticBindingWrite[]> {
   const writes = new Map<string, StaticBindingWrite[]>();
   const directDeclarators = new Set<StaticAnalysisNode>();
+  const mutableModuleBindings = collectMutableModuleBindings(program);
   const hoistedFunctionBindings = new Map(
     nodeArray(program.body).flatMap((rawStatement) => {
       const statement =
@@ -458,6 +459,7 @@ function collectTopLevelBindingWrites(
   for (const statement of nodeArray(program.body)) {
     const unconditionalExpressions = new Set<StaticAnalysisNode>();
     collectUnconditionallyEvaluatedStatement(statement, unconditionalExpressions);
+    collectDefinitelyEvaluatedAsyncIifePrefixes(unconditionalExpressions, mutableModuleBindings);
     collectTopLevelBindingWritesFromNode(
       statement,
       writes,
@@ -468,6 +470,33 @@ function collectTopLevelBindingWrites(
   }
 
   return writes;
+}
+
+function collectMutableModuleBindings(program: StaticAnalysisNode): Set<string> {
+  const bindings = collectModuleScopedVarBindings(program);
+
+  for (const rawStatement of nodeArray(program.body)) {
+    const statement =
+      rawStatement.type === "ExportNamedDeclaration"
+        ? asStaticAnalysisNode(rawStatement.declaration)
+        : rawStatement;
+    if (!statement) continue;
+
+    if (
+      statement.type === "VariableDeclaration" &&
+      statement.kind !== "const" &&
+      statement.declare !== true
+    ) {
+      for (const declarator of nodeArray(statement.declarations)) {
+        for (const name of collectStaticBindingNames(declarator.id)) bindings.add(name);
+      }
+    } else if (statement.type === "FunctionDeclaration" || statement.type === "ClassDeclaration") {
+      const name = getStaticIdentifierName(statement.id);
+      if (name) bindings.add(name);
+    }
+  }
+
+  return bindings;
 }
 
 function collectTopLevelBindingWritesFromNode(
@@ -485,9 +514,18 @@ function collectTopLevelBindingWritesFromNode(
       ? getImmediatelyInvokedFunction(node.callee)
       : null;
   if (invokedFunction) {
-    // A direct, synchronous IIFE runs after its arguments are evaluated. Walk
+    // A direct IIFE starts after its callee and arguments are evaluated. Walk
     // its body with the function's own bindings shadowed so writes to captured
     // module bindings are observed without confusing local writes for them.
+    // Async bodies are included too, but only the provably synchronous prefix
+    // collected above is marked unconditional.
+    collectTopLevelBindingWritesFromNode(
+      node.callee,
+      writes,
+      unconditionalExpressions,
+      shadowedBindings,
+      directDeclarators,
+    );
     for (const argument of nodeArray(node.arguments)) {
       collectTopLevelBindingWritesFromNode(
         argument,
@@ -1168,8 +1206,19 @@ function collectUnconditionallyEvaluatedExpressions(
         collectUnconditionallyEvaluatedExpressions(argument, expressions);
       }
       const invokedFunction = getImmediatelyInvokedFunction(node.callee);
-      const body = invokedFunction ? asStaticAnalysisNode(invokedFunction.body) : null;
-      if (body) collectDefinitelyEnteredStatement(body, expressions);
+      if (invokedFunction?.async !== true) {
+        collectDefinitelyEvaluatedParameterInitializers(
+          invokedFunction,
+          nodeArray(node.arguments),
+          expressions,
+        );
+        const body = invokedFunction ? asStaticAnalysisNode(invokedFunction.body) : null;
+        if (body?.type === "BlockStatement") {
+          collectDefinitelyEnteredStatement(body, expressions);
+        } else if (body) {
+          collectUnconditionallyEvaluatedExpressions(body, expressions);
+        }
+      }
     }
     return;
   }
@@ -1199,6 +1248,117 @@ function collectUnconditionallyEvaluatedExpressions(
   }
 }
 
+function collectDefinitelyEvaluatedParameterInitializers(
+  invokedFunction: StaticAnalysisNode | null,
+  argumentsList: readonly StaticAnalysisNode[],
+  expressions: Set<StaticAnalysisNode>,
+): void {
+  if (!invokedFunction) return;
+
+  for (const [index, parameter] of nodeArray(invokedFunction.params).entries()) {
+    if (argumentsList.slice(0, index + 1).some((argument) => argument.type === "SpreadElement")) {
+      return;
+    }
+    if (index < argumentsList.length || parameter.type !== "AssignmentPattern") continue;
+    collectUnconditionallyEvaluatedExpressions(parameter.right, expressions);
+  }
+}
+
+function collectDefinitelyEvaluatedAsyncIifePrefixes(
+  expressions: Set<StaticAnalysisNode>,
+  mutableModuleBindings: ReadonlySet<string>,
+): void {
+  for (const expression of expressions) {
+    if (expression.type !== "CallExpression" || expression.optional === true) continue;
+    const invokedFunction = getImmediatelyInvokedFunction(expression.callee);
+    if (invokedFunction?.async !== true || !hasDefinitelySafeAsyncParameters(invokedFunction)) {
+      continue;
+    }
+
+    const body = asStaticAnalysisNode(invokedFunction.body);
+    if (!body) continue;
+    if (body.type !== "BlockStatement") {
+      collectDefinitelyEvaluatedAsyncExpression(body, expressions, mutableModuleBindings);
+      continue;
+    }
+
+    for (const statement of nodeArray(body.body)) {
+      if (
+        statement.type === "EmptyStatement" ||
+        statement.type === "DebuggerStatement" ||
+        statement.type === "FunctionDeclaration"
+      ) {
+        continue;
+      }
+      if (statement.type === "ExpressionStatement") {
+        if (
+          collectDefinitelyEvaluatedAsyncExpression(
+            statement.expression,
+            expressions,
+            mutableModuleBindings,
+          )
+        ) {
+          continue;
+        }
+      } else if (statement.type === "ReturnStatement") {
+        collectDefinitelyEvaluatedAsyncExpression(
+          statement.argument,
+          expressions,
+          mutableModuleBindings,
+        );
+      }
+      break;
+    }
+  }
+}
+
+function hasDefinitelySafeAsyncParameters(invokedFunction: StaticAnalysisNode): boolean {
+  return nodeArray(invokedFunction.params).every((parameter) => {
+    if (parameter.type === "Identifier") return true;
+    if (parameter.type !== "RestElement") return false;
+    return asStaticAnalysisNode(parameter.argument)?.type === "Identifier";
+  });
+}
+
+function collectDefinitelyEvaluatedAsyncExpression(
+  value: unknown,
+  expressions: Set<StaticAnalysisNode>,
+  mutableModuleBindings: ReadonlySet<string>,
+): boolean {
+  const node = asStaticAnalysisNode(value);
+  if (node?.type !== "AssignmentExpression" || node.operator !== "=") return false;
+  const name = getStaticIdentifierName(node.left);
+  if (!name || !mutableModuleBindings.has(name) || !isDefinitelyNonThrowingLiteral(node.right)) {
+    return false;
+  }
+  collectUnconditionallyEvaluatedExpressions(node, expressions);
+  return true;
+}
+
+function isDefinitelyNonThrowingLiteral(value: unknown): boolean {
+  let node = asStaticAnalysisNode(value);
+  while (
+    node &&
+    (node.type === "ParenthesizedExpression" ||
+      node.type === "TSAsExpression" ||
+      node.type === "TSNonNullExpression" ||
+      node.type === "TSSatisfiesExpression" ||
+      node.type === "TSTypeAssertion" ||
+      node.type === "TypeCastExpression")
+  ) {
+    node = asStaticAnalysisNode(node.expression);
+  }
+  return (
+    node?.type === "Literal" ||
+    node?.type === "BigIntLiteral" ||
+    node?.type === "BooleanLiteral" ||
+    node?.type === "NullLiteral" ||
+    node?.type === "NumericLiteral" ||
+    node?.type === "RegExpLiteral" ||
+    node?.type === "StringLiteral"
+  );
+}
+
 function getImmediatelyInvokedFunction(value: unknown): StaticAnalysisNode | null {
   let node = asStaticAnalysisNode(value);
   while (
@@ -1212,9 +1372,11 @@ function getImmediatelyInvokedFunction(value: unknown): StaticAnalysisNode | nul
   ) {
     node = asStaticAnalysisNode(node.expression);
   }
+  if (node?.type === "SequenceExpression") {
+    return getImmediatelyInvokedFunction(unknownArray(node.expressions).at(-1));
+  }
   if (
     (node?.type === "FunctionExpression" || node?.type === "ArrowFunctionExpression") &&
-    node.async !== true &&
     node.generator !== true
   ) {
     return node;

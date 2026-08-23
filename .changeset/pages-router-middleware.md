@@ -366,6 +366,13 @@ manifest analysis also distinguishes named class and function expressions from
 declarations, preventing a local expression name from hiding mutations of the
 outer capability registry.
 
+Immediately invoked middleware analysis now also follows concise arrow bodies,
+omitted default-parameter initializers, sequence-wrapped function callees, and
+the provably synchronous non-throwing prefix of async functions. These forms can
+no longer hide a final non-callable value, while explicit arguments, immutable
+bindings, and async work after a possibly throwing expression remain
+conservative.
+
 Pages middleware generation recognizes CommonJS and TypeScript CommonJS Vite
 configs that import Pracht, Vite, or the static adapter through `require()` and
 export through `module.exports`, refusing unsupported request middleware for
