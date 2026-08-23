@@ -335,3 +335,7 @@ Pages middleware generation now preserves static-adapter detection across
 adapter-neutral primitive option spreads and respects local bindings that shadow
 an imported static-adapter namespace, so it neither scaffolds unsupported static
 request middleware nor rejects a serverful configuration.
+
+Static-adapter detection also follows immutable aliases of the Pracht plugin
+namespace, preventing pages middleware scaffolding when an aliased namespace
+configures a pure static export.

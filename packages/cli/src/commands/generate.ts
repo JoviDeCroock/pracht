@@ -1044,7 +1044,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
         const callee = resolveConfigBinding(node.callee, activeBindings);
         const namespaceName =
           callee?.type === "MemberExpression" && callee.computed !== true
-            ? configPropertyName(callee.object)
+            ? configPropertyName(resolveConfigBinding(callee.object, activeBindings))
             : null;
         const isPrachtCall =
           (callee?.type === "Identifier" &&

@@ -273,6 +273,33 @@ export default { plugins: [framework({ pagesDir: "/src/pages", adapter: staticAd
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
+  it("refuses pages middleware for an immutable pracht namespace alias", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-static-namespace-alias-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import * as importedFramework from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+const framework = importedFramework;
+export default {
+  plugins: [framework.pracht({ pagesDir: "/src/pages", adapter: staticAdapter() })],
+};`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("refuses pages middleware for an immutable static-adapter factory alias", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-static-adapter-factory-alias-");
     writePagesApp(appDir);
