@@ -330,3 +330,8 @@ inside computed, quoted, and private methods, so their local reads do not hide
 capability registrations or disable the client import guard. Pages middleware
 generation keeps nested lexical adapter assignments separate from a function's
 hoisted adapter binding when deciding whether the configured adapter is static.
+
+Pages middleware generation now preserves static-adapter detection across
+adapter-neutral primitive option spreads and respects local bindings that shadow
+an imported static-adapter namespace, so it neither scaffolds unsupported static
+request middleware nor rejects a serverful configuration.

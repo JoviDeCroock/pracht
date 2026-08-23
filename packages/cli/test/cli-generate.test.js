@@ -375,6 +375,27 @@ export default defineConfig(() => {
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
   });
 
+  it("uses a nested serverful namespace instead of a shadowed static-adapter import", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-nested-node-namespace-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import * as adapters from "@pracht/adapter-static";
+import { nodeAdapter } from "@pracht/adapter-node";
+export default defineConfig(() => {
+  const adapters = { staticAdapter: nodeAdapter };
+  return { plugins: [pracht({ pagesDir: "/src/pages", adapter: adapters.staticAdapter() })] };
+});`,
+    );
+
+    runCli(["generate", "middleware", "--name", "_middleware"], { cwd: appDir });
+
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(true);
+  });
+
   it("uses a function-scoped serverful var declared inside a nested block", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-hoisted-node-var-");
     writePagesApp(appDir);
@@ -573,6 +594,32 @@ import { nodeAdapter } from "@pracht/adapter-node";
 const staticOptions = { adapter: staticAdapter() };
 export default {
   plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter(), ...staticOptions })],
+};`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Pure static exports cannot use request middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
+  it("preserves a static adapter across an adapter-neutral primitive spread", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-static-primitive-spread-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { pracht } from "@pracht/vite-plugin";
+import { staticAdapter } from "@pracht/adapter-static";
+export default {
+  plugins: [pracht({ pagesDir: "/src/pages", adapter: staticAdapter(), ...undefined })],
 };`,
     );
 

@@ -896,6 +896,25 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       | { kind: "unknown" }
       | { kind: "value"; value: unknown };
 
+    const isAdapterNeutralPrimitiveSpread = (
+      value: ConfigAstNode | null,
+      activeBindings: ConfigBindings,
+    ): boolean => {
+      if (!value) return false;
+      if (
+        value.type === "Identifier" &&
+        value.name === "undefined" &&
+        !activeBindings.has("undefined")
+      ) {
+        return true;
+      }
+      if (value.type !== "Literal") return false;
+      return (
+        value.value === null ||
+        new Set(["boolean", "bigint", "number", "string"]).has(typeof value.value)
+      );
+    };
+
     const resolveConfigObjectProperty = (
       object: ConfigAstNode,
       name: string,
@@ -912,6 +931,10 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
       for (const property of configAstNodes(object.properties)) {
         if (property.type === "SpreadElement") {
           const spread = resolveConfigBinding(property.argument, activeBindings);
+          // Object-spreading nullish and primitive literals cannot contribute
+          // an `adapter` or `staticTarget` property. Preserve the preceding
+          // statically resolved value instead of making it opaque.
+          if (isAdapterNeutralPrimitiveSpread(spread, activeBindings)) continue;
           if (spread?.type !== "ObjectExpression") {
             resolved = { kind: "unknown" };
             continue;
@@ -977,7 +1000,7 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
         return staticFactories.has(callee.name);
       }
       if (callee?.type !== "MemberExpression" || callee.computed === true) return false;
-      const objectName = configPropertyName(callee.object);
+      const objectName = configPropertyName(resolveConfigBinding(callee.object, activeBindings));
       return (
         objectName !== null &&
         staticNamespaces.has(objectName) &&
