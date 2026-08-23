@@ -7,29 +7,12 @@ import type { ContentSnapshotFields, ContentSnapshotOptions } from "./types.ts";
 
 export const ALL_SNAPSHOT_FIELDS: ContentSnapshotFields = Object.freeze({ body: true, raw: true });
 
-// `raw` duplicates the exact source that compiled route modules and build-time
-// artifact generators already carry, and nothing in the framework reads it
-// from a runtime snapshot — so embedding it is opt-in. `body` stays embedded
-// because the search and page capability helpers read it at request time.
-export const DEFAULT_SNAPSHOT_FIELDS: ContentSnapshotFields = Object.freeze({
-  body: true,
-  raw: false,
-});
-
 const SNAPSHOT_FIELD_NAMES = ["body", "raw"] as const;
 
-/** Interpret `defineCollection({ snapshot })`; unset fields take the defaults. */
-export function normalizeSnapshotOptions(
-  fields: ContentSnapshotOptions | undefined,
-): ContentSnapshotFields {
-  if (!fields) return DEFAULT_SNAPSHOT_FIELDS;
-  return Object.freeze({ body: fields.body !== false, raw: fields.raw === true });
-}
-
 /**
- * Interpret a snapshot's `fields` marker. An absent marker means the snapshot
- * embeds every representation — the marker is only written when something was
- * dropped, so hand-written snapshots without one keep working.
+ * Interpret `defineCollection({ snapshot })` or a snapshot's `fields` marker.
+ * Unset fields stay embedded, and an absent marker means every representation
+ * is present so hand-written snapshots without one keep working.
  */
 export function normalizeSnapshotFields(
   fields: ContentSnapshotOptions | undefined,

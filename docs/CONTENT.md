@@ -83,9 +83,9 @@ The final output is plain `<img>` markup with `srcset` and `sizes`, so it works
 for SSR, SSG, and `hydration: "none"` without a client Markdown or image
 runtime. Root-relative `public/`, remote, and data URLs remain unchanged.
 Custom Marked image renderers continue to handle those unprocessed sources.
-Vite resource queries such as `?raw`, `?url`, `?inline`, `?no-inline`,
-`?worker`, and `?sharedworker` also retain their normal Vite semantics instead
-of being claimed by the collection route-module transform.
+Vite resource queries such as `?raw`, `?url`, `?url&inline`,
+`?url&no-inline`, `?worker`, and `?sharedworker` also retain their normal Vite
+semantics instead of being claimed by the collection route-module transform.
 
 ## Registry and paths
 
@@ -283,16 +283,12 @@ JSON-serializable; a build fails with the offending value path otherwise. JSON
 object keys retain their data semantics in the generated module, including
 prototype-named keys such as `__proto__`.
 
-Each document can embed `raw` and `body` alongside `compiled`, and each
-representation costs roughly its share of the content size again. The default
-embeds `body` (the search and page capability helpers read it) but not `raw`:
-compiled route modules and build-time artifact generators already carry the
-exact source, so a snapshot duplicating it is opt-in. `defineCollection({
-snapshot: { raw: true } })` restores it for request-time consumers such as
-`markdownRepresentation()`; `snapshot: { body: false }` trims further for
-collections that never search. The option is deliberately narrow: `compiled`
-is what routes render, and frontmatter is what they index, so neither can be
-dropped.
+Each document embeds `raw`, `body`, and `compiled`, so a snapshot costs roughly
+two to three times the content it describes. `defineCollection({ snapshot: {
+raw: false, body: false } })` drops either representation from the generated
+module; both default to true and the authoring collection always keeps them.
+The option is deliberately narrow: `compiled` is what routes render, and
+frontmatter is what they index, so neither can be dropped.
 
 An omitted field is absent on the snapshot's documents rather than a throwing
 accessor, matching the plain object shape the rest of the runtime API returns,

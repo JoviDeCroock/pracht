@@ -3,7 +3,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -63,11 +63,21 @@ describe("prachtContent", () => {
     expect(
       await transform.call({} as never, 'export default "/page.md"', `${source}?url`),
     ).toBeNull();
+    for (const query of ["inline", "no-inline"]) {
+      const modifierResult = await transform.call({} as never, `# ${query}`, `${source}?${query}`);
+      expect(typeof modifierResult === "string" ? modifierResult : modifierResult?.code).toContain(
+        `export const markdown = "# ${query}"`,
+      );
+    }
     expect(
-      await transform.call({} as never, 'export default "data:text/plain,..."', `${source}?inline`),
+      await transform.call(
+        {} as never,
+        'export default "data:text/plain,..."',
+        `${source}?url&inline`,
+      ),
     ).toBeNull();
     expect(
-      await transform.call({} as never, 'export default "/page.md"', `${source}?no-inline`),
+      await transform.call({} as never, 'export default "/page.md"', `${source}?url&no-inline`),
     ).toBeNull();
     expect(
       await transform.call(
@@ -91,6 +101,38 @@ describe("prachtContent", () => {
     expect(typeof hmrResult === "string" ? hmrResult : hmrResult?.code).toContain(
       'export const markdown = "# HMR"',
     );
+  });
+
+  it("only treats inline modifiers as resources when Vite has an asset request", async () => {
+    temporaryDirectory = await realpath(await mkdtemp(join(tmpdir(), "pracht-content-vite-")));
+    const source = join(temporaryDirectory, "page.md");
+    await writeFile(source, "# Page");
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      module: (document) => `export const markdown = ${JSON.stringify(document.raw)};`,
+    });
+    const server = await createViteServer({
+      configFile: false,
+      logLevel: "silent",
+      plugins: prachtContent({ collections: [collection] }),
+      root: temporaryDirectory,
+      server: { middlewareMode: true },
+    });
+
+    try {
+      for (const query of ["inline", "no-inline"]) {
+        const result = await server.transformRequest(`/page.md?${query}`);
+        expect(result?.code).toContain('export const markdown = "# Page"');
+      }
+      for (const query of ["url&inline", "url&no-inline"]) {
+        const result = await server.transformRequest(`/page.md?${query}`);
+        expect(result?.code).toMatch(/^export default /);
+        expect(result?.code).not.toContain("export const markdown");
+      }
+    } finally {
+      await server.close();
+    }
   });
 
   it("generates a filesystem-free production module for each collection", async () => {
@@ -157,29 +199,10 @@ describe("prachtContent", () => {
     ]);
   });
 
-  it("embeds body but not raw in a generated module by default", async () => {
+  it("keeps every source representation in a generated module by default", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
     const collection = defineCollection({ name: "docs", root: temporaryDirectory });
-    const [plugin] = prachtContent({ collections: [collection] });
-
-    const snapshot = loadedSnapshot(
-      await hookHandler(plugin.load).call({} as never, "\0virtual:pracht/content/docs"),
-    );
-
-    expect(snapshot.fields).toEqual({ body: true, raw: false });
-    expect(snapshot.documents[0]).toMatchObject({ body: "Body" });
-    expect(Object.hasOwn(snapshot.documents[0], "raw")).toBe(false);
-  });
-
-  it("keeps every source representation in a generated module with raw opted in", async () => {
-    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
-    await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
-    const collection = defineCollection({
-      name: "docs",
-      root: temporaryDirectory,
-      snapshot: { raw: true },
-    });
     const [plugin] = prachtContent({ collections: [collection] });
 
     const snapshot = loadedSnapshot(

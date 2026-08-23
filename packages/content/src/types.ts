@@ -91,11 +91,8 @@ export interface DefineCollectionOptions<TFrontmatter extends Record<string, unk
   /** Opt-in static files generated from the complete registry. */
   artifacts?: readonly ContentArtifactGenerator<TFrontmatter, TCompiled>[];
   /**
-   * Which source representations the generated runtime snapshot embeds.
-   * `body` defaults to true (the search and page capability helpers read it);
-   * `raw` defaults to false — compiled route modules and build-time artifact
-   * generators already carry the exact source, so pass `raw: true` only when
-   * request-time code needs it. The authoring collection always keeps both.
+   * Drop source representations from the generated runtime snapshot. Both
+   * fields default to true; the authoring collection always keeps them.
    */
   snapshot?: ContentSnapshotOptions;
 }
@@ -128,7 +125,7 @@ export interface ContentSnapshotFields {
   raw: boolean;
 }
 
-/** Per-collection snapshot trimming. `body` defaults to true, `raw` to false. */
+/** Per-collection snapshot trimming. Every field defaults to true. */
 export type ContentSnapshotOptions = Partial<ContentSnapshotFields>;
 
 export type ContentSnapshotDocument<
@@ -137,7 +134,7 @@ export type ContentSnapshotDocument<
 > = Omit<ContentDocument<TFrontmatter, TCompiled>, "body" | "raw" | "source"> & {
   /** Absent when the collection was defined with `snapshot: { body: false }`. */
   body?: string;
-  /** Absent unless the collection was defined with `snapshot: { raw: true }`. */
+  /** Absent when the collection was defined with `snapshot: { raw: false }`. */
   raw?: string;
 };
 

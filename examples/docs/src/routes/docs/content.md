@@ -138,11 +138,6 @@ Snapshot frontmatter and compiled values must be JSON-serializable. Add
 module declaration; applications can augment it when they want exact compiled
 and frontmatter types.
 
-A snapshot embeds `body` by default but not `raw` — route modules and
-build-time artifacts already carry the exact source, so pass
-`snapshot: { raw: true }` to `defineCollection()` only when request-time code
-needs it. `snapshot: { body: false }` trims further when nothing searches.
-
 Locale lookup falls back to the default locale unless `fallback: false` is
 requested. `resolveById()` and `resolveByRoute()` additionally report whether
 the returned document is a fallback, so applications can make that visible or

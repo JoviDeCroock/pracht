@@ -59,9 +59,6 @@ export interface DefineMarkdownCollectionOptions<
   ) => MaybePromise<Record<string, unknown> | undefined>;
   images?: MarkdownImageOptions;
   artifacts?: readonly ContentArtifactGenerator<TFrontmatter, CompiledMarkdown>[];
-  /**
-   * Forwarded to `defineCollection`: which representations runtime snapshots
-   * embed. `body` defaults to true, `raw` to false.
-   */
+  /** Forwarded to `defineCollection`: trim `raw`/`body` from runtime snapshots. */
   snapshot?: ContentSnapshotOptions;
 }

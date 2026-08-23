@@ -18,11 +18,7 @@ import {
   normalizeRelativeSource,
   normalizeRoutePath,
 } from "./path.ts";
-import {
-  ALL_SNAPSHOT_FIELDS,
-  assertSnapshotOptions,
-  normalizeSnapshotOptions,
-} from "./snapshot.ts";
+import { ALL_SNAPSHOT_FIELDS, assertSnapshotOptions, normalizeSnapshotFields } from "./snapshot.ts";
 import type {
   ContentArtifact,
   ContentCollection,
@@ -77,7 +73,7 @@ export function defineCollection<
   );
   const routeBase = normalizeRoutePath(options.routeBase ?? "/", "content routeBase");
   const locales = normalizeLocales(options.locales);
-  const snapshotFields = normalizeSnapshotOptions(options.snapshot);
+  const snapshotFields = normalizeSnapshotFields(options.snapshot);
   let realRoot: string | undefined;
   const explicitSources = options.sources
     ? Object.freeze(options.sources.map((source) => ({ ...source })))

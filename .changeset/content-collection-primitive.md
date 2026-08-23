@@ -72,8 +72,8 @@ frontmatter is accepted.
 
 Generated artifacts now carry content types across Node, Cloudflare, Netlify,
 and Vercel through adapter-native routing; preserve Vite `?raw`, `?url`,
-`?inline`, `?no-inline`, `?worker`, and `?sharedworker` resource-query imports;
-and reject collisions
+`?url&inline`, `?url&no-inline`, `?worker`, and `?sharedworker` resource-query
+imports; and reject collisions
 with public files, generated bundle output, prerendered pages, exact
 request-time page or API paths, clean-URL `index.html` aliases, concrete ISG
 paths served by adapter functions, core `llms.txt`, OpenAPI output, other
@@ -142,14 +142,11 @@ intrinsic-width default instead of `100vw`, and the unreachable markdown
 `quality` option is removed. The Markdown trust model — compiled output is
 executed as HTML; feed it only trusted content — is now documented.
 
-Collections accept `snapshot: { raw?, body? }` to choose which source
-representations runtime snapshots embed, forwarded by
-`defineMarkdownCollection()`. The default embeds `body` but not `raw`:
-compiled route modules and build-time artifact generators already carry the
-exact source, so duplicating it in the server bundle is opt-in via
-`snapshot: { raw: true }`. Capability helpers that need a trimmed field fail
-at construction with an actionable error, and `markdownRepresentation()`
-rejects a selected representation that the snapshot omitted. Scanned collections follow in-root symbolic links
+Collections accept `snapshot: { raw?, body? }` to trim source representations
+from runtime snapshots, forwarded by `defineMarkdownCollection()`; capability
+helpers that need a trimmed field fail at construction with an actionable
+error, and `markdownRepresentation()` rejects a selected representation that
+the snapshot omitted. Scanned collections follow in-root symbolic links
 (escaping or dangling links are skipped), collection roots outside Vite's
 watched root are added to the dev watcher, and the authoring and snapshot
 runtimes share one locale and route-path implementation.
