@@ -51,6 +51,20 @@ type StaticAnalysisNode = {
   [key: string]: unknown;
 };
 
+export interface ManifestModuleAnalysisOptions {
+  /**
+   * Parsed ESTree-like program for the manifest source. Supplying it lets the
+   * extractor distinguish erased TypeScript type queries from ambiguous
+   * JavaScript comparison syntax without taking a runtime-safety guess.
+   */
+  program?: unknown;
+}
+
+interface StaticSourceRange {
+  start: number;
+  end: number;
+}
+
 const UNRESOLVED_STATIC_BINDING = Symbol("unresolved-static-binding");
 
 interface StaticBindingWrite {
@@ -1841,12 +1855,18 @@ export function scanTopLevelPropertyEntries(objectBody: string): TopLevelPropert
 export function extractManifestModuleRegistrations(
   manifestSource: string,
   key: string,
+  options: ManifestModuleAnalysisOptions = {},
 ): { name: string; file: string }[] {
+  const erasedTypeQueryRanges = collectErasedTypeQueryRanges(options.program);
   const appBody = extractDefineAppObjectBody(manifestSource);
   if (!appBody) return [];
   let registryValue = scanModuleRegistryProperties(appBody).get(key);
   if (!registryValue) return [];
-  registryValue = resolveTopLevelBindingAliases(manifestSource, registryValue);
+  registryValue = resolveTopLevelBindingAliases(
+    manifestSource,
+    registryValue,
+    erasedTypeQueryRanges,
+  );
   const braceStart = skipInsignificant(registryValue, 0);
   if (registryValue[braceStart] !== "{") return [];
   const braceEnd = findMatchingBrace(registryValue, braceStart, "{", "}");
@@ -1854,15 +1874,53 @@ export function extractManifestModuleRegistrations(
   const block = registryValue.slice(braceStart + 1, braceEnd);
   const entries: { name: string; file: string }[] = [];
   for (const [name, expression] of scanModuleRegistryProperties(block)) {
-    const resolvedExpression = resolveTopLevelBindingAliases(manifestSource, expression);
+    const resolvedExpression = resolveTopLevelBindingAliases(
+      manifestSource,
+      expression,
+      erasedTypeQueryRanges,
+    );
     const file = extractModuleRefPath(resolvedExpression);
     if (file) entries.push({ name, file });
   }
   return entries;
 }
 
+function collectErasedTypeQueryRanges(program: unknown): StaticSourceRange[] {
+  const ranges: StaticSourceRange[] = [];
+
+  const visit = (value: unknown): void => {
+    const node = asStaticAnalysisNode(value);
+    if (!node) return;
+
+    if (
+      node.type === "TSTypeQuery" &&
+      typeof node.start === "number" &&
+      typeof node.end === "number"
+    ) {
+      ranges.push({ start: node.start, end: node.end });
+      return;
+    }
+
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "type" || key === "loc" || key === "span") continue;
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item);
+      } else {
+        visit(child);
+      }
+    }
+  };
+
+  visit(program);
+  return ranges;
+}
+
 /** Resolve local identifier aliases until they reach a concrete initializer. */
-function resolveTopLevelBindingAliases(source: string, expression: string): string {
+function resolveTopLevelBindingAliases(
+  source: string,
+  expression: string,
+  erasedTypeQueryRanges: readonly StaticSourceRange[],
+): string {
   const seen = new Set<string>();
   const bindingChain: { declarationIndex: number; name: string }[] = [];
   let resolved = unwrapTransparentRegistryExpression(expression);
@@ -1880,7 +1938,8 @@ function resolveTopLevelBindingAliases(source: string, expression: string): stri
     if (
       startsWithObjectLiteral(initializer) &&
       bindingChain.some(
-        ({ declarationIndex, name }) => !hasSingleStaticBindingUse(source, name, declarationIndex),
+        ({ declarationIndex, name }) =>
+          !hasSingleStaticBindingUse(source, name, declarationIndex, erasedTypeQueryRanges),
       )
     ) {
       // A `const` binding prevents reassignment, but its registry object can
@@ -1907,6 +1966,7 @@ function hasSingleStaticBindingUse(
   source: string,
   name: string,
   declarationIndex: number,
+  erasedTypeQueryRanges: readonly StaticSourceRange[],
 ): boolean {
   const searchable = maskCommentsAndStrings(source);
   const shadowedRanges = findBindingShadowRanges(searchable, name, declarationIndex);
@@ -1917,6 +1977,11 @@ function hasSingleStaticBindingUse(
   for (const match of searchable.matchAll(identifier)) {
     if (match.index == null || match.index === declarationIndex) continue;
     if (shadowedRanges.some(({ start, end }) => match.index! >= start && match.index! < end)) {
+      continue;
+    }
+    if (
+      erasedTypeQueryRanges.some(({ start, end }) => match.index! >= start && match.index! < end)
+    ) {
       continue;
     }
     if (isStaticPropertyName(searchable, match.index, match[0].length)) continue;
@@ -3073,8 +3138,9 @@ function findVariableAssignment(source: string, start: number): number {
 /** Parse the `capabilities: { ... }` block of an app manifest source. */
 export function extractCapabilityRegistrations(
   manifestSource: string,
+  options: ManifestModuleAnalysisOptions = {},
 ): { name: string; file: string }[] {
-  return extractManifestModuleRegistrations(manifestSource, "capabilities");
+  return extractManifestModuleRegistrations(manifestSource, "capabilities", options);
 }
 
 /** Extract the inline object body passed to the exported app's `defineApp()`. */

@@ -1,5 +1,6 @@
-import { dirname, resolve } from "node:path";
+import { dirname, extname, resolve } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { parseAst } from "vite";
 
 import {
   collectInvalidSchemaKeywordValues,
@@ -25,6 +26,18 @@ import { createCheck, type Check } from "./verification-helpers.js";
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
 const AGENT_POLICIES = new Set(["observe", "require"]);
 
+function parseManifestProgram(source: string, file: string): unknown {
+  const extension = extname(file).toLowerCase();
+  const lang = extension.endsWith("tsx")
+    ? "tsx"
+    : extension.endsWith("ts")
+      ? "ts"
+      : extension.endsWith("jsx")
+        ? "jsx"
+        : "js";
+  return parseAst(source, { lang });
+}
+
 /**
  * Static verification of registered capabilities (manifest mode only). These
  * checks mirror what `defineCapability()` and the runtime registry enforce,
@@ -40,10 +53,9 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   if (!existsSync(manifestPath)) return;
 
   const manifestSource = readFileSync(manifestPath, "utf-8");
-  const entries = extractCapabilityRegistrations(manifestSource).map(({ name, file }) => ({
-    name,
-    path: file,
-  }));
+  const entries = extractCapabilityRegistrations(manifestSource, {
+    program: parseManifestProgram(manifestSource, manifestPath),
+  }).map(({ name, file }) => ({ name, path: file }));
   if (entries.length === 0) return;
   const registeredMiddleware = new Set(
     extractRegistryEntries(manifestSource, "middleware").map((entry) => entry.name),

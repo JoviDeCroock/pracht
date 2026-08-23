@@ -831,6 +831,29 @@ describe("capability static extraction", () => {
     ]);
   });
 
+  it.each([
+    [
+      "a generic call argument",
+      "function inspect<T>(): void {}\ninspect<typeof capabilities.notes>();",
+    ],
+    ["an as assertion", "const note = null as typeof capabilities.notes;"],
+    ["a satisfies assertion", "const note = null satisfies typeof capabilities.notes;"],
+    ["an angle-bracket assertion", "const note = <typeof capabilities.notes>null;"],
+    ["a class field annotation", "class Helper { note: typeof capabilities.notes; }"],
+  ])("uses a parsed TypeScript program to ignore %s", (_description, declaration) => {
+    const source = `
+      const capabilities = { notes: "./capabilities/notes.ts" };
+      ${declaration}
+      export const app = defineApp({ capabilities, routes: [] });
+    `;
+
+    expect(
+      extractCapabilityRegistrations(source, {
+        program: parseAst(source, { lang: "ts" }),
+      }),
+    ).toEqual([{ name: "notes", file: "./capabilities/notes.ts" }]);
+  });
+
   it("keeps runtime comparisons containing typeof registry members opaque", () => {
     const source = `
       const capabilities = {
@@ -844,7 +867,11 @@ describe("capability static extraction", () => {
       export const app = defineApp({ capabilities, routes: [] });
     `;
 
-    expect(extractCapabilityRegistrations(source)).toEqual([]);
+    expect(
+      extractCapabilityRegistrations(source, {
+        program: parseAst(source, { lang: "js" }),
+      }),
+    ).toEqual([]);
   });
 
   it.each(["capabilities.trigger", 'capabilities["trigger"]', "capabilities!.trigger"])(

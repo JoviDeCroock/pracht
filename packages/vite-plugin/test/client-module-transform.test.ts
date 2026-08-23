@@ -41,7 +41,15 @@ const MANIFEST_PLUGIN_OPTIONS = { appFile: "/src/routes.ts" } as const;
  */
 function writeCapabilityManifestProject(
   root: string,
-  { capabilityKey = '"notes.search"', capabilityPath = "./capabilities/notes-search.ts" } = {},
+  {
+    capabilityKey = '"notes.search"',
+    capabilityPath = "./capabilities/notes-search.ts",
+    registryTypeUse,
+  }: {
+    capabilityKey?: string;
+    capabilityPath?: string;
+    registryTypeUse?: string;
+  } = {},
 ): void {
   mkdirSync(join(root, "src", "routes"), { recursive: true });
   mkdirSync(join(root, "src", "capabilities"), { recursive: true });
@@ -70,14 +78,21 @@ export default defineCapability({
 });
 `,
   );
+  const registrySource = `{
+    ${capabilityKey}: () => import(${JSON.stringify(capabilityPath)}),
+  }`;
+  const registryDeclaration = registryTypeUse
+    ? `const capabilities = ${registrySource};\n${registryTypeUse}\n`
+    : "";
+  const registryValue = registryTypeUse ? "capabilities" : registrySource;
+
   writeFileSync(
     join(root, "src", "routes.ts"),
     `import { defineApp, route } from "@pracht/core";
 
+${registryDeclaration}
 export const app = defineApp({
-  capabilities: {
-    ${capabilityKey}: () => import(${JSON.stringify(capabilityPath)}),
-  },
+  capabilities: ${registryValue},
   routes: [route("/", () => import("./routes/home.tsx"), { id: "home" })],
 });
 `,
@@ -946,6 +961,28 @@ export const app = defineApp({
     // rather than quietly shipping it.
     const root = makeTempProject();
     writeCapabilityManifestProject(root);
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import capability from "../capabilities/notes-search";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+    );
+
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
+      /Capability module .* was imported by client code/,
+    );
+  });
+
+  it("keeps the capability import guard after an erased registry type query", async () => {
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root, {
+      registryTypeUse:
+        'function inspect<T>(): void {}\ninspect<typeof capabilities["notes.search"]>();',
+    });
     writeFileSync(
       join(root, "src", "routes", "home.tsx"),
       `

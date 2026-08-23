@@ -81,7 +81,10 @@ evaluation-order analysis, so an alias created before a later callable
 initializer is rejected instead of being mistaken for working middleware.
 Capability registry use counting also recognizes erased type queries inside
 generic arrow functions, anonymous functions, and methods, preserving static
-registrations and their client-import boundary.
+registrations and their client-import boundary. Build and verification callers
+now provide the parsed manifest program as well, so type queries in generic
+calls, assertions, and class fields are ignored without mistaking JavaScript
+comparison expressions for erased TypeScript.
 
 Nested assignments are recorded in runtime evaluation order, so the outer assignment's
 final callable value is not overwritten by an earlier right-hand-side write in
