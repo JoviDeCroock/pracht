@@ -339,3 +339,10 @@ request middleware nor rejects a serverful configuration.
 Static-adapter detection also follows immutable aliases of the Pracht plugin
 namespace, preventing pages middleware scaffolding when an aliased namespace
 configures a pure static export.
+
+Middleware export validation now classifies comma expressions by their final
+runtime value, so a sequence ending in a literal cannot pass as callable while
+a sequence ending in a middleware function remains valid. Pages middleware
+generation also resolves a local Vite config re-exported through
+`export { config as default }`, keeping unrelated static-config helpers from
+overriding the selected serverful adapter.

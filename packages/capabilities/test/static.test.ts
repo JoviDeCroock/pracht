@@ -18,6 +18,8 @@ describe("middleware export classification", () => {
     ["export const middleware = 1;", false],
     ["export const middleware = 1 + 2;", false],
     ["export const middleware = 1 < 2;", false],
+    ["export const middleware = (() => {}, 1);", false],
+    ["export const middleware = (1, () => {});", true],
     ["let value = 0; export const middleware = value++;", false],
     ["export const middleware = <unknown>1;", false],
     ["export let middleware;", false],

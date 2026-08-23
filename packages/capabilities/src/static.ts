@@ -1376,6 +1376,10 @@ function isStaticallyNonCallable(value: unknown): boolean {
 
   if (node.type === "Identifier") return getStaticIdentifierName(node) === "undefined";
 
+  if (node.type === "SequenceExpression") {
+    return isStaticallyNonCallable(unknownArray(node.expressions).at(-1));
+  }
+
   return new Set([
     "ArrayExpression",
     "BigIntLiteral",

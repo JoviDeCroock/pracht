@@ -1011,12 +1011,27 @@ function usesStaticAdapter(project: Pick<ProjectConfig, "rawConfig">): boolean {
     const defaultExport = configAstNodes(program.body).find(
       (statement) => statement.type === "ExportDefaultDeclaration",
     );
-    let exportedConfig: unknown = defaultExport
-      ? (resolveConfigBinding(defaultExport.declaration, bindings) ?? defaultExport.declaration)
+    const namedDefaultExport = configAstNodes(program.body)
+      .filter(
+        (statement) =>
+          statement.type === "ExportNamedDeclaration" &&
+          statement.exportKind !== "type" &&
+          !statement.source,
+      )
+      .flatMap((statement) => configAstNodes(statement.specifiers))
+      .find(
+        (specifier) =>
+          specifier.type === "ExportSpecifier" &&
+          specifier.exportKind !== "type" &&
+          configPropertyName(specifier.exported) === "default",
+      );
+    const defaultExportValue = defaultExport?.declaration ?? namedDefaultExport?.local;
+    let exportedConfig: unknown = defaultExportValue
+      ? (resolveConfigBinding(defaultExportValue, bindings) ?? defaultExportValue)
       : program;
 
     const exportedConfigNode = asConfigAstNode(exportedConfig);
-    if (defaultExport && exportedConfigNode?.type === "CallExpression") {
+    if (defaultExportValue && exportedConfigNode?.type === "CallExpression") {
       const callee = resolveConfigBinding(exportedConfigNode.callee, bindings);
       const namespaceName =
         callee?.type === "MemberExpression" && callee.computed !== true
