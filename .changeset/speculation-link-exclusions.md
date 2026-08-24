@@ -13,5 +13,6 @@ Excluded anchors keep the ordinary SPA path: the JS `prefetch` strategy still
 applies to them, and the client router intercepts their clicks rather than
 waiting for a prerendered document that will never exist. Browser and client
 matching stay aligned for case-insensitive `nofollow` tokens and reactive
-changes to exclusion attributes. Because JS prefetch is independent, links
-with side effects should also set `prefetch="none"`.
+changes to exclusion attributes anywhere in the document, including `<html>`.
+Because JS prefetch is independent, links with side effects should also set
+`prefetch="none"`.

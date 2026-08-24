@@ -1102,7 +1102,8 @@ applies to it, and the client router still intercepts the click instead of
 waiting for a prerendered document that will never exist. To stop the JS
 prefetch too, set `prefetch="none"` — the two switches are independent.
 Reactive changes to `rel` or `data-pracht-speculate` update both the browser
-rule match and Pracht's JS viewport/render prefetch handling.
+rule match and Pracht's JS viewport/render prefetch handling, including a
+page-wide opt-out applied to the `<html>` element.
 
 The exclusions are emitted as a `not: { selector_matches: [...] }` clause on
 every rule. Browser and client matching use the same fail-closed semantics, so

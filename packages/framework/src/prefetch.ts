@@ -254,7 +254,9 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       }
     }
   });
-  mutationObserver.observe(document.body, {
+  // Observe from the document root so a page-wide opt-out on `<html>` is as
+  // reactive as one mounted anywhere inside `<body>`.
+  mutationObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: [SPECULATE_ATTRIBUTE, "rel"],
     childList: true,

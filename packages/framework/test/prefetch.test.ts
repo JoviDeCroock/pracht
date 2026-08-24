@@ -92,6 +92,7 @@ describe("prefetch strategies", () => {
   });
 
   afterEach(() => {
+    document.documentElement.removeAttribute("data-pracht-speculate");
     vi.useRealTimers();
     vi.unstubAllGlobals();
     clearPrefetchCache();
@@ -263,6 +264,25 @@ describe("prefetch strategies", () => {
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0][0]).toBe("/prerender-dynamic-off");
+  });
+
+  it("starts render prefetch when the document root becomes excluded", async () => {
+    stubSpeculationRulesSupport(true);
+    const anchor = addAnchor("/prerender-root-off", {
+      "data-pracht-prefetch": "render",
+    });
+    setupPrefetching(createSpeculationApp("/prerender-root-off"));
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    document.documentElement.setAttribute("data-pracht-speculate", "off");
+    await flushMicrotasks();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("/prerender-root-off");
+
+    document.documentElement.removeAttribute("data-pracht-speculate");
+    await flushMicrotasks();
+    anchor.remove();
   });
 
   it("drops viewport prefetch when an excluded link becomes eligible for prerender", async () => {
