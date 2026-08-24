@@ -1,9 +1,9 @@
-import { redirect, type MiddlewareFn } from "@pracht/core";
+import { redirect, stripBase, type MiddlewareFn } from "@pracht/core";
 
 // Root-level pages middleware: registered as the named middleware "pages" and
 // applied to every page route. API routes under src/api are not wrapped.
 export const middleware: MiddlewareFn = async ({ request, url }, next) => {
-  if (url.pathname === "/legacy") {
+  if (stripBase(url.pathname) === "/legacy") {
     return redirect("/about", { request });
   }
 

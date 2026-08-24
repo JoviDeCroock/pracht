@@ -33,4 +33,6 @@ aliases, and future JavaScript syntax need no separate source interpreter.
 
 Pages middleware edits participate in the existing HMR flow. The routing docs,
 starter copy, examples, and bundled migration/scaffolding skills describe the
-root-only, page-only, serverful-adapter contract.
+root-only, page-only, serverful-adapter contract. Path-based middleware examples
+strip Vite's deploy base before comparing the public URL with route paths, so
+migrated matchers keep working on sub-path deployments.

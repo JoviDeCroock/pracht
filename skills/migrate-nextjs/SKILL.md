@@ -54,7 +54,7 @@ If the source Next.js project uses the **pages router** (`pages/` directory), pr
 3. Convert `_app.tsx` to pracht shell format (`Shell` export + `children` prop)
 4. Convert `getServerSideProps`/`getStaticProps` to `loader` exports
 5. Add `export const RENDER_MODE = "ssg"` to static pages, `"ssr"` for dynamic (default is `"ssr"`). For time-revalidated pages, export `RENDER_MODE = "isg"` and a positive integer `REVALIDATE` in seconds. Webhook policies require ejection.
-6. Convert `middleware.ts` to a root-level `src/pages/_middleware.ts` exporting a pracht `MiddlewareFn` (Phase 6 shows the transform). It runs on every page route; move `config.matcher` path checks into the function body (`url.pathname`). API routes are not wrapped — use higher-order functions for those. Nested `_middleware.ts` files are a hard error; per-group middleware requires ejection. Cross-check every source matcher against step 5: unlike Next.js edge middleware, Pracht pages middleware does not provide per-visitor protection for an `ssg`/`isg` document. Keep session-gated pages `ssr`/`spa`, or preserve an independently verified platform/CDN edge gate.
+6. Convert `middleware.ts` to a root-level `src/pages/_middleware.ts` exporting a pracht `MiddlewareFn` (Phase 6 shows the transform). It runs on every page route; move `config.matcher` path checks into the function body and compare against `stripBase(url.pathname)` because `url.pathname` includes Vite's deploy base. API routes are not wrapped — use higher-order functions for those. Nested `_middleware.ts` files are a hard error; per-group middleware requires ejection. Cross-check every source matcher against step 5: unlike Next.js edge middleware, Pracht pages middleware does not provide per-visitor protection for an `ssg`/`isg` document. Keep session-gated pages `ssr`/`spa`, or preserve an independently verified platform/CDN edge gate.
 7. Treat other `_`-prefixed files and directories as reserved implementation details: pracht ignores the entire subtree, so move any intended page route out of it.
 8. Run dev server, iterate on errors
 9. Optionally run `generateRoutesFile` to eject to explicit manifest
@@ -320,7 +320,7 @@ In `pagesDir` mode, put the same `MiddlewareFn` in a root-level `src/pages/_midd
 
 Key transforms:
 
-- Path matching moves from `config.matcher` to manifest group/route assignment (or `url.pathname` checks inside `_middleware.ts` in pagesDir mode)
+- Path matching moves from `config.matcher` to manifest group/route assignment (or `stripBase(url.pathname)` checks inside `_middleware.ts` in pagesDir mode, because `url.pathname` includes Vite's deploy base)
 - `NextResponse.redirect()` → `return redirect("/path", { request })`
 - `NextResponse.next()` → `return next()`
 - Pracht middleware is **wrap-around** (Hono/Koa/Astro shape), so you can

@@ -882,10 +882,10 @@ page route. Pure static exports cannot use request middleware:
 
 ```ts
 // src/pages/_middleware.ts
-import { redirect, type MiddlewareFn } from "@pracht/core";
+import { redirect, stripBase, type MiddlewareFn } from "@pracht/core";
 
 export const middleware: MiddlewareFn = async ({ request, url }, next) => {
-  if (url.pathname === "/legacy") return redirect("/about", { request });
+  if (stripBase(url.pathname) === "/legacy") return redirect("/about", { request });
   const response = await next();
   response.headers.set("x-request-id", crypto.randomUUID());
   return response;
@@ -903,6 +903,9 @@ Scope and limits:
   same independent-by-default behavior an explicit manifest has. Wrap API
   handlers in plain higher-order functions instead
   (`export const GET = withAuth(handler)`).
+- **Match route paths without the deploy base.** `url.pathname` is the public
+  browser pathname and includes Vite's configured `base`. Pass it through
+  `stripBase()` before comparing it with route paths such as `/legacy`.
 - **Root level only, single file.** A `_middleware.ts` inside a
   subdirectory, a `_middleware/` directory, and middleware-shaped files using
   unsupported page extensions (including Markdown/MDX, `.tsrx`, and configured

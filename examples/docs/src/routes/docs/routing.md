@@ -346,10 +346,10 @@ compatibility and retain Pracht's ambient module declaration.
 With a serverful adapter, a root-level `pages/_middleware.ts` exports the same [`MiddlewareFn` contract](/docs/middleware) as manifest middleware and runs on every page route. Pure static exports cannot use request middleware:
 
 ```ts [src/pages/_middleware.ts]
-import { redirect, type MiddlewareFn } from "@pracht/core";
+import { redirect, stripBase, type MiddlewareFn } from "@pracht/core";
 
 export const middleware: MiddlewareFn = async ({ request, url }, next) => {
-  if (url.pathname === "/legacy") return redirect("/about", { request });
+  if (stripBase(url.pathname) === "/legacy") return redirect("/about", { request });
   const response = await next();
   response.headers.set("x-request-id", crypto.randomUUID());
   return response;
@@ -361,6 +361,7 @@ Internally it is registered as a named middleware called `"pages"` and attached 
 Scope and limits:
 
 - **Page routes only.** API routes under `src/api` are not wrapped — the same independent-by-default behavior an explicit manifest has. Wrap API handlers in [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions) instead.
+- **Match route paths without the deploy base.** `url.pathname` is the public browser pathname and includes Vite's configured `base`. Pass it through `stripBase()` before comparing it with route paths such as `/legacy`.
 - **Root level only, single file.** A `_middleware.ts` inside a subdirectory, a `_middleware/` directory, and middleware-shaped files using unsupported page extensions (including Markdown/MDX, `.tsrx`, and configured custom formats) are hard errors at build, `doctor`, and `verify` time — never silently ignored files that look like an auth gate. Per-group middleware requires [ejecting to an explicit manifest](#ejecting-to-explicit-manifest).
 - **Server-only helpers stay server-only.** Middleware implementations can live in an underscore-reserved helper such as `pages/_server/auth.ts` and be imported or re-exported by `_middleware.ts`. Reserved files and directory trees are excluded from the client route/shell registries, and the dedicated `_middleware.ts` module becomes empty if client code imports it directly. Helper files still enter a browser bundle if client code imports those files directly.
 - **Export names are checked statically; values are checked at runtime.** The module must declare a named `middleware` export. Build, doctor, and verify reject an absent export but do not model its value; value `export *` declarations are treated as unknown. The request runtime performs the authoritative `typeof middleware === "function"` check and fails closed when it is not callable.
