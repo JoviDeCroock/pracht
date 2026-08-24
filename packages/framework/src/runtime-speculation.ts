@@ -35,18 +35,17 @@ export interface SpeculationRulesDocument {
  * rule, and mirrored on the client by `isSpeculationSuppressed()`.
  *
  * - `rel="nofollow"` marks a link the page does not vouch for.
- * - `data-pracht-speculate="off"` opts an element (and its subtree) out; a
- *   nested `"on"` re-enables it, and the anchor's own attribute always wins.
- *   A CSS selector cannot walk ancestors, so "nearest ancestor wins" is
- *   approximated: one `"on"` inside an `"off"` re-enables, which matches
- *   `closest()` for every nesting up to three alternating levels
- *   (`off > on > off > a` is the first case where the two disagree, and it
- *   only costs a speculation the router then ignores).
+ * - `data-pracht-speculate="off"` opts an element and every anchor in its
+ *   subtree out. An anchor can explicitly re-enable itself with `"on"`.
+ *   Container-level `"on"` scopes are deliberately unsupported because CSS
+ *   selectors cannot express nearest-ancestor precedence for arbitrarily
+ *   nested scopes; keeping `"off"` fail-closed makes the browser and client
+ *   agree for every nesting depth.
  */
 export const SPECULATION_EXCLUSION_SELECTORS: readonly string[] = [
   'a[rel~="nofollow"]',
   `a[${SPECULATE_ATTRIBUTE}="off"]`,
-  `[${SPECULATE_ATTRIBUTE}="off"] a:not([${SPECULATE_ATTRIBUTE}="on"], [${SPECULATE_ATTRIBUTE}="off"] [${SPECULATE_ATTRIBUTE}="on"] *)`,
+  `[${SPECULATE_ATTRIBUTE}="off"] a:not([${SPECULATE_ATTRIBUTE}="on"])`,
 ];
 
 /**
@@ -59,8 +58,9 @@ export const SPECULATION_EXCLUSION_SELECTORS: readonly string[] = [
 export function isSpeculationSuppressed(anchor: Element): boolean {
   const rel = anchor.getAttribute("rel");
   if (rel && rel.split(/\s+/).some((token) => token.toLowerCase() === "nofollow")) return true;
-  const scope = anchor.closest(`[${SPECULATE_ATTRIBUTE}]`);
-  return scope?.getAttribute(SPECULATE_ATTRIBUTE) === "off";
+  const ownSetting = anchor.getAttribute(SPECULATE_ATTRIBUTE);
+  if (ownSetting === "on") return false;
+  return anchor.closest(`[${SPECULATE_ATTRIBUTE}="off"]`) !== null;
 }
 
 const DEFAULT_EAGERNESS: Record<SpeculationMode, SpeculationEagerness> = {

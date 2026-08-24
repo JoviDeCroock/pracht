@@ -208,16 +208,21 @@ describe("speculation exclusions", () => {
       '<nav data-pracht-speculate="on"><a id="target" href="/x" data-pracht-speculate="off"></a></nav>',
       true,
     ],
-    // Nearest ancestor wins.
+    // Container-level `on` cannot override an enclosing `off`: the emitted
+    // CSS stays fail-closed at every nesting depth.
     [
       '<nav data-pracht-speculate="off"><div data-pracht-speculate="on"><a id="target" href="/x"></a></div></nav>',
-      false,
+      true,
     ],
     [
       '<nav data-pracht-speculate="on"><div data-pracht-speculate="off"><a id="target" href="/x"></a></div></nav>',
       true,
     ],
     ['<nav data-pracht-speculate="on"><a id="target" href="/x"></a></nav>', false],
+    [
+      '<nav data-pracht-speculate="off"><div data-pracht-speculate="on"><section data-pracht-speculate="off"><a id="target" href="/x"></a></section></div></nav>',
+      true,
+    ],
   ];
 
   for (const [markup, suppressed] of cases) {

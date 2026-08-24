@@ -140,8 +140,9 @@ export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
     /**
      * Opt this link out of (`false`) or back into (`true`) the browser's
      * speculation rules, overriding any enclosing
-     * `data-pracht-speculate` scope. Set `false` on links with side effects.
-     * Independent of `prefetch`, which controls the JS route-state prefetch.
+     * `data-pracht-speculate="off"` scope. Independent of `prefetch`, which
+     * controls the JS route-state prefetch; disable both on links with side
+     * effects.
      */
     speculate?: boolean;
   };

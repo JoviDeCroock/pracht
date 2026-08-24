@@ -98,7 +98,7 @@ test("chromium accepts the speculation rules and their exclusion selectors", asy
   // as a console error naming speculation rules.
   expect(messages.filter((text) => /speculation/i.test(text))).toEqual([]);
 
-  // The cascade the docs promise, evaluated by a real CSS engine.
+  // The fail-closed scope semantics, evaluated by a real CSS engine.
   const verdicts = await page.evaluate((list: string[]) => {
     const selector = list.join(",");
     const host = document.createElement("div");
@@ -110,6 +110,9 @@ test("chromium accepts the speculation rules and their exclusion selectors", asy
         <a id="scoped-off" href="/pricing"></a>
         <a id="scoped-on" href="/pricing" data-pracht-speculate="on"></a>
         <div data-pracht-speculate="on"><a id="nested-on" href="/pricing"></a></div>
+        <div data-pracht-speculate="on">
+          <div data-pracht-speculate="off"><a id="alternating-off" href="/pricing"></a></div>
+        </div>
       </nav>
       <nav data-pracht-speculate="on">
         <div data-pracht-speculate="off"><a id="nested-off" href="/pricing"></a></div>
@@ -124,6 +127,7 @@ test("chromium accepts the speculation rules and their exclusion selectors", asy
       scopedOn: read("scoped-on"),
       nestedOn: read("nested-on"),
       nestedOff: read("nested-off"),
+      alternatingOff: read("alternating-off"),
     };
     host.remove();
     return result;
@@ -135,8 +139,9 @@ test("chromium accepts the speculation rules and their exclusion selectors", asy
     selfOff: true,
     scopedOff: true,
     scopedOn: false,
-    nestedOn: false,
+    nestedOn: true,
     nestedOff: true,
+    alternatingOff: true,
   });
 });
 

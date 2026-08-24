@@ -343,7 +343,7 @@ accepts four navigation-behavior props:
 <Link route="product" params={{ id }} prefetch="viewport">Product</Link>
 <Link route="inbox" preserveScroll>Refresh inbox</Link>
 <Link route="gallery" viewTransition>Gallery</Link>
-<Link route="logout" speculate={false}>Log out</Link>
+<Link route="logout" speculate={false} prefetch="none">Log out</Link>
 ```
 
 | Prop             | Type                                              | Behavior                                                                 |
@@ -1074,8 +1074,9 @@ candidate. Two things take a link back out:
 
 - `rel="nofollow"` — never speculated, matching the browser's own convention
   for links the page does not vouch for.
-- `data-pracht-speculate="off"` — opts an element and its subtree out. A nested
-  `"on"` re-enables part of it, and the anchor's own attribute always wins.
+- `data-pracht-speculate="off"` — opts an element and its subtree out. An anchor
+  can set `"on"` to re-enable itself; container-level `"on"` scopes do not
+  override an enclosing opt-out, so exclusions remain fail-closed at any depth.
 
 ```html
 <!-- turn a whole section off, re-enable one link inside it -->
@@ -1088,13 +1089,13 @@ candidate. Two things take a link back out:
 `<Link>` takes the same switch as a prop:
 
 ```tsx
-<Link route="logout" speculate={false}>Log out</Link>
+<Link route="logout" speculate={false} prefetch="none">Log out</Link>
 ```
 
-Reach for this on links with side effects — a GET that logs the user out,
-consumes a one-time token, or records a view. A `prerender` speculation runs
-the destination's JS, so anything the page does on load happens whether or not
-the user ever clicks.
+Reach for both opt-outs on links with side effects — a GET that logs the user
+out, consumes a one-time token, or records a view. A `prerender` speculation
+runs the destination's JS, while the JS prefetch can run its loader or
+middleware, so either path can have effects before the user clicks.
 
 An excluded link keeps the ordinary SPA path: the JS `prefetch` strategy still
 applies to it, and the client router still intercepts the click instead of
@@ -1103,11 +1104,9 @@ prefetch too, set `prefetch="none"` — the two switches are independent.
 Reactive changes to `rel` or `data-pracht-speculate` update both the browser
 rule match and Pracht's JS viewport/render prefetch handling.
 
-> The exclusions are emitted as a `not: { selector_matches: [...] }` clause on
-> every rule. CSS selectors cannot walk ancestors, so `"nearest ancestor wins"`
-> is approximated: one `"on"` inside an `"off"` re-enables. Alternating the two
-> more than three levels deep is the first case where the browser and the
-> router disagree, and the cost is a speculation the router ignores.
+The exclusions are emitted as a `not: { selector_matches: [...] }` clause on
+every rule. Browser and client matching use the same fail-closed semantics, so
+nested scopes cannot accidentally re-enable speculation.
 
 ### How it composes with `prefetch`
 
