@@ -224,7 +224,7 @@ export default async () => ({ plugins: createPlugins() });`,
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
-  it("uses the production build config when checking for a static adapter", () => {
+  it("uses the production SSR build config when checking for a static adapter", () => {
     const appDir = createRepoTempDir("pracht-cli-pages-middleware-production-static-");
     writePagesApp(appDir);
     writeProjectFile(
@@ -233,11 +233,13 @@ export default async () => ({ plugins: createPlugins() });`,
       `import { pracht } from ${JSON.stringify(resolve(repoRoot, "packages/vite-plugin/src/index.ts"))};
 import { staticAdapter } from ${JSON.stringify(resolve(repoRoot, "packages/adapter-static/src/index.ts"))};
 
-export default ({ command, mode }) => ({
+export default ({ command, isSsrBuild, mode }) => ({
   plugins: [
     pracht({
       pagesDir: "/src/pages",
-      ...(command === "build" && mode === "production" ? { adapter: staticAdapter() } : {}),
+      ...(command === "build" && isSsrBuild && mode === "production"
+        ? { adapter: staticAdapter() }
+        : {}),
     }),
   ],
 });`,

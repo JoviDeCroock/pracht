@@ -549,7 +549,7 @@ async function usesStaticAdapter(
   if (!project.configFile) throw incompatiblePagesMiddlewarePluginError();
 
   const loaded = await loadConfigFromFile(
-    { command: "build", isPreview: false, isSsrBuild: false, mode: "production" },
+    { command: "build", isPreview: false, isSsrBuild: true, mode: "production" },
     project.configFile,
     project.root,
     "silent",
