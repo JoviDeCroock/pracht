@@ -317,6 +317,19 @@ function validateCollections(options: PrachtContentOptions): readonly ViteConten
     }
     names.add(collection.name);
   }
+  for (const name of names) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(name);
+    } catch {
+      continue;
+    }
+    if (decoded !== name && names.has(decoded)) {
+      throw new TypeError(
+        `prachtContent() collection names ${JSON.stringify(name)} and ${JSON.stringify(decoded)} collide in virtual module specifiers; rename one collection.`,
+      );
+    }
+  }
   return Object.freeze([...options.collections]);
 }
 

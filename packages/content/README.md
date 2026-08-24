@@ -205,6 +205,8 @@ locale/fallback indexes into the server bundle, so it works in Cloudflare,
 Vercel, and dist-only Node deployments without source files or `node:fs`.
 Collection names are matched literally, including names containing `%`; an
 encoded suffix remains supported when an import cannot spell the name directly.
+`prachtContent()` rejects two names when one's literal spelling is the other's
+percent-encoded spelling, because both would claim the same virtual module.
 The virtual module is server-only: a retained client import fails the build
 instead of publishing the collection's source, frontmatter, and compiled data
 to browser JavaScript. Keep it inside loaders, middleware, API routes, and

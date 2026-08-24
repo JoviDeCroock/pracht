@@ -281,7 +281,8 @@ route aliases into that module. The deployed server therefore performs lookup
 without `node:fs` or a copied source tree on Cloudflare, Vercel, and Node.
 The virtual-module suffix matches the collection name literally, including `%`;
 an encoded suffix remains supported when an import cannot spell the name
-directly.
+directly. Two collection names cannot use literal and percent-decoded spellings
+of the same suffix, because those would make one snapshot inaccessible.
 Virtual collection modules are server-only. Importing one from retained client
 code fails the build before its source, frontmatter, or compiled values can be
 embedded in a browser bundle; keep imports inside loaders, middleware, API

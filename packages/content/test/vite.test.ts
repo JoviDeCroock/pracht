@@ -223,6 +223,16 @@ describe("prachtContent", () => {
     ).toBeNull();
   });
 
+  it("rejects collection names whose literal and encoded module specifiers collide", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const literal = defineCollection({ name: "docs%20archive", root: temporaryDirectory });
+    const decoded = defineCollection({ name: "docs archive", root: temporaryDirectory });
+
+    expect(() => prachtContent({ collections: [literal, decoded] })).toThrow(
+      /collection names "docs%20archive" and "docs archive" collide in virtual module specifiers/,
+    );
+  });
+
   it("omits opted-out source representations from the generated module", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "---\ntitle: Page\n---\nBody");
