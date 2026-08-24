@@ -1,11 +1,16 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
 import { defineApp, group, resolveApp, route } from "../src/index.ts";
 import {
   buildSpeculationRules,
   getAppSpeculationRules,
+  isSpeculationSuppressed,
   normalizeSpeculation,
+  SPECULATION_EXCLUSION_SELECTORS,
 } from "../src/runtime-speculation.ts";
+
+const EXCLUSIONS = { not: { selector_matches: [...SPECULATION_EXCLUSION_SELECTORS] } };
 
 describe("normalizeSpeculation", () => {
   it("expands a string mode to a config object", () => {
@@ -45,7 +50,7 @@ describe("buildSpeculationRules", () => {
       prefetch: [
         {
           source: "document",
-          where: { href_matches: ["/"] },
+          where: { and: [{ href_matches: ["/"] }, EXCLUSIONS] },
           eagerness: "moderate",
         },
       ],
@@ -62,7 +67,7 @@ describe("buildSpeculationRules", () => {
       prerender: [
         {
           source: "document",
-          where: { href_matches: ["/about"] },
+          where: { and: [{ href_matches: ["/about"] }, EXCLUSIONS] },
           eagerness: "conservative",
         },
       ],
@@ -79,7 +84,7 @@ describe("buildSpeculationRules", () => {
       }),
     );
     const rules = buildSpeculationRules(resolved.routes);
-    expect(rules?.prefetch?.[0].where.href_matches).toEqual(["/blog/:slug", "/files/*"]);
+    expect(rules?.prefetch?.[0].where.and[0].href_matches).toEqual(["/blog/:slug", "/files/*"]);
   });
 
   it("escapes URLPattern metacharacters in static segments", () => {
@@ -94,7 +99,7 @@ describe("buildSpeculationRules", () => {
       }),
     );
     const rules = buildSpeculationRules(resolved.routes);
-    expect(rules?.prefetch?.[0].where.href_matches).toEqual([
+    expect(rules?.prefetch?.[0].where.and[0].href_matches).toEqual([
       "/c\\+\\+",
       "/file\\(1\\)",
       "/docs/a\\{b\\}",
@@ -118,7 +123,7 @@ describe("buildSpeculationRules", () => {
     expect(rules?.prerender).toHaveLength(1);
 
     const eager = rules?.prefetch?.find((r) => r.eagerness === "eager");
-    expect(eager?.where.href_matches.sort()).toEqual(["/a", "/b"]);
+    expect(eager?.where.and[0].href_matches.sort()).toEqual(["/a", "/b"]);
   });
 
   it("inherits speculation from a group", () => {
@@ -133,7 +138,7 @@ describe("buildSpeculationRules", () => {
       }),
     );
     const rules = buildSpeculationRules(resolved.routes);
-    expect(rules?.prefetch?.[0].where.href_matches).toEqual(["/docs/intro", "/docs/api"]);
+    expect(rules?.prefetch?.[0].where.and[0].href_matches).toEqual(["/docs/intro", "/docs/api"]);
   });
 
   it("lets a route override an inherited group setting", () => {
@@ -148,8 +153,8 @@ describe("buildSpeculationRules", () => {
       }),
     );
     const rules = buildSpeculationRules(resolved.routes);
-    expect(rules?.prefetch?.[0].where.href_matches).toEqual(["/"]);
-    expect(rules?.prerender?.[0].where.href_matches).toEqual(["/heavy"]);
+    expect(rules?.prefetch?.[0].where.and[0].href_matches).toEqual(["/"]);
+    expect(rules?.prerender?.[0].where.and[0].href_matches).toEqual(["/heavy"]);
   });
 });
 
@@ -164,4 +169,69 @@ describe("getAppSpeculationRules", () => {
     const second = getAppSpeculationRules(resolved);
     expect(first).toBe(second);
   });
+});
+
+describe("speculation exclusions", () => {
+  it("attaches the exclusion selectors to every emitted rule", () => {
+    const resolved = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./index.tsx", { speculation: "prefetch" }),
+          route("/heavy", "./heavy.tsx", { speculation: "prerender" }),
+        ],
+      }),
+    );
+    const rules = buildSpeculationRules(resolved.routes);
+    for (const rule of [...(rules?.prefetch ?? []), ...(rules?.prerender ?? [])]) {
+      expect(rule.where.and[1]).toEqual(EXCLUSIONS);
+    }
+  });
+
+  // [markup, id of the anchor under test, suppressed?]
+  const cases: Array<[string, boolean]> = [
+    ['<a id="target" href="/x"></a>', false],
+    ['<a id="target" href="/x" rel="nofollow"></a>', true],
+    ['<a id="target" href="/x" rel="noopener nofollow"></a>', true],
+    // HTML rel keywords and the emitted attribute selector are ASCII
+    // case-insensitive, so the client helper must be too.
+    ['<a id="target" href="/x" rel="NOFOLLOW"></a>', true],
+    // `nofollow` is a rel token, not a substring of one.
+    ['<a id="target" href="/x" rel="nofollowers"></a>', false],
+    ['<a id="target" href="/x" data-pracht-speculate="off"></a>', true],
+    ['<nav data-pracht-speculate="off"><a id="target" href="/x"></a></nav>', true],
+    // The anchor's own attribute beats an enclosing scope, both ways.
+    [
+      '<nav data-pracht-speculate="off"><a id="target" href="/x" data-pracht-speculate="on"></a></nav>',
+      false,
+    ],
+    [
+      '<nav data-pracht-speculate="on"><a id="target" href="/x" data-pracht-speculate="off"></a></nav>',
+      true,
+    ],
+    // Nearest ancestor wins.
+    [
+      '<nav data-pracht-speculate="off"><div data-pracht-speculate="on"><a id="target" href="/x"></a></div></nav>',
+      false,
+    ],
+    [
+      '<nav data-pracht-speculate="on"><div data-pracht-speculate="off"><a id="target" href="/x"></a></div></nav>',
+      true,
+    ],
+    ['<nav data-pracht-speculate="on"><a id="target" href="/x"></a></nav>', false],
+  ];
+
+  for (const [markup, suppressed] of cases) {
+    it(`${suppressed ? "suppresses" : "speculates"} ${markup}`, () => {
+      document.body.innerHTML = markup;
+      const anchor = document.getElementById("target");
+      expect(anchor).not.toBeNull();
+      expect(isSpeculationSuppressed(anchor as Element)).toBe(suppressed);
+      // The emitted CSS selectors must reach the same verdict as the client
+      // helper, or the browser and the router disagree about which links are
+      // prerendered.
+      expect((anchor as Element).matches(SPECULATION_EXCLUSION_SELECTORS.join(","))).toBe(
+        suppressed,
+      );
+    });
+  }
 });

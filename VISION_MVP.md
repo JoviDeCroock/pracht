@@ -109,7 +109,7 @@ core framework conventions. See
 - **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
   `useLocation()`, `useSearchParams()`, `useParams()`, `<Form>` component, `<Link>`
-  (with `prefetch`, `preserveScroll`, `viewTransition` props), and imperative
+  (with `prefetch`, `preserveScroll`, `viewTransition`, `speculate` props), and imperative
   `prefetch()`.
 
 ### API Routes

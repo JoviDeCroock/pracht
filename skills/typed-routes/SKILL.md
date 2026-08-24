@@ -107,8 +107,11 @@ same-origin anchor. It also accepts navigation-behavior props:
 `prefetch="none" | "hover" | "intent" | "viewport" | "render"` (per-link
 prefetch strategy, default `"intent"`), `preserveScroll` (keep the scroll
 position), and `viewTransition` (animate the navigation with the View Transitions API
-where supported). There is also an imperative `prefetch()` export and a
-`useNavigation()` hook for pending navigation/submission state.
+where supported). Set `speculate={false}` on links that browser speculation
+rules must not prefetch or prerender, such as GET links with side effects; it
+is independent of the JS `prefetch` strategy. There is also an imperative
+`prefetch()` export and a `useNavigation()` hook for pending
+navigation/submission state.
 
 ### Outside components
 

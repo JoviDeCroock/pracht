@@ -1,4 +1,5 @@
 import { PRACHT_BASE } from "./base.ts";
+import { SPECULATE_ATTRIBUTE } from "./runtime-constants.ts";
 import type {
   ResolvedPrachtApp,
   ResolvedRoute,
@@ -9,15 +10,57 @@ import type {
   SpeculationOption,
 } from "./types.ts";
 
+interface HrefMatchesClause {
+  href_matches: string[];
+}
+
+interface ExclusionClause {
+  not: { selector_matches: string[] };
+}
+
 interface SpeculationRule {
   source: "document";
-  where: { href_matches: string[] };
+  where: { and: [HrefMatchesClause, ExclusionClause] };
   eagerness: SpeculationEagerness;
 }
 
 export interface SpeculationRulesDocument {
   prefetch?: SpeculationRule[];
   prerender?: SpeculationRule[];
+}
+
+/**
+ * Anchors the browser must never speculate, regardless of the route patterns
+ * a rule matches. Emitted as a `not: { selector_matches }` conjunct on every
+ * rule, and mirrored on the client by `isSpeculationSuppressed()`.
+ *
+ * - `rel="nofollow"` marks a link the page does not vouch for.
+ * - `data-pracht-speculate="off"` opts an element (and its subtree) out; a
+ *   nested `"on"` re-enables it, and the anchor's own attribute always wins.
+ *   A CSS selector cannot walk ancestors, so "nearest ancestor wins" is
+ *   approximated: one `"on"` inside an `"off"` re-enables, which matches
+ *   `closest()` for every nesting up to three alternating levels
+ *   (`off > on > off > a` is the first case where the two disagree, and it
+ *   only costs a speculation the router then ignores).
+ */
+export const SPECULATION_EXCLUSION_SELECTORS: readonly string[] = [
+  'a[rel~="nofollow"]',
+  `a[${SPECULATE_ATTRIBUTE}="off"]`,
+  `[${SPECULATE_ATTRIBUTE}="off"] a:not([${SPECULATE_ATTRIBUTE}="on"], [${SPECULATE_ATTRIBUTE}="off"] [${SPECULATE_ATTRIBUTE}="on"] *)`,
+];
+
+/**
+ * True when this anchor is excluded from the emitted speculation rules — the
+ * client-side counterpart of `SPECULATION_EXCLUSION_SELECTORS`. The router and
+ * prefetch listeners consult it before handing a link to the browser: if the
+ * browser will not prerender it, the normal SPA prefetch/navigation path has
+ * to keep working.
+ */
+export function isSpeculationSuppressed(anchor: Element): boolean {
+  const rel = anchor.getAttribute("rel");
+  if (rel && rel.split(/\s+/).some((token) => token.toLowerCase() === "nofollow")) return true;
+  const scope = anchor.closest(`[${SPECULATE_ATTRIBUTE}]`);
+  return scope?.getAttribute(SPECULATE_ATTRIBUTE) === "off";
 }
 
 const DEFAULT_EAGERNESS: Record<SpeculationMode, SpeculationEagerness> = {
@@ -90,7 +133,12 @@ export function buildSpeculationRules(
     const list = doc[mode] ?? (doc[mode] = []);
     list.push({
       source: "document",
-      where: { href_matches: patterns },
+      where: {
+        and: [
+          { href_matches: patterns },
+          { not: { selector_matches: [...SPECULATION_EXCLUSION_SELECTORS] } },
+        ],
+      },
       eagerness,
     });
   }

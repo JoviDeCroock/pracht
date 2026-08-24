@@ -217,6 +217,110 @@ describe("prefetch strategies", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("keeps JS prefetch for a nofollow anchor the speculation rules exclude", () => {
+    stubSpeculationRulesSupport(true);
+    const anchor = addAnchor("/prerender-nofollow", { rel: "nofollow" });
+    setupPrefetching(createSpeculationApp("/prerender-nofollow"));
+
+    hover(anchor);
+    vi.advanceTimersByTime(60);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("/prerender-nofollow");
+  });
+
+  it('keeps JS prefetch for anchors inside a data-pracht-speculate="off" scope', () => {
+    stubSpeculationRulesSupport(true);
+    const nav = document.createElement("nav");
+    nav.setAttribute("data-pracht-speculate", "off");
+    document.body.appendChild(nav);
+    const anchor = document.createElement("a");
+    anchor.href = "/prerender-scoped-off";
+    nav.appendChild(anchor);
+    setupPrefetching(createSpeculationApp("/prerender-scoped-off"));
+
+    hover(anchor);
+    vi.advanceTimersByTime(60);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("/prerender-scoped-off");
+  });
+
+  it("starts render prefetch when a mounted prerender link becomes excluded", async () => {
+    stubSpeculationRulesSupport(true);
+    const nav = document.createElement("nav");
+    document.body.appendChild(nav);
+    const anchor = document.createElement("a");
+    anchor.href = "/prerender-dynamic-off";
+    anchor.setAttribute("data-pracht-prefetch", "render");
+    nav.appendChild(anchor);
+    setupPrefetching(createSpeculationApp("/prerender-dynamic-off"));
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    nav.setAttribute("data-pracht-speculate", "off");
+    await flushMicrotasks();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("/prerender-dynamic-off");
+  });
+
+  it("drops viewport prefetch when an excluded link becomes eligible for prerender", async () => {
+    stubSpeculationRulesSupport(true);
+    let intersectionCallback: IntersectionObserverCallback | undefined;
+    const observe = vi.fn();
+    const unobserve = vi.fn();
+    const fakeObserver: IntersectionObserver = {
+      disconnect: vi.fn(),
+      observe,
+      root: null,
+      rootMargin: "200px",
+      scrollMargin: "0px",
+      takeRecords: vi.fn(() => []),
+      thresholds: [0],
+      unobserve,
+    };
+    vi.stubGlobal(
+      "IntersectionObserver",
+      vi.fn((callback: IntersectionObserverCallback) => {
+        intersectionCallback = callback;
+        return fakeObserver;
+      }),
+    );
+    const anchor = addAnchor("/prerender-dynamic-on", {
+      "data-pracht-prefetch": "viewport",
+      "data-pracht-speculate": "off",
+    });
+    setupPrefetching(createSpeculationApp("/prerender-dynamic-on"));
+    expect(observe).toHaveBeenCalledWith(anchor);
+
+    anchor.setAttribute("data-pracht-speculate", "on");
+    await flushMicrotasks();
+    expect(unobserve).toHaveBeenCalledWith(anchor);
+
+    const emptyRect: DOMRectReadOnly = {
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: 0,
+      top: 0,
+      width: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
+    const entry: IntersectionObserverEntry = {
+      boundingClientRect: emptyRect,
+      intersectionRatio: 1,
+      intersectionRect: emptyRect,
+      isIntersecting: true,
+      rootBounds: null,
+      target: anchor,
+      time: 0,
+    };
+    intersectionCallback?.([entry], fakeObserver);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("imperative prefetch()", () => {

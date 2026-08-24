@@ -12,6 +12,8 @@ import {
 import { clearPrefetchCache } from "../src/prefetch-cache.ts";
 import { PRESERVE_SCROLL_ATTRIBUTE } from "../src/runtime-constants.ts";
 import { HISTORY_STATE_KEY } from "../src/scroll-restoration.ts";
+import { SPECULATE_ATTRIBUTE } from "../src/runtime-constants.ts";
+import type { SpeculationOption } from "../src/types.ts";
 
 function createJsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -41,6 +43,11 @@ function createDeferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
+interface RouterOptions {
+  viewTransitions?: boolean;
+  speculation?: SpeculationOption;
+}
+
 describe("navigation UX primitives (client router)", () => {
   let root: HTMLDivElement;
   let fetchSpy: ReturnType<typeof vi.fn>;
@@ -55,19 +62,23 @@ describe("navigation UX primitives (client router)", () => {
     options?: boolean | AddEventListenerOptions;
   }> = [];
 
-  function createRouterApp(options?: { viewTransitions?: boolean }) {
+  function createRouterApp(options?: RouterOptions) {
     return resolveApp(
       defineApp({
         viewTransitions: options?.viewTransitions,
         routes: [
           route("/", "./routes/home.tsx", { id: "home", render: "ssr" }),
-          route("/next", "./routes/next.tsx", { id: "next", render: "ssr" }),
+          route("/next", "./routes/next.tsx", {
+            id: "next",
+            render: "ssr",
+            speculation: options?.speculation,
+          }),
         ],
       }),
     );
   }
 
-  async function initRouter(options?: { viewTransitions?: boolean }): Promise<void> {
+  async function initRouter(options?: RouterOptions): Promise<void> {
     const targets: EventTarget[] = [window, document];
     const originals = targets.map((target) => target.addEventListener.bind(target));
     targets.forEach((target, i) => {
@@ -441,6 +452,60 @@ describe("navigation UX primitives (client router)", () => {
     expect(fetchSpy).toHaveBeenCalled();
     expect(root.textContent).toContain("next");
     expect(window.location.pathname).toBe("/next");
+  });
+
+  describe("prerender speculation hand-off", () => {
+    let originalSupports: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      originalSupports = Object.getOwnPropertyDescriptor(HTMLScriptElement, "supports");
+      Object.defineProperty(HTMLScriptElement, "supports", {
+        configurable: true,
+        value: (type: string) => type === "speculationrules",
+      });
+    });
+
+    afterEach(() => {
+      if (originalSupports) {
+        Object.defineProperty(HTMLScriptElement, "supports", originalSupports);
+      } else {
+        delete (HTMLScriptElement as { supports?: unknown }).supports;
+      }
+    });
+
+    /** Clicks a link to the prerender-marked `/next` route and reports whether
+     * the router intercepted the click (SPA nav) or let the browser navigate. */
+    async function clickPrerenderLink(markup: string): Promise<boolean> {
+      fetchSpy.mockImplementation(async () => createJsonResponse({ data: null }));
+      await initRouter({ speculation: "prerender" });
+      document.body.insertAdjacentHTML("beforeend", markup);
+      const anchor = document.getElementById("target") as HTMLAnchorElement;
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+      anchor.dispatchEvent(event);
+      await flush();
+      return event.defaultPrevented;
+    }
+
+    it("leaves the click to the browser so it can activate the prerendered document", async () => {
+      expect(await clickPrerenderLink(`<a id="target" href="/next">next</a>`)).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("handles a case-variant nofollow link itself — the rules never prerendered it", async () => {
+      expect(await clickPrerenderLink(`<a id="target" href="/next" rel="NOFOLLOW">next</a>`)).toBe(
+        true,
+      );
+      expect(window.location.pathname).toBe("/next");
+    });
+
+    it("handles a link inside a speculate=off scope itself", async () => {
+      expect(
+        await clickPrerenderLink(
+          `<nav ${SPECULATE_ATTRIBUTE}="off"><a id="target" href="/next">next</a></nav>`,
+        ),
+      ).toBe(true);
+      expect(window.location.pathname).toBe("/next");
+    });
   });
 
   it("sets history.scrollRestoration to manual when supported", async () => {
