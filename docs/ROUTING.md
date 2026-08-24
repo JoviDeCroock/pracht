@@ -899,6 +899,11 @@ ejected manifest all show it.
 
 Scope and limits:
 
+- **Keep the CLI and Vite plugin compatible.**
+  `pracht generate middleware --name _middleware` verifies that the loaded
+  `@pracht/vite-plugin` supports pages middleware and asks you to upgrade when
+  it does not. This prevents an independently upgraded CLI from scaffolding an
+  auth boundary that an older plugin would ignore.
 - **Page routes only.** API routes under `src/api` are not wrapped — the
   same independent-by-default behavior an explicit manifest has. Wrap API
   handlers in plain higher-order functions instead

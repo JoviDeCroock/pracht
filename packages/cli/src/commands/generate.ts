@@ -530,7 +530,7 @@ export async function generateMiddleware(
 
 type PrachtPluginApi = {
   pracht?: {
-    staticTarget?: boolean;
+    staticTarget?: unknown;
   };
 };
 
@@ -546,7 +546,7 @@ async function flattenPlugins(value: unknown): Promise<unknown[]> {
 async function usesStaticAdapter(
   project: Pick<ProjectConfig, "configFile" | "root">,
 ): Promise<boolean> {
-  if (!project.configFile) return false;
+  if (!project.configFile) throw incompatiblePagesMiddlewarePluginError();
 
   const loaded = await loadConfigFromFile(
     { command: "build", isPreview: false, isSsrBuild: false, mode: "production" },
@@ -554,14 +554,30 @@ async function usesStaticAdapter(
     project.root,
     "silent",
   );
-  if (!loaded) return false;
+  if (!loaded) throw incompatiblePagesMiddlewarePluginError();
 
   const plugins = await flattenPlugins(loaded.config.plugins);
-  return plugins.some((plugin) => {
-    if (!plugin || typeof plugin !== "object") return false;
+  const prachtPlugins = plugins.flatMap((plugin) => {
+    if (!plugin || typeof plugin !== "object") return [];
     const candidate = plugin as { api?: PrachtPluginApi; name?: unknown };
-    return candidate.name === "pracht" && candidate.api?.pracht?.staticTarget === true;
+    return candidate.name === "pracht" ? [candidate] : [];
   });
+  const compatiblePlugins = prachtPlugins.filter(
+    (plugin) => typeof plugin.api?.pracht?.staticTarget === "boolean",
+  );
+  if (compatiblePlugins.length === 0) {
+    throw incompatiblePagesMiddlewarePluginError();
+  }
+
+  return compatiblePlugins.some((plugin) => plugin.api?.pracht?.staticTarget === true);
+}
+
+function incompatiblePagesMiddlewarePluginError(): Error {
+  return new Error(
+    "Cannot generate pages `_middleware.ts` because the loaded Vite config does not expose " +
+      "compatible Pracht plugin metadata. Upgrade `@pracht/vite-plugin` to a version that " +
+      "supports pages middleware, then retry.",
+  );
 }
 
 export interface CapabilityArgs {

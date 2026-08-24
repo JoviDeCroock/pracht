@@ -30,6 +30,9 @@ exports. Static-target detection now executes the Vite config and inspects the
 adapter metadata on the selected Pracht plugin in the production build lane,
 including Vite's nested and thenable plugin entries, so config functions,
 aliases, and future JavaScript syntax need no separate source interpreter.
+Generation fails closed when the executed config does not expose compatible
+Pracht plugin metadata, preventing an independently upgraded CLI from
+scaffolding middleware that an older Vite plugin would silently ignore.
 
 Pages middleware edits participate in the existing HMR flow. The routing docs,
 starter copy, examples, and bundled migration/scaffolding skills describe the

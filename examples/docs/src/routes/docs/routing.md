@@ -360,6 +360,7 @@ Internally it is registered as a named middleware called `"pages"` and attached 
 
 Scope and limits:
 
+- **Keep the CLI and Vite plugin compatible.** `pracht generate middleware --name _middleware` verifies that the loaded `@pracht/vite-plugin` supports pages middleware and asks you to upgrade when it does not. This prevents an independently upgraded CLI from scaffolding an auth boundary that an older plugin would ignore.
 - **Page routes only.** API routes under `src/api` are not wrapped — the same independent-by-default behavior an explicit manifest has. Wrap API handlers in [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions) instead.
 - **Match route paths without the deploy base.** `url.pathname` is the public browser pathname and includes Vite's configured `base`. Pass it through `stripBase()` before comparing it with route paths such as `/legacy`.
 - **Root level only, single file.** A `_middleware.ts` inside a subdirectory, a `_middleware/` directory, and middleware-shaped files using unsupported page extensions (including Markdown/MDX, `.tsrx`, and configured custom formats) are hard errors at build, `doctor`, and `verify` time — never silently ignored files that look like an auth gate. Per-group middleware requires [ejecting to an explicit manifest](#ejecting-to-explicit-manifest).

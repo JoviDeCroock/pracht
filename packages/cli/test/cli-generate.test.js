@@ -173,6 +173,29 @@ export default { plugins: [pracht({ pagesDir: "/src/pages" })] };`,
     expect(middlewareSource).toContain("export const middleware: MiddlewareFn");
   });
 
+  it("refuses pages middleware when the installed Pracht plugin predates support", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-old-plugin-");
+    writePagesApp(appDir);
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `const pracht = (_options) => ({ name: "pracht" });
+export default { plugins: [pracht({ pagesDir: "/src/pages" })] };`,
+    );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(
+      "Upgrade `@pracht/vite-plugin` to a version that supports pages middleware",
+    );
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
   it("refuses pages middleware when the executed Vite config selects a static adapter", () => {
     const appDir = createRepoTempDir("pracht-cli-pages-middleware-static-");
     writePagesApp(appDir);
