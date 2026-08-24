@@ -3,7 +3,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { mkdir, mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -159,6 +159,38 @@ describe("prachtContent", () => {
     expect(code).not.toContain("node:fs");
   });
 
+  it("keeps request-time helpers on the filesystem-free runtime entry", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-runtime-"));
+    const input = join(temporaryDirectory, "entry.ts");
+    const output = join(temporaryDirectory, "dist");
+    await writeFile(
+      input,
+      'export { contentLoader, markdownRepresentation } from "@pracht/content/runtime";',
+    );
+
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      resolve: {
+        alias: {
+          "@pracht/content/runtime": fileURLToPath(new URL("../src/runtime.ts", import.meta.url)),
+        },
+      },
+      build: {
+        outDir: output,
+        ssr: true,
+        rollupOptions: { input },
+      },
+    });
+    const [entry] = (await readdir(output)).filter((file) => /\.m?js$/.test(file));
+    const code = await readFile(join(output, entry), "utf8");
+
+    expect(code).toContain("contentLoader");
+    expect(code).toContain("markdownRepresentation");
+    expect(code).not.toContain("node:");
+    expect(code).not.toContain("YAMLParseError");
+  });
+
   it("resolves literal percent signs in collection names without throwing", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     const collection = defineCollection({ name: "100%", root: temporaryDirectory });
@@ -214,6 +246,24 @@ describe("prachtContent", () => {
       body: "Body",
       raw: "---\ntitle: Page\n---\nBody",
     });
+  });
+
+  it("rejects sparse arrays that JSON serialization would replace with null", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    await writeFile(join(temporaryDirectory, "page.md"), "Page");
+    const compiled: string[] = [];
+    compiled.length = 2;
+    compiled[1] = "Page";
+    const collection = defineCollection({
+      name: "docs",
+      root: temporaryDirectory,
+      compile: () => compiled,
+    });
+    const [plugin] = prachtContent({ collections: [collection] });
+
+    await expect(
+      hookHandler(plugin.load).call({} as never, "\0virtual:pracht/content/docs"),
+    ).rejects.toThrow(/content snapshot\.documents\[0\]\.compiled\[0\].*sparse arrays/);
   });
 
   it("runs a bundled collection snapshot after the source tree is removed", async () => {

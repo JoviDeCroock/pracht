@@ -231,11 +231,18 @@ is wired up rather than answering every query with nothing.
 
 Frontmatter and compiled values used this way must be JSON-serializable. JSON
 object keys retain their data semantics in the generated module, including
-prototype-named keys such as `__proto__`. Add `@pracht/content/virtual` to
+prototype-named keys such as `__proto__`; sparse arrays are rejected rather
+than silently changing their holes to `null`. Add `@pracht/content/virtual` to
 `compilerOptions.types` for the generic ambient module declaration, or augment
 the module locally with application-specific frontmatter and compiled types.
 
 ## Loaders and Markdown negotiation
+
+Import request-time helpers from the filesystem-free runtime entry:
+
+```ts
+import { contentLoader, markdownRepresentation } from "@pracht/content/runtime";
+```
 
 `contentLoader()` turns snapshot lookup into a Pracht-compatible structural
 loader without making `@pracht/core` a dependency. It uses Pracht's matched,

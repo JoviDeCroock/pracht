@@ -7,8 +7,6 @@ export type {
   RawContentArtifactsOptions,
 } from "./artifacts.ts";
 export { parseFrontmatter } from "./frontmatter.ts";
-export { contentLoader, markdownRepresentation } from "./integrations.ts";
-export type { ContentLoaderArgs, ContentLoaderOptions } from "./integrations.ts";
 export type {
   ContentArtifact,
   ContentArtifactContext,

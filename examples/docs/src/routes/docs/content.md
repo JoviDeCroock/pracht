@@ -120,7 +120,7 @@ collection name so Cloudflare, Vercel, and dist-only Node deployments do not
 need the source tree at request time.
 
 ```ts [src/server/docs-loader.ts]
-import { contentLoader } from "@pracht/content";
+import { contentLoader } from "@pracht/content/runtime";
 import docs from "virtual:pracht/content/docs";
 
 export const loader = contentLoader(docs, {

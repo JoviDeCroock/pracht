@@ -16,6 +16,9 @@ import type {
   ContentSnapshotCollection,
 } from "./types.ts";
 
+export { contentLoader, markdownRepresentation } from "./integrations.ts";
+export type { ContentLoaderArgs, ContentLoaderOptions } from "./integrations.ts";
+
 /** Rehydrate a Vite-generated collection snapshot without filesystem access. */
 export function defineSnapshotCollection<
   TFrontmatter extends Record<string, unknown> = Record<string, unknown>,

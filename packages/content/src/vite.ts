@@ -269,7 +269,14 @@ function assertJsonValue(value: unknown, path: string, ancestors: Set<object>): 
   }
   ancestors.add(value);
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => assertJsonValue(entry, `${path}[${index}]`, ancestors));
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.hasOwn(value, index)) {
+        throw new TypeError(
+          `${path}[${index}] must be present; sparse arrays do not preserve their shape in a production content module.`,
+        );
+      }
+      assertJsonValue(value[index], `${path}[${index}]`, ancestors);
+    }
   } else {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) {

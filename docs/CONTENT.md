@@ -281,7 +281,8 @@ directly.
 Compiled and frontmatter values included in a runtime snapshot must be
 JSON-serializable; a build fails with the offending value path otherwise. JSON
 object keys retain their data semantics in the generated module, including
-prototype-named keys such as `__proto__`.
+prototype-named keys such as `__proto__`. Sparse arrays fail the build rather
+than being serialized with their holes changed to `null`.
 
 Each document embeds `raw`, `body`, and `compiled`, so a snapshot costs roughly
 two to three times the content it describes. `defineCollection({ snapshot: {
@@ -302,6 +303,13 @@ negotiation returns nothing, search matches nothing —
 `markdownRepresentation()` rejects a missing selected field, and both
 capability helpers reject a body-free collection when the capability is
 constructed rather than when it runs.
+
+Request-time loader and Markdown helpers are exported from the same node-free
+runtime entry used by generated modules:
+
+```ts
+import { contentLoader, markdownRepresentation } from "@pracht/content/runtime";
+```
 
 Applications can add `@pracht/content/virtual` to `compilerOptions.types` for a
 generic declaration and optionally augment their named virtual module with

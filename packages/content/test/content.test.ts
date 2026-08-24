@@ -4,14 +4,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
-  contentLoader,
   defineCollection,
   llmsTxtArtifacts,
-  markdownRepresentation,
   parseFrontmatter,
   rawContentArtifacts,
 } from "../src/index.ts";
-import { defineSnapshotCollection } from "../src/runtime.ts";
+import { contentLoader, defineSnapshotCollection, markdownRepresentation } from "../src/runtime.ts";
 
 const temporaryDirectories: string[] = [];
 
