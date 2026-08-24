@@ -4,10 +4,26 @@ import type { Connect, Plugin, ViteDevServer } from "vite";
 
 import { artifactFileName } from "./path.ts";
 import { defineSnapshotCollection } from "./runtime.ts";
-import type { ContentArtifact, ContentCollectionSnapshot } from "./types.ts";
+import type {
+  ContentArtifact,
+  ContentCollectionSnapshot,
+  ContentDocumentPayload,
+  ContentSnapshotDocument,
+} from "./types.ts";
 
 const CONTENT_MODULE_PREFIX = "virtual:pracht/content/";
 const RESOLVED_CONTENT_MODULE_PREFIX = `\0${CONTENT_MODULE_PREFIX}`;
+/**
+ * Deferred per-document representations. Keeping them out of the snapshot
+ * module matters because that module is imported by loaders, which the bundler
+ * hoists into a chunk shared by every content-backed route: inlining the whole
+ * collection there puts every document's compiled output, body, and source in
+ * the bundle any one of those routes loads. A documentation site is easily
+ * tens of megabytes of Markdown, all of it parsed on the first request to
+ * reach a shared chunk — including the 404 handler.
+ */
+const CONTENT_PAYLOAD_MODULE_PREFIX = "virtual:pracht/content-payload/";
+const RESOLVED_CONTENT_PAYLOAD_MODULE_PREFIX = `\0${CONTENT_PAYLOAD_MODULE_PREFIX}`;
 export const CONTENT_BUILD_MANIFEST_FILE = "_pracht/content-manifest.json";
 
 export interface ViteContentCollection {
@@ -57,12 +73,16 @@ interface ContentBuildManifest {
 export function prachtContent(options: PrachtContentOptions): Plugin[] {
   const collections = validateCollections(options);
   const unroutedDocuments = validateUnroutedDocumentPolicy(options.unroutedDocuments);
+  const emittedPayloadModules = new Map<ViteContentCollection, ReadonlySet<string>>();
 
   const transformPlugin: Plugin = {
     name: "pracht:content",
     enforce: "pre",
 
     resolveId(id) {
+      if (id.startsWith(CONTENT_PAYLOAD_MODULE_PREFIX)) {
+        return resolvePayloadId(collections, id) === undefined ? null : `\0${id}`;
+      }
       if (!id.startsWith(CONTENT_MODULE_PREFIX)) return null;
       const specifier = id.slice(CONTENT_MODULE_PREFIX.length);
       const exact = collections.find((collection) => collection.name === specifier);
@@ -80,6 +100,17 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     },
 
     async load(id, loadOptions) {
+      if (id.startsWith(RESOLVED_CONTENT_PAYLOAD_MODULE_PREFIX)) {
+        const target = resolvePayloadId(collections, id.slice(1));
+        if (!target) return null;
+        const { payloads } = await splitSnapshot(target.collection);
+        const payload = payloads[target.index];
+        if (!payload) return null;
+        // Already validated as JSON while splitting, so a malformed document
+        // fails when the snapshot module loads rather than whenever the page
+        // that happens to use it is first rendered.
+        return `export default JSON.parse(${JSON.stringify(JSON.stringify(payload.data))});`;
+      }
       if (!id.startsWith(RESOLVED_CONTENT_MODULE_PREFIX)) return null;
       const name = decodeURIComponent(id.slice(RESOLVED_CONTENT_MODULE_PREFIX.length));
       const collection = collections.find((candidate) => candidate.name === name);
@@ -92,14 +123,30 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
             "Read the collection inside loaders, middleware, API routes, or server capabilities instead.",
         );
       }
-      const snapshot = await collection.snapshot();
-      const serializedSnapshot = serializeSnapshot(snapshot);
-      return [
+      const { index, payloads } = await splitSnapshot(collection);
+      const lines = [
         `import { defineSnapshotCollection } from "@pracht/content/runtime";`,
-        `const snapshot = JSON.parse(${JSON.stringify(serializedSnapshot)});`,
+        `const snapshot = JSON.parse(${JSON.stringify(serializeSnapshot(index))});`,
+      ];
+      if (payloads.length > 0) {
+        // Recorded synchronously so the dev watcher can invalidate exactly the
+        // payload modules this collection generated, without walking the graph.
+        emittedPayloadModules.set(
+          collection,
+          new Set(payloads.map((payload) => `\0${payload.moduleId}`)),
+        );
+        lines.push(`const documents = snapshot.documents;`);
+        for (const [documentIndex, payload] of payloads.entries()) {
+          lines.push(
+            `documents[${documentIndex}].load = () => import(${JSON.stringify(payload.moduleId)});`,
+          );
+        }
+      }
+      lines.push(
         `export const collection = defineSnapshotCollection(snapshot);`,
         `export default collection;`,
-      ].join("\n");
+      );
+      return lines.join("\n");
     },
 
     async transform(code, id) {
@@ -140,7 +187,7 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     },
 
     configureServer(server) {
-      registerInvalidation(server, collections);
+      registerInvalidation(server, collections, emittedPayloadModules);
     },
   };
 
@@ -260,6 +307,94 @@ function serializeSnapshot(
   return JSON.stringify(snapshot);
 }
 
+interface SplitPayload {
+  data: ContentDocumentPayload<unknown>;
+  moduleId: string;
+}
+
+interface SplitSnapshot {
+  index: ContentCollectionSnapshot<Record<string, unknown>, unknown>;
+  payloads: readonly SplitPayload[];
+}
+
+/**
+ * Memoized per collection. `load()` runs once for the snapshot module and once
+ * per payload module, and every one of those calls needs the same split; the
+ * underlying `collection.snapshot()` re-reads and re-serializes the whole
+ * registry each time it is called.
+ *
+ * The entry is dropped whenever a source changes, alongside the module-graph
+ * invalidation in `registerInvalidation()`.
+ */
+const splitCache = new WeakMap<ViteContentCollection, Promise<SplitSnapshot>>();
+
+function splitSnapshot(collection: ViteContentCollection): Promise<SplitSnapshot> {
+  let pending = splitCache.get(collection);
+  if (!pending) {
+    pending = computeSplitSnapshot(collection).catch((error: unknown) => {
+      splitCache.delete(collection);
+      throw error;
+    });
+    splitCache.set(collection, pending);
+  }
+  return pending;
+}
+
+async function computeSplitSnapshot(collection: ViteContentCollection): Promise<SplitSnapshot> {
+  const snapshot = await collection.snapshot();
+  const payloads: SplitPayload[] = [];
+  const documents = snapshot.documents.map((document, index) => {
+    const { body, compiled, raw, ...rest } = document;
+    const data = {
+      compiled,
+      ...(body === undefined ? {} : { body }),
+      ...(raw === undefined ? {} : { raw }),
+    } as ContentDocumentPayload<unknown>;
+    // Path-compatible with the un-split snapshot so a diagnostic still points
+    // at `documents[3].compiled.html` rather than at a chunk the author never
+    // wrote.
+    assertJsonValue(data, `content snapshot.documents[${index}]`, new Set());
+    payloads.push({
+      data,
+      moduleId: payloadModuleId(snapshot.name, index, document.relativeSource),
+    });
+    return rest as ContentSnapshotDocument<Record<string, unknown>, unknown>;
+  });
+  return { index: { ...snapshot, documents }, payloads };
+}
+
+/**
+ * The trailing slug never identifies anything — `resolvePayloadId()` reads the
+ * leading index — but it is what the bundler names the emitted chunk after, so
+ * a build's output stays greppable instead of being 400 files called `0.js`.
+ */
+function payloadModuleId(collection: string, index: number, relativeSource: string): string {
+  const slug = relativeSource
+    .replace(/\.[^./]*$/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `${CONTENT_PAYLOAD_MODULE_PREFIX}${encodeURIComponent(collection)}/${index}${slug ? `-${slug}` : ""}`;
+}
+
+function resolvePayloadId(
+  collections: readonly ViteContentCollection[],
+  id: string,
+): { collection: ViteContentCollection; index: number } | undefined {
+  const specifier = id.slice(CONTENT_PAYLOAD_MODULE_PREFIX.length);
+  const separator = specifier.indexOf("/");
+  if (separator === -1) return undefined;
+  let name: string;
+  try {
+    name = decodeURIComponent(specifier.slice(0, separator));
+  } catch {
+    return undefined;
+  }
+  const collection = collections.find((candidate) => candidate.name === name);
+  if (!collection) return undefined;
+  const index = /^(\d+)(?:-|$)/.exec(specifier.slice(separator + 1))?.[1];
+  return index === undefined ? undefined : { collection, index: Number(index) };
+}
+
 function assertJsonValue(value: unknown, path: string, ancestors: Set<object>): void {
   if (
     value === null ||
@@ -346,6 +481,7 @@ function validateUnroutedDocumentPolicy(value: unknown): UnroutedDocumentPolicy 
 function registerInvalidation(
   server: ViteDevServer,
   collections: readonly ViteContentCollection[],
+  emittedPayloadModules: ReadonlyMap<ViteContentCollection, ReadonlySet<string>>,
 ): void {
   // Vite only watches its own project root. A collection rooted elsewhere — a
   // monorepo's shared docs directory, say — would never emit an event, leaving
@@ -356,14 +492,26 @@ function registerInvalidation(
     }
   }
 
+  const invalidateModuleById = (target: ViteDevServer, moduleId: string) => {
+    const module = target.moduleGraph.getModuleById(moduleId);
+    if (module) target.moduleGraph.invalidateModule(module);
+  };
+
   const invalidate = (file: string) => {
     for (const collection of collections) {
       if (!collection.ownsSource(file)) continue;
       collection.invalidate(file);
-      const module = server.moduleGraph.getModuleById(
+      splitCache.delete(collection);
+      invalidateModuleById(
+        server,
         `${RESOLVED_CONTENT_MODULE_PREFIX}${encodeURIComponent(collection.name)}`,
       );
-      if (module) server.moduleGraph.invalidateModule(module);
+      // Payload modules are separate graph nodes, so invalidating the snapshot
+      // alone would leave development serving the compiled output captured
+      // before the edit.
+      for (const moduleId of emittedPayloadModules.get(collection) ?? []) {
+        invalidateModuleById(server, moduleId);
+      }
     }
   };
   server.watcher.on("add", invalidate);

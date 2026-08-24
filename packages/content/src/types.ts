@@ -138,18 +138,49 @@ export type ContentSnapshotOptions = Partial<ContentSnapshotFields>;
 export type ContentSnapshotDocument<
   TFrontmatter extends Record<string, unknown> = Record<string, unknown>,
   TCompiled = string,
+> = Omit<ContentDocument<TFrontmatter, TCompiled>, "body" | "compiled" | "raw" | "source"> & {
+  /** Absent when the collection was defined with `snapshot: { body: false }`. */
+  body?: string;
+  /** Absent when the collection was defined with `snapshot: { raw: false }`. */
+  raw?: string;
+  /** Absent when `load` carries the representations instead. */
+  compiled?: TCompiled;
+  /**
+   * Loads the representations kept out of the snapshot index. The Vite plugin
+   * sets it so a collection's compiled output, bodies, and sources land in
+   * per-document chunks rather than in whichever chunk imports the snapshot.
+   */
+  load?: ContentDocumentPayloadLoader<TCompiled>;
+};
+
+/**
+ * The representations a snapshot document can defer. Everything else — ids,
+ * routes, locales, frontmatter — stays in the index so lookup never needs a
+ * chunk it has not loaded.
+ */
+export interface ContentDocumentPayload<TCompiled = string> {
+  compiled: TCompiled;
+  body?: string;
+  raw?: string;
+}
+
+export type ContentDocumentPayloadLoader<TCompiled = string> = () => Promise<
+  ContentDocumentPayload<TCompiled> | { default: ContentDocumentPayload<TCompiled> }
+>;
+
+/**
+ * A document rehydrated from a filesystem-free runtime snapshot. Deferred
+ * representations are already resolved: every accessor that hands one out is
+ * asynchronous, so a caller never observes a half-loaded document.
+ */
+export type ContentRuntimeDocument<
+  TFrontmatter extends Record<string, unknown> = Record<string, unknown>,
+  TCompiled = string,
 > = Omit<ContentDocument<TFrontmatter, TCompiled>, "body" | "raw" | "source"> & {
   /** Absent when the collection was defined with `snapshot: { body: false }`. */
   body?: string;
   /** Absent when the collection was defined with `snapshot: { raw: false }`. */
   raw?: string;
-};
-
-/** A document rehydrated from a filesystem-free runtime snapshot. */
-export type ContentRuntimeDocument<
-  TFrontmatter extends Record<string, unknown> = Record<string, unknown>,
-  TCompiled = string,
-> = ContentSnapshotDocument<TFrontmatter, TCompiled> & {
   /** Stable virtual identity replacing the authoring collection's absolute source path. */
   source: string;
 };

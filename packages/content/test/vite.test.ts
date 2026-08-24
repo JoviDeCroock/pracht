@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { Connect, ViteDevServer } from "vite";
+import type { Connect, Plugin, ViteDevServer } from "vite";
 import { build, createServer as createViteServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -26,12 +26,29 @@ function hookHandler<T extends (...args: any[]) => any>(hook: T | { handler: T }
   return typeof hook === "function" ? hook : hook.handler;
 }
 
-/** Read back the snapshot a generated collection module embeds. */
+/** Read back the snapshot index a generated collection module embeds. */
 function loadedSnapshot(result: unknown): Record<string, any> {
   const code =
     typeof result === "string" ? result : ((result as { code?: string } | null)?.code ?? "");
   const serialized = /JSON\.parse\((".*")\)/.exec(code)?.[1];
   if (!serialized) throw new Error("Expected a serialized snapshot");
+  return JSON.parse(JSON.parse(serialized));
+}
+
+/** Module specifiers of the per-document payload chunks a snapshot defers to. */
+function payloadModuleIds(result: unknown): string[] {
+  const code =
+    typeof result === "string" ? result : ((result as { code?: string } | null)?.code ?? "");
+  return [...code.matchAll(/\.load = \(\) => import\("([^"]+)"\)/g)].map((match) => match[1]);
+}
+
+/** Read back one deferred document payload. */
+async function loadedPayload(plugin: Plugin, moduleId: string): Promise<Record<string, any>> {
+  const result = await hookHandler(plugin.load).call({} as never, `\0${moduleId}`);
+  const code =
+    typeof result === "string" ? result : ((result as { code?: string } | null)?.code ?? "");
+  const serialized = /JSON\.parse\((".*")\)/.exec(code)?.[1];
+  if (!serialized) throw new Error("Expected a serialized payload");
   return JSON.parse(JSON.parse(serialized));
 }
 
@@ -154,7 +171,16 @@ describe("prachtContent", () => {
     const code = typeof result === "string" ? result : result?.code;
     expect(code).toContain('from "@pracht/content/runtime"');
     expect(code).toContain("const snapshot = JSON.parse(");
-    expect(code).toContain('\\"body\\":\\"Page\\"');
+    // Source representations move to a per-document chunk; the index keeps
+    // only what lookup needs.
+    expect(code).not.toContain('\\"body\\":\\"Page\\"');
+    const [payloadId] = payloadModuleIds(code);
+    expect(payloadId).toBe("virtual:pracht/content-payload/docs/0-page");
+    expect(await loadedPayload(plugin, payloadId)).toMatchObject({
+      body: "Page",
+      compiled: "Page",
+      raw: "Page",
+    });
     expect(code).not.toContain(temporaryDirectory);
     expect(code).not.toContain("node:fs");
   });
@@ -243,20 +269,24 @@ describe("prachtContent", () => {
     });
     const [plugin] = prachtContent({ collections: [collection] });
 
-    const snapshot = loadedSnapshot(
-      await hookHandler(plugin.load).call({} as never, "\0virtual:pracht/content/docs"),
+    const module = await hookHandler(plugin.load).call(
+      {} as never,
+      "\0virtual:pracht/content/docs",
     );
+    const snapshot = loadedSnapshot(module);
 
     expect(snapshot.fields).toEqual({ body: false, raw: false });
     expect(snapshot.documents).toEqual([
       {
-        compiled: "Body",
         frontmatter: { title: "Page" },
         id: "page",
         path: "/page",
         relativeSource: "page.md",
       },
     ]);
+    expect(await loadedPayload(plugin, payloadModuleIds(module)[0])).toEqual({
+      compiled: "Body",
+    });
   });
 
   it("keeps every source representation in a generated module by default", async () => {
@@ -265,12 +295,13 @@ describe("prachtContent", () => {
     const collection = defineCollection({ name: "docs", root: temporaryDirectory });
     const [plugin] = prachtContent({ collections: [collection] });
 
-    const snapshot = loadedSnapshot(
-      await hookHandler(plugin.load).call({} as never, "\0virtual:pracht/content/docs"),
+    const module = await hookHandler(plugin.load).call(
+      {} as never,
+      "\0virtual:pracht/content/docs",
     );
 
-    expect(snapshot.fields).toBeUndefined();
-    expect(snapshot.documents[0]).toMatchObject({
+    expect(loadedSnapshot(module).fields).toBeUndefined();
+    expect(await loadedPayload(plugin, payloadModuleIds(module)[0])).toMatchObject({
       body: "Body",
       raw: "---\ntitle: Page\n---\nBody",
     });
@@ -339,13 +370,12 @@ describe("prachtContent", () => {
     const configureServer = hookHandler(plugin.configureServer);
     const load = hookHandler(plugin.load);
     let change: ((file: string) => void) | undefined;
-    const runtimeModule = {};
-    const invalidateModule = vi.fn();
+    const invalidated: string[] = [];
     const add = vi.fn();
     const server = {
       moduleGraph: {
-        getModuleById: vi.fn(() => runtimeModule),
-        invalidateModule,
+        getModuleById: (id: string) => ({ id }),
+        invalidateModule: (module: { id: string }) => invalidated.push(module.id),
       },
       watcher: {
         add,
@@ -356,16 +386,68 @@ describe("prachtContent", () => {
     } as unknown as ViteDevServer;
     configureServer.call({} as never, server);
 
+    // Load once so the payload modules this collection defers to are known.
+    await load.call({} as never, "\0virtual:pracht/content/docs");
     await writeFile(source, "Second");
     change?.(source);
     const result = await load.call({} as never, "\0virtual:pracht/content/docs");
     const code = typeof result === "string" ? result : result?.code;
 
-    expect(code).toContain('\\"body\\":\\"Second\\"');
-    expect(invalidateModule).toHaveBeenCalledWith(runtimeModule);
+    expect(await loadedPayload(plugin, payloadModuleIds(code)[0])).toMatchObject({
+      body: "Second",
+    });
+    // Both graph nodes: leaving the payload behind would serve the compiled
+    // output captured before the edit.
+    expect(invalidated).toEqual([
+      "\0virtual:pracht/content/docs",
+      "\0virtual:pracht/content-payload/docs/0-page",
+    ]);
     // A root outside Vite's own project root emits no events until it is
     // watched explicitly, which would serve stale content for the session.
     expect(add).toHaveBeenCalledWith(temporaryDirectory);
+  });
+
+  it("keeps deferred document payloads out of the chunk that imports a snapshot", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const output = join(temporaryDirectory, "dist");
+    await writeFile(join(temporaryDirectory, "one.md"), "First document");
+    await writeFile(join(temporaryDirectory, "two.md"), "Second document");
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      plugins: prachtContent({ collections: [collection] }),
+      resolve: {
+        alias: {
+          "@pracht/content/runtime": fileURLToPath(new URL("../src/runtime.ts", import.meta.url)),
+        },
+      },
+      build: {
+        outDir: output,
+        ssr: true,
+        rollupOptions: {
+          input: "virtual:pracht/content/docs",
+          output: { codeSplitting: true },
+        },
+      },
+    });
+
+    const chunks = (await readdir(output, { recursive: true })).filter((file) =>
+      /\.m?js$/.test(String(file)),
+    );
+    const entryCode = await readFile(join(output, "docs.js"), "utf8");
+
+    // The index the entry pays for keeps everything lookup needs...
+    expect(entryCode).toContain("one.md");
+    expect(entryCode).toContain("two.md");
+    // ...and none of what it does not.
+    expect(entryCode).not.toContain("First document");
+    expect(entryCode).not.toContain("Second document");
+    expect(chunks.filter((file) => String(file) !== "docs.js")).toHaveLength(2);
+
+    const runtime = (await import(pathToFileURL(join(output, "docs.js")).href)).default;
+    expect(await runtime.getByRoute("/one")).toMatchObject({ compiled: "First document" });
   });
 
   it("emits deploy-safe headers for production artifacts in the asset namespace", async () => {
