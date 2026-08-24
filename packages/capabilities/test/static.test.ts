@@ -27,6 +27,7 @@ describe("middleware export syntax", () => {
     ["declare const handler: unknown; export { handler as middleware };", false],
     ['import type { Handler } from "./handler.ts"; export { Handler as middleware };', false],
     ['import { type Handler } from "./handler.ts"; export { Handler as middleware };', false],
+    ['export import type middleware = require("./handler.cjs");', false],
     ["const type = createMiddleware(); export { type as middleware };", true],
     ["interface Handler {} function Handler() {} export { Handler as middleware };", true],
     [

@@ -14,11 +14,14 @@ ejected manifests so route inspection and devtools report the same graph.
 
 Nested middleware files, `_middleware/` directories, unsupported extensions,
 and duplicate root files are rejected instead of being silently ignored.
+Empty `_middleware/` directories are rejected by build, doctor, and verify too,
+and generation refuses every existing middleware-shaped path before scaffolding.
 Build, doctor, and verify check the statically decidable contract: the module
 must explicitly export `middleware`, or may provide it through a value
 `export *`. Type-only local bindings re-exported under that name are rejected
 because they are erased before runtime. The runtime remains authoritative for
 whether the exported value is callable and fails closed when it is not.
+Type-only TypeScript import-equals declarations are treated as erased exports.
 
 The pages client boundary excludes underscore-reserved helper trees and erases
 the dedicated middleware module, keeping server-only middleware code out of

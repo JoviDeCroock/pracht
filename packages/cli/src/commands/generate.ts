@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, extname, resolve } from "node:path";
 
 import { defineCommand } from "citty";
 import { loadConfigFromFile } from "vite";
@@ -23,6 +23,8 @@ import {
 import {
   assertFileExists,
   displayPath,
+  listDirectoriesRecursively,
+  listFilesRecursively,
   readProjectConfig,
   resolveApiModulePath,
   resolvePagesRouteModulePath,
@@ -475,14 +477,20 @@ export async function generateMiddleware(
       );
     }
 
-    const existingMiddlewareFiles = [".ts", ".tsx", ".js", ".jsx"]
-      .map((extension) =>
-        resolveScopedFile(project.root, project.pagesDir, `_middleware${extension}`),
-      )
-      .filter((file) => existsSync(file));
-    if (existingMiddlewareFiles.length > 0) {
+    const pagesDir = resolveProjectPath(project.root, project.pagesDir);
+    const existingMiddlewarePaths = existsSync(pagesDir)
+      ? [
+          ...listDirectoriesRecursively(pagesDir).filter(
+            (directory) => basename(directory) === "_middleware",
+          ),
+          ...listFilesRecursively(pagesDir).filter(
+            (file) => basename(file, extname(file)) === "_middleware",
+          ),
+        ]
+      : [];
+    if (existingMiddlewarePaths.length > 0) {
       throw new Error(
-        `Refusing to create pages middleware because ${existingMiddlewareFiles
+        `Refusing to create pages middleware because ${existingMiddlewarePaths
           .map((file) => JSON.stringify(displayPath(project.root, file)))
           .join(
             ", ",

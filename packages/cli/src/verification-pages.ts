@@ -2,7 +2,7 @@ import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { readFileSync } from "node:fs";
 import { basename, extname, relative } from "node:path";
 
-import { hasPagesAppShell, listFilesRecursively } from "./project.js";
+import { hasPagesAppShell, listDirectoriesRecursively, listFilesRecursively } from "./project.js";
 import { isPageSource, normalizeRoutePath } from "./verification-helpers.js";
 
 export type PagesFile =
@@ -37,14 +37,23 @@ export function scanPagesDirectory(
   pagesDir: string,
   additionalExtensions: string[] = [],
 ): PagesFile[] {
-  return listFilesRecursively(pagesDir)
+  const middlewareDirectories: PagesFile[] = listDirectoriesRecursively(pagesDir)
+    .filter((directory) => basename(directory) === "_middleware")
+    .map((directory) => ({
+      file: directory,
+      kind: "middleware",
+      nested: relative(pagesDir, directory).replace(/\\/g, "/").includes("/"),
+      shape: "directory",
+    }));
+  const files = listFilesRecursively(pagesDir)
     .filter(
       (file) =>
-        isPageSource(file, additionalExtensions) ||
-        isInsideMiddlewareDirectory(pagesDir, file) ||
-        basename(file, extname(file)) === "_middleware",
+        !isInsideMiddlewareDirectory(pagesDir, file) &&
+        (isPageSource(file, additionalExtensions) ||
+          basename(file, extname(file)) === "_middleware"),
     )
     .map((file) => describePagesFile(pagesDir, file, additionalExtensions));
+  return [...middlewareDirectories, ...files];
 }
 
 export function describePagesFile(

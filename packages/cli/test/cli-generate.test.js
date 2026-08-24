@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -295,6 +295,45 @@ export default {
       "src/pages/_middleware.js",
       "export const middleware = async (_args, next) => next();",
     );
+
+    const result = spawnSync(
+      process.execPath,
+      [cliPath, "generate", "middleware", "--name", "_middleware"],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain("already exists");
+    expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+  });
+
+  it.each(["_middleware.md", "_middleware.vue", "admin/_middleware.ts"])(
+    "refuses to scaffold over middleware-shaped path %s",
+    (middlewarePath) => {
+      const appDir = createTempDir("pracht-cli-pages-middleware-shaped-");
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        `src/pages/${middlewarePath}`,
+        "export const middleware = async (_args, next) => next();",
+      );
+
+      const result = spawnSync(
+        process.execPath,
+        [cliPath, "generate", "middleware", "--name", "_middleware"],
+        { cwd: appDir, encoding: "utf-8" },
+      );
+
+      expect(result.status).not.toBe(0);
+      expect(`${result.stdout}${result.stderr}`).toContain("already exists");
+      expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
+    },
+  );
+
+  it("refuses to scaffold over an empty _middleware directory", () => {
+    const appDir = createTempDir("pracht-cli-pages-middleware-empty-dir-");
+    writePagesApp(appDir);
+    mkdirSync(join(appDir, "src/pages/_middleware"), { recursive: true });
 
     const result = spawnSync(
       process.execPath,

@@ -144,6 +144,16 @@ export function listFilesRecursively(dir: string): string[] {
   return files;
 }
 
+export function listDirectoriesRecursively(dir: string): string[] {
+  const directories: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const fullPath = resolve(dir, entry.name);
+    directories.push(fullPath, ...listDirectoriesRecursively(fullPath));
+  }
+  return directories;
+}
+
 export function hasPagesAppShell(filePath: string, additionalExtensions: string[] = []): boolean {
   const extension = basename(filePath).slice("_app".length);
   return (

@@ -1,3 +1,6 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -438,6 +441,23 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     expect(report.checks.some((check) => check.message.includes('route "/_middleware"'))).toBe(
       false,
     );
+  });
+
+  it.each(["doctor", "verify"])("fails %s for an empty _middleware directory", (command) => {
+    const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-empty-dir-`);
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    mkdirSync(join(appDir, "src/pages/_middleware"), { recursive: true });
+
+    const result = runCliStatus([command, "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some((check) =>
+        check.message.includes("`_middleware` directory is not supported"),
+      ),
+    ).toBe(true);
   });
 
   it.each([".md", ".mdx", ".tsrx", ".mts", ".mjs", ".cts", ".cjs", ".vue", ""])(

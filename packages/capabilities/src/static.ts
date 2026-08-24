@@ -118,6 +118,14 @@ const STATIC_TYPE_ONLY_DECLARATIONS = new Set([
   "TSTypeAliasDeclaration",
 ]);
 
+function isStaticTypeOnlyDeclaration(declaration: StaticAnalysisNode): boolean {
+  return (
+    declaration.declare === true ||
+    STATIC_TYPE_ONLY_DECLARATIONS.has(declaration.type) ||
+    (declaration.type === "TSImportEqualsDeclaration" && declaration.importKind === "type")
+  );
+}
+
 const STATIC_MODULE_SCOPE_BOUNDARIES = new Set([
   "ArrowFunctionExpression",
   "ClassDeclaration",
@@ -183,10 +191,7 @@ function collectStaticModuleBindings(root: StaticAnalysisNode): {
         : statement;
     if (!declaration) continue;
 
-    const target =
-      declaration.declare === true || STATIC_TYPE_ONLY_DECLARATIONS.has(declaration.type)
-        ? typeOnly
-        : runtime;
+    const target = isStaticTypeOnlyDeclaration(declaration) ? typeOnly : runtime;
     if (declaration.type === "VariableDeclaration") {
       const declarations = Array.isArray(declaration.declarations) ? declaration.declarations : [];
       for (const item of declarations) collectStaticBindingNames(staticNode(item)?.id, target);
@@ -227,7 +232,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
     if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
 
     const declaration = staticNode(statement.declaration);
-    if (declaration?.declare !== true) {
+    if (declaration && !isStaticTypeOnlyDeclaration(declaration)) {
       if (
         declaration?.type === "VariableDeclaration" &&
         Array.isArray(declaration.declarations) &&
@@ -235,12 +240,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       ) {
         return true;
       }
-      if (
-        declaration &&
-        declaration.type !== "TSTypeAliasDeclaration" &&
-        declaration.type !== "TSInterfaceDeclaration" &&
-        staticName(declaration.id) === "middleware"
-      ) {
+      if (staticName(declaration.id) === "middleware") {
         return true;
       }
     }

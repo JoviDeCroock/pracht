@@ -629,6 +629,17 @@ describe("generatePagesManifestSource", () => {
     );
   });
 
+  it("rejects an empty _middleware directory", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_middleware"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /`_middleware` directory is not supported/,
+    );
+  });
+
   it.each([".md", ".mdx", ".tsrx", ".mts", ".mjs", ".cts", ".cjs", ".vue", ""])(
     "rejects _middleware%s instead of silently ignoring it",
     (extension) => {

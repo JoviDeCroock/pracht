@@ -55,11 +55,13 @@ export function findPagesMiddlewareFile(
 ): string | null {
   const allFiles = scanAllFiles(pagesDir);
 
-  const inMiddlewareDirectory = allFiles.filter((file) =>
-    relative(pagesDir, file).replace(/\\/g, "/").split("/").slice(0, -1).includes("_middleware"),
+  const middlewareDirectories = scanAllDirectories(pagesDir).filter(
+    (directory) => basename(directory) === "_middleware",
   );
-  if (inMiddlewareDirectory.length > 0) {
-    const shown = inMiddlewareDirectory.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
+  if (middlewareDirectories.length > 0) {
+    const shown = middlewareDirectories.map((directory) =>
+      relative(pagesDir, directory).replace(/\\/g, "/"),
+    );
     throw new Error(
       `[pracht] A \`_middleware\` directory is not supported: ${shown.map((file) => JSON.stringify(file)).join(", ")}. ` +
         "Pages middleware is a single root-level `_middleware.ts` file in the pages directory " +
@@ -568,6 +570,23 @@ function scanAllFiles(dir: string): string[] {
     } else {
       results.push(abs);
     }
+  }
+  return results;
+}
+
+function scanAllDirectories(dir: string): string[] {
+  const results: string[] = [];
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return results;
+  }
+
+  for (const entry of entries) {
+    const abs = join(dir, entry);
+    if (!statSync(abs).isDirectory()) continue;
+    results.push(abs, ...scanAllDirectories(abs));
   }
   return results;
 }
