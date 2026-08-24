@@ -748,6 +748,20 @@ describe("generatePagesManifestSource", () => {
     );
   });
 
+  it("rejects a type-only local binding aliased as middleware", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "type Handler = () => void;\nexport { Handler as middleware };\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export `middleware`/,
+    );
+  });
+
   it("emits ejected refs relative to the requested output path", () => {
     const pagesDir = makeTempPagesDir();
     const outputDir = join(pagesDir, "generated");

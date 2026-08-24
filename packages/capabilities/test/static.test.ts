@@ -22,6 +22,17 @@ describe("middleware export syntax", () => {
     ['export * as middleware from "./handler.ts";', true],
     ['export type * from "./handler.ts";', false],
     ['export { type Handler as middleware } from "./handler.ts";', false],
+    ["type Handler = () => void; export { Handler as middleware };", false],
+    ["interface Handler {} export { Handler as middleware };", false],
+    ["declare const handler: unknown; export { handler as middleware };", false],
+    ['import type { Handler } from "./handler.ts"; export { Handler as middleware };', false],
+    ['import { type Handler } from "./handler.ts"; export { Handler as middleware };', false],
+    ["const type = createMiddleware(); export { type as middleware };", true],
+    ["interface Handler {} function Handler() {} export { Handler as middleware };", true],
+    [
+      "type Handler = () => void; { var Handler = createMiddleware(); } export { Handler as middleware };",
+      true,
+    ],
     ["export default createMiddleware();", false],
   ])("classifies %j as %s", (source, expected) => {
     expect(hasNamedMiddlewareExport(parseAst(source, { lang: "ts" }))).toBe(expected);

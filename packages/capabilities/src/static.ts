@@ -89,6 +89,118 @@ function bindsStaticName(value: unknown, name: string): boolean {
   return false;
 }
 
+function collectStaticBindingNames(value: unknown, names: Set<string>): void {
+  const node = staticNode(value);
+  if (!node) return;
+  if (node.type === "Identifier" && typeof node.name === "string") {
+    names.add(node.name);
+    return;
+  }
+  if (node.type === "RestElement" || node.type === "AssignmentPattern") {
+    collectStaticBindingNames(node.argument ?? node.left, names);
+    return;
+  }
+  if (node.type === "ArrayPattern" && Array.isArray(node.elements)) {
+    for (const element of node.elements) collectStaticBindingNames(element, names);
+    return;
+  }
+  if (node.type === "ObjectPattern" && Array.isArray(node.properties)) {
+    for (const property of node.properties) {
+      const item = staticNode(property);
+      collectStaticBindingNames(item?.type === "RestElement" ? item.argument : item?.value, names);
+    }
+  }
+}
+
+const STATIC_TYPE_ONLY_DECLARATIONS = new Set([
+  "TSDeclareFunction",
+  "TSInterfaceDeclaration",
+  "TSTypeAliasDeclaration",
+]);
+
+const STATIC_MODULE_SCOPE_BOUNDARIES = new Set([
+  "ArrowFunctionExpression",
+  "ClassDeclaration",
+  "ClassExpression",
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "StaticBlock",
+  "TSModuleDeclaration",
+]);
+
+function collectNestedModuleVarBindings(value: unknown, names: Set<string>): void {
+  const node = staticNode(value);
+  if (!node || STATIC_MODULE_SCOPE_BOUNDARIES.has(node.type)) return;
+
+  if (node.type === "VariableDeclaration" && node.kind === "var" && node.declare !== true) {
+    const declarations = Array.isArray(node.declarations) ? node.declarations : [];
+    for (const declaration of declarations) {
+      collectStaticBindingNames(staticNode(declaration)?.id, names);
+    }
+    return;
+  }
+
+  for (const [key, child] of Object.entries(node)) {
+    if (key === "type" || key === "start" || key === "end") continue;
+    if (Array.isArray(child)) {
+      for (const item of child) collectNestedModuleVarBindings(item, names);
+    } else {
+      collectNestedModuleVarBindings(child, names);
+    }
+  }
+}
+
+function collectStaticModuleBindings(root: StaticAnalysisNode): {
+  runtime: Set<string>;
+  typeOnly: Set<string>;
+} {
+  const runtime = new Set<string>();
+  const typeOnly = new Set<string>();
+  const statements = Array.isArray(root.body) ? root.body : [];
+
+  for (const value of statements) {
+    const statement = staticNode(value);
+    if (!statement) continue;
+
+    if (statement.type === "ImportDeclaration") {
+      const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : [];
+      for (const specifierValue of specifiers) {
+        const specifier = staticNode(specifierValue);
+        const localName = staticName(specifier?.local);
+        if (localName === null) continue;
+        if (statement.importKind === "type" || specifier?.importKind === "type") {
+          typeOnly.add(localName);
+        } else {
+          runtime.add(localName);
+        }
+      }
+      continue;
+    }
+
+    const declaration =
+      statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration"
+        ? staticNode(statement.declaration)
+        : statement;
+    if (!declaration) continue;
+
+    const target =
+      declaration.declare === true || STATIC_TYPE_ONLY_DECLARATIONS.has(declaration.type)
+        ? typeOnly
+        : runtime;
+    if (declaration.type === "VariableDeclaration") {
+      const declarations = Array.isArray(declaration.declarations) ? declaration.declarations : [];
+      for (const item of declarations) collectStaticBindingNames(staticNode(item)?.id, target);
+    } else {
+      const name = staticName(declaration.id);
+      if (name !== null) target.add(name);
+    }
+
+    collectNestedModuleVarBindings(statement, runtime);
+  }
+
+  return { runtime, typeOnly };
+}
+
 /**
  * Whether a parsed JavaScript/TypeScript module explicitly exports a binding
  * named `middleware`. This intentionally answers only the static ESM question:
@@ -101,6 +213,7 @@ function bindsStaticName(value: unknown, name: string): boolean {
 export function hasNamedMiddlewareExport(program: unknown): boolean {
   const root = staticNode(program);
   if (!root || !Array.isArray(root.body)) return false;
+  const bindings = collectStaticModuleBindings(root);
 
   for (const value of root.body) {
     const statement = staticNode(value);
@@ -136,10 +249,15 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       Array.isArray(statement.specifiers) &&
       statement.specifiers.some((value) => {
         const specifier = staticNode(value);
+        const localName = staticName(specifier?.local);
         return (
           specifier?.type === "ExportSpecifier" &&
           specifier.exportKind !== "type" &&
-          staticName(specifier.exported) === "middleware"
+          staticName(specifier.exported) === "middleware" &&
+          (statement.source ||
+            localName === null ||
+            !bindings.typeOnly.has(localName) ||
+            bindings.runtime.has(localName))
         );
       })
     ) {

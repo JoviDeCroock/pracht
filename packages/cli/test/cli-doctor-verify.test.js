@@ -293,6 +293,32 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     },
   );
 
+  it.each(["doctor", "verify"])(
+    "fails %s when pages middleware aliases a type-only binding",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-type-only-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_middleware.ts",
+        "type Handler = () => void;\nexport { Handler as middleware };",
+      );
+
+      const result = runCliStatus([command, "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) => check.message.includes("does not export `middleware`")),
+      ).toBe(true);
+    },
+  );
+
   it("leaves pages middleware callability to runtime", () => {
     const appDir = createTempDir("pracht-cli-verify-pages-middleware-runtime-value-");
     writePagesApp(appDir);
