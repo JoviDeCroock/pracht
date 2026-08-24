@@ -9,6 +9,7 @@ import { normalizeSnapshotFields } from "./snapshot.ts";
 import type {
   ContentCollectionSnapshot,
   ContentDocumentPayload,
+  ContentDocumentPayloadLoader,
   ContentLocaleOptions,
   ContentLookupOptions,
   ContentResolution,
@@ -32,11 +33,18 @@ export function defineSnapshotCollection<
     throw new TypeError("defineSnapshotCollection() expects a content collection snapshot.");
   }
 
-  type Entry = ContentSnapshotDocument<TFrontmatter, TCompiled> & { source: string };
+  // Generated modules attach loaders after parsing their JSON index. Keep that
+  // non-serializable implementation detail out of the exported authoring
+  // snapshot type, whose documents always carry `compiled` directly.
+  type SnapshotEntry = Omit<ContentSnapshotDocument<TFrontmatter, TCompiled>, "compiled"> & {
+    compiled?: TCompiled;
+    load?: ContentDocumentPayloadLoader<TCompiled>;
+  };
+  type Entry = SnapshotEntry & { source: string };
   type Document = ContentRuntimeDocument<TFrontmatter, TCompiled>;
 
   const entries: readonly Entry[] = Object.freeze(
-    snapshot.documents.map((document) => {
+    (snapshot.documents as readonly SnapshotEntry[]).map((document) => {
       if (document.compiled === undefined && typeof document.load !== "function") {
         throw new TypeError(
           `defineSnapshotCollection() received a document without compiled output or a loader: ${JSON.stringify(document.relativeSource)}.`,

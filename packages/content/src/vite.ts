@@ -74,10 +74,18 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
   const collections = validateCollections(options);
   const unroutedDocuments = validateUnroutedDocumentPolicy(options.unroutedDocuments);
   const emittedPayloadModules = new Map<ViteContentCollection, ReadonlySet<string>>();
+  const splitCache = new WeakMap<ViteContentCollection, Promise<SplitSnapshot>>();
 
   const transformPlugin: Plugin = {
     name: "pracht:content",
     enforce: "pre",
+
+    buildStart() {
+      // A plugin object can be reused across programmatic Vite builds. Keep the
+      // split stable within one build, but never carry source bytes into the
+      // next build invocation.
+      for (const collection of collections) splitCache.delete(collection);
+    },
 
     resolveId(id) {
       if (id.startsWith(CONTENT_PAYLOAD_MODULE_PREFIX)) {
@@ -100,10 +108,19 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     },
 
     async load(id, loadOptions) {
+      const consumer = this.environment?.config?.consumer;
+      const importedByClient = consumer === "client" || (!consumer && loadOptions?.ssr === false);
       if (id.startsWith(RESOLVED_CONTENT_PAYLOAD_MODULE_PREFIX)) {
+        if (importedByClient) {
+          throw new Error(
+            `[pracht:content] ${JSON.stringify(id.slice(1))} was imported by client code. ` +
+              "Content payload modules are server-only and may contain private source, frontmatter, and compiled data. " +
+              "Read the collection inside loaders, middleware, API routes, or server capabilities instead.",
+          );
+        }
         const target = resolvePayloadId(collections, id.slice(1));
         if (!target) return null;
-        const { payloads } = await splitSnapshot(target.collection);
+        const { payloads } = await splitSnapshot(target.collection, splitCache);
         const payload = payloads[target.index];
         if (!payload) return null;
         // Already validated as JSON while splitting, so a malformed document
@@ -115,15 +132,14 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
       const name = decodeURIComponent(id.slice(RESOLVED_CONTENT_MODULE_PREFIX.length));
       const collection = collections.find((candidate) => candidate.name === name);
       if (!collection) return null;
-      const consumer = this.environment?.config?.consumer;
-      if (consumer === "client" || (!consumer && loadOptions?.ssr === false)) {
+      if (importedByClient) {
         throw new Error(
           `[pracht:content] ${JSON.stringify(`virtual:pracht/content/${name}`)} was imported by client code. ` +
             "Content collection snapshots are server-only and may contain private source, frontmatter, and compiled data. " +
             "Read the collection inside loaders, middleware, API routes, or server capabilities instead.",
         );
       }
-      const { index, payloads } = await splitSnapshot(collection);
+      const { index, payloads } = await splitSnapshot(collection, splitCache);
       const lines = [
         `import { defineSnapshotCollection } from "@pracht/content/runtime";`,
         `const snapshot = JSON.parse(${JSON.stringify(serializeSnapshot(index))});`,
@@ -187,7 +203,7 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     },
 
     configureServer(server) {
-      registerInvalidation(server, collections, emittedPayloadModules);
+      registerInvalidation(server, collections, emittedPayloadModules, splitCache);
     },
   };
 
@@ -300,9 +316,7 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
   return [transformPlugin, artifactPlugin];
 }
 
-function serializeSnapshot(
-  snapshot: ContentCollectionSnapshot<Record<string, unknown>, unknown>,
-): string {
+function serializeSnapshot(snapshot: ContentCollectionSnapshotIndex): string {
   assertJsonValue(snapshot, "content snapshot", new Set());
   return JSON.stringify(snapshot);
 }
@@ -313,9 +327,21 @@ interface SplitPayload {
 }
 
 interface SplitSnapshot {
-  index: ContentCollectionSnapshot<Record<string, unknown>, unknown>;
+  index: ContentCollectionSnapshotIndex;
   payloads: readonly SplitPayload[];
 }
+
+type ContentSnapshotIndexDocument = Omit<
+  ContentSnapshotDocument<Record<string, unknown>, unknown>,
+  "compiled"
+>;
+
+type ContentCollectionSnapshotIndex = Omit<
+  ContentCollectionSnapshot<Record<string, unknown>, unknown>,
+  "documents"
+> & {
+  documents: readonly ContentSnapshotIndexDocument[];
+};
 
 /**
  * Memoized per collection. `load()` runs once for the snapshot module and once
@@ -326,16 +352,17 @@ interface SplitSnapshot {
  * The entry is dropped whenever a source changes, alongside the module-graph
  * invalidation in `registerInvalidation()`.
  */
-const splitCache = new WeakMap<ViteContentCollection, Promise<SplitSnapshot>>();
-
-function splitSnapshot(collection: ViteContentCollection): Promise<SplitSnapshot> {
-  let pending = splitCache.get(collection);
+function splitSnapshot(
+  collection: ViteContentCollection,
+  cache: WeakMap<ViteContentCollection, Promise<SplitSnapshot>>,
+): Promise<SplitSnapshot> {
+  let pending = cache.get(collection);
   if (!pending) {
     pending = computeSplitSnapshot(collection).catch((error: unknown) => {
-      splitCache.delete(collection);
+      cache.delete(collection);
       throw error;
     });
-    splitCache.set(collection, pending);
+    cache.set(collection, pending);
   }
   return pending;
 }
@@ -358,7 +385,7 @@ async function computeSplitSnapshot(collection: ViteContentCollection): Promise<
       data,
       moduleId: payloadModuleId(snapshot.name, index, document.relativeSource),
     });
-    return rest as ContentSnapshotDocument<Record<string, unknown>, unknown>;
+    return rest as ContentSnapshotIndexDocument;
   });
   return { index: { ...snapshot, documents }, payloads };
 }
@@ -482,6 +509,7 @@ function registerInvalidation(
   server: ViteDevServer,
   collections: readonly ViteContentCollection[],
   emittedPayloadModules: ReadonlyMap<ViteContentCollection, ReadonlySet<string>>,
+  splitCache: WeakMap<ViteContentCollection, Promise<SplitSnapshot>>,
 ): void {
   // Vite only watches its own project root. A collection rooted elsewhere — a
   // monorepo's shared docs directory, say — would never emit an event, leaving

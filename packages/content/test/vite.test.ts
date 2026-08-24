@@ -203,6 +203,24 @@ describe("prachtContent", () => {
     ).rejects.toThrow(/collection snapshots are server-only.*private source/i);
   });
 
+  it("rejects deferred payload modules imported directly by client code", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-client-payload-"));
+    await writeFile(join(temporaryDirectory, "private.md"), "Private source");
+    const collection = defineCollection({ name: "private", root: temporaryDirectory });
+
+    await expect(
+      build({
+        configFile: false,
+        logLevel: "silent",
+        plugins: prachtContent({ collections: [collection] }),
+        build: {
+          write: false,
+          rollupOptions: { input: "virtual:pracht/content-payload/private/0-private" },
+        },
+      }),
+    ).rejects.toThrow(/content payload modules are server-only.*private source/i);
+  });
+
   it("keeps request-time helpers on the filesystem-free runtime entry", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-runtime-"));
     const input = join(temporaryDirectory, "entry.ts");
@@ -405,6 +423,29 @@ describe("prachtContent", () => {
     // A root outside Vite's own project root emits no events until it is
     // watched explicitly, which would serve stale content for the session.
     expect(add).toHaveBeenCalledWith(temporaryDirectory);
+  });
+
+  it("does not reuse split payloads across build invocations", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const source = join(temporaryDirectory, "page.md");
+    await writeFile(source, "First");
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+    const [plugin] = prachtContent({ collections: [collection] });
+    const buildStart = hookHandler(plugin.buildStart!);
+    const load = hookHandler(plugin.load);
+
+    await buildStart.call({} as never, {} as never);
+    const firstModule = await load.call({} as never, "\0virtual:pracht/content/docs");
+    expect(await loadedPayload(plugin, payloadModuleIds(firstModule)[0])).toMatchObject({
+      body: "First",
+    });
+
+    await writeFile(source, "Second build");
+    await buildStart.call({} as never, {} as never);
+    const secondModule = await load.call({} as never, "\0virtual:pracht/content/docs");
+    expect(await loadedPayload(plugin, payloadModuleIds(secondModule)[0])).toMatchObject({
+      body: "Second build",
+    });
   });
 
   it("keeps deferred document payloads out of the chunk that imports a snapshot", async () => {

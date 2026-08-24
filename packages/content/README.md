@@ -200,7 +200,7 @@ than the filesystem-backed authoring collection:
 import docs from "virtual:pracht/content/docs";
 ```
 
-The suffix is the collection `name`. This module embeds the documents and
+The suffix is the collection `name`. This module embeds the document and
 locale/fallback indexes into the server bundle, so it works in Cloudflare,
 Vercel, and dist-only Node deployments without source files or `node:fs`.
 Collection names are matched literally, including names containing `%`; an
@@ -212,9 +212,16 @@ instead of publishing the collection's source, frontmatter, and compiled data
 to browser JavaScript. Keep it inside loaders, middleware, API routes, and
 server capabilities.
 
-A snapshot carries `raw` and `body` alongside `compiled`, roughly two to three
-times the content size. An application that neither negotiates Markdown nor
-searches bodies can drop either from the generated module:
+The snapshot module keeps only lookup metadata. Each document's `raw`, `body`,
+and `compiled` representations live in a deferred per-document chunk that is
+loaded when an asynchronous collection accessor resolves that document.
+`iterate()` loads one document at a time, while `all()` loads the collection.
+This keeps the first request to any content-backed route from parsing every
+document in a shared server chunk.
+
+Those payload chunks still carry roughly two to three times the source content.
+An application that neither negotiates Markdown nor searches bodies can drop
+either representation entirely:
 
 ```ts
 defineCollection({

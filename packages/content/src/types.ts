@@ -138,19 +138,11 @@ export type ContentSnapshotOptions = Partial<ContentSnapshotFields>;
 export type ContentSnapshotDocument<
   TFrontmatter extends Record<string, unknown> = Record<string, unknown>,
   TCompiled = string,
-> = Omit<ContentDocument<TFrontmatter, TCompiled>, "body" | "compiled" | "raw" | "source"> & {
+> = Omit<ContentDocument<TFrontmatter, TCompiled>, "body" | "raw" | "source"> & {
   /** Absent when the collection was defined with `snapshot: { body: false }`. */
   body?: string;
   /** Absent when the collection was defined with `snapshot: { raw: false }`. */
   raw?: string;
-  /** Absent when `load` carries the representations instead. */
-  compiled?: TCompiled;
-  /**
-   * Loads the representations kept out of the snapshot index. The Vite plugin
-   * sets it so a collection's compiled output, bodies, and sources land in
-   * per-document chunks rather than in whichever chunk imports the snapshot.
-   */
-  load?: ContentDocumentPayloadLoader<TCompiled>;
 };
 
 /**
