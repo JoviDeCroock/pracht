@@ -602,6 +602,21 @@ describe("collection integration helpers", () => {
     expect(full).toContain("# Use [brackets] safely\n\n> Line one - injected list");
   });
 
+  it("preserves parentheses in llms.txt link destinations", async () => {
+    const root = await fixture({ "guide.md": "---\ntitle: Guide\n---\nBody" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      route: () => "/docs/guide)part",
+      artifacts: [llmsTxtArtifacts({ title: "Docs", origin: "https://example.com" })],
+    });
+
+    const artifacts = await collection.emitArtifacts();
+    const summary = String(artifacts.find((artifact) => artifact.path === "/llms.txt")?.source);
+
+    expect(summary).toContain("- [Guide](https://example.com/docs/guide\\)part)");
+  });
+
   it("indexes every translation under a locale-neutral llms.txt section prefix", async () => {
     const root = await fixture({
       "en/guide.md": "---\ntitle: Guide\n---\nEnglish body",

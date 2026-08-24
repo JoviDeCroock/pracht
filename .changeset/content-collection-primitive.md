@@ -25,8 +25,9 @@ Curated `llms.txt`/`llms-full.txt`, raw-source assets, and app-owned
 page/basic-search capability fields are opt-in helpers rather than core
 framework policy. String `llms.txt` section matches use locale-neutral routes so
 localized documents are not silently omitted, while match callbacks can still
-select one locale deliberately. Artifact helper options are validated where
-they are configured, and generator failures identify their collection and
+select one locale deliberately. Generated Markdown link destinations escape
+parentheses and backslashes so valid routes remain intact. Artifact helper
+options are validated where they are configured, and generator failures identify their collection and
 `artifacts[n]` position. The docs application now proves the integration by
 compiling its Markdown routes and generating both LLM artifacts from the
 collection; the old second filesystem/manifest reader has been removed.

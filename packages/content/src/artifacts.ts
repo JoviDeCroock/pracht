@@ -110,7 +110,7 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
         const description = descriptionValue ? singleLineText(descriptionValue) : undefined;
         const url = joinOrigin(options.origin, document.path);
         summary.push(
-          `- [${escapeMarkdownLinkLabel(title)}](${url})${description ? `: ${description}` : ""}`,
+          `- [${escapeMarkdownLinkLabel(title)}](${escapeMarkdownLinkDestination(url)})${description ? `: ${description}` : ""}`,
         );
 
         if (!emitted.has(`${document.locale ?? ""}\0${document.id}`)) {
@@ -191,6 +191,10 @@ function singleLineText(value: string): string {
 
 function escapeMarkdownLinkLabel(value: string): string {
   return value.replace(/([\\[\]])/g, "\\$1");
+}
+
+function escapeMarkdownLinkDestination(value: string): string {
+  return value.replace(/([\\()])/g, "\\$1");
 }
 
 function joinOrigin(origin: string | undefined, path: string): string {

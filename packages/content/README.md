@@ -267,7 +267,8 @@ and a full-source companion. It is separate from Pracht's core, app-graph
 `llmsTxt` option.
 Frontmatter titles are escaped when used as Markdown link labels, and YAML line
 breaks in titles or descriptions are folded so each document remains one
-summary entry.
+summary entry. Link destinations escape parentheses and backslashes so valid
+route characters cannot terminate the generated URL early.
 
 `@pracht/content/capabilities` exports `createContentPageCapability()` and
 `createContentSearchCapability()`. They return the `input`, `output`, and `run`

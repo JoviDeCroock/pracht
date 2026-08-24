@@ -221,7 +221,8 @@ neither.
 (`/fr/docs/guide`), so the natural `match: "/docs"` would otherwise index only
 the default locale while `rawContentArtifacts()` published every translation —
 one registry, two artifacts, silently different coverage. Pass a `match`
-function to index a single locale deliberately.
+function to index a single locale deliberately. Link destinations escape
+parentheses and backslashes so every valid route remains one exact Markdown URL.
 
 ## Route reconciliation
 
