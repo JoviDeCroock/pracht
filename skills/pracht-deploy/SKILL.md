@@ -133,7 +133,7 @@ pracht build
 npx wrangler deploy
 ```
 
-To smoke-test the built worker locally first, run `pracht preview` — it builds and then delegates to `wrangler dev`, which serves the wrangler config's `main` entry, `dist/server/worker.js`.
+To smoke-test the built worker locally first, run `pracht preview` — it builds and then delegates to `wrangler dev`, which serves the wrangler config's `main` entry, `dist/server/worker.js`. Keep `no_bundle: true` and the JavaScript `ESModule` rule: Pracht's Vite output is already bundled and can contain lazy server chunks that Wrangler must upload separately.
 
 Wrangler owns the Worker's binding environment. Put local-only secrets such as
 `PRACHT_CONFIRMATION_SECRET` and `PRACHT_REVALIDATE_TOKEN` in a gitignored
@@ -151,8 +151,10 @@ pracht build
 npx wrangler dev --config wrangler.local.jsonc --port 3000
 ```
 
-The local config must keep `main: "dist/server/worker.js"` and omit the
-production route. `pracht preview` does not forward Wrangler's `--config` flag.
+The local config must keep `main: "dist/server/worker.js"`, keep
+`no_bundle: true`, include the JavaScript `ESModule` rule, and omit the
+production route. `pracht preview` does not forward Wrangler's `--config`
+flag.
 
 ### Wrangler Configuration
 
@@ -161,6 +163,8 @@ production route. `pracht preview` does not forward Wrangler's `--config` flag.
 {
   "name": "my-pracht-app",
   "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "compatibility_date": "2026-04-06",
   "assets": {
     "binding": "ASSETS",
@@ -170,7 +174,7 @@ production route. `pracht preview` does not forward Wrangler's `--config` flag.
 }
 ```
 
-`"binding": "ASSETS"` and `"run_worker_first": true` are required. Without the binding, the worker's `env.ASSETS` resolves to nothing and the runtime silently falls back to `null` — headers and ISG manifests load empty, so SSG serving, ISG revalidation, and per-route headers all silently no-op. The canonical config lives at `examples/cloudflare/wrangler.jsonc`. If you rename the binding with `assetsBinding` (below), the wrangler `binding` value must match.
+`"no_bundle": true`, the JavaScript `ESModule` rule, `"binding": "ASSETS"`, and `"run_worker_first": true` are required. Without the first two settings, Wrangler either re-bundles Pracht's Vite output and folds lazy server chunks into the entry or omits those chunks from the upload. Without the binding, the worker's `env.ASSETS` resolves to nothing and the runtime silently falls back to `null` — headers and ISG manifests load empty, so SSG serving, ISG revalidation, and per-route headers all silently no-op. The canonical config lives at `examples/cloudflare/wrangler.jsonc`. If you rename the binding with `assetsBinding` (below), the wrangler `binding` value must match.
 
 ### Bindings (KV, D1, R2)
 

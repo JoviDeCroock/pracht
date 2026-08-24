@@ -448,7 +448,7 @@ describe("prachtContent", () => {
     });
   });
 
-  it("keeps deferred document payloads out of the chunk that imports a snapshot", async () => {
+  it("keeps deferred document payloads out of a webworker server entry", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     const output = join(temporaryDirectory, "dist");
     await writeFile(join(temporaryDirectory, "one.md"), "First document");
@@ -464,13 +464,11 @@ describe("prachtContent", () => {
           "@pracht/content/runtime": fileURLToPath(new URL("../src/runtime.ts", import.meta.url)),
         },
       },
+      ssr: { noExternal: true, target: "webworker" },
       build: {
         outDir: output,
         ssr: true,
-        rollupOptions: {
-          input: "virtual:pracht/content/docs",
-          output: { codeSplitting: true },
-        },
+        rollupOptions: { input: "virtual:pracht/content/docs" },
       },
     });
 

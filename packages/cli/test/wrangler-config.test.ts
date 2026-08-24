@@ -8,6 +8,7 @@ import {
   findWranglerConfig,
   readWranglerAssetsHtmlHandling,
   readWranglerMainEntries,
+  readWranglerBundleSettings,
   WRANGLER_CONFIG_FILES,
 } from "../src/wrangler-config.ts";
 
@@ -235,5 +236,33 @@ describe("readWranglerAssetsHtmlHandling", () => {
         writeConfig("wrangler.jsonc", `{ "assets": { "html_handling": 3 } }`),
       ),
     ).toEqual({ htmlHandling: undefined });
+  });
+});
+
+describe("readWranglerBundleSettings", () => {
+  it("reads JSONC and TOML settings", () => {
+    expect(
+      readWranglerBundleSettings(
+        writeConfig(
+          "wrangler.jsonc",
+          `{ "no_bundle": true, "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }] }`,
+        ),
+      ),
+    ).toEqual({ noBundle: true, hasJavaScriptModuleRule: true });
+    expect(
+      readWranglerBundleSettings(
+        writeConfig(
+          "wrangler.toml",
+          `no_bundle = false # let wrangler bundle\n[[rules]]\ntype = "ESModule"\nglobs = ["**/*.js", "**/*.mjs"]\n`,
+        ),
+      ),
+    ).toEqual({ noBundle: false, hasJavaScriptModuleRule: true });
+  });
+
+  it("distinguishes an omitted setting from an unreadable config", () => {
+    expect(
+      readWranglerBundleSettings(writeConfig("wrangler.jsonc", `{ "main": "worker.js" }`)),
+    ).toEqual({ noBundle: undefined, hasJavaScriptModuleRule: false });
+    expect(readWranglerBundleSettings(writeConfig("wrangler.jsonc", `{ nope`))).toBeNull();
   });
 });

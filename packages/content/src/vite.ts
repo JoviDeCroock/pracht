@@ -80,6 +80,28 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
     name: "pracht:content",
     enforce: "pre",
 
+    configEnvironment(_name, config, environment) {
+      const serverBuild =
+        config.consumer === "server" ||
+        config.build?.ssr === true ||
+        environment.isSsrTargetWebworker === true;
+      if (!serverBuild) return;
+
+      // Rolldown defaults a single-entry server build to one file, including
+      // webworker targets. Preserve dynamic imports so document payloads stay
+      // outside the shared snapshot chunk on every server adapter.
+      const output = config.build?.rollupOptions?.output;
+      return {
+        build: {
+          rollupOptions: {
+            output: Array.isArray(output)
+              ? output.map((candidate) => ({ ...candidate, codeSplitting: true }))
+              : { ...output, codeSplitting: true },
+          },
+        },
+      };
+    },
+
     buildStart() {
       // A plugin object can be reused across programmatic Vite builds. Keep the
       // split stable within one build, but never carry source bytes into the

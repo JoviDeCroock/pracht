@@ -1,5 +1,7 @@
 ---
 "@pracht/content": minor
+"@pracht/cli": patch
+"create-pracht": patch
 ---
 
 Generated collection snapshots now defer each document's `compiled`, `body`,
@@ -23,3 +25,8 @@ at a time; `all()` loads the collection.
 Malformed documents are still rejected while the snapshot module is generated,
 with the same `documents[n].compiled…` diagnostic path, rather than when the
 page that happens to use them is first rendered.
+
+Server builds now preserve dynamic imports even for webworker targets. New
+Cloudflare projects deploy Pracht's pre-bundled output with `no_bundle: true`
+and a JavaScript `ESModule` rule, and `pracht verify` warns existing Wrangler
+configs that would inline or omit the deferred chunks.

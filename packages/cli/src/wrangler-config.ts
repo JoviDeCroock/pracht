@@ -48,6 +48,99 @@ export interface WranglerAssetsHtmlHandling {
   htmlHandling: string | undefined;
 }
 
+export interface WranglerBundleSettings {
+  /** `undefined` when Wrangler's default bundling remains active. */
+  noBundle: boolean | undefined;
+  /** Whether a module rule preserves Vite's emitted JavaScript chunks as ESM. */
+  hasJavaScriptModuleRule: boolean;
+}
+
+/**
+ * The top-level settings that preserve Vite's server chunks, or `null` when
+ * the file cannot be parsed conservatively. `no_bundle` prevents Wrangler
+ * from folding the chunks into its entry, while the ESModule rule makes
+ * Wrangler upload the `.js` files next to that entry.
+ */
+export function readWranglerBundleSettings(configFile: string): WranglerBundleSettings | null {
+  let source: string;
+  try {
+    source = readFileSync(configFile, "utf-8");
+  } catch {
+    return null;
+  }
+
+  if (configFile.endsWith(".toml")) {
+    let noBundle: boolean | undefined;
+    let table: string | null = null;
+    let ruleType: string | undefined;
+    let ruleGlobs: string[] = [];
+    let hasJavaScriptModuleRule = false;
+    const finishRule = () => {
+      if (ruleType === "ESModule" && ruleGlobs.includes("**/*.js")) {
+        hasJavaScriptModuleRule = true;
+      }
+      ruleType = undefined;
+      ruleGlobs = [];
+    };
+    for (const line of source.split(/\r?\n/)) {
+      const tableMatch = TOML_TABLE_RE.exec(line);
+      if (tableMatch) {
+        finishRule();
+        table = tableMatch[1]!;
+        continue;
+      }
+      if (table === null) {
+        const match = /^\s*no_bundle\s*=\s*(true|false)\s*(?:#.*)?$/.exec(line);
+        if (match) noBundle = match[1] === "true";
+        continue;
+      }
+      if (table !== "rules") continue;
+      const typeMatch = new RegExp(String.raw`^\s*type\s*=\s*${TOML_VALUE}\s*(?:#.*)?$`).exec(line);
+      if (typeMatch) {
+        ruleType = typeMatch[1] ?? typeMatch[2]!;
+        continue;
+      }
+      const globsMatch = /^\s*globs\s*=\s*\[(.*)\]\s*(?:#.*)?$/.exec(line);
+      if (globsMatch) ruleGlobs = readTomlStringArray(globsMatch[1]!);
+    }
+    finishRule();
+    return { noBundle, hasJavaScriptModuleRule };
+  }
+
+  let config: unknown;
+  try {
+    config = JSON.parse(stripJsonComments(source).replace(/,(\s*[}\]])/g, "$1"));
+  } catch {
+    return null;
+  }
+  if (!config || typeof config !== "object") return null;
+
+  const value = (config as Record<string, unknown>).no_bundle;
+  const rules = (config as Record<string, unknown>).rules;
+  const hasJavaScriptModuleRule =
+    Array.isArray(rules) &&
+    rules.some((rule) => {
+      if (!rule || typeof rule !== "object") return false;
+      const candidate = rule as Record<string, unknown>;
+      return (
+        candidate.type === "ESModule" &&
+        Array.isArray(candidate.globs) &&
+        candidate.globs.includes("**/*.js")
+      );
+    });
+  return {
+    noBundle: typeof value === "boolean" ? value : undefined,
+    hasJavaScriptModuleRule,
+  };
+}
+
+function readTomlStringArray(source: string): string[] {
+  const values: string[] = [];
+  const valuePattern = /"([^"]*)"|'([^']*)'/g;
+  for (const match of source.matchAll(valuePattern)) values.push(match[1] ?? match[2]!);
+  return values;
+}
+
 /**
  * The top-level `assets.html_handling` value, or `null` when it cannot be
  * proven — an unreadable file, a parse failure, a TOML config (not parsed
@@ -167,9 +260,10 @@ function stripJsonComments(source: string): string {
   return out;
 }
 
-// Enough TOML for the one key this reads. Deliberately conservative: a shape
-// this does not recognize yields no entry, and callers must treat "no entries"
-// as "unknown" rather than "fine" — see collectCloudflareEntryCheck.
+// Enough TOML for the deployment keys these readers inspect. Deliberately
+// conservative: a shape this does not recognize yields no entry, and callers
+// must treat "no entries" as "unknown" rather than "fine" — see
+// collectCloudflareEntryCheck.
 //
 // `[table]` and `[[array.of.tables]]` headers, both of which may carry a
 // trailing comment. Missing a header would attribute the keys under it to the
