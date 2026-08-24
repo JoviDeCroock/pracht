@@ -1069,12 +1069,12 @@ defineApp({
 
 ### Excluding individual links
 
-Rules match by URL pattern, so every anchor pointing at an opted-in route is a
-candidate. Two things take a link back out:
+Rules match by URL pattern, so every hyperlink (`<a>` or image-map `<area>`)
+pointing at an opted-in route is a candidate. Two things take a link back out:
 
 - `rel="nofollow"` — never speculated, matching the browser's own convention
   for links the page does not vouch for.
-- `data-pracht-speculate="off"` — opts an element and its subtree out. An anchor
+- `data-pracht-speculate="off"` — opts an element and its subtree out. A link
   can set `"on"` to re-enable itself; container-level `"on"` scopes do not
   override an enclosing opt-out, so exclusions remain fail-closed at any depth.
 
@@ -1091,6 +1091,10 @@ candidate. Two things take a link back out:
 ```tsx
 <Link route="logout" speculate={false} prefetch="none">Log out</Link>
 ```
+
+The browser exclusions also cover image-map `<area>` links. Those links retain
+native document navigation because Pracht's client router only intercepts
+anchors.
 
 Reach for both opt-outs on links with side effects — a GET that logs the user
 out, consumes a one-time token, or records a view. A `prerender` speculation

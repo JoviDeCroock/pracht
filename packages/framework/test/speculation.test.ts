@@ -199,6 +199,13 @@ describe("speculation exclusions", () => {
     ['<a id="target" href="/x" rel="nofollowers"></a>', false],
     ['<a id="target" href="/x" data-pracht-speculate="off"></a>', true],
     ['<nav data-pracht-speculate="off"><a id="target" href="/x"></a></nav>', true],
+    ['<map><area id="target" href="/x" rel="nofollow"></map>', true],
+    ['<map><area id="target" href="/x" data-pracht-speculate="off"></map>', true],
+    ['<map data-pracht-speculate="off"><area id="target" href="/x"></map>', true],
+    [
+      '<map data-pracht-speculate="off"><area id="target" href="/x" data-pracht-speculate="on"></map>',
+      false,
+    ],
     // The anchor's own attribute beats an enclosing scope, both ways.
     [
       '<nav data-pracht-speculate="off"><a id="target" href="/x" data-pracht-speculate="on"></a></nav>',

@@ -73,9 +73,14 @@ test("home page emits a speculationrules script with opted-in routes", async ({ 
   const prefetchHrefs = rules.prefetch?.flatMap((r) => r.where.and[0].href_matches) ?? [];
   expect(prefetchHrefs).toEqual(expect.arrayContaining(["/", "/pricing", "/products/:id"]));
   expect(rules.prefetch?.[0].eagerness).toBe("moderate");
-  // Anchor-level exclusions ride along on every rule.
+  // Link-level exclusions ride along on every rule.
   expect(rules.prefetch?.[0].where.and[1].not.selector_matches).toEqual(
-    expect.arrayContaining(['a[rel~="nofollow"]', 'a[data-pracht-speculate="off"]']),
+    expect.arrayContaining([
+      'a[rel~="nofollow"]',
+      'area[rel~="nofollow"]',
+      'a[data-pracht-speculate="off"]',
+      'area[data-pracht-speculate="off"]',
+    ]),
   );
 });
 
@@ -175,6 +180,68 @@ test("chrome speculates included links and skips excluded ones", async ({ page }
   await page.waitForTimeout(1500);
 
   expect(speculated).toEqual(["?spec=included"]);
+});
+
+test("chrome skips excluded image-map areas", async ({ page }) => {
+  const speculated: string[] = [];
+  page.on("request", (request) => {
+    if (request.headers()["sec-purpose"] && request.url().includes("area=")) {
+      speculated.push(new URL(request.url()).search);
+    }
+  });
+  await page.goto("/");
+
+  const included = page.waitForRequest(
+    (request) => request.url().includes("area=included") && !!request.headers()["sec-purpose"],
+  );
+  await page.evaluate(() => {
+    const emitted = document.querySelector('script[type="speculationrules"]');
+    if (!emitted?.textContent) throw new Error("Missing emitted speculation rules");
+    const rules = JSON.parse(emitted.textContent) as {
+      prefetch?: Array<{ where: { and: [unknown, { not: { selector_matches: string[] } }] } }>;
+    };
+    const exclusions = rules.prefetch?.[0].where.and[1].not.selector_matches;
+    if (!exclusions) throw new Error("Missing emitted speculation exclusions");
+
+    const map = document.createElement("map");
+    map.name = "speculation-area-map";
+    map.innerHTML = `
+      <area href="/pricing?area=included" data-e2e-area shape="rect" coords="0,0,10,10">
+      <area href="/pricing?area=nofollow" data-e2e-area rel="nofollow" shape="rect" coords="10,0,20,10">
+      <area href="/pricing?area=off" data-e2e-area data-pracht-speculate="off" shape="rect" coords="20,0,30,10">`;
+    document.body.appendChild(map);
+
+    const image = document.createElement("img");
+    image.useMap = "#speculation-area-map";
+    image.width = 30;
+    image.height = 10;
+    image.alt = "Speculation area test";
+    image.src =
+      "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='10'/>";
+    document.body.appendChild(image);
+
+    const script = document.createElement("script");
+    script.type = "speculationrules";
+    script.textContent = JSON.stringify({
+      prefetch: [
+        {
+          source: "document",
+          where: {
+            and: [
+              { selector_matches: "area[data-e2e-area]" },
+              { not: { selector_matches: exclusions } },
+            ],
+          },
+          eagerness: "immediate",
+        },
+      ],
+    });
+    document.body.appendChild(script);
+  });
+
+  await included;
+  await page.waitForTimeout(1500);
+  expect(speculated).toEqual(["?area=included"]);
 });
 
 // ---------------------------------------------------------------------------

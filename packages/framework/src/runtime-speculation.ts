@@ -30,13 +30,13 @@ export interface SpeculationRulesDocument {
 }
 
 /**
- * Anchors the browser must never speculate, regardless of the route patterns
+ * Links the browser must never speculate, regardless of the route patterns
  * a rule matches. Emitted as a `not: { selector_matches }` conjunct on every
  * rule, and mirrored on the client by `isSpeculationSuppressed()`.
  *
  * - `rel="nofollow"` marks a link the page does not vouch for.
- * - `data-pracht-speculate="off"` opts an element and every anchor in its
- *   subtree out. An anchor can explicitly re-enable itself with `"on"`.
+ * - `data-pracht-speculate="off"` opts an element and every hyperlink in its
+ *   subtree out. A link can explicitly re-enable itself with `"on"`.
  *   Container-level `"on"` scopes are deliberately unsupported because CSS
  *   selectors cannot express nearest-ancestor precedence for arbitrarily
  *   nested scopes; keeping `"off"` fail-closed makes the browser and client
@@ -44,12 +44,15 @@ export interface SpeculationRulesDocument {
  */
 export const SPECULATION_EXCLUSION_SELECTORS: readonly string[] = [
   'a[rel~="nofollow"]',
+  'area[rel~="nofollow"]',
   `a[${SPECULATE_ATTRIBUTE}="off"]`,
+  `area[${SPECULATE_ATTRIBUTE}="off"]`,
   `[${SPECULATE_ATTRIBUTE}="off"] a:not([${SPECULATE_ATTRIBUTE}="on"])`,
+  `[${SPECULATE_ATTRIBUTE}="off"] area:not([${SPECULATE_ATTRIBUTE}="on"])`,
 ];
 
 /**
- * True when this anchor is excluded from the emitted speculation rules — the
+ * True when this link is excluded from the emitted speculation rules — the
  * client-side counterpart of `SPECULATION_EXCLUSION_SELECTORS`. The router and
  * prefetch listeners consult it before handing a link to the browser: if the
  * browser will not prerender it, the normal SPA prefetch/navigation path has
