@@ -662,8 +662,9 @@ import { ErrorBoundary } from "@pracht/core";
 
 `fallback` takes a node or a function of `(error, retry)`; `retry` clears the
 captured error and re-renders the children. `onError` is called with every
-caught error. Promises thrown for suspension are declined, so an enclosing
-`<Suspense>` still handles them.
+caught error. The same boundary renders during SSR, SSG, and ISG. Promises
+thrown for suspension are declined, so an enclosing `<Suspense>` still handles
+them.
 
 ---
 

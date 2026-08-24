@@ -4,6 +4,7 @@ import { Suspense } from "preact-suspense";
 import { describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary } from "../src/error-boundary.ts";
+import { getRenderToStringAsync } from "../src/runtime-response.ts";
 
 /**
  * Preact re-renders a boundary through `setState`, which is batched, so the
@@ -72,6 +73,30 @@ describe("ErrorBoundary", () => {
     expect(scratch.innerHTML).toBe("<span>recovered</span>");
   });
 
+  it("normalizes falsy thrown values before rendering the fallback", async () => {
+    const scratch = document.createElement("div");
+    const onError = vi.fn();
+    const Boom = () => {
+      throw 0;
+    };
+
+    render(
+      h(
+        ErrorBoundary,
+        {
+          onError,
+          fallback: (error: Error) => h("p", null, error.message),
+        },
+        h(Boom, null),
+      ),
+      scratch,
+    );
+
+    await flush();
+    expect(scratch.innerHTML).toBe("<p>0</p>");
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+  });
+
   it("declines thrown promises so an outer Suspense still handles them", async () => {
     const scratch = document.createElement("div");
     const onError = vi.fn();
@@ -88,7 +113,7 @@ describe("ErrorBoundary", () => {
       h(
         Suspense as never,
         { fallback: h("p", null, "loading") },
-        h(ErrorBoundary, { fallback: h("p", null, "broken") }, h(Suspending, null)),
+        h(ErrorBoundary, { fallback: h("p", null, "broken"), onError }, h(Suspending, null)),
       ),
       scratch,
     );
@@ -99,5 +124,42 @@ describe("ErrorBoundary", () => {
     // treated the promise as a failure, this would read "broken".
     expect(scratch.innerHTML).toBe("<span>loaded</span>");
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("contains child errors during server rendering", async () => {
+    const onError = vi.fn();
+    const Boom = () => {
+      throw new Error("server boom");
+    };
+    const renderToString = await getRenderToStringAsync();
+
+    const html = await renderToString(
+      h(
+        ErrorBoundary,
+        { onError, fallback: (error: Error) => h("p", null, error.message) },
+        h(Boom, null),
+      ),
+    );
+
+    expect(html).toBe("<p>server boom</p>");
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves suspension during server rendering", async () => {
+    let resolved = false;
+    const pending = Promise.resolve().then(() => {
+      resolved = true;
+    });
+    const Suspending = () => {
+      if (!resolved) throw pending;
+      return h("span", null, "loaded");
+    };
+    const renderToString = await getRenderToStringAsync();
+
+    const html = await renderToString(
+      h(ErrorBoundary, { fallback: h("p", null, "broken") }, h(Suspending, null)),
+    );
+
+    expect(html).toBe("<span>loaded</span>");
   });
 });

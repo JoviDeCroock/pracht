@@ -22,7 +22,7 @@ export interface ErrorBoundaryComponentProps {
 }
 
 interface ErrorBoundaryState {
-  error?: Error;
+  error: Error | null;
 }
 
 /**
@@ -45,19 +45,20 @@ interface ErrorBoundaryState {
  * promise keeps propagating, exactly as it would without this boundary.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryComponentProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = {};
+  state: ErrorBoundaryState = { error: null };
 
-  componentDidCatch(error: Error): void {
+  componentDidCatch(error: unknown): void {
     // Preact treats a component as a boundary only when the handler marks it
-    // dirty. Returning without `setState` lets `_catchError` keep walking up,
-    // which is what a suspension needs.
-    if (isThenable(error)) return;
-    this.props.onError?.(error);
-    this.setState({ error });
+    // dirty. Rethrowing lets both the client walker and the async server
+    // renderer continue handling suspensions without treating them as errors.
+    if (isThenable(error)) throw error;
+    const normalizedError = normalizeCaughtError(error);
+    this.props.onError?.(normalizedError);
+    this.setState({ error: normalizedError });
   }
 
   render(props: ErrorBoundaryComponentProps, state: ErrorBoundaryState): VNode {
-    if (!state.error) return h(Fragment, null, props.children);
+    if (state.error === null) return h(Fragment, null, props.children);
     const { fallback } = props;
     return h(
       Fragment,
@@ -72,10 +73,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryComponentProps, ErrorB
   }
 
   private retry = (): void => {
-    this.setState({ error: undefined });
+    this.setState({ error: null });
   };
 }
 
 function isThenable(value: unknown): boolean {
   return typeof (value as { then?: unknown } | null | undefined)?.then === "function";
+}
+
+function normalizeCaughtError(value: unknown): Error {
+  if (value instanceof Error) return value;
+  try {
+    return new Error(String(value));
+  } catch {
+    return new Error("Unknown error");
+  }
 }

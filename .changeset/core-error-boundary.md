@@ -19,5 +19,6 @@ import { ErrorBoundary } from "@pracht/core";
 ```
 
 `fallback` accepts a node or a function of `(error, retry)`, and `onError` is
-called with every caught error. Promises thrown for suspension are declined, so
-an enclosing `<Suspense>` still sees them.
+called with every caught error. Boundaries work during server rendering as well
+as in the browser. Promises thrown for suspension are declined, so an enclosing
+`<Suspense>` still sees them.
