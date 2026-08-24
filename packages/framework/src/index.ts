@@ -5,9 +5,11 @@ export {
   group,
   matchApiRoute,
   matchAppRoute,
+  matchRoutePath,
   resolveApiRoutes,
   resolveApp,
   route,
+  routePathIsDynamic,
   timeRevalidate,
   webhookRevalidate,
 } from "./app.ts";

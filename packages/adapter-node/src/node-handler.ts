@@ -391,9 +391,7 @@ async function serveStaticFile(
         "last-modified": fileStat.mtime.toUTCString(),
       }),
     );
-    if (staticResult.contentType.includes("text/html")) {
-      applyHeadersManifest(headers, headersManifest, pathname);
-    }
+    applyHeadersManifest(headers, headersManifest, pathname);
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
     if (isNotModified(request, headers, compressionGeneration === 0)) {

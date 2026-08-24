@@ -595,15 +595,20 @@ export function collectPagesVerification(
   }
 }
 
-const MARKDOWN_PAGE_RE = /\.mdx?$/;
+const MARKDOWN_PAGE_RE = /\.(?:mdx?|markdown)$/;
 // Plugin specifiers that transform Markdown/MDX into a renderable module,
 // matched against the raw vite config text. Necessarily a heuristic: a custom
 // or re-exported plugin is invisible here, which is why this warns and says so
 // rather than asserting the app is broken.
 const MARKDOWN_PLUGIN_HINTS = ["@mdx-js/rollup", "vite-plugin-mdx", "vite-plugin-markdown"];
+// `prachtContent()` transforms only the sources its collections actually
+// register, which this text scan cannot determine, so its presence softens the
+// warning rather than silencing it. `pracht build` does resolve the registry
+// and reports the routes no collection owns.
+const CONTENT_REGISTRY_HINT = "@pracht/content/vite";
 
 /**
- * A `.md` / `.mdx` route is registered like any other, but nothing renders it
+ * A `.md`, `.markdown`, or `.mdx` route is registered like any other, but nothing renders it
  * unless a transform plugin is configured: Vite hands the raw Markdown to the
  * JS parser, so the route 500s at request time with `Invalid Character` and
  * `pracht build` fails with a raw parser stack. Both `doctor` and `verify`
@@ -625,15 +630,23 @@ function collectMarkdownTransformCheck(
     .map((file) => JSON.stringify(displayPath(project.root, file)))
     .join(", ");
 
+  const summary =
+    `${markdownFiles.length} Markdown route${markdownFiles.length === 1 ? "" : "s"} ` +
+    `(${shown}${markdownFiles.length > 3 ? ", ..." : ""})`;
+
   checks.push(
     createCheck(
       "warning",
-      `${markdownFiles.length} Markdown route${markdownFiles.length === 1 ? "" : "s"} ` +
-        `(${shown}${markdownFiles.length > 3 ? ", ..." : ""}) but no known Markdown transform ` +
-        "plugin in the vite config. Pracht does not transform Markdown: without a plugin such as " +
-        "`@mdx-js/rollup` registered alongside `pracht()`, Vite hands the raw source to the JS " +
-        "parser and these routes fail at request and build time. Ignore this if you register a " +
-        "custom or re-exported Markdown plugin.",
+      config.includes(CONTENT_REGISTRY_HINT)
+        ? `${summary} with \`prachtContent()\` configured. Static verification cannot tell ` +
+            "whether its collections register these sources, and Pracht does not otherwise " +
+            "transform Markdown: any route no collection owns reaches Vite's JS parser and " +
+            "fails at request and build time. `pracht build` resolves the registry and reports them."
+        : `${summary} but no known Markdown transform plugin in the vite config. Pracht does ` +
+            "not transform Markdown: without a plugin such as `@mdx-js/rollup` registered " +
+            "alongside `pracht()`, Vite hands the raw source to the JS parser and these routes " +
+            "fail at request and build time. Ignore this if you register a custom or " +
+            "re-exported Markdown plugin.",
     ),
   );
 }

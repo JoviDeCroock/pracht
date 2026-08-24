@@ -63,6 +63,34 @@ describe("handlePrachtRequest rejects non-GET on page routes", () => {
   });
 });
 
+describe("handlePrachtRequest loader pathnames", () => {
+  it("passes the matched base-free pathname to page loaders", async () => {
+    const app = defineApp({
+      routes: [route("/docs/:slug", "./routes/doc.tsx")],
+    });
+    let loaderPathname: string | undefined;
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/doc.tsx": async () => ({
+            Component: () => null,
+            loader: ({ pathname }) => {
+              loaderPathname = pathname;
+              return null;
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/docs/guide"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(loaderPathname).toBe("/docs/guide");
+  });
+});
+
 describe("handlePrachtRequest API middleware", () => {
   it("runs configured API middleware before handlers", async () => {
     const app = defineApp({

@@ -8,6 +8,7 @@ import { scanCodeForEnvLeaks } from "../../vite-plugin/src/env-safety.ts";
 import {
   cloudflareLoader,
   configureImage,
+  getImageProps,
   Image,
   passthroughLoader,
   resetImageConfig,
@@ -332,6 +333,54 @@ describe("<Image> with ?pracht import metadata", () => {
     expect(html).not.toContain('width="640"');
     expect(html).toMatch(/position:\s*absolute/);
     expect(error).not.toHaveBeenCalled();
+  });
+});
+
+describe("<Image> with static build variants", () => {
+  const metadata = {
+    src: "/assets/hero.640.webp",
+    width: 640,
+    height: 480,
+    variants: [
+      { src: "/assets/hero.320.webp", width: 320, type: "image/webp" as const },
+      { src: "/assets/hero.640.webp", width: 640, type: "image/webp" as const },
+    ],
+  };
+
+  it("uses generated variants without consulting the runtime loader", () => {
+    configureImage({ loader: () => "/should-not-run" });
+    const html = render(h(Image, { src: metadata, alt: "Hero" }));
+
+    expect(html).toContain('src="/assets/hero.640.webp"');
+    expect(html).toContain("/assets/hero.320.webp 320w");
+    expect(html).toContain("/assets/hero.640.webp 640w");
+    expect(html).toContain('sizes="(max-width: 640px) 100vw, 640px"');
+    expect(html).not.toContain("should-not-run");
+  });
+
+  it("keeps unprocessed public imports on their original URL", () => {
+    configureImage({ loader: () => "/should-not-run" });
+    const publicMetadata = {
+      src: "/photo.jpg",
+      width: 640,
+      height: 480,
+      variants: undefined,
+    };
+
+    const html = render(h(Image, { src: publicMetadata, alt: "Public" }));
+
+    expect(html).toContain('src="/photo.jpg"');
+    expect(html).not.toContain("srcset=");
+    expect(html).not.toContain("should-not-run");
+  });
+
+  it("exposes the same props used by the component", () => {
+    const props = getImageProps({ src: metadata, alt: "Hero", sizes: "100vw" });
+    const html = render(h(Image, { src: metadata, alt: "Hero", sizes: "100vw" }));
+
+    expect(props.src).toBe("/assets/hero.640.webp");
+    expect(props.srcset).toContain("/assets/hero.320.webp 320w");
+    expect(html).toContain('sizes="100vw"');
   });
 });
 

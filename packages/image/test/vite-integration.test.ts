@@ -31,6 +31,82 @@ async function makeRoot(): Promise<string> {
 
 describe("prachtImage in a real Vite build", () => {
   it(
+    "emits deterministic responsive WebP files for static imports",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const sharp = (await import("sharp")).default;
+      const root = await makeRoot();
+      await copyFile(fixture("landscape.jpg"), join(root, "photo.jpg"));
+      await writeFile(
+        join(root, "entry.js"),
+        'import meta from "./photo.jpg?pracht&pracht-static"; console.log(meta);',
+      );
+
+      await build({
+        root,
+        base: "/sub/",
+        logLevel: "error",
+        plugins: [prachtImage({ staticWidths: [16, 32] })],
+        build: {
+          outDir: join(root, "dist"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const assets = await readdir(join(root, "dist", "assets"));
+      const variants = assets.filter((file) => file.endsWith(".webp"));
+      expect(variants).toHaveLength(2);
+      expect(assets.some((file) => file.endsWith(".jpg"))).toBe(false);
+      const widths = await Promise.all(
+        variants.map(
+          async (file) => (await sharp(join(root, "dist", "assets", file)).metadata()).width,
+        ),
+      );
+      expect(widths.sort((left, right) => left! - right!)).toEqual([16, 32]);
+
+      const chunkName = assets.find((file) => file.endsWith(".js"));
+      const chunk = await readFile(join(root, "dist", "assets", chunkName!), "utf8");
+      expect(chunk).toContain("/sub/assets/photo.16.");
+      expect(chunk).toContain("/sub/assets/photo.32.");
+      expect(chunk).toMatch(/type:[`'"]image\/webp[`'"]/);
+    },
+  );
+
+  it(
+    "emits static variants at the output root when assetsDir is empty",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("landscape.jpg"), join(root, "photo.jpg"));
+      await writeFile(
+        join(root, "entry.js"),
+        'import meta from "./photo.jpg?pracht&pracht-static"; console.log(meta);',
+      );
+
+      await build({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage({ staticWidths: [16] })],
+        build: {
+          assetsDir: "",
+          outDir: join(root, "dist"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const output = await readdir(join(root, "dist"));
+      const variants = output.filter((file) => file.endsWith(".webp"));
+      expect(variants).toHaveLength(2);
+      const chunkName = output.find((file) => file.endsWith(".js"));
+      const chunk = await readFile(join(root, "dist", chunkName!), "utf8");
+      expect(chunk).toContain(`/photo.16.`);
+      expect(chunk).not.toContain(`//photo.16.`);
+    },
+  );
+
+  it(
     "emits a hashed URL (never a data: URI), respects base, and dedupes plain imports",
     { timeout: 60_000 },
     async () => {
@@ -91,9 +167,9 @@ describe("prachtImage in a real Vite build", () => {
       await writeFile(
         join(root, "entry.js"),
         [
-          'import publicMeta from "/photo.jpg?pracht";',
+          'import publicMeta, { variants as publicVariants } from "/photo.jpg?pracht&pracht-static";',
           'import sourceMeta from "./public/photo.jpg?pracht";',
-          "console.log(publicMeta, sourceMeta);",
+          "console.log(publicMeta, publicVariants, sourceMeta);",
         ].join("\n"),
       );
 
@@ -114,6 +190,7 @@ describe("prachtImage in a real Vite build", () => {
       expect(chunk).toMatch(/src:[`"']\/sub\/photo\.jpg/);
       const images = assets.filter((file) => file.endsWith(".jpg"));
       expect(images).toHaveLength(1);
+      expect(assets.some((file) => file.endsWith(".webp"))).toBe(false);
       expect(chunk).toMatch(new RegExp(`src:[\`"']/sub/assets/${images[0]}`));
       expect(chunk).toContain("width:32");
       expect(chunk).toContain("height:20");
@@ -123,9 +200,277 @@ describe("prachtImage in a real Vite build", () => {
       );
     },
   );
+
+  it(
+    "rejects static variants with a relative base instead of emitting route-unsafe URLs",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("landscape.jpg"), join(root, "photo.jpg"));
+      await writeFile(
+        join(root, "entry.js"),
+        'import meta from "./photo.jpg?pracht&pracht-static"; console.log(meta);',
+      );
+
+      await expect(
+        build({
+          root,
+          base: "./",
+          logLevel: "silent",
+          plugins: [prachtImage({ staticWidths: [16] })],
+          build: {
+            outDir: join(root, "dist"),
+            rollupOptions: { input: join(root, "entry.js") },
+          },
+        }),
+      ).rejects.toThrow(/require an absolute Vite base/);
+    },
+  );
+
+  it(
+    "keeps SVG and animated static imports in their original formats",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("icon.svg"), join(root, "icon.svg"));
+      await copyFile(fixture("animated.gif"), join(root, "animated.gif"));
+      await writeFile(
+        join(root, "entry.js"),
+        [
+          'import icon from "./icon.svg?pracht&pracht-static";',
+          'import animation from "./animated.gif?pracht&pracht-static";',
+          "console.log(icon, animation);",
+        ].join("\n"),
+      );
+
+      await build({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage({ staticWidths: [8] })],
+        build: {
+          outDir: join(root, "dist"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const assets = await readdir(join(root, "dist", "assets"));
+      expect(assets.some((file) => file.endsWith(".webp"))).toBe(false);
+      expect(assets.some((file) => file.endsWith(".svg"))).toBe(true);
+      expect(assets.some((file) => file.endsWith(".gif"))).toBe(true);
+    },
+  );
+
+  it(
+    "publishes variants discovered only by an SSR graph into the client asset directory",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("landscape.jpg"), join(root, "photo.jpg"));
+      await writeFile(
+        join(root, "entry.js"),
+        'import meta from "./photo.jpg?pracht&pracht-static"; export default meta;',
+      );
+
+      await build({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage({ staticWidths: [16] })],
+        build: {
+          ssr: true,
+          outDir: join(root, "dist", "server"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const assets = await readdir(join(root, "dist", "client", "assets"));
+      expect(assets.filter((file) => file.endsWith(".webp"))).toHaveLength(2);
+      await expect(readdir(join(root, "dist", "server", "assets"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    },
+  );
+
+  it(
+    "publishes original SVG and animated assets discovered only by an SSR graph",
+    { timeout: 60_000 },
+    async () => {
+      const { build } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("icon.svg"), join(root, "icon.svg"));
+      await copyFile(fixture("animated.gif"), join(root, "animated.gif"));
+      await writeFile(
+        join(root, "entry.js"),
+        [
+          'import icon, { variants as iconVariants } from "./icon.svg?pracht&pracht-static";',
+          'import animation from "./animated.gif?pracht&pracht-static";',
+          "console.log(icon, iconVariants, animation);",
+          "export default [icon, animation];",
+        ].join("\n"),
+      );
+
+      await build({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage()],
+        build: {
+          ssr: true,
+          outDir: join(root, "dist", "server"),
+          rollupOptions: { input: join(root, "entry.js") },
+        },
+      });
+
+      const assets = await readdir(join(root, "dist", "client", "assets"));
+      expect(assets.some((file) => file.endsWith(".svg"))).toBe(true);
+      expect(assets.some((file) => file.endsWith(".gif"))).toBe(true);
+      const serverEntry = await readFile(join(root, "dist", "server", "entry.mjs"), "utf8");
+      expect(serverEntry).toMatch(/["']\/assets\/icon\.[a-f0-9]+\.svg/);
+      expect(serverEntry).toMatch(/["']\/assets\/animated\.[a-f0-9]+\.gif/);
+    },
+  );
 });
 
 describe("prachtImage in the Vite dev server", () => {
+  it("serves generated static variants directly in development", { timeout: 60_000 }, async () => {
+    const { createServer } = await import("vite");
+    const sharp = (await import("sharp")).default;
+    const root = await makeRoot();
+    await copyFile(fixture("landscape.jpg"), join(root, "photo.jpg"));
+    await writeFile(
+      join(root, "main.js"),
+      'import meta from "./photo.jpg?pracht&pracht-static";\n',
+    );
+    await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>');
+
+    const server = await createServer({
+      root,
+      logLevel: "error",
+      plugins: [prachtImage({ staticWidths: [16] })],
+      server: { host: "127.0.0.1", port: 0, hmr: false },
+    });
+
+    try {
+      await server.listen();
+      const transformed = await server.transformRequest("/photo.jpg?pracht&pracht-static");
+      const variantPath = transformed?.code.match(/\/assets\/photo\.16\.[a-f0-9]+\.webp/)?.[0];
+      expect(variantPath).toBeDefined();
+
+      const address = server.httpServer?.address();
+      expect(address && typeof address === "object").toBe(true);
+      if (!address || typeof address !== "object") throw new Error("Vite did not expose a port");
+      const response = await fetch(`http://127.0.0.1:${address.port}${variantPath}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/webp");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const metadata = await sharp(Buffer.from(await response.arrayBuffer())).metadata();
+      expect(metadata.width).toBe(16);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it(
+    "serves original-format static assets with their actual content types",
+    { timeout: 60_000 },
+    async () => {
+      const { createServer } = await import("vite");
+      const root = await makeRoot();
+      await copyFile(fixture("icon.svg"), join(root, "icon.svg"));
+      await copyFile(fixture("animated.gif"), join(root, "animated.gif"));
+      const server = await createServer({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage()],
+        server: { host: "127.0.0.1", port: 0, hmr: false },
+      });
+
+      try {
+        await server.listen();
+        const icon = await server.transformRequest("/icon.svg?pracht&pracht-static");
+        const animation = await server.transformRequest("/animated.gif?pracht&pracht-static");
+        const iconPath = icon?.code.match(/\/assets\/icon\.[a-f0-9]+\.svg/)?.[0];
+        const animationPath = animation?.code.match(/\/assets\/animated\.[a-f0-9]+\.gif/)?.[0];
+        expect(iconPath).toBeDefined();
+        expect(animationPath).toBeDefined();
+
+        const address = server.httpServer?.address();
+        if (!address || typeof address !== "object") throw new Error("Vite did not expose a port");
+        const origin = `http://127.0.0.1:${address.port}`;
+        const [iconResponse, animationResponse] = await Promise.all([
+          fetch(`${origin}${iconPath}`),
+          fetch(`${origin}${animationPath}`),
+        ]);
+
+        expect(iconResponse.headers.get("content-type")).toBe("image/svg+xml");
+        expect(animationResponse.headers.get("content-type")).toBe("image/gif");
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
+  it(
+    "keeps shared pass-through assets readable when their first source changes",
+    { timeout: 60_000 },
+    async () => {
+      const { createServer } = await import("vite");
+      const root = await makeRoot();
+      const firstSource = join(root, "a", "icon.svg");
+      const secondSource = join(root, "b", "icon.svg");
+      await Promise.all([mkdir(join(root, "a")), mkdir(join(root, "b"))]);
+      await Promise.all([
+        copyFile(fixture("icon.svg"), firstSource),
+        copyFile(fixture("icon.svg"), secondSource),
+      ]);
+      const expected = await readFile(secondSource);
+      const server = await createServer({
+        root,
+        logLevel: "error",
+        plugins: [prachtImage()],
+        server: {
+          host: "127.0.0.1",
+          port: 0,
+          hmr: false,
+          watch: { usePolling: true, interval: 50 },
+        },
+      });
+
+      try {
+        await server.listen();
+        const first = await server.transformRequest("/a/icon.svg?pracht&pracht-static");
+        const second = await server.transformRequest("/b/icon.svg?pracht&pracht-static");
+        const firstPath = first?.code.match(/\/assets\/icon\.[a-f0-9]+\.svg/)?.[0];
+        const secondPath = second?.code.match(/\/assets\/icon\.[a-f0-9]+\.svg/)?.[0];
+        expect(firstPath).toBeDefined();
+        expect(secondPath).toBe(firstPath);
+
+        const module = await server.moduleGraph.getModuleByUrl("/a/icon.svg?pracht&pracht-static");
+        expect(module).toBeDefined();
+        await writeFile(
+          firstSource,
+          Buffer.concat([expected, Buffer.from("\n<!-- changed -->\n")]),
+        );
+        await utimes(firstSource, new Date(), new Date(Date.now() + 5000));
+
+        const deadline = Date.now() + 10_000;
+        while (module!.transformResult != null && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(module!.transformResult).toBeNull();
+
+        const address = server.httpServer?.address();
+        if (!address || typeof address !== "object") throw new Error("Vite did not expose a port");
+        const response = await fetch(`http://127.0.0.1:${address.port}${firstPath}`);
+        expect(response.status).toBe(200);
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(expected);
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
   it(
     "invalidates Vite's transform cache when the image changes on disk",
     { timeout: 60_000 },

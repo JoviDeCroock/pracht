@@ -935,6 +935,8 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
   signal: AbortSignal;
   url: URL;
   route: ResolvedRoute;
+  /** Matched route pathname with the configured deployment base removed. */
+  pathname?: string;
 }
 
 export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}

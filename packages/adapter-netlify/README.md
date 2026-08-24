@@ -28,6 +28,14 @@ claims page URLs, excludes Pracht's asset directories, and bundles the exact
 `dist/client` files the function can serve plus the generated headers,
 Markdown, and ISG manifests.
 
+Generated header manifest entries become exact `_headers` rules. A path
+containing Netlify wildcard or `:placeholder` syntax cannot be expressed as an
+exact match, so the build warns and skips that entry rather than broadening the
+rule to other paths — the page still deploys, just without its custom headers.
+Malformed entries (bad header names, newline-bearing values) still fail the
+build. A hand-authored `_headers` copied from Vite's configured `publicDir` is
+preserved; the build warns instead of overwriting its custom Netlify rules.
+
 Set Netlify's publish directory to `dist/client`:
 
 ```toml

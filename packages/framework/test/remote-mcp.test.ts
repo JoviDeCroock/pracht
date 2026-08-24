@@ -264,14 +264,15 @@ const urlProbe = defineCapability({
     properties: {
       requestPath: { type: "string" },
       urlPath: { type: "string" },
+      pathname: { type: "string" },
     },
-    required: ["requestPath", "urlPath"],
+    required: ["requestPath", "urlPath", "pathname"],
   },
   effect: "read",
   middleware: ["recordUrl"],
   expose: { http: true, mcp: true },
   async run({ context }) {
-    return context as { requestPath: string; urlPath: string };
+    return context as { requestPath: string; urlPath: string; pathname: string };
   },
 } as CapabilityDefinition);
 
@@ -353,11 +354,17 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
       }),
       "./middleware/record-url.ts": async () => ({
         middleware: async (
-          args: { context: Record<string, unknown>; request: Request; url: URL },
+          args: {
+            context: Record<string, unknown>;
+            request: Request;
+            url: URL;
+            pathname?: string;
+          },
           next: () => Promise<Response>,
         ) => {
           args.context.requestPath = new URL(args.request.url).pathname;
           args.context.urlPath = args.url.pathname;
+          args.context.pathname = args.pathname;
           return next();
         },
       }),
@@ -1024,6 +1031,7 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
     expect(json?.result.structuredContent).toEqual({
       requestPath: "/api/capabilities/url/probe",
       urlPath: "/api/capabilities/url/probe",
+      pathname: "/api/capabilities/url/probe",
     });
   });
 

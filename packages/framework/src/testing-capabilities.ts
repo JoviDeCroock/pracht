@@ -219,6 +219,7 @@ export function createCapabilityTestHost<
         registry: host.registry,
         request,
         url: new URL(request.url),
+        pathname: match.httpPath,
         exposeErrors: true,
         agents: options.agents,
         agent,

@@ -123,6 +123,7 @@ name.
   path is shadowed in dev (a warning is logged) and by the static file in
   production.
 - If you need curated sections or an `llms-full.txt` with inlined page
-  content, keep using a custom plugin — see
-  [examples/docs/vite-plugin-llms-txt.ts](../examples/docs/vite-plugin-llms-txt.ts)
-  for a frontmatter-driven variant.
+  content, use the opt-in
+  [`@pracht/content` collection helper](CONTENT.md#static-artifacts). The docs
+  site generates both files from the same registry that compiles its Markdown
+  route modules, so no second manifest/filesystem reader can drift.

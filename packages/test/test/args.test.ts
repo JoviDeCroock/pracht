@@ -17,6 +17,7 @@ describe("createLoaderArgs", () => {
     expect(args.request).toBeInstanceOf(Request);
     expect(args.request.method).toBe("GET");
     expect(args.url.href).toBe("http://localhost/");
+    expect(args.pathname).toBe("/");
     expect(args.params).toEqual({});
     expect(args.signal).toBeInstanceOf(AbortSignal);
     expect(args.route.path).toBe("/");
@@ -30,8 +31,19 @@ describe("createLoaderArgs", () => {
 
     expect(args.request.url).toBe("http://localhost/blog/hello?draft=1");
     expect(args.url.pathname).toBe("/blog/hello");
+    expect(args.pathname).toBe("/blog/hello");
     expect(args.url.searchParams.get("draft")).toBe("1");
     expect(args.route.path).toBe("/blog/hello");
+  });
+
+  it("accepts a matched base-free pathname independent of the request URL", () => {
+    const args = createLoaderArgs({
+      url: "/app/blog/hello",
+      pathname: "/blog/hello",
+    });
+
+    expect(args.url.pathname).toBe("/app/blog/hello");
+    expect(args.pathname).toBe("/blog/hello");
   });
 
   it("accepts method, headers, and a JSON body shorthand", async () => {

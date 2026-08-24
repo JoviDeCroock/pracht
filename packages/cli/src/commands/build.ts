@@ -1,10 +1,21 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { register } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
-import { build as viteBuild } from "vite";
+import { build as viteBuild, type Plugin } from "vite";
+import { matchRoutePath, routePathIsDynamic } from "@pracht/core";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { writeVercelBuildOutput } from "../build-shared.js";
@@ -95,8 +106,340 @@ function indentBlock(block: string): string {
     .join("\n");
 }
 
+interface ContentRouteEntry {
+  path: string;
+  source: string;
+}
+
+interface ContentRoutesManifest {
+  policy: "error" | "warn" | "ignore";
+  collections: Record<string, readonly ContentRouteEntry[]>;
+}
+
+interface ContentBuildManifest {
+  version: 1;
+  artifacts: Record<string, Record<string, string>>;
+  routes?: ContentRoutesManifest;
+}
+
+/**
+ * Read and remove the content plugin's single versioned build contribution.
+ * It is an internal channel and never reaches the published client output.
+ */
+export function readContentBuildManifest(clientDir: string): ContentBuildManifest | null {
+  const manifestPath = resolve(clientDir, "_pracht/content-manifest.json");
+  if (!existsSync(manifestPath)) return null;
+  const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+  rmSync(manifestPath, { force: true });
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    (parsed as { version?: unknown }).version !== 1 ||
+    typeof (parsed as { artifacts?: unknown }).artifacts !== "object" ||
+    (parsed as { artifacts?: unknown }).artifacts === null ||
+    Array.isArray((parsed as { artifacts?: unknown }).artifacts)
+  ) {
+    throw new Error("The content build manifest is invalid.");
+  }
+  const manifest = parsed as ContentBuildManifest;
+  for (const [path, headers] of Object.entries(manifest.artifacts)) {
+    if (
+      !path.startsWith("/") ||
+      !headers ||
+      typeof headers !== "object" ||
+      Array.isArray(headers) ||
+      Object.values(headers).some((value) => typeof value !== "string")
+    ) {
+      throw new Error("The content build manifest is invalid.");
+    }
+  }
+  if (Object.hasOwn(manifest, "routes") && manifest.routes !== undefined) {
+    if (
+      !manifest.routes ||
+      typeof manifest.routes !== "object" ||
+      Array.isArray(manifest.routes) ||
+      !["error", "warn", "ignore"].includes(manifest.routes.policy) ||
+      typeof manifest.routes.collections !== "object" ||
+      manifest.routes.collections === null
+    ) {
+      throw new Error("The content build manifest is invalid.");
+    }
+    for (const entries of Object.values(manifest.routes.collections)) {
+      if (
+        !Array.isArray(entries) ||
+        entries.some(
+          (entry) =>
+            !entry ||
+            typeof entry !== "object" ||
+            typeof entry.path !== "string" ||
+            !entry.path.startsWith("/") ||
+            typeof entry.source !== "string",
+        )
+      ) {
+        throw new Error("The content build manifest is invalid.");
+      }
+    }
+  }
+  return manifest;
+}
+
+interface ContentRoutePattern {
+  path: string;
+  servesUnprerenderedPaths: boolean;
+}
+
+export function collectContentRoutePatterns(
+  routes: readonly ContentArtifactPageRoute[],
+  staticExport: boolean,
+  hasSpaFallback = false,
+): ContentRoutePattern[] {
+  return routes.map((route) => {
+    const dynamic = routePathIsDynamic(route.path);
+    return {
+      path: route.path,
+      servesUnprerenderedPaths:
+        !staticExport || !dynamic || (route.render === "spa" && hasSpaFallback),
+    };
+  });
+}
+
+export function collectUnroutedContentDocuments(
+  manifest: ContentRoutesManifest,
+  routePatterns: readonly (string | ContentRoutePattern)[],
+  concretePagePaths: readonly string[],
+): Array<{ collection: string; path: string; source: string }> {
+  const served = new Set(concretePagePaths);
+  const unrouted: Array<{ collection: string; path: string; source: string }> = [];
+  for (const [collection, entries] of Object.entries(manifest.collections)) {
+    for (const entry of entries) {
+      if (served.has(entry.path)) continue;
+      const matchingRoute = routePatterns.find((pattern) =>
+        Boolean(matchRoutePath(typeof pattern === "string" ? pattern : pattern.path, entry.path)),
+      );
+      if (
+        matchingRoute &&
+        (typeof matchingRoute === "string" || matchingRoute.servesUnprerenderedPaths)
+      ) {
+        continue;
+      }
+      unrouted.push({ collection, path: entry.path, source: entry.source });
+    }
+  }
+  return unrouted;
+}
+
+export function formatUnroutedContentDocuments(
+  unrouted: readonly { collection: string; path: string; source: string }[],
+): string {
+  const lines = unrouted.map(
+    ({ collection, path, source }) =>
+      `    ${path} (collection ${JSON.stringify(collection)}, ${source})`,
+  );
+  return [
+    unrouted.length === 1
+      ? "1 content document generates a route no app route serves:"
+      : `${unrouted.length} content documents generate routes no app route serves:`,
+    ...lines,
+    "",
+    "  These documents still reach every artifact generator, so llms.txt and raw",
+    "  source assets advertise URLs that answer 404. Register them in the app",
+    "  manifest, exclude them with the collection's `route()` callback, or pass",
+    '  `unroutedDocuments: "ignore"` to prachtContent() for a data-only collection.',
+  ].join("\n");
+}
+
+export function assertNoContentArtifactPathCollision(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  path: string,
+  generator: string,
+): void {
+  const collision = findContentArtifactOutputCollision(contentArtifactHeaders, path.slice(1));
+  if (!collision) return;
+  throw new Error(
+    `Content artifact ${JSON.stringify(collision)} collides with ${generator}. Configure a different content artifact path or disable one generator.`,
+  );
+}
+
+export function assertNoContentArtifactOutputCollision(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  outputPath: string,
+  generator: string,
+): void {
+  const collision = findContentArtifactOutputCollision(contentArtifactHeaders, outputPath);
+  if (!collision) return;
+  throw new Error(
+    `Content artifact ${JSON.stringify(collision)} collides with ${generator}. Configure a different output path or disable one generator.`,
+  );
+}
+
+function findContentArtifactOutputCollision(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  outputPath: string,
+): string | undefined {
+  return Object.keys(contentArtifactHeaders).find((path) =>
+    portableOutputPathsCollide(path.slice(1), outputPath),
+  );
+}
+
+function collectPublicFiles(publicDir: string): string[] {
+  const publicFiles: string[] = [];
+  const collect = (directory: string, ancestorDirectories: ReadonlySet<string>): void => {
+    const realDirectory = realpathSync.native(directory);
+    if (ancestorDirectories.has(realDirectory)) return;
+
+    const nextAncestorDirectories = new Set(ancestorDirectories);
+    nextAncestorDirectories.add(realDirectory);
+
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = resolve(directory, entry.name);
+      if (statSync(absolutePath).isDirectory()) {
+        collect(absolutePath, nextAncestorDirectories);
+        continue;
+      }
+      publicFiles.push(relative(publicDir, absolutePath).split(sep).join("/"));
+    }
+  };
+  collect(publicDir, new Set());
+  return publicFiles;
+}
+
+export function assertNoPublicContentMetadataCollisions(
+  publicDir: string,
+  publicDirLabel = "public",
+): void {
+  const publicFiles = collectPublicFiles(publicDir);
+  const reservedMetadataPaths = ["_pracht/content-manifest.json"];
+  const collision = publicFiles.find((publicFile) =>
+    reservedMetadataPaths.some((metadataPath) =>
+      portableOutputPathsCollide(metadataPath, publicFile),
+    ),
+  );
+  if (!collision) return;
+  throw new Error(
+    `${JSON.stringify(`${publicDirLabel}/${collision}`)} collides with Pracht's internal content build manifests. Remove or rename the public file so it cannot replace build metadata.`,
+  );
+}
+
+export function assertNoPublicContentArtifactCollisions(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  publicDir: string,
+  publicDirLabel = "public",
+): void {
+  const publicFiles = collectPublicFiles(publicDir);
+
+  for (const path of Object.keys(contentArtifactHeaders)) {
+    const artifactOutput = path.slice(1);
+    const collision = publicFiles.find((publicFile) =>
+      portableOutputPathsCollide(artifactOutput, publicFile),
+    );
+    if (!collision) continue;
+    throw new Error(
+      `Content artifact ${JSON.stringify(path)} collides with ${JSON.stringify(`${publicDirLabel}/${collision}`)}. Remove or rename one of the files so generated artifact bytes and headers cannot diverge.`,
+    );
+  }
+}
+
+export function assertNoPrerenderedContentArtifactCollisions(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  clientDir: string,
+  routePaths: readonly string[],
+): void {
+  const artifactOutputs = Object.keys(contentArtifactHeaders).map((path) => ({
+    outputPath: path.slice(1),
+    path,
+  }));
+  for (const routePath of routePaths) {
+    const pageOutputPath = relative(
+      resolve(clientDir),
+      resolvePrerenderOutputPath(clientDir, routePath),
+    )
+      .split(sep)
+      .join("/");
+    const collision = artifactOutputs.find(({ outputPath }) =>
+      portableOutputPathsCollide(outputPath, pageOutputPath),
+    );
+    if (!collision) continue;
+    throw new Error(
+      `Content artifact ${JSON.stringify(collision.path)} collides with the prerendered output for route ${JSON.stringify(routePath)}. Configure a different artifact path or route.`,
+    );
+  }
+}
+
+interface ContentArtifactPageRoute {
+  path: string;
+  render?: string;
+}
+
+interface ContentArtifactApiRoute {
+  path: string;
+}
+
+export function assertNoRequestRouteContentArtifactCollisions(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+  pageRoutes: readonly ContentArtifactPageRoute[],
+  apiRoutes: readonly ContentArtifactApiRoute[],
+  concretePagePaths: readonly string[],
+): void {
+  const routeOwners = [
+    ...pageRoutes
+      .filter((route) => route.render !== "ssg")
+      .map((route) => ({
+        description: `${route.render ?? "request-time"} page route`,
+        path: route.path,
+      })),
+    ...apiRoutes.map((route) => ({ description: "API route", path: route.path })),
+    ...concretePagePaths.map((path) => ({ description: "generated page route", path })),
+  ];
+
+  for (const artifactPath of Object.keys(contentArtifactHeaders)) {
+    const artifactKey = portablePathKey(artifactPath);
+    const collision = routeOwners.find(({ path }) => {
+      const routeKey = portablePathKey(path);
+      const indexKey = portablePathKey(`${path === "/" ? "" : path}/index.html`);
+      return artifactKey === routeKey || artifactKey === indexKey;
+    });
+    if (!collision) continue;
+    throw new Error(
+      `Content artifact ${JSON.stringify(artifactPath)} collides with ${collision.description} ${JSON.stringify(collision.path)}. Configure a different artifact path or route.`,
+    );
+  }
+}
+
+export function expandContentArtifactHeaders(
+  contentArtifactHeaders: Record<string, Record<string, string>>,
+): Record<string, Record<string, string>> {
+  const expanded = { ...contentArtifactHeaders };
+  for (const [path, headers] of Object.entries(contentArtifactHeaders)) {
+    if (!path.endsWith("/index.html")) continue;
+    const cleanPath = path.slice(0, -"/index.html".length) || "/";
+    expanded[cleanPath] ??= headers;
+  }
+  return expanded;
+}
+
+function portablePathKey(value: string): string {
+  return value
+    .split("/")
+    .map((segment) => segment.normalize("NFC").toLowerCase())
+    .join("/");
+}
+
+function portableOutputPathsCollide(left: string, right: string): boolean {
+  const leftKey = portablePathKey(left);
+  const rightKey = portablePathKey(right);
+  return (
+    leftKey === rightKey || leftKey.startsWith(`${rightKey}/`) || rightKey.startsWith(`${leftKey}/`)
+  );
+}
+
 export interface BuildResult {
   buildTarget: string | null;
+}
+
+export function reportBuildWarning(message: string, json: boolean): void {
+  if (json) console.error(message);
+  else console.log(message);
 }
 
 interface BuildOptions {
@@ -114,10 +457,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     if (!analyzeJson) console.log(message);
   };
 
+  let publicDir = resolve(root, "public");
+  const capturePublicDir: Plugin = {
+    name: "pracht:capture-public-dir",
+    configResolved(config) {
+      publicDir = config.publicDir;
+    },
+  };
+
   log("\n  Building client...\n");
   await viteBuild({
     root,
     logLevel,
+    plugins: [capturePublicDir],
     build: {
       outDir: "dist",
       manifest: true,
@@ -159,6 +511,17 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       cpSync(sourcePath, destinationPath, { recursive: true });
       rmSync(sourcePath, { force: true, recursive: true });
     }
+  }
+  const publicDirLabel = relative(root, publicDir).split(sep).join("/") || ".";
+  if (publicDir && existsSync(publicDir)) {
+    assertNoPublicContentMetadataCollisions(publicDir, publicDirLabel);
+  }
+  const contentBuildManifest = readContentBuildManifest(clientDir);
+  const contentArtifactHeaders = contentBuildManifest?.artifacts ?? {};
+  const contentRoutes = contentBuildManifest?.routes;
+
+  if (publicDir && existsSync(publicDir)) {
+    assertNoPublicContentArtifactCollisions(contentArtifactHeaders, publicDir, publicDirLabel);
   }
 
   // `public/` is deliberately not re-copied here: the client build already
@@ -205,12 +568,47 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       // Validate the concrete set before writing even the first page.
       validateStaticExportOutputPaths(pages, serverMod);
     }
-    const headersManifest: Record<string, Record<string, string>> = Object.fromEntries(
-      pages.map((page: { path: string; headers?: Record<string, string> }) => [
-        page.path,
-        page.headers ?? {},
-      ]),
+    assertNoRequestRouteContentArtifactCollisions(
+      contentArtifactHeaders,
+      serverMod.resolvedApp?.routes ?? [],
+      serverMod.apiRoutes ?? [],
+      pages.map((page: { path: string }) => page.path),
     );
+
+    // Reconcile the content registry against the app manifest. The registry
+    // discovers sources from the filesystem while routes are registered by
+    // hand, so a source added without a matching route silently publishes a
+    // dead URL into every artifact that indexes the collection.
+    if (contentRoutes) {
+      const unrouted = collectUnroutedContentDocuments(
+        contentRoutes,
+        collectContentRoutePatterns(
+          serverMod.resolvedApp?.routes ?? [],
+          isStaticExport,
+          Boolean(serverMod.staticExportConfig?.fallback),
+        ),
+        pages.map((page: { path: string }) => page.path),
+      );
+      if (unrouted.length > 0) {
+        const report = formatUnroutedContentDocuments(unrouted);
+        if (contentRoutes.policy === "error") throw new Error(report);
+        const warning = `\n  Warning: ${report}\n`;
+        reportBuildWarning(warning, analyzeJson);
+      }
+    }
+    const expandedContentArtifactHeaders = expandContentArtifactHeaders(contentArtifactHeaders);
+    const contentArtifactCleanRoutes = Object.keys(expandedContentArtifactHeaders).filter(
+      (path) => !(path in contentArtifactHeaders),
+    );
+    const headersManifest: Record<string, Record<string, string>> = {
+      ...Object.fromEntries(
+        pages.map((page: { path: string; headers?: Record<string, string> }) => [
+          page.path,
+          page.headers ?? {},
+        ]),
+      ),
+      ...expandedContentArtifactHeaders,
+    };
     const markdownManifest: Record<string, true> = Object.fromEntries(
       pages
         .filter((page: { markdown?: boolean }) => page.markdown)
@@ -239,6 +637,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         ? pages.filter((page: { path: string }) => !skippedSnapshotPaths.has(page.path))
         : pages;
 
+    assertNoPrerenderedContentArtifactCollisions(
+      contentArtifactHeaders,
+      clientDir,
+      staticPages.map((page: { path: string }) => page.path),
+    );
+
     if (staticPages.length > 0) {
       log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
       for (const page of staticPages) {
@@ -258,6 +662,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // The server module only exports generateLlmsTxt when the vite plugin's
     // `llmsTxt` option is enabled — disabled builds skip this entirely.
     if (typeof serverMod.generateLlmsTxt === "function") {
+      assertNoContentArtifactPathCollision(
+        contentArtifactHeaders,
+        "/llms.txt",
+        "Pracht's core llms.txt generator",
+      );
       // Vite copies `public/` into the client output before this runs, so a
       // hand-authored `public/llms.txt` is about to be overwritten. Silently
       // discarding a file the user wrote is the worst outcome; say so.
@@ -289,6 +698,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         ) {
           throw new Error("OpenAPI generator returned an invalid build artifact.");
         }
+        assertNoContentArtifactOutputCollision(
+          contentArtifactHeaders,
+          artifact.outputPath,
+          `OpenAPI artifact ${JSON.stringify(artifact.outputPath)}`,
+        );
         const filePath = resolveGeneratedArtifactOutputPath(clientDir, artifact.outputPath);
         if (seenOutputPaths.has(filePath)) {
           throw new Error(
@@ -446,11 +860,13 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         markdownRoutes: Object.keys(markdownManifest),
         regions: serverMod.vercelRegions,
         root,
+        staticAssetRoutes: Object.keys(contentArtifactHeaders),
         staticRoutes: [
           ...pages
             .map((page: { path: string }) => page.path)
             .filter((path: string) => !(path in isgManifest)),
           ...generatedStaticRoutes,
+          ...contentArtifactCleanRoutes,
         ],
       });
 

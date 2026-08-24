@@ -75,6 +75,12 @@ const resolved = resolveApp(app);
 expect(matchAppRoute(resolved, "/products/42")?.params).toEqual({ id: "42" });
 ```
 
+Build tools that need to evaluate one declared pattern without constructing an
+app can use `matchRoutePath(pattern, pathname)`. It returns decoded params or
+`null` and shares the runtime router's static, dynamic, catch-all, and malformed
+percent-encoding behavior. `routePathIsDynamic(pattern)` reports whether that
+same parsed pattern contains a parameter or catch-all segment.
+
 ### `defineApp(config)`
 
 Top-level configuration:

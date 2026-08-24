@@ -43,6 +43,7 @@ interface VercelBuildOutputOptions {
   revalidateToken?: string;
   regions?: VercelRegions;
   root: string;
+  staticAssetRoutes?: string[];
   staticRoutes: string[];
 }
 
@@ -55,6 +56,7 @@ export function writeVercelBuildOutput({
   revalidateToken = process.env.PRACHT_REVALIDATE_TOKEN || randomBytes(32).toString("hex"),
   regions,
   root,
+  staticAssetRoutes = [],
   staticRoutes,
 }: VercelBuildOutputOptions): string {
   const deployBase = resolveVercelDeployBase(base);
@@ -100,6 +102,7 @@ export function writeVercelBuildOutput({
         functionName,
         headersManifest,
         markdownRoutes,
+        staticAssetRoutes,
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
         deployBase,
@@ -265,6 +268,7 @@ function createVercelOutputConfig({
   functionName,
   headersManifest,
   markdownRoutes,
+  staticAssetRoutes,
   staticRoutes,
   isgRoutes,
 }: {
@@ -272,11 +276,23 @@ function createVercelOutputConfig({
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
   markdownRoutes: string[];
+  staticAssetRoutes: string[];
   isgRoutes: string[];
   staticRoutes: string[];
 }): Record<string, unknown> {
   const target = `/${functionName || "render"}`;
   const routes: Record<string, unknown>[] = [
+    {
+      continue: true,
+      headers: {
+        "permissions-policy":
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+        "referrer-policy": "strict-origin-when-cross-origin",
+        "x-content-type-options": "nosniff",
+        "x-frame-options": "SAMEORIGIN",
+      },
+      src: "^/(.*)$",
+    },
     {
       dest: target,
       has: [{ type: "header", key: ROUTE_STATE_REQUEST_HEADER, value: "1" }],
@@ -298,6 +314,20 @@ function createVercelOutputConfig({
       dest: target,
       methods: ["GET", "HEAD"],
       src: `^${escapeRegex(deployBase.slice(0, -1))}$`,
+    });
+  }
+
+  const staticAssetRouteSet = new Set(staticAssetRoutes);
+  for (const route of sortStaticRoutes([...staticRoutes, ...staticAssetRoutes])) {
+    const routeHeaders = headersManifest[route];
+    if (!routeHeaders) continue;
+    const publicRoute = withVercelDeployBase(route, deployBase);
+    routes.push({
+      continue: true,
+      headers: routeHeaders,
+      src: staticAssetRouteSet.has(route)
+        ? routeToStaticAssetExpression(publicRoute)
+        : routeToRouteExpression(publicRoute),
     });
   }
 
@@ -347,33 +377,7 @@ function createVercelOutputConfig({
   routes.push({ handle: "filesystem" });
   routes.push({ dest: target, src: "/(.*)" });
 
-  const headers: Record<string, unknown>[] = [
-    {
-      headers: [
-        {
-          key: "permissions-policy",
-          value:
-            "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-        },
-        { key: "referrer-policy", value: "strict-origin-when-cross-origin" },
-        { key: "x-content-type-options", value: "nosniff" },
-        { key: "x-frame-options", value: "SAMEORIGIN" },
-      ],
-      source: "/(.*)",
-    },
-  ];
-
-  for (const route of sortStaticRoutes(staticRoutes)) {
-    const routeHeaders = headersManifest[route];
-    if (!routeHeaders) continue;
-    headers.push({
-      headers: Object.entries(routeHeaders).map(([key, value]) => ({ key, value })),
-      source: routeToHeaderSource(withVercelDeployBase(route, deployBase)),
-    });
-  }
-
   return {
-    headers,
     framework: {
       version: VERSION,
     },
@@ -509,8 +513,8 @@ function basename(value: string): string {
   return segments[segments.length - 1] || "index";
 }
 
-function routeToHeaderSource(route: string): string {
-  return route === "/" ? "/" : route;
+function routeToStaticAssetExpression(route: string): string {
+  return `^${escapeRegex(route)}$`;
 }
 
 function escapeRegex(value: string): string {

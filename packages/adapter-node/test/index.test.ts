@@ -127,6 +127,30 @@ describe("createNodeServerEntryModule", () => {
 });
 
 describe("createNodeRequestHandler", () => {
+  it("applies generated headers to non-HTML static assets", async () => {
+    const staticDir = makeTempDir();
+    writeFileSync(join(staticDir, "llms.txt"), "# Docs\n", "utf-8");
+    const handler = createNodeRequestHandler({
+      app: defineApp({ routes: [] }),
+      canonicalOrigin: "https://example.com",
+      headersManifest: {
+        "/llms.txt": { "content-type": "text/markdown; charset=utf-8" },
+      },
+      staticDir,
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    const response = await fetch(`http://127.0.0.1:${address.port}/llms.txt`);
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+  });
+
   it("maps retained-base static and ISG paths without exposing root assets", async () => {
     vi.stubEnv("BASE_URL", "/app/");
     vi.resetModules();

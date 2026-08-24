@@ -67,6 +67,7 @@ describe("netlifyAdapter", () => {
     await mkdir(join(root, "dist/client/content"), { recursive: true });
     await mkdir(join(root, "dist/client/docs"), { recursive: true });
     await mkdir(join(root, "dist/client/exact/child"), { recursive: true });
+    await mkdir(join(root, "dist/server"), { recursive: true });
     await writeFile(join(root, "dist/client/assets/app.js"), "asset");
     await writeFile(join(root, "dist/client/_pracht/headers.json"), "{}");
     await writeFile(join(root, "dist/client/content/manual.pdf"), "content");
@@ -74,6 +75,15 @@ describe("netlifyAdapter", () => {
     await writeFile(join(root, "dist/client/exact/index.html"), "exact");
     await writeFile(join(root, "dist/client/exact/child/index.html"), "child");
     await writeFile(join(root, "dist/client/robots.txt"), "User-agent: *");
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({
+        "/assets/search.data": {
+          "content-type": "application/json; charset=utf-8",
+          "x-content-type-options": "nosniff",
+        },
+      }),
+    );
     const options = {
       excludedPath: ["/content/*", "/exact"],
       functionName: "site",
@@ -134,12 +144,86 @@ describe("netlifyAdapter", () => {
     expect(headersFile).toContain("/content/*");
     expect(headersFile).toContain("  X-Content-Type-Options: nosniff");
     expect(headersFile).toContain("  X-Frame-Options: SAMEORIGIN");
+    expect(headersFile).toContain(
+      "/assets/search.data\n  content-type: application/json; charset=utf-8\n  x-content-type-options: nosniff",
+    );
   });
 
-  it("leaves a hand-authored public/_headers alone", async () => {
+  it("rejects build header rules that could inject _headers entries", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/assets/search.data": { "x-safe\n/evil": "injected" } }),
+    );
+
+    await expect(finalizeNetlifyBuild(root)).rejects.toThrow(/Invalid header/);
+  });
+
+  it.each(["/docs/*", "/docs/:slug"])(
+    "warns and skips exact build headers that Netlify would broaden for %s",
+    async (pathname) => {
+      const root = await tempDir();
+      await mkdir(join(root, "dist/server"), { recursive: true });
+      await writeFile(
+        join(root, "dist/server/headers-manifest.json"),
+        JSON.stringify({
+          [pathname]: { "cache-control": "public, max-age=60" },
+          "/feed.data": { "content-type": "application/json" },
+        }),
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      await finalizeNetlifyBuild(root);
+
+      // A `getStaticPaths()` slug may legitimately contain `*`, so the build
+      // drops the unrepresentable rule instead of failing — and never widens
+      // it to the other paths the pattern would match.
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining(JSON.stringify(pathname)));
+      const headersFile = await readFile(join(root, "dist/client/_headers"), "utf-8");
+      expect(headersFile).not.toContain(pathname);
+      expect(headersFile).not.toContain("max-age=60");
+      expect(headersFile).toContain("/feed.data\n  content-type: application/json");
+    },
+  );
+
+  it("keeps header-less prerendered paths that Netlify cannot match exactly", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    // `pracht build` lists every prerendered page in the headers manifest,
+    // including the header-less ones that were never going to emit a rule.
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/docs/a*b": {}, "/feed.data": { "content-type": "application/json" } }),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await finalizeNetlifyBuild(root);
+
+    expect(warn).not.toHaveBeenCalled();
+    const headersFile = await readFile(join(root, "dist/client/_headers"), "utf-8");
+    expect(headersFile).not.toContain("/docs/a*b");
+    expect(headersFile).toContain("/feed.data\n  content-type: application/json");
+  });
+
+  it("rejects malformed headers on paths Netlify cannot match exactly", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/docs/a*b": { "x-safe\n/evil": "injected" } }),
+    );
+
+    await expect(finalizeNetlifyBuild(root)).rejects.toThrow(/Invalid header/);
+  });
+
+  it("preserves hand-authored _headers copied from the default publicDir", async () => {
     const root = await tempDir();
     await mkdir(join(root, "public"), { recursive: true });
-    await writeFile(join(root, "public/_headers"), "/assets/*\n  X-Custom: 1\n");
+    await mkdir(join(root, "dist/client"), { recursive: true });
+    const publicHeaders = "/assets/*\n  X-Custom: 1\n";
+    await writeFile(join(root, "public/_headers"), publicHeaders);
+    await writeFile(join(root, "dist/client/_headers"), publicHeaders);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const plugin = netlifyAdapter().vitePlugins?.()[0];
@@ -150,10 +234,44 @@ describe("netlifyAdapter", () => {
     if (typeof closeBundle !== "function") throw new Error("missing closeBundle hook");
     await closeBundle.call({} as never);
 
-    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).rejects.toMatchObject({
-      code: "ENOENT",
-    });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("public/_headers exists"));
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toBe(
+      publicHeaders,
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("dist/client/_headers"));
+  });
+
+  it("ignores public/_headers when a custom publicDir did not copy it", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "public"), { recursive: true });
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    await writeFile(join(root, "public/_headers"), "/unrelated/*\n  X-Custom: 1\n");
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/feed.data": { "content-type": "application/json" } }),
+    );
+
+    await finalizeNetlifyBuild(root);
+
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toContain(
+      "/feed.data\n  content-type: application/json",
+    );
+  });
+
+  it("preserves hand-authored _headers copied from a custom Vite publicDir", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/client"), { recursive: true });
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    const customHeaders = "/legal/*\n  X-Custom: 1\n";
+    await writeFile(join(root, "dist/client/_headers"), customHeaders);
+    await writeFile(join(root, "dist/server/headers-manifest.json"), "{}");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await finalizeNetlifyBuild(root, {}, "/app/");
+
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toBe(
+      customHeaders,
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("dist/client/_headers"));
   });
 
   it("bundles framework assets when a deploy base prevents static bypasses", async () => {
@@ -306,6 +424,21 @@ describe("createNetlifyHandler", () => {
     expect(response.headers.get("netlify-vary")).toBe(
       "query=_data,header=x-pracht-route-state-request",
     );
+  });
+
+  it("applies generated headers to non-HTML static assets", async () => {
+    const staticDir = await createStaticBuild();
+    const handler = createNetlifyHandler({
+      app,
+      headersManifest: {
+        "/robots.txt": { "content-type": "text/markdown; charset=utf-8" },
+      },
+      registry,
+      staticDir,
+    });
+
+    const response = await handler(new Request("https://example.com/robots.txt"), {});
+    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
   });
 
   it("does not fragment non-Markdown documents on Accept", async () => {
