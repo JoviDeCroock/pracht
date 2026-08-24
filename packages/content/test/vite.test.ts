@@ -159,6 +159,24 @@ describe("prachtContent", () => {
     expect(code).not.toContain("node:fs");
   });
 
+  it("rejects collection snapshots imported by client code", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-client-boundary-"));
+    await writeFile(join(temporaryDirectory, "private.md"), "Private source");
+    const collection = defineCollection({ name: "private", root: temporaryDirectory });
+
+    await expect(
+      build({
+        configFile: false,
+        logLevel: "silent",
+        plugins: prachtContent({ collections: [collection] }),
+        build: {
+          write: false,
+          rollupOptions: { input: "virtual:pracht/content/private" },
+        },
+      }),
+    ).rejects.toThrow(/collection snapshots are server-only.*private source/i);
+  });
+
   it("keeps request-time helpers on the filesystem-free runtime entry", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-runtime-"));
     const input = join(temporaryDirectory, "entry.ts");

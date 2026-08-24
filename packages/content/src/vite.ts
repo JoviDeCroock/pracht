@@ -79,11 +79,19 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
         : null;
     },
 
-    async load(id) {
+    async load(id, loadOptions) {
       if (!id.startsWith(RESOLVED_CONTENT_MODULE_PREFIX)) return null;
       const name = decodeURIComponent(id.slice(RESOLVED_CONTENT_MODULE_PREFIX.length));
       const collection = collections.find((candidate) => candidate.name === name);
       if (!collection) return null;
+      const consumer = this.environment?.config?.consumer;
+      if (consumer === "client" || (!consumer && loadOptions?.ssr === false)) {
+        throw new Error(
+          `[pracht:content] ${JSON.stringify(`virtual:pracht/content/${name}`)} was imported by client code. ` +
+            "Content collection snapshots are server-only and may contain private source, frontmatter, and compiled data. " +
+            "Read the collection inside loaders, middleware, API routes, or server capabilities instead.",
+        );
+      }
       const snapshot = await collection.snapshot();
       const serializedSnapshot = serializeSnapshot(snapshot);
       return [

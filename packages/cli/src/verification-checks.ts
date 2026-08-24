@@ -638,10 +638,10 @@ function collectMarkdownTransformCheck(
     createCheck(
       "warning",
       config.includes(CONTENT_REGISTRY_HINT)
-        ? `${summary} rendered by \`prachtContent()\`. Static verification cannot tell which ` +
-            "sources its collections register, and Pracht does not otherwise transform " +
-            "Markdown: any route no collection owns reaches Vite's JS parser and fails at " +
-            "request and build time. `pracht build` resolves the registry and reports them."
+        ? `${summary} with \`prachtContent()\` configured. Static verification cannot tell ` +
+            "whether its collections register these sources, and Pracht does not otherwise " +
+            "transform Markdown: any route no collection owns reaches Vite's JS parser and " +
+            "fails at request and build time. `pracht build` resolves the registry and reports them."
         : `${summary} but no known Markdown transform plugin in the vite config. Pracht does ` +
             "not transform Markdown: without a plugin such as `@mdx-js/rollup` registered " +
             "alongside `pracht()`, Vite hands the raw source to the JS parser and these routes " +

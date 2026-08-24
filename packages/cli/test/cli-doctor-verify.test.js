@@ -707,6 +707,8 @@ export default defineConfig({
     // a collection that does own them the claim is simply false, and `pracht
     // build` is where the registry is actually resolved.
     expect(checks.withContentWithoutCompiler.message).toContain("`prachtContent()`");
+    expect(checks.withContentWithoutCompiler.message).toContain("configured");
+    expect(checks.withContentWithoutCompiler.message).not.toContain("rendered by");
     expect(checks.withContentWithoutCompiler.message).toContain("`pracht build`");
     expect(checks.withoutPlugin.message).toContain("no known Markdown transform plugin");
   });

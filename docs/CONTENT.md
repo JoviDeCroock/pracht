@@ -179,6 +179,9 @@ Vite's configured deployment base and emits the same bytes during the client
 build. `rawContentArtifacts()` and
 `llmsTxtArtifacts()` cover common cases; a custom generator can emit JSON,
 XML, Markdown, or binary `Uint8Array` content.
+Frontmatter titles used as `llms.txt` link labels escape Markdown brackets, and
+titles or descriptions containing YAML line breaks are folded into one line so
+one document cannot create extra summary entries accidentally.
 Explicit artifact content types are preserved in the production headers
 manifest and applied to static assets by the Node, Cloudflare, Netlify, and
 Vercel adapters as well as development responses. Malformed, non-portable,
@@ -278,6 +281,10 @@ without `node:fs` or a copied source tree on Cloudflare, Vercel, and Node.
 The virtual-module suffix matches the collection name literally, including `%`;
 an encoded suffix remains supported when an import cannot spell the name
 directly.
+Virtual collection modules are server-only. Importing one from retained client
+code fails the build before its source, frontmatter, or compiled values can be
+embedded in a browser bundle; keep imports inside loaders, middleware, API
+routes, and server capabilities.
 Compiled and frontmatter values included in a runtime snapshot must be
 JSON-serializable; a build fails with the offending value path otherwise. JSON
 object keys retain their data semantics in the generated module, including

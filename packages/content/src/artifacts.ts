@@ -103,10 +103,15 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
       if (!matched.length) continue;
       summary.push("", section.optional ? "## Optional" : `## ${section.heading}`, "");
       for (const document of matched) {
-        const title = stringField(document.frontmatter, titleField) ?? document.path;
-        const description = stringField(document.frontmatter, descriptionField);
+        const title = singleLineText(
+          stringField(document.frontmatter, titleField) ?? document.path,
+        );
+        const descriptionValue = stringField(document.frontmatter, descriptionField);
+        const description = descriptionValue ? singleLineText(descriptionValue) : undefined;
         const url = joinOrigin(options.origin, document.path);
-        summary.push(`- [${title}](${url})${description ? `: ${description}` : ""}`);
+        summary.push(
+          `- [${escapeMarkdownLinkLabel(title)}](${url})${description ? `: ${description}` : ""}`,
+        );
 
         if (!emitted.has(`${document.locale ?? ""}\0${document.id}`)) {
           emitted.add(`${document.locale ?? ""}\0${document.id}`);
@@ -178,6 +183,14 @@ function assertOptionsObject(options: unknown, helper: string): void {
 function stringField(frontmatter: Record<string, unknown>, field: string): string | undefined {
   const value = frontmatter[field];
   return typeof value === "string" && value ? value : undefined;
+}
+
+function singleLineText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function escapeMarkdownLinkLabel(value: string): string {
+  return value.replace(/([\\[\]])/g, "\\$1");
 }
 
 function joinOrigin(origin: string | undefined, path: string): string {

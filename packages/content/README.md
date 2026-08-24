@@ -205,6 +205,10 @@ locale/fallback indexes into the server bundle, so it works in Cloudflare,
 Vercel, and dist-only Node deployments without source files or `node:fs`.
 Collection names are matched literally, including names containing `%`; an
 encoded suffix remains supported when an import cannot spell the name directly.
+The virtual module is server-only: a retained client import fails the build
+instead of publishing the collection's source, frontmatter, and compiled data
+to browser JavaScript. Keep it inside loaders, middleware, API routes, and
+server capabilities.
 
 A snapshot carries `raw` and `body` alongside `compiled`, roughly two to three
 times the content size. An application that neither negotiates Markdown nor
@@ -261,6 +265,9 @@ selects the string a generated route module can export as its server-only
 `llmsTxtArtifacts()` is collection-driven and can generate curated sections
 and a full-source companion. It is separate from Pracht's core, app-graph
 `llmsTxt` option.
+Frontmatter titles are escaped when used as Markdown link labels, and YAML line
+breaks in titles or descriptions are folded so each document remains one
+summary entry.
 
 `@pracht/content/capabilities` exports `createContentPageCapability()` and
 `createContentSearchCapability()`. They return the `input`, `output`, and `run`

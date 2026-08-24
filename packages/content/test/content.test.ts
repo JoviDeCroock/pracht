@@ -582,6 +582,26 @@ describe("collection integration helpers", () => {
     expect(String(artifacts[3].source)).not.toContain("title: One");
   });
 
+  it("keeps frontmatter text inside one safe llms.txt entry", async () => {
+    const root = await fixture({
+      "guide.md":
+        '---\ntitle: "Use [brackets] safely"\nlead: |-\n  Line one\n  - injected list\n---\nBody',
+    });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [llmsTxtArtifacts({ title: "Docs" })],
+    });
+
+    const artifacts = await collection.emitArtifacts();
+    const summary = String(artifacts.find((artifact) => artifact.path === "/llms.txt")?.source);
+    const full = String(artifacts.find((artifact) => artifact.path === "/llms-full.txt")?.source);
+
+    expect(summary).toContain("- [Use \\[brackets\\] safely](/guide): Line one - injected list");
+    expect(summary).not.toContain("\n- injected list");
+    expect(full).toContain("# Use [brackets] safely\n\n> Line one - injected list");
+  });
+
   it("indexes every translation under a locale-neutral llms.txt section prefix", async () => {
     const root = await fixture({
       "en/guide.md": "---\ntitle: Guide\n---\nEnglish body",
