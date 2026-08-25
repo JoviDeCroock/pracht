@@ -5,6 +5,9 @@ breadcrumb: Migrate from Next.js
 prev:
   href: /docs/recipes/fullstack-vercel
   title: Full-Stack Vercel
+next:
+  href: /docs/examples
+  title: Examples
 ---
 
 ## Overview

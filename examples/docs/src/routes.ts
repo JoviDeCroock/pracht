@@ -129,6 +129,10 @@ export const app = defineApp({
         id: "remote-mcp",
         render: "ssg",
       }),
+      route("/docs/mcp", () => import("./routes/docs/mcp.md"), {
+        id: "mcp",
+        render: "ssg",
+      }),
       route("/docs/recipes/i18n", () => import("./routes/docs/recipes-i18n.md"), {
         id: "recipes-i18n",
         render: "ssg",
@@ -175,6 +179,22 @@ export const app = defineApp({
       }),
       route("/docs/migrate/nextjs", "./routes/docs/migrate-nextjs.md", {
         id: "migrate-nextjs",
+        render: "ssg",
+      }),
+      route("/docs/examples", "./routes/docs/examples.md", {
+        id: "examples",
+        render: "ssg",
+      }),
+      route("/docs/reference/api", "./routes/docs/reference-api.md", {
+        id: "reference-api",
+        render: "ssg",
+      }),
+      route("/docs/reference/config", "./routes/docs/reference-config.md", {
+        id: "reference-config",
+        render: "ssg",
+      }),
+      route("/docs/reference/i18n", "./routes/docs/reference-i18n.md", {
+        id: "reference-i18n",
         render: "ssg",
       }),
     ]),

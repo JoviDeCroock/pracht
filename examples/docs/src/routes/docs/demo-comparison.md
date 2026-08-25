@@ -67,7 +67,7 @@ A few things worth pointing out:
 - **Middleware is opt-in per group.** Auth applies to the `/app/*` block and nowhere else. There's no implicit inheritance to trace through.
 - **No file-system magic.** The URL → component mapping is in the manifest, not in folder names.
 
-If you'd rather work with file conventions, the [pages router](/docs/routing#pages-router) gives you that on top of the same primitives.
+If you'd rather work with file conventions, the [pages router](/docs/routing#pages-router-auto-discovery) gives you that on top of the same primitives.
 
 ## Serving Markdown to tools from the same URL
 

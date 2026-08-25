@@ -625,7 +625,14 @@ pracht build      # dist/client/ is the deployable site
 pracht preview    # serves dist/client/ with a tiny static file server
 ```
 
-Pages are emitted as `<path>/index.html` at the percent-decoded path (`/posts/caf%C3%A9` → `posts/café/index.html`), so the host must serve `index.html` for directory URLs (clean URLs). `pracht preview` decodes request segments to that same filesystem spelling. Response headers each prerendered route would have carried are recorded in `dist/server/headers-manifest.json` (build tooling, not published) — mirror the ones you need in the host's header config. See `docs/ADAPTERS.md` in the repository for host-configuration details and limitations (markdown negotiation, base paths).
+Pages are emitted as `<path>/index.html` at the percent-decoded path (`/posts/caf%C3%A9` → `posts/café/index.html`), so the host must serve `index.html` for directory URLs (clean URLs). `pracht preview` decodes request segments to that same filesystem spelling. Response headers each prerendered route would have carried are recorded in `dist/server/headers-manifest.json` (build tooling, not published) — mirror the ones you need in the host's header config.
+
+Two limitations are inherent to having no server:
+
+- **Markdown negotiation.** Routes exporting `markdown` rely on server-side `Accept` negotiation, and a static host always answers with the HTML file. The build prints a note when this applies. Publish `.md` files under `public/` when a raw-markdown corpus matters.
+- **Non-ASCII dynamic params.** Prerender output directories use the *decoded* form, because every mainstream static host decodes the request before the filesystem lookup. The build prints the decoded target next to each route path. Escapes that would decode into a path separator (`%2F`), a relative segment (`%2E%2E`), or the reserved `_pracht` namespace are build errors, as is malformed percent-encoding.
+
+To serve a static export under a sub-path, see [Sub-Path Deploys](/docs/deployment#sub-path-deploys).
 
 ---
 

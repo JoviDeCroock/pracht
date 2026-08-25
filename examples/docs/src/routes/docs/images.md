@@ -46,6 +46,23 @@ The component renders plain `<img>` markup, so it works during SSR and SSG witho
 
 Always provide meaningful `alt` text, or `alt=""` for decorative images.
 
+### Without the component
+
+`getImageProps()` resolves the same `<img>` attributes and returns them as a
+plain object. `<Image>` is a one-line wrapper around it:
+
+```ts
+import { getImageProps } from "@pracht/image";
+
+const props = getImageProps({ src: "/banner.jpg", alt: "", width: 1200, height: 280 });
+// → { src, srcset, sizes, width, height, loading, decoding, style, ... }
+```
+
+Reach for it when you are emitting HTML rather than Preact — a Markdown
+compiler, a static template, an email — and want identical sizing, loader,
+placeholder, and priority behaviour without mounting a second renderer.
+`@pracht/markdown` uses it for exactly that.
+
 ---
 
 ## Reserve Layout Space

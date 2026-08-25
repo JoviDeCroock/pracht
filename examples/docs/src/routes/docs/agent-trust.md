@@ -64,6 +64,23 @@ async run({ context }) {
 
 Verification fails closed: expired windows, uncovered components, unknown keys, or non-allowlisted directories all yield `context.agent = null`, never a partial identity. The framework binds the result as a read-only, immutable snapshot, so middleware can derive separate authorization state but cannot rewrite the verified identity used by later policy and audit checks. Adapters should create a fresh context per request; rebinding the same mutable or immutable source to a different identity fails closed rather than leaking the previous identity through context methods or getters. The `agent` field is framework-reserved, so an immutable or inherited application-owned field with that name also fails closed. Frozen and sealed ordinary objects use an overlay when necessary: direct reads and reflected accessors expose the trusted snapshot, while methods and getters retain the original receiver for private fields, callable fields retain their own APIs, and arrays retain their brand. Application-defined `Symbol.toStringTag` branding does not make an ordinary class context look like a native built-in. Immutable native built-ins such as `Map` and `Date` cannot preserve their internal-slot identity through an overlay and fail closed; wrap them in a fresh mutable request-context object. Use a fresh mutable context when receiver-bound helpers need `agent` or middleware-added fields, because overlay-only state cannot appear on the immutable receiver. Each of these failures arrives as a response — a `500` from `handlePrachtRequest()`, an `internal_error` envelope from `invokeCapability()` — never as a rejection the adapter would have to catch.
 
+Requests that pracht does not route — a custom adapter, a standalone endpoint,
+a health check you verify yourself — can run the same verifier directly:
+
+```ts
+import { verifyAgentSignature } from "@pracht/core";
+
+const agent = await verifyAgentSignature(request, {
+  policy: "observe",
+  keys: [{ x: "<base64url Ed25519 public key>", agent: "my-agent.example" }],
+});
+// PrachtAgentIdentity, or null when unsigned or verification failed
+```
+
+It resolves to the same identity `context.agent` carries, takes the same
+`webBotAuth` config, and never throws — an unsigned or failing request is
+`null`, so the caller decides what that means.
+
 The signed `@authority` must match the URL seen by the runtime. With a
 custom-domain route in `wrangler.jsonc`, Cloudflare preview may listen on
 localhost while delivering a Worker `Request` whose URL uses the custom

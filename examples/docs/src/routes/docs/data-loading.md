@@ -135,6 +135,54 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 
 Error boundaries compose — a route boundary catches route-level errors, a shell boundary catches errors from any route in that shell, and uncaught errors bubble to the global handler.
 
+#### Scoping a boundary to a subtree
+
+The `ErrorBoundary` *export* takes over the whole route. When only part of a
+working page should be replaced — an embedded widget, a lazy island, a
+third-party integration — render the `<ErrorBoundary>` *component* around that
+subtree instead:
+
+```tsx
+import { ErrorBoundary } from "@pracht/core";
+
+export function Component() {
+  return (
+    <article>
+      <h1>Report</h1>
+      <ErrorBoundary fallback={<p>The chart is unavailable.</p>}>
+        <Chart />
+      </ErrorBoundary>
+    </article>
+  );
+}
+```
+
+A function `fallback` receives the error and a `retry` callback that clears the
+captured error and re-renders the children:
+
+```tsx
+<ErrorBoundary
+  fallback={(error, retry) => (
+    <div>
+      <p>{error.message}</p>
+      <button onClick={retry}>Try again</button>
+    </div>
+  )}
+  onError={(error) => reportError(error)}
+>
+  <Editor />
+</ErrorBoundary>
+```
+
+| Prop       | Type                                                            | Description                                          |
+| ---------- | --------------------------------------------------------------- | ---------------------------------------------------- |
+| `fallback` | ComponentChildren \| (error, retry) => ComponentChildren         | Rendered in place of the children once an error is caught |
+| `onError`  | (error: Error) => void                                          | Called with every caught error, before the fallback renders |
+
+It works during SSR as well as on the client. Promises thrown for suspension
+pass straight through, so a `<Suspense>` ancestor still sees them — wrapping a
+`lazy()` component in this boundary does not break its loading state.
+
 #### Custom 404 page
 
 Declare a `notFound` page in the manifest. It handles both ways a page can be missing — an unmatched URL, and a loader that cannot find what it was asked for:

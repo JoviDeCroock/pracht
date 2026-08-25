@@ -143,6 +143,27 @@ internal credentials in descriptions or examples, and remember that “Try it ou
 to API handlers with their normal authentication, authorization, CSRF, rate-limit, and confirmation
 requirements.
 
+## Generating the document yourself
+
+`prachtOpenApi()` serves the document and the UI page for you. When you want to
+own the endpoint — to gate it behind auth middleware, or to write the spec into
+a repository at build time — the two functions it generates into the server
+entry are exported:
+
+```ts
+import { generateOpenApiDocument, createOpenApiUiHtml } from "@pracht/openapi";
+```
+
+`generateOpenApiDocument()` builds the OpenAPI 3.1 document from the resolved
+app graph and resolves to `{ document, warnings }` — the same warnings
+`failOnWarnings` acts on. `createOpenApiUiHtml({ provider, documentUrl, title?,
+scriptUrl?, styleUrl? })` returns the Scalar or Swagger page that renders it;
+pin `scriptUrl` (and `styleUrl` for Swagger) to self-host instead of using the
+default CDN delivery.
+
+Serving them from your own API route is the supported way to put the spec behind
+a middleware.
+
 ## Current boundaries
 
 - Default-export API handlers are omitted because their supported methods cannot be inferred.

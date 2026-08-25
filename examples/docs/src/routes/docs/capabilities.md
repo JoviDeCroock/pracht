@@ -3,8 +3,8 @@ title: Capabilities
 lead: Define a typed operation once and pracht projects it everywhere — direct server calls, a generated HTTP endpoint, and a WebMCP page tool for in-browser agents. Explicit, validated, and private by default.
 breadcrumb: Capabilities
 prev:
-  href: /docs/agent-skills
-  title: Agent Skills
+  href: /docs/mcp
+  title: MCP Server
 next:
   href: /docs/agent-trust
   title: Agent Trust
