@@ -2,8 +2,12 @@ import { stripBase } from "./base.ts";
 import { matchResolvedRoute } from "./route-matching.ts";
 import { clearPrefetchCache, getCachedRouteState, trimMapToSize } from "./prefetch-cache.ts";
 import { prefetchRouteState } from "./prefetch-api.ts";
-import { PREFETCH_ATTRIBUTE } from "./runtime-constants.ts";
-import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";
+import { PREFETCH_ATTRIBUTE, SPECULATE_ATTRIBUTE } from "./runtime-constants.ts";
+import {
+  isSpeculationSuppressed,
+  normalizeSpeculation,
+  supportsSpeculationRules,
+} from "./runtime-speculation.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
 import type {
   LinkPrefetchStrategy,
@@ -33,7 +37,8 @@ export { clearPrefetchCache, getCachedRouteState, prefetchRouteState };
 
 export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWarmFn): void {
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
-  const processedAnchors = new WeakSet<HTMLAnchorElement>();
+  const renderPrefetchedAnchors = new WeakSet<HTMLAnchorElement>();
+  const observedAnchors = new WeakSet<HTMLAnchorElement>();
   const matchCache = new Map<string, MatchCacheEntry>();
   const browserSupportsSpeculationRules = supportsSpeculationRules();
 
@@ -77,15 +82,8 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     // prefetching route-state JSON or client modules for them is wasted work.
     const isFullDocumentRoute =
       match?.route.hydration === "islands" || match?.route.hydration === "none";
-    // Routes that opted into `prerender` speculation rules are handled by
-    // the browser end-to-end (full document prerender + click activation).
-    // Suppress JS prefetch for them so we don't double-fetch route state.
-    const spec = match ? normalizeSpeculation(match.route.speculation) : null;
-    const isBrowserPrerenderedRoute = browserSupportsSpeculationRules && spec?.mode === "prerender";
     const strategy: PrefetchStrategy =
-      match && !isFullDocumentRoute && !isBrowserPrerenderedRoute
-        ? (match.route.prefetch ?? "intent")
-        : "none";
+      match && !isFullDocumentRoute ? (match.route.prefetch ?? "intent") : "none";
     const entry = { match, strategy };
     matchCache.set(href, entry);
     trimMapToSize(matchCache, MAX_MATCH_CACHE_ENTRIES);
@@ -102,9 +100,14 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     if (entry.match.route.hydration === "islands" || entry.match.route.hydration === "none") {
       return "none";
     }
+    // Routes that opted into `prerender` speculation rules are handled by the
+    // browser end-to-end (full document prerender + click activation), so JS
+    // prefetch would only double-fetch the route state. Anchors the rules
+    // exclude are never prerendered, so they keep the JS strategy.
     if (
       browserSupportsSpeculationRules &&
-      normalizeSpeculation(entry.match.route.speculation)?.mode === "prerender"
+      normalizeSpeculation(entry.match.route.speculation)?.mode === "prerender" &&
+      !isSpeculationSuppressed(anchor)
     ) {
       return "none";
     }
@@ -183,27 +186,42 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
               if (!entry.isIntersecting) continue;
               const anchor = entry.target as HTMLAnchorElement;
               const href = getInternalHref(anchor);
-              if (!href) continue;
+              if (!href || getAnchorStrategy(anchor, href) !== "viewport") {
+                observer?.unobserve(anchor);
+                observedAnchors.delete(anchor);
+                continue;
+              }
               prefetchHref(href);
               observer?.unobserve(anchor);
+              observedAnchors.delete(anchor);
             }
           },
           { rootMargin: "200px" },
         );
 
   function processAnchor(anchor: HTMLAnchorElement): void {
-    if (processedAnchors.has(anchor)) return;
     const href = getInternalHref(anchor);
-    if (!href) return;
-    const strategy = getAnchorStrategy(anchor, href);
-    if (strategy === "render") {
-      processedAnchors.add(anchor);
-      prefetchHref(href);
+    if (!href) {
+      if (observedAnchors.delete(anchor)) observer?.unobserve(anchor);
       return;
     }
-    if (strategy !== "viewport" || !observer) return;
-    processedAnchors.add(anchor);
-    observer.observe(anchor);
+    const strategy = getAnchorStrategy(anchor, href);
+    if (strategy === "render") {
+      if (observedAnchors.delete(anchor)) observer?.unobserve(anchor);
+      if (!renderPrefetchedAnchors.has(anchor)) {
+        renderPrefetchedAnchors.add(anchor);
+        prefetchHref(href);
+      }
+      return;
+    }
+    if (strategy === "viewport" && observer) {
+      if (!observedAnchors.has(anchor)) {
+        observedAnchors.add(anchor);
+        observer.observe(anchor);
+      }
+      return;
+    }
+    if (observedAnchors.delete(anchor)) observer?.unobserve(anchor);
   }
 
   function processAnchors(root: ParentNode): void {
@@ -217,9 +235,18 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
 
   processAnchors(document.body);
 
-  // Observe only newly-added DOM subtrees instead of re-scanning the whole document.
+  // Process newly-added subtrees and re-evaluate anchors when an exclusion
+  // changes. Browser document rules react to the same attribute mutations.
   const mutationObserver = new MutationObserver((records) => {
     for (const record of records) {
+      if (record.type === "attributes") {
+        if (record.attributeName === SPECULATE_ATTRIBUTE) {
+          processAnchors(record.target as Element);
+        } else if (record.target instanceof HTMLAnchorElement) {
+          processAnchor(record.target);
+        }
+        continue;
+      }
       for (const node of record.addedNodes) {
         if (node instanceof HTMLElement || node instanceof DocumentFragment) {
           processAnchors(node);
@@ -227,5 +254,12 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       }
     }
   });
-  mutationObserver.observe(document.body, { childList: true, subtree: true });
+  // Observe from the document root so a page-wide opt-out on `<html>` is as
+  // reactive as one mounted anywhere inside `<body>`.
+  mutationObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: [SPECULATE_ATTRIBUTE, "rel"],
+    childList: true,
+    subtree: true,
+  });
 }

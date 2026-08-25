@@ -1531,13 +1531,20 @@ describe("handlePrachtRequest speculation rules", () => {
         .replace(/\\u003c/g, "<")
         .replace(/\\u003e/g, ">")
         .replace(/\\u0026/g, "&"),
-    ) as Record<string, Array<{ where: { href_matches: string[] } }>>;
+    ) as Record<
+      string,
+      Array<{
+        where: { and: [{ href_matches: string[] }, { not: { selector_matches: string[] } }] };
+      }>
+    >;
 
-    expect(rules.prefetch?.[0].where.href_matches).toEqual(["/"]);
-    expect(rules.prerender?.[0].where.href_matches).toEqual(["/article/:slug"]);
+    expect(rules.prefetch?.[0].where.and[0].href_matches).toEqual(["/"]);
+    expect(rules.prerender?.[0].where.and[0].href_matches).toEqual(["/article/:slug"]);
+    // Every rule carries the anchor-level exclusions.
+    expect(rules.prefetch?.[0].where.and[1].not.selector_matches).toContain('a[rel~="nofollow"]');
     // The opt-out route is not present in any rule
     const allHrefs = [...(rules.prefetch ?? []), ...(rules.prerender ?? [])].flatMap(
-      (rule) => rule.where.href_matches,
+      (rule) => rule.where.and[0].href_matches,
     );
     expect(allHrefs).not.toContain("/contact");
   });

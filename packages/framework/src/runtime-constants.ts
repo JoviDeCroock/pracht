@@ -31,3 +31,9 @@ export const NOT_FOUND_ROUTE_PATH = "(not found)";
 export const PREFETCH_ATTRIBUTE = "data-pracht-prefetch";
 export const PRESERVE_SCROLL_ATTRIBUTE = "data-pracht-preserve-scroll";
 export const VIEW_TRANSITION_ATTRIBUTE = "data-pracht-view-transition";
+
+// Cascading opt-out for browser speculation rules. Set to "off" on any
+// element to exclude the anchors inside it; an anchor can set "on" to
+// explicitly re-enable itself. Read by the emitted rules (as a
+// `selector_matches` exclusion) and by the client router / prefetch listeners.
+export const SPECULATE_ATTRIBUTE = "data-pracht-speculate";

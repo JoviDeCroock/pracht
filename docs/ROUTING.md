@@ -337,12 +337,13 @@ first `pracht typegen` run when `src/pracht.d.ts` does not exist yet.
 ### `<Link>` props
 
 Beyond the typed `route`/`params`/`search`/`hash` target props, `<Link>`
-accepts three navigation-behavior props:
+accepts four navigation-behavior props:
 
 ```tsx
 <Link route="product" params={{ id }} prefetch="viewport">Product</Link>
 <Link route="inbox" preserveScroll>Refresh inbox</Link>
 <Link route="gallery" viewTransition>Gallery</Link>
+<Link route="logout" speculate={false} prefetch="none">Log out</Link>
 ```
 
 | Prop             | Type                                              | Behavior                                                                 |
@@ -350,6 +351,7 @@ accepts three navigation-behavior props:
 | `prefetch`       | `"none" \| "intent" \| "viewport" \| "render"`   | Per-link prefetch strategy; overrides the route-level `prefetch` meta    |
 | `preserveScroll` | `boolean`                                         | Keep the current scroll position instead of scrolling to the top        |
 | `viewTransition` | `boolean`                                         | Wrap this navigation's DOM commit in `document.startViewTransition()`   |
+| `speculate`      | `boolean`                                         | Opt this link out of / back into browser [speculation rules](#speculation-rules) |
 
 These props render as `data-pracht-*` attributes on the underlying `<a>`, so
 they also work on plain anchors if you set the attributes yourself.
@@ -1085,6 +1087,52 @@ defineApp({
 });
 ```
 
+### Excluding individual links
+
+Rules match by URL pattern, so every hyperlink (`<a>` or image-map `<area>`)
+pointing at an opted-in route is a candidate. Two things take a link back out:
+
+- `rel="nofollow"` — never speculated, matching the browser's own convention
+  for links the page does not vouch for.
+- `data-pracht-speculate="off"` — opts an element and its subtree out. A link
+  can set `"on"` to re-enable itself; container-level `"on"` scopes do not
+  override an enclosing opt-out, so exclusions remain fail-closed at any depth.
+
+```html
+<!-- turn a whole section off, re-enable one link inside it -->
+<nav data-pracht-speculate="off">
+  <a href="/logout">Log out</a>
+  <a href="/inbox" data-pracht-speculate="on">Inbox</a>
+</nav>
+```
+
+`<Link>` takes the same switch as a prop:
+
+```tsx
+<Link route="logout" speculate={false} prefetch="none">Log out</Link>
+```
+
+The browser exclusions also cover image-map `<area>` links. Those links retain
+native document navigation because Pracht's client router only intercepts
+anchors.
+
+Reach for both opt-outs on links with side effects — a GET that logs the user
+out, consumes a one-time token, or records a view. A `prerender` speculation
+runs the destination's JS, while the JS prefetch can run its loader or
+middleware, so either path can have effects before the user clicks.
+
+An excluded link keeps the ordinary SPA path: the JS `prefetch` strategy still
+applies to it, and the client router still intercepts the click instead of
+waiting for a prerendered document that will never exist. To stop the JS
+prefetch too, set `prefetch="none"` — the two switches are independent.
+Reactive changes to `rel` or `data-pracht-speculate` update both the browser
+rule match and Pracht's JS viewport/render prefetch handling, including a
+page-wide opt-out applied to the `<html>` element.
+
+The exclusions are emitted as a `not: { selector_matches: [...] }` clause on
+every rule. Browser and client matching use the same fail-closed semantics, so
+nested scopes cannot accidentally re-enable speculation.
+
 ### How it composes with `prefetch`
 
 `prefetch` (`"hover" | "viewport" | "intent"`) controls the framework's JS-side
@@ -1099,7 +1147,8 @@ SPA navigation completes without a network round-trip.
    the browser fills its HTTP cache with the page HTML.
 
 Routes flagged for `prerender` are excluded from JS hover-prefetch in browsers
-with speculation rules support to avoid double-fetching. In browsers that do not
+with speculation rules support to avoid double-fetching — except on anchors the
+rules exclude, which keep the JS strategy since nothing prerenders them. In browsers that do not
 support speculation rules, the normal JS prefetch and SPA navigation path remain
 active as the fallback. Set both fields explicitly when you want JS prefetch to
 keep running alongside speculation `prefetch`.
@@ -1111,7 +1160,8 @@ rules script with `'inline-speculation-rules'` in `script-src`. See
 ### Browser support
 
 Chromium-based browsers (Chrome / Edge 121+). Pracht emits **document rules**
-(`href_matches` + `eagerness`), which landed in Chrome 121 — earlier versions
+(`href_matches` + `eagerness`, plus `and`/`not`/`selector_matches` for the
+link-level exclusions), which landed in Chrome 121 — earlier versions
 only understood explicit URL-list rules and ignore this script. Firefox and
 Safari ignore it too — the JS `prefetch` strategy continues to work as the
 cross-browser fallback.

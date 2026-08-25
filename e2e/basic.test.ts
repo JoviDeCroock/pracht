@@ -64,14 +64,184 @@ test("home page emits a speculationrules script with opted-in routes", async ({ 
     .replace(/\\u003c/g, "<")
     .replace(/\\u003e/g, ">")
     .replace(/\\u0026/g, "&");
-  const rules = JSON.parse(decoded) as {
-    prefetch?: Array<{ where: { href_matches: string[] }; eagerness: string }>;
-    prerender?: Array<{ where: { href_matches: string[] }; eagerness: string }>;
+  type Rule = {
+    where: { and: [{ href_matches: string[] }, { not: { selector_matches: string[] } }] };
+    eagerness: string;
   };
+  const rules = JSON.parse(decoded) as { prefetch?: Rule[]; prerender?: Rule[] };
 
-  const prefetchHrefs = rules.prefetch?.flatMap((r) => r.where.href_matches) ?? [];
+  const prefetchHrefs = rules.prefetch?.flatMap((r) => r.where.and[0].href_matches) ?? [];
   expect(prefetchHrefs).toEqual(expect.arrayContaining(["/", "/pricing", "/products/:id"]));
   expect(rules.prefetch?.[0].eagerness).toBe("moderate");
+  // Link-level exclusions ride along on every rule.
+  expect(rules.prefetch?.[0].where.and[1].not.selector_matches).toEqual(
+    expect.arrayContaining([
+      'a[rel~="nofollow"]',
+      'area[rel~="nofollow"]',
+      'a[data-pracht-speculate="off"]',
+      'area[data-pracht-speculate="off"]',
+    ]),
+  );
+});
+
+test("chromium accepts the speculation rules and their exclusion selectors", async ({ page }) => {
+  const messages: string[] = [];
+  page.on("console", (message) => messages.push(message.text()));
+  await page.goto("/");
+
+  const selectors = await page.evaluate(() => {
+    const script = document.querySelector('script[type="speculationrules"]');
+    if (!script?.textContent) return null;
+    const rules = JSON.parse(script.textContent) as {
+      prefetch?: Array<{ where: { and: [unknown, { not: { selector_matches: string[] } }] } }>;
+    };
+    return rules.prefetch?.[0].where.and[1].not.selector_matches ?? null;
+  });
+  expect(selectors).not.toBeNull();
+
+  // Chrome parses the rule set at load; a malformed clause or selector shows up
+  // as a console error naming speculation rules.
+  expect(messages.filter((text) => /speculation/i.test(text))).toEqual([]);
+
+  // The fail-closed scope semantics, evaluated by a real CSS engine.
+  const verdicts = await page.evaluate((list: string[]) => {
+    const selector = list.join(",");
+    const host = document.createElement("div");
+    host.innerHTML = `
+      <a id="plain" href="/pricing"></a>
+      <a id="nofollow" href="/pricing" rel="nofollow"></a>
+      <a id="self-off" href="/pricing" data-pracht-speculate="off"></a>
+      <nav data-pracht-speculate="off">
+        <a id="scoped-off" href="/pricing"></a>
+        <a id="scoped-on" href="/pricing" data-pracht-speculate="on"></a>
+        <div data-pracht-speculate="on"><a id="nested-on" href="/pricing"></a></div>
+        <div data-pracht-speculate="on">
+          <div data-pracht-speculate="off"><a id="alternating-off" href="/pricing"></a></div>
+        </div>
+      </nav>
+      <nav data-pracht-speculate="on">
+        <div data-pracht-speculate="off"><a id="nested-off" href="/pricing"></a></div>
+      </nav>`;
+    document.body.appendChild(host);
+    const read = (id: string) => document.getElementById(id)!.matches(selector);
+    const result = {
+      plain: read("plain"),
+      nofollow: read("nofollow"),
+      selfOff: read("self-off"),
+      scopedOff: read("scoped-off"),
+      scopedOn: read("scoped-on"),
+      nestedOn: read("nested-on"),
+      nestedOff: read("nested-off"),
+      alternatingOff: read("alternating-off"),
+    };
+    host.remove();
+    return result;
+  }, selectors as string[]);
+
+  expect(verdicts).toEqual({
+    plain: false,
+    nofollow: true,
+    selfOff: true,
+    scopedOff: true,
+    scopedOn: false,
+    nestedOn: true,
+    nestedOff: true,
+    alternatingOff: true,
+  });
+});
+
+test("chrome speculates included links and skips excluded ones", async ({ page }) => {
+  const speculated: string[] = [];
+  page.on("request", (request) => {
+    if (request.headers()["sec-purpose"]) speculated.push(new URL(request.url()).search);
+  });
+  await page.goto("/");
+
+  // Document rules match the live DOM, so anchors added after load count too.
+  await page.evaluate(() => {
+    const host = document.createElement("div");
+    // Distinct query strings so each hover maps to its own prefetch entry.
+    host.innerHTML = `
+      <a id="spec-included" href="/pricing?spec=included">included</a>
+      <a id="spec-off" href="/pricing?spec=off" data-pracht-speculate="off">off</a>
+      <a id="spec-nofollow" href="/pricing?spec=nofollow" rel="nofollow">nofollow</a>`;
+    document.body.appendChild(host);
+  });
+
+  // `prefetch` speculation defaults to `moderate` eagerness — hover triggers it.
+  const prefetched = page.waitForRequest(
+    (request) => request.url().includes("spec=included") && !!request.headers()["sec-purpose"],
+  );
+  await page.locator("#spec-included").hover();
+  await prefetched;
+
+  await page.locator("#spec-off").hover();
+  await page.locator("#spec-nofollow").hover();
+  await page.waitForTimeout(1500);
+
+  expect(speculated).toEqual(["?spec=included"]);
+});
+
+test("chrome skips excluded image-map areas", async ({ page }) => {
+  const speculated: string[] = [];
+  page.on("request", (request) => {
+    if (request.headers()["sec-purpose"] && request.url().includes("area=")) {
+      speculated.push(new URL(request.url()).search);
+    }
+  });
+  await page.goto("/");
+
+  const included = page.waitForRequest(
+    (request) => request.url().includes("area=included") && !!request.headers()["sec-purpose"],
+  );
+  await page.evaluate(() => {
+    const emitted = document.querySelector('script[type="speculationrules"]');
+    if (!emitted?.textContent) throw new Error("Missing emitted speculation rules");
+    const rules = JSON.parse(emitted.textContent) as {
+      prefetch?: Array<{ where: { and: [unknown, { not: { selector_matches: string[] } }] } }>;
+    };
+    const exclusions = rules.prefetch?.[0].where.and[1].not.selector_matches;
+    if (!exclusions) throw new Error("Missing emitted speculation exclusions");
+
+    const map = document.createElement("map");
+    map.name = "speculation-area-map";
+    map.innerHTML = `
+      <area href="/pricing?area=included" data-e2e-area shape="rect" coords="0,0,10,10">
+      <area href="/pricing?area=nofollow" data-e2e-area rel="nofollow" shape="rect" coords="10,0,20,10">
+      <area href="/pricing?area=off" data-e2e-area data-pracht-speculate="off" shape="rect" coords="20,0,30,10">`;
+    document.body.appendChild(map);
+
+    const image = document.createElement("img");
+    image.useMap = "#speculation-area-map";
+    image.width = 30;
+    image.height = 10;
+    image.alt = "Speculation area test";
+    image.src =
+      "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='10'/>";
+    document.body.appendChild(image);
+
+    const script = document.createElement("script");
+    script.type = "speculationrules";
+    script.textContent = JSON.stringify({
+      prefetch: [
+        {
+          source: "document",
+          where: {
+            and: [
+              { selector_matches: "area[data-e2e-area]" },
+              { not: { selector_matches: exclusions } },
+            ],
+          },
+          eagerness: "immediate",
+        },
+      ],
+    });
+    document.body.appendChild(script);
+  });
+
+  await included;
+  await page.waitForTimeout(1500);
+  expect(speculated).toEqual(["?area=included"]);
 });
 
 // ---------------------------------------------------------------------------

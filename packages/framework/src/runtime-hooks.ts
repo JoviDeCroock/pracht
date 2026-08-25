@@ -23,6 +23,7 @@ import {
   PREFETCH_ATTRIBUTE,
   PRESERVE_SCROLL_ATTRIBUTE,
   SAFE_METHODS,
+  SPECULATE_ATTRIBUTE,
   VIEW_TRANSITION_ATTRIBUTE,
 } from "./runtime-constants.ts";
 import {
@@ -136,6 +137,14 @@ export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
      * `document.startViewTransition()` when supported.
      */
     viewTransition?: boolean;
+    /**
+     * Opt this link out of (`false`) or back into (`true`) the browser's
+     * speculation rules, overriding any enclosing
+     * `data-pracht-speculate="off"` scope. Independent of `prefetch`, which
+     * controls the JS route-state prefetch; disable both on links with side
+     * effects.
+     */
+    speculate?: boolean;
   };
 
 const validatedNativeSubmissions = new WeakSet<HTMLFormElement>();
@@ -231,13 +240,23 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     throw new Error("<Link route=...> must render inside a pracht route tree.");
   }
 
-  const { route, params, search, hash, prefetch, preserveScroll, viewTransition, ...anchorProps } =
-    props as unknown as Omit<JSX.HTMLAttributes<HTMLAnchorElement>, "href"> &
-      UntypedRouteTarget & {
-        prefetch?: LinkPrefetchStrategy;
-        preserveScroll?: boolean;
-        viewTransition?: boolean;
-      };
+  const {
+    route,
+    params,
+    search,
+    hash,
+    prefetch,
+    preserveScroll,
+    viewTransition,
+    speculate,
+    ...anchorProps
+  } = props as unknown as Omit<JSX.HTMLAttributes<HTMLAnchorElement>, "href"> &
+    UntypedRouteTarget & {
+      prefetch?: LinkPrefetchStrategy;
+      preserveScroll?: boolean;
+      viewTransition?: boolean;
+      speculate?: boolean;
+    };
 
   // `<Link href="/blog">` is a TypeScript error, but untyped JSX and JS
   // callers reach here with no `route`. Without this the missing id runs the
@@ -257,6 +276,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     [PREFETCH_ATTRIBUTE]: prefetch,
     [PRESERVE_SCROLL_ATTRIBUTE]: preserveScroll ? "" : undefined,
     [VIEW_TRANSITION_ATTRIBUTE]: viewTransition ? "" : undefined,
+    [SPECULATE_ATTRIBUTE]: speculate === undefined ? undefined : speculate ? "on" : "off",
   } as JSX.HTMLAttributes<HTMLAnchorElement>);
 }
 

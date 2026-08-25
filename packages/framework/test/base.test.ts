@@ -129,7 +129,7 @@ describe("base-aware speculation rules", () => {
       }),
     );
 
-    expect(buildSpeculationRules(app.routes)?.prerender?.[0].where.href_matches).toEqual([
+    expect(buildSpeculationRules(app.routes)?.prerender?.[0].where.and[0].href_matches).toEqual([
       "/my-project/article/:slug",
     ]);
   });

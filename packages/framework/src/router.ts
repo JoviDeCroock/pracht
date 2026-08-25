@@ -29,7 +29,11 @@ import {
   PRESERVE_SCROLL_ATTRIBUTE,
   VIEW_TRANSITION_ATTRIBUTE,
 } from "./runtime-constants.ts";
-import { normalizeSpeculation, supportsSpeculationRules } from "./runtime-speculation.ts";
+import {
+  isSpeculationSuppressed,
+  normalizeSpeculation,
+  supportsSpeculationRules,
+} from "./runtime-speculation.ts";
 import {
   createScrollPositionStore,
   generateScrollKey,
@@ -888,9 +892,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // If the destination route opted into `prerender` speculation rules, let
     // the browser perform a normal navigation so it can activate the
     // prerendered document. Intercepting here would cancel the activation
-    // and force a redundant SPA fetch of the route-state JSON.
+    // and force a redundant SPA fetch of the route-state JSON. Anchors the
+    // rules exclude (`rel="nofollow"`, `data-pracht-speculate="off"`) have no
+    // prerendered document to activate, so they stay on the SPA path.
     const targetMatch = matchResolvedRoute(app, stripBase(url.pathname) ?? url.pathname);
-    if (targetMatch && supportsSpeculationRules()) {
+    if (targetMatch && supportsSpeculationRules() && !isSpeculationSuppressed(anchor)) {
       const spec = normalizeSpeculation(targetMatch.route.speculation);
       if (spec?.mode === "prerender") return;
     }
