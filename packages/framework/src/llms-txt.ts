@@ -63,12 +63,36 @@ export interface BuildLlmsTxtOptions {
    * do not need an entry here.
    */
   exclude?: readonly string[];
+  /**
+   * Ceiling on how many prerendered instances a single dynamic route
+   * contributes to the Pages section. Defaults to
+   * {@link DEFAULT_MAX_PAGES_PER_ROUTE}; `0` lists every instance.
+   *
+   * llms.txt is an index, not a sitemap. A 5,000-post blog expanded through
+   * `getStaticPaths()` produces a 5,000-line, 180 KB file — larger than most
+   * agent context budgets, and the 4,990th post tells an agent nothing the
+   * first ten did not. Truncation is never silent: the section ends with a
+   * line naming the route and how many URLs were left out.
+   */
+  maxPagesPerRoute?: number;
 }
+
+/**
+ * Enough to show the shape of a collection — and of an archive — without the
+ * file becoming the collection.
+ */
+export const DEFAULT_MAX_PAGES_PER_ROUTE = 50;
 
 interface LlmsTxtPageEntry {
   path: string;
   /** True when the route declares a Markdown representation. */
   markdown: boolean;
+}
+
+/** One dynamic route whose instances were capped, for the truncation note. */
+interface LlmsTxtTruncation {
+  routePath: string;
+  omitted: number;
 }
 
 interface LlmsTxtApiEntry {
@@ -112,14 +136,26 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   if (include.includes("pages")) {
-    const pages = (await collectPageEntries(options.app.routes, options.registry)).filter(
-      (page) => !isExcluded(page.path),
-    );
-    if (pages.length > 0) {
+    const collected = await collectPageEntries(options.app.routes, options.registry, {
+      isExcluded,
+      maxPagesPerRoute: options.maxPagesPerRoute ?? DEFAULT_MAX_PAGES_PER_ROUTE,
+    });
+    if (collected.pages.length > 0) {
       lines.push("", "## Pages", "");
-      for (const page of pages) {
+      for (const page of collected.pages) {
         const note = page.markdown ? ": supports `Accept: text/markdown`" : "";
         lines.push(`- [${page.path}](${link(page.path)})${note}`);
+      }
+      // Prose rather than a list item: every entry in a section has to stay a
+      // link for llms.txt consumers, and a truncated index that does not say so
+      // is indistinguishable from a complete one.
+      for (const truncated of collected.truncated) {
+        lines.push(
+          "",
+          `_${truncated.omitted} more prerendered ${truncated.omitted === 1 ? "page" : "pages"} ` +
+            `under \`${truncated.routePath}\` are not listed. Raise ` +
+            "`llmsTxt.maxPagesPerRoute` to include them._",
+        );
       }
     }
   }
@@ -230,15 +266,17 @@ async function loadRouteModule(
 async function collectPageEntries(
   routes: readonly ResolvedRoute[],
   registry: ModuleRegistry | undefined,
-): Promise<LlmsTxtPageEntry[]> {
+  options: { isExcluded: (path: string) => boolean; maxPagesPerRoute: number },
+): Promise<{ pages: LlmsTxtPageEntry[]; truncated: LlmsTxtTruncation[] }> {
   const entries = new Map<string, LlmsTxtPageEntry>();
+  const truncated: LlmsTxtTruncation[] = [];
 
   for (const route of routes) {
     const routeModule = await loadRouteModule(registry, route.file);
     const markdown = hasMarkdownRepresentation(route, routeModule);
 
     if (!isDynamicRoute(route)) {
-      if (!entries.has(route.path)) {
+      if (!options.isExcluded(route.path) && !entries.has(route.path)) {
         entries.set(route.path, { markdown, path: route.path });
       }
       continue;
@@ -257,15 +295,33 @@ async function collectPageEntries(
       continue;
     }
 
+    // Excluded instances are dropped before the cap is applied: a cap that
+    // counted URLs the file was never going to list would silently shrink the
+    // listing for anyone using `exclude`.
+    const paths: string[] = [];
     for (const params of paramSets) {
       const path = buildPathFromSegments(route.segments, params);
-      if (!entries.has(path)) {
-        entries.set(path, { markdown, path });
-      }
+      if (options.isExcluded(path) || entries.has(path) || paths.includes(path)) continue;
+      paths.push(path);
+    }
+
+    // Sorted before truncating, so which instances survive is deterministic
+    // and stable across machines rather than an artifact of getStaticPaths()
+    // ordering.
+    paths.sort(comparePaths);
+    const limit = options.maxPagesPerRoute > 0 ? options.maxPagesPerRoute : paths.length;
+    if (paths.length > limit) {
+      truncated.push({ omitted: paths.length - limit, routePath: route.path });
+    }
+    for (const path of paths.slice(0, limit)) {
+      entries.set(path, { markdown, path });
     }
   }
 
-  return [...entries.values()].sort((left, right) => comparePaths(left.path, right.path));
+  return {
+    pages: [...entries.values()].sort((left, right) => comparePaths(left.path, right.path)),
+    truncated,
+  };
 }
 
 async function collectApiEntries(

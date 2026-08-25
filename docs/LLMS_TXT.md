@@ -19,6 +19,7 @@ pracht({
     origin: "https://example.com", // emit absolute URLs; relative when omitted
     include: ["pages", "api", "capabilities"], // sections to emit (default: all)
     exclude: ["/dashboard", "/admin/**"],       // paths to leave out
+    maxPagesPerRoute: 50,                       // per dynamic route (0 = all)
   },
 })
 ```
@@ -43,6 +44,25 @@ the emitted paths, so `/blog/**` also covers the prerendered instances of
 `llmsTxt: {}` is enough — the title falls back to the app's package.json
 `name` and the description to its `description` (the blockquote is omitted
 when neither is set).
+
+### Large collections
+
+A dynamic SSG/ISG route contributes at most `maxPagesPerRoute` prerendered
+instances to the Pages section — 50 by default, per route, applied after
+`exclude`. llms.txt is an index, not a sitemap: a 5,000-post blog expanded
+through `getStaticPaths()` produces a 5,000-line, 180 KB file, which is larger
+than most agent context budgets and tells an agent nothing the first fifty
+entries did not.
+
+Truncation is never silent. The section ends with a line naming the route and
+the count:
+
+```
+_4,950 more prerendered pages under `/blog/:slug` are not listed. Raise
+`llmsTxt.maxPagesPerRoute` to include them._
+```
+
+Set `maxPagesPerRoute: 0` to list every instance.
 
 ## What it does
 

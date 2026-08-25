@@ -348,3 +348,127 @@ describe("framework-reserved paths", () => {
     }
   });
 });
+
+describe("buildLlmsTxt page ceilings", () => {
+  function appWithPosts(count: number) {
+    return {
+      app: resolveApp(
+        defineApp({ routes: [route("/blog/:slug", "./routes/blog.tsx", { render: "ssg" })] }),
+      ),
+      registry: {
+        routeModules: {
+          "/src/routes/blog.tsx": async () => ({
+            getStaticPaths: () =>
+              Array.from({ length: count }, (_, index) => ({ slug: `post-${index + 1}` })),
+          }),
+        },
+      } as ModuleRegistry,
+    };
+  }
+
+  // llms.txt is an index, not a sitemap: a 5,000-post blog expanded through
+  // getStaticPaths() produced a 5,000-line, 180 KB file — bigger than most
+  // agent context budgets, and the 4,990th post says nothing the first ten did
+  // not.
+  it("caps how many instances one dynamic route contributes", async () => {
+    const output = await buildLlmsTxt({ ...appWithPosts(120), title: "Blog" });
+
+    const links = output.split("\n").filter((line) => line.startsWith("- ["));
+    expect(links).toHaveLength(50);
+  });
+
+  it("says what it left out instead of truncating silently", async () => {
+    const output = await buildLlmsTxt({ ...appWithPosts(120), title: "Blog" });
+
+    expect(output).toContain("70 more prerendered pages under `/blog/:slug` are not listed");
+    expect(output).toContain("llmsTxt.maxPagesPerRoute");
+  });
+
+  it("honours an explicit ceiling", async () => {
+    const output = await buildLlmsTxt({
+      ...appWithPosts(10),
+      maxPagesPerRoute: 3,
+      title: "Blog",
+    });
+
+    const links = output.split("\n").filter((line) => line.startsWith("- ["));
+    expect(links).toHaveLength(3);
+    expect(output).toContain("7 more prerendered pages");
+  });
+
+  it("lists every instance when the ceiling is 0", async () => {
+    const output = await buildLlmsTxt({
+      ...appWithPosts(120),
+      maxPagesPerRoute: 0,
+      title: "Blog",
+    });
+
+    const links = output.split("\n").filter((line) => line.startsWith("- ["));
+    expect(links).toHaveLength(120);
+    expect(output).not.toContain("are not listed");
+  });
+
+  it("stays quiet when the route fits", async () => {
+    const output = await buildLlmsTxt({ ...appWithPosts(3), title: "Blog" });
+
+    expect(output).not.toContain("are not listed");
+  });
+
+  // Sorted before truncating, so which instances survive is deterministic
+  // rather than an artifact of getStaticPaths() ordering.
+  it("keeps the lexicographically first instances", async () => {
+    const output = await buildLlmsTxt({
+      ...appWithPosts(120),
+      maxPagesPerRoute: 2,
+      title: "Blog",
+    });
+
+    expect(output).toContain("- [/blog/post-1](/blog/post-1)");
+    expect(output).toContain("- [/blog/post-10](/blog/post-10)");
+    expect(output).not.toContain("- [/blog/post-2](/blog/post-2)");
+  });
+
+  // A ceiling that counted URLs the file was never going to list would
+  // silently shrink the listing for anyone using `exclude`.
+  it("applies the ceiling after exclusions, not before", async () => {
+    const output = await buildLlmsTxt({
+      ...appWithPosts(10),
+      exclude: ["/blog/post-1"],
+      maxPagesPerRoute: 3,
+      title: "Blog",
+    });
+
+    const links = output.split("\n").filter((line) => line.startsWith("- ["));
+    expect(links).toHaveLength(3);
+    expect(output).not.toContain("- [/blog/post-1](/blog/post-1)");
+    expect(output).toContain("6 more prerendered pages");
+  });
+
+  it("counts each dynamic route separately", async () => {
+    const output = await buildLlmsTxt({
+      app: resolveApp(
+        defineApp({
+          routes: [
+            route("/blog/:slug", "./routes/blog.tsx", { render: "ssg" }),
+            route("/docs/:slug", "./routes/docs.tsx", { render: "ssg" }),
+          ],
+        }),
+      ),
+      maxPagesPerRoute: 1,
+      registry: {
+        routeModules: {
+          "/src/routes/blog.tsx": async () => ({
+            getStaticPaths: () => [{ slug: "a" }, { slug: "b" }],
+          }),
+          "/src/routes/docs.tsx": async () => ({
+            getStaticPaths: () => [{ slug: "x" }, { slug: "y" }, { slug: "z" }],
+          }),
+        },
+      } as ModuleRegistry,
+      title: "Site",
+    });
+
+    expect(output).toContain("1 more prerendered page under `/blog/:slug`");
+    expect(output).toContain("2 more prerendered pages under `/docs/:slug`");
+  });
+});

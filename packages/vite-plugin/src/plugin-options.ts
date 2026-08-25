@@ -34,6 +34,17 @@ export interface PrachtLlmsTxtOptions {
    * ```
    */
   exclude?: string[];
+  /**
+   * Ceiling on how many prerendered instances a single dynamic route
+   * contributes to the Pages section. Defaults to 50; `0` lists every
+   * instance.
+   *
+   * llms.txt is an index, not a sitemap. A 5,000-post blog expanded through
+   * `getStaticPaths()` produces a 5,000-line, 180 KB file — larger than most
+   * agent context budgets. Truncation is never silent: the section ends with a
+   * line naming the route and how many URLs were left out.
+   */
+  maxPagesPerRoute?: number;
 }
 
 /**
@@ -215,6 +226,16 @@ function validateLlmsTxt(llmsTxt: false | PrachtLlmsTxtOptions): void {
     if (!isValid) {
       throw new Error(
         `pracht({ llmsTxt: { include } }) expects an array of "pages", "api", and/or "capabilities", got ${JSON.stringify(llmsTxt.include)}.`,
+      );
+    }
+  }
+  // A negative or fractional ceiling would silently round into a listing
+  // nobody asked for; `0` is the documented "list everything".
+  if (llmsTxt.maxPagesPerRoute !== undefined) {
+    const value = llmsTxt.maxPagesPerRoute;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      throw new Error(
+        `pracht({ llmsTxt: { maxPagesPerRoute } }) expects a non-negative integer (0 lists every page), got ${JSON.stringify(value)}.`,
       );
     }
   }
