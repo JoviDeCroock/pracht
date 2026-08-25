@@ -113,6 +113,24 @@ describe("resolveOptions llmsTxt", () => {
       /"pages", "api", and\/or "capabilities"/,
     );
   });
+
+  it("rejects a negative, fractional or non-numeric maxPagesPerRoute", () => {
+    for (const value of [-1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => resolveOptions({ llmsTxt: { maxPagesPerRoute: value } })).toThrow(
+        /non-negative integer/,
+      );
+    }
+    // @ts-expect-error — a string ceiling is the shape a config file produces.
+    expect(() => resolveOptions({ llmsTxt: { maxPagesPerRoute: "50" } })).toThrow(
+      /non-negative integer/,
+    );
+  });
+
+  it("keeps a maxPagesPerRoute of 0", () => {
+    expect(resolveOptions({ llmsTxt: { maxPagesPerRoute: 0 } }).llmsTxt).toEqual({
+      maxPagesPerRoute: 0,
+    });
+  });
 });
 
 describe("createPrachtServerModuleSource llmsTxt export", () => {
@@ -131,6 +149,22 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
       'const llmsTxtConfig = {"title":"My App","description":"Demo.","origin":"https://example.com"};',
     );
     expect(source).toContain("export const generateLlmsTxt = () =>");
+  });
+
+  // `0` means "list every instance". A truthiness check when serializing the
+  // config would drop it and silently restore the default ceiling of 50 — the
+  // one value of this option whose absence is indistinguishable from its
+  // presence.
+  it("serializes a maxPagesPerRoute of 0", () => {
+    const source = createPrachtServerModuleSource({
+      llmsTxt: { title: "My App", maxPagesPerRoute: 0 },
+    });
+    expect(source).toContain('"maxPagesPerRoute":0');
+  });
+
+  it("omits maxPagesPerRoute when it is not configured", () => {
+    const source = createPrachtServerModuleSource({ llmsTxt: { title: "My App" } });
+    expect(source).not.toContain("maxPagesPerRoute");
   });
 
   it("falls back to the app package.json name for the title", () => {

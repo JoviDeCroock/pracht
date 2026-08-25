@@ -464,6 +464,7 @@ interface ResolvedLlmsTxtConfig {
   origin?: string;
   include?: string[];
   exclude?: string[];
+  maxPagesPerRoute?: number;
 }
 
 /**
@@ -492,6 +493,9 @@ function resolveLlmsTxtConfig(
   if (resolved.llmsTxt.origin) config.origin = resolved.llmsTxt.origin;
   if (resolved.llmsTxt.include) config.include = resolved.llmsTxt.include;
   if (resolved.llmsTxt.exclude?.length) config.exclude = resolved.llmsTxt.exclude;
+  if (resolved.llmsTxt.maxPagesPerRoute !== undefined) {
+    config.maxPagesPerRoute = resolved.llmsTxt.maxPagesPerRoute;
+  }
   return config;
 }
 

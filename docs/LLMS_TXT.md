@@ -19,6 +19,7 @@ pracht({
     origin: "https://example.com", // emit absolute URLs; relative when omitted
     include: ["pages", "api", "capabilities"], // sections to emit (default: all)
     exclude: ["/dashboard", "/admin/**"],       // paths to leave out
+    maxPagesPerRoute: 50,                       // per dynamic route (0 = all)
   },
 })
 ```
@@ -43,6 +44,34 @@ the emitted paths, so `/blog/**` also covers the prerendered instances of
 `llmsTxt: {}` is enough — the title falls back to the app's package.json
 `name` and the description to its `description` (the blockquote is omitted
 when neither is set).
+
+### Large collections
+
+A dynamic SSG/ISG route contributes at most `maxPagesPerRoute` prerendered
+instances to the Pages section — 50 by default, per route, applied after
+`exclude`. llms.txt is an index, not a sitemap: a 5,000-post blog expanded
+through `getStaticPaths()` produces a 5,000-line, 180 KB file, which is larger
+than most agent context budgets and tells an agent nothing the first fifty
+entries did not.
+
+**Which instances survive:** the first `maxPagesPerRoute` your
+`getStaticPaths()` returns, after `exclude` is applied. The order is yours, so
+a blog that returns posts newest-first lists its newest posts. They are printed
+in path order, like every other entry, so the file stays byte-stable.
+
+Truncation is never silent. A line above the `## Pages` heading names the route
+and the ratio it lists:
+
+```
+_Pages lists 50 of 5000 prerendered URLs under `/blog/:slug`; 4950 are omitted. Raise `llmsTxt.maxPagesPerRoute` to include them._
+```
+
+The note goes above the heading rather than inside the section on purpose. The
+[spec](https://llmstxt.org) allows free-form prose only in the block between
+the title and the first `##`; an `##` section is a file list, and the reference
+parser rejects any line inside one that is not a `- [name](url)` link.
+
+Set `maxPagesPerRoute: 0` to list every instance.
 
 ## What it does
 
@@ -92,8 +121,9 @@ comparison, so repeated builds produce byte-identical files.
   URLs an agent can fetch.
 - Dynamic routes (`/blog/:slug`) are listed only when they are SSG/ISG routes
   with a `getStaticPaths()` export; each prerendered instance becomes its own
-  entry. Dynamic SSR/SPA routes are skipped — there is no concrete URL to
-  link.
+  entry, up to `maxPagesPerRoute` per route (see
+  [Large collections](#large-collections)). Dynamic SSR/SPA routes are
+  skipped — there is no concrete URL to link.
 - Routes with a server-only `markdown` export, or `markdown: true` route
   metadata for middleware-owned negotiation (see
   [docs/DATA_LOADING.md](DATA_LOADING.md)), are annotated with

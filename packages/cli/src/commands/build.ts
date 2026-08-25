@@ -39,6 +39,36 @@ import {
 
 export { resolvePrerenderOutputPath } from "../build-static.js";
 
+/**
+ * How many prerendered pages the build log names individually.
+ *
+ * Enough to see the shape of the output — the home page, a few list pages, the
+ * first instances of a dynamic route — without a content site turning its build
+ * into 5,000 lines of scrollback.
+ */
+const PRERENDER_LOG_LIMIT = 20;
+
+/**
+ * How many prerendered page lines to name, and the tail that stands in for the
+ * rest.
+ *
+ * The decision is separated from the write loop so the arithmetic is testable
+ * without running a build: the tail has to appear only when something was
+ * actually elided, and its count has to agree with the total printed on the
+ * line above. `limit` is a parameter rather than a captured constant so the
+ * behaviour stays pinned if {@link PRERENDER_LOG_LIMIT} is retuned.
+ */
+export function planPrerenderLog(
+  pageCount: number,
+  limit: number,
+): { named: number; tail: string | null } {
+  const named = Math.min(pageCount, limit);
+  return {
+    named,
+    tail: pageCount > named ? `    … and ${pageCount - named} more` : null,
+  };
+}
+
 let prerenderHooksRegistered = false;
 
 function registerPrerenderModuleHooks(): void {
@@ -645,6 +675,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
 
     if (staticPages.length > 0) {
       log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
+      const prerenderLog = planPrerenderLog(staticPages.length, PRERENDER_LOG_LIMIT);
+      let logged = 0;
       for (const page of staticPages) {
         // Static exports write to the decoded path (the host resolves the URL
         // itself); serverful adapters keep the encoded form their own static
@@ -655,7 +687,17 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
 
         mkdirSync(dirname(filePath), { recursive: true });
         writeFileSync(filePath, page.html, "utf-8");
-        log(`    ${page.path} → ${filePath.replace(root + "/", "")}`);
+        // One line per page is a useful build log for a marketing site and
+        // 5,000 lines of scrollback for a content site. The count above
+        // already states the total, so the tail is noise rather than
+        // information — but say how much was elided rather than trailing off.
+        if (logged < prerenderLog.named) {
+          log(`    ${page.path} → ${filePath.replace(root + "/", "")}`);
+          logged += 1;
+        }
+      }
+      if (prerenderLog.tail) {
+        log(prerenderLog.tail);
       }
     }
 

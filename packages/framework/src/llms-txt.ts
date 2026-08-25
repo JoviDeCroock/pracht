@@ -63,12 +63,42 @@ export interface BuildLlmsTxtOptions {
    * do not need an entry here.
    */
   exclude?: readonly string[];
+  /**
+   * Ceiling on how many prerendered instances a single dynamic route
+   * contributes to the Pages section. Defaults to
+   * {@link DEFAULT_MAX_PAGES_PER_ROUTE}; `0` lists every instance.
+   * Must be a non-negative integer.
+   *
+   * The instances kept are the first ones `getStaticPaths()` returns, after
+   * `exclude` is applied — the author's order, which for a blog is usually
+   * newest-first. They are listed in path order like every other entry.
+   *
+   * llms.txt is an index, not a sitemap. A 5,000-post blog expanded through
+   * `getStaticPaths()` produces a 5,000-line, 180 KB file — larger than most
+   * agent context budgets, and the 4,990th post tells an agent nothing the
+   * first ten did not. Truncation is never silent: a line above the Pages
+   * section names the route and the ratio it lists.
+   */
+  maxPagesPerRoute?: number;
 }
+
+/**
+ * Enough to show the shape of a collection — and of an archive — without the
+ * file becoming the collection.
+ */
+export const DEFAULT_MAX_PAGES_PER_ROUTE = 50;
 
 interface LlmsTxtPageEntry {
   path: string;
   /** True when the route declares a Markdown representation. */
   markdown: boolean;
+}
+
+/** One dynamic route whose instances were capped, for the truncation note. */
+interface LlmsTxtTruncation {
+  routePath: string;
+  listed: number;
+  omitted: number;
 }
 
 interface LlmsTxtApiEntry {
@@ -100,6 +130,12 @@ function isReservedPath(path: string): boolean {
 export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string> {
   const include = options.include ?? ["pages", "api", "capabilities"];
   const origin = options.origin?.replace(/\/$/, "") ?? "";
+  const maxPagesPerRoute = options.maxPagesPerRoute ?? DEFAULT_MAX_PAGES_PER_ROUTE;
+  if (!Number.isInteger(maxPagesPerRoute) || maxPagesPerRoute < 0) {
+    throw new Error(
+      `Invalid llmsTxt.maxPagesPerRoute: expected a non-negative integer (0 lists every page), got ${JSON.stringify(maxPagesPerRoute)}.`,
+    );
+  }
   // Paths come from the route table, so they carry no deploy base. The links
   // are for crawlers and agents, which need the URL as served.
   const link = (path: string): string => `${origin}${withBase(path)}`;
@@ -112,12 +148,27 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   if (include.includes("pages")) {
-    const pages = (await collectPageEntries(options.app.routes, options.registry)).filter(
-      (page) => !isExcluded(page.path),
-    );
-    if (pages.length > 0) {
+    const collected = await collectPageEntries(options.app.routes, options.registry, {
+      isExcluded,
+      maxPagesPerRoute,
+    });
+    if (collected.pages.length > 0) {
+      // Truncation notes go in the free-form block above the first H2, not
+      // inside `## Pages`. The spec allows "zero or more markdown sections
+      // (e.g. paragraphs, lists, etc) of any type except headings" only there;
+      // an H2 section is a file list. The reference parser (AnswerDotAI's
+      // `llms_txt`, linked from llmstxt.org) feeds every non-blank line inside
+      // a section to a link regex and throws on the first line that is not a
+      // link — prose or list item alike — so a note inside the section makes
+      // the whole file unparseable, a louder failure than the silent
+      // truncation it exists to prevent. Above the H2 it still lands in the
+      // first thing an agent reads. Several capped routes stay one contiguous
+      // block, one line each, so the info block does not become a list.
+      if (collected.truncated.length > 0) {
+        lines.push("", ...collected.truncated.map(formatTruncationNote));
+      }
       lines.push("", "## Pages", "");
-      for (const page of pages) {
+      for (const page of collected.pages) {
         const note = page.markdown ? ": supports `Accept: text/markdown`" : "";
         lines.push(`- [${page.path}](${link(page.path)})${note}`);
       }
@@ -154,6 +205,24 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The sentence that keeps a capped listing from reading as a complete one.
+ *
+ * It states the ratio rather than only the remainder because it sits above the
+ * section it describes: "N more are not listed" has no antecedent when it is
+ * the first line of the file. The verb agrees with the count, so a single
+ * omitted page does not read "1 more page ... are not listed".
+ */
+function formatTruncationNote(truncated: LlmsTxtTruncation): string {
+  const one = truncated.omitted === 1;
+  return (
+    `_Pages lists ${truncated.listed} of ${truncated.listed + truncated.omitted} ` +
+    `prerendered URLs under \`${truncated.routePath}\`; ${truncated.omitted} ` +
+    `${one ? "is" : "are"} omitted. Raise \`llmsTxt.maxPagesPerRoute\` to ` +
+    `include ${one ? "it" : "them"}._`
+  );
 }
 
 /**
@@ -230,15 +299,17 @@ async function loadRouteModule(
 async function collectPageEntries(
   routes: readonly ResolvedRoute[],
   registry: ModuleRegistry | undefined,
-): Promise<LlmsTxtPageEntry[]> {
+  options: { isExcluded: (path: string) => boolean; maxPagesPerRoute: number },
+): Promise<{ pages: LlmsTxtPageEntry[]; truncated: LlmsTxtTruncation[] }> {
   const entries = new Map<string, LlmsTxtPageEntry>();
+  const truncated: LlmsTxtTruncation[] = [];
 
   for (const route of routes) {
     const routeModule = await loadRouteModule(registry, route.file);
     const markdown = hasMarkdownRepresentation(route, routeModule);
 
     if (!isDynamicRoute(route)) {
-      if (!entries.has(route.path)) {
+      if (!options.isExcluded(route.path) && !entries.has(route.path)) {
         entries.set(route.path, { markdown, path: route.path });
       }
       continue;
@@ -257,15 +328,41 @@ async function collectPageEntries(
       continue;
     }
 
+    // Excluded instances are dropped before the cap is applied: a cap that
+    // counted URLs the file was never going to list would silently shrink the
+    // listing for anyone using `exclude`. `seen` is a Set rather than a scan of
+    // `paths`: an includes() here is O(n^2) in the instance count, which is the
+    // one thing a route with 50,000 instances cannot afford.
+    const seen = new Set<string>();
+    const paths: string[] = [];
     for (const params of paramSets) {
       const path = buildPathFromSegments(route.segments, params);
-      if (!entries.has(path)) {
-        entries.set(path, { markdown, path });
-      }
+      if (options.isExcluded(path) || entries.has(path) || seen.has(path)) continue;
+      seen.add(path);
+      paths.push(path);
+    }
+
+    // Truncated in getStaticPaths() order, not sorted order. Sorting first
+    // sounds more deterministic but is not — both are deterministic — and it
+    // picks the wrong pages: `post-1 … post-5000` sorts to post-1, post-10,
+    // post-100, post-1000, post-1001 …, so 43 of the 50 survivors are a
+    // consecutive run from the middle of the archive. getStaticPaths() order is
+    // the author's, usually newest-first, and prerendering already depends on
+    // it. Display order stays lexicographic: `entries` is sorted on the way
+    // out, so the file is still byte-stable.
+    const limit = options.maxPagesPerRoute > 0 ? options.maxPagesPerRoute : paths.length;
+    if (paths.length > limit) {
+      truncated.push({ listed: limit, omitted: paths.length - limit, routePath: route.path });
+    }
+    for (const path of paths.slice(0, limit)) {
+      entries.set(path, { markdown, path });
     }
   }
 
-  return [...entries.values()].sort((left, right) => comparePaths(left.path, right.path));
+  return {
+    pages: [...entries.values()].sort((left, right) => comparePaths(left.path, right.path)),
+    truncated,
+  };
 }
 
 async function collectApiEntries(
