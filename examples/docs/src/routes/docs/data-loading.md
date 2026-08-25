@@ -135,9 +135,9 @@ Read a deferred value with `use()` inside a `<Suspense>` boundary:
 
 ```tsx [src/routes/product.tsx]
 import { Suspense, use } from "@pracht/core";
-import type { Deferred } from "@pracht/core";
+import type { Deferred, RouteComponentProps } from "@pracht/core";
 
-export default function Product({ data }) {
+export default function Product({ data }: RouteComponentProps<typeof loader>) {
   return (
     <article>
       <h1>{data.product.name}</h1>

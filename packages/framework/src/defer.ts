@@ -185,7 +185,14 @@ function containsDeferred(value: unknown, seen = new Set<object>()): boolean {
     return false;
   }
   if (!isPlainObject(value)) return false;
-  for (const entry of Object.values(value)) if (containsDeferred(entry, seen)) return true;
+  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
+    // Do not invoke accessors just to look for a marker. Loader objects may
+    // expose JSON-serializable getters, and reading them here would add an
+    // observable access even when the route does not defer anything.
+    if (descriptor.enumerable && "value" in descriptor) {
+      if (containsDeferred(descriptor.value, seen)) return true;
+    }
+  }
   return false;
 }
 
@@ -222,15 +229,21 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
 
   const next = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
   seen.set(value, next);
-  const entries = Object.entries(value);
-  const resolved = await Promise.all(entries.map(([, entry]) => resolveValue(entry, seen)));
+  const entries = Object.entries(Object.getOwnPropertyDescriptors(value)).filter(
+    ([, descriptor]) => descriptor.enumerable,
+  );
+  const resolved = await Promise.all(
+    entries.map(([, descriptor]) =>
+      "value" in descriptor ? resolveValue(descriptor.value, seen) : undefined,
+    ),
+  );
   for (let i = 0; i < entries.length; i += 1) {
-    Object.defineProperty(next, entries[i][0], {
-      configurable: true,
-      enumerable: true,
-      value: resolved[i],
-      writable: true,
-    });
+    const [key, descriptor] = entries[i];
+    Object.defineProperty(
+      next,
+      key,
+      "value" in descriptor ? { ...descriptor, value: resolved[i] } : descriptor,
+    );
   }
   return next;
 }

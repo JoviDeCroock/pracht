@@ -177,6 +177,23 @@ describe("resolveDeferredData()", () => {
     expect(JSON.stringify(resolved)).toBe('{"__proto__":{"polluted":true},"reviews":"ok"}');
   });
 
+  it("does not evaluate unrelated getters while resolving deferred fields", async () => {
+    let reads = 0;
+    const data = {
+      get sequence() {
+        reads += 1;
+        return reads;
+      },
+      reviews: defer(deferredLater("ok")),
+    };
+
+    const resolved = await resolveDeferredData(data);
+
+    expect(reads).toBe(0);
+    expect(JSON.stringify(resolved)).toBe('{"sequence":1,"reviews":"ok"}');
+    expect(reads).toBe(1);
+  });
+
   it("does not recurse forever on a cyclic value", async () => {
     const cyclic: Record<string, unknown> = { reviews: defer(deferredLater("ok")) };
     cyclic.self = cyclic;
