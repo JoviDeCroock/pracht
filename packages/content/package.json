@@ -56,7 +56,7 @@
     "yaml": "^2.8.1"
   },
   "peerDependencies": {
-    "@pracht/capabilities": "workspace:*",
+    "@pracht/capabilities": "workspace:^",
     "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
