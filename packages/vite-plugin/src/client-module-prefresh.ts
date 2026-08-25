@@ -1,0 +1,108 @@
+import type { Plugin, PluginOption } from "vite";
+
+import {
+  isPrachtClientModuleId,
+  isPrefreshCompatibleId,
+  toPrachtClientPrefreshId,
+} from "./client-module-query.ts";
+
+interface ClientModulePrefreshOptions {
+  isRouteOrShellModule?: (id: string) => boolean;
+}
+
+/**
+ * Give route and shell modules Preact Fast Refresh.
+ *
+ * `@prefresh/vite` gates its transform on `/\.(c|m)?(t|j)sx?$/`, a pattern
+ * anchored at the end of the id — so an id carrying a query never matches.
+ * Pracht loads route and shell modules in the browser through
+ * `import.meta.glob(..., { query: "?pracht-client" })` so its post transform
+ * can strip server-only exports, which means the module the browser actually
+ * runs is `/src/routes/home.tsx?pracht-client`. Prefresh skipped it, no
+ * `import.meta.hot.accept` was injected, and with no self-accepting boundary
+ * the update propagated to the non-accepting virtual client entry: every edit
+ * to a route or a shell became a full page reload with client state loss.
+ * Components outside those directories were unaffected, which is why this hid
+ * for so long — Fast Refresh worked everywhere except the files a route-based
+ * framework is mostly made of.
+ *
+ * Running after `pracht:client-module-transform` (both are `post`; array order
+ * decides) is deliberate: prefresh sees the stripped module, whose exports are
+ * only components, rather than the authored one where a co-located `loader`
+ * would stop it self-accepting anyway.
+ *
+ * The id prefresh is handed is synthetic — see `toPrachtClientPrefreshId`. It
+ * must satisfy prefresh's extension filter *and* stay distinct from the id of
+ * the authored file, because the same file can be in the client graph twice and
+ * the id doubles as prefresh's component registration key.
+ */
+export function createClientModulePrefreshPlugin(
+  preactPlugins: PluginOption[],
+  config: ClientModulePrefreshOptions = {},
+): Plugin | null {
+  const transform = resolvePrefreshTransform(preactPlugins);
+  if (!transform) return null;
+
+  return {
+    name: "pracht:client-module-prefresh",
+    enforce: "post",
+    // Prefresh no-ops during build through its own `shouldSkip`, but a
+    // production bundle has no business carrying a refresh runtime even by
+    // accident.
+    apply: "serve",
+    async transform(code, id, transformOptions) {
+      if (transformOptions?.ssr) return null;
+      const carriesClientQuery = isPrachtClientModuleId(id);
+      const isBareCompiledFormat =
+        !carriesClientQuery &&
+        !isPrefreshCompatibleId(id) &&
+        config.isRouteOrShellModule?.(id) === true;
+      if (!carriesClientQuery && !isBareCompiledFormat) return null;
+
+      // Prefresh's filter rejects ids carrying a query and compiled route
+      // formats such as `.mdx` or `.tsrx`; the id it is given is also the key
+      // it embeds in component registrations. Both copies
+      // of a file that reaches the browser twice — through the route glob and
+      // through a plain import from a sibling route — must therefore keep
+      // *distinct* keys, or prefresh queues a component replacement no edit
+      // asked for. `toPrachtClientPrefreshId` satisfies the filter by keeping
+      // the extension last and preserves the distinction by moving the marker
+      // into the basename.
+      return await transform.call(this, code, toPrachtClientPrefreshId(id), transformOptions);
+    },
+  };
+}
+
+type TransformHandler = NonNullable<Extract<Plugin["transform"], (...args: never[]) => unknown>>;
+
+/**
+ * `@preact/preset-vite` returns a plugin array whose shape is its own business;
+ * find prefresh by name rather than by position, and treat its absence as "no
+ * Fast Refresh configured" rather than an error.
+ */
+function resolvePrefreshTransform(preactPlugins: PluginOption[]): TransformHandler | null {
+  for (const plugin of flattenPlugins(preactPlugins)) {
+    if (plugin.name !== "prefresh") continue;
+    const transform = plugin.transform;
+    if (typeof transform === "function") return transform as TransformHandler;
+    // Vite also accepts the object form `{ filter, handler }`.
+    if (transform && typeof transform === "object" && "handler" in transform) {
+      return transform.handler as TransformHandler;
+    }
+  }
+  return null;
+}
+
+function flattenPlugins(plugins: PluginOption[]): Plugin[] {
+  const flat: Plugin[] = [];
+  const visit = (option: PluginOption): void => {
+    if (!option || typeof (option as { then?: unknown }).then === "function") return;
+    if (Array.isArray(option)) {
+      for (const nested of option) visit(nested as PluginOption);
+      return;
+    }
+    if (typeof option === "object" && "name" in option) flat.push(option as Plugin);
+  };
+  for (const plugin of plugins) visit(plugin);
+  return flat;
+}

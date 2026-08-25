@@ -13,6 +13,7 @@ import {
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
 import {
+  createRouteHeadersHints,
   createRouteHeadHints,
   createRouteLoaderHints,
   createRouteStaticPathsHints,
@@ -188,7 +189,7 @@ export function createPrachtClientModuleSource(
   const appDir = appFileAbs.replace(/\/[^/]*$/, "") || "/";
 
   return [
-    'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core/client";',
+    'import { resolveApp, initClientRouter, readHydrationState, DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData } from "@pracht/core/client";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -271,6 +272,18 @@ export function createPrachtClientModuleSource(
     "    root,",
     "    findModuleKey,",
     "  });",
+    "}",
+    "",
+    "// A route module's loader, head, and getStaticPaths are stripped",
+    "// out of the browser copy, so Fast Refresh patching the component in place",
+    "// leaves the page holding data the server would no longer send. The dev",
+    "// server says when that happened; re-fetching route state is what the full",
+    "// page reload used to deliver as a side effect. This entry is the only",
+    "// module in the graph with an import.meta.hot of its own — an installed",
+    "// @pracht/core is a pre-bundled dependency and has none. Production builds",
+    "// replace import.meta.hot with undefined and drop the whole branch.",
+    "if (import.meta.hot) {",
+    "  import.meta.hot.on(DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData);",
     "}",
     "",
     // WebMCP page-tool registration — only emitted when at least one
@@ -554,6 +567,38 @@ export function createRouteHeadHintsForVirtualModules(
   );
 }
 
+export function createRouteHeadersHintsForVirtualModules(
+  options: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): Record<string, boolean> {
+  if (options.pagesDir) {
+    // `scanPagesDirectory()` returns route records only; its final sort filters
+    // the `_app` shell out. Scan the directory directly so a header-bearing
+    // pages shell keeps forcing a document reload in development.
+    return createRouteHeadersHints(resolve(root, options.pagesDir.slice(1)), {
+      additionalExtensions: options.additionalExtensions,
+      rootRelativePrefix: options.pagesDir,
+    });
+  }
+
+  const appFileAbs = resolve(root, options.appFile.slice(1));
+  const appFileDir = dirname(appFileAbs);
+  const directories = [
+    [options.routesDir, resolve(root, options.routesDir.slice(1))] as const,
+    [options.shellsDir, resolve(root, options.shellsDir.slice(1))] as const,
+  ];
+  return Object.assign(
+    {},
+    ...directories.map(([prefix, directory]) =>
+      createRouteHeadersHints(directory, {
+        additionalExtensions: options.additionalExtensions,
+        appFileDir,
+        rootRelativePrefix: prefix,
+      }),
+    ),
+  );
+}
+
 /**
  * `getStaticPaths()` presence per route file. Only routes matter — a shell
  * cannot enumerate paths — so unlike the head hints this skips the shells
@@ -574,7 +619,7 @@ export function createRouteStaticPathsHintsForVirtualModules(
   });
 }
 
-function createRouteLoaderHintsForVirtualModules(
+export function createRouteLoaderHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): Record<string, boolean> {
@@ -599,6 +644,27 @@ function createRouteLoaderHintsForVirtualModules(
     appFileDir,
     rootRelativePrefix: options.routesDir,
   });
+}
+
+/**
+ * Server data modules that can own a separately wired route loader.
+ *
+ * These hints stay on the dev-server side: unlike the per-route table above,
+ * the generated browser entry has no use for data-module filenames. The HMR
+ * importer walk does, though — a shared module can be client-reachable through
+ * a component and server-reachable through `route(..., { loader })`, so it
+ * cannot rely on the server-only full-reload fallback.
+ */
+export function createServerLoaderHintsForHotUpdates(
+  options: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): Record<string, true> {
+  const hints = createRouteLoaderHints(resolve(root, options.serverDir.slice(1)), {
+    rootRelativePrefix: options.serverDir,
+  });
+  return Object.fromEntries(
+    Object.entries(hints).filter((entry): entry is [string, true] => entry[1] === true),
+  );
 }
 
 export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = {}): string {

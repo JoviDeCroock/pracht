@@ -12,6 +12,9 @@ import {
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
+import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
+import { reachesRouteHintedModule } from "./head-hint-reload.ts";
+import { sendRouteDataStale } from "./route-data-stale.ts";
 import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
 import {
   PRACHT_CAPABILITIES_MODULE_ID,
@@ -39,7 +42,10 @@ import {
   createPrachtClientModuleSource,
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
+  createRouteHeadersHintsForVirtualModules,
   createRouteHeadHintsForVirtualModules,
+  createRouteLoaderHintsForVirtualModules,
+  createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
 import {
@@ -95,44 +101,15 @@ export {
   PRACHT_WEBMCP_MODULE_ID,
 };
 
-interface HotUpdateModuleLike {
-  file?: string | null;
-  id?: string | null;
-  importers?: Set<HotUpdateModuleLike>;
-}
-
-function reachesHeadBearingModule(
-  modules: readonly HotUpdateModuleLike[],
-  serverRoot: string,
-  headHints: Record<string, boolean>,
-): boolean {
-  const pending = [...modules];
-  const seen = new Set<HotUpdateModuleLike>();
-  while (pending.length > 0) {
-    const module = pending.pop();
-    if (!module || seen.has(module)) continue;
-    seen.add(module);
-
-    const modulePath = module.file ?? module.id?.split("?", 1)[0];
-    if (modulePath) {
-      const normalizedPath = toPosixPath(modulePath);
-      const relative = normalizedPath.startsWith(serverRoot)
-        ? normalizedPath.slice(serverRoot.length)
-        : normalizedPath;
-      if (headHints[relative] === true) return true;
-    }
-
-    if (module.importers) pending.push(...module.importers);
-  }
-  return false;
-}
-
 export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
   let clientRouteHeadHints: Record<string, boolean> = {};
+  let clientRouteHeadersHints: Record<string, boolean> = {};
+  let clientRouteLoaderHints: Record<string, boolean> = {};
+  let serverRouteLoaderHints: Record<string, true> = {};
   const routeFileExtensions = withAdditionalExtensions(
     DEFAULT_ROUTE_EXTENSIONS,
     resolved.additionalExtensions,
@@ -353,6 +330,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       if (isClientModule(id)) {
         clientRouteHeadHints = createRouteHeadHintsForVirtualModules(resolved, root);
+        clientRouteHeadersHints = createRouteHeadersHintsForVirtualModules(resolved, root);
+        clientRouteLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, root);
+        serverRouteLoaderHints = createServerLoaderHintsForHotUpdates(resolved, root);
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
@@ -429,27 +409,68 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteHeadSource = isPagesMode
         ? relative.startsWith(resolved.pagesDir)
         : relative.startsWith(resolved.routesDir) || relative.startsWith(resolved.shellsDir);
-      const changesRouteHeadDependency = reachesHeadBearingModule(
+      const changesRouteLoaderSource = isPagesMode
+        ? relative.startsWith(resolved.pagesDir)
+        : relative.startsWith(resolved.routesDir);
+      const previousServerRouteLoaderHints = serverRouteLoaderHints;
+      if (!isPagesMode && relative.startsWith(resolved.serverDir)) {
+        try {
+          serverRouteLoaderHints = createServerLoaderHintsForHotUpdates(resolved, root);
+        } catch {
+          // A transient read failure must not erase the last known loader
+          // ownership. The server-only fallback still reloads an ordinary data
+          // module edit; retaining both snapshots below also catches removals
+          // from a client-reachable module.
+        }
+      }
+      const loaderDependencyHints = {
+        ...clientRouteLoaderHints,
+        ...previousServerRouteLoaderHints,
+        ...serverRouteLoaderHints,
+      };
+      const changesRouteHeadDependency = reachesRouteHintedModule(
         modules,
         serverRoot,
         clientRouteHeadHints,
+        { startAtImporters: changesRouteHeadSource },
       );
-      let shouldReloadClientHead = changesRouteHeadDependency;
+      const changesRouteHeadersDependency = reachesRouteHintedModule(
+        modules,
+        serverRoot,
+        clientRouteHeadersHints,
+        { startAtImporters: changesRouteHeadSource },
+      );
+      const changesRouteLoaderDependency = reachesRouteHintedModule(
+        modules,
+        serverRoot,
+        loaderDependencyHints,
+        { startAtImporters: changesRouteLoaderSource },
+      );
+      let shouldReloadClientEntry = changesRouteHeadDependency || changesRouteHeadersDependency;
       let clientHeadModule: ReturnType<typeof server.moduleGraph.getModuleById>;
-      if (changesRouteHeadSource || changesRouteHeadDependency) {
+      if (changesRouteHeadSource || changesRouteHeadDependency || changesRouteHeadersDependency) {
         clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
       }
       if (changesRouteHeadSource) {
-        const previousHint = clientRouteHeadHints[relative];
+        const previousHint = clientRouteHeadHints[relative] === true;
         try {
           const nextHints = createRouteHeadHintsForVirtualModules(resolved, root);
-          shouldReloadClientHead ||= previousHint === true || nextHints[relative] === true;
+          // Only a *transition* changes what the virtual client entry bakes:
+          // the hint is "does this module export head", and the client router
+          // reads it to decide whether a navigation must fetch route state.
+          // Reloading whenever a head-bearing route is touched — the old
+          // behaviour — meant every edit to such a route lost client state,
+          // and most routes export head. Editing the head *body* still needs a
+          // manual refresh to show in the document, which is the same rule
+          // pracht already applies to client-side navigation: head metadata is
+          // server-rendered and does not follow the router.
+          shouldReloadClientEntry ||= previousHint !== (nextHints[relative] === true);
           clientRouteHeadHints = nextHints;
         } catch {
           // A file can be observed while its editor is replacing it. Reloading
           // is the safe fallback because the previous or next module may own
           // server-generated head state that cannot be patched in the browser.
-          shouldReloadClientHead = true;
+          shouldReloadClientEntry = true;
         }
       } else if (changesRouteHeadDependency && clientHeadModule) {
         // A dependency such as src/fonts.ts is part of normal client HMR, but
@@ -457,11 +478,43 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         server.moduleGraph.invalidateModule(clientHeadModule);
       }
 
+      if (changesRouteHeadSource) {
+        const previouslyHadHeaders = clientRouteHeadersHints[relative] === true;
+        try {
+          const nextHints = createRouteHeadersHintsForVirtualModules(resolved, root);
+          // A route-state fetch cannot update document response headers such
+          // as CSP or Cache-Control. Any edit to a module that owns headers —
+          // including adding or removing the export — needs a real navigation.
+          shouldReloadClientEntry ||= previouslyHadHeaders || nextHints[relative] === true;
+          clientRouteHeadersHints = nextHints;
+        } catch {
+          shouldReloadClientEntry = true;
+        }
+      }
+
+      if (changesRouteLoaderSource) {
+        const previousHint = clientRouteLoaderHints[relative] === true;
+        try {
+          const nextHints = createRouteLoaderHintsForVirtualModules(resolved, root);
+          // Like head presence, loader presence is baked into the browser's
+          // resolved route table. The custom stale-data event refreshes only
+          // the active route; a transition must reload the client entry so a
+          // later navigation does not keep using the old fetch decision.
+          shouldReloadClientEntry ||= previousHint !== (nextHints[relative] === true);
+          clientRouteLoaderHints = nextHints;
+        } catch {
+          shouldReloadClientEntry = true;
+        }
+      }
+
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {
         clearPagesAppSourceCache();
         invalidateVirtualModules(server);
         const sentFullReload = sendServerOnlyFullReload(server, file);
-        if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
+        if (!sentFullReload && !shouldReloadClientEntry) {
+          sendRouteDataStale(server);
+        }
+        if (!sentFullReload && shouldReloadClientEntry && clientHeadModule) {
           // Invalidating a virtual module only clears Vite's transform cache;
           // it does not add that module to this HMR update. Returning the root
           // client module makes Vite reload the document and regenerate fonts.
@@ -518,8 +571,18 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
 
       const sentFullReload = sendServerOnlyFullReload(server, file);
-      if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
+      if (!sentFullReload && shouldReloadClientEntry && clientHeadModule) {
         return [...new Set([...modules, clientHeadModule])];
+      }
+      // Fast Refresh patches the component and stops there, which is right for
+      // the half of a route module that runs in the browser and wrong for the
+      // half that does not: `loader`, `head`, and `getStaticPaths`
+      // are stripped out of the browser copy, so an edit to any of them leaves
+      // the page holding data or font state the server would no longer send.
+      // Reloading was what used to deliver it. Tell the client to re-fetch
+      // route state instead — same freshness, without the state loss.
+      if (!sentFullReload && (changesRouteHeadSource || changesRouteLoaderDependency)) {
+        sendRouteDataStale(server);
       }
     },
   };
@@ -594,12 +657,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       })
     : null;
 
+  const preactPlugins = preact();
+  // Ordered right after `clientModuleTransformPlugin` on purpose: prefresh has
+  // to see the module with its server-only exports already stripped.
+  const clientModulePrefreshPlugin = createClientModulePrefreshPlugin(preactPlugins, {
+    isRouteOrShellModule: (id) => isRouteOrShellFile(id, routeFileDirs, routeFileExtensions),
+  });
+
   const plugins: Plugin[] = [
     ...(precompilePlugin ? [precompilePlugin] : []),
-    ...preact(),
+    ...preactPlugins,
     prachtPlugin,
     configuredBasePlugin,
     clientModuleTransformPlugin,
+    ...(clientModulePrefreshPlugin ? [clientModulePrefreshPlugin] : []),
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     createEnvSafetyPlugin(resolved.envSafety),
   ];

@@ -253,4 +253,324 @@ describe("pracht handleHotUpdate", () => {
     expect(invalidateModule).toHaveBeenCalledWith(clientModule);
     expect(result).toEqual([fontModule, clientModule]);
   });
+
+  it("reloads document headers when a shared policy dependency changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-headers-dependency-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const policyFile = join(root, "src", "policy.ts");
+    const route = join(root, "src", "routes", "home.tsx");
+    writeFileSync(
+      policyFile,
+      'export function headers() { return { "content-security-policy": "default-src self" }; }\n',
+    );
+    writeFileSync(
+      route,
+      'export { headers } from "../policy";\nexport function Component() { return null; }\n',
+    );
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+
+    const policyModule = createModuleNode(policyFile);
+    const routeModule = createModuleNode(route);
+    policyModule.importers.add(routeModule);
+    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: policyFile,
+        modules: [policyModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: (id: string) =>
+              id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+            invalidateModule: vi.fn(),
+          },
+          environments: {
+            client: {
+              moduleGraph: { getModulesByFile: () => new Set([policyModule]) },
+              hot: { send: vi.fn() },
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(result).toEqual([policyModule, clientModule]);
+  });
+});
+
+describe("pracht handleHotUpdate route data staleness", () => {
+  async function editRoute(routeSource: string, editedSource: string) {
+    const root = mkdtempSync(join(tmpdir(), "pracht-route-data-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const routeFile = join(root, "src", "routes", "home.tsx");
+    writeFileSync(routeFile, routeSource);
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+    writeFileSync(routeFile, editedSource);
+
+    const routeModule = createModuleNode(routeFile);
+    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+    const send = vi.fn();
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: routeFile,
+        modules: [routeModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: (id: string) =>
+              id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+            invalidateModule: vi.fn(),
+          },
+          environments: {
+            client: {
+              moduleGraph: { getModulesByFile: () => new Set([routeModule]) },
+              hot: { send },
+            },
+          },
+        },
+      } as never,
+    );
+
+    return { clientModule, result, routeModule, send };
+  }
+
+  const WITH_HEAD =
+    'export function head() { return { title: "a" }; }\n' +
+    "export async function loader() { return { n: 1 }; }\n" +
+    "export function Component() { return null; }\n";
+  const WITH_HEADERS =
+    'export function headers() { return { "content-security-policy": "default-src self" }; }\n' +
+    "export function Component() { return null; }\n";
+
+  // The regression this guards: on main every edit to a head-bearing route
+  // returned the client entry, which is not a Fast Refresh boundary, so Vite
+  // full-reloaded. Reloading is what used to deliver the new loader output.
+  it("keeps an edit to a head-bearing route out of the client entry", async () => {
+    const { result } = await editRoute(WITH_HEAD, WITH_HEAD.replace("return null", "return 1"));
+
+    expect(result).toBeUndefined();
+  });
+
+  // A route module's loader is stripped out of the browser copy, so patching
+  // the component in place leaves the page holding data the server would no
+  // longer send. The client entry listens for this and re-fetches route state.
+  it("tells open pages their route data is stale", async () => {
+    const { send } = await editRoute(WITH_HEAD, WITH_HEAD.replace("n: 1", "n: 2"));
+
+    expect(send).toHaveBeenCalledWith({
+      type: "custom",
+      event: "pracht:route-data-stale",
+    });
+  });
+
+  it("refreshes data when a client-reachable loader dependency changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-loader-dependency-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const sharedFile = join(root, "src", "shared.ts");
+    const routeFile = join(root, "src", "routes", "home.tsx");
+    writeFileSync(sharedFile, "export const greeting = 'old';\n");
+    writeFileSync(
+      routeFile,
+      'import { greeting } from "../shared";\n' +
+        "export function loader() { return { greeting }; }\n" +
+        "export function Component() { return greeting; }\n",
+    );
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+
+    const sharedModule = createModuleNode(sharedFile);
+    const routeModule = createModuleNode(routeFile);
+    sharedModule.importers.add(routeModule);
+    const send = vi.fn();
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: sharedFile,
+        modules: [sharedModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: () => undefined,
+            invalidateModule: vi.fn(),
+          },
+          environments: {
+            client: {
+              moduleGraph: { getModulesByFile: () => new Set([sharedModule]) },
+              hot: { send },
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(result).toBeUndefined();
+    expect(send).toHaveBeenCalledWith({
+      type: "custom",
+      event: "pracht:route-data-stale",
+    });
+    expect(send).not.toHaveBeenCalledWith({ type: "full-reload" });
+  });
+
+  it("refreshes data when a client-reachable dependency feeds a separate loader", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-separate-loader-dependency-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "server"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const sharedFile = join(root, "src", "shared.ts");
+    const routeFile = join(root, "src", "routes", "home.tsx");
+    const loaderFile = join(root, "src", "server", "home-loader.ts");
+    writeFileSync(sharedFile, "export const greeting = 'old';\n");
+    writeFileSync(
+      routeFile,
+      'import { greeting } from "../shared";\n' +
+        "export function Component() { return greeting; }\n",
+    );
+    writeFileSync(
+      loaderFile,
+      'import { greeting } from "../shared";\n' +
+        "export function loader() { return { greeting }; }\n",
+    );
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+
+    const sharedModule = createModuleNode(sharedFile);
+    const routeModule = createModuleNode(routeFile);
+    const loaderModule = createModuleNode(loaderFile);
+    sharedModule.importers.add(routeModule);
+    sharedModule.importers.add(loaderModule);
+    const send = vi.fn();
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: sharedFile,
+        modules: [sharedModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: () => undefined,
+            invalidateModule: vi.fn(),
+          },
+          environments: {
+            client: {
+              moduleGraph: { getModulesByFile: () => new Set([sharedModule]) },
+              hot: { send },
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(result).toBeUndefined();
+    expect(send).toHaveBeenCalledWith({
+      type: "custom",
+      event: "pracht:route-data-stale",
+    });
+    expect(send).not.toHaveBeenCalledWith({ type: "full-reload" });
+  });
+
+  it("reloads when an edited route owns document response headers", async () => {
+    const { clientModule, result, routeModule, send } = await editRoute(
+      WITH_HEADERS,
+      WITH_HEADERS.replace("return null", "return 1"),
+    );
+
+    expect(result).toEqual([routeModule, clientModule]);
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "pracht:route-data-stale" }),
+    );
+  });
+
+  it.each([
+    ["gains", false],
+    ["loses", true],
+  ])("reloads the client entry when a route %s a loader", async (_label, startsWithLoader) => {
+    const withoutLoader = "export function Component() { return null; }\n";
+    const withLoader = "export async function loader() { return { n: 1 }; }\n" + withoutLoader;
+    const { clientModule, result, routeModule, send } = await editRoute(
+      startsWithLoader ? withLoader : withoutLoader,
+      startsWithLoader ? withoutLoader : withLoader,
+    );
+
+    expect(result).toEqual([routeModule, clientModule]);
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "pracht:route-data-stale" }),
+    );
+  });
+
+  // A reload re-fetches everything on its own; asking for a revalidation on
+  // top of it would be a second request for data the new document already has.
+  it("stays quiet when the edit already reloads the document", async () => {
+    const { result, send } = await editRoute(
+      "export function Component() { return null; }\n",
+      WITH_HEAD,
+    );
+
+    expect(result).toBeDefined();
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "pracht:route-data-stale" }),
+    );
+  });
 });

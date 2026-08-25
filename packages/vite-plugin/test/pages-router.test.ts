@@ -9,7 +9,11 @@ import {
   createPrachtRegistryModuleSource,
   pracht,
 } from "../src/index.ts";
-import { createPrachtDevModuleSource } from "../src/plugin-codegen.ts";
+import {
+  createPrachtDevModuleSource,
+  createRouteHeadersHintsForVirtualModules,
+} from "../src/plugin-codegen.ts";
+import { resolveOptions } from "../src/plugin-options.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
@@ -30,6 +34,24 @@ afterEach(() => {
 });
 
 describe("scanPagesDirectory", () => {
+  it("keeps the pages app shell in document-header HMR hints", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(
+      join(pagesDir, "_app.tsx"),
+      'export function headers() { return { "content-security-policy": "default-src self" }; }\n',
+    );
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() {}\n");
+
+    expect(
+      createRouteHeadersHintsForVirtualModules(resolveOptions({ pagesDir: "/src/pages" }), root),
+    ).toMatchObject({
+      "/src/pages/_app.tsx": true,
+      "/src/pages/index.tsx": false,
+    });
+  });
+
   it("preserves built-in TSRX route and shell discovery", () => {
     const pagesDir = makeTempPagesDir();
     writeFileSync(join(pagesDir, "index.tsrx"), "export function Component() { return null; }\n");
@@ -52,6 +74,7 @@ describe("scanPagesDirectory", () => {
       ["/", "index.custom"],
     ]);
     expect(customPages[0]?.hasHead).toBe(true);
+    expect(customPages[0]?.hasHeaders).toBe(true);
 
     const source = generatePagesManifestSource(customPages, {
       additionalExtensions: [".custom"],

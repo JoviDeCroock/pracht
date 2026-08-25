@@ -18,6 +18,7 @@ function namedDeclarationRe(exportName: string): RegExp {
 }
 
 const HEAD_DECLARATION_RE = namedDeclarationRe("head");
+const HEADERS_DECLARATION_RE = namedDeclarationRe("headers");
 const STATIC_PATHS_DECLARATION_RE = namedDeclarationRe("getStaticPaths");
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
 const EXPORT_ALL_RE = /export\s+\*\s+from\b/;
@@ -177,10 +178,14 @@ function exportSpecifiersInclude(specifiers: string, exportName: string): boolea
  * Whether `source` exports `exportName`, via a declaration, an export block,
  * or an `export *` re-export (which could expose anything, so it counts).
  *
- * Comments and strings are masked first, so prose or a string literal
- * mentioning the name cannot produce a false positive.
+ * Ordinary TS/JS is parsed exactly, including string-literal export names.
+ * Custom syntaxes fall back to masked lexical detection so prose or a string
+ * literal mentioning the name cannot produce a false positive.
  */
 function detectNamedExport(source: string, exportName: string, declarationRe: RegExp): boolean {
+  const parsedResult = inspectParsedModule(source, exportName);
+  if (parsedResult !== undefined) return parsedResult;
+
   const analysisSource = maskCommentsAndStrings(source);
   if (
     declarationRe.test(analysisSource) ||
@@ -198,6 +203,11 @@ export function detectHeadExport(source: string): boolean {
   // Markdown and MDX transforms can synthesize a head export from frontmatter.
   // Keep them conservative even when the raw source has no JS declaration.
   return detectNamedExport(source, "head", HEAD_DECLARATION_RE);
+}
+
+/** Whether the route or shell module exports document response headers. */
+export function detectHeadersExport(source: string): boolean {
+  return detectNamedExport(source, "headers", HEADERS_DECLARATION_RE);
 }
 
 /**
@@ -224,13 +234,16 @@ function isSyntaxNode(value: unknown): value is SyntaxNode {
   );
 }
 
-function bindingIncludesLoader(node: unknown): boolean {
+function bindingIncludesName(node: unknown, exportName: string): boolean {
   if (!isSyntaxNode(node)) return false;
-  if (node.type === "Identifier") return node.name === "loader";
-  if (node.type === "AssignmentPattern") return bindingIncludesLoader(node.left);
-  if (node.type === "RestElement") return bindingIncludesLoader(node.argument);
+  if (node.type === "Identifier") return node.name === exportName;
+  if (node.type === "AssignmentPattern") return bindingIncludesName(node.left, exportName);
+  if (node.type === "RestElement") return bindingIncludesName(node.argument, exportName);
   if (node.type === "ArrayPattern") {
-    return Array.isArray(node.elements) && node.elements.some(bindingIncludesLoader);
+    return (
+      Array.isArray(node.elements) &&
+      node.elements.some((element) => bindingIncludesName(element, exportName))
+    );
   }
   if (node.type === "ObjectPattern") {
     return (
@@ -238,22 +251,22 @@ function bindingIncludesLoader(node: unknown): boolean {
       node.properties.some((property) => {
         if (!isSyntaxNode(property)) return false;
         return property.type === "RestElement"
-          ? bindingIncludesLoader(property.argument)
-          : bindingIncludesLoader(property.value);
+          ? bindingIncludesName(property.argument, exportName)
+          : bindingIncludesName(property.value, exportName);
       })
     );
   }
   return false;
 }
 
-function exportedNameIsLoader(node: unknown): boolean {
+function exportedNameMatches(node: unknown, exportName: string): boolean {
   if (!isSyntaxNode(node)) return false;
-  if (node.type === "Identifier") return node.name === "loader";
-  if (node.type === "StringLiteral") return node.value === "loader";
+  if (node.type === "Identifier") return node.name === exportName;
+  if (node.type === "StringLiteral") return node.value === exportName;
   return false;
 }
 
-function inspectParsedModule(source: string): boolean | undefined {
+function inspectParsedModule(source: string, exportName: string): boolean | undefined {
   for (const plugins of [["typescript", "jsx"], ["typescript"]] as const) {
     let body: SyntaxNode[];
     try {
@@ -279,7 +292,7 @@ function inspectParsedModule(source: string): boolean | undefined {
           (specifier) =>
             isSyntaxNode(specifier) &&
             specifier.exportKind !== "type" &&
-            exportedNameIsLoader(specifier.exported),
+            exportedNameMatches(specifier.exported, exportName),
         )
       ) {
         return true;
@@ -292,12 +305,13 @@ function inspectParsedModule(source: string): boolean | undefined {
         if (
           Array.isArray(declaration.declarations) &&
           declaration.declarations.some(
-            (declarator) => isSyntaxNode(declarator) && bindingIncludesLoader(declarator.id),
+            (declarator) =>
+              isSyntaxNode(declarator) && bindingIncludesName(declarator.id, exportName),
           )
         ) {
           return true;
         }
-      } else if (bindingIncludesLoader(declaration.id)) {
+      } else if (bindingIncludesName(declaration.id, exportName)) {
         return true;
       }
     }
@@ -311,7 +325,7 @@ function inspectParsedModule(source: string): boolean | undefined {
 export function detectLoaderExport(source: string): boolean {
   // Parse ordinary TS/TSX exactly so type-only exports and identifiers in
   // generic types are not mistaken for runtime loader bindings.
-  const parsedResult = inspectParsedModule(source);
+  const parsedResult = inspectParsedModule(source, "loader");
   if (parsedResult !== undefined) return parsedResult;
 
   try {
@@ -433,6 +447,45 @@ export function createRouteHeadHints(
     }
     if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
     for (const key of keys) hints[key] = hasHead;
+  }
+
+  return hints;
+}
+
+export function createRouteHeadersHints(
+  routesDir: string,
+  options: {
+    additionalExtensions?: readonly string[];
+    appFileDir?: string;
+    rootRelativePrefix?: string;
+  } = {},
+): Record<string, boolean> {
+  const files: string[] = [];
+  const hints: Record<string, boolean> = {};
+  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
+  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
+  scanRouteFiles(routesDir, files, extensions);
+
+  for (const file of files) {
+    const extension = extname(file);
+    const hasHeaders =
+      extension === ".md" ||
+      extension === ".mdx" ||
+      // Like `head`, document headers may be synthesized by a companion
+      // compiler from frontmatter or other format-specific metadata. A false
+      // hint would keep the active document's CSP/cache headers stale after
+      // Fast Refresh, so compiled formats must stay conservative.
+      additionalExtensions.includes(extension) ||
+      detectHeadersExport(readFileSync(file, "utf-8"));
+    const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
+    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
+    const keys = new Set<string>();
+    if (options.appFileDir) {
+      const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
+      keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
+    }
+    if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
+    for (const key of keys) hints[key] = hasHeaders;
   }
 
   return hints;

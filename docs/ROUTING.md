@@ -925,11 +925,20 @@ verification warning. Vite-scannable component formats participate in initial
 dependency scanning automatically. Other format plugins must opt their extension
 into Vite's dependency optimizer themselves.
 
-Pracht treats configured formats as potentially head-bearing even when their
-raw source has no JavaScript `head()` export, because the companion transform
-may synthesize one from frontmatter or other format-specific metadata. This
-keeps client navigation correct at the cost of a conservative route-state
-request for otherwise headless custom modules.
+Pracht treats configured formats as potentially head- and header-bearing even
+when their raw source has no JavaScript `head()` or `headers()` export, because
+the companion transform may synthesize one from frontmatter or other
+format-specific metadata. This keeps client navigation and document-header HMR
+correct at the cost of conservative route-state requests and reloads for
+otherwise headless custom modules.
+
+In development, Pracht runs refresh instrumentation after the companion
+transform, so compiled components can participate in Preact Fast Refresh. The
+default `.tsrx` format preserves client state when its source does not export
+`headers()`. Markdown, MDX, and configured additional formats remain
+conservatively header-bearing and therefore reload on edit, as described
+above, because raw-source scanning cannot prove that their transforms did not
+synthesize document headers.
 
 `.tsrx` remains discovered without this option for backward compatibility and
 keeps its bundled ambient module declaration. It may also be listed explicitly
@@ -998,6 +1007,47 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
 - **File edit** in pages dir: virtual modules are invalidated (fast update)
 - **File add/remove** in pages dir: dev server restarts (new routes need
   new globs)
+
+Except for the conservative compiled-format reloads above, editing a route,
+shell, or island component is ordinary Preact Fast Refresh: the component
+updates in place and client state — form input, open menus, `useState` —
+survives.
+
+A route module has a half that never reaches the browser. `loader`, `head`,
+`headers`, and `getStaticPaths` are stripped out of the client copy, so
+patching the component would otherwise leave the page holding data the server
+would no longer send. The dev server therefore tells the open page when a route
+or shell changed, or when a client-reachable shared dependency leads to an
+inline or separately wired loader. The client re-fetches route state through
+the same path `useRevalidate()` uses — `useRouteData()` and `props.data` update
+in place, without the reload. Rapid saves are serialized and coalesced so the
+newest loader result always settles last.
+
+The refresh carries font state with it, so a `defineFont()` declared inside a
+route or shell is added, changed, and removed live. If refreshing route state
+fails because the edited loader now throws, redirects to an error, or returns
+not-found, Pracht reloads so the route's error boundary or not-found page is
+rendered instead of leaving stale data on screen.
+
+Four edits still reload the whole document, because each changes state the
+generated client entry bakes:
+
+- **Adding or removing a `loader` export** on a route. The client router reads
+  that hint to decide whether navigation needs to fetch route state.
+- **Adding or removing a `head` export** on a route or shell. The client router
+  reads that hint to decide whether a navigation needs to fetch route state.
+- **Editing a route or shell that exports `headers()`**. CSP, cache policy, and
+  other response headers belong to the active document and cannot be updated
+  by a route-state fetch.
+- **Changing a module *outside* `src/routes/` and `src/shells/` that a
+  head-bearing route imports** — typically a `src/fonts.ts`. Reloading is the
+  conservative answer there; so is a shared module under `src/routes/` that a
+  head-bearing route imports.
+
+What a refresh does *not* re-apply is the rest of `head()`: the `<title>` and
+meta tags stay as the document was rendered until you reload. That is the same
+rule pracht already applies to client-side navigation — head metadata is
+server-rendered and does not follow the router.
 
 During `pracht dev`, resolved routes take precedence over filename heuristics.
 That means URLs such as `/blog/release-1.2.3`, `/blog/openapi.json`, and

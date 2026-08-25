@@ -5,11 +5,40 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  createRouteHeadersHints,
   createRouteLoaderHints,
   createRouteStaticPathsHints,
+  detectHeadersExport,
   detectLoaderExport,
   detectStaticPathsExport,
 } from "../src/route-loader-hints.ts";
+
+describe("detectHeadersExport", () => {
+  it("recognizes declarations, export lists, and re-exports", () => {
+    expect(detectHeadersExport("export function headers() { return {}; }\n")).toBe(true);
+    expect(
+      detectHeadersExport(
+        "const responseHeaders = () => ({}); export { responseHeaders as headers };\n",
+      ),
+    ).toBe(true);
+    expect(detectHeadersExport('export { headers } from "./policy.ts";\n')).toBe(true);
+    expect(
+      detectHeadersExport('const policy = () => ({}); export { policy as "headers" };\n'),
+    ).toBe(true);
+    expect(detectHeadersExport('export * from "./policy.ts";\n')).toBe(true);
+  });
+
+  it("ignores comments, strings, local bindings, and type-only exports", () => {
+    expect(
+      detectHeadersExport("// export function headers() {}\nexport function Component() {}\n"),
+    ).toBe(false);
+    expect(detectHeadersExport('const text = "export { headers }";\n')).toBe(false);
+    expect(detectHeadersExport("function headers() {}\nexport function Component() {}\n")).toBe(
+      false,
+    );
+    expect(detectHeadersExport("export type headers = Record<string, string>;\n")).toBe(false);
+  });
+});
 
 describe("detectLoaderExport", () => {
   it("recognizes commented declarations and export lists", () => {
@@ -116,6 +145,55 @@ describe("createRouteLoaderHints", () => {
     ).toEqual({
       "./dashboard.tsrx": false,
       "/src/routes/dashboard.tsrx": false,
+    });
+  });
+});
+
+describe("createRouteHeadersHints", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("reports document-header ownership per route file", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-headers-hints-"));
+    tempDirs.push(routesDir);
+    writeFileSync(join(routesDir, "home.tsx"), "export function Component() {}\n");
+    writeFileSync(
+      join(routesDir, "account.tsx"),
+      'export function headers() { return { "cache-control": "private" }; }\n',
+    );
+
+    expect(
+      createRouteHeadersHints(routesDir, {
+        appFileDir: routesDir,
+        rootRelativePrefix: "/src/routes",
+      }),
+    ).toEqual({
+      "./account.tsx": true,
+      "./home.tsx": false,
+      "/src/routes/account.tsx": true,
+      "/src/routes/home.tsx": false,
+    });
+  });
+
+  it("keeps compiled route formats conservatively header-bearing", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-compiled-headers-hints-"));
+    tempDirs.push(routesDir);
+    writeFileSync(join(routesDir, "post.mdx"), "# Post\n");
+    writeFileSync(join(routesDir, "account.custom"), "title: Account\n");
+
+    expect(
+      createRouteHeadersHints(routesDir, {
+        additionalExtensions: [".custom"],
+        rootRelativePrefix: "/src/routes",
+      }),
+    ).toEqual({
+      "/src/routes/account.custom": true,
+      "/src/routes/post.mdx": true,
     });
   });
 });

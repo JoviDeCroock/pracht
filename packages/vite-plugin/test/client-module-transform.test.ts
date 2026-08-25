@@ -482,9 +482,12 @@ describe("client route module build", () => {
     configResolved({ root, command: "build" } as never);
 
     const clientSource = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
-    expect(clientSource).toContain(
-      'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core/client";',
-    );
+    // The point of the assertion is the entry: `@pracht/core/client`, not the
+    // barrel. The dev route-data refresh bindings ride along on the same lean
+    // entry and fold away with `import.meta.hot` in a production build.
+    expect(clientSource).toContain('from "@pracht/core/client";');
+    expect(clientSource).not.toContain('from "@pracht/core";');
+    expect(clientSource).toContain("import.meta.hot.on(DEV_ROUTE_DATA_STALE_EVENT");
 
     const transform = findPrachtTransform(plugins);
     const transformed = await callTransform(
