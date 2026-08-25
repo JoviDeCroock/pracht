@@ -254,3 +254,97 @@ describe("pracht handleHotUpdate", () => {
     expect(result).toEqual([fontModule, clientModule]);
   });
 });
+
+describe("pracht handleHotUpdate route data staleness", () => {
+  async function editRoute(routeSource: string, editedSource: string) {
+    const root = mkdtempSync(join(tmpdir(), "pracht-route-data-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const routeFile = join(root, "src", "routes", "home.tsx");
+    writeFileSync(routeFile, routeSource);
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+    writeFileSync(routeFile, editedSource);
+
+    const routeModule = createModuleNode(routeFile);
+    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+    const send = vi.fn();
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: routeFile,
+        modules: [routeModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: (id: string) =>
+              id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+            invalidateModule: vi.fn(),
+          },
+          environments: {
+            client: {
+              moduleGraph: { getModulesByFile: () => new Set([routeModule]) },
+              hot: { send },
+            },
+          },
+        },
+      } as never,
+    );
+
+    return { clientModule, result, routeModule, send };
+  }
+
+  const WITH_HEAD =
+    'export function head() { return { title: "a" }; }\n' +
+    "export async function loader() { return { n: 1 }; }\n" +
+    "export function Component() { return null; }\n";
+
+  // The regression this guards: on main every edit to a head-bearing route
+  // returned the client entry, which is not a Fast Refresh boundary, so Vite
+  // full-reloaded. Reloading is what used to deliver the new loader output.
+  it("keeps an edit to a head-bearing route out of the client entry", async () => {
+    const { result } = await editRoute(WITH_HEAD, WITH_HEAD.replace("return null", "return 1"));
+
+    expect(result).toBeUndefined();
+  });
+
+  // A route module's loader is stripped out of the browser copy, so patching
+  // the component in place leaves the page holding data the server would no
+  // longer send. The client entry listens for this and re-fetches route state.
+  it("tells open pages their route data is stale", async () => {
+    const { send } = await editRoute(WITH_HEAD, WITH_HEAD.replace("n: 1", "n: 2"));
+
+    expect(send).toHaveBeenCalledWith({
+      type: "custom",
+      event: "pracht:route-data-stale",
+    });
+  });
+
+  // A reload re-fetches everything on its own; asking for a revalidation on
+  // top of it would be a second request for data the new document already has.
+  it("stays quiet when the edit already reloads the document", async () => {
+    const { result, send } = await editRoute(
+      "export function Component() { return null; }\n",
+      WITH_HEAD,
+    );
+
+    expect(result).toBeDefined();
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "pracht:route-data-stale" }),
+    );
+  });
+});

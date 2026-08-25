@@ -956,18 +956,33 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
 
 Editing a route, shell, or island component is ordinary Preact Fast Refresh:
 the component updates in place and client state — form input, open menus,
-`useState` — survives. Two edits still reload the whole document, because both
-change state the generated client entry bakes and HMR cannot patch:
+`useState` — survives.
+
+A route module has a half that never reaches the browser. `loader`, `head`,
+`headers`, and `getStaticPaths` are stripped out of the client copy, so
+patching the component would otherwise leave the page holding data the server
+would no longer send. The dev server therefore tells the open page when a route
+or shell changed, and the client re-fetches route state through the same path
+`useRevalidate()` uses — `useRouteData()` and `props.data` update in place,
+without the reload.
+
+The refresh carries font state with it, so a `defineFont()` declared inside a
+route or shell is added, changed, and removed live.
+
+Two edits still reload the whole document, because each changes state the
+generated client entry bakes:
 
 - **Adding or removing a `head` export** on a route or shell. The client router
   reads that hint to decide whether a navigation needs to fetch route state.
-- **Changing a module that feeds `defineFont()`**, whose generated style and
-  preload markup only exists in the virtual entry.
+- **Changing a module *outside* `src/routes/` and `src/shells/` that a
+  head-bearing route imports** — typically a `src/fonts.ts`. Reloading is the
+  conservative answer there; so is a shared module under `src/routes/` that a
+  head-bearing route imports.
 
-Editing the *body* of an existing `head()` updates the server render but not
-the open document — refresh to see the new title. That is the same rule pracht
-already applies to client-side navigation: head metadata is server-rendered and
-does not follow the router.
+What a refresh does *not* re-apply is the rest of `head()`: the `<title>` and
+meta tags stay as the document was rendered until you reload. That is the same
+rule pracht already applies to client-side navigation — head metadata is
+server-rendered and does not follow the router.
 
 During `pracht dev`, resolved routes take precedence over filename heuristics.
 That means URLs such as `/blog/release-1.2.3`, `/blog/openapi.json`, and

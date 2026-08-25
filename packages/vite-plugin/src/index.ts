@@ -14,6 +14,7 @@ import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesHeadBearingModule } from "./head-hint-reload.ts";
+import { sendRouteDataStale } from "./route-data-stale.ts";
 import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
 import {
   PRACHT_CAPABILITIES_MODULE_ID,
@@ -441,6 +442,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         clearPagesAppSourceCache();
         invalidateVirtualModules(server);
         const sentFullReload = sendServerOnlyFullReload(server, file);
+        if (!sentFullReload && !shouldReloadClientHead) {
+          sendRouteDataStale(server);
+        }
         if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
           // Invalidating a virtual module only clears Vite's transform cache;
           // it does not add that module to this HMR update. Returning the root
@@ -500,6 +504,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const sentFullReload = sendServerOnlyFullReload(server, file);
       if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
         return [...new Set([...modules, clientHeadModule])];
+      }
+      // Fast Refresh patches the component and stops there, which is right for
+      // the half of a route module that runs in the browser and wrong for the
+      // half that does not: `loader`, `head`, `headers`, and `getStaticPaths`
+      // are stripped out of the browser copy, so an edit to any of them leaves
+      // the page holding data the server would no longer send. Reloading was
+      // what used to deliver it. Tell the client to re-fetch route state
+      // instead — same freshness, without the state loss.
+      if (!sentFullReload && changesRouteHeadSource) {
+        sendRouteDataStale(server);
       }
     },
   };

@@ -1,4 +1,5 @@
 ---
+"@pracht/core": minor
 "@pracht/vite-plugin": patch
 ---
 
@@ -23,3 +24,13 @@ reload, wiping client state on every save — while a component in
 
 Adding or removing a `head` export still reloads the document, as does a change
 that reaches `defineFont()` state.
+
+Fast Refresh alone would have been a downgrade for data: a route module's
+`loader`, `head`, `headers`, and `getStaticPaths` are stripped out of the
+browser copy, so patching the component in place leaves the page holding data
+the server would no longer send — something the old full reload hid by
+re-fetching everything. The dev server now sends a `pracht:route-data-stale`
+HMR event after a route or shell update, and the generated client entry
+re-fetches route state through the same path `useRevalidate()` uses. Data is as
+fresh as the reload made it, and client state survives. The whole path is dead
+code in a production build.

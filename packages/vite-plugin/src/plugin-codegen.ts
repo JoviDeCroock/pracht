@@ -188,7 +188,7 @@ export function createPrachtClientModuleSource(
   const appDir = appFileAbs.replace(/\/[^/]*$/, "") || "/";
 
   return [
-    'import { resolveApp, initClientRouter, readHydrationState } from "@pracht/core/client";',
+    'import { resolveApp, initClientRouter, readHydrationState, DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData } from "@pracht/core/client";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -271,6 +271,18 @@ export function createPrachtClientModuleSource(
     "    root,",
     "    findModuleKey,",
     "  });",
+    "}",
+    "",
+    "// A route module's loader, head, headers, and getStaticPaths are stripped",
+    "// out of the browser copy, so Fast Refresh patching the component in place",
+    "// leaves the page holding data the server would no longer send. The dev",
+    "// server says when that happened; re-fetching route state is what the full",
+    "// page reload used to deliver as a side effect. This entry is the only",
+    "// module in the graph with an import.meta.hot of its own — an installed",
+    "// @pracht/core is a pre-bundled dependency and has none. Production builds",
+    "// replace import.meta.hot with undefined and drop the whole branch.",
+    "if (import.meta.hot) {",
+    "  import.meta.hot.on(DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData);",
     "}",
     "",
     // WebMCP page-tool registration — only emitted when at least one
