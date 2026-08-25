@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { defer, isDeferred, resolveDeferredData, use } from "../src/defer.ts";
+import { defer, isDeferred, resolveDeferredData, type Deferred, use } from "../src/defer.ts";
 
 function deferredLater<T>(value: T, ms = 0): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -64,6 +64,19 @@ describe("defer()", () => {
     });
     await expect(resolveDeferredData({ reviews: marked })).rejects.toThrow("boom");
   });
+
+  it("keeps the marker covariant for reusable component props", () => {
+    interface Animal {
+      name: string;
+    }
+    interface Dog extends Animal {
+      bark(): void;
+    }
+
+    const dog = defer(Promise.resolve<Dog>({ name: "Rex", bark() {} }));
+    const animal: Deferred<Animal> = dog;
+    expect(animal).toBe(dog);
+  });
 });
 
 describe("resolveDeferredData()", () => {
@@ -123,6 +136,13 @@ describe("resolveDeferredData()", () => {
   it("propagates a rejection so the loader boundary sees it", async () => {
     const data = { reviews: defer(Promise.reject(new Error("upstream 500"))) };
     await expect(resolveDeferredData(data)).rejects.toThrow("upstream 500");
+  });
+
+  it("rejects a Response returned from deferred work", async () => {
+    const data = { result: defer(Promise.resolve(new Response(null, { status: 202 }))) };
+    await expect(resolveDeferredData(data)).rejects.toThrow(
+      "A deferred loader value cannot return or throw a Response",
+    );
   });
 
   it("leaves non-plain objects by reference", async () => {
@@ -198,5 +218,11 @@ describe("use()", () => {
       await thrown;
     }
     expect(use(promise)).toBe("reviews");
+  });
+
+  it("distributes its result type across optional deferred values", () => {
+    const optional = null as Deferred<string> | null;
+    const result: string | null = use(optional);
+    expect(result).toBeNull();
   });
 });

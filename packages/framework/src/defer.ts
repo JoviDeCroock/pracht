@@ -47,7 +47,7 @@ interface DeferredBox<T> {
 export interface Deferred<T> {
   readonly [DEFERRED]: true;
   /** @internal Phantom field; carries `T` so the type is not structurally `any`. */
-  readonly __deferred?: (value: T) => void;
+  readonly __deferred?: () => T;
 }
 
 /**
@@ -111,10 +111,15 @@ export function isDeferred(value: unknown): value is Deferred<unknown> {
  * suspends must also resolve to exactly one DOM element — not `null`, not a
  * multi-child fragment — or hydration mismatches.
  */
-export function use<T>(value: Deferred<T> | Promise<T> | T): T {
-  if (isDeferred(value)) return readSettled((value as unknown as DeferredBox<T>).promise());
-  if (isThenable(value)) return readSettled(value as Promise<T>);
-  return value as T;
+type UsedValue<T> =
+  T extends Deferred<infer TValue> ? TValue : T extends Promise<infer TValue> ? TValue : T;
+
+export function use<T>(value: T): UsedValue<T> {
+  if (isDeferred(value)) {
+    return readSettled((value as unknown as DeferredBox<UsedValue<T>>).promise()) as UsedValue<T>;
+  }
+  if (isThenable(value)) return readSettled(value as Promise<UsedValue<T>>) as UsedValue<T>;
+  return value as UsedValue<T>;
 }
 
 /**
@@ -186,7 +191,14 @@ function containsDeferred(value: unknown, seen = new Set<object>()): boolean {
 
 async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise<unknown> {
   if (isDeferred(value)) {
-    const resolved = await (value as unknown as DeferredBox<unknown>).promise();
+    let resolved: unknown;
+    try {
+      resolved = await (value as unknown as DeferredBox<unknown>).promise();
+    } catch (error: unknown) {
+      if (error instanceof Response) throw deferredResponseError();
+      throw error;
+    }
+    if (resolved instanceof Response) throw deferredResponseError();
     return await resolveValue(resolved, seen);
   }
   if (typeof value !== "object" || value === null) return value;
@@ -219,4 +231,11 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
 function isPlainObject(value: object): value is Record<string, unknown> {
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
+}
+
+function deferredResponseError(): TypeError {
+  return new TypeError(
+    "A deferred loader value cannot return or throw a Response. " +
+      "Redirects, status, and headers must be decided before deferred work starts.",
+  );
 }

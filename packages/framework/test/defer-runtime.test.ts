@@ -117,6 +117,39 @@ describe("defer() through the SSR document path", () => {
     // in-boundary error.
     expect(response.status).toBe(500);
   });
+
+  it("does not turn a Response rejected by deferred work into a redirect", async () => {
+    const app = defineApp({
+      routes: [route("/product", "./routes/product.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({
+              reviews: defer(
+                Promise.reject(
+                  new Response(null, {
+                    status: 302,
+                    headers: {
+                      location: "/login",
+                    },
+                  }),
+                ),
+              ),
+            }),
+            Component: () => null,
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("location")).toBeNull();
+  });
 });
 
 describe("defer() through the route-state path", () => {
