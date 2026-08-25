@@ -52,6 +52,7 @@ describe("scanPagesDirectory", () => {
       ["/", "index.custom"],
     ]);
     expect(customPages[0]?.hasHead).toBe(true);
+    expect(customPages[0]?.hasHeaders).toBe(true);
 
     const source = generatePagesManifestSource(customPages, {
       additionalExtensions: [".custom"],

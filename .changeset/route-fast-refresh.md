@@ -29,7 +29,9 @@ that reaches `defineFont()` state. Adding or removing a `loader` export also
 reloads so the browser's route-state fetch hints cannot remain stale across a
 later client navigation. Editing a route or shell that exports document
 `headers()` reloads as well, because CSP, cache policy, and other response
-headers cannot be updated by a route-state fetch.
+headers cannot be updated by a route-state fetch. Compiled Markdown, MDX, and
+configured formats stay conservative because their companion transform may
+synthesize `headers()` from metadata that raw-source scanning cannot see.
 
 Fast Refresh alone would have been a downgrade for data: a route module's
 `loader`, `head`, `headers`, and `getStaticPaths` are stripped out of the

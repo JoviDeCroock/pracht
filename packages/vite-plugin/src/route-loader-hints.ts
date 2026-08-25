@@ -454,14 +454,21 @@ export function createRouteHeadersHints(
 ): Record<string, boolean> {
   const files: string[] = [];
   const hints: Record<string, boolean> = {};
-  const extensions = withAdditionalExtensions(
-    DEFAULT_ROUTE_EXTENSIONS,
-    normalizeAdditionalExtensions(options.additionalExtensions),
-  );
+  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
+  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
   scanRouteFiles(routesDir, files, extensions);
 
   for (const file of files) {
-    const hasHeaders = detectHeadersExport(readFileSync(file, "utf-8"));
+    const extension = extname(file);
+    const hasHeaders =
+      extension === ".md" ||
+      extension === ".mdx" ||
+      // Like `head`, document headers may be synthesized by a companion
+      // compiler from frontmatter or other format-specific metadata. A false
+      // hint would keep the active document's CSP/cache headers stale after
+      // Fast Refresh, so compiled formats must stay conservative.
+      additionalExtensions.includes(extension) ||
+      detectHeadersExport(readFileSync(file, "utf-8"));
     const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
     const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
     const keys = new Set<string>();

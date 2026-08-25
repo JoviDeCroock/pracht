@@ -176,6 +176,23 @@ describe("createRouteHeadersHints", () => {
       "/src/routes/home.tsx": false,
     });
   });
+
+  it("keeps compiled route formats conservatively header-bearing", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-compiled-headers-hints-"));
+    tempDirs.push(routesDir);
+    writeFileSync(join(routesDir, "post.mdx"), "# Post\n");
+    writeFileSync(join(routesDir, "account.custom"), "title: Account\n");
+
+    expect(
+      createRouteHeadersHints(routesDir, {
+        additionalExtensions: [".custom"],
+        rootRelativePrefix: "/src/routes",
+      }),
+    ).toEqual({
+      "/src/routes/account.custom": true,
+      "/src/routes/post.mdx": true,
+    });
+  });
 });
 
 describe("detectStaticPathsExport", () => {

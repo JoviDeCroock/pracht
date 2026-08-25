@@ -96,7 +96,11 @@ function scan(
       ext === ".mdx" ||
       additionalExtensions.has(ext) ||
       detectHeadExport(analysisSource);
-    const hasHeaders = detectHeadersExport(analysisSource);
+    const hasHeaders =
+      ext === ".md" ||
+      ext === ".mdx" ||
+      additionalExtensions.has(ext) ||
+      detectHeadersExport(analysisSource);
 
     pages.push({
       absolutePath: abs,

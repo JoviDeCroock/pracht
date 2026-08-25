@@ -880,11 +880,12 @@ verification warning. Vite-scannable component formats participate in initial
 dependency scanning automatically. Other format plugins must opt their extension
 into Vite's dependency optimizer themselves.
 
-Pracht treats configured formats as potentially head-bearing even when their
-raw source has no JavaScript `head()` export, because the companion transform
-may synthesize one from frontmatter or other format-specific metadata. This
-keeps client navigation correct at the cost of a conservative route-state
-request for otherwise headless custom modules.
+Pracht treats configured formats as potentially head- and header-bearing even
+when their raw source has no JavaScript `head()` or `headers()` export, because
+the companion transform may synthesize one from frontmatter or other
+format-specific metadata. This keeps client navigation and document-header HMR
+correct at the cost of conservative route-state requests and reloads for
+otherwise headless custom modules.
 
 In development, the compiled component also participates in Preact Fast
 Refresh. Pracht runs refresh instrumentation after the companion transform, so
