@@ -137,6 +137,14 @@ overrides the route-level strategy for a single anchor (and accepts the extra
 option), so a route can stay on `"intent"` while its primary-nav link opts
 into `"viewport"` or `"render"`.
 
+If every route ends up on `"none"`, do not stop there — the prefetch listeners
+still ship, in a chunk the router lazily imports on every page. Recommend
+`pracht({ client: { prefetch: false } })` instead, which compiles the whole
+mechanism out (~2.6 KB gzip and one fewer request). Confirm nothing relies on
+prefetching first: the router silently stops honouring `route({ prefetch })` and
+`<Link prefetch>`, and the imperative `prefetch()` export becomes a no-op. See
+`docs/PERFORMANCE.md#switching-off-js-prefetching`.
+
 ## Step 7: Report
 
 Three sections:

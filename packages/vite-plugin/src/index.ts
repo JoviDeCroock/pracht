@@ -63,6 +63,7 @@ export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
 export type {
   LlmsTxtSection,
+  PrachtClientOptions,
   PrachtLlmsTxtOptions,
   PrachtPluginOptions,
 } from "./plugin-options.ts";
@@ -190,6 +191,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         env.command === "build" && resolved.adapter.staticTarget === true,
       );
 
+      // Declared by the app rather than derived from the manifest, so the
+      // same flags apply in dev — a feature switched off must behave the same
+      // in `pracht dev` as it does in the build that ships.
+      const clientFeatureDefines = {
+        __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
+      };
+
       return {
         appType: "custom" as const,
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
@@ -209,6 +217,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
+          ...clientFeatureDefines,
         },
         // The vendor split only makes sense for the client bundle; SSR builds
         // that disable code splitting (e.g. webworker targets) reject

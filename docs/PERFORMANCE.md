@@ -1,8 +1,9 @@
 # Performance — Bundle Analysis & Budgets
 
-Pracht's core promise is shipping less JavaScript. Two built-in tools keep that
-promise honest as an app grows: `pracht build --analyze` (visibility) and
-per-route client-JS budgets (enforcement).
+Pracht's core promise is shipping less JavaScript. Three built-in tools keep
+that promise honest as an app grows: `pracht build --analyze` (visibility),
+per-route client-JS budgets (enforcement), and `pracht({ client })` for
+compiling out router features the app does not use.
 
 ## Tree-shaking framework imports
 
@@ -44,6 +45,46 @@ Both are covered by budget assertions in `package-tree-shaking.test.ts`. When
 adding a router feature, prefer this shape over a direct import in
 `router.ts` or `runtime-context.ts`: reach it from the export, component, or
 generated module that needs it.
+
+## Switching off JS prefetching
+
+Every internal link is prefetched on hover/focus by default, and the listeners
+that do it live in a chunk the router lazily imports on *every* page. Setting
+each route to `prefetch: "none"` stops the fetching but still ships that chunk —
+the router reaches the prefetch runtime directly, so no bundler can work out
+that nothing uses it. Declare it instead:
+
+```ts
+// vite.config.ts
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [pracht({ client: { prefetch: false } })],
+});
+```
+
+The flag defaults to `true`, so an app that configures nothing behaves exactly
+as before, byte for byte. Disabled, a production build of the router runtime
+drops from 9,917 to 7,286 gzip bytes (−26.5%) with Preact external. End to end
+on `examples/basic`, where the shared client JS also carries Preact, a cold load
+drops from 21,087 to 18,692 gzip bytes (−11.4%) — and one fewer request, since
+the lazily imported chunk is gone.
+
+### What turning it off actually changes
+
+The router stops honouring `route({ prefetch })` and `<Link prefetch>`, and the
+imperative `prefetch()` export becomes a no-op. It does not warn: the code is
+gone. Navigation still works; it just always fetches route state on click.
+
+Browser speculation rules (`route({ speculation })`, `<Link speculate>`) are
+unaffected — they are emitted in the HTML and handled by the browser, not by the
+prefetch runtime.
+
+Scroll restoration and fragment (`#hash`) navigation are deliberately not
+switchable. The popstate handler tells a history traversal apart from an in-page
+fragment navigation by whether the entry carries a router-stamped scroll key, so
+the two are one mechanism rather than two features — removing it would change
+navigation semantics, not just bundle size.
 
 ## `pracht build --analyze`
 

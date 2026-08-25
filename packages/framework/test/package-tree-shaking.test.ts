@@ -171,6 +171,52 @@ describe("published package tree shaking", () => {
     });
   });
 
+  // `pracht({ client: { prefetch: false } })` compiles the prefetch runtime out
+  // of the client bundle. The router reaches it directly, so only the define
+  // can remove it.
+  describe("__PRACHT_CLIENT_PREFETCH__", () => {
+    // Production shape: the dev-only hydration mismatch warning is dead code in
+    // a real app bundle, so counting it would hide what ships.
+    const PRODUCTION = { "import.meta.env.DEV": "false" };
+
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: { ...PRODUCTION, ...define },
+        entry: clientEntry,
+      });
+
+    it("drops the prefetch runtime, including its lazily imported chunk", async () => {
+      const { code } = await routerBundle({ __PRACHT_CLIENT_PREFETCH__: "false" });
+
+      // `setupPrefetching` lives behind a dynamic import. Rollup only drops the
+      // chunk when the import expression itself is proven dead, so an assertion
+      // on the entry chunk alone would pass while the chunk still shipped.
+      expect(code).not.toContain("setupPrefetching");
+      expect(code).not.toContain("data-pracht-prefetch");
+    });
+
+    it("cuts the router runtime by at least a fifth", async () => {
+      const on = await routerBundle({ __PRACHT_CLIENT_PREFETCH__: "true" });
+      const off = await routerBundle({ __PRACHT_CLIENT_PREFETCH__: "false" });
+
+      expect(off.gzipBytes).toBeLessThanOrEqual(on.gzipBytes * 0.8);
+    });
+
+    it("keeps prefetching when the feature is enabled", async () => {
+      const { code } = await routerBundle({ __PRACHT_CLIENT_PREFETCH__: "true" });
+
+      expect(code).toContain("setupPrefetching");
+    });
+
+    it("costs nothing when the define is absent", async () => {
+      // Unit tests and direct Node imports run without the define. The `typeof`
+      // guard has to keep prefetching on rather than throw.
+      const { code } = await routerBundle({});
+
+      expect(code).toContain("setupPrefetching");
+    });
+  });
+
   // The agent surface is opt-in: a server bundle for an app that registers no
   // capabilities and configures no agents must not contain the capability
   // dispatch or the Web Bot Auth verifier at all.

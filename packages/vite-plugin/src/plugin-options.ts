@@ -36,7 +36,28 @@ export interface PrachtLlmsTxtOptions {
   exclude?: string[];
 }
 
+/**
+ * Optional client-router features, compiled out of the client bundle when
+ * disabled. Every one defaults to `true`. Turn a feature off only when the app
+ * really does not use it: the router silently stops honouring the
+ * corresponding route options and `<Link>` props.
+ */
+export interface PrachtClientOptions {
+  /**
+   * JS prefetching of route-state JSON and route/shell chunks, driven by
+   * `route({ prefetch })` and `<Link prefetch>`. Off also drops the separate
+   * prefetch chunk the router loads on every page, and makes the imperative
+   * `prefetch()` export a no-op.
+   */
+  prefetch?: boolean;
+}
+
 export interface PrachtPluginOptions {
+  /**
+   * Switch off client-router features the app does not use, so they are
+   * compiled out of the client bundle. See {@link PrachtClientOptions}.
+   */
+  client?: PrachtClientOptions;
   appFile?: string;
   routesDir?: string;
   shellsDir?: string;
@@ -100,7 +121,12 @@ export interface PrachtPluginOptions {
 
 export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
 
+export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
+  prefetch: true,
+};
+
 const DEFAULTS: ResolvedPrachtPluginOptions = {
+  client: CLIENT_FEATURE_DEFAULTS,
   appFile: "/src/routes.ts",
   middlewareDir: "/src/middleware",
   routesDir: "/src/routes",
@@ -131,6 +157,7 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   if (resolved.llmsTxt === undefined) {
     resolved.llmsTxt = false;
   }
+  resolved.client = resolveClientOptions(options.client);
   resolved.additionalExtensions = normalizeAdditionalExtensions(resolved.additionalExtensions);
   if (!new Set(["spa", "ssr", "ssg", "isg"]).has(resolved.pagesDefaultRender)) {
     throw new Error('pracht({ pagesDefaultRender }) expects "spa", "ssr", "ssg", or "isg".');
@@ -143,6 +170,34 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   }
   validateBudgets(resolved.budgets);
   validateLlmsTxt(resolved.llmsTxt);
+  return resolved;
+}
+
+function resolveClientOptions(
+  client: PrachtClientOptions | undefined,
+): Required<PrachtClientOptions> {
+  if (client === undefined) return CLIENT_FEATURE_DEFAULTS;
+  if (typeof client !== "object" || client === null) {
+    throw new Error("pracht({ client }) expects an options object.");
+  }
+  const resolved = { ...CLIENT_FEATURE_DEFAULTS };
+  for (const key of Object.keys(CLIENT_FEATURE_DEFAULTS) as Array<keyof PrachtClientOptions>) {
+    const value = client[key];
+    if (value === undefined) continue;
+    if (typeof value !== "boolean") {
+      throw new Error(
+        `pracht({ client: { ${key} } }) expects a boolean, got ${JSON.stringify(value)}.`,
+      );
+    }
+    resolved[key] = value;
+  }
+  const unknown = Object.keys(client).filter((key) => !(key in CLIENT_FEATURE_DEFAULTS));
+  if (unknown.length > 0) {
+    throw new Error(
+      `pracht({ client }) does not accept ${unknown.map((key) => JSON.stringify(key)).join(", ")}. ` +
+        `Known features: ${Object.keys(CLIENT_FEATURE_DEFAULTS).join(", ")}.`,
+    );
+  }
   return resolved;
 }
 
