@@ -54,13 +54,22 @@ through `getStaticPaths()` produces a 5,000-line, 180 KB file, which is larger
 than most agent context budgets and tells an agent nothing the first fifty
 entries did not.
 
-Truncation is never silent. The section ends with a line naming the route and
-the count:
+**Which instances survive:** the first `maxPagesPerRoute` your
+`getStaticPaths()` returns, after `exclude` is applied. The order is yours, so
+a blog that returns posts newest-first lists its newest posts. They are printed
+in path order, like every other entry, so the file stays byte-stable.
+
+Truncation is never silent. A line above the `## Pages` heading names the route
+and the ratio it lists:
 
 ```
-_4,950 more prerendered pages under `/blog/:slug` are not listed. Raise
-`llmsTxt.maxPagesPerRoute` to include them._
+_Pages lists 50 of 5000 prerendered URLs under `/blog/:slug`; 4950 are omitted. Raise `llmsTxt.maxPagesPerRoute` to include them._
 ```
+
+The note goes above the heading rather than inside the section on purpose. The
+[spec](https://llmstxt.org) allows free-form prose only in the block between
+the title and the first `##`; an `##` section is a file list, and the reference
+parser rejects any line inside one that is not a `- [name](url)` link.
 
 Set `maxPagesPerRoute: 0` to list every instance.
 
@@ -112,8 +121,9 @@ comparison, so repeated builds produce byte-identical files.
   URLs an agent can fetch.
 - Dynamic routes (`/blog/:slug`) are listed only when they are SSG/ISG routes
   with a `getStaticPaths()` export; each prerendered instance becomes its own
-  entry. Dynamic SSR/SPA routes are skipped — there is no concrete URL to
-  link.
+  entry, up to `maxPagesPerRoute` per route (see
+  [Large collections](#large-collections)). Dynamic SSR/SPA routes are
+  skipped — there is no concrete URL to link.
 - Routes with a server-only `markdown` export, or `markdown: true` route
   metadata for middleware-owned negotiation (see
   [docs/DATA_LOADING.md](DATA_LOADING.md)), are annotated with

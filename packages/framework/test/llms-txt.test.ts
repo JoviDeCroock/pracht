@@ -380,8 +380,43 @@ describe("buildLlmsTxt page ceilings", () => {
   it("says what it left out instead of truncating silently", async () => {
     const output = await buildLlmsTxt({ ...appWithPosts(120), title: "Blog" });
 
-    expect(output).toContain("70 more prerendered pages under `/blog/:slug` are not listed");
-    expect(output).toContain("llmsTxt.maxPagesPerRoute");
+    expect(output).toContain(
+      "_Pages lists 50 of 120 prerendered URLs under `/blog/:slug`; 70 are omitted. " +
+        "Raise `llmsTxt.maxPagesPerRoute` to include them._",
+    );
+  });
+
+  // The note sits above `## Pages`, in the free-form block the spec reserves
+  // for "markdown sections of any type except headings". Inside an H2 section
+  // it made the file unparseable — see the parser-shaped test below.
+  it("puts the truncation note above the first heading", async () => {
+    const lines = (await buildLlmsTxt({ ...appWithPosts(120), title: "Blog" })).split("\n");
+
+    const noteIndex = lines.findIndex((line) => line.startsWith("_Pages lists"));
+    const headingIndex = lines.findIndex((line) => line.startsWith("##"));
+    expect(noteIndex).toBeGreaterThan(-1);
+    expect(headingIndex).toBeGreaterThan(-1);
+    expect(noteIndex).toBeLessThan(headingIndex);
+  });
+
+  // The reference parser (AnswerDotAI's `llms_txt`, linked from llmstxt.org)
+  // feeds every non-blank line inside an H2 section to a link regex and throws
+  // on the first that does not match — prose and list item alike. Anything the
+  // generator adds to a section has to stay a link, whatever it is.
+  it("emits only links inside H2 sections", async () => {
+    const output = await buildLlmsTxt({
+      ...appWithPosts(120),
+      apiRoutes,
+      title: "Blog",
+    });
+
+    const sections = output.split(/^##\s*(.*?)$/m).slice(1);
+    expect(sections.length).toBeGreaterThan(0);
+    for (let index = 1; index < sections.length; index += 2) {
+      for (const line of sections[index].split("\n").filter((candidate) => candidate.trim())) {
+        expect(line).toMatch(/^-\s*\[[^\]]+\]\([^)]+\)(?::\s*.*)?$/);
+      }
+    }
   });
 
   it("honours an explicit ceiling", async () => {
@@ -393,7 +428,7 @@ describe("buildLlmsTxt page ceilings", () => {
 
     const links = output.split("\n").filter((line) => line.startsWith("- ["));
     expect(links).toHaveLength(3);
-    expect(output).toContain("7 more prerendered pages");
+    expect(output).toContain("Pages lists 3 of 10 prerendered URLs under `/blog/:slug`");
   });
 
   it("lists every instance when the ceiling is 0", async () => {
@@ -405,27 +440,65 @@ describe("buildLlmsTxt page ceilings", () => {
 
     const links = output.split("\n").filter((line) => line.startsWith("- ["));
     expect(links).toHaveLength(120);
-    expect(output).not.toContain("are not listed");
+    expect(output).not.toContain("omitted");
   });
 
   it("stays quiet when the route fits", async () => {
     const output = await buildLlmsTxt({ ...appWithPosts(3), title: "Blog" });
 
-    expect(output).not.toContain("are not listed");
+    expect(output).not.toContain("omitted");
   });
 
-  // Sorted before truncating, so which instances survive is deterministic
-  // rather than an artifact of getStaticPaths() ordering.
-  it("keeps the lexicographically first instances", async () => {
+  // Truncating in sorted order picks the wrong pages: `post-1 … post-5000`
+  // sorts to post-1, post-10, post-100, post-1000, post-1001 …, so most
+  // survivors are a consecutive run from the middle of the archive.
+  // getStaticPaths() order is the author's, and for a blog it is newest-first.
+  it("keeps the instances getStaticPaths() returned first", async () => {
     const output = await buildLlmsTxt({
-      ...appWithPosts(120),
+      app: resolveApp(
+        defineApp({ routes: [route("/blog/:slug", "./routes/blog.tsx", { render: "ssg" })] }),
+      ),
       maxPagesPerRoute: 2,
+      registry: {
+        routeModules: {
+          "/src/routes/blog.tsx": async () => ({
+            getStaticPaths: () => [
+              { slug: "post-2026-08-25" },
+              { slug: "post-2026-08-24" },
+              { slug: "post-2026-08-23" },
+              { slug: "post-2026-01-01" },
+            ],
+          }),
+        },
+      } as ModuleRegistry,
       title: "Blog",
     });
 
-    expect(output).toContain("- [/blog/post-1](/blog/post-1)");
-    expect(output).toContain("- [/blog/post-10](/blog/post-10)");
-    expect(output).not.toContain("- [/blog/post-2](/blog/post-2)");
+    expect(output).toContain("- [/blog/post-2026-08-24](/blog/post-2026-08-24)");
+    expect(output).toContain("- [/blog/post-2026-08-25](/blog/post-2026-08-25)");
+    expect(output).not.toContain("- [/blog/post-2026-01-01](/blog/post-2026-01-01)");
+  });
+
+  // Display order is still lexicographic and independent of getStaticPaths():
+  // truncation picks the entries, sorting arranges them.
+  it("lists the survivors in path order", async () => {
+    const output = await buildLlmsTxt({
+      app: resolveApp(
+        defineApp({ routes: [route("/blog/:slug", "./routes/blog.tsx", { render: "ssg" })] }),
+      ),
+      maxPagesPerRoute: 2,
+      registry: {
+        routeModules: {
+          "/src/routes/blog.tsx": async () => ({
+            getStaticPaths: () => [{ slug: "zebra" }, { slug: "apple" }, { slug: "mango" }],
+          }),
+        },
+      } as ModuleRegistry,
+      title: "Blog",
+    });
+
+    const links = output.split("\n").filter((line) => line.startsWith("- ["));
+    expect(links).toEqual(["- [/blog/apple](/blog/apple)", "- [/blog/zebra](/blog/zebra)"]);
   });
 
   // A ceiling that counted URLs the file was never going to list would
@@ -441,7 +514,7 @@ describe("buildLlmsTxt page ceilings", () => {
     const links = output.split("\n").filter((line) => line.startsWith("- ["));
     expect(links).toHaveLength(3);
     expect(output).not.toContain("- [/blog/post-1](/blog/post-1)");
-    expect(output).toContain("6 more prerendered pages");
+    expect(output).toContain("Pages lists 3 of 9 prerendered URLs under `/blog/:slug`");
   });
 
   it("counts each dynamic route separately", async () => {
@@ -468,7 +541,57 @@ describe("buildLlmsTxt page ceilings", () => {
       title: "Site",
     });
 
-    expect(output).toContain("1 more prerendered page under `/blog/:slug`");
-    expect(output).toContain("2 more prerendered pages under `/docs/:slug`");
+    expect(output).toContain("Pages lists 1 of 2 prerendered URLs under `/blog/:slug`");
+    expect(output).toContain("Pages lists 1 of 3 prerendered URLs under `/docs/:slug`");
+    // Both notes stay one contiguous block above the heading rather than
+    // becoming a list of their own.
+    expect(output).toContain(
+      "_Pages lists 1 of 2 prerendered URLs under `/blog/:slug`; 1 is omitted. " +
+        "Raise `llmsTxt.maxPagesPerRoute` to include it._\n" +
+        "_Pages lists 1 of 3 prerendered URLs under `/docs/:slug`; 2 are omitted. " +
+        "Raise `llmsTxt.maxPagesPerRoute` to include them._\n",
+    );
   });
+
+  // "1 more page ... are not listed" is what a noun-only plural produces.
+  it("agrees the verb with a single omitted page", async () => {
+    const output = await buildLlmsTxt({
+      ...appWithPosts(3),
+      maxPagesPerRoute: 2,
+      title: "Blog",
+    });
+
+    expect(output).toContain(
+      "_Pages lists 2 of 3 prerendered URLs under `/blog/:slug`; 1 is omitted. " +
+        "Raise `llmsTxt.maxPagesPerRoute` to include it._",
+    );
+  });
+
+  // A fractional ceiling slipped through `buildLlmsTxt` (only the vite plugin
+  // validates it) and reported "7.5 more prerendered pages".
+  it("floors a fractional ceiling instead of reporting a fractional count", async () => {
+    const output = await buildLlmsTxt({
+      ...appWithPosts(10),
+      maxPagesPerRoute: 2.5,
+      title: "Blog",
+    });
+
+    const links = output.split("\n").filter((line) => line.startsWith("- ["));
+    expect(links).toHaveLength(2);
+    expect(output).toContain("Pages lists 2 of 10 prerendered URLs under `/blog/:slug`");
+    expect(output).not.toContain(".5");
+  });
+
+  // Deduplicating with `paths.includes(path)` is O(n^2): 50,000 instances took
+  // 16 seconds on the machine that wrote this test, against 46 ms for the Map
+  // it replaced. The budget is deliberately loose — it only has to fail for a
+  // quadratic scan, and it does so by two orders of magnitude.
+  it("stays linear in the number of prerendered instances", async () => {
+    const started = performance.now();
+    const output = await buildLlmsTxt({ ...appWithPosts(50_000), title: "Blog" });
+    const elapsed = performance.now() - started;
+
+    expect(output).toContain("Pages lists 50 of 50000 prerendered URLs under `/blog/:slug`");
+    expect(elapsed).toBeLessThan(5_000);
+  }, 60_000);
 });

@@ -39,10 +39,14 @@ export interface PrachtLlmsTxtOptions {
    * contributes to the Pages section. Defaults to 50; `0` lists every
    * instance.
    *
+   * The instances kept are the first ones `getStaticPaths()` returns, after
+   * `exclude` is applied — the author's order, which for a blog is usually
+   * newest-first.
+   *
    * llms.txt is an index, not a sitemap. A 5,000-post blog expanded through
    * `getStaticPaths()` produces a 5,000-line, 180 KB file — larger than most
-   * agent context budgets. Truncation is never silent: the section ends with a
-   * line naming the route and how many URLs were left out.
+   * agent context budgets. Truncation is never silent: a line above the Pages
+   * section names the route and the ratio it lists.
    */
   maxPagesPerRoute?: number;
 }
