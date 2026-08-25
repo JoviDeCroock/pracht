@@ -36,4 +36,4 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-Sitemap: https://pracht.dev/sitemap.xml
+Sitemap: https://pracht.resynapse.dev/sitemap.xml

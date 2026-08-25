@@ -6,8 +6,8 @@ prev:
   href: /docs/agent-workflow
   title: AI-Assisted Authoring & Review
 next:
-  href: /docs/capabilities
-  title: Capabilities
+  href: /docs/mcp
+  title: MCP Server
 ---
 
 ## What Ships
@@ -95,7 +95,7 @@ Pass `--agent-tools` / `--no-agent-tools` to skip the prompt in scripted runs; `
 
 ## Relationship to the MCP Server
 
-The skills shell out to `pracht inspect ... --json`, `pracht doctor`, and `pracht verify`. The [built-in MCP server](https://github.com/JoviDeCroock/pracht/blob/main/docs/MCP.md) (`pracht mcp`) exposes the same capabilities as native tools — inspect, doctor, verify, and generate — for clients that prefer tool calls over shell access. The seeded `.mcp.json` wires it up:
+The skills shell out to `pracht inspect ... --json`, `pracht doctor`, and `pracht verify`. The [built-in MCP server](/docs/mcp) (`pracht mcp`) exposes the same capabilities as native tools — inspect, doctor, verify, and generate — for clients that prefer tool calls over shell access. The seeded `.mcp.json` wires it up:
 
 ```json
 {

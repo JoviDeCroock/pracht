@@ -18,14 +18,45 @@ described in `VISION_MVP.md`.
 | `packages/adapter-netlify`    | `@pracht/adapter-netlify`    | Netlify Functions v2 handler, bundled static output, durable CDN caching, and tag-based ISG revalidation     |
 | `packages/adapter-vercel`     | `@pracht/adapter-vercel`     | Vercel Edge handler, Build Output API entry source, and native ISR artifacts                                 |
 | `packages/adapter-static`     | `@pracht/adapter-static`     | Strict SSG/loaderless-SPA export: fail-closed runtime-feature validation, SSG route-state files, 404/SPA fallback, static preview server |
-| `packages/preact-worker-facets` | `@pracht/preact-worker-facets` | Experimental Cloudflare Dynamic Worker + Durable Object facets runtime for inert, stateful Preact components |
 | `packages/image`              | `@pracht/image`              | Responsive, CLS-safe `<Image>` component, pluggable optimization loaders, sharp-backed Node endpoint (see `docs/IMAGES.md`) |
 | `packages/i18n`               | `@pracht/i18n`               | i18n primitives: locale-detection middleware, lazy typed dictionaries, `t()`/`tPlural()`, `localePath()`/`hreflang()` helpers (see `packages/i18n/README.md`) |
 | `packages/test`               | `@pracht/test`               | Testing utilities for app developers: typed loader/API/middleware args factories, a middleware chain runner, form submission helpers, and minimal response readers |
-| `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, and `doctor`                                    |
+| `packages/capabilities`       | `@pracht/capabilities`       | Capability primitive: `defineCapability()`, JSON Schema validation, form-input coercion, and the shared envelope/error protocol |
+| `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, `doctor`, and the `pracht mcp` authoring server |
+| `packages/start`              | `create-pracht`              | Project scaffolder: router choice, adapter choice, agent tooling (`.mcp.json`, skills, `AGENTS.md`)         |
+| `examples/basic`              | `@pracht/example-basic`      | The reference app: all four render modes, loaders, API routes, auth middleware, capabilities, forms. Builds for four adapters from one source tree |
+| `examples/showcase`           | `@pracht/example-showcase`   | *Launchpad* — the whole capability graph and agent trust layer in one app: six operations projected to browser, forms, WebMCP, signed remote callers, and `/mcp` |
+| `examples/islands`            | `@pracht/example-islands`    | Partial hydration: an island beside a server component whose handlers never hydrate                          |
+| `examples/pages-router`       | `@pracht/example-pages-router` | File-system routing with no manifest, including the `_app.tsx` shell convention                            |
+| `examples/static`             | `@pracht/example-static`     | Pure static export: build-time loaders, `getStaticPaths()`, loaderless SPA routes, `200.html` fallback, loader-backed `404.html` |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
-| `examples/docs`               | `@pracht/example-docs`       | Documentation website built with pracht + Cloudflare adapter; all routes SSG-prerendered; dark design system |
+| `examples/docs`               | `@pracht/example-docs`       | **The published documentation site** — every page under `src/routes/docs/*.md` is public user- and agent-facing docs. Cloudflare adapter, all routes SSG, generates `llms.txt`, sitemap, and the agent-skills index |
 | `examples/tsrx`               | `@pracht/example-tsrx`       | Mixed `.tsrx` (TSRX/Ripple-flavoured Preact) and `.tsx` routes via `@tsrx/vite-plugin-preact`                |
+
+## Documentation
+
+Two audiences, two trees, and they are not interchangeable.
+
+| Path | Audience | Published? |
+| --- | --- | --- |
+| `docs/*.md` | Contributors to this repository | No — these files exist only in the repo |
+| `examples/docs/src/routes/docs/*.md` | Users of the framework, and their coding agents | Yes — <https://pracht.resynapse.dev> |
+
+`examples/docs` is a real pracht app whose Markdown pages *are* the public
+documentation. It also generates `llms.txt`, the sitemap, and the agent-skills
+discovery index from those same files, so a page that is missing there is
+missing from every agent-facing surface too.
+
+A user-facing change is not finished when `docs/` is updated. Adding a page
+means three edits: the Markdown file, a `route()` in
+`examples/docs/src/routes.ts`, and a nav entry in
+`examples/docs/src/shells/docs.tsx`. Sub-path ids (`recipes-`, `migrate-`,
+`reference-`) are mapped to nested URLs by the `route()` hook in
+`examples/docs/content.ts`.
+
+Never link a published page at a `docs/*.md` path or a GitHub blob URL for
+something that should be on the site — a reader following it leaves the
+documentation.
 
 ## What Exists Today
 
@@ -131,12 +162,6 @@ described in `VISION_MVP.md`.
   serialized `_pracht/state/…` files for SSG loader navigation,
   full-hydration `404.html` plus an optional loader-data-aware `200.html`
   fallback, and a tiny static preview server behind `pracht preview`.
-- **Preact Worker facets prototype** — `@pracht/preact-worker-facets` provides
-  experimental helpers for running Preact-style component modules inside
-  Cloudflare Dynamic Workers. A supervisor Durable Object owns auth, source
-  hashes, TTL cleanup, and facet resets; the Dynamic Worker exports a facet
-  Durable Object whose isolated SQLite storage persists hook state while the
-  browser renders only an inert JSON tree.
 - **E2E tests** — Playwright tests cover SSR rendering, loader data, head
   metadata, middleware redirects, auth-gated routes, SPA mode, route-state JSON,
   404 handling, hydration, client-side navigation, API routes (GET, POST, 405,

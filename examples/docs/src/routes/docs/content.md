@@ -93,6 +93,44 @@ The compiler is memoized per source. Filesystem reads reuse the compiled value
 until the file's mtime or size changes; Vite transforms invalidate the matching
 entry on add, change, or unlink.
 
+### Emit the sources themselves
+
+`rawContentArtifacts()` publishes selected documents as ordinary static assets —
+useful for serving the Markdown behind a page so an agent (or a `curl`) can read
+the source instead of scraping the rendered HTML:
+
+```ts [content.ts]
+import { defineCollection, rawContentArtifacts } from "@pracht/content";
+
+artifacts: [
+  rawContentArtifacts({
+    // Return the artifact path, or `false` to skip the document.
+    path: (document) => `${document.path}.md`,
+    // "raw" (default) emits the full source; "body" strips YAML frontmatter.
+    representation: "body",
+    contentType: "text/markdown; charset=utf-8",
+  }),
+];
+```
+
+Like `llmsTxtArtifacts()`, the generator runs in development against the live
+files and is emitted to `dist/client/` at build time.
+
+### Parsing frontmatter yourself
+
+`compile()` already receives `body` with frontmatter removed and `frontmatter`
+parsed. `parseFrontmatter()` is the same parser exported on its own, for code
+outside a collection — a script, a test, a custom loader:
+
+```ts
+import { parseFrontmatter } from "@pracht/content";
+
+const { frontmatter, body } = parseFrontmatter<{ title: string }>(raw);
+```
+
+It throws a `TypeError` when the frontmatter block is not a YAML mapping, and
+returns `{ frontmatter: {}, body: raw }` when there is no block at all.
+
 ## Add the Vite integration
 
 Place `prachtContent()` and `prachtImage()` before `pracht()`. They transform

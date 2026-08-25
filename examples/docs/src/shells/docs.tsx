@@ -31,6 +31,10 @@ import {
   IconPhoto,
   IconTypography,
   IconFileText,
+  IconBook,
+  IconLanguage,
+  IconAdjustments,
+  IconApps,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 import { inter } from "../fonts";
@@ -84,6 +88,7 @@ const NAV = [
       { href: "/docs/llms", Icon: IconSparkles, title: "LLM Content" },
       { href: "/docs/agent-workflow", Icon: IconRobot, title: "Agent Workflow" },
       { href: "/docs/agent-skills", Icon: IconSparkles, title: "Agent Skills" },
+      { href: "/docs/mcp", Icon: IconTerminal2, title: "MCP Server" },
       { href: "/docs/capabilities", Icon: IconRobot, title: "Capabilities" },
       { href: "/docs/agent-trust", Icon: IconShieldCheck, title: "Agent Trust" },
       { href: "/docs/remote-mcp", Icon: IconWorldBolt, title: "Remote MCP" },
@@ -114,7 +119,13 @@ const NAV = [
   },
   {
     label: "Reference",
-    links: [{ href: "/docs/adapters", Icon: IconPlug, title: "Adapters" }],
+    links: [
+      { href: "/docs/adapters", Icon: IconPlug, title: "Adapters" },
+      { href: "/docs/reference/api", Icon: IconBook, title: "API Reference" },
+      { href: "/docs/reference/config", Icon: IconAdjustments, title: "Configuration" },
+      { href: "/docs/reference/i18n", Icon: IconLanguage, title: "i18n" },
+      { href: "/docs/examples", Icon: IconApps, title: "Examples" },
+    ],
   },
 ];
 

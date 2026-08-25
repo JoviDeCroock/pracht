@@ -70,6 +70,21 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 | file  | string    | Relative path to the route module                     |
 | meta  | RouteMeta | Optional render mode, shell, middleware, Markdown capability, revalidation |
 
+`RouteMeta` fields:
+
+| Field         | Type                                     | Description                                                                                        |
+| ------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `id`          | string                                   | Stable route id for typed routes and `<Link route>`. Generated from the path when omitted           |
+| `render`      | `"ssr" \| "ssg" \| "isg" \| "spa"`       | [Render mode](/docs/rendering). Defaults to `"ssr"`                                                |
+| `hydration`   | `"full" \| "islands" \| "none"`          | How much of the page hydrates. See [Islands](/docs/islands)                                        |
+| `shell`       | string                                   | Named shell that wraps this route                                                                  |
+| `middleware`  | string[]                                 | Named middleware to run before the loader                                                          |
+| `prefetch`    | `"intent" \| "viewport" \| "hover" \| "none"` | JS [prefetch strategy](/docs/prefetching). Defaults to `"intent"`                             |
+| `speculation` | `"prefetch" \| "prerender" \| { mode, eagerness }` | Browser [speculation rules](/docs/prefetching#speculation-rules) opt-in                  |
+| `revalidate`  | RouteRevalidate                          | `timeRevalidate()` / `webhookRevalidate()` for ISG routes                                           |
+| `loaderCache` | LoaderCache                              | Cache-Control policy for this route's [loader response](/docs/data-loading)                        |
+| `markdown`    | boolean                                  | Declare that middleware negotiates a Markdown representation for this route                        |
+
 ### group(meta, routes)
 
 Groups routes with shared configuration. Properties cascade to children; a route's own meta overrides the group's.
@@ -104,7 +119,43 @@ route("/users/:userId/posts/:postId", "./routes/user-post.tsx");
 
 ```ts
 route("/docs/*", "./routes/docs.tsx");
-// Matches /docs/a/b/c — catch-all available in params
+// Matches /docs/a/b/c — catch-all available in params as "*"
+
+route("/files/:path*", "./routes/files.tsx");
+// Same match, captured under params.path instead
+```
+
+### Reading params
+
+Server-side, matched params arrive on the loader, middleware, and API route
+args:
+
+```ts [src/routes/blog-post.tsx]
+export async function loader({ params }: LoaderArgs) {
+  return { post: await getPost(params.slug) };
+}
+```
+
+In a component, `useParams()` reads the same values from the active route:
+
+```tsx
+import { useParams } from "@pracht/core";
+
+export default function BlogPost() {
+  const { slug } = useParams();
+  return <article data-slug={slug}>…</article>;
+}
+```
+
+It returns `{}` when no route is active, and re-renders on client-side
+navigation, so a component shared across several routes can read whichever
+params the current one matched. Prefer the loader's `params` when the value is
+only needed to fetch data — that path runs on the server and needs no hydration.
+
+A catch-all segment is exposed under the key `"*"`:
+
+```tsx
+const { "*": rest } = useParams(); // /docs/a/b/c → "a/b/c"
 ```
 
 ---
@@ -170,6 +221,49 @@ export function ProductActions({ id }: { id: string }) {
 ```
 
 Explicit `id` fields are preferred for stable public APIs. Routes without ids use generated ids, and params are inferred from `:param`, `*`, and `:name*` segments. `pracht typegen --check` is useful in CI to catch stale generated files.
+
+### `<Link>` props
+
+`<Link>` accepts every anchor attribute — `target`, `rel`, `download`, `ping`,
+`referrerpolicy`, `hreflang`, `class`, event handlers — plus:
+
+| Prop             | Type                                            | Description                                                                              |
+| ---------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `route`          | RouteId                                         | **Required.** The route id to navigate to                                                |
+| `params`         | Record\<string, unknown\>                       | Values for the route's dynamic segments                                                  |
+| `search`         | object \| string                                | Query string to append                                                                   |
+| `hash`           | string                                          | Fragment to append                                                                       |
+| `prefetch`       | `"intent" \| "viewport" \| "render" \| "none"`  | Override the route's [prefetch strategy](/docs/prefetching) for this link                 |
+| `speculate`      | boolean                                         | Opt this link out of / back into [speculation rules](/docs/prefetching#excluding-individual-links) |
+| `preserveScroll` | boolean                                         | Keep the current scroll position instead of scrolling to the top                         |
+| `viewTransition` | boolean                                         | Wrap this navigation in `document.startViewTransition()` where supported                 |
+
+### `href` is not a `<Link>` prop
+
+`<Link>` builds its own `href` from `route` and `params`, so passing one is
+always a mistake — and it used to be a silent one, because the built href
+overwrote it. It is now a compile error that names the fix:
+
+```tsx
+<Link href="/blog/hello">Read</Link>   // ✗ does not typecheck
+<Link route="blog-post" params={{ slug: "hello" }}>Read</Link>  // ✓
+```
+
+Use a plain `<a href>` for external and user-provided URLs — the client router
+leaves those alone.
+
+The rule also applies to spreads. A wrapper component that forwards anchor props
+must not carry `href` in its own props type, or the spread fails to typecheck:
+
+```tsx
+type ButtonLinkProps = Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
+  route: RouteId;
+};
+
+function ButtonLink({ route, ...rest }: ButtonLinkProps) {
+  return <Link route={route} {...rest} />;
+}
+```
 
 ---
 

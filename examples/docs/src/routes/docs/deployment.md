@@ -274,3 +274,97 @@ export async function loader({ context }: LoaderArgs) {
   const user = context.session?.user;
 }
 ```
+
+---
+
+## Sub-Path Deploys
+
+Set Vite's `base` to serve the app under a path rather than an origin root — a
+GitHub Pages *project* site (`https://user.github.io/my-project/`), an S3 key
+prefix, a reverse-proxy mount point:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  base: "/my-project/",
+  plugins: [pracht({ adapter: nodeAdapter() })],
+});
+```
+
+The base is where the deploy is *served*, not part of the output tree.
+`dist/client/` still contains `about/index.html`, and the whole directory is
+uploaded to the sub-path. What changes is every URL the build emits: `<script
+src>`, CSS and modulepreload links, `/_pracht/state/…` fetches, `llms.txt`
+links, the default `@pracht/image` optimization endpoint, the generated OpenAPI
+document and UI, and every href produced by `<Link route>`, `href()`,
+`useNavigate()`, and `prefetch()`.
+
+Route paths in the manifest stay base-free — the router strips the base before
+matching — while `useLocation()` reports the URL as the visitor sees it, base
+included.
+
+`pracht dev` and `pracht preview` both serve the app under the same base, so
+local checks exercise the deployed shape. A bare `/my-project` is redirected to
+`/my-project/`, preserving the query. That trailing slash matters for the root
+document: without it, a relative link like `assets/app.js` would resolve at the
+origin root.
+
+### Hand-written links do not get the base
+
+`<a href="/about">` means the origin root in HTML, and pracht does not rewrite
+it — the same rule as Next's `basePath` and SvelteKit's `base`. Use
+`<Link route="about">` or `href("about")` for internal navigation and the base
+is applied for you. A same-origin link that falls outside the base is handed to
+the browser rather than matched as a route.
+
+For the paths you do write by hand — a root-absolute `<a href>`, a `fetch()` to
+your own endpoint, an asset URL built at runtime — three helpers move a path
+across the base:
+
+```ts
+import { PRACHT_BASE, withBase, stripBase } from "@pracht/core";
+
+PRACHT_BASE; // "/my-project/" — always leading and trailing slashes, "/" by default
+withBase("/about"); // "/my-project/about"   route path → URL path
+stripBase("/my-project/about"); // "/about"  URL path → route path
+stripBase("/elsewhere"); // null — outside the base, so not this app
+```
+
+At the default base of `/` both functions are the identity, so code written this
+way costs nothing until the app moves under a sub-path.
+
+### Base values that are build errors
+
+| Value | Why it fails |
+| --- | --- |
+| `https://cdn.example.com/`, `//cdn…` | A CDN base only relocates assets; documents and the route-state tree stay at the origin root |
+| `"./"`, `""` | A document-relative base makes nested pages resolve assets beneath their own directory |
+| Repeated slashes, malformed percent escapes, segments decoding to `/`, `\`, `.`, `..`, NUL, or a control character | Unsafe URL segments |
+
+Use `/` or a root-absolute path such as `/my-project/`. Equivalent
+percent-escape spellings are accepted and matched canonically at runtime.
+
+### Behind a proxy that strips the base
+
+The Node adapter assumes the deploy base is still present on the forwarded
+path, and maps base-prefixed asset, document, and ISG URLs onto the base-free
+paths in the build output. When a trusted proxy removes the base before
+forwarding, tell the adapter so it stops looking for it — and note that the
+proxy then owns the trailing-slash redirect:
+
+```ts [vite.config.ts]
+pracht({ adapter: nodeAdapter({ basePathStripped: true }) });
+```
+
+This has to be declared rather than detected: a forwarded `/my-project/about`
+is ambiguous by inspection — it could be a retained base followed by `/about`,
+or a stripped-base request for a route whose own path is `/my-project/about`.
+
+Cloudflare, Netlify, and Vercel deployments always retain the base and apply the
+redirect themselves. Custom serverful adapters get it from
+`handlePrachtRequest()`.
+
+### Static hosts
+
+The [static adapter](/docs/adapters) requires `/` or a root-absolute base for
+the reasons in the table above. `pracht preview` answers anything outside the
+base with a 404, matching what a correctly configured host does.

@@ -164,8 +164,46 @@ interface Frontmatter {
 
 // ── Marked renderer ──────────────────────────────────────────────────────────
 
+/**
+ * GitHub-flavoured heading slug: strip tags, lowercase, drop everything that is
+ * not alphanumeric, a space, or a hyphen, then join on hyphens. The docs
+ * cross-link each other by `#anchor`, and marked stopped emitting heading ids
+ * in v13, so without this every one of those links scrolls nowhere.
+ */
+function slugify(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N} -]/gu, "")
+    .trim()
+    .replace(/ /g, "-");
+}
+
 function createRenderer(): Renderer {
   const renderer = new Renderer();
+  // Slugs are unique per document; the counter resets with each renderer, and
+  // `createMarked` builds one per compile.
+  const usedSlugs = new Map<string, number>();
+
+  renderer.heading = function ({
+    tokens,
+    depth,
+  }: {
+    tokens: import("marked").Tokens.Generic[];
+    depth: number;
+  }) {
+    const inner = this.parser.parseInline(tokens);
+    const base = slugify(inner) || `section-${usedSlugs.size + 1}`;
+    const seen = usedSlugs.get(base) ?? 0;
+    usedSlugs.set(base, seen + 1);
+    const id = seen === 0 ? base : `${base}-${seen}`;
+    return `<h${depth} id="${id}">${inner}</h${depth}>`;
+  };
 
   renderer.code = function ({ text, lang }: { text: string; lang?: string }) {
     // Extract filename from lang like "ts [src/routes.ts]" or "ts filename="src/routes.ts""
@@ -266,6 +304,7 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
   route({ id }) {
     if (id.startsWith("recipes-")) return `/docs/recipes/${id.slice("recipes-".length)}`;
     if (id.startsWith("migrate-")) return `/docs/migrate/${id.slice("migrate-".length)}`;
+    if (id.startsWith("reference-")) return `/docs/reference/${id.slice("reference-".length)}`;
     return `/docs/${id}`;
   },
   createMarked: () => new Marked({ renderer: createRenderer() }),
