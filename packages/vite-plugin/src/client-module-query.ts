@@ -49,13 +49,14 @@ export function isPrefreshCompatibleId(id: string): boolean {
  * pending component replacement — which the next unrelated Fast Refresh
  * flushes, tearing down and re-running the untouched copy's effects.
  *
- * Moving the marker into the basename instead keeps the real extension last, so
- * the filter and the parser check still pass, while giving each copy its own
- * registration key: `/src/routes/x.tsx?pracht-client` becomes
- * `/src/routes/x.pracht-client.tsx`. The id is synthetic and never resolved
- * against the filesystem; the JSX dev transform has already stamped
- * `_jsxFileName` from the real id by the time prefresh runs, so dev source
- * locations and open-in-editor are unaffected.
+ * A reserved, length-prefixed namespace keeps the real extension last, so the
+ * filter and parser check still pass, while giving each complete module id its
+ * own registration key. Keeping the authored id verbatim makes the mapping
+ * injective; keeping it behind a non-file prefix prevents a real sibling such
+ * as `x.pracht-client.tsx` from colliding with the synthetic key. The id is
+ * never resolved against the filesystem; the JSX dev transform has already
+ * stamped `_jsxFileName` from the real id by the time prefresh runs, so dev
+ * source locations and open-in-editor are unaffected.
  *
  * Compiled formats whose real extension prefresh rejects (`.md`, `.mdx`, and
  * configured additional formats) instead keep that extension in the basename
@@ -67,17 +68,12 @@ export function toPrachtClientPrefreshId(id: string): string {
   const queryStart = stripped.indexOf("?");
   const path = queryStart === -1 ? stripped : stripped.slice(0, queryStart);
   const extension = PREFRESH_EXTENSION_RE.exec(path);
+  const parserExtension = extension?.[1] ?? "jsx";
 
-  // Any query the module carried besides `pracht-client` still distinguishes
-  // module instances, so it has to survive into the key. Characters that would
-  // read as a new query or path segment are folded away — the value only has to
-  // be stable and unique, never resolvable.
-  const remainder =
-    queryStart === -1 ? "" : stripped.slice(queryStart + 1).replace(/[^\w.-]/g, "_");
-  const marker = remainder ? `${CLIENT_MODULE_QUERY}.${remainder}` : CLIENT_MODULE_QUERY;
-
-  if (!extension) return `${path}.${marker}.jsx`;
-  return `${path.slice(0, extension.index)}.${marker}.${extension[1]}`;
+  // Prefresh embeds this whole value in its component registration key. A
+  // length prefix makes the namespace unambiguous, and retaining the complete
+  // id distinguishes every remaining query without lossy character folding.
+  return `pracht-client:${id.length}:${id}.${parserExtension}`;
 }
 
 export function getRolldownLang(id: string): RolldownLang {

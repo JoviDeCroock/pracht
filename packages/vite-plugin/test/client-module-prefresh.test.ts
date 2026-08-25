@@ -22,9 +22,11 @@ describe("client-module prefresh bridge", () => {
     expect(result).toEqual({ code: "refreshed" });
     // Satisfies prefresh's extension filter while staying distinct from the id
     // of the authored file, which can be in the client graph at the same time.
-    expect(transform).toHaveBeenCalledWith("source", "/app/src/routes/home.pracht-client.tsx", {
-      ssr: false,
-    });
+    expect(transform).toHaveBeenCalledWith(
+      "source",
+      `pracht-client:${CLIENT_ROUTE_ID.length}:${CLIENT_ROUTE_ID}.tsx`,
+      { ssr: false },
+    );
   });
 
   it("ignores modules without the pracht client query", async () => {
@@ -45,19 +47,13 @@ describe("client-module prefresh bridge", () => {
       isRouteOrShellModule: (id) => id === "/app/src/routes/home.tsrx",
     });
 
-    const result = await (plugin!.transform as any).call(
-      {},
-      "source",
-      "/app/src/routes/home.tsrx",
-      { ssr: false },
-    );
+    const id = "/app/src/routes/home.tsrx";
+    const result = await (plugin!.transform as any).call({}, "source", id, { ssr: false });
 
     expect(result).toEqual({ code: "refreshed" });
-    expect(transform).toHaveBeenCalledWith(
-      "source",
-      "/app/src/routes/home.tsrx.pracht-client.jsx",
-      { ssr: false },
-    );
+    expect(transform).toHaveBeenCalledWith("source", `pracht-client:${id.length}:${id}.jsx`, {
+      ssr: false,
+    });
   });
 
   it("does not double-transform a bare route id prefresh already accepts", async () => {
@@ -126,23 +122,28 @@ describe("client-module prefresh bridge", () => {
 describe("toPrachtClientPrefreshId", () => {
   // Prefresh's filter is anchored at the end of the id, so the real extension
   // has to stay last; its `/\.tsx?$/` parser check reads the same position.
-  it.each([
-    ["/app/src/routes/home.tsx", "/app/src/routes/home.pracht-client.tsx"],
-    ["/app/src/routes/home.ts", "/app/src/routes/home.pracht-client.ts"],
-    ["/app/src/routes/home.jsx", "/app/src/routes/home.pracht-client.jsx"],
-    ["/app/src/routes/home.js", "/app/src/routes/home.pracht-client.js"],
-    ["/app/src/routes/home.mjs", "/app/src/routes/home.pracht-client.mjs"],
-    ["/app/src/routes/home.cts", "/app/src/routes/home.pracht-client.cts"],
-  ])("keeps the extension of %s last", (path, expected) => {
-    expect(toPrachtClientPrefreshId(`${path}?pracht-client`)).toBe(expected);
+  it.each(["tsx", "ts", "jsx", "js", "mjs", "cts"])(
+    "keeps the .%s parser extension last",
+    (extension) => {
+      const id = `/app/src/routes/home.${extension}?pracht-client`;
+      expect(toPrachtClientPrefreshId(id)).toBe(`pracht-client:${id.length}:${id}.${extension}`);
+    },
+  );
+
+  it("uses a namespace that cannot collide with a real sibling module", () => {
+    const synthetic = toPrachtClientPrefreshId("/app/src/routes/home.tsx?pracht-client");
+
+    expect(synthetic).not.toBe("/app/src/routes/home.pracht-client.tsx");
+    expect(synthetic.startsWith("pracht-client:")).toBe(true);
   });
 
-  // A second query still distinguishes module instances, so it has to reach the
-  // key too — folded into the basename rather than left as a query.
-  it("folds a remaining query into the basename", () => {
-    expect(toPrachtClientPrefreshId("/app/src/routes/home.tsx?pracht-client&used=1")).toBe(
-      "/app/src/routes/home.pracht-client.used_1.tsx",
-    );
+  // The complete remaining query participates in the key without lossy
+  // character folding, so distinct Vite module instances stay distinct.
+  it("keeps remaining queries collision-free", () => {
+    const slash = "/app/src/routes/home.tsx?pracht-client&used=a/b";
+    const underscore = "/app/src/routes/home.tsx?pracht-client&used=a_b";
+
+    expect(toPrachtClientPrefreshId(slash)).not.toBe(toPrachtClientPrefreshId(underscore));
   });
 
   it("never collides with the authored file's own id", () => {
@@ -154,14 +155,12 @@ describe("toPrachtClientPrefreshId", () => {
   // Companion plugins compile these formats before pracht's post transforms;
   // the synthetic extension lets prefresh parse the resulting JavaScript.
   it("gives compiled formats a synthetic JSX extension", () => {
-    expect(toPrachtClientPrefreshId("/app/src/routes/post.md?pracht-client")).toBe(
-      "/app/src/routes/post.md.pracht-client.jsx",
-    );
-    expect(toPrachtClientPrefreshId("/app/src/routes/post.mdx?pracht-client&used=1")).toBe(
-      "/app/src/routes/post.mdx.pracht-client.used_1.jsx",
-    );
-    expect(toPrachtClientPrefreshId("/app/src/routes/post.tsrx")).toBe(
-      "/app/src/routes/post.tsrx.pracht-client.jsx",
-    );
+    for (const id of [
+      "/app/src/routes/post.md?pracht-client",
+      "/app/src/routes/post.mdx?pracht-client&used=1",
+      "/app/src/routes/post.tsrx",
+    ]) {
+      expect(toPrachtClientPrefreshId(id)).toBe(`pracht-client:${id.length}:${id}.jsx`);
+    }
   });
 });

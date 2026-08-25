@@ -43,6 +43,7 @@ import {
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
   createRouteHeadHintsForVirtualModules,
+  createRouteLoaderHintsForVirtualModules,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
 import {
@@ -104,6 +105,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   let root = process.cwd();
   let routeFileDirs: string[] = [];
   let clientRouteHeadHints: Record<string, boolean> = {};
+  let clientRouteLoaderHints: Record<string, boolean> = {};
   const routeFileExtensions = withAdditionalExtensions(
     DEFAULT_ROUTE_EXTENSIONS,
     resolved.additionalExtensions,
@@ -324,6 +326,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       if (isClientModule(id)) {
         clientRouteHeadHints = createRouteHeadHintsForVirtualModules(resolved, root);
+        clientRouteLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, root);
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
@@ -400,13 +403,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteHeadSource = isPagesMode
         ? relative.startsWith(resolved.pagesDir)
         : relative.startsWith(resolved.routesDir) || relative.startsWith(resolved.shellsDir);
+      const changesRouteLoaderSource = isPagesMode
+        ? relative.startsWith(resolved.pagesDir)
+        : relative.startsWith(resolved.routesDir);
       const changesRouteHeadDependency = reachesHeadBearingModule(
         modules,
         serverRoot,
         clientRouteHeadHints,
         { startAtImporters: changesRouteHeadSource },
       );
-      let shouldReloadClientHead = changesRouteHeadDependency;
+      let shouldReloadClientEntry = changesRouteHeadDependency;
       let clientHeadModule: ReturnType<typeof server.moduleGraph.getModuleById>;
       if (changesRouteHeadSource || changesRouteHeadDependency) {
         clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
@@ -424,13 +430,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           // manual refresh to show in the document, which is the same rule
           // pracht already applies to client-side navigation: head metadata is
           // server-rendered and does not follow the router.
-          shouldReloadClientHead ||= previousHint !== (nextHints[relative] === true);
+          shouldReloadClientEntry ||= previousHint !== (nextHints[relative] === true);
           clientRouteHeadHints = nextHints;
         } catch {
           // A file can be observed while its editor is replacing it. Reloading
           // is the safe fallback because the previous or next module may own
           // server-generated head state that cannot be patched in the browser.
-          shouldReloadClientHead = true;
+          shouldReloadClientEntry = true;
         }
       } else if (changesRouteHeadDependency && clientHeadModule) {
         // A dependency such as src/fonts.ts is part of normal client HMR, but
@@ -438,14 +444,29 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         server.moduleGraph.invalidateModule(clientHeadModule);
       }
 
+      if (changesRouteLoaderSource) {
+        const previousHint = clientRouteLoaderHints[relative] === true;
+        try {
+          const nextHints = createRouteLoaderHintsForVirtualModules(resolved, root);
+          // Like head presence, loader presence is baked into the browser's
+          // resolved route table. The custom stale-data event refreshes only
+          // the active route; a transition must reload the client entry so a
+          // later navigation does not keep using the old fetch decision.
+          shouldReloadClientEntry ||= previousHint !== (nextHints[relative] === true);
+          clientRouteLoaderHints = nextHints;
+        } catch {
+          shouldReloadClientEntry = true;
+        }
+      }
+
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {
         clearPagesAppSourceCache();
         invalidateVirtualModules(server);
         const sentFullReload = sendServerOnlyFullReload(server, file);
-        if (!sentFullReload && !shouldReloadClientHead) {
+        if (!sentFullReload && !shouldReloadClientEntry) {
           sendRouteDataStale(server);
         }
-        if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
+        if (!sentFullReload && shouldReloadClientEntry && clientHeadModule) {
           // Invalidating a virtual module only clears Vite's transform cache;
           // it does not add that module to this HMR update. Returning the root
           // client module makes Vite reload the document and regenerate fonts.
@@ -502,7 +523,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
 
       const sentFullReload = sendServerOnlyFullReload(server, file);
-      if (!sentFullReload && shouldReloadClientHead && clientHeadModule) {
+      if (!sentFullReload && shouldReloadClientEntry && clientHeadModule) {
         return [...new Set([...modules, clientHeadModule])];
       }
       // Fast Refresh patches the component and stops there, which is right for

@@ -974,9 +974,11 @@ without the reload.
 The refresh carries font state with it, so a `defineFont()` declared inside a
 route or shell is added, changed, and removed live.
 
-Two edits still reload the whole document, because each changes state the
+Three edits still reload the whole document, because each changes state the
 generated client entry bakes:
 
+- **Adding or removing a `loader` export** on a route. The client router reads
+  that hint to decide whether navigation needs to fetch route state.
 - **Adding or removing a `head` export** on a route or shell. The client router
   reads that hint to decide whether a navigation needs to fetch route state.
 - **Changing a module *outside* `src/routes/` and `src/shells/` that a

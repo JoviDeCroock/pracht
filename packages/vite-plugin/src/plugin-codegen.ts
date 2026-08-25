@@ -582,7 +582,7 @@ export function createRouteStaticPathsHintsForVirtualModules(
   });
 }
 
-function createRouteLoaderHintsForVirtualModules(
+export function createRouteLoaderHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): Record<string, boolean> {

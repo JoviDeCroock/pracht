@@ -334,6 +334,23 @@ describe("pracht handleHotUpdate route data staleness", () => {
     });
   });
 
+  it.each([
+    ["gains", false],
+    ["loses", true],
+  ])("reloads the client entry when a route %s a loader", async (_label, startsWithLoader) => {
+    const withoutLoader = "export function Component() { return null; }\n";
+    const withLoader = "export async function loader() { return { n: 1 }; }\n" + withoutLoader;
+    const { clientModule, result, routeModule, send } = await editRoute(
+      startsWithLoader ? withLoader : withoutLoader,
+      startsWithLoader ? withoutLoader : withLoader,
+    );
+
+    expect(result).toEqual([routeModule, clientModule]);
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "pracht:route-data-stale" }),
+    );
+  });
+
   // A reload re-fetches everything on its own; asking for a revalidation on
   // top of it would be a second request for data the new document already has.
   it("stays quiet when the edit already reloads the document", async () => {
