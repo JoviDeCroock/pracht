@@ -39,9 +39,10 @@ browser copy, so patching the component in place leaves the page holding data
 the server would no longer send — something the old full reload hid by
 re-fetching everything. The dev server now sends a `pracht:route-data-stale`
 HMR event after a route or shell update, including a client-reachable shared
-dependency that leads to a loader-bearing route, and the generated client entry
-re-fetches route state through the same path `useRevalidate()` uses. Data is as
-fresh as the reload made it, and client state survives. Rapid saves are
+dependency that leads to an inline or separately wired loader, and the
+generated client entry re-fetches route state through the same path
+`useRevalidate()` uses. Data is as fresh as the reload made it, and client state
+survives. Rapid saves are
 serialized and coalesced so an older response cannot overwrite the newest
 loader result or reload after a later fix succeeded. A failed latest refresh
 falls back to a reload so loader errors, not-found responses, and route error

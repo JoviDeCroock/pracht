@@ -645,6 +645,27 @@ export function createRouteLoaderHintsForVirtualModules(
   });
 }
 
+/**
+ * Server data modules that can own a separately wired route loader.
+ *
+ * These hints stay on the dev-server side: unlike the per-route table above,
+ * the generated browser entry has no use for data-module filenames. The HMR
+ * importer walk does, though — a shared module can be client-reachable through
+ * a component and server-reachable through `route(..., { loader })`, so it
+ * cannot rely on the server-only full-reload fallback.
+ */
+export function createServerLoaderHintsForHotUpdates(
+  options: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): Record<string, true> {
+  const hints = createRouteLoaderHints(resolve(root, options.serverDir.slice(1)), {
+    rootRelativePrefix: options.serverDir,
+  });
+  return Object.fromEntries(
+    Object.entries(hints).filter((entry): entry is [string, true] => entry[1] === true),
+  );
+}
+
 export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = {}): string {
   const resolved = resolveOptions(options);
   const apiGlobs = [`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`, `!${resolved.apiDir}/**/*.d.ts`];

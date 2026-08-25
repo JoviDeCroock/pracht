@@ -45,6 +45,7 @@ import {
   createRouteHeadersHintsForVirtualModules,
   createRouteHeadHintsForVirtualModules,
   createRouteLoaderHintsForVirtualModules,
+  createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
 import {
@@ -108,6 +109,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   let clientRouteHeadHints: Record<string, boolean> = {};
   let clientRouteHeadersHints: Record<string, boolean> = {};
   let clientRouteLoaderHints: Record<string, boolean> = {};
+  let serverRouteLoaderHints: Record<string, true> = {};
   const routeFileExtensions = withAdditionalExtensions(
     DEFAULT_ROUTE_EXTENSIONS,
     resolved.additionalExtensions,
@@ -330,6 +332,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         clientRouteHeadHints = createRouteHeadHintsForVirtualModules(resolved, root);
         clientRouteHeadersHints = createRouteHeadersHintsForVirtualModules(resolved, root);
         clientRouteLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, root);
+        serverRouteLoaderHints = createServerLoaderHintsForHotUpdates(resolved, root);
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
@@ -409,6 +412,22 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteLoaderSource = isPagesMode
         ? relative.startsWith(resolved.pagesDir)
         : relative.startsWith(resolved.routesDir);
+      const previousServerRouteLoaderHints = serverRouteLoaderHints;
+      if (!isPagesMode && relative.startsWith(resolved.serverDir)) {
+        try {
+          serverRouteLoaderHints = createServerLoaderHintsForHotUpdates(resolved, root);
+        } catch {
+          // A transient read failure must not erase the last known loader
+          // ownership. The server-only fallback still reloads an ordinary data
+          // module edit; retaining both snapshots below also catches removals
+          // from a client-reachable module.
+        }
+      }
+      const loaderDependencyHints = {
+        ...clientRouteLoaderHints,
+        ...previousServerRouteLoaderHints,
+        ...serverRouteLoaderHints,
+      };
       const changesRouteHeadDependency = reachesRouteHintedModule(
         modules,
         serverRoot,
@@ -424,7 +443,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteLoaderDependency = reachesRouteHintedModule(
         modules,
         serverRoot,
-        clientRouteLoaderHints,
+        loaderDependencyHints,
         { startAtImporters: changesRouteLoaderSource },
       );
       let shouldReloadClientEntry = changesRouteHeadDependency || changesRouteHeadersDependency;

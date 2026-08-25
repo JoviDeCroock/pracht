@@ -887,10 +887,13 @@ format-specific metadata. This keeps client navigation and document-header HMR
 correct at the cost of conservative route-state requests and reloads for
 otherwise headless custom modules.
 
-In development, the compiled component also participates in Preact Fast
-Refresh. Pracht runs refresh instrumentation after the companion transform, so
-Markdown, MDX, `.tsrx`, and configured formats preserve client state just like
-`.tsx` routes and shells.
+In development, Pracht runs refresh instrumentation after the companion
+transform, so compiled components can participate in Preact Fast Refresh. The
+default `.tsrx` format preserves client state when its source does not export
+`headers()`. Markdown, MDX, and configured additional formats remain
+conservatively header-bearing and therefore reload on edit, as described
+above, because raw-source scanning cannot prove that their transforms did not
+synthesize document headers.
 
 `.tsrx` remains discovered without this option for backward compatibility and
 keeps its bundled ambient module declaration. It may also be listed explicitly
@@ -960,19 +963,20 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
 - **File add/remove** in pages dir: dev server restarts (new routes need
   new globs)
 
-Editing a route, shell, or island component is ordinary Preact Fast Refresh:
-the component updates in place and client state — form input, open menus,
-`useState` — survives.
+Except for the conservative compiled-format reloads above, editing a route,
+shell, or island component is ordinary Preact Fast Refresh: the component
+updates in place and client state — form input, open menus, `useState` —
+survives.
 
 A route module has a half that never reaches the browser. `loader`, `head`,
 `headers`, and `getStaticPaths` are stripped out of the client copy, so
 patching the component would otherwise leave the page holding data the server
 would no longer send. The dev server therefore tells the open page when a route
-or shell changed, or when a client-reachable shared dependency leads to a
-loader-bearing route. The client re-fetches route state through the same path
-`useRevalidate()` uses — `useRouteData()` and `props.data` update in place,
-without the reload. Rapid saves are serialized and coalesced so the newest
-loader result always settles last.
+or shell changed, or when a client-reachable shared dependency leads to an
+inline or separately wired loader. The client re-fetches route state through
+the same path `useRevalidate()` uses — `useRouteData()` and `props.data` update
+in place, without the reload. Rapid saves are serialized and coalesced so the
+newest loader result always settles last.
 
 The refresh carries font state with it, so a `defineFont()` declared inside a
 route or shell is added, changed, and removed live. If refreshing route state
