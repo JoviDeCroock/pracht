@@ -8,6 +8,7 @@ import {
   isEventStreamContentType,
   isDevNotFoundRequest,
   shouldBypassDevSSR,
+  shouldRenderDevErrorOverlay,
 } from "../src/plugin-dev-ssr.ts";
 import { PRACHT_DEV_MODULE_ID } from "../src/plugin-assets.ts";
 
@@ -359,6 +360,70 @@ describe("shouldBypassDevSSR", () => {
       shouldBypassDevSSR("/", {
         headers: { accept: "*/*" },
         method: "GET",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("development error overlay handoff", () => {
+  it("replaces the runtime's plain-text render failure", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        contentType: "text/plain; charset=utf-8",
+        status: 500,
+      }),
+    ).toBe(true);
+  });
+
+  it("matches the media type case-insensitively", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        contentType: "Text/Plain; Charset=UTF-8",
+        status: 500,
+      }),
+    ).toBe(true);
+  });
+
+  // A route or shell ErrorBoundary rendered the failure itself. That HTML is
+  // the app's own error UI and dev must not replace it.
+  it("leaves an ErrorBoundary render alone", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        contentType: "text/html; charset=utf-8",
+        status: 500,
+      }),
+    ).toBe(false);
+  });
+
+  // Route-state and capability failures are JSON owned by the client router.
+  it("leaves JSON failures alone", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        contentType: "application/json; charset=utf-8",
+        status: 500,
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves plain-text responses that are not render failures alone", () => {
+    // `notFound()`, "Method not allowed", and an app's own text/plain 500 from
+    // an API route never fire the page-render hook.
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: false,
+        contentType: "text/plain; charset=utf-8",
+        status: 500,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        contentType: "text/plain; charset=utf-8",
+        status: 404,
       }),
     ).toBe(false);
   });

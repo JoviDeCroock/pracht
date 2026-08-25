@@ -15,6 +15,16 @@ export interface ErrorOverlayOptions {
   routeId?: string;
   file?: string;
   /**
+   * Request phase the failure came from (`loader`, `render`, `middleware`, …),
+   * shown as a meta row. A loader failure and a render failure look identical
+   * in a stack trace once JSX is compiled away.
+   */
+  phase?: string;
+  /** Loader module path, when the route loads from a separate server file. */
+  loaderFile?: string;
+  /** Shell module path wrapping the failing route. */
+  shellFile?: string;
+  /**
    * Project root (Vite's `server.config.root`). Used to resolve
    * dev-server URL paths such as `/src/routes/home.tsx` to filesystem
    * paths for the open-in-editor links.
@@ -22,6 +32,26 @@ export interface ErrorOverlayOptions {
   root?: string;
   /** Vite deploy base used to reach the dev server's editor endpoint. */
   base?: string;
+}
+
+/**
+ * SGR/CSI escape sequences, as emitted by every compiler that colours its own
+ * diagnostics (oxc, esbuild, Babel). They are meaningless in a browser: a
+ * terminal renders `[31m` as "red", HTML renders it as `[31m`, and oxc
+ * wraps *every character* of the offending source line in its own sequence, so
+ * an uncleaned parse error reads as a wall of `[38;5;249m` noise.
+ */
+// Built from char codes rather than written as a literal: a `\u001B` escape
+// inside a regex literal is a lint error (`no-control-regex`), and suppressing
+// the rule would hide the one place it is genuinely intended.
+const ESCAPE_INTRODUCERS = `${String.fromCharCode(0x1b)}${String.fromCharCode(0x9b)}`;
+const ANSI_ESCAPE = new RegExp(
+  `[${ESCAPE_INTRODUCERS}][[\\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PR-TZcf-ntqry=><]`,
+  "g",
+);
+
+export function stripAnsi(value: string): string {
+  return value.replace(ANSI_ESCAPE, "");
 }
 
 export interface StackFrame {
@@ -141,11 +171,20 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
 }
 
 export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
-  const { message, stack, routeId, file, root } = options;
+  const { routeId, file, root } = options;
+  // Compiler diagnostics arrive colourized for a terminal. Left in place they
+  // render as literal escape sequences around every character of the offending
+  // line — the error becomes unreadable exactly when it matters most.
+  const message = stripAnsi(options.message);
+  const stack = options.stack ? stripAnsi(options.stack) : undefined;
   const openInEditorEndpoint = resolveOpenInEditorEndpoint(options.base);
 
   const stackHtml = stack
     ? `<pre class="stack">${renderStackFrames(parseStackFrames(stack, { root }))}</pre>`
+    : "";
+
+  const phaseHtml = options.phase
+    ? `<div class="meta"><span class="label">Phase</span> <span class="value">${escapeHtml(options.phase)}</span></div>`
     : "";
 
   const routeHtml = routeId
@@ -154,6 +193,18 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
 
   const fileHtml = file
     ? `<div class="meta"><span class="label">File</span> ${renderFileValue(file, root)}</div>`
+    : "";
+
+  // A separate loader file only exists when the manifest wires one, and the
+  // shell is worth naming because a shell throw surfaces on every route that
+  // uses it rather than on the one being requested.
+  const loaderHtml =
+    options.loaderFile && options.loaderFile !== file
+      ? `<div class="meta"><span class="label">Loader</span> ${renderFileValue(options.loaderFile, root)}</div>`
+      : "";
+
+  const shellHtml = options.shellFile
+    ? `<div class="meta"><span class="label">Shell</span> ${renderFileValue(options.shellFile, root)}</div>`
     : "";
 
   return `<!DOCTYPE html>
@@ -202,6 +253,9 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
       color: #ff6b6b;
       margin-bottom: 20px;
       word-break: break-word;
+      /* Compiler diagnostics are multi-line source frames; collapsing their
+         whitespace turns the caret line into gibberish. */
+      white-space: pre-wrap;
     }
     .meta {
       font-size: 13px;
@@ -255,8 +309,11 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
       <span class="title">pracht dev</span>
     </div>
     <div class="message">${escapeHtml(message)}</div>
+    ${phaseHtml}
     ${routeHtml}
     ${fileHtml}
+    ${loaderHtml}
+    ${shellHtml}
     ${stackHtml}
     <div class="hint">Click a stack frame to open it in your editor. Fix the error and save — the page will reload automatically.</div>
   </div>

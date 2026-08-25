@@ -9,6 +9,7 @@ import type {
   ResolvedApiRoute,
   ResolvedPrachtApp,
   ResolvedRoute,
+  RouteErrorContext,
 } from "@pracht/core";
 import { applyDefaultSecurityHeaders, resolveRegistryModule } from "@pracht/core";
 import {
@@ -207,11 +208,21 @@ export function createDevSSRMiddleware(
       // Dev-only: collect middleware/loader/render phase durations so the
       // browser Network panel shows them via the Server-Timing header.
       const timings: PrachtPhaseTimings = {};
+      // A route that fails without an ErrorBoundary answers with the runtime's
+      // plain-text fallback. That is the right answer for a production adapter
+      // and the wrong one for a browser in dev, so capture the raw error here
+      // and re-render it as the overlay below.
+      let routeError: unknown;
+      let routeErrorContext: RouteErrorContext | undefined;
       const response = await framework.handlePrachtRequest({
         app: serverMod.resolvedApp,
         registry: serverMod.registry,
         request: webRequest,
         debugErrors: true,
+        onRouteError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+          routeError = error;
+          routeErrorContext = context;
+        },
         clientEntryUrl: withDevBase(CLIENT_BROWSER_PATH),
         islandsEntryUrl: withDevBase(ISLANDS_CLIENT_BROWSER_PATH),
         islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
@@ -267,6 +278,25 @@ export function createDevSSRMiddleware(
           res.destroy();
         });
         source.pipe(res);
+        return;
+      }
+
+      if (
+        shouldRenderDevErrorOverlay({
+          capturedRouteError: routeError !== undefined,
+          contentType,
+          status: response.status,
+        })
+      ) {
+        await respondWithErrorOverlay(
+          server,
+          res,
+          url,
+          routeError,
+          routeErrorContext,
+          devBase,
+          response.status,
+        );
         return;
       }
 
@@ -700,6 +730,68 @@ async function serveDevtools(
   let html = devtools.buildDevtoolsHtml(graph, { base: options.base });
   html = await server.transformIndexHtml(options.url, html);
   res.statusCode = 200;
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.end(html);
+}
+
+/**
+ * True when a dev response should be replaced by the error overlay.
+ *
+ * The runtime only falls back to `text/plain` for a page render when neither
+ * the route nor its shell declares an ErrorBoundary. When one does, the
+ * response is the app's own error UI (`text/html`) and dev must leave it
+ * alone. Route-state and capability failures are JSON and belong to the
+ * client router, not to a human reading a document.
+ */
+export function shouldRenderDevErrorOverlay(options: {
+  capturedRouteError: boolean;
+  contentType: string;
+  status: number;
+}): boolean {
+  return (
+    options.capturedRouteError &&
+    options.status >= 500 &&
+    options.contentType.toLowerCase().startsWith("text/plain")
+  );
+}
+
+/**
+ * Render a failed page render as the dev error overlay.
+ *
+ * `handlePrachtRequest` answers a render/loader/middleware failure with the
+ * runtime's plain-text fallback whenever no ErrorBoundary claims it. In a
+ * production adapter that is correct — a browser is not the audience. In dev
+ * the browser *is* the audience, and the fallback is at its worst exactly when
+ * it matters most: a compiler diagnostic arrives colourized for a terminal, so
+ * `text/plain` renders every escape sequence literally.
+ */
+async function respondWithErrorOverlay(
+  server: ViteDevServer,
+  res: ServerResponse,
+  url: string,
+  error: unknown,
+  context: RouteErrorContext | undefined,
+  base: string,
+  status: number,
+): Promise<void> {
+  if (error instanceof Error) {
+    server.ssrFixStacktrace(error);
+  }
+
+  const { buildErrorOverlayHtml } = await server.ssrLoadModule("@pracht/core/error-overlay");
+  let html = buildErrorOverlayHtml({
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+    routeId: context?.routeId,
+    file: context?.routeFile,
+    loaderFile: context?.loaderFile,
+    shellFile: context?.shellFile,
+    phase: context?.phase,
+    root: server.config.root,
+    base,
+  });
+  html = await server.transformIndexHtml(url, html);
+  res.statusCode = status;
   res.setHeader("content-type", "text/html; charset=utf-8");
   res.end(html);
 }

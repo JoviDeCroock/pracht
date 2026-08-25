@@ -710,7 +710,24 @@ as `@pracht/core/error-overlay`). The overlay is deliberately not a Preact
 component — it must render even when Preact itself fails — and it is only
 served by the dev middleware, never in production builds.
 
-Two ergonomics features are built in:
+Failures *inside* `handlePrachtRequest()` never escape it: the runtime
+answers them with a `text/plain` body, which is the right answer for a
+production adapter and the wrong one for a browser. The dev middleware
+therefore passes `onRouteError` and swaps that fallback for the overlay
+(`shouldRenderDevErrorOverlay()`). The swap is deliberately narrow — a route
+or shell `ErrorBoundary` produces `text/html` and is left alone, and
+route-state failures are JSON owned by the client router.
+`RouteErrorContext` carries the phase and the route/loader/shell module paths
+into the overlay, since neither is recoverable from a stack trace.
+
+Three ergonomics features are built in:
+
+- **Terminal colour codes are stripped.** oxc, esbuild, and Babel colourize
+  their diagnostics for a TTY, and oxc wraps every character of the offending
+  source line in its own SGR sequence. Rendered as-is in a browser, a syntax
+  error becomes an unreadable wall of `[38;5;249m`. `stripAnsi()` runs over
+  the message and the stack; the message keeps `white-space: pre-wrap` so the
+  caret line still lines up.
 
 - **Open-in-editor links.** `parseStackFrames()` parses V8-style stack
   traces into frames with `file:line:column` locations. App-code frames

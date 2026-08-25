@@ -10,6 +10,7 @@ import {
   isPrachtHttpError,
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
+  type RouteErrorContext,
 } from "./runtime-errors.ts";
 import {
   appendVaryHeader,
@@ -325,7 +326,7 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * (prerendering, static export) with a bare status and no cause. Prerender
    * passes this so a failing SSG page can name what actually threw.
    */
-  onRouteError?: (error: unknown, requestPath: string) => void;
+  onRouteError?: (error: unknown, requestPath: string, context?: RouteErrorContext) => void;
 }
 
 export async function handlePrachtRequest<TContext>(
@@ -1244,7 +1245,15 @@ export async function handlePrachtRequest<TContext>(
       // (notably fonts used by the route ErrorBoundary) when it resolves.
       routeModule ??= await routeModulePromise?.catch(() => undefined);
 
-      options.onRouteError?.(thrownResponseFailure ?? error, requestPath);
+      options.onRouteError?.(thrownResponseFailure ?? error, requestPath, {
+        loaderFile,
+        middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+        phase: currentPhase,
+        routeFile: match.route.file,
+        routeId: match.route.id,
+        routePath: match.route.path,
+        shellFile: match.route.shellFile,
+      });
 
       return renderRouteErrorResponse({
         error: thrownResponseFailure ?? error,
@@ -1383,6 +1392,7 @@ export {
   deserializeRouteError,
   type PrachtRuntimeDiagnosticPhase,
   type PrachtRuntimeDiagnostics,
+  type RouteErrorContext,
   type SerializedRouteError,
 } from "./runtime-errors.ts";
 export {
