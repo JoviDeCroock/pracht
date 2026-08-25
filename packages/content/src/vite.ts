@@ -25,7 +25,6 @@ const RESOLVED_CONTENT_MODULE_PREFIX = `\0${CONTENT_MODULE_PREFIX}`;
 const CONTENT_PAYLOAD_MODULE_PREFIX = "virtual:pracht/content-payload/";
 const RESOLVED_CONTENT_PAYLOAD_MODULE_PREFIX = `\0${CONTENT_PAYLOAD_MODULE_PREFIX}`;
 const CONTENT_PAYLOAD_SLUG_MAX_LENGTH = 80;
-const SERVER_LAZY_CHUNK_MAX_SIZE = 256 * 1024;
 export const CONTENT_BUILD_MANIFEST_FILE = "_pracht/content-manifest.json";
 
 export interface ViteContentCollection {
@@ -67,76 +66,6 @@ interface ContentBuildManifest {
   routes?: ContentRoutesManifest;
 }
 
-interface ServerChunkingModuleInfo {
-  readonly isEntry: boolean;
-  readonly importers: readonly string[];
-  readonly dynamicImporters: readonly string[];
-}
-
-interface ServerChunkingContext {
-  getModuleInfo(moduleId: string): ServerChunkingModuleInfo | null;
-}
-
-/**
- * Decide which server modules may share the batched lazy chunk.
- *
- * Having a dynamic importer does not make a module lazy: a route component the
- * entry also imports statically is loaded the moment the bundle is. Batching
- * such a module makes the whole group a static dependency of the entry, so
- * every genuinely lazy module batched alongside it runs at server startup
- * too — a browser-only module body (`new Worker(...)` at the top level of a
- * client-only route) then crashes the server on import instead of when that
- * route is reached. Only modules with no static path to an entry qualify.
- */
-function createServerLazyGroupName() {
-  // Reachability is derived from the module graph of one build. A plugin
-  // instance outlives a build in watch mode, so the cache is cleared whenever
-  // a new one starts rather than kept for the lifetime of the plugin.
-  const reachesEntry = new Map<string, boolean>();
-
-  const reachesEntryStatically = (id: string, context: ServerChunkingContext): boolean => {
-    const known = reachesEntry.get(id);
-    if (known !== undefined) return known;
-
-    // Walk importers breadth-first. Everything visited on a walk that finds no
-    // entry is unreachable too: its importers are a subset of the ones already
-    // ruled out, so one traversal answers for the whole upstream cone.
-    const visited = new Set([id]);
-    const queue = [id];
-    for (let index = 0; index < queue.length; index++) {
-      const current = queue[index] as string;
-      const cached = reachesEntry.get(current);
-      if (cached === false) continue;
-      // `undefined` marks a module already known to reach an entry; `null`
-      // marks one the bundler will not describe, which may well be an entry
-      // itself. Batching is an optimisation, so guess in the direction that
-      // keeps lazy modules lazy rather than the one that boots them.
-      const info = cached === true ? undefined : context.getModuleInfo(current);
-      if (!info || info.isEntry) {
-        reachesEntry.set(id, true);
-        return true;
-      }
-      for (const importer of info.importers) {
-        if (visited.has(importer)) continue;
-        visited.add(importer);
-        queue.push(importer);
-      }
-    }
-
-    for (const module of visited) reachesEntry.set(module, false);
-    return false;
-  };
-
-  const name = (id: string, context: ServerChunkingContext) =>
-    !id.startsWith(RESOLVED_CONTENT_PAYLOAD_MODULE_PREFIX) &&
-    context.getModuleInfo(id)?.dynamicImporters.length &&
-    !reachesEntryStatically(id, context)
-      ? "pracht-server-lazy"
-      : null;
-
-  return { name, reset: () => reachesEntry.clear() };
-}
-
 /**
  * Reuse content collections for Vite module transforms, live development
  * assets, and client build output. The returned transform and asset plugins
@@ -146,7 +75,6 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
   const collections = validateCollections(options);
   const unroutedDocuments = validateUnroutedDocumentPolicy(options.unroutedDocuments);
   const emittedPayloadModules = new Map<ViteContentCollection, ReadonlySet<string>>();
-  const serverLazyGroup = createServerLazyGroupName();
   const splitCache = new WeakMap<ViteContentCollection, Promise<SplitSnapshot>>();
 
   const transformPlugin: Plugin = {
@@ -162,26 +90,21 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
 
       // Rolldown defaults a single-entry server build to one file, including
       // webworker targets. Preserve dynamic imports so document payloads stay
-      // outside the shared snapshot chunk on every server adapter. Batch other
-      // lazy roots into bounded chunks instead of emitting one tiny server
-      // chunk for every route or user-authored dynamic import.
+      // outside the shared snapshot chunk on every server adapter.
+      //
+      // Automatic chunking is the only safe policy here. A chunk is an
+      // evaluation unit, so packing unrelated lazy roots together to cut the
+      // file count makes the first import of any one of them run all of their
+      // module bodies: collecting one route's static paths would evaluate
+      // every route batched alongside it, including client-only ones whose
+      // bodies touch `Worker`, `document`, or `window`.
       const output = config.build?.rollupOptions?.output;
-      const withServerSplitting = (candidate: object | undefined) => ({
-        ...candidate,
-        codeSplitting: {
-          // Dependencies are chunked automatically. Pulling them into the group
-          // would drag modules the entry also imports statically into the lazy
-          // chunk, which is exactly what keeps that chunk lazy.
-          includeDependenciesRecursively: false,
-          groups: [{ name: serverLazyGroup.name, maxSize: SERVER_LAZY_CHUNK_MAX_SIZE }],
-        },
-      });
       return {
         build: {
           rollupOptions: {
             output: Array.isArray(output)
-              ? output.map((candidate) => withServerSplitting(candidate))
-              : withServerSplitting(output),
+              ? output.map((candidate) => ({ ...candidate, codeSplitting: true }))
+              : { ...output, codeSplitting: true },
           },
         },
       };
@@ -192,7 +115,6 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
       // split stable within one build, but never carry source bytes into the
       // next build invocation.
       for (const collection of collections) splitCache.delete(collection);
-      serverLazyGroup.reset();
     },
 
     resolveId(id) {

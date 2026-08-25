@@ -28,14 +28,14 @@ page that happens to use them is first rendered. Descriptive payload chunk
 names are bounded so deeply nested, valid source paths cannot exceed filesystem
 filename limits during a build.
 
-Server builds now preserve dynamic imports even for webworker targets. Deferred
-document payloads remain independent, while unrelated lazy server roots are
-packed with a 256 KiB target size instead of producing one tiny chunk per
-dynamic import. Only modules with no static path to an entry are packed
-together: a module the entry also reaches statically would make the shared
-chunk part of startup, running every module batched alongside it — including
-client-only route modules whose bodies touch `Worker`, `document`, or
-`window` — the moment the server bundle is imported. New
+Server builds now preserve dynamic imports even for webworker targets, so
+deferred document payloads and lazy route modules each stay independently
+loadable. Chunking is left to the bundler's automatic algorithm: a chunk is an
+evaluation unit, so packing unrelated lazy roots together to cut the file count
+would make the first import of any one of them run all of their module bodies,
+and collecting one route's static paths would evaluate every route packed
+alongside it — including client-only ones whose bodies touch `Worker`,
+`document`, or `window`. New
 Cloudflare projects deploy Pracht's pre-bundled output with `no_bundle: true`
 and a JavaScript `ESModule` rule, and `pracht verify` warns existing Wrangler
 configs, including named-environment overrides, that would inline or omit the
