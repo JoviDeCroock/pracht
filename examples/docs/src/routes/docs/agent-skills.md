@@ -1,6 +1,6 @@
 ---
 title: Agent Skills
-lead: pracht ships 28 Claude Code skills for scaffolding, auditing, testing, and deploying apps. They are published at stable URLs with a signed discovery manifest, seeded into new apps by `create-pracht`, and pair with the built-in MCP server.
+lead: pracht ships 33 Claude Code skills for scaffolding, auditing, testing, and deploying apps. They are published at stable URLs with a signed discovery manifest, seeded into new apps by `create-pracht`, and pair with the built-in MCP server.
 breadcrumb: Agent Skills
 prev:
   href: /docs/agent-workflow
@@ -17,9 +17,9 @@ Every skill is a single `SKILL.md` — frontmatter (`name`, `version`, `descript
 | Category                | Skills                                                                                                                                                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Framework & migration   | `/pracht-scaffold`, `/pracht-debug`, `/pracht-deploy`, `/migrate-nextjs`, `/upgrade-pracht`                                                                                                     |
-| Audit & review          | `/audit-loaders`, `/audit-shells`, `/audit-islands`, `/audit-auth`, `/audit-csrf`, `/audit-headers`, `/audit-secrets`, `/audit-redirects`, `/audit-deps`, `/audit-bundles`, `/audit-seo`, `/audit-a11y`, `/tune-render-mode`, `/pre-deploy` |
+| Audit & review          | `/audit-loaders`, `/audit-shells`, `/audit-islands`, `/audit-auth`, `/audit-csrf`, `/audit-headers`, `/audit-secrets`, `/audit-redirects`, `/audit-deps`, `/audit-bundles`, `/audit-seo`, `/audit-a11y`, `/audit-agent-surface`, `/tune-render-mode`, `/pre-deploy` |
 | Testing scaffolds       | `/scaffold-tests`, `/scaffold-e2e`, `/pracht-test-api`                                                                                                                                          |
-| App primitives          | `/add-auth`, `/add-db`, `/add-i18n`, `/add-observability`, `/typed-routes`, `/configure-isg`                                                                                                    |
+| App primitives          | `/add-auth`, `/add-db`, `/add-i18n`, `/add-observability`, `/add-content`, `/add-images`, `/add-capabilities`, `/add-openapi`, `/typed-routes`, `/configure-isg`                                 |
 
 The source of truth lives in the repo's [skills/ directory](https://github.com/JoviDeCroock/pracht/tree/main/skills), with per-skill descriptions in [skills/README.md](https://github.com/JoviDeCroock/pracht/blob/main/skills/README.md). Instead of globbing `src/`, the skills read the resolved app graph via `pracht inspect routes|api|build --json`, so they account for groups, inheritance, and both routers.
 
