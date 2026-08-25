@@ -105,9 +105,11 @@ JSON first:
   `defineApp` but referenced by no route or group".
 - **Pages apps** (`mode: "pages"`): there is no `defineApp` shell registry.
   The shell is `src/pages/_app.tsx`, auto-registered under the name `"pages"`
-  and applied to every route (see docs/ROUTING.md). "Unused shells" analysis
-  does not apply; instead verify `_app.tsx` (if present) shows up as the
-  resolved shell on every route.
+  and applied to every route (see docs/ROUTING.md). Only the root-level file
+  counts — a nested `_app` outside an underscore-reserved tree is a build,
+  `doctor`, and `verify` error rather than a per-directory layout. "Unused
+  shells" analysis does not apply; instead verify `_app.tsx` (if present) shows
+  up as the resolved shell on every route.
 
 Then report:
 

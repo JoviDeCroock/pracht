@@ -1,6 +1,7 @@
 ---
 "@pracht/vite-plugin": minor
 "@pracht/cli": minor
+"@pracht/core": patch
 "@pracht/capabilities": patch
 "create-pracht": patch
 ---
@@ -22,6 +23,27 @@ must explicitly export `middleware`, or may provide it through a value
 because they are erased before runtime. The runtime remains authoritative for
 whether the exported value is callable and fails closed when it is not.
 Type-only TypeScript import-equals declarations are treated as erased exports.
+
+Two pages-router conventions tighten as part of this. Underscore-prefixed
+directories are now reserved for helpers, so `pages/_components/button.tsx` is
+ignored instead of routed at `/_components/button`; move files that were meant
+to be routes out of the underscore tree. `_app` is recognized only at the pages
+root: a nested `_app` used to be promoted to the app shell, and is now rejected
+by build, doctor, and verify rather than silently dropping the shell from every
+route it looks like it wraps. An `_app` inside a reserved tree such as
+`pages/_components/_app.tsx` stays a plain helper.
+
+Prerendering now fails the build when an `ssg`/`isg` route renders a 5xx,
+instead of warning and skipping it. A skipped route falls back to a live render
+and returns the same error to every visitor, so one broken middleware module
+used to turn every page into a 500 behind a green build. Deliberate 3xx/4xx
+short-circuits still warn and skip.
+
+`doctor` and `verify` warn when a manifest registers a middleware module inside
+`routesDir` or `shellsDir` without the ejected-pages reservation, because the
+client route and shell registries glob those directories and emit the
+middleware source into the browser bundle. That is what happens to an ejected
+pages layout whose `__PRACHT_EJECTED_PAGES_LAYOUT__` marker is dropped.
 
 The pages client boundary excludes underscore-reserved helper trees and erases
 the dedicated middleware module, keeping server-only middleware code out of

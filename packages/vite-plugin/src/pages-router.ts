@@ -123,6 +123,42 @@ export function findPagesMiddlewareFile(
   return middlewareFile;
 }
 
+/**
+ * The root-level `_app` shell of a pages directory, or null when the app has
+ * none. A nested `_app` is rejected for the same reason a nested
+ * `_middleware` is: it is never applied, so silently ignoring it would drop
+ * the shell (and its `head()`/`headers()`) from every route it looks like it
+ * wraps.
+ */
+export function findPagesAppShellFile(
+  pagesDir: string,
+  shellExtensions: ReadonlySet<string>,
+): string | null {
+  const appFiles = scanAllFiles(pagesDir).filter((file) => {
+    if (basename(file, extname(file)) !== "_app" || !shellExtensions.has(extname(file))) {
+      return false;
+    }
+    // An `_app` inside an underscore-reserved tree is a deliberate helper, not
+    // a shell that went unnoticed.
+    const segments = relative(pagesDir, file).replace(/\\/g, "/").split("/");
+    return !segments.slice(0, -1).some((segment) => segment.startsWith("_"));
+  });
+
+  const nested = appFiles.filter((file) =>
+    relative(pagesDir, file).replace(/\\/g, "/").includes("/"),
+  );
+  if (nested.length > 0) {
+    const shown = nested.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
+    throw new Error(
+      `[pracht] Nested pages \`_app\` shells are not supported: ${shown.map((file) => JSON.stringify(file)).join(", ")}. ` +
+        "Only a root-level `_app` in the pages directory is registered as the app shell. Move " +
+        "the shell there, or eject to an explicit manifest for per-group shells.",
+    );
+  }
+
+  return appFiles[0] ?? null;
+}
+
 /** Whether a middleware module explicitly exports, or may re-export, `middleware`. */
 function exportsMiddleware(source: string, file: string): boolean {
   return hasNamedMiddlewareExport(parseAst(source, { lang: getRolldownLang(file) }));
@@ -421,13 +457,7 @@ export function generatePagesManifestSource(
     normalizeAdditionalExtensions(options.additionalExtensions),
   );
 
-  const allFiles = scanAllFiles(pagesDir);
-  const appFile = allFiles.find(
-    (f) =>
-      !relative(pagesDir, f).replace(/\\/g, "/").includes("/") &&
-      basename(f, extname(f)) === "_app" &&
-      shellExtensions.has(extname(f)),
-  );
+  const appFile = findPagesAppShellFile(pagesDir, shellExtensions) ?? undefined;
   const middlewareFile = findPagesMiddlewareFile(pagesDir, options.additionalExtensions);
 
   const coreImports = pages.some((page) => page.revalidateSeconds !== undefined)

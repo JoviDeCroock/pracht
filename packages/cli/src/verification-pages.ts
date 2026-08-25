@@ -14,6 +14,7 @@ export type PagesFile =
       nested: boolean;
       shape: "directory" | "file" | "unsupported-extension";
     }
+  | { file: string; kind: "nested-shell" }
   | { file: string; kind: "ignored" }
   | PagesRoute;
 
@@ -101,7 +102,10 @@ export function describePagesFile(
   const source = readFileSync(file, "utf-8");
   const analysisSource = maskMarkdownFences(source, relativePath);
 
-  if (!relativePath.includes("/") && hasPagesAppShell(file, additionalExtensions)) {
+  if (hasPagesAppShell(file, additionalExtensions)) {
+    // Only a root-level `_app` is registered as the shell. A nested one is
+    // never applied, so reporting it beats silently dropping the shell.
+    if (relativePath.includes("/")) return { file, kind: "nested-shell" };
     return {
       file,
       kind: "shell",

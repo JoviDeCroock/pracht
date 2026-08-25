@@ -389,18 +389,18 @@ describe("scanPagesDirectory", () => {
     expect(() => scanPagesDirectory(pagesDir)).toThrow(/app shell.*REVALIDATE/s);
   });
 
-  it("ignores nested _app files instead of treating them as shells or routes", () => {
+  it("rejects nested _app files instead of silently dropping the shell", () => {
     const pagesDir = makeTempPagesDir();
     mkdirSync(join(pagesDir, "blog"), { recursive: true });
     writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
-    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export const REVALIDATE = 60;\n");
+    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export function Shell() { return null; }\n");
 
     const pages = scanPagesDirectory(pagesDir);
-    const source = generatePagesManifestSource(pages, { pagesDir });
 
     expect(pages.map((page) => page.routePath)).toEqual(["/"]);
-    expect(source).not.toContain("blog/_app.tsx");
-    expect(source).not.toContain("shells:");
+    expect(() => generatePagesManifestSource(pages, { pagesDir })).toThrow(
+      /Nested pages `_app` shells are not supported.*blog\/_app\.tsx/s,
+    );
   });
 
   it("rejects REVALIDATE on the not-found page", () => {

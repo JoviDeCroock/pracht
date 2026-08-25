@@ -396,6 +396,141 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     ).toBe(false);
   });
 
+  it("warns when manifest middleware sits inside a client registry directory", () => {
+    const appDir = createTempDir("pracht-cli-verify-middleware-client-boundary-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: { pages: () => import("./pages/_middleware.ts") },
+  routes: [],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    }),
+  ],
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const report = JSON.parse(runCli(["verify", "--json"], { cwd: appDir }).stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" &&
+          check.message.includes("inside a client registry directory"),
+      ),
+    ).toBe(true);
+  });
+
+  it("stays quiet when an ejected pages manifest keeps its layout marker", () => {
+    const appDir = createTempDir("pracht-cli-verify-middleware-ejected-marker-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp } from "@pracht/core";
+
+export const __PRACHT_EJECTED_PAGES_LAYOUT__ = true;
+
+export const app = defineApp({
+  middleware: { pages: () => import("./pages/_middleware.ts") },
+  routes: [],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    }),
+  ],
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const report = JSON.parse(runCli(["verify", "--json"], { cwd: appDir }).stdout);
+    expect(
+      report.checks.some((check) => check.message.includes("inside a client registry directory")),
+    ).toBe(false);
+  });
+
+  it("fails doctor for a nested pages _app shell instead of dropping the shell", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-nested-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some(
+        (check) => check.status === "error" && check.message.includes("Nested pages `_app` shell"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an _app inside an underscore-reserved tree a plain helper", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-reserved-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/_components/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    expect(report.checks.some((check) => check.message.includes("Nested pages `_app` shell"))).toBe(
+      false,
+    );
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("`_app` shell"),
+      ),
+    ).toBe(true);
+  });
+
   it.each(["admin", "_components"])(
     "fails doctor for nested pages _middleware files under %s",
     (directory) => {

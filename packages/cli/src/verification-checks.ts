@@ -1,4 +1,4 @@
-import { dirname, extname, resolve } from "node:path";
+import { dirname, extname, relative, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
 import { formatBytes } from "./bundle-report.js";
@@ -117,6 +117,13 @@ export function collectManifestVerification(
         ),
       );
       collectMiddlewareExportChecks(checks, manifestPath, middlewareEntries);
+      collectMiddlewareClientBoundaryChecks(
+        project,
+        checks,
+        manifestPath,
+        source,
+        middlewareEntries,
+      );
     }
 
     const missingModules = relativeModules
@@ -219,6 +226,68 @@ function collectMiddlewareExportChecks(
         "Middleware must declare a named value export such as " +
         "`export const middleware: MiddlewareFn = (args, next) => …` (a default export is not " +
         "used). The runtime validates that the exported value is callable.",
+    ),
+  );
+}
+
+/** The marker an ejected pages manifest keeps so the build preserves its
+ * server-only boundaries. Written by `generateRoutesFile`. */
+const EJECTED_PAGES_LAYOUT_RE =
+  /export\s+const\s+__PRACHT_EJECTED_PAGES_LAYOUT__\s*(?::[^=]+)?=\s*true/;
+
+/**
+ * Middleware is server-only, but the client route and shell registries glob
+ * whole directories. A middleware module inside one of those directories is
+ * emitted into the browser bundle unless the build excludes it, and the only
+ * exclusion outside pages mode is the underscore reservation an ejected pages
+ * manifest opts into with `__PRACHT_EJECTED_PAGES_LAYOUT__`. Dropping that
+ * marker (or co-locating middleware with routes in the first place) publishes
+ * the middleware source, so say so instead of letting it happen quietly.
+ */
+function collectMiddlewareClientBoundaryChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  manifestPath: string,
+  manifestSource: string,
+  entries: { name: string; path: string }[],
+): void {
+  const manifestDir = dirname(manifestPath);
+  const registries = [
+    { dir: resolveProjectPath(project.root, project.routesDir), label: "routesDir" },
+    { dir: resolveProjectPath(project.root, project.shellsDir), label: "shellsDir" },
+  ];
+  const declaresPagesLayout = EJECTED_PAGES_LAYOUT_RE.test(manifestSource);
+  const exposed: string[] = [];
+
+  for (const entry of entries) {
+    const file = resolve(manifestDir, entry.path);
+    if (!existsSync(file)) continue; // already reported by the module-path check
+
+    const registry = registries.find((candidate) => isWithinDirectory(file, candidate.dir));
+    if (!registry) continue;
+
+    // The ejected pages layout reserves underscore-prefixed files and trees,
+    // so the build already keeps those out of the client registries.
+    const underscoreReserved = relative(registry.dir, file)
+      .split(/[/\\]/)
+      .some((segment) => segment.startsWith("_"));
+    if (declaresPagesLayout && underscoreReserved) continue;
+
+    exposed.push(`${entry.name} (${displayPath(project.root, file)}, inside ${registry.label})`);
+  }
+
+  if (exposed.length === 0) return;
+
+  checks.push(
+    createCheck(
+      "warning",
+      `Middleware module(s) inside a client registry directory: ${exposed.join(", ")}. ` +
+        "The client route and shell registries glob these directories, so the middleware " +
+        "source is emitted into the browser bundle. Move the module out of the route and shell " +
+        "directories, or — for an ejected pages layout — restore the " +
+        "`export const __PRACHT_EJECTED_PAGES_LAYOUT__ = true` marker in the manifest, which " +
+        "reserves underscore-prefixed files and trees as server-only. Ignore this when the " +
+        "module is deliberately a route component as well.",
     ),
   );
 }
@@ -407,6 +476,19 @@ export function collectPagesVerification(
     }
   }
 
+  for (const page of pages) {
+    if (page.kind !== "nested-shell") continue;
+    checks.push(
+      createCheck(
+        "error",
+        `Nested pages \`_app\` shell ${JSON.stringify(displayPath(project.root, page.file))} is ` +
+          "not supported. Only a root-level `_app` in the pages directory is registered as the " +
+          "app shell. Move the shell there, or eject to an explicit manifest for per-group " +
+          "shells.",
+      ),
+    );
+  }
+
   const validMiddlewareFiles = collectPagesMiddlewareChecks(project, checks, pages, scope);
 
   if (scope === "full") {
@@ -569,7 +651,10 @@ function collectPagesMiddlewareChecks(
 
   validMiddlewareFiles.add(middleware.file);
 
-  if (scope === "full") {
+  // On a pure static export the route-level static check already reports that
+  // request middleware cannot be enforced. Reporting "it runs on every page
+  // route" alongside that error would contradict it.
+  if (scope === "full" && detectAdapterTarget(project) !== "static") {
     checks.push(
       createCheck(
         "ok",
@@ -683,6 +768,12 @@ function collectChangedPagesChecks(
           ),
         );
       }
+      continue;
+    }
+
+    if (page.kind === "nested-shell") {
+      // Already reported as an error by the shell checks that run in every
+      // scope; do not also claim it resolves to a route.
       continue;
     }
 

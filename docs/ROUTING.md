@@ -815,8 +815,11 @@ The underscore prefix reserves both files and directory trees for non-route
 implementation details. Pracht never creates routes from their contents, so
 `pages/_components/button.tsx` is ignored rather than exposed at
 `/_components/button`. `_app` and `_middleware` are recognized only at the
-pages root; `_middleware/` remains a hard error because silently ignoring a
-directory that looks like an authorization boundary would fail open.
+pages root. A nested `_app` or `_middleware` is a hard error — silently
+ignoring one would drop the shell from every route it looks like it wraps, or
+fail an authorization boundary open. An `_app` inside a reserved tree such as
+`pages/_components/_app.tsx` stays a plain helper. `_middleware/` is rejected
+as a directory for the same reason.
 
 ### Shell via `_app.tsx`
 
@@ -933,12 +936,22 @@ Scope and limits:
   requests and still traverse middleware with the visitor request. That can
   vary the JSON response but cannot protect the already-public static HTML,
   so cookie- or session-based gating belongs on `ssr`/`spa` routes.
+- **Prefetch requests traverse it too.** Hovering a `<Link>` issues a real
+  route-state request, so middleware with side effects (rate limiting, audit
+  logging, session touch) runs speculatively for navigations the visitor may
+  never make. Keep those effects in loaders or API routes, or make them
+  idempotent.
 - The module must declare a named `middleware` export; a module that does not
   fails build, `doctor`, and `verify`. Those checks intentionally do not model
   the exported value: value `export *` declarations are treated as unknown,
   and the request runtime performs the authoritative
   `typeof middleware === "function"` check and fails closed when it is not
   callable.
+- **A build-time failure fails the build.** If middleware makes an `ssg`/`isg`
+  route render a 5xx while prerendering, `pracht build` errors instead of
+  skipping the route: the skipped route would fall back to a live render and
+  return the same error to every visitor. A middleware that deliberately
+  short-circuits with a 3xx or 4xx still warns and skips.
 - The 404 page renders without middleware — it is a not-found response, not
   a route.
 
@@ -1054,10 +1067,19 @@ dedicated middleware module without guessing from registry syntax. This stays
 correct when registries use computed keys, spreads, or helper variables, and it
 keeps ordinary co-located manifest apps from being misclassified. Header
 comments may be edited or removed; the exported marker is the durable boundary,
-including when `_app` or `_middleware` moves to a conventional directory. Route
-and shell discovery directories may be migrated independently: a shell directory
-that still contains the root `_app` keeps the pages underscore reservation even
-after route files move elsewhere.
+including when `_app` or `_middleware` moves to a conventional directory.
+
+> [!IMPORTANT]
+> Without the marker the manifest is an ordinary co-located manifest app, where
+> underscore-prefixed modules are legitimate route modules — so the middleware
+> source is emitted into the browser bundle. `pracht doctor` and
+> `pracht verify` warn when a registered middleware module sits inside
+> `routesDir` or `shellsDir` without that reservation. Ignore the warning only
+> when the module is deliberately a route component as well.
+
+Route and shell discovery directories may be migrated independently: a shell
+directory that still contains the root `_app` keeps the pages underscore
+reservation even after route files move elsewhere.
 
 ---
 

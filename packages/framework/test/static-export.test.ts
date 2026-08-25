@@ -216,6 +216,53 @@ describe("prerenderApp staticExport", () => {
     ).rejects.toThrow(/document request returned status 500/);
   });
 
+  it("fails a serverful prerender when a route errors at build time", async () => {
+    const app = defineApp({
+      routes: [route("/broken", "./routes/broken.tsx", { render: "ssg", hasLoader: true })],
+    });
+    const brokenRegistry = {
+      routeModules: {
+        "/src/routes/broken.tsx": async () => ({
+          Component: () => h("main", null, "broken"),
+          ErrorBoundary: () => h("main", null, "caught"),
+          loader: () => {
+            throw new Error("build data unavailable");
+          },
+        }),
+      },
+    };
+
+    // Skipping the route would ship a build whose pages fall back to a live
+    // render and return the same 500 to every visitor.
+    await expect(prerenderApp({ app, registry: brokenRegistry })).rejects.toThrow(
+      /Failed to prerender SSG route "\/broken".*status 500/s,
+    );
+  });
+
+  it("still skips a serverful prerender that a middleware gate short-circuits", async () => {
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [
+        route("/open", "./routes/open.tsx", { render: "ssg" }),
+        route("/gated", "./routes/gated.tsx", { middleware: ["gate"], render: "ssg" }),
+      ],
+    });
+    const gatedRegistry = {
+      middlewareModules: {
+        "/src/middleware/gate.ts": async () => ({
+          middleware: async () => new Response("forbidden", { status: 403 }),
+        }),
+      },
+      routeModules: {
+        "/src/routes/gated.tsx": async () => ({ Component: () => h("main", null, "gated") }),
+        "/src/routes/open.tsx": async () => ({ Component: () => h("main", null, "open") }),
+      },
+    };
+
+    const pages = await prerenderApp({ app, registry: gatedRegistry });
+    expect(pages.map((page) => page.path)).toEqual(["/open"]);
+  });
+
   it("names the underlying error when a build-time loader throws", async () => {
     const app = defineApp({
       routes: [route("/broken", "./routes/broken.tsx", { render: "ssg", hasLoader: true })],
