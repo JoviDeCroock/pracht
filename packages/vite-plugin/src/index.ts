@@ -277,7 +277,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
               },
             }
           : {}),
-        ...(!isEdge && isSSRBuild
+        // Dev needs this as badly as the build does. `pracht dev` renders
+        // through `ssrLoadModule("@pracht/core/server")`, which Vite always
+        // inlines, while the app's own `import { useLocation } from
+        // "@pracht/core"` is a bare node_modules id that Vite externalizes to
+        // a native Node import. That is two copies of the runtime in one
+        // render: the document is rendered with the inlined copy's
+        // `RouteDataContext.Provider`, and every app component reads the
+        // externalized copy's context — a different `createContext()` object,
+        // so `useLocation()`/`useParams()`/`useRouteData()` all fall back to
+        // their empty defaults server-side and the page hydrates into a
+        // mismatch. Workspace-linked installs (the examples here) are inlined
+        // either way and never saw it; a published install always does.
+        ...((!isEdge && isSSRBuild) || env.command === "serve"
           ? {
               ssr: {
                 noExternal: [PRACHT_SSR_NO_EXTERNAL],
