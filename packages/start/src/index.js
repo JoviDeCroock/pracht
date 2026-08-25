@@ -1298,6 +1298,11 @@ function createWranglerConfig(projectName) {
     // validates every named export of the deployed entry module and rejects the
     // build metadata (buildTarget, manifests, ...) server.js also exports.
     '  "main": "dist/server/worker.js",',
+    // Pracht's Vite build is the authoritative bundle and may contain lazy
+    // server chunks. A second Wrangler bundle would inline them again; the
+    // module rule makes Wrangler upload those chunks next to the entry.
+    '  "no_bundle": true,',
+    '  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],',
     `  "compatibility_date": ${JSON.stringify(compatibilityDate)},`,
     '  "assets": {',
     '    "binding": "ASSETS",',

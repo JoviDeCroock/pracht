@@ -439,7 +439,12 @@ build).
   `server.js` also exports for the prerender pass). Point `wrangler.jsonc`'s
   `main` at `dist/server/worker.js` — you own that file, which lets you add
   KV, D1, R2, cron, and any other Cloudflare bindings without losing them on
-  rebuild.
+  rebuild. Set `"no_bundle": true` and add an `ESModule` rule covering
+  `"**/*.js"` because this output is already bundled by Vite and may contain
+  lazy server chunks. The two settings make Wrangler upload those files as
+  separate Worker modules instead of folding them into the entry file. If a
+  named Wrangler environment overrides either setting, it must preserve the
+  same contract; `pracht verify` checks those effective environment settings.
 - **Local preview**: `pracht preview` runs `pracht build` and then delegates to
   `wrangler dev --port <port>` against the built worker. It requires wrangler
   (in `node_modules` or on PATH) and a wrangler config; it errors with install
@@ -792,6 +797,8 @@ The adapter handles everything — just declare bindings in `wrangler.jsonc`:
 ```jsonc
 {
   "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "kv_namespaces": [{ "binding": "MY_KV", "id": "..." }],
   "d1_databases": [{ "binding": "DB", "database_name": "my-db", "database_id": "..." }],
 }

@@ -98,6 +98,10 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   validates every named export of the deploy entry and rejects the build
   metadata (`buildTarget`, manifests, `resolvedApp`, ...) that `server.js`
   exports for the prerender pass.
+- `no_bundle` is `true`, with an `ESModule` rule whose globs include
+  `"**/*.js"`. Pracht's Vite output is already bundled and may contain lazy
+  server chunks; these settings make Wrangler upload the chunks as separate
+  modules instead of folding them into the entry file.
 - `assets.directory` points to `dist/client`.
 - `compatibility_date` is set, and is a date the installed workerd supports.
   It must not be *newer* than the runtime: workerd refuses to start with
@@ -128,8 +132,10 @@ a markdown summary (graph diff + verify + budgets) worth attaching to it.
   gateway with a normalized `cf.cacheKey`; also check that markdown-capable
   routes normalize `Accept` at the gateway when variant fan-out matters.
 - Bundle size: measure what actually deploys — `dist/server/worker.js` plus
-  its `dist/server/server.js` import (wrangler bundles the import graph of
-  `main`; `worker.js` alone is a few lines). Workers limit is ~1 MB
+  its `dist/server/server.js` import and lazy chunks (`no_bundle: true` plus
+  the JavaScript `ESModule` rule uploads the pre-built module graph;
+  `worker.js` alone is a few lines).
+  Workers limit is ~1 MB
   compressed for free tier, ~10 MB on paid. Warn at 80% of the active limit.
 
 ### Vercel (`@pracht/adapter-vercel`)

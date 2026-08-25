@@ -48,6 +48,195 @@ export interface WranglerAssetsHtmlHandling {
   htmlHandling: string | undefined;
 }
 
+export interface WranglerBundleSettings {
+  /** `null` for the default deployment, otherwise the named Wrangler environment. */
+  environment: string | null;
+  /** `undefined` when Wrangler's default bundling remains active. */
+  noBundle: boolean | undefined;
+  /** Whether a module rule preserves Vite's emitted JavaScript chunks as ESM. */
+  hasJavaScriptModuleRule: boolean;
+}
+
+/**
+ * The effective settings that preserve Vite's server chunks for the default
+ * deployment and every named environment that overrides them, or `null` when
+ * the file cannot be parsed conservatively. `no_bundle` prevents Wrangler
+ * from folding the chunks into its entry, while the ESModule rule makes
+ * Wrangler upload the `.js` files next to that entry.
+ */
+export function readWranglerBundleSettings(configFile: string): WranglerBundleSettings[] | null {
+  let source: string;
+  try {
+    source = readFileSync(configFile, "utf-8");
+  } catch {
+    return null;
+  }
+
+  if (configFile.endsWith(".toml")) {
+    interface TomlBundleScope {
+      hasNoBundleOverride: boolean;
+      hasRulesOverride: boolean;
+      hasJavaScriptModuleRule: boolean;
+      noBundle: boolean | undefined;
+    }
+    const createScope = (): TomlBundleScope => ({
+      hasNoBundleOverride: false,
+      hasRulesOverride: false,
+      hasJavaScriptModuleRule: false,
+      noBundle: undefined,
+    });
+    const root = createScope();
+    const environments = new Map<string, TomlBundleScope>();
+    const environmentScope = (name: string) => {
+      const scope = environments.get(name) ?? createScope();
+      environments.set(name, scope);
+      return scope;
+    };
+    let settingsScope: TomlBundleScope | undefined = root;
+    let ruleScope: TomlBundleScope | undefined;
+    let ruleType: string | undefined;
+    let ruleGlobs: string[] = [];
+    const finishRule = () => {
+      if (ruleScope && ruleType === "ESModule" && ruleGlobs.includes("**/*.js")) {
+        ruleScope.hasJavaScriptModuleRule = true;
+      }
+      ruleScope = undefined;
+      ruleType = undefined;
+      ruleGlobs = [];
+    };
+    for (const line of source.split(/\r?\n/)) {
+      const tableMatch = TOML_TABLE_RE.exec(line);
+      if (tableMatch) {
+        finishRule();
+        settingsScope = undefined;
+        const table = tableMatch[1]!;
+        if (table === "rules") {
+          root.hasRulesOverride = true;
+          ruleScope = root;
+          continue;
+        }
+        const environment = /^env\s*\.\s*([^.\s]+)$/.exec(table)?.[1];
+        if (environment) {
+          settingsScope = environmentScope(environment);
+          continue;
+        }
+        const environmentRules = /^env\s*\.\s*([^.\s]+)\s*\.\s*rules$/.exec(table)?.[1];
+        if (environmentRules) {
+          ruleScope = environmentScope(environmentRules);
+          ruleScope.hasRulesOverride = true;
+        }
+        continue;
+      }
+      if (settingsScope) {
+        const match = /^\s*no_bundle\s*=\s*(true|false)\s*(?:#.*)?$/.exec(line);
+        if (match) {
+          settingsScope.hasNoBundleOverride = true;
+          settingsScope.noBundle = match[1] === "true";
+          continue;
+        }
+        // Inline rule tables are outside this deliberately small parser. Mark
+        // the scope as an override so callers warn instead of inheriting a
+        // top-level rule that Wrangler will replace.
+        if (/^\s*rules\s*=/.test(line)) settingsScope.hasRulesOverride = true;
+      }
+      if (!ruleScope) {
+        const dotted =
+          /^\s*env\s*\.\s*([^.\s]+)\s*\.\s*no_bundle\s*=\s*(true|false)\s*(?:#.*)?$/.exec(line);
+        if (dotted) {
+          const scope = environmentScope(dotted[1]!);
+          scope.hasNoBundleOverride = true;
+          scope.noBundle = dotted[2] === "true";
+        }
+        continue;
+      }
+      const typeMatch = new RegExp(String.raw`^\s*type\s*=\s*${TOML_VALUE}\s*(?:#.*)?$`).exec(line);
+      if (typeMatch) {
+        ruleType = typeMatch[1] ?? typeMatch[2]!;
+        continue;
+      }
+      const globsMatch = /^\s*globs\s*=\s*\[(.*)\]\s*(?:#.*)?$/.exec(line);
+      if (globsMatch) ruleGlobs = readTomlStringArray(globsMatch[1]!);
+    }
+    finishRule();
+    return [
+      {
+        environment: null,
+        noBundle: root.noBundle,
+        hasJavaScriptModuleRule: root.hasJavaScriptModuleRule,
+      },
+      ...[...environments.entries()]
+        .filter(([, scope]) => scope.hasNoBundleOverride || scope.hasRulesOverride)
+        .map(([environment, scope]) => ({
+          environment,
+          noBundle: scope.hasNoBundleOverride ? scope.noBundle : root.noBundle,
+          hasJavaScriptModuleRule: scope.hasRulesOverride
+            ? scope.hasJavaScriptModuleRule
+            : root.hasJavaScriptModuleRule,
+        })),
+    ];
+  }
+
+  let config: unknown;
+  try {
+    config = JSON.parse(stripJsonComments(source).replace(/,(\s*[}\]])/g, "$1"));
+  } catch {
+    return null;
+  }
+  if (!config || typeof config !== "object") return null;
+
+  const root = config as Record<string, unknown>;
+  const value = root.no_bundle;
+  const rules = root.rules;
+  const hasJavaScriptModuleRule = (candidateRules: unknown) =>
+    Array.isArray(candidateRules) &&
+    candidateRules.some((rule) => {
+      if (!rule || typeof rule !== "object") return false;
+      const candidate = rule as Record<string, unknown>;
+      return (
+        candidate.type === "ESModule" &&
+        Array.isArray(candidate.globs) &&
+        candidate.globs.includes("**/*.js")
+      );
+    });
+  const settings: WranglerBundleSettings[] = [
+    {
+      environment: null,
+      noBundle: typeof value === "boolean" ? value : undefined,
+      hasJavaScriptModuleRule: hasJavaScriptModuleRule(rules),
+    },
+  ];
+  const environments = root.env;
+  if (environments && typeof environments === "object") {
+    for (const [environment, entry] of Object.entries(environments as Record<string, unknown>)) {
+      if (!entry || typeof entry !== "object") continue;
+      const candidate = entry as Record<string, unknown>;
+      if (!Object.hasOwn(candidate, "no_bundle") && !Object.hasOwn(candidate, "rules")) continue;
+      const environmentNoBundle = candidate.no_bundle;
+      settings.push({
+        environment,
+        noBundle: Object.hasOwn(candidate, "no_bundle")
+          ? typeof environmentNoBundle === "boolean"
+            ? environmentNoBundle
+            : undefined
+          : typeof value === "boolean"
+            ? value
+            : undefined,
+        hasJavaScriptModuleRule: hasJavaScriptModuleRule(
+          Object.hasOwn(candidate, "rules") ? candidate.rules : rules,
+        ),
+      });
+    }
+  }
+  return settings;
+}
+
+function readTomlStringArray(source: string): string[] {
+  const values: string[] = [];
+  const valuePattern = /"([^"]*)"|'([^']*)'/g;
+  for (const match of source.matchAll(valuePattern)) values.push(match[1] ?? match[2]!);
+  return values;
+}
+
 /**
  * The top-level `assets.html_handling` value, or `null` when it cannot be
  * proven — an unreadable file, a parse failure, a TOML config (not parsed
@@ -167,9 +356,10 @@ function stripJsonComments(source: string): string {
   return out;
 }
 
-// Enough TOML for the one key this reads. Deliberately conservative: a shape
-// this does not recognize yields no entry, and callers must treat "no entries"
-// as "unknown" rather than "fine" — see collectCloudflareEntryCheck.
+// Enough TOML for the deployment keys these readers inspect. Deliberately
+// conservative: a shape this does not recognize yields no entry, and callers
+// must treat "no entries" as "unknown" rather than "fine" — see
+// collectCloudflareEntryCheck.
 //
 // `[table]` and `[[array.of.tables]]` headers, both of which may carry a
 // trailing comment. Missing a header would attribute the keys under it to the

@@ -293,12 +293,43 @@ object keys retain their data semantics in the generated module, including
 prototype-named keys such as `__proto__`. Sparse arrays fail the build rather
 than being serialized with their holes changed to `null`.
 
-Each document embeds `raw`, `body`, and `compiled`, so a snapshot costs roughly
-two to three times the content it describes. `defineCollection({ snapshot: {
-raw: false, body: false } })` drops either representation from the generated
-module; both default to true and the authoring collection always keeps them.
-The option is deliberately narrow: `compiled` is what routes render, and
-frontmatter is what they index, so neither can be dropped.
+### Deferred document payloads
+
+A snapshot module carries only an index: ids, routes, locales, frontmatter, and
+source paths. Each document's `raw`, `body`, and `compiled` live in their own
+chunk, which the runtime loads when that document is resolved.
+
+`prachtContent()` enables server code splitting so webworker builds preserve
+that boundary too. Cloudflare deployments must set `"no_bundle": true` and an
+`ESModule` rule covering `"**/*.js"` in `wrangler.jsonc`: Pracht's Vite output
+is already bundled, and the rule tells Wrangler to upload its chunks as Worker
+modules instead of inlining them into the entry. New `create-pracht` Cloudflare
+projects include both settings, while `pracht verify` warns older configs that
+omit either one.
+
+This matters because of where the snapshot module ends up. Loaders import it,
+and the bundler hoists a module shared by several route modules into a chunk
+those routes all load — so an inlined collection is parsed by the first request
+that reaches any content-backed route, including the not-found handler. A
+documentation site with a few hundred translated pages is easily tens of
+megabytes of JavaScript on a cold start.
+
+Nothing in the lookup path is deferred, so resolution never blocks on a chunk it
+has not loaded. Every accessor that returns a document is asynchronous and
+awaits that document's payload, so `document.compiled` is populated exactly as
+before. `iterate()` loads one document at a time, which is what a large
+collection should stream; `all()` loads the collection.
+
+A malformed document is still rejected while the snapshot module is generated —
+not when the page that happens to use it is first rendered — and the diagnostic
+still names `documents[n].compiled…`.
+
+Each document's payload holds `raw`, `body`, and `compiled`, so a collection's
+chunks cost roughly two to three times the content they describe.
+`defineCollection({ snapshot: { raw: false, body: false } })` drops either
+representation entirely; both default to true and the authoring collection
+always keeps them. The option is deliberately narrow: `compiled` is what routes
+render, and frontmatter is what they index, so neither can be dropped.
 
 An omitted field is absent on the snapshot's documents rather than a throwing
 accessor, matching the plain object shape the rest of the runtime API returns.

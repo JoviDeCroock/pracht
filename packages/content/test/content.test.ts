@@ -895,6 +895,7 @@ describe("collection integration helpers", () => {
 
     expect(snapshot.fields).toBeUndefined();
     expect(snapshot.documents[0]).toMatchObject({ body: "Body", raw: "Body" });
+    expectTypeOf(snapshot.documents[0].compiled).toEqualTypeOf<string>();
     expect(defineSnapshotCollection(snapshot).snapshotFields).toEqual({ body: true, raw: true });
 
     expect(() => defineCollection({ name: "docs", root, snapshot: null as never })).toThrow(

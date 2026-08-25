@@ -544,6 +544,8 @@ export const app = defineApp({
   "name": "fixture-app",
   // "main": "dist/server/server.js",
   "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
 }
 `,
     );
@@ -593,7 +595,7 @@ export const app = defineApp({
     writeProjectFile(
       appDir,
       "wrangler.toml",
-      'name = "fixture-app"\nmain = "dist/server/worker.js"\n',
+      'name = "fixture-app"\nmain = "dist/server/worker.js"\nno_bundle = true\n[[rules]]\ntype = "ESModule"\nglobs = ["**/*.js", "**/*.mjs"]\n',
     );
 
     const result = runCli(["doctor", "--json"], { cwd: appDir });
@@ -603,6 +605,67 @@ export const app = defineApp({
     // Silence on success: the reader skips wrangler shapes it does not
     // recognize, so a clean pass is "nothing provably wrong", not "verified".
     expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
+  });
+
+  it("warns when Wrangler would rebundle Pracht's deferred server chunks", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-bundle-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": false
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" &&
+          check.message.includes('"no_bundle": true') &&
+          check.message.includes("ESModule") &&
+          check.message.includes("deferred server chunks"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when a Wrangler environment overrides safe bundle settings", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-env-bundle-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+  "env": {
+    "production": { "no_bundle": false }
+  }
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" &&
+          check.message.includes('environment "production"') &&
+          check.message.includes("deferred server chunks"),
+      ),
+    ).toBe(true);
   });
   it("warns when a Markdown page is routed with no transform plugin", () => {
     const appDir = createTempDir("pracht-cli-doctor-md-page-");

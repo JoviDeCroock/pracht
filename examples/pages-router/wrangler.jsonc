@@ -3,6 +3,8 @@
   "name": "pracht-pages-router-example",
   "compatibility_date": "2026-08-01",
   "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "assets": {
     "binding": "ASSETS",
     "directory": "dist/client",

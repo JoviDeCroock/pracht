@@ -202,6 +202,9 @@ describe("create-pracht", () => {
     // exports, so the deployed entry has to be the wrapper `pracht build` emits.
     expect(wranglerConfig).toContain('"main": "dist/server/worker.js"');
     expect(wranglerConfig).not.toContain('"main": "dist/server/server.js"');
+    expect(wranglerConfig).toContain('"no_bundle": true');
+    expect(wranglerConfig).toContain('"type": "ESModule"');
+    expect(wranglerConfig).toContain('"**/*.js"');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(true);
     expect(existsSync(join(targetDir, "Dockerfile"))).toBe(false);
     expect(existsSync(join(targetDir, ".dockerignore"))).toBe(false);
