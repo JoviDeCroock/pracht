@@ -22,3 +22,11 @@ third `RouteErrorContext` argument carrying that metadata.
 
 A route or shell `ErrorBoundary` still renders its own output, and route-state
 requests still fail as JSON.
+
+The overlay itself gained fixes found while reviewing this change: it keeps the
+framework's default security headers, honours the runtime's
+`NODE_ENV=production` redaction instead of printing the internals the body just
+withheld, declares its auto-reload block as a module (`import.meta` is a parse
+error in a classic script, so the block was silently dropped), and no longer
+mangles OSC terminal hyperlinks — the sequence miette, and therefore oxc, emits
+for diagnostic codes.

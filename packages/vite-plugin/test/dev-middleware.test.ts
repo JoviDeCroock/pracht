@@ -370,6 +370,7 @@ describe("development error overlay handoff", () => {
     expect(
       shouldRenderDevErrorOverlay({
         capturedRouteError: true,
+        exposeServerErrors: true,
         contentType: "text/plain; charset=utf-8",
         status: 500,
       }),
@@ -380,6 +381,7 @@ describe("development error overlay handoff", () => {
     expect(
       shouldRenderDevErrorOverlay({
         capturedRouteError: true,
+        exposeServerErrors: true,
         contentType: "Text/Plain; Charset=UTF-8",
         status: 500,
       }),
@@ -392,6 +394,7 @@ describe("development error overlay handoff", () => {
     expect(
       shouldRenderDevErrorOverlay({
         capturedRouteError: true,
+        exposeServerErrors: true,
         contentType: "text/html; charset=utf-8",
         status: 500,
       }),
@@ -403,6 +406,7 @@ describe("development error overlay handoff", () => {
     expect(
       shouldRenderDevErrorOverlay({
         capturedRouteError: true,
+        exposeServerErrors: true,
         contentType: "application/json; charset=utf-8",
         status: 500,
       }),
@@ -415,6 +419,7 @@ describe("development error overlay handoff", () => {
     expect(
       shouldRenderDevErrorOverlay({
         capturedRouteError: false,
+        exposeServerErrors: true,
         contentType: "text/plain; charset=utf-8",
         status: 500,
       }),
@@ -422,8 +427,27 @@ describe("development error overlay handoff", () => {
     expect(
       shouldRenderDevErrorOverlay({
         capturedRouteError: true,
+        exposeServerErrors: true,
         contentType: "text/plain; charset=utf-8",
         status: 404,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("development error overlay redaction", () => {
+  // `pracht dev` passes `debugErrors: true` unconditionally, but the runtime
+  // refuses to honor it under NODE_ENV=production — a dev server started inside
+  // a container that exports it answers with a redacted body. The overlay is
+  // built from the raw error, so it has to repeat that check or it would print
+  // the stack and filesystem paths the runtime had just withheld.
+  it("does not replace a redacted failure with the raw-error overlay", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        contentType: "text/plain; charset=utf-8",
+        exposeServerErrors: false,
+        status: 500,
       }),
     ).toBe(false);
   });

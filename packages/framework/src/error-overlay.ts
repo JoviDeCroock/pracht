@@ -35,7 +35,7 @@ export interface ErrorOverlayOptions {
 }
 
 /**
- * SGR/CSI escape sequences, as emitted by every compiler that colours its own
+ * SGR/CSI/OSC escape sequences, as emitted by every compiler that colours its own
  * diagnostics (oxc, esbuild, Babel). They are meaningless in a browser: a
  * terminal renders `[31m` as "red", HTML renders it as `[31m`, and oxc
  * wraps *every character* of the offending source line in its own sequence, so
@@ -44,9 +44,28 @@ export interface ErrorOverlayOptions {
 // Built from char codes rather than written as a literal: a `\u001B` escape
 // inside a regex literal is a lint error (`no-control-regex`), and suppressing
 // the rule would hide the one place it is genuinely intended.
-const ESCAPE_INTRODUCERS = `${String.fromCharCode(0x1b)}${String.fromCharCode(0x9b)}`;
+const ESC = String.fromCharCode(0x1b);
+const CSI = String.fromCharCode(0x9b);
+const BEL = String.fromCharCode(0x07);
+// OSC (`ESC ] … BEL` / `ESC ] … ESC \\`) has to be matched as its own
+// alternative rather than falling through to the CSI branch. Terminal
+// hyperlinks — which miette, and therefore oxc, emits for diagnostic codes —
+// are OSC 8: matching them with the CSI branch stops at the first letter of
+// the URL and eats it, turning `ESC ] 8 ;; https://…` into `ttps://…` while
+// leaving the terminator behind as a control character.
+const OSC_TERMINATOR = `(?:${BEL}|${ESC}\\\\)`;
+// The payload is anything up to the terminator. Deliberately more permissive
+// than the widely copied `ansi-regex` pattern, which enumerates URL-ish
+// characters and so fails on a payload containing a space (`ESC ] 0 ; window
+// title`) — it then falls through to the CSI branch and eats part of the text.
+// The class excludes both terminator characters, so the match cannot run past
+// the first one and an unterminated OSC simply fails this alternative.
+const OSC_SEQUENCE = `[^${BEL}${ESC}]*${OSC_TERMINATOR}`;
+// `~` belongs in the final-byte class: `ESC [ 3 ~` is a complete sequence, and
+// omitting it leaves a stray `~` in the rendered message.
+const CSI_SEQUENCE = `(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PR-TZcf-ntqry=><~]`;
 const ANSI_ESCAPE = new RegExp(
-  `[${ESCAPE_INTRODUCERS}][[\\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PR-TZcf-ntqry=><]`,
+  `[${ESC}${CSI}][[\\]()#;?]*(?:${OSC_SEQUENCE}|${CSI_SEQUENCE})`,
   "g",
 );
 
@@ -328,8 +347,11 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
       fetch(${JSON.stringify(openInEditorEndpoint)} + "?file=" + encodeURIComponent(link.getAttribute("data-editor-file")));
     });
   </script>
-  <script>
-    // Auto-reload when Vite triggers a full reload (e.g. file saved after fix)
+  <script type="module">
+    // Auto-reload when Vite triggers a full reload (e.g. file saved after fix).
+    // Must be a module: \`import.meta\` is a parse error in a classic script, so
+    // a plain <script> silently dropped this whole block and the overlay never
+    // reloaded itself after the underlying file was fixed.
     if (import.meta.hot) {
       import.meta.hot.on("vite:beforeFullReload", function () {
         window.location.reload();

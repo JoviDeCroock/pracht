@@ -256,6 +256,7 @@ export type {
   PrachtPhaseTimings,
   PrachtRuntimeDiagnosticPhase,
   PrachtRuntimeDiagnostics,
+  RouteErrorContext,
   SerializedRouteError,
 } from "./runtime.ts";
 export type {

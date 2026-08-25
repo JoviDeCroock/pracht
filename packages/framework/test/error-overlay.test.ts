@@ -294,3 +294,48 @@ describe("route metadata rows", () => {
     expect(html).not.toContain(">Shell</span>");
   });
 });
+
+describe("escape sequences the naive pattern gets wrong", () => {
+  const ESC = "\u001b";
+  const BEL = "\u0007";
+
+  // miette — and therefore oxc — emits OSC 8 terminal hyperlinks for
+  // diagnostic codes. Matching them with the CSI branch stops at the first
+  // letter of the URL and eats it, leaving `ttps://…` plus a stray terminator.
+  it("strips an OSC 8 hyperlink without eating the URL text", () => {
+    const link = `${ESC}]8;;https://oxc.rs/docs/E0001${BEL}E0001${ESC}]8;;${BEL}`;
+
+    expect(stripAnsi(`see ${link} for details`)).toBe("see E0001 for details");
+  });
+
+  it("strips an OSC sequence terminated by ESC backslash", () => {
+    expect(stripAnsi(`a${ESC}]0;window title${ESC}\\b`)).toBe("ab");
+  });
+
+  // `ESC [ 3 ~` is a complete sequence; omitting `~` from the final-byte class
+  // leaves a stray tilde in the rendered message.
+  it("strips a CSI sequence whose final byte is a tilde", () => {
+    expect(stripAnsi(`a${ESC}[3~b`)).toBe("ab");
+  });
+
+  it("leaves a lone escape introducer alone rather than eating the next word", () => {
+    expect(stripAnsi(`unterminated ${ESC}`)).toBe(`unterminated ${ESC}`);
+  });
+
+  it("does not touch bracket-heavy prose", () => {
+    expect(stripAnsi("expected [1] but got (2) at #3; ok?")).toBe(
+      "expected [1] but got (2) at #3; ok?",
+    );
+  });
+});
+
+describe("overlay auto-reload script", () => {
+  // `import.meta` is a parse error in a classic script, so the whole block was
+  // silently dropped and the overlay never reloaded itself after the file was
+  // fixed.
+  it("declares the import.meta.hot block as a module", () => {
+    const html = buildErrorOverlayHtml({ message: "boom" });
+
+    expect(html).toMatch(/<script type="module">(?:(?!<\/script>)[\s\S])*import\.meta\.hot/);
+  });
+});

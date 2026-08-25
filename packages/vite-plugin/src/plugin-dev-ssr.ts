@@ -213,6 +213,10 @@ export function createDevSSRMiddleware(
       // and the wrong one for a browser in dev, so capture the raw error here
       // and re-render it as the overlay below.
       let routeError: unknown;
+      // An explicit flag rather than `routeError !== undefined`: `throw
+      // undefined` and a bare `Promise.reject()` are real failures that would
+      // otherwise fall through to the plain-text fallback.
+      let capturedRouteError = false;
       let routeErrorContext: RouteErrorContext | undefined;
       const response = await framework.handlePrachtRequest({
         app: serverMod.resolvedApp,
@@ -220,6 +224,7 @@ export function createDevSSRMiddleware(
         request: webRequest,
         debugErrors: true,
         onRouteError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+          capturedRouteError = true;
           routeError = error;
           routeErrorContext = context;
         },
@@ -283,8 +288,9 @@ export function createDevSSRMiddleware(
 
       if (
         shouldRenderDevErrorOverlay({
-          capturedRouteError: routeError !== undefined,
+          capturedRouteError,
           contentType,
+          exposeServerErrors: shouldExposeDevServerErrors(),
           status: response.status,
         })
       ) {
@@ -746,13 +752,33 @@ async function serveDevtools(
 export function shouldRenderDevErrorOverlay(options: {
   capturedRouteError: boolean;
   contentType: string;
+  /**
+   * Mirror of the runtime's `shouldExposeServerErrors()` verdict. `onRouteError`
+   * fires with the raw error regardless of `debugErrors`, so without this the
+   * overlay would print the stack trace and filesystem paths that the runtime
+   * had just refused to put in the response body under `NODE_ENV=production`.
+   */
+  exposeServerErrors: boolean;
   status: number;
 }): boolean {
   return (
     options.capturedRouteError &&
+    options.exposeServerErrors &&
     options.status >= 500 &&
     options.contentType.toLowerCase().startsWith("text/plain")
   );
+}
+
+/**
+ * The dev middleware passes `debugErrors: true` unconditionally, but the
+ * runtime refuses to honor it when `NODE_ENV === "production"` (see
+ * `shouldExposeServerErrors` in @pracht/core) — a dev server started inside a
+ * container that exports `NODE_ENV=production` must not answer with internals.
+ * The overlay is built from the raw error rather than from the runtime's
+ * already-redacted body, so it has to repeat that check.
+ */
+function shouldExposeDevServerErrors(): boolean {
+  return (typeof process !== "undefined" ? process.env?.NODE_ENV : undefined) !== "production";
 }
 
 /**
@@ -793,6 +819,12 @@ async function respondWithErrorOverlay(
   html = await server.transformIndexHtml(url, html);
   res.statusCode = status;
   res.setHeader("content-type", "text/html; charset=utf-8");
+  // The runtime response this replaces carried the framework's default
+  // security headers. Dropping them here would make dev the one surface that
+  // answers a 500 without them.
+  applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
+    res.setHeader(key, value);
+  });
   res.end(html);
 }
 
