@@ -10,3 +10,14 @@ holds three bits of info:
 - What we need to release
 - What version we are releasing packages at (using [semver](https://semver.org))
 - A changelog entry for the released packages
+
+## Repo policy
+
+`privatePackages.version` is `false`, so the private apps under `examples/*` are
+never bumped and carry no changelog. Before this, every release PR also rewrote 8
+example `package.json` files and 8 example `CHANGELOG.md` files — pure noise, since
+those packages are never published. Only the publishable `packages/*` show up in the
+"Version Packages" PR now.
+
+If you ever need an example's version bumped, do it by hand; do not flip this flag
+back on.

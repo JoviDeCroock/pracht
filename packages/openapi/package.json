@@ -40,9 +40,9 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@pracht/cli": "workspace:*",
-    "@pracht/core": "workspace:*",
-    "@pracht/vite-plugin": "workspace:*",
+    "@pracht/cli": "workspace:^",
+    "@pracht/core": "workspace:^",
+    "@pracht/vite-plugin": "workspace:^",
     "vite": "^8.0.0"
   }
 }

@@ -7,7 +7,7 @@
   "linked": [],
   "access": "public",
   "baseBranch": "main",
-  "privatePackages": { "version": true, "tag": false },
+  "privatePackages": { "version": false, "tag": false },
   "updateInternalDependencies": "minor",
   "___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH": {
     "onlyUpdatePeerDependentsWhenOutOfRange": true
