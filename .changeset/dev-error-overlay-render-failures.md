@@ -1,5 +1,5 @@
 ---
-"@pracht/core": minor
+"@pracht/core": patch
 "@pracht/vite-plugin": patch
 ---
 
