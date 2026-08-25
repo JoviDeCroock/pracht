@@ -1398,6 +1398,7 @@ export {
   useRouteData,
   useSearchParams,
   type FormProps,
+  type LinkHrefGuidance,
   type LinkProps,
   type Location,
   type Navigation,

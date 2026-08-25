@@ -353,6 +353,7 @@ export type {
 export type {
   FormProps,
   HandlePrachtRequestOptions,
+  LinkHrefGuidance,
   LinkProps,
   Location,
   Navigation,

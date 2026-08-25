@@ -119,11 +119,30 @@ export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName
   onResponse?: (response: Response) => void;
 }
 
+/**
+ * Carried by `LinkProps["href"]` purely so the compiler error names the fix.
+ *
+ * Omitting `href` from the props type leaves TypeScript to guess: it reports
+ * `Property 'href' does not exist … Did you mean 'ref'?`, which sends the
+ * reader looking for a typo rather than at the actual API. `href` is the
+ * muscle-memory prop from every other router, so this is the first wall a new
+ * app hits — and the runtime accepted it, so `pracht dev` said nothing either
+ * (that part is guarded in `Link` itself). A single-value string type puts the
+ * guidance in the error message.
+ */
+export type LinkHrefGuidance =
+  '<Link> navigates by route id: use <Link route="home"> (with `params` for dynamic segments), or a plain <a href> for external and user-provided URLs.';
+
 export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
   JSX.HTMLAttributes<HTMLAnchorElement>,
   "href"
 > &
   RouteTarget<TRoute> & {
+    /**
+     * Not a real prop — see {@link LinkHrefGuidance}. `<Link>` builds its own
+     * `href` from `route` and `params`.
+     */
+    href?: LinkHrefGuidance;
     /**
      * Prefetch strategy for this link, overriding the route-level strategy:
      * `"intent"` (hover/focus), `"viewport"` (IntersectionObserver),

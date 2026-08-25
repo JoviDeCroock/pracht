@@ -507,6 +507,10 @@ describe("create-pracht", () => {
     expect(readme).toContain("export const REVALIDATE = 3600");
 
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
+    // `href` is the muscle-memory prop from every other router, and it is the
+    // first wall a new app hits — name the real API where an agent reads first.
+    expect(agents).toContain('`<Link route="home">`');
+    expect(agents).toContain("`<Link href>` is a type error");
     expect(agents).toContain("pages routing");
     expect(agents).toContain("src/pages/");
     expect(agents).toContain("The pages router has no manifest");

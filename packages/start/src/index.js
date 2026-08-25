@@ -1540,6 +1540,20 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("- `netlify.toml` — Netlify build, publish, and functions configuration");
   }
 
+  lines.push("");
+  lines.push("## Conventions");
+  lines.push("");
+  lines.push(
+    '- Navigate by route id, not by path: `<Link route="home">` (with `params` for dynamic ' +
+      'segments), `href("blog-slug", { params: { slug } })`, `navigate({ route: "blog" })`. ' +
+      "`<Link href>` is a type error — the id survives a path change and `pracht typegen` types " +
+      "both the id and its params. Use a plain `<a href>` for external and user-provided URLs.",
+  );
+  lines.push(
+    "- Run `pracht typegen` once to type route ids, params, and `apiFetch()`; `pracht dev` keeps " +
+      "them in sync.",
+  );
+
   if (agentTools) {
     lines.push("");
     lines.push("## Agent tooling");

@@ -356,6 +356,24 @@ accepts four navigation-behavior props:
 These props render as `data-pracht-*` attributes on the underlying `<a>`, so
 they also work on plain anchors if you set the attributes yourself.
 
+#### There is no `href` prop
+
+`<Link>` builds its own `href` from `route` and `params`, so it does not accept
+one. The id is what survives a path change, and it is what `pracht typegen`
+types along with the route's params. Passing `href` is a compile error whose
+message names the fix, and a dev-mode runtime error if it reaches the browser
+untyped:
+
+```tsx
+<Link href="/blog/hello">Post</Link>
+// Type '"/blog/hello"' is not assignable to type '<Link> navigates by route
+// id: use <Link route="home"> (with `params` for dynamic segments), or a plain
+// <a href> for external and user-provided URLs.'
+```
+
+Use a plain `<a href>` for external links and for URLs that come from data —
+those are not route ids and never should be.
+
 ### Prefetching
 
 Every internal link is prefetched on hover/focus by default (`"intent"`, with a
