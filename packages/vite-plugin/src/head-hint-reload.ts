@@ -1,11 +1,9 @@
 /**
- * Which changed files force the generated client entry to reload.
+ * Which changed files reach routes with generated client hints.
  *
- * The virtual client module bakes per-route hints — notably "does this route
- * export `head`" — plus `defineFont()` style and preload state. Neither can be
- * patched into an open page by HMR, so a change to either has to reload the
- * document. Everything else about a route or shell edit is ordinary component
- * HMR, and reloading for it costs the developer their client state.
+ * Head and response-header hints decide whether a dependency edit must reload
+ * the document; loader hints decide whether it must re-fetch active route data.
+ * The importer walk is shared because all three are keyed by route source.
  */
 
 // Local copy, matching plugin-codegen.ts: the helper is three lines and a
@@ -20,19 +18,16 @@ export interface HotUpdateModuleLike {
   importers?: Set<HotUpdateModuleLike>;
 }
 
-export function reachesHeadBearingModule(
+export function reachesRouteHintedModule(
   modules: readonly HotUpdateModuleLike[],
   serverRoot: string,
-  headHints: Record<string, boolean>,
+  routeHints: Record<string, boolean>,
   options: { startAtImporters?: boolean } = {},
 ): boolean {
-  // A route or shell that exports `head` is head-bearing by definition, so
-  // starting at the changed module itself would report every edit to such a
-  // file as a head change. That is the caller's own case
-  // (`changesRouteHeadSource`), handled separately by comparing hints. What
-  // this walk is for is the *other* direction: a module like `src/fonts.ts`
-  // whose generated style/preload state only exists in the virtual entry,
-  // reached through the head-bearing modules that import it.
+  // A route or shell that owns a hint matches by definition, so starting at the
+  // changed module itself would report every edit to that source as a
+  // dependency change. The caller handles route sources separately; this walk
+  // follows the other direction, from a changed dependency to hinted importers.
   const pending = options.startAtImporters
     ? modules.flatMap((module) => [...(module.importers ?? [])])
     : [...modules];
@@ -48,7 +43,7 @@ export function reachesHeadBearingModule(
       const relative = normalizedPath.startsWith(serverRoot)
         ? normalizedPath.slice(serverRoot.length)
         : normalizedPath;
-      if (headHints[relative] === true) return true;
+      if (routeHints[relative] === true) return true;
     }
 
     if (module.importers) pending.push(...module.importers);

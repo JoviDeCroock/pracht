@@ -28,21 +28,45 @@ import { revalidateRouteData } from "./runtime-revalidate.ts";
 /** Custom Vite HMR event the dev server sends after a route/shell update. */
 export const DEV_ROUTE_DATA_STALE_EVENT = "pracht:route-data-stale";
 
+let requestedRefreshVersion = 0;
+let refreshRunning = false;
+
 /**
  * Re-fetch the active route's loader data for every mounted runtime.
  *
  * @internal Called by the generated client entry's HMR listener.
  */
 export function refreshDevRouteData(): void {
-  let reloadRequested = false;
-  for (const runtime of getMountedRuntimes()) {
-    void revalidateRouteData(runtime).catch(() => {
-      // A route that is no longer current cannot own the visible error. For an
-      // active route, reload so a loader failure, not-found response, or error
-      // boundary is rendered exactly as it was before route Fast Refresh.
-      if (runtime.isCurrent?.() === false || reloadRequested) return;
-      reloadRequested = true;
-      window.location.reload();
-    });
+  requestedRefreshVersion += 1;
+  if (refreshRunning) return;
+
+  refreshRunning = true;
+  void runRefreshLoop().finally(() => {
+    refreshRunning = false;
+  });
+}
+
+/** Serialize saves so an older loader response cannot overwrite a newer one. */
+async function runRefreshLoop(): Promise<void> {
+  while (true) {
+    const refreshVersion = requestedRefreshVersion;
+    let reloadRequested = false;
+
+    await Promise.all(
+      [...getMountedRuntimes()].map(async (runtime) => {
+        try {
+          await revalidateRouteData(runtime);
+        } catch {
+          // A route that is no longer current cannot own the visible error. A
+          // newer save also supersedes this result: run another refresh before
+          // deciding whether its latest loader state requires a reload.
+          if (runtime.isCurrent?.() !== false) reloadRequested = true;
+        }
+      }),
+    );
+
+    if (refreshVersion !== requestedRefreshVersion) continue;
+    if (reloadRequested) window.location.reload();
+    return;
   }
 }

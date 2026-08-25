@@ -967,9 +967,11 @@ A route module has a half that never reaches the browser. `loader`, `head`,
 `headers`, and `getStaticPaths` are stripped out of the client copy, so
 patching the component would otherwise leave the page holding data the server
 would no longer send. The dev server therefore tells the open page when a route
-or shell changed, and the client re-fetches route state through the same path
+or shell changed, or when a client-reachable shared dependency leads to a
+loader-bearing route. The client re-fetches route state through the same path
 `useRevalidate()` uses — `useRouteData()` and `props.data` update in place,
-without the reload.
+without the reload. Rapid saves are serialized and coalesced so the newest
+loader result always settles last.
 
 The refresh carries font state with it, so a `defineFont()` declared inside a
 route or shell is added, changed, and removed live. If refreshing route state

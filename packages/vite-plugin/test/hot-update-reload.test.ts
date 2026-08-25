@@ -397,6 +397,69 @@ describe("pracht handleHotUpdate route data staleness", () => {
     });
   });
 
+  it("refreshes data when a client-reachable loader dependency changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-loader-dependency-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const sharedFile = join(root, "src", "shared.ts");
+    const routeFile = join(root, "src", "routes", "home.tsx");
+    writeFileSync(sharedFile, "export const greeting = 'old';\n");
+    writeFileSync(
+      routeFile,
+      'import { greeting } from "../shared";\n' +
+        "export function loader() { return { greeting }; }\n" +
+        "export function Component() { return greeting; }\n",
+    );
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+
+    const sharedModule = createModuleNode(sharedFile);
+    const routeModule = createModuleNode(routeFile);
+    sharedModule.importers.add(routeModule);
+    const send = vi.fn();
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: sharedFile,
+        modules: [sharedModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: () => undefined,
+            invalidateModule: vi.fn(),
+          },
+          environments: {
+            client: {
+              moduleGraph: { getModulesByFile: () => new Set([sharedModule]) },
+              hot: { send },
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(result).toBeUndefined();
+    expect(send).toHaveBeenCalledWith({
+      type: "custom",
+      event: "pracht:route-data-stale",
+    });
+    expect(send).not.toHaveBeenCalledWith({ type: "full-reload" });
+  });
+
   it("reloads when an edited route owns document response headers", async () => {
     const { clientModule, result, routeModule, send } = await editRoute(
       WITH_HEADERS,

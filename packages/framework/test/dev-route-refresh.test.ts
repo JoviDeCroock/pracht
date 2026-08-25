@@ -28,7 +28,22 @@ function runtime(isCurrent?: () => boolean): PrachtRuntimeValue {
   };
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
+}
+
 async function settleRefresh(): Promise<void> {
+  await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
 }
@@ -71,6 +86,41 @@ describe("refreshDevRouteData", () => {
     refreshDevRouteData();
     await settleRefresh();
 
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("serializes overlapping refreshes so the latest save settles last", async () => {
+    const first = deferred<unknown>();
+    mocks.runtimes.add(runtime());
+    mocks.revalidateRouteData
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ greeting: "latest" });
+
+    refreshDevRouteData();
+    refreshDevRouteData();
+
+    expect(mocks.revalidateRouteData).toHaveBeenCalledTimes(1);
+
+    first.resolve({ greeting: "old" });
+    await settleRefresh();
+
+    expect(mocks.revalidateRouteData).toHaveBeenCalledTimes(2);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("does not reload for a failed refresh superseded by a newer save", async () => {
+    const first = deferred<unknown>();
+    mocks.runtimes.add(runtime());
+    mocks.revalidateRouteData
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ greeting: "fixed" });
+
+    refreshDevRouteData();
+    refreshDevRouteData();
+    first.reject(new Error("obsolete loader failure"));
+    await settleRefresh();
+
+    expect(mocks.revalidateRouteData).toHaveBeenCalledTimes(2);
     expect(reload).not.toHaveBeenCalled();
   });
 });

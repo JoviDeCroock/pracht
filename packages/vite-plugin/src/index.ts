@@ -13,7 +13,7 @@ import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
-import { reachesHeadBearingModule } from "./head-hint-reload.ts";
+import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
 import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
 import {
@@ -409,17 +409,23 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteLoaderSource = isPagesMode
         ? relative.startsWith(resolved.pagesDir)
         : relative.startsWith(resolved.routesDir);
-      const changesRouteHeadDependency = reachesHeadBearingModule(
+      const changesRouteHeadDependency = reachesRouteHintedModule(
         modules,
         serverRoot,
         clientRouteHeadHints,
         { startAtImporters: changesRouteHeadSource },
       );
-      const changesRouteHeadersDependency = reachesHeadBearingModule(
+      const changesRouteHeadersDependency = reachesRouteHintedModule(
         modules,
         serverRoot,
         clientRouteHeadersHints,
         { startAtImporters: changesRouteHeadSource },
+      );
+      const changesRouteLoaderDependency = reachesRouteHintedModule(
+        modules,
+        serverRoot,
+        clientRouteLoaderHints,
+        { startAtImporters: changesRouteLoaderSource },
       );
       let shouldReloadClientEntry = changesRouteHeadDependency || changesRouteHeadersDependency;
       let clientHeadModule: ReturnType<typeof server.moduleGraph.getModuleById>;
@@ -556,7 +562,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // the page holding data or font state the server would no longer send.
       // Reloading was what used to deliver it. Tell the client to re-fetch
       // route state instead — same freshness, without the state loss.
-      if (!sentFullReload && changesRouteHeadSource) {
+      if (!sentFullReload && (changesRouteHeadSource || changesRouteLoaderDependency)) {
         sendRouteDataStale(server);
       }
     },
