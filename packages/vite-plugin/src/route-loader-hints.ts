@@ -178,10 +178,14 @@ function exportSpecifiersInclude(specifiers: string, exportName: string): boolea
  * Whether `source` exports `exportName`, via a declaration, an export block,
  * or an `export *` re-export (which could expose anything, so it counts).
  *
- * Comments and strings are masked first, so prose or a string literal
- * mentioning the name cannot produce a false positive.
+ * Ordinary TS/JS is parsed exactly, including string-literal export names.
+ * Custom syntaxes fall back to masked lexical detection so prose or a string
+ * literal mentioning the name cannot produce a false positive.
  */
 function detectNamedExport(source: string, exportName: string, declarationRe: RegExp): boolean {
+  const parsedResult = inspectParsedModule(source, exportName);
+  if (parsedResult !== undefined) return parsedResult;
+
   const analysisSource = maskCommentsAndStrings(source);
   if (
     declarationRe.test(analysisSource) ||
@@ -230,13 +234,16 @@ function isSyntaxNode(value: unknown): value is SyntaxNode {
   );
 }
 
-function bindingIncludesLoader(node: unknown): boolean {
+function bindingIncludesName(node: unknown, exportName: string): boolean {
   if (!isSyntaxNode(node)) return false;
-  if (node.type === "Identifier") return node.name === "loader";
-  if (node.type === "AssignmentPattern") return bindingIncludesLoader(node.left);
-  if (node.type === "RestElement") return bindingIncludesLoader(node.argument);
+  if (node.type === "Identifier") return node.name === exportName;
+  if (node.type === "AssignmentPattern") return bindingIncludesName(node.left, exportName);
+  if (node.type === "RestElement") return bindingIncludesName(node.argument, exportName);
   if (node.type === "ArrayPattern") {
-    return Array.isArray(node.elements) && node.elements.some(bindingIncludesLoader);
+    return (
+      Array.isArray(node.elements) &&
+      node.elements.some((element) => bindingIncludesName(element, exportName))
+    );
   }
   if (node.type === "ObjectPattern") {
     return (
@@ -244,22 +251,22 @@ function bindingIncludesLoader(node: unknown): boolean {
       node.properties.some((property) => {
         if (!isSyntaxNode(property)) return false;
         return property.type === "RestElement"
-          ? bindingIncludesLoader(property.argument)
-          : bindingIncludesLoader(property.value);
+          ? bindingIncludesName(property.argument, exportName)
+          : bindingIncludesName(property.value, exportName);
       })
     );
   }
   return false;
 }
 
-function exportedNameIsLoader(node: unknown): boolean {
+function exportedNameMatches(node: unknown, exportName: string): boolean {
   if (!isSyntaxNode(node)) return false;
-  if (node.type === "Identifier") return node.name === "loader";
-  if (node.type === "StringLiteral") return node.value === "loader";
+  if (node.type === "Identifier") return node.name === exportName;
+  if (node.type === "StringLiteral") return node.value === exportName;
   return false;
 }
 
-function inspectParsedModule(source: string): boolean | undefined {
+function inspectParsedModule(source: string, exportName: string): boolean | undefined {
   for (const plugins of [["typescript", "jsx"], ["typescript"]] as const) {
     let body: SyntaxNode[];
     try {
@@ -285,7 +292,7 @@ function inspectParsedModule(source: string): boolean | undefined {
           (specifier) =>
             isSyntaxNode(specifier) &&
             specifier.exportKind !== "type" &&
-            exportedNameIsLoader(specifier.exported),
+            exportedNameMatches(specifier.exported, exportName),
         )
       ) {
         return true;
@@ -298,12 +305,13 @@ function inspectParsedModule(source: string): boolean | undefined {
         if (
           Array.isArray(declaration.declarations) &&
           declaration.declarations.some(
-            (declarator) => isSyntaxNode(declarator) && bindingIncludesLoader(declarator.id),
+            (declarator) =>
+              isSyntaxNode(declarator) && bindingIncludesName(declarator.id, exportName),
           )
         ) {
           return true;
         }
-      } else if (bindingIncludesLoader(declaration.id)) {
+      } else if (bindingIncludesName(declaration.id, exportName)) {
         return true;
       }
     }
@@ -317,7 +325,7 @@ function inspectParsedModule(source: string): boolean | undefined {
 export function detectLoaderExport(source: string): boolean {
   // Parse ordinary TS/TSX exactly so type-only exports and identifiers in
   // generic types are not mistaken for runtime loader bindings.
-  const parsedResult = inspectParsedModule(source);
+  const parsedResult = inspectParsedModule(source, "loader");
   if (parsedResult !== undefined) return parsedResult;
 
   try {

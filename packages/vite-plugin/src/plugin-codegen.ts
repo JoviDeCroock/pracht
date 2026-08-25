@@ -568,16 +568,13 @@ export function createRouteHeadersHintsForVirtualModules(
   root = process.cwd(),
 ): Record<string, boolean> {
   if (options.pagesDir) {
-    const pages = scanPagesDirectory(
-      resolve(root, options.pagesDir.slice(1)),
-      options.additionalExtensions,
-    );
-    const hints: Record<string, boolean> = {};
-    for (const page of pages) {
-      const key = `${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`;
-      hints[key] = !!page.hasHeaders;
-    }
-    return hints;
+    // `scanPagesDirectory()` returns route records only; its final sort filters
+    // the `_app` shell out. Scan the directory directly so a header-bearing
+    // pages shell keeps forcing a document reload in development.
+    return createRouteHeadersHints(resolve(root, options.pagesDir.slice(1)), {
+      additionalExtensions: options.additionalExtensions,
+      rootRelativePrefix: options.pagesDir,
+    });
   }
 
   const appFileAbs = resolve(root, options.appFile.slice(1));

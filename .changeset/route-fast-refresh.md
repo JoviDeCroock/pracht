@@ -32,6 +32,8 @@ later client navigation. Editing a route or shell that exports document
 headers cannot be updated by a route-state fetch. Compiled Markdown, MDX, and
 configured formats stay conservative because their companion transform may
 synthesize `headers()` from metadata that raw-source scanning cannot see.
+Pages-router `_app` shells and quoted aliases such as
+`export { policy as "headers" }` participate in the same reload safeguard.
 
 Fast Refresh alone would have been a downgrade for data: a route module's
 `loader`, `head`, `headers`, and `getStaticPaths` are stripped out of the

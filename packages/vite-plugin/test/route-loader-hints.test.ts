@@ -22,6 +22,9 @@ describe("detectHeadersExport", () => {
       ),
     ).toBe(true);
     expect(detectHeadersExport('export { headers } from "./policy.ts";\n')).toBe(true);
+    expect(
+      detectHeadersExport('const policy = () => ({}); export { policy as "headers" };\n'),
+    ).toBe(true);
     expect(detectHeadersExport('export * from "./policy.ts";\n')).toBe(true);
   });
 
