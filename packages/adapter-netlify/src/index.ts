@@ -557,12 +557,52 @@ function isExcludedNetlifyBundlePath(
   });
 }
 
-const STATIC_SECURITY_HEADER_LINES = [
-  "  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-  "  Referrer-Policy: strict-origin-when-cross-origin",
-  "  X-Content-Type-Options: nosniff",
-  "  X-Frame-Options: SAMEORIGIN",
+const IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const STATIC_SECURITY_HEADERS: ReadonlyArray<readonly [string, string]> = [
+  [
+    "Permissions-Policy",
+    "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  ],
+  ["Referrer-Policy", "strict-origin-when-cross-origin"],
+  ["X-Content-Type-Options", "nosniff"],
+  ["X-Frame-Options", "SAMEORIGIN"],
 ];
+
+/** Headers the generated `_headers` rule for `pattern` already applies. */
+function staticExclusionHeaders(pattern: string): Array<readonly [string, string]> {
+  return [
+    ...(pattern === "/assets/*" ? [["Cache-Control", IMMUTABLE_ASSET_CACHE_CONTROL] as const] : []),
+    ...STATIC_SECURITY_HEADERS,
+  ];
+}
+
+/**
+ * Whether a `_headers` rule for `pathname` can affect a response at all.
+ *
+ * The generated function claims `path: "/*"` without `preferStatic`, so Netlify
+ * invokes it for every request that `excludedPath` does not carve out —
+ * including requests for prerendered pages that exist in the publish
+ * directory. Those responses come from the function, which applies the same
+ * manifest at runtime, so a `_headers` rule for them is dead weight: on a
+ * documentation site it is a rule per page.
+ *
+ * A pattern this cannot evaluate exactly keeps every rule. Netlify's pattern
+ * syntax is richer than the subset understood here, and a redundant rule costs
+ * bytes where a missing one costs a statically served artifact its media type.
+ */
+function servedByNetlifyStaticLayer(pathname: string, excludedPath: string[]): boolean {
+  return (
+    excludedPath.some((pattern) => !isExactNetlifyExclusion(pattern)) ||
+    isExcludedNetlifyBundlePath(pathname, excludedPath, false)
+  );
+}
+
+/** Whether `isExcludedNetlifyBundlePath` decides this pattern exactly. */
+function isExactNetlifyExclusion(pattern: string): boolean {
+  if (pattern === "/*") return true;
+  if (pattern.endsWith("/*")) return !pattern.slice(0, -2).includes("*");
+  return !isNetlifyPathPattern(pattern);
+}
 
 function createNetlifyHeadersFile(
   excludedPath: string[],
@@ -575,15 +615,29 @@ function createNetlifyHeadersFile(
   ];
   for (const pattern of excludedPath) {
     lines.push(pattern);
-    if (pattern === "/assets/*") {
-      lines.push("  Cache-Control: public, max-age=31536000, immutable");
-    }
-    lines.push(...STATIC_SECURITY_HEADER_LINES);
+    for (const [name, value] of staticExclusionHeaders(pattern)) lines.push(`  ${name}: ${value}`);
   }
   for (const pathname of Object.keys(headersManifest).sort()) {
-    const entries = Object.entries(headersManifest[pathname]).sort(([left], [right]) =>
-      left.localeCompare(right),
+    if (!servedByNetlifyStaticLayer(pathname, excludedPath)) continue;
+    // Netlify concatenates repeated header names across matching rules rather
+    // than letting the more specific one win, so a rule that restates what its
+    // pattern already applies turns `nosniff` into `nosniff,nosniff`.
+    const inherited = new Map(
+      excludedPath
+        .filter(
+          (pattern) =>
+            isExactNetlifyExclusion(pattern) &&
+            isExcludedNetlifyBundlePath(pathname, [pattern], false),
+        )
+        .flatMap((pattern) =>
+          staticExclusionHeaders(pattern).map(
+            ([name, value]) => [name.toLowerCase(), value] as const,
+          ),
+        ),
     );
+    const entries = Object.entries(headersManifest[pathname])
+      .filter(([name, value]) => inherited.get(name.toLowerCase()) !== value)
+      .sort(([left], [right]) => left.localeCompare(right));
     if (entries.length === 0) continue;
     lines.push(pathname);
     for (const [name, value] of entries) lines.push(`  ${name}: ${value}`);

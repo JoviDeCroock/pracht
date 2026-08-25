@@ -499,20 +499,25 @@ describe("prachtContent", () => {
     expect(await runtime.getByRoute("/one")).toMatchObject({ compiled: "First document" });
   });
 
-  it("batches unrelated lazy webworker modules into bounded server chunks", async () => {
+  it("keeps independent lazy webworker routes out of each other's chunks", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     const entry = join(temporaryDirectory, "entry.ts");
     const output = join(temporaryDirectory, "dist");
+    // A chunk is an evaluation unit: everything in it runs on first import.
+    // Two lazy routes that share one therefore stop being independent, and the
+    // server pays for — or crashes on — a route no request asked for.
     await writeFile(
       entry,
-      `export const load = (index) => [${Array.from(
-        { length: 4 },
-        (_, index) => `() => import("./lazy-${index}.ts")`,
-      ).join(",")}][index]();`,
+      [
+        `export const loadPlain = () => import("./lazy-plain.ts");`,
+        `export const loadBrowser = () => import("./lazy-browser.ts");`,
+      ].join("\n"),
     );
-    for (let index = 0; index < 4; index++) {
-      await writeFile(join(temporaryDirectory, `lazy-${index}.ts`), `export default ${index};`);
-    }
+    await writeFile(join(temporaryDirectory, "lazy-plain.ts"), `export default "plain";`);
+    await writeFile(
+      join(temporaryDirectory, "lazy-browser.ts"),
+      `globalThis.__prachtLazyModuleEvaluated = true;\nexport default "browser";`,
+    );
     const collection = defineCollection({ name: "docs", root: temporaryDirectory });
 
     await build({
@@ -527,13 +532,65 @@ describe("prachtContent", () => {
       },
     });
 
-    const chunks = (await readdir(output, { recursive: true })).filter((file) =>
-      /\.m?js$/.test(String(file)),
+    const evaluated = () => (globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated;
+    try {
+      const runtime = await import(pathToFileURL(join(output, "entry.js")).href);
+      expect(evaluated()).toBeUndefined();
+      // Collecting one route's static paths must not evaluate another's.
+      expect(await runtime.loadPlain()).toMatchObject({ default: "plain" });
+      expect(evaluated()).toBeUndefined();
+      expect(await runtime.loadBrowser()).toMatchObject({ default: "browser" });
+      expect(evaluated()).toBe(true);
+    } finally {
+      delete (globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated;
+    }
+  });
+
+  it("keeps a module with both static and dynamic importers out of the lazy server group", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const entry = join(temporaryDirectory, "entry.ts");
+    const output = join(temporaryDirectory, "dist");
+    // `shared.ts` is reachable statically from the entry *and* dynamically.
+    // Grouping it with the genuinely lazy modules would make the whole group a
+    // static dependency of the entry, evaluating browser-only module bodies on
+    // the server the moment the bundle is imported.
+    await writeFile(
+      entry,
+      [
+        `import shared from "./shared.ts";`,
+        `export const eager = shared;`,
+        `export const loadShared = () => import("./shared.ts");`,
+        `export const loadBrowser = () => import("./browser-only.ts");`,
+      ].join("\n"),
     );
-    expect(chunks).toHaveLength(2);
-    expect(chunks.some((file) => String(file).includes("pracht-server-lazy"))).toBe(true);
-    const runtime = await import(pathToFileURL(join(output, "entry.js")).href);
-    expect(await runtime.load(3)).toMatchObject({ default: 3 });
+    await writeFile(join(temporaryDirectory, "shared.ts"), `export default "shared";`);
+    await writeFile(
+      join(temporaryDirectory, "browser-only.ts"),
+      `import shared from "./shared.ts";\nglobalThis.__prachtLazyModuleEvaluated = true;\nexport default shared + "-browser";`,
+    );
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      plugins: prachtContent({ collections: [collection] }),
+      ssr: { noExternal: true, target: "webworker" },
+      build: {
+        outDir: output,
+        ssr: true,
+        rollupOptions: { input: entry },
+      },
+    });
+
+    try {
+      const runtime = await import(pathToFileURL(join(output, "entry.js")).href);
+      expect(runtime.eager).toBe("shared");
+      expect((globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated).toBeUndefined();
+      expect(await runtime.loadBrowser()).toMatchObject({ default: "shared-browser" });
+      expect((globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated).toBe(true);
+    } finally {
+      delete (globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated;
+    }
   });
 
   it("emits deploy-safe headers for production artifacts in the asset namespace", async () => {

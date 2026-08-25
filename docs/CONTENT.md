@@ -301,8 +301,11 @@ chunk, which the runtime loads when that document is resolved.
 
 `prachtContent()` enables server code splitting so webworker builds preserve
 that boundary too. Deferred content payloads remain one module per document,
-while unrelated lazy server roots such as route modules are packed into chunks
-with a 256 KiB target size instead of producing one tiny file per dynamic import.
+and lazy route modules keep their own chunks. Packing unrelated lazy roots
+together would cut the file count, but a chunk is an evaluation unit: the first
+import of any module in it runs every module body it holds, so collecting one
+route's static paths would evaluate every route packed alongside it — including
+client-only ones whose bodies touch `Worker` or `document`.
 Cloudflare deployments must set `"no_bundle": true` and an `ESModule` rule
 covering `"**/*.js"` in `wrangler.jsonc`: Pracht's Vite output is already
 bundled, and the rule tells Wrangler to upload its chunks as Worker modules

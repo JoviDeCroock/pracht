@@ -82,6 +82,7 @@ describe("netlifyAdapter", () => {
           "content-type": "application/json; charset=utf-8",
           "x-content-type-options": "nosniff",
         },
+        "/docs": { "content-type": "text/html; charset=utf-8", vary: "Accept" },
       }),
     );
     const options = {
@@ -144,9 +145,17 @@ describe("netlifyAdapter", () => {
     expect(headersFile).toContain("/content/*");
     expect(headersFile).toContain("  X-Content-Type-Options: nosniff");
     expect(headersFile).toContain("  X-Frame-Options: SAMEORIGIN");
+    // `/assets/*` already applies `X-Content-Type-Options` to this path, and
+    // Netlify concatenates repeated header names across matching rules instead
+    // of letting the more specific one win.
     expect(headersFile).toContain(
-      "/assets/search.data\n  content-type: application/json; charset=utf-8\n  x-content-type-options: nosniff",
+      "/assets/search.data\n  content-type: application/json; charset=utf-8\n",
     );
+    expect(headersFile).not.toContain("  x-content-type-options: nosniff");
+    // `/docs` is not excluded, so the function serves it and applies the same
+    // manifest at runtime. A rule here would be a rule per prerendered page.
+    expect(headersFile).not.toContain("\n/docs\n");
+    expect(headersFile).not.toContain("  vary: Accept");
   });
 
   it("rejects build header rules that could inject _headers entries", async () => {
@@ -169,7 +178,7 @@ describe("netlifyAdapter", () => {
         join(root, "dist/server/headers-manifest.json"),
         JSON.stringify({
           [pathname]: { "cache-control": "public, max-age=60" },
-          "/feed.data": { "content-type": "application/json" },
+          "/assets/feed.data": { "content-type": "application/json" },
         }),
       );
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -183,7 +192,7 @@ describe("netlifyAdapter", () => {
       const headersFile = await readFile(join(root, "dist/client/_headers"), "utf-8");
       expect(headersFile).not.toContain(pathname);
       expect(headersFile).not.toContain("max-age=60");
-      expect(headersFile).toContain("/feed.data\n  content-type: application/json");
+      expect(headersFile).toContain("/assets/feed.data\n  content-type: application/json");
     },
   );
 
@@ -194,7 +203,10 @@ describe("netlifyAdapter", () => {
     // including the header-less ones that were never going to emit a rule.
     await writeFile(
       join(root, "dist/server/headers-manifest.json"),
-      JSON.stringify({ "/docs/a*b": {}, "/feed.data": { "content-type": "application/json" } }),
+      JSON.stringify({
+        "/docs/a*b": {},
+        "/assets/feed.data": { "content-type": "application/json" },
+      }),
     );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -203,7 +215,25 @@ describe("netlifyAdapter", () => {
     expect(warn).not.toHaveBeenCalled();
     const headersFile = await readFile(join(root, "dist/client/_headers"), "utf-8");
     expect(headersFile).not.toContain("/docs/a*b");
-    expect(headersFile).toContain("/feed.data\n  content-type: application/json");
+    expect(headersFile).toContain("/assets/feed.data\n  content-type: application/json");
+  });
+
+  it("keeps every build header rule when an exclusion pattern is not exactly matchable", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "dist/server"), { recursive: true });
+    await writeFile(
+      join(root, "dist/server/headers-manifest.json"),
+      JSON.stringify({ "/docs": { "content-type": "text/html; charset=utf-8" } }),
+    );
+
+    // Netlify's pattern syntax is richer than what the adapter evaluates. A
+    // redundant rule costs bytes; a dropped one costs a statically served
+    // artifact its media type, so an unreadable exclusion keeps every rule.
+    await finalizeNetlifyBuild(root, { excludedPath: ["/docs/*.html"] });
+
+    await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toContain(
+      "/docs\n  content-type: text/html; charset=utf-8",
+    );
   });
 
   it("rejects malformed headers on paths Netlify cannot match exactly", async () => {
@@ -247,13 +277,13 @@ describe("netlifyAdapter", () => {
     await writeFile(join(root, "public/_headers"), "/unrelated/*\n  X-Custom: 1\n");
     await writeFile(
       join(root, "dist/server/headers-manifest.json"),
-      JSON.stringify({ "/feed.data": { "content-type": "application/json" } }),
+      JSON.stringify({ "/assets/feed.data": { "content-type": "application/json" } }),
     );
 
     await finalizeNetlifyBuild(root);
 
     await expect(readFile(join(root, "dist/client/_headers"), "utf-8")).resolves.toContain(
-      "/feed.data\n  content-type: application/json",
+      "/assets/feed.data\n  content-type: application/json",
     );
   });
 

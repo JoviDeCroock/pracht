@@ -220,9 +220,10 @@ This keeps the first request to any content-backed route from parsing every
 document in a shared server chunk.
 
 The plugin enables server code splitting for webworker builds as well. Deferred
-content payloads remain one module per document, while unrelated lazy server
-roots are packed with a 256 KiB target size instead of producing one tiny file
-per dynamic import. A Cloudflare deployment must preserve Pracht's
+content payloads remain one module per document, and lazy route modules keep
+their own chunks: a chunk is an evaluation unit, so packing unrelated lazy roots
+together would run every one of their module bodies the first time any of them
+is imported. A Cloudflare deployment must preserve Pracht's
 pre-bundled output with `"no_bundle": true` and an `ESModule` rule covering
 `"**/*.js"` in `wrangler.jsonc`; otherwise Wrangler either bundles the deferred
 chunks again or omits them from the upload. New `create-pracht` projects include

@@ -958,11 +958,17 @@ resolution.
 - At the origin root, `/assets/*` (and other `excludedPath` prefixes) bypass
   the function, so the build also writes a `dist/client/_headers` file that
   gives Netlify's static layer the immutable asset policy and the same default
-  security headers the function applies everywhere else. A hand-authored
-  `_headers` copied from Vite's configured `publicDir` wins — including the
-  default `public/_headers` — so pracht skips generating one and warns.
-  Header manifest entries with wildcard or `:placeholder` syntax cannot be
-  expressed exactly: header-less entries are ignored, and entries carrying
+  security headers the function applies everywhere else. Generated build
+  headers join that file only for paths under those exclusions: the function
+  claims `/*` without `preferStatic`, so every other path — including every
+  prerendered page — runs through it and gets the same headers from the
+  manifest at runtime. A rule that repeats what its exclusion block already
+  applies is left out too, because Netlify concatenates repeated header names
+  across matching rules rather than letting the more specific one win. A
+  hand-authored `_headers` copied from Vite's configured `publicDir` wins —
+  including the default `public/_headers` — so pracht skips generating one and
+  warns. Header manifest entries with wildcard or `:placeholder` syntax cannot
+  be expressed exactly: header-less entries are ignored, and entries carrying
   headers are skipped with a build warning rather than broadening the rule.
   Default and prefix-shaped exclusions are also omitted from the function's
   `includedFiles`, keeping large bypassed asset trees outside its bundle. The

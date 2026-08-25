@@ -28,7 +28,12 @@ claims page URLs, excludes Pracht's asset directories, and bundles the exact
 `dist/client` files the function can serve plus the generated headers,
 Markdown, and ISG manifests.
 
-Generated header manifest entries become exact `_headers` rules. A path
+Generated header manifest entries become exact `_headers` rules, but only for
+paths Netlify's static layer actually serves. The function claims `/*`, so a
+prerendered page still runs through it and applies the same manifest at
+runtime; only `excludedPath` carve-outs need a rule, and a rule that restates
+what its exclusion block already applies is dropped because Netlify
+concatenates repeated header names instead of overriding them. A path
 containing Netlify wildcard or `:placeholder` syntax cannot be expressed as an
 exact match, so the build warns and skips that entry rather than broadening the
 rule to other paths — the page still deploys, just without its custom headers.
