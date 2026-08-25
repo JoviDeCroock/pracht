@@ -124,6 +124,12 @@ describe("create-pracht", () => {
     expect(packageJson).not.toContain("tailwindcss");
 
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
+    // Every id named in the conventions has to exist in the scaffold that was
+    // just generated. The manifest scaffold declares `id: "home"`.
+    expect(agents).toContain('`<Link route="home">`');
+    expect(agents).toContain('`href("home")`');
+    expect(agents).toContain('`navigate({ route: "home" })`');
+    expect(agents).toContain("`<Link href>` is a type error");
     expect(agents).toContain("manifest routing");
     expect(agents).toContain("src/routes.ts");
     expect(agents).toContain("pracht generate route");
@@ -509,7 +515,12 @@ describe("create-pracht", () => {
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
     // `href` is the muscle-memory prop from every other router, and it is the
     // first wall a new app hits — name the real API where an agent reads first.
-    expect(agents).toContain('`<Link route="home">`');
+    // The pages router derives ids from filenames, so the home page is `index`;
+    // seeding `home` here would hand the agent the very error we are avoiding.
+    expect(agents).toContain('`<Link route="index">`');
+    expect(agents).toContain('`href("index")`');
+    expect(agents).toContain('`navigate({ route: "index" })`');
+    expect(agents).not.toContain('route="home"');
     expect(agents).toContain("`<Link href>` is a type error");
     expect(agents).toContain("pages routing");
     expect(agents).toContain("src/pages/");

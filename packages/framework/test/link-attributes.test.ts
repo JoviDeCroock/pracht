@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { h, render } from "preact";
+import renderToString from "preact-render-to-string";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineApp, Link, resolveApp, route } from "../src/index.ts";
@@ -45,5 +46,20 @@ describe("<Link> data attributes", () => {
     const anchor = renderLink({ speculate: false, prefetch: "none" });
     expect(anchor.getAttribute("data-pracht-speculate")).toBe("off");
     expect(anchor.getAttribute("data-pracht-prefetch")).toBe("none");
+  });
+
+  // `href` is a declared prop only so the compiler error can carry the fix; it
+  // is never destructured, so it rides along in the rest spread. The computed
+  // href is assigned after that spread and has to win, on every render path.
+  it("never lets a passed href reach the anchor", () => {
+    expect(renderLink({ href: "https://evil.example/" }).getAttribute("href")).toBe("/logout");
+  });
+
+  it("never lets a passed href reach the anchor during SSR", () => {
+    const html = renderToString(
+      h(Link, { route: "logout", href: "https://evil.example/" } as never),
+    );
+    expect(html).toContain('href="/logout"');
+    expect(html).not.toContain("evil.example");
   });
 });

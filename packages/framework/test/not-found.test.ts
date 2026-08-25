@@ -13,7 +13,6 @@ import {
   resolveApp,
   route,
 } from "../src/index.ts";
-import type { LinkHrefGuidance } from "../src/index.ts";
 
 const NOT_FOUND_ROUTE_ID = "__pracht_not_found__";
 
@@ -426,20 +425,5 @@ describe("notFound() thrown from a loader", () => {
 
     expect(response.status).toBe(404);
     await expect(response.text()).resolves.toContain("<h1>Page not found</h1>");
-  });
-});
-
-describe("<Link> href guidance", () => {
-  // The prop is typed as a single string literal purely so the compiler error
-  // names the fix. Without it TypeScript reports `Property 'href' does not
-  // exist … Did you mean 'ref'?`, which sends the reader hunting for a typo
-  // instead of at the API. Assert the sentence the compiler will print, so it
-  // cannot drift from the runtime error or the docs.
-  it("states the fix rather than leaving TypeScript to guess", () => {
-    const guidance: LinkHrefGuidance =
-      '<Link> navigates by route id: use <Link route="home"> (with `params` for dynamic segments), or a plain <a href> for external and user-provided URLs.';
-
-    expect(guidance).toContain('<Link route="home">');
-    expect(guidance).toContain("<a href>");
   });
 });

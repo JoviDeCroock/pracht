@@ -1436,6 +1436,12 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
   // needs the explicit `run` form the same way npm does.
   const runCmd =
     packageManager === "npm" || packageManager === "bun" ? `${packageManager} run` : packageManager;
+  // The pages router derives route ids from filenames, so the home page of a
+  // pages app is `index` (`src/pages/index.tsx`); the manifest scaffold names
+  // it `home` explicitly. Every id in the instructions below has to be one the
+  // scaffold actually generated, or the first link an agent writes is the very
+  // compile error these conventions exist to prevent.
+  const homeRouteId = router === "pages" ? "index" : "home";
 
   const lines = [
     "# Pracht App",
@@ -1544,10 +1550,11 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
   lines.push("## Conventions");
   lines.push("");
   lines.push(
-    '- Navigate by route id, not by path: `<Link route="home">` (with `params` for dynamic ' +
-      'segments), `href("blog-slug", { params: { slug } })`, `navigate({ route: "blog" })`. ' +
-      "`<Link href>` is a type error — the id survives a path change and `pracht typegen` types " +
-      "both the id and its params. Use a plain `<a href>` for external and user-provided URLs.",
+    `- Navigate by route id, not by path: \`<Link route="${homeRouteId}">\`, ` +
+      `\`href("${homeRouteId}")\`, \`navigate({ route: "${homeRouteId}" })\`. Dynamic routes take ` +
+      "their segments through `params`. `<Link href>` is a type error — the id survives a path " +
+      "change and `pracht typegen` types both the id and its params. Use a plain `<a href>` for " +
+      "external and user-provided URLs.",
   );
   lines.push(
     "- Run `pracht typegen` once to type route ids, params, and `apiFetch()`; `pracht dev` keeps " +
