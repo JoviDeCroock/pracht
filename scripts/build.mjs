@@ -139,7 +139,7 @@ function readPackages() {
 function globalSalt() {
   const hash = createHash("sha256");
   hash.update(process.version.split(".")[0]);
-  for (const file of ["pnpm-lock.yaml", "scripts/build.mjs"]) {
+  for (const file of ["pnpm-lock.yaml", "scripts/build.mjs", "tsconfig.json"]) {
     hashFileInto(hash, resolve(repoRoot, file), file);
   }
   return hash.digest("hex");

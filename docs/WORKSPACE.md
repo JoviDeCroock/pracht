@@ -221,24 +221,35 @@ to regress:
   `scripts/build.mjs` runs each package's own `build` script in topological
   order, starting every package whose dependencies are done rather than pnpm's
   fixed four at a time, and skips any package whose inputs are unchanged. Its
-  cache key is the package's sources plus the *outputs* of its workspace
-  dependencies — keying on outputs is what stops a rebuild that produced
-  identical bytes from cascading through the graph. `scripts/typecheck.mjs`
+  cache key is the shared root TypeScript config, the package's sources, and
+  the *outputs* of its workspace dependencies — keying on outputs is what stops
+  a rebuild that produced identical bytes from cascading through the graph.
+  `scripts/typecheck.mjs`
   runs the four TypeScript programs side by side, each with its own
   `.tsbuildinfo`. `tsBuildInfoFile` is passed per invocation rather than set in
   `tsconfig.json` because the programs all extend the root config, and a
   relative path declared there resolves against the root — so they would share
   one file and invalidate each other every run.
-- **A contended machine fails differently from a broken change.** Several agent
-  workspaces routinely run this suite at once on the same ten cores. Above
-  roughly a load average of 20, check `uptime` before believing a failure. Two
-  signatures are environmental, not regressions: `[vitest-worker]: Timeout
-  calling "onTaskUpdate"` printed above `Test Files 155 passed / Tests 2780
-  passed` — the worker could not be scheduled to answer the reporter, and the
-  birpc budget is not configurable from `vitest.config.ts` — and a CLI unit test
-  failing with `result.error` set, because the `spawnSync` calls in
-  `packages/cli/test/cli-*.test.js` cap each CLI boot at 10s and a boot that
-  normally takes ~4s exceeds that under contention.
+- **A contended machine uses less concurrency.** Several agent workspaces
+  routinely run this suite at once on the same machine. Before the read-only
+  checks, `verify` compares the one-minute load average with the available CPU
+  count. At two runnable tasks per core it runs typecheck, generated types, and
+  unit tests sequentially and caps Vitest at half the available cores; an idle
+  machine keeps the parallel fast path. This prevents the gate from adding
+  enough work to starve its own timeout-sensitive subprocesses.
+
+  If the host remains heavily saturated by other processes, two signatures are
+  environmental rather than regressions: `[vitest-worker]: Timeout
+  calling "onTaskUpdate"` printed above a line saying every test passed — the
+  worker could not be scheduled to answer the reporter, and the birpc budget is
+  not configurable from `vitest.config.ts` — and a CLI unit test failing with
+  `result.error` set, which is its `spawnSync` hitting the boot cap.
+
+  That cap is 15s, with a 25s budget on the enclosing test. A CLI boot takes
+  ~4s, so the headroom is deliberate: these two numbers bound a hang, they do
+  not assert how fast the CLI starts. Raise them together or not at all — a
+  `spawnSync` cap at or above the test budget just moves the failure from
+  `result.error` to a vitest timeout without buying any slack.
 - **Unit tests parallelise per file, never within one.** Vitest gives each test
   file its own worker but runs the tests inside a file in sequence, and the CLI
   tests block on `execFileSync`, so `it.concurrent` buys nothing there. A single

@@ -24,6 +24,7 @@
 // would make the result depend on timing.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { availableParallelism, loadavg } from "node:os";
 import { dirname, resolve } from "node:path";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,12 +34,12 @@ const forceBuild = args.has("--force-build");
 const skipE2e = args.has("--skip-e2e");
 const startedAt = Date.now();
 
-function run(name, command, commandArgs) {
+function run(name, command, commandArgs, env = process.env) {
   const taskStartedAt = Date.now();
   return new Promise((resolveTask) => {
     const child = spawn(command, commandArgs, {
       cwd: repoRoot,
-      env: process.env,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -106,11 +107,35 @@ if (ok()) {
 //    app graph through Vite; in `--check` mode it writes nothing, so it does
 //    not race the TypeScript program that consumes its committed output.
 if (ok()) {
-  await reportAsSettled([
-    run("typecheck", "node", ["./scripts/typecheck.mjs"]),
-    run("basic generated types", "pnpm", ["--dir", "examples/basic", "run", "typegen:check"]),
-    run("test", "pnpm", ["run", "test"]),
-  ]);
+  const parallelism = availableParallelism();
+  const oneMinuteLoad = loadavg()[0];
+  const saturated = oneMinuteLoad >= parallelism * 2;
+  const unitWorkers = Math.max(1, Math.floor(parallelism / 2));
+  const testEnv = saturated
+    ? {
+        ...process.env,
+        VITEST_MAX_THREADS: process.env.VITEST_MAX_THREADS ?? String(unitWorkers),
+        VITEST_MIN_THREADS: process.env.VITEST_MIN_THREADS ?? "1",
+      }
+    : process.env;
+  const checks = [
+    () => run("typecheck", "node", ["./scripts/typecheck.mjs"]),
+    () => run("basic generated types", "pnpm", ["--dir", "examples/basic", "run", "typegen:check"]),
+    () => run("test", "pnpm", ["run", "test"], testEnv),
+  ];
+
+  if (saturated) {
+    console.log(
+      `verify: load ${oneMinuteLoad.toFixed(1)} across ${parallelism} cores; ` +
+        `serializing checks and limiting Vitest to ${testEnv.VITEST_MAX_THREADS} workers`,
+    );
+    for (const check of checks) {
+      report(await check());
+      if (!ok()) break;
+    }
+  } else {
+    await reportAsSettled(checks.map((check) => check()));
+  }
 }
 
 // 4. E2E last and alone: it needs the whole machine to stay off the timing
