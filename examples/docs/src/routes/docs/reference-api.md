@@ -67,6 +67,16 @@ See [Agent Workflow](/docs/agent-workflow).
 
 ---
 
+## Loader Data
+
+| Export | Description |
+| --- | --- |
+| `defer(promise)` | Mark slow loader data for concurrent resolution. See [Data Loading](/docs/data-loading#deferred-values) |
+| `use(value)` | Read a `Deferred<T>`, promise, or settled value inside `<Suspense>` |
+| `Deferred<T>` | The typed marker returned by `defer()` |
+
+---
+
 ## Hooks
 
 | Export | Returns | Description |

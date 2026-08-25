@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { defer, isDeferred, resolveDeferredData, type Deferred, use } from "../src/defer.ts";
 import type { HeadArgs, HeadersArgs, RouteComponentProps } from "../src/types.ts";
+import { PrachtHttpError } from "../src/types.ts";
 
 function deferredLater<T>(value: T, ms = 0): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -146,6 +147,15 @@ describe("resolveDeferredData()", () => {
     );
   });
 
+  it("rejects a PrachtHttpError thrown from deferred work", async () => {
+    const data = {
+      result: defer(Promise.reject(new PrachtHttpError(404, "late missing"))),
+    };
+    await expect(resolveDeferredData(data)).rejects.toThrow(
+      "A deferred loader value cannot return or throw a Response or throw a PrachtHttpError",
+    );
+  });
+
   it("leaves non-plain objects by reference", async () => {
     const when = new Date(0);
     const data = { when, reviews: defer(deferredLater([])) };
@@ -192,6 +202,35 @@ describe("resolveDeferredData()", () => {
     expect(reads).toBe(0);
     expect(JSON.stringify(resolved)).toBe('{"sequence":1,"reviews":"ok"}');
     expect(reads).toBe(1);
+  });
+
+  it("preserves non-enumerable state read by an enumerable getter", async () => {
+    const data = {
+      get publicId() {
+        return (this as { internalId?: number }).internalId;
+      },
+      reviews: defer(deferredLater("ok")),
+    };
+    Object.defineProperty(data, "internalId", { value: 42 });
+
+    const resolved = await resolveDeferredData(data);
+
+    expect(JSON.stringify(resolved)).toBe('{"publicId":42,"reviews":"ok"}');
+  });
+
+  it("rejects a deferred marker returned from a getter instead of serializing it as an object", async () => {
+    const reviews = defer(deferredLater("ok"));
+    const data = {
+      get reviews() {
+        return reviews;
+      },
+    };
+
+    const resolved = await resolveDeferredData(data);
+
+    expect(() => JSON.stringify(resolved)).toThrow(
+      "Return defer() from an enumerable data property, not from a getter",
+    );
   });
 
   it("does not recurse forever on a cyclic value", async () => {

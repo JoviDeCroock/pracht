@@ -30,12 +30,16 @@
  * permanent output would be a correctness bug.
  */
 
+import { isPrachtHttpError } from "./runtime-errors.ts";
+
 const DEFERRED = Symbol.for("pracht.deferred");
 
 interface DeferredBox<T> {
   readonly [DEFERRED]: true;
   /** Lazily started so `defer(() => …)` does not fetch until something reads it. */
   promise(): Promise<T>;
+  /** Reject markers that escaped the resolver instead of silently emitting `{}`. */
+  toJSON(): never;
 }
 
 /**
@@ -57,9 +61,9 @@ export interface Deferred<T> {
  * start until the value is read. Rejections surface where the value is read,
  * not from the loader.
  *
- * A deferred value may not redirect or set headers: by the time it settles the
- * response status and headers are already decided. Auth checks belong in
- * middleware or in the awaited part of the loader.
+ * A deferred value may not redirect, throw a PrachtHttpError, or set headers:
+ * by the time it settles the response status and headers are already decided.
+ * Auth checks belong in middleware or in the awaited part of the loader.
  */
 export function defer<T>(source: Promise<T> | (() => Promise<T>)): Deferred<T> {
   if (typeof source !== "function" && !isThenable(source)) {
@@ -85,6 +89,9 @@ export function defer<T>(source: Promise<T> | (() => Promise<T>)): Deferred<T> {
         started = (async () => (source as () => Promise<T>)())();
       }
       return started;
+    },
+    toJSON() {
+      throw deferredSerializationError();
     },
   };
   return box as unknown as Deferred<T>;
@@ -202,7 +209,9 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
     try {
       resolved = await (value as unknown as DeferredBox<unknown>).promise();
     } catch (error: unknown) {
-      if (error instanceof Response) throw deferredResponseError();
+      if (error instanceof Response || isPrachtHttpError(error)) {
+        throw deferredResponseError();
+      }
       throw error;
     }
     if (resolved instanceof Response) throw deferredResponseError();
@@ -229,12 +238,15 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
 
   const next = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
   seen.set(value, next);
-  const entries = Object.entries(Object.getOwnPropertyDescriptors(value)).filter(
-    ([, descriptor]) => descriptor.enumerable,
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const entries = Reflect.ownKeys(descriptors).map(
+    (key) => [key, descriptors[key as keyof typeof descriptors]] as const,
   );
   const resolved = await Promise.all(
     entries.map(([, descriptor]) =>
-      "value" in descriptor ? resolveValue(descriptor.value, seen) : undefined,
+      descriptor.enumerable && "value" in descriptor
+        ? resolveValue(descriptor.value, seen)
+        : undefined,
     ),
   );
   for (let i = 0; i < entries.length; i += 1) {
@@ -242,7 +254,9 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
     Object.defineProperty(
       next,
       key,
-      "value" in descriptor ? { ...descriptor, value: resolved[i] } : descriptor,
+      descriptor.enumerable && "value" in descriptor
+        ? { ...descriptor, value: resolved[i] }
+        : descriptor,
     );
   }
   return next;
@@ -255,7 +269,14 @@ function isPlainObject(value: object): value is Record<string, unknown> {
 
 function deferredResponseError(): TypeError {
   return new TypeError(
-    "A deferred loader value cannot return or throw a Response. " +
+    "A deferred loader value cannot return or throw a Response or throw a PrachtHttpError. " +
       "Redirects, status, and headers must be decided before deferred work starts.",
+  );
+}
+
+function deferredSerializationError(): TypeError {
+  return new TypeError(
+    "A deferred loader value reached serialization without being resolved. " +
+      "Return defer() from an enumerable data property, not from a getter.",
   );
 }

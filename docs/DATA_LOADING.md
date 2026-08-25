@@ -203,10 +203,10 @@ a correctness bug.
 
 #### Rules
 
-- **A deferred value may not redirect or set headers.** By the time it settles,
-  the response status and headers are already decided. Auth checks belong in
-  middleware or in the awaited part of the loader — which is the existing
-  pracht convention.
+- **A deferred value may not redirect, throw `PrachtHttpError`, or set response
+  status or headers.** By the time it settles, the response status and headers
+  are already decided. Auth checks belong in middleware or in the awaited part
+  of the loader — which is the existing pracht convention.
 - **`head()` and `headers()` see awaited data only.** Both run before the
   render and receive the resolved loader result, so metadata cannot depend on a
   value whose whole point is arriving late.
@@ -216,6 +216,9 @@ a correctness bug.
   nothing streams yet, but write boundaries to that shape now.
 - Pass the un-awaited call. `defer(await getReviews(id))` throws, because it
   defeats the point silently.
+- Return the marker from an enumerable data property. A deferred value hidden
+  behind a getter cannot be discovered without eagerly invoking every loader
+  getter, so it throws if it reaches serialization unresolved.
 
 ### Redirecting from a loader
 

@@ -171,14 +171,17 @@ shell first and stream these in with no change to your route source. `ssg` and
 
 Three rules:
 
-- **A deferred value cannot redirect or set headers.** By the time it settles,
-  the status and headers are already sent. Auth belongs in middleware or in the
-  awaited part of the loader.
+- **A deferred value cannot redirect, throw `PrachtHttpError`, or set response
+  status or headers.** By the time it settles, the status and headers are
+  already sent. Auth belongs in middleware or in the awaited part of the loader.
 - **`head()` and `headers()` see awaited data only.** They run before the
   render.
 - **A suspending `<Suspense>` boundary must resolve to exactly one DOM
   element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11
   removes this constraint.
+- Return `defer()` from an enumerable data property, not from a getter. Pracht
+  does not eagerly invoke loader getters to discover hidden deferred values and
+  throws instead of silently serializing an unresolved marker.
 
 ### Error handling
 

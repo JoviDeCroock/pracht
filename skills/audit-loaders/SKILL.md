@@ -65,10 +65,12 @@ flagged.
 
 Two `defer()` rules worth checking while you are in the loader:
 
-- A deferred value must not redirect or set headers — by the time it settles
-  the response is already committed. Auth belongs in middleware or the awaited
-  part of the loader.
+- A deferred value must not redirect, throw `PrachtHttpError`, or set response
+  status or headers — by the time it settles the response is already committed.
+  Auth belongs in middleware or the awaited part of the loader.
 - `defer(await …)` defeats the point and throws at runtime. Flag it.
+- `defer()` must be returned from an enumerable data property, not hidden
+  behind a getter. An unresolved marker throws during serialization.
 
 Recommend converting to `string` (ISO for dates), plain arrays, or plain objects
 before return.

@@ -6,6 +6,7 @@ import {
   defer,
   defineApp,
   handlePrachtRequest,
+  notFound,
   prerenderApp,
   route,
   use,
@@ -150,6 +151,29 @@ describe("defer() through the SSR document path", () => {
     expect(response.status).toBe(500);
     expect(response.headers.get("location")).toBeNull();
   });
+
+  it("does not let deferred work choose an HTTP error status", async () => {
+    const app = defineApp({
+      routes: [route("/product", "./routes/product.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({
+              reviews: defer(Promise.reject(notFound("late missing"))),
+            }),
+            Component: () => null,
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    expect(response.status).toBe(500);
+  });
 });
 
 describe("defer() through the route-state path", () => {
@@ -169,6 +193,39 @@ describe("defer() through the route-state path", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
     const body = (await response.json()) as { data: { reviews: Review[] } };
     expect(body.data.reviews).toEqual([{ id: 7 }]);
+  });
+
+  it("rejects a deferred marker hidden behind a getter instead of returning an empty object", async () => {
+    const reviews = defer(Promise.resolve<Review[]>([{ id: 7 }]));
+    const app = defineApp({
+      routes: [route("/product", "./routes/product.tsx", { render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      debugErrors: true,
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({
+              get reviews() {
+                return reviews;
+              },
+            }),
+            Component: () => null,
+          }),
+        },
+      },
+      request: new Request("http://localhost/product", {
+        headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { error: { message: string } };
+    expect(body.error.message).toContain(
+      "Return defer() from an enumerable data property, not from a getter",
+    );
   });
 });
 
