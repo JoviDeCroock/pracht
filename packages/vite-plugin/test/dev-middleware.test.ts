@@ -12,6 +12,7 @@ import {
   isDevNotFoundRequest,
   shouldBypassDevSSR,
   shouldRenderDevErrorOverlay,
+  shouldStreamDevHtmlResponse,
   transformStreamingDevHtmlPrefix,
 } from "../src/plugin-dev-ssr.ts";
 import { PRACHT_DEV_MODULE_ID } from "../src/plugin-assets.ts";
@@ -21,6 +22,19 @@ describe("development streaming response detection", () => {
     expect(isEventStreamContentType("text/event-stream; charset=utf-8")).toBe(true);
     expect(isEventStreamContentType("Text/Event-Stream; Charset=UTF-8")).toBe(true);
     expect(isEventStreamContentType("application/json")).toBe(false);
+  });
+
+  it("streams only responses created by the framework streaming renderer", () => {
+    const response = new Response("<main>custom middleware response</main>", {
+      headers: { "content-type": "text/html" },
+    });
+
+    expect(
+      shouldStreamDevHtmlResponse({ isStreamingHtmlResponse: () => false }, response, "text/html"),
+    ).toBe(false);
+    expect(
+      shouldStreamDevHtmlResponse({ isStreamingHtmlResponse: () => true }, response, "text/html"),
+    ).toBe(true);
   });
 
   it("keeps Vite body-end injections outside the streamed hydration root", async () => {

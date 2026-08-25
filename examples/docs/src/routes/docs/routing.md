@@ -83,6 +83,7 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 | `speculation` | `"prefetch" \| "prerender" \| { mode, eagerness }` | Browser [speculation rules](/docs/prefetching#speculation-rules) opt-in                  |
 | `revalidate`  | RouteRevalidate                          | `timeRevalidate()` / `webhookRevalidate()` for ISG routes                                           |
 | `loaderCache` | LoaderCache                              | Cache-Control policy for this route's [loader response](/docs/data-loading)                        |
+| `streaming`   | boolean                                  | Stream deferred values on full-hydration SSR routes. See [Data Loading](/docs/data-loading#streaming-the-document) |
 | `markdown`    | boolean                                  | Declare that middleware negotiates a Markdown representation for this route                        |
 
 ### group(meta, routes)
@@ -91,7 +92,7 @@ Groups routes with shared configuration. Properties cascade to children; a route
 
 | Param  | Type              | Description                                           |
 | ------ | ----------------- | ----------------------------------------------------- |
-| meta   | GroupMeta         | Shell, middleware, render mode, pathPrefix to inherit |
+| meta   | GroupMeta         | Shell, middleware, render mode, streaming, pathPrefix to inherit |
 | routes | RouteDefinition[] | Routes in this group                                  |
 
 ---

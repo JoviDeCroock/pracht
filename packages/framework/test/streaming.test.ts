@@ -1,7 +1,16 @@
 import { h } from "preact";
 import { describe, expect, it } from "vitest";
 
-import { Suspense, defer, defineApp, handlePrachtRequest, route, use } from "../src/index.ts";
+import {
+  Script,
+  Suspense,
+  defer,
+  defineApp,
+  handlePrachtRequest,
+  route,
+  use,
+} from "../src/index.ts";
+import { isStreamingHtmlResponse } from "../src/runtime-stream.ts";
 
 interface Review {
   id: number;
@@ -86,6 +95,7 @@ describe("streaming SSR documents", () => {
     });
 
     const reader = response.body!.getReader();
+    expect(isStreamingHtmlResponse(response)).toBe(true);
     const first = new TextDecoder().decode((await reader.read()).value);
     await reader.cancel();
 
@@ -94,6 +104,58 @@ describe("streaming SSR documents", () => {
     expect(first).toContain("<!DOCTYPE html>");
     expect(first).toContain("<head>");
     expect(first).not.toContain("review-7");
+  });
+
+  it("runs deferred beforeHydration scripts before starting the client", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      clientEntryUrl: "/assets/client.js",
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({ value: defer(later("ready")) }),
+            Component: ({ data }: { data: { value: unknown } }) =>
+              h(
+                Suspense as never,
+                { fallback: h("p", null, "loading") },
+                h(() => {
+                  use(data.value as never);
+                  return h(
+                    "section",
+                    null,
+                    h(Script, { strategy: "beforeHydration", src: "/flags.js" }),
+                    "ready",
+                  );
+                }, null),
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    const html = (await readChunks(response)).join("");
+    expect(html.indexOf('src="/flags.js"')).toBeGreaterThan(-1);
+    expect(html.indexOf('src="/flags.js"')).toBeLessThan(html.indexOf('src="/assets/client.js"'));
+  });
+
+  it("dedupes in-place scripts against head metadata", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            head: () => ({ script: [{ src: "/once.js" }] }),
+            Component: () =>
+              h("main", null, h(Script, { strategy: "beforeHydration", src: "/once.js" })),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    const html = (await readChunks(response)).join("");
+    expect(html.match(/src="\/once\.js"/g)).toHaveLength(1);
   });
 
   it("streams the resolved subtree after the shell", async () => {
@@ -127,7 +189,7 @@ describe("streaming SSR documents", () => {
     expect(html.indexOf('id="pracht-state"')).toBeLessThan(html.indexOf("review-7"));
   });
 
-  it("emits the defer shim before fast values and starts the client entry asynchronously", async () => {
+  it("emits the defer shim before fast values and starts the client after the stream", async () => {
     const response = await handlePrachtRequest({
       app: streamingApp(),
       clientEntryUrl: "/assets/client.js",
@@ -152,7 +214,8 @@ describe("streaming SSR documents", () => {
     const valueIndex = html.indexOf('window.__PRACHT_DEFER__.r("0:reviews"');
     expect(shimIndex).toBeGreaterThan(-1);
     expect(valueIndex).toBeGreaterThan(shimIndex);
-    expect(html).toContain('<script type="module" async src="/assets/client.js"></script>');
+    expect(valueIndex).toBeLessThan(html.indexOf('src="/assets/client.js"'));
+    expect(html).toContain('<script type="module" src="/assets/client.js"></script>');
   });
 
   it("produces the same final markup as the buffered renderer", async () => {

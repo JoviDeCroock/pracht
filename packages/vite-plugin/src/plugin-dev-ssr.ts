@@ -318,12 +318,7 @@ export function createDevSSRMiddleware(
         return;
       }
 
-      if (
-        response.body &&
-        contentType.includes("text/html") &&
-        framework.matchAppRoute(serverMod.resolvedApp, requestUrl.pathname)?.route.streaming ===
-          true
-      ) {
+      if (shouldStreamDevHtmlResponse(framework, response, contentType)) {
         await streamDevHtmlResponse(
           server,
           res,
@@ -354,6 +349,18 @@ export function createDevSSRMiddleware(
       await handleDevError(server, req, res, next, url, error, devBase);
     }
   };
+}
+
+export function shouldStreamDevHtmlResponse(
+  framework: { isStreamingHtmlResponse?: (response: Response) => boolean },
+  response: Response,
+  contentType: string,
+): boolean {
+  return (
+    response.body !== null &&
+    contentType.includes("text/html") &&
+    framework.isStreamingHtmlResponse?.(response) === true
+  );
 }
 
 async function streamDevHtmlResponse(

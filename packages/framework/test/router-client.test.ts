@@ -113,6 +113,70 @@ describe("initClientRouter", () => {
     expect(root.textContent).toContain("route boundary: deferred failure");
   });
 
+  it("renders the exported shell boundary when deferred data rejects in the shell", async () => {
+    history.replaceState(null, "", "/deferred-shell");
+    let rejectDeferred!: (error: Error) => void;
+    const pending = new Promise<string>((_resolve, reject) => {
+      rejectDeferred = reject;
+    });
+    const app = resolveApp(
+      defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [
+          route("/deferred-shell", "./routes/deferred-shell.tsx", {
+            render: "spa",
+            shell: "app",
+          }),
+        ],
+      }),
+    );
+
+    function ShellValue() {
+      const data = useRouteData<{ value: unknown }>();
+      return h("p", null, use(data.value as never));
+    }
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/deferred-shell.tsx": async () => ({
+          default: () => h("main", null, "route content"),
+        }),
+      },
+      shellModules: {
+        "./shells/app.tsx": async () => ({
+          Shell: ({ children }: { children: ComponentChildren }) =>
+            h(
+              "section",
+              null,
+              h(
+                Suspense as never,
+                { fallback: h("p", null, "loading shell") },
+                h(ShellValue, null),
+              ),
+              children,
+            ),
+          ErrorBoundary: ({ error }: { error: Error }) =>
+            h("p", null, `shell boundary: ${error.message}`),
+        }),
+      },
+      initialState: {
+        data: { value: defer(pending) },
+        routeId: "deferred-shell",
+        url: "/deferred-shell",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.textContent).toContain("loading shell");
+    rejectDeferred(new Error("shell deferred failure"));
+    await pending.catch(() => {});
+    await flush();
+
+    expect(root.textContent).toContain("shell boundary: shell deferred failure");
+  });
+
   it("renders shell-less SPA routes after the pending bootstrap fetch resolves", async () => {
     history.replaceState(null, "", "/settings");
     const app = resolveApp(

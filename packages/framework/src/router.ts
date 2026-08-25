@@ -89,7 +89,7 @@ const PREFETCH_ENABLED =
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
-  ErrorBoundary: FunctionComponent | null;
+  ErrorBoundaries: readonly [FunctionComponent | null, FunctionComponent | null];
   componentProps: Record<string, unknown>;
   data: unknown;
   params: RouteParams;
@@ -379,8 +379,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     updateRouteState = setRouteState;
     const navigateValue = useMemo(() => navigate, []);
 
-    const { Shell, Component, ErrorBoundary, componentProps, data, params, routeId, url, version } =
-      routeState;
+    const {
+      Shell,
+      Component,
+      ErrorBoundaries,
+      componentProps,
+      data,
+      params,
+      routeId,
+      url,
+      version,
+    } = routeState;
+    const [RouteBoundary, ShellBoundary] = ErrorBoundaries;
     activeRouteStateVersion = version;
 
     useLayoutEffect(() => {
@@ -390,16 +400,23 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       callback();
     }, [version]);
     const routeElement = h(RouteComponent, { Component, componentProps });
-    const guardedRouteElement = ErrorBoundary
+    const guardedRouteElement = RouteBoundary
       ? h(RouteErrorBoundary, {
           key: version,
-          Boundary: ErrorBoundary,
+          Boundary: RouteBoundary,
           children: routeElement,
         })
       : routeElement;
-    const componentTree = Shell
+    const shellTree = Shell
       ? h(Shell as FunctionComponent<Record<string, unknown>>, null, guardedRouteElement)
       : guardedRouteElement;
+    const componentTree = ShellBoundary
+      ? h(RouteErrorBoundary, {
+          key: version,
+          Boundary: ShellBoundary,
+          children: shellTree,
+        })
+      : shellTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -447,7 +464,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
-    const ErrorBoundary = routeMod.ErrorBoundary ?? resolvedShell?.ErrorBoundary;
+    const RouteBoundary = routeMod.ErrorBoundary as FunctionComponent | undefined;
+    const ShellBoundary = resolvedShell?.ErrorBoundary as FunctionComponent | undefined;
+    const ErrorBoundary = RouteBoundary ?? ShellBoundary;
     const Component = (
       state.error ? ErrorBoundary : (routeMod.Component ?? DefaultComponent)
     ) as FunctionComponent<any>;
@@ -460,9 +479,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component,
-      ErrorBoundary: state.error
-        ? null
-        : ((ErrorBoundary as FunctionComponent | undefined) ?? null),
+      ErrorBoundaries: state.error ? [null, null] : [RouteBoundary ?? null, ShellBoundary ?? null],
       componentProps,
       data: state.data,
       params: match.params,
@@ -488,7 +505,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component: Loading ?? (() => null),
-      ErrorBoundary: null,
+      ErrorBoundaries: [null, null],
       componentProps: {},
       data: undefined,
       params: match.params,
@@ -1048,17 +1065,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  // Publish readiness only after a static fallback has resolved and committed
-  // its real route. The fallback document starts with an empty body, so
-  // marking it ready before the async route import finishes would violate the
-  // public test/tooling contract below.
-  window.__PRACHT_ROUTER_READY__ = true;
-  // Public hydration marker for test tooling: server-rendered pages look
-  // interactive before the client router takes over, so tests (Playwright,
-  // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
-  // interacting earlier triggers native form submits instead of JS handlers.
-  document.documentElement.setAttribute("data-pracht-hydrated", "true");
-
   // Restore the scroll position after a reload or a return from an external
   // document — with `history.scrollRestoration = "manual"` the browser no
   // longer does this for us.
@@ -1078,6 +1084,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const { setupPrefetching } = await import("./prefetch.ts");
     setupPrefetching(app, warmModules);
   }
+
+  // Publish readiness only after a static fallback has resolved and committed
+  // its real route and optional client features have installed their listeners.
+  // The fallback document starts with an empty body, so marking it ready before
+  // either step finishes would violate the public test/tooling contract below.
+  window.__PRACHT_ROUTER_READY__ = true;
+  // Public hydration marker for test tooling: server-rendered pages look
+  // interactive before the client router takes over, so tests (Playwright,
+  // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
+  // interacting earlier triggers native form submits instead of JS handlers.
+  document.documentElement.setAttribute("data-pracht-hydrated", "true");
 }
 
 /**

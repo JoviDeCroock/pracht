@@ -12,11 +12,13 @@
  *    begin while loaders are still running.
  * 2. the renderer's first chunk — the shell, i.e. the tree with every
  *    unresolved `<Suspense>` boundary rendered as its fallback.
- * 3. `afterShell` — closes the root div and writes the state and entry scripts,
- *    so hydration can start before the deferred subtrees land.
+ * 3. `afterShell` — closes the root div and writes the state and defer-channel
+ *    bootstrap.
  * 4. the renderer's remaining chunks — its bootstrap script and one
  *    `<template>`-swap per boundary as each resolves.
- * 5. `suffix` — `</body></html>`.
+ * 5. `suffix` — the client entry followed by `</body></html>`. Starting
+ *    hydration here guarantees that an in-place `beforeHydration` script from
+ *    a deferred subtree has already executed.
  *
  * Step 2 relies on `renderToReadableStream` enqueuing exactly once per internal
  * write, with the shell first. That is the documented shape of the chunked
@@ -61,6 +63,13 @@ export interface StreamingHtmlResponseOptions {
   nonce?: string;
   /** Whether unexpected server error details may be exposed to the browser. */
   exposeErrorDetails?: boolean;
+}
+
+const streamingResponseBodies = new WeakSet<ReadableStream<Uint8Array>>();
+
+/** Whether a response body was created by Pracht's streaming document renderer. */
+export function isStreamingHtmlResponse(response: Response): boolean {
+  return response.body !== null && streamingResponseBodies.has(response.body);
 }
 
 /**
@@ -244,5 +253,6 @@ export async function streamingHtmlResponse(
   if (options.headers) applyHeaders(headers, options.headers);
   applySecurityAndRouteHeaders(headers, { isRouteStateRequest: false });
 
+  streamingResponseBodies.add(body);
   return new Response(body, { status, headers });
 }

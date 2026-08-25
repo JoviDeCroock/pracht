@@ -102,8 +102,21 @@ export interface ScriptCapture {
 
 export const ScriptCaptureContext = createContext<ScriptCapture | null>(null);
 
-export function createScriptCapture(hydration: HydrationMode, streaming = false): ScriptCapture {
-  return { scripts: [], keys: new Set(), hydration, streaming };
+export function createScriptCapture(
+  hydration: HydrationMode,
+  streaming = false,
+  existingScripts: readonly HeadScriptDescriptor[] = [],
+): ScriptCapture {
+  return {
+    scripts: [],
+    keys: new Set(
+      existingScripts
+        .map((script) => scriptKey(script, script.children))
+        .filter((key): key is string => key !== null),
+    ),
+    hydration,
+    streaming,
+  };
 }
 
 /** Merge captured scripts into the document head without duplicating head() entries. */

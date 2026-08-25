@@ -1129,7 +1129,7 @@ export async function handlePrachtRequest<TContext>(
         // travels through context (not module state), so concurrent async
         // renders — e.g. parallel SSG prerendering — never attribute scripts
         // to the wrong page.
-        const scriptCapture = createScriptCapture(hydration, willStream);
+        const scriptCapture = createScriptCapture(hydration, willStream, head.script);
         tree = h(
           ScriptCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
           { value: scriptCapture },
@@ -1165,7 +1165,7 @@ export async function handlePrachtRequest<TContext>(
               error: null,
             },
             clientEntryUrl: options.clientEntryUrl,
-            clientEntryAsync: true,
+            clientEntryAtEnd: true,
             inlineBootstrapScript:
               pending.length > 0
                 ? {

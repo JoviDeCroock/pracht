@@ -100,7 +100,7 @@ Defines a single route:
 | ------ | ----------- | ------------------------------------------------------ |
 | `path` | `string`    | URL pattern (e.g. `/blog/:slug`)                       |
 | `file` | `ModuleRef` | Module reference — `() => import("./path")` or string  |
-| `meta` | `RouteMeta` | Optional: render mode, shell, middleware, revalidation, loader caching |
+| `meta` | `RouteMeta` | Optional: render mode, shell, middleware, revalidation, loader caching, streaming |
 
 > [!IMPORTANT]
 > Function module refs must use the exact inline form `() => import("./path")`
@@ -114,7 +114,7 @@ Groups routes with shared configuration:
 
 | Param    | Type                | Description                                           |
 | -------- | ------------------- | ----------------------------------------------------- |
-| `meta`   | `GroupMeta`         | Shell, middleware, render mode, loader cache, pathPrefix to inherit |
+| `meta`   | `GroupMeta`         | Shell, middleware, render mode, loader cache, streaming, pathPrefix to inherit |
 | `routes` | `RouteDefinition[]` | Routes in this group                                  |
 
 Group properties cascade to children. A route's own meta overrides the group's.
@@ -133,6 +133,7 @@ interface RouteMeta {
   middleware?: string[]; // Named middleware from defineApp.middleware
   revalidate?: RouteRevalidate; // ISG revalidation policy
   loaderCache?: number | false; // Browser cache seconds for route-state loader data
+  streaming?: boolean; // Stream deferred values on full-hydration SSR routes
   prefetch?: "none" | "hover" | "viewport" | "intent"; // Route-level prefetch strategy (default: "intent")
   speculation?: "prefetch" | "prerender" | { mode; eagerness };
 }
@@ -149,6 +150,11 @@ route-state loader data. `0`, `false`, and an omitted value use `no-store`.
 It inherits through `group(...)`, and a route-level value overrides the group.
 This browser cache is independent of ISG `revalidate` and the client's 30-second
 in-memory prefetch cache. See [DATA_LOADING.md](DATA_LOADING.md#loaders).
+
+`streaming` defaults to `false` and inherits through `group(...)`. It is valid
+only for `render: "ssr"` with `hydration: "full"`; other combinations are
+rejected during manifest resolution. See
+[DATA_LOADING.md](DATA_LOADING.md#streaming-the-document).
 
 See [Speculation Rules](#speculation-rules) for `speculation` semantics and how
 it composes with the JS-based `prefetch` strategy.

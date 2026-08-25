@@ -113,6 +113,8 @@ export interface HtmlDocumentOptions {
   clientEntryUrl?: string;
   /** Let the streamed client runtime execute as soon as it is fetched. */
   clientEntryAsync?: boolean;
+  /** Keep the client entry after streamed boundary content and in-place scripts. */
+  clientEntryAtEnd?: boolean;
   /** Internal inline bootstrap emitted after state and before the client entry. */
   inlineBootstrapScript?: { source: string; nonce?: string };
   cssUrls?: string[];
@@ -129,9 +131,9 @@ export interface HtmlDocumentOptions {
  * middle, so the buffered and streamed paths cannot drift apart.
  *
  * - `prefix` — through the opening `<div id="pracht-root">`
- * - `afterShell` — closes that div and carries the state and entry scripts, so
- *   the client can begin hydrating before deferred subtrees arrive
- * - `suffix` — `</body></html>`, written once the render is done
+ * - `afterShell` — closes that div and carries hydration state/bootstrap scripts
+ * - `suffix` — optional deferred client entry plus `</body></html>`, written once
+ *   the render is done
  */
 export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
   prefix: string;
@@ -143,6 +145,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     hydrationState,
     clientEntryUrl,
     clientEntryAsync = false,
+    clientEntryAtEnd = false,
     inlineBootstrapScript,
     cssUrls = [],
     modulePreloadUrls = [],
@@ -234,7 +237,11 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     ],
     "    ",
   );
-  const trailingScripts = joinDocumentLines([stateScript, bootstrapScript, entryScript], "    ");
+  const trailingScripts = joinDocumentLines(
+    [stateScript, bootstrapScript, clientEntryAtEnd ? "" : entryScript],
+    "    ",
+  );
+  const suffixScripts = joinDocumentLines([clientEntryAtEnd ? entryScript : ""], "    ");
 
   return {
     prefix: `<!DOCTYPE html>
@@ -245,7 +252,7 @@ ${headLines}
   <body>
     <div id="pracht-root">`,
     afterShell: `</div>${trailingScripts ? `\n${trailingScripts}` : ""}`,
-    suffix: `
+    suffix: `${suffixScripts ? `\n${suffixScripts}` : ""}
   </body>
 </html>`,
   };

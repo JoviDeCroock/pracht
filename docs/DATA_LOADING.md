@@ -223,13 +223,14 @@ With it on, the response is written in this order:
    fallback. The renderer prepares that shell before committing the response,
    so a shell failure can still produce a normal error document; stylesheet and
    preload tags still reach the browser before deferred loader work completes.
-2. The hydration state and the client entry script, so hydration can begin
-   while boundaries are still outstanding. Exact deferred locations travel as
-   framework metadata beside the user-owned loader data, so no user object
-   shape or property name is reserved by the wire format.
+2. The hydration state and defer-channel bootstrap. Exact deferred locations
+   travel as framework metadata beside the user-owned loader data, so no user
+   object shape or property name is reserved by the wire format.
 3. Each deferred value as it settles — the resolved markup from the renderer,
    plus a small script carrying the data so the client has it too.
-4. `</body></html>`.
+4. The client entry, then `</body></html>`. The entry is preloaded with the
+   document assets, but hydration starts after the streamed content so even a
+   `beforeHydration` script inside a deferred subtree keeps its guarantee.
 
 Streaming is rejected at manifest-resolution time for any other combination:
 `ssg` and `isg` write files, and a `hydration` other than `"full"` ships no

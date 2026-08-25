@@ -29,7 +29,11 @@
  * permanent output would be a correctness bug.
  */
 
-import { isPrachtHttpError } from "./runtime-errors.ts";
+import {
+  deserializeRouteError,
+  isPrachtHttpError,
+  type SerializedRouteError,
+} from "./runtime-errors.ts";
 
 const DEFERRED = Symbol.for("pracht.deferred");
 
@@ -438,11 +442,13 @@ export function installDeferRegistry(): void {
       getClientEntry(id).resolve(value);
     },
     e(id, error) {
-      const err = new Error(
-        typeof error === "object" && error !== null && "message" in error
-          ? String((error as { message: unknown }).message)
-          : String(error),
-      );
+      const err = isSerializedRouteError(error)
+        ? deserializeRouteError(error)
+        : new Error(
+            typeof error === "object" && error !== null && "message" in error
+              ? String((error as { message: unknown }).message)
+              : String(error),
+          );
       getClientEntry(id).reject(err);
     },
   };
@@ -452,6 +458,16 @@ export function installDeferRegistry(): void {
     if (kind === 1) registry.e(id, value);
     else registry.r(id, value);
   }
+}
+
+function isSerializedRouteError(error: unknown): error is SerializedRouteError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as Partial<SerializedRouteError>).message === "string" &&
+    typeof (error as Partial<SerializedRouteError>).name === "string" &&
+    typeof (error as Partial<SerializedRouteError>).status === "number"
+  );
 }
 
 /**

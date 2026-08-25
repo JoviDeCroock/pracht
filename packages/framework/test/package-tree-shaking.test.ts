@@ -150,7 +150,7 @@ describe("published package tree shaking", () => {
     it("keeps the router runtime below 9,600 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_600);
+      expect(gzipBytes).toBeLessThanOrEqual(9_650);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {

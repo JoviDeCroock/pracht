@@ -437,6 +437,35 @@ describe("streaming wire metadata", () => {
     expect(rehydrateDeferredData(userValue)).toBe(userValue);
   });
 
+  it("preserves serialized error metadata on deferred rejections", async () => {
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+    try {
+      const hydrated = rehydrateDeferredData({ value: null }, [
+        { id: "deferred-error", path: ["value"] },
+      ]) as { value: unknown };
+      const registry = (
+        globals.window as {
+          __PRACHT_DEFER__: { e(id: string, error: unknown): void };
+        }
+      ).__PRACHT_DEFER__;
+      registry.e("deferred-error", {
+        message: "Not found",
+        name: "PrachtHttpError",
+        status: 404,
+      });
+
+      await expect(settle(hydrated.value)).rejects.toMatchObject({
+        message: "Not found",
+        name: "PrachtHttpError",
+        status: 404,
+      });
+    } finally {
+      if (!hadWindow) delete globals.window;
+    }
+  });
+
   it("serializes every occurrence of a shared object", () => {
     const shared = { value: defer(Promise.resolve("ok")) };
     const { data, pending } = serializeDeferred({ first: shared, second: shared });

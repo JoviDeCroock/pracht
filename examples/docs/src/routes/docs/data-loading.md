@@ -202,12 +202,13 @@ The response is written in this order:
    unresolved boundary showing its fallback. The shell is prepared before the
    response commits, so an early render failure can still produce a normal
    error page while styles and preloads arrive before deferred work completes.
-2. The hydration state, defer-channel bootstrap, and async client entry, so
-   hydration can start while boundaries are still outstanding. Deferred
-   locations live in framework metadata beside the loader data; no user object
-   shape or property name is reserved.
+2. The hydration state and defer-channel bootstrap. Deferred locations live in
+   framework metadata beside the loader data; no user object shape or property
+   name is reserved.
 3. Each deferred value as it settles.
-4. The closing tags.
+4. The client entry and closing tags. The entry is preloaded with the document
+   assets, but hydration starts after the streamed content so a
+   `beforeHydration` script inside a deferred subtree still runs first.
 
 Streaming is rejected for any other combination: `ssg` and `isg` write files,
 and a `hydration` mode other than `"full"` ships no client runtime to resume a
