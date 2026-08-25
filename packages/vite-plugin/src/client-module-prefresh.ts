@@ -1,6 +1,6 @@
 import type { Plugin, PluginOption } from "vite";
 
-import { isPrachtClientModuleId, stripPrachtClientModuleQuery } from "./client-module-query.ts";
+import { isPrachtClientModuleId, toPrachtClientPrefreshId } from "./client-module-query.ts";
 
 /**
  * Give route and shell modules Preact Fast Refresh.
@@ -22,6 +22,11 @@ import { isPrachtClientModuleId, stripPrachtClientModuleQuery } from "./client-m
  * decides) is deliberate: prefresh sees the stripped module, whose exports are
  * only components, rather than the authored one where a co-located `loader`
  * would stop it self-accepting anyway.
+ *
+ * The id prefresh is handed is synthetic — see `toPrachtClientPrefreshId`. It
+ * must satisfy prefresh's extension filter *and* stay distinct from the id of
+ * the authored file, because the same file can be in the client graph twice and
+ * the id doubles as prefresh's component registration key.
  */
 export function createClientModulePrefreshPlugin(preactPlugins: PluginOption[]): Plugin | null {
   const transform = resolvePrefreshTransform(preactPlugins);
@@ -38,10 +43,15 @@ export function createClientModulePrefreshPlugin(preactPlugins: PluginOption[]):
       if (options?.ssr) return null;
       if (!isPrachtClientModuleId(id)) return null;
 
-      // The stripped id is what prefresh's own filter accepts, and it is also
-      // the id it embeds in component registrations — so a route registers
-      // under its real file path rather than a query-suffixed variant.
-      return await transform.call(this, code, stripPrachtClientModuleQuery(id), options);
+      // Prefresh's filter rejects any id carrying a query, and the id it is
+      // given is also the key it embeds in component registrations. Both copies
+      // of a file that reaches the browser twice — through the route glob and
+      // through a plain import from a sibling route — must therefore keep
+      // *distinct* keys, or prefresh queues a component replacement no edit
+      // asked for. `toPrachtClientPrefreshId` satisfies the filter by keeping
+      // the extension last and preserves the distinction by moving the marker
+      // into the basename.
+      return await transform.call(this, code, toPrachtClientPrefreshId(id), options);
     },
   };
 }
