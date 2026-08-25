@@ -136,13 +136,12 @@ export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName
  * `href` arriving that way used to compile and be silently dropped; naming only
  * the first case would tell that author to do what they already did.
  *
- * Keep it under ~260 characters as TypeScript prints it (escapes included, so
- * roughly 4 more than the source literal). Both TypeScript 5.4 and 6.0 print a
- * 261-character type in full and truncate a 361-character one with `...`, which
- * would swallow the end of the sentence.
+ * Keep it under ~260 characters as TypeScript prints it. Both TypeScript 5.4
+ * and 6.0 print a 261-character type in full and truncate a 361-character one
+ * with `...`, which would swallow the end of the sentence.
  */
 export type LinkHrefGuidance =
-  '`href` is not a <Link> prop: <Link> builds its own href from `route` and `params`. Use <Link route="home">, a plain <a href> for external and user-provided URLs, or omit href from the props you spread here.';
+  "`href` is not a <Link> prop: <Link> builds its own href from `route` and `params`. Use a generated route id with <Link route={routeId}>, a plain <a href> for external and user-provided URLs, or omit href from the props you spread here.";
 
 /**
  * `JSX.AnchorHTMLAttributes`, not `JSX.HTMLAttributes`. Preact keeps the
@@ -308,8 +307,9 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
   // pracht's authoring diagnostics.
   if (import.meta.env?.DEV !== false && (typeof route !== "string" || href !== undefined)) {
     throw new Error(
-      '<Link> navigates by route id, not href: use <Link route="home"> (with `params` for ' +
-        "dynamic segments), or a plain <a href> for external and user-provided URLs.",
+      "<Link> navigates by route id, not href: use a generated route id with " +
+        "<Link route={routeId}> (with `params` for dynamic segments), or a plain <a href> for " +
+        "external and user-provided URLs.",
     );
   }
 

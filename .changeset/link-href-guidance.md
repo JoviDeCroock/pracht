@@ -14,9 +14,9 @@ prints it:
 
 ```
 Type '"/blog/hello"' is not assignable to type '"`href` is not a <Link> prop:
-<Link> builds its own href from `route` and `params`. Use <Link route="home">,
-a plain <a href> for external and user-provided URLs, or omit href from the
-props you spread here."'
+<Link> builds its own href from `route` and `params`. Use a generated route id
+with <Link route={routeId}>, a plain <a href> for external and user-provided
+URLs, or omit href from the props you spread here."'
 ```
 
 **Source-breaking for one pattern.** JSX does not check spreads for excess

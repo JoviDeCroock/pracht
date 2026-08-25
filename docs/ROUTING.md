@@ -367,9 +367,9 @@ untyped:
 ```tsx
 <Link href="/blog/hello">Post</Link>
 // Type '"/blog/hello"' is not assignable to type '"`href` is not a <Link>
-// prop: <Link> builds its own href from `route` and `params`. Use <Link
-// route="home">, a plain <a href> for external and user-provided URLs, or omit
-// href from the props you spread here."'
+// prop: <Link> builds its own href from `route` and `params`. Use a generated
+// route id with <Link route={routeId}>, a plain <a href> for external and
+// user-provided URLs, or omit href from the props you spread here."'
 ```
 
 Use a plain `<a href>` for external links and for URLs that come from data —

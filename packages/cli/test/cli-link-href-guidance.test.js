@@ -29,11 +29,11 @@ afterEach(cleanupTempDirs);
 // instead of quietly agreeing with itself.
 const GUIDANCE =
   "`href` is not a <Link> prop: <Link> builds its own href from `route` and `params`. " +
-  'Use <Link route="home">, a plain <a href> for external and user-provided URLs, or ' +
-  "omit href from the props you spread here.";
+  "Use a generated route id with <Link route={routeId}>, a plain <a href> for external " +
+  "and user-provided URLs, or omit href from the props you spread here.";
 
-// TypeScript escapes the inner double quotes when it prints a string literal
-// type, so the diagnostic never contains the raw sentence.
+// TypeScript escapes double quotes when it prints a string literal type. Keep
+// the expected diagnostic form separate so future wording can include them.
 const PRINTED_GUIDANCE = GUIDANCE.replace(/"/g, '\\"');
 
 function writeTsconfig(appDir) {
