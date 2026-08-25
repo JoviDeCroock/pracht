@@ -12,6 +12,7 @@ const frameworkRoot = fileURLToPath(new URL("..", import.meta.url));
 const tempRoot = mkdtempSync(join(tmpdir(), "pracht-tree-shaking-"));
 const outputDir = join(tempRoot, "dist");
 const browserEntry = join(outputDir, "browser.mjs");
+const clientEntry = join(outputDir, "client.mjs");
 const serverEntry = join(outputDir, "server.mjs");
 
 type FrameworkPackage = {
@@ -124,6 +125,50 @@ describe("published package tree shaking", () => {
     ["Script", 2_400],
   ])("keeps a named %s import below %i gzip bytes", async (exportName, maxGzipBytes) => {
     expect((await bundleExport(exportName)).gzipBytes).toBeLessThanOrEqual(maxGzipBytes);
+  });
+
+  // The generated client entry (`@pracht/core/client`) is what every hydrating
+  // app loads, so anything reachable from it is unconditional. Two features
+  // used to be: Suspense hydration tracking and capability revalidation. Both
+  // now hang off the code that actually uses them.
+  describe("client entry", () => {
+    // Measure a production-shaped build: the dev-only hydration mismatch
+    // warning (and the Suspense chain it needs) is dead code in a real app
+    // bundle, so counting it would hide what ships.
+    const production = { define: { "import.meta.env.DEV": "false" }, entry: clientEntry };
+
+    // A ceiling, not a target: every byte here is on the critical path of
+    // every hydrating route. Lower it when a feature moves off that path;
+    // raising it should need a reason.
+    it("keeps the router runtime below 9,600 gzip bytes", async () => {
+      const { gzipBytes } = await bundleExport("initClientRouter", production);
+
+      expect(gzipBytes).toBeLessThanOrEqual(9_600);
+    });
+
+    it("drops preact-suspense when the app renders no Suspense boundary", async () => {
+      const { code } = await bundleExport("initClientRouter", production);
+
+      expect(code).not.toContain("preact-suspense");
+    });
+
+    it("drops capability revalidation when the app dispatches no capability calls", async () => {
+      const { code } = await bundleExport("initClientRouter", production);
+
+      expect(code).not.toContain("@pracht/capabilities");
+    });
+
+    it("keeps Suspense hydration tracking reachable from the Suspense export", async () => {
+      const { code } = await bundleExport("Suspense");
+
+      expect(code).toContain("preact-suspense");
+    });
+
+    it("keeps capability revalidation reachable from the dispatch paths", async () => {
+      const { code } = await bundleExport("ensureCapabilityRevalidation");
+
+      expect(code).toContain("@pracht/capabilities");
+    });
   });
 
   // The agent surface is opt-in: a server bundle for an app that registers no

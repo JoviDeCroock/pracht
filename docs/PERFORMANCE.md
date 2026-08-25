@@ -22,6 +22,29 @@ in unrelated client features. The dedicated `@pracht/core/client`, `/manifest`,
 `/env`, `/env/server`, and `/server` entry points remain available for generated
 framework code and explicit environment separation.
 
+### What the router runtime does *not* include
+
+`@pracht/core/client` is the entry the generated client module loads on every
+hydrating route, so anything reachable from it is unconditional. Two features
+that look like part of the router are deliberately reachable only from the code
+that uses them:
+
+- **Suspense hydration tracking.** `onHydrationComplete()` waits for suspended
+  boundaries to settle, which needs `preact-suspense`. That counter is attached
+  to the `Suspense` and `lazy` exports through a `/* @__PURE__ */` wrapper, so
+  an app that renders no boundary drops both the counter and `preact-suspense`.
+- **Capability revalidation.** A settled non-`read` capability call refreshes
+  the active route's loader data. The listener is installed by the two paths
+  that can dispatch the event — `<Form capability>` and the generated
+  `callCapability()` — rather than by the runtime provider, so an app with no
+  capabilities never pulls `@pracht/capabilities` or the revalidation runtime
+  into its client bundle.
+
+Both are covered by budget assertions in `package-tree-shaking.test.ts`. When
+adding a router feature, prefer this shape over a direct import in
+`router.ts` or `runtime-context.ts`: reach it from the export, component, or
+generated module that needs it.
+
 ## `pracht build --analyze`
 
 After a successful production build, `--analyze` prints a per-route report of

@@ -95,6 +95,10 @@ export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 // `callCapability` to produce `useCapability`. It must be reachable from the
 // browser entry — that is the one the client build resolves `@pracht/core` to.
 export { createUseCapability, type CapabilityHookResult } from "./capability-hook.ts";
+// Installed by the generated `virtual:pracht/capabilities` module — it owns
+// the other CAPABILITY_SETTLED_EVENT dispatch path. See
+// `runtime-capability-revalidate.ts` for why this is not in the provider.
+export { ensureCapabilityRevalidation } from "./runtime-capability-revalidate.ts";
 export {
   createEventStream,
   serializeEventStreamMessage,
@@ -113,7 +117,7 @@ export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Script } from "./script.ts";
 export type { ScriptProps, ScriptStrategy } from "./script.ts";
-export { Suspense, lazy } from "preact-suspense";
+export { lazy, Suspense } from "./suspense.ts";
 export { ErrorBoundary } from "./error-boundary.ts";
 export type { ErrorBoundaryComponentProps } from "./error-boundary.ts";
 export {

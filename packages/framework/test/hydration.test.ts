@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { h, hydrate, render } from "preact";
-import { Suspense } from "preact-suspense";
+// Import the framework re-export, not `preact-suspense` directly: it is what
+// installs the hydration suspension counter (see `hydration-suspense.ts`).
+import { Suspense } from "../src/suspense.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {

@@ -42,6 +42,7 @@ import {
   capabilityHttpPath,
 } from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
+import { ensureCapabilityRevalidation } from "./runtime-capability-revalidate.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import type {
@@ -328,6 +329,11 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           : undefined;
 
       if (capability) {
+        // This branch dispatches CAPABILITY_SETTLED_EVENT below, so it owns
+        // installing the listener that acts on it. Registering here rather
+        // than in the runtime provider keeps route revalidation out of the
+        // client bundle of every app that has no capabilities.
+        ensureCapabilityRevalidation();
         const submitterAction = nativeSubmitter?.getAttribute("formaction");
         const endpoint = submitterAction ?? actionAttribute ?? form.action;
         const endpointUrl = parseSafeNavigationUrl(endpoint, window.location.href);
