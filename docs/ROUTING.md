@@ -356,6 +356,51 @@ accepts four navigation-behavior props:
 These props render as `data-pracht-*` attributes on the underlying `<a>`, so
 they also work on plain anchors if you set the attributes yourself.
 
+#### There is no `href` prop
+
+`<Link>` builds its own `href` from `route` and `params`, so it does not accept
+one. The id is what survives a path change, and it is what `pracht typegen`
+types along with the route's params. Passing `href` is a compile error whose
+message names the fix, and a dev-mode runtime error if it reaches the browser
+untyped:
+
+```tsx
+<Link href="/blog/hello">Post</Link>
+// Type '"/blog/hello"' is not assignable to type '"`href` is not a <Link>
+// prop: <Link> builds its own href from `route` and `params`. Use a generated
+// route id with <Link route={routeId}>, a plain <a href> for external and
+// user-provided URLs, or omit href from the props you spread here."'
+```
+
+Use a plain `<a href>` for external links and for URLs that come from data —
+those are not route ids and never should be.
+
+The same error catches `href` arriving through a spread, which is the way an
+existing app is most likely to meet it. JSX does not check spreads for excess
+properties, so a wrapper whose own props include `href` used to compile — and
+`<Link>` dropped the `href` on the floor, because it always overwrites it with
+the one it builds:
+
+```tsx
+type ButtonLinkProps = JSX.AnchorHTMLAttributes<HTMLAnchorElement> & { route: RouteId };
+
+function ButtonLink({ route, ...rest }: ButtonLinkProps) {
+  return <Link route={route} {...rest} />; // `rest` still carries `href`
+}
+```
+
+Take `href` off the wrapper's own props — `Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href">`
+— or stop forwarding it. The link never navigated there in the first place.
+
+Every other anchor attribute passes straight through, including `target`, `rel`,
+`download`, `ping`, `referrerpolicy`, and `hreflang`:
+
+```tsx
+<Link route="post" params={{ slug }} target="_blank" rel="noopener noreferrer">
+  Open in a new tab
+</Link>
+```
+
 ### Prefetching
 
 Every internal link is prefetched on hover/focus by default (`"intent"`, with a

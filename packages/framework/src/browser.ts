@@ -237,6 +237,7 @@ export type {
 } from "./types.ts";
 export type {
   FormProps,
+  LinkHrefGuidance,
   LinkProps,
   Location,
   Navigation,

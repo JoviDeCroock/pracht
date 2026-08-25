@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { h, render } from "preact";
+import renderToString from "preact-render-to-string";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { defineApp, Link, resolveApp, route } from "../src/index.ts";
@@ -45,5 +46,17 @@ describe("<Link> data attributes", () => {
     const anchor = renderLink({ speculate: false, prefetch: "none" });
     expect(anchor.getAttribute("data-pracht-speculate")).toBe("off");
     expect(anchor.getAttribute("data-pracht-prefetch")).toBe("none");
+  });
+
+  it("rejects a passed href even when route is present", () => {
+    expect(() => renderLink({ href: "https://evil.example/" })).toThrow(
+      /navigates by route id, not href/,
+    );
+  });
+
+  it("rejects a passed href during SSR even when route is present", () => {
+    expect(() =>
+      renderToString(h(Link, { route: "logout", href: "https://evil.example/" } as never)),
+    ).toThrow(/navigates by route id, not href/);
   });
 });
