@@ -567,19 +567,21 @@ describe("buildLlmsTxt page ceilings", () => {
     );
   });
 
-  // A fractional ceiling slipped through `buildLlmsTxt` (only the vite plugin
-  // validates it) and reported "7.5 more prerendered pages".
-  it("floors a fractional ceiling instead of reporting a fractional count", async () => {
-    const output = await buildLlmsTxt({
-      ...appWithPosts(10),
-      maxPagesPerRoute: 2.5,
-      title: "Blog",
-    });
+  it("rejects an invalid ceiling at the public buildLlmsTxt boundary", async () => {
+    for (const maxPagesPerRoute of [-1, 2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      await expect(
+        buildLlmsTxt({ ...appWithPosts(10), maxPagesPerRoute, title: "Blog" }),
+      ).rejects.toThrow(/non-negative integer/);
+    }
 
-    const links = output.split("\n").filter((line) => line.startsWith("- ["));
-    expect(links).toHaveLength(2);
-    expect(output).toContain("Pages lists 2 of 10 prerendered URLs under `/blog/:slug`");
-    expect(output).not.toContain(".5");
+    await expect(
+      buildLlmsTxt({
+        ...appWithPosts(10),
+        // @ts-expect-error — runtime callers can pass untyped configuration.
+        maxPagesPerRoute: "50",
+        title: "Blog",
+      }),
+    ).rejects.toThrow(/non-negative integer/);
   });
 
   // Deduplicating with `paths.includes(path)` is O(n^2): 50,000 instances took

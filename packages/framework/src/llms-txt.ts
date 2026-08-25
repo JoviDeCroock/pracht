@@ -67,6 +67,7 @@ export interface BuildLlmsTxtOptions {
    * Ceiling on how many prerendered instances a single dynamic route
    * contributes to the Pages section. Defaults to
    * {@link DEFAULT_MAX_PAGES_PER_ROUTE}; `0` lists every instance.
+   * Must be a non-negative integer.
    *
    * The instances kept are the first ones `getStaticPaths()` returns, after
    * `exclude` is applied — the author's order, which for a blog is usually
@@ -129,6 +130,12 @@ function isReservedPath(path: string): boolean {
 export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string> {
   const include = options.include ?? ["pages", "api", "capabilities"];
   const origin = options.origin?.replace(/\/$/, "") ?? "";
+  const maxPagesPerRoute = options.maxPagesPerRoute ?? DEFAULT_MAX_PAGES_PER_ROUTE;
+  if (!Number.isInteger(maxPagesPerRoute) || maxPagesPerRoute < 0) {
+    throw new Error(
+      `Invalid llmsTxt.maxPagesPerRoute: expected a non-negative integer (0 lists every page), got ${JSON.stringify(maxPagesPerRoute)}.`,
+    );
+  }
   // Paths come from the route table, so they carry no deploy base. The links
   // are for crawlers and agents, which need the URL as served.
   const link = (path: string): string => `${origin}${withBase(path)}`;
@@ -143,7 +150,7 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   if (include.includes("pages")) {
     const collected = await collectPageEntries(options.app.routes, options.registry, {
       isExcluded,
-      maxPagesPerRoute: options.maxPagesPerRoute ?? DEFAULT_MAX_PAGES_PER_ROUTE,
+      maxPagesPerRoute,
     });
     if (collected.pages.length > 0) {
       // Truncation notes go in the free-form block above the first H2, not
@@ -343,8 +350,7 @@ async function collectPageEntries(
     // the author's, usually newest-first, and prerendering already depends on
     // it. Display order stays lexicographic: `entries` is sorted on the way
     // out, so the file is still byte-stable.
-    const limit =
-      options.maxPagesPerRoute > 0 ? Math.floor(options.maxPagesPerRoute) : paths.length;
+    const limit = options.maxPagesPerRoute > 0 ? options.maxPagesPerRoute : paths.length;
     if (paths.length > limit) {
       truncated.push({ listed: limit, omitted: paths.length - limit, routePath: route.path });
     }

@@ -1,6 +1,6 @@
 ---
-"@pracht/core": minor
-"@pracht/vite-plugin": minor
+"@pracht/core": patch
+"@pracht/vite-plugin": patch
 "@pracht/cli": patch
 ---
 
@@ -14,7 +14,8 @@ llms.txt is meant to be. Each dynamic route now contributes at most
 `llmsTxt.maxPagesPerRoute` instances (50 by default, applied after `exclude`,
 `0` lists everything). The instances kept are the first ones `getStaticPaths()`
 returns — the author's order, newest-first for most blogs — and they are still
-printed in path order.
+printed in path order. Invalid ceilings are rejected by both the Vite option
+and direct `buildLlmsTxt()` calls.
 
 Truncation is never silent. A line in the free-form block above the `## Pages`
 heading names the route and the ratio it lists:
