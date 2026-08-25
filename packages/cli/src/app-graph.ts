@@ -33,6 +33,7 @@ export interface AppGraphRoute {
   shell: string | null;
   shellFile: string | null;
   speculation: unknown;
+  streaming: boolean | null;
 }
 
 export interface AppGraphApiRoute {
@@ -86,6 +87,7 @@ interface ResolvedRouteEntry {
   shell?: string;
   shellFile?: string;
   speculation?: unknown;
+  streaming?: boolean;
 }
 
 const PRACHT_DEV_METADATA_MODULE_ID = "virtual:pracht/dev-metadata";
@@ -379,5 +381,6 @@ export function serializeResolvedRoutes(routes: ResolvedRouteEntry[]): AppGraphR
     shell: route.shell ?? null,
     shellFile: route.shellFile ?? null,
     speculation: route.speculation ?? null,
+    streaming: route.streaming ?? null,
   }));
 }

@@ -111,6 +111,10 @@ export interface HtmlDocumentOptions {
    */
   hydrationState?: PrachtHydrationState;
   clientEntryUrl?: string;
+  /** Let the streamed client runtime execute as soon as it is fetched. */
+  clientEntryAsync?: boolean;
+  /** Internal inline bootstrap emitted after state and before the client entry. */
+  inlineBootstrapScript?: { source: string; nonce?: string };
   cssUrls?: string[];
   modulePreloadUrls?: string[];
   routeStatePreloadUrl?: string;
@@ -138,6 +142,8 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     head,
     hydrationState,
     clientEntryUrl,
+    clientEntryAsync = false,
+    inlineBootstrapScript,
     cssUrls = [],
     modulePreloadUrls = [],
     routeStatePreloadUrl,
@@ -202,8 +208,11 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
   const stateScript = hydrationState
     ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`
     : "";
+  const bootstrapScript = inlineBootstrapScript
+    ? `<script${inlineBootstrapScript.nonce ? ` nonce="${escapeHtml(inlineBootstrapScript.nonce)}"` : ""}>${escapeScriptChildren(inlineBootstrapScript.source)}</script>`
+    : "";
   const entryScript = clientEntryUrl
-    ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"></script>`
+    ? `<script type="module"${clientEntryAsync ? " async" : ""} src="${escapeHtml(clientEntryUrl)}"></script>`
     : "";
 
   // Empty slots are dropped rather than interpolated: otherwise every document
@@ -225,7 +234,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     ],
     "    ",
   );
-  const trailingScripts = joinDocumentLines([stateScript, entryScript], "    ");
+  const trailingScripts = joinDocumentLines([stateScript, bootstrapScript, entryScript], "    ");
 
   return {
     prefix: `<!DOCTYPE html>

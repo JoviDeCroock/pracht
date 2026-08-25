@@ -41,6 +41,7 @@ describe("@pracht/cli inspect", () => {
           shell: "app",
           shellFile: "./shells/app.tsx",
           speculation: "prefetch",
+          streaming: null,
         },
       ],
     });

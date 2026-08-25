@@ -1,4 +1,4 @@
-import { rehydrateDeferredData } from "./defer.ts";
+import { rehydrateDeferredData, type DeferredHydrationReference } from "./defer.ts";
 import { createContext, h } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -10,6 +10,8 @@ export interface PrachtHydrationState<TData = unknown> {
   url: string;
   routeId: string;
   data: TData;
+  /** Out-of-band locations replaced with Deferred values during streamed hydration. */
+  deferred?: DeferredHydrationReference[];
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
   pending?: boolean;
   /**
@@ -200,9 +202,9 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
   }
 
   const state = JSON.parse(raw) as PrachtHydrationState<TData>;
-  // Streamed documents serialize unresolved defer() values as sentinels; swap
-  // them back for Deferred values here, the one place the client reads data.
-  state.data = rehydrateDeferredData(state.data);
+  // Streamed documents carry unresolved defer() locations out of band; restore
+  // them here, the one place the client reads initial loader data.
+  state.data = rehydrateDeferredData(state.data, state.deferred);
   window.__PRACHT_STATE__ = state as PrachtHydrationState;
   return state;
 }

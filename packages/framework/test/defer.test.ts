@@ -1,6 +1,14 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { defer, isDeferred, resolveDeferredData, type Deferred, use } from "../src/defer.ts";
+import {
+  defer,
+  isDeferred,
+  rehydrateDeferredData,
+  resolveDeferredData,
+  serializeDeferred,
+  type Deferred,
+  use,
+} from "../src/defer.ts";
 import type { HeadArgs, HeadersArgs, RouteComponentProps } from "../src/types.ts";
 import { PrachtHttpError } from "../src/types.ts";
 
@@ -384,5 +392,59 @@ describe("use()", () => {
     const optional = null as Deferred<string> | null;
     const result: string | null = use(optional);
     expect(result).toBeNull();
+  });
+});
+
+describe("streaming wire metadata", () => {
+  async function settle<T>(value: T): Promise<T> {
+    try {
+      return use(value);
+    } catch (promise) {
+      await promise;
+      return use(value);
+    }
+  }
+
+  it("keeps dotted keys distinct from nested paths", async () => {
+    const { data, pending } = serializeDeferred({
+      "a.b": defer(Promise.resolve("flat")),
+      a: { b: defer(Promise.resolve("nested")) },
+    });
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+    try {
+      const hydrated = rehydrateDeferredData(
+        data,
+        pending.map(({ id, path }) => ({ id, path })),
+      ) as { "a.b": unknown; a: { b: unknown } };
+      const registry = (
+        globals.window as {
+          __PRACHT_DEFER__: { r(id: string, value: unknown): void };
+        }
+      ).__PRACHT_DEFER__;
+      for (const entry of pending) registry.r(entry.id, await entry.promise);
+
+      await expect(settle(hydrated["a.b"])).resolves.toBe("flat");
+      await expect(settle(hydrated.a.b)).resolves.toBe("nested");
+    } finally {
+      if (!hadWindow) delete globals.window;
+    }
+  });
+
+  it("does not interpret user objects as deferred metadata", () => {
+    const userValue = { "$pracht:defer": "ordinary-data" };
+    expect(rehydrateDeferredData(userValue)).toBe(userValue);
+  });
+
+  it("serializes every occurrence of a shared object", () => {
+    const shared = { value: defer(Promise.resolve("ok")) };
+    const { data, pending } = serializeDeferred({ first: shared, second: shared });
+
+    expect(data).toEqual({ first: { value: null }, second: { value: null } });
+    expect(pending.map(({ path }) => path)).toEqual([
+      ["first", "value"],
+      ["second", "value"],
+    ]);
   });
 });

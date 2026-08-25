@@ -85,7 +85,6 @@ async function bundleExport(
           // The streaming renderer is a subpath import (`/stream`), so the
           // bare specifier alone does not externalize it.
           /^preact-render-to-string\//,
-          "preact-suspense",
         ],
         input: publicId,
       },
@@ -149,10 +148,10 @@ describe("published package tree shaking", () => {
       expect(gzipBytes).toBeLessThanOrEqual(9_600);
     });
 
-    it("drops preact-suspense when the app renders no Suspense boundary", async () => {
+    it("drops compat Suspense when the app renders no Suspense boundary", async () => {
       const { code } = await bundleExport("initClientRouter", production);
 
-      expect(code).not.toContain("preact-suspense");
+      expect(code).not.toContain("preact/compat");
     });
 
     it("drops capability revalidation when the app dispatches no capability calls", async () => {
@@ -164,7 +163,7 @@ describe("published package tree shaking", () => {
     it("keeps Suspense hydration tracking reachable from the Suspense export", async () => {
       const { code } = await bundleExport("Suspense");
 
-      expect(code).toContain("preact-suspense");
+      expect(code).toContain("preact/compat");
     });
 
     it("keeps capability revalidation reachable from the dispatch paths", async () => {

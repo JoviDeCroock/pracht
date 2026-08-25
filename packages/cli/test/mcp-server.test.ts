@@ -198,6 +198,7 @@ export const app = defineApp({
           shell: null,
           shellFile: null,
           speculation: null,
+          streaming: null,
         },
       ],
     });

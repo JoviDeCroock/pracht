@@ -26,8 +26,7 @@
 
 import type { VNode } from "preact";
 
-import { DEFER_RUNTIME_SHIM } from "./defer.ts";
-import { escapeScriptText } from "./runtime-html.ts";
+import { escapeHtml, escapeScriptText } from "./runtime-html.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
 
@@ -41,8 +40,8 @@ export interface StreamingHtmlResponseOptions {
   status?: number;
   headers?: HeadersInit;
   /**
-   * Request abort signal. When the client hangs up mid-stream the render is
-   * torn down instead of resolving deferred work nobody will read.
+   * Request abort signal. Once it fires no more bytes are written, and the
+   * renderer is drained after request-scoped deferred work has been aborted.
    */
   signal?: AbortSignal;
   /**
@@ -50,9 +49,11 @@ export interface StreamingHtmlResponseOptions {
    * headers are already committed and no error document can be produced.
    */
   onError?: (error: unknown) => void;
+  /** Abort request-scoped deferred work when the response consumer disconnects. */
+  onCancel?: () => void;
   /**
    * Deferred loader values, written to the client as each settles. Their ids
-   * match the sentinels `serializeDeferred()` put in the hydration state.
+   * match the out-of-band references `serializeDeferred()` recorded.
    */
   pending?: { id: string; promise: Promise<unknown> }[];
   /** CSP nonce for the deferred-data scripts pracht emits. */
@@ -77,6 +78,7 @@ export async function streamingHtmlResponse(
     status = 200,
     signal,
     onError,
+    onCancel,
     pending = [],
     nonce,
   } = options;
@@ -103,19 +105,26 @@ export async function streamingHtmlResponse(
       const reader = rendered.getReader();
 
       const abort = () => {
+        if (closed) return;
         closed = true;
-        reader.cancel().catch(() => {});
+        controller.error(signal?.reason ?? new DOMException("The streaming render was aborted."));
       };
       if (signal) {
         if (signal.aborted) {
-          abort();
-          controller.close();
-          return;
+          closed = true;
+          controller.error(signal.reason ?? new DOMException("The streaming render was aborted."));
+        } else {
+          signal.addEventListener("abort", abort, { once: true });
         }
-        signal.addEventListener("abort", abort, { once: true });
       }
 
-      const scriptOpen = `<script${nonce ? ` nonce="${nonce}"` : ""}>`;
+      const scriptOpen = `<script${nonce ? ` nonce="${escapeHtml(nonce)}"` : ""}>`;
+      const queuedDeferredScripts: string[] = [];
+      let deferChannelReady = pending.length === 0;
+      const writeDeferred = (script: string) => {
+        if (deferChannelReady) write(script);
+        else queuedDeferredScripts.push(script);
+      };
 
       // Each deferred value gets its own script as it settles. Writing them
       // from the promise (rather than after the renderer finishes) is what
@@ -123,7 +132,7 @@ export async function streamingHtmlResponse(
       const deferredWrites = pending.map(({ id, promise }) =>
         promise.then(
           (value) => {
-            write(
+            writeDeferred(
               `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(value) ?? "null")})</script>`,
             );
           },
@@ -132,7 +141,7 @@ export async function streamingHtmlResponse(
             // is already committed -- so a rejection is delivered as data and
             // rendered by the nearest ErrorBoundary.
             const message = error instanceof Error ? error.message : String(error);
-            write(
+            writeDeferred(
               `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify({ message }))})</script>`,
             );
           },
@@ -153,18 +162,33 @@ export async function streamingHtmlResponse(
           if (takeFirstChunk) {
             takeFirstChunk = false;
             // The shim has to exist before any deferred script runs, and the
-            // client runtime is a module script that will not have executed
-            // yet. It is written after the shell so the shell is not delayed.
+            // async client runtime may execute as soon as it is fetched. The
+            // document builder places the shim before that entry script.
             write(afterShell);
-            if (pending.length > 0) write(`${scriptOpen}${DEFER_RUNTIME_SHIM}</script>`);
+            deferChannelReady = true;
+            for (const script of queuedDeferredScripts) write(script);
+            queuedDeferredScripts.length = 0;
           }
+        }
+
+        if (closed) {
+          // The Web renderer exposes no abort hook. Keep consuming its stream
+          // after request-scoped work is aborted so its controller never queues
+          // unbounded chunks or writes into a canceled stream.
+          for (;;) {
+            const { done } = await reader.read();
+            if (done) break;
+          }
+          return;
         }
 
         // A tree with no content at all never produces a chunk, so the shell
         // close-out would otherwise be skipped entirely.
         if (takeFirstChunk) {
           write(afterShell);
-          if (pending.length > 0) write(`${scriptOpen}${DEFER_RUNTIME_SHIM}</script>`);
+          deferChannelReady = true;
+          for (const script of queuedDeferredScripts) write(script);
+          queuedDeferredScripts.length = 0;
         }
 
         // The renderer resolves once every boundary it saw has flushed, but a
@@ -176,6 +200,7 @@ export async function streamingHtmlResponse(
         closed = true;
         controller.close();
       } catch (error) {
+        if (closed) return;
         // Past the first flush the response is committed: the status is sent
         // and no error document is possible. Error the stream so the client
         // sees a truncated response rather than a silently short one.
@@ -184,13 +209,14 @@ export async function streamingHtmlResponse(
         controller.error(error);
       } finally {
         if (signal) signal.removeEventListener("abort", abort);
+        reader.releaseLock();
       }
     },
     cancel() {
-      // Client hung up. Stop the renderer so pending deferred work is dropped,
-      // and stop any in-flight deferred value from writing to a dead stream.
+      // Client hung up. Abort request-scoped work; start() drains the renderer
+      // because preact-render-to-string's Web stream has no abort hook.
       closed = true;
-      rendered.cancel().catch(() => {});
+      onCancel?.();
     },
   });
 

@@ -1,6 +1,6 @@
 /**
  * Hydration suspension tracking — the part of `hydration.ts` that needs
- * `preact-suspense`.
+ * Preact's Suspense implementation.
  *
  * `useIsHydrationComplete()` / `onHydrationComplete()` must not fire while a
  * Suspense boundary is still hydrating, which means counting the promises
@@ -10,18 +10,17 @@
  *
  * The installer is attached to the `Suspense` and `lazy` re-exports through a
  * `/* @__PURE__ *\/` call in `suspense.ts`, so a bundle that never references
- * either export drops this module *and* `preact-suspense` with it.
+ * either export drops this module and the compat Suspense implementation with it.
  */
 
 import { options } from "preact";
-import { Suspense } from "preact-suspense";
 
 import { beginHydrationSuspension, isHydrationPending } from "./hydration.ts";
 
 // Preact internal flag on vnode.__u. Set by the hydrate() diff path on every
 // vnode that is actually hydrating against existing DOM. Fresh mounts and
 // normal re-renders (including Suspense re-renders after a boundary resolves)
-// do NOT carry this bit. Mirrors the check preact-suspense uses.
+// do NOT carry this bit. Mirrors the check Preact's Suspense implementation uses.
 const MODE_HYDRATE = 1 << 5;
 
 let installed = false;
@@ -42,21 +41,14 @@ export function withHydrationSuspenseTracking<T>(value: T): T {
  * Install the counter directly.
  *
  * Anything that wraps `options.__e` and needs to see suspensions must call this
- * first: `preact-suspense` stops the chain at the first Suspense ancestor it
- * finds, so a wrapper installed before it never sees a thrown promise. Ordering
+ * first: Preact's Suspense handler stops the chain at the first boundary it
+ * finds, so a wrapper installed behind it never sees a thrown promise. Ordering
  * used to be implicit — `hydration.ts` ran on import — so the one dev-only
  * caller (`hydration-mismatch.ts`) now asks for it explicitly.
  */
 export function installHydrationSuspenseTracking(): void {
   if (installed) return;
   installed = true;
-
-  // preact-suspense >=0.3 installs its options.__e patch lazily inside the
-  // Suspense constructor. Construct one throwaway instance now so its patch
-  // runs before we capture the chain below — otherwise our wrapper would sit
-  // behind preact-suspense's, which short-circuits on Suspense ancestors and
-  // would never let our suspension counter see hydration promises.
-  new (Suspense as any)({});
 
   // options.__e (_catchError) — count thrown promises that belong to the
   // initial hydration pass. We must NOT count promises thrown from vnodes that

@@ -2,7 +2,7 @@ import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
-import { resolveDeferredData, serializeDeferred } from "./defer.ts";
+import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import {
   OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
@@ -856,7 +856,12 @@ export async function handlePrachtRequest<TContext>(
     match: RouteMatch,
     pageOptions: { isNotFoundPage: boolean; status: number },
   ): Promise<Response> {
-    const requestSignal = AbortSignal.timeout(30_000);
+    const requestAbortController = new AbortController();
+    const requestSignal = AbortSignal.any([
+      AbortSignal.timeout(30_000),
+      options.request.signal,
+      requestAbortController.signal,
+    ]);
     const pageContext = requestContext;
     const routeArgs: BaseRouteArgs<TContext> = {
       request: options.request,
@@ -944,14 +949,14 @@ export async function handlePrachtRequest<TContext>(
         }
 
         // A streamed document is the one path that can serialize a value it
-        // does not have yet: the shell flushes with sentinels and each value
-        // follows on its own channel. Everywhere else -- prerendering, the
+        // does not have yet: the shell flushes with out-of-band references and
+        // each value follows on its own channel. Everywhere else -- prerendering, the
         // buffered document, and the route-state JSON used by client
         // navigation -- resolves first, because a file cannot stream and the
         // JSON transport has no second channel yet.
         const willStream =
           match.route.streaming === true &&
-          match.route.render === "ssr" &&
+          (match.route.render ?? "ssr") === "ssr" &&
           (match.route.hydration ?? "full") === "full" &&
           !isRouteStateRequest;
         let data: unknown;
@@ -1156,9 +1161,18 @@ export async function handlePrachtRequest<TContext>(
               url: requestPath,
               routeId: match.route.id ?? "",
               data: serializedData,
+              deferred: pending.map(({ id, path }) => ({ id, path })),
               error: null,
             },
             clientEntryUrl: options.clientEntryUrl,
+            clientEntryAsync: true,
+            inlineBootstrapScript:
+              pending.length > 0
+                ? {
+                    source: DEFER_RUNTIME_SHIM,
+                    nonce: head.fontNonce,
+                  }
+                : undefined,
             cssUrls,
             modulePreloadUrls,
             speculationRules: getAppSpeculationRules(resolvedApp),
@@ -1178,6 +1192,11 @@ export async function handlePrachtRequest<TContext>(
               // Past the first flush there is no error document to send, so the
               // only remaining job is to make the failure visible server-side.
               console.error("[pracht] streaming render failed after the first flush:", error);
+            },
+            onCancel: () => {
+              requestAbortController.abort(
+                new DOMException("The streaming response consumer disconnected.", "AbortError"),
+              );
             },
           });
         }

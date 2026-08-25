@@ -1,8 +1,7 @@
 import { h } from "preact";
-import { Suspense } from "preact/compat";
 import { describe, expect, it } from "vitest";
 
-import { defer, defineApp, handlePrachtRequest, route, use } from "../src/index.ts";
+import { Suspense, defer, defineApp, handlePrachtRequest, route, use } from "../src/index.ts";
 
 interface Review {
   id: number;
@@ -21,12 +20,6 @@ function ReviewList({ reviews }: { reviews: Review[] }) {
   );
 }
 
-/**
- * `preact/compat`'s Suspense is used here rather than pracht's own re-export:
- * `preact-suspense@0.3.0` cannot stream at all (its `render()` returns a bare
- * Fragment the renderer unwraps, so the boundary is invisible to the streaming
- * error hook). Swap this import once that fix is released.
- */
 function streamingRoute(delayMs = 10) {
   return async () => ({
     loader: async () => ({
@@ -115,6 +108,34 @@ describe("streaming SSR documents", () => {
     expect(html.indexOf('id="pracht-state"')).toBeLessThan(html.indexOf("review-7"));
   });
 
+  it("emits the defer shim before fast values and starts the client entry asynchronously", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      clientEntryUrl: "/assets/client.js",
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({ reviews: defer(Promise.resolve([{ id: 7 }])) }),
+            Component: ({ data }: { data: { reviews: Review[] } }) =>
+              h(
+                Suspense as never,
+                { fallback: h("p", null, "loading") },
+                h(ReviewList, { reviews: data.reviews }),
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    const html = (await readChunks(response)).join("");
+    const shimIndex = html.indexOf("window.__PRACHT_DEFER__=window.__PRACHT_DEFER__");
+    const valueIndex = html.indexOf('window.__PRACHT_DEFER__.r("0:reviews"');
+    expect(shimIndex).toBeGreaterThan(-1);
+    expect(valueIndex).toBeGreaterThan(shimIndex);
+    expect(html).toContain('<script type="module" async src="/assets/client.js"></script>');
+  });
+
   it("produces the same final markup as the buffered renderer", async () => {
     const registry = { routeModules: { "./routes/product.tsx": streamingRoute() } };
 
@@ -157,26 +178,44 @@ describe("streaming SSR documents", () => {
   });
 
   it("stops rendering when the client hangs up", async () => {
-    const controller = new AbortController();
+    let loaderSignal: AbortSignal | undefined;
     const response = await handlePrachtRequest({
       app: streamingApp(),
-      registry: { routeModules: { "./routes/product.tsx": streamingRoute(50) } },
-      request: new Request("http://localhost/product", { signal: controller.signal }),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async ({ signal }: { signal: AbortSignal }) => {
+              loaderSignal = signal;
+              return {
+                reviews: defer(
+                  new Promise<Review[]>((_, reject) => {
+                    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+                  }),
+                ),
+              };
+            },
+            Component: ({ data }: { data: { reviews: Review[] } }) =>
+              h(
+                Suspense as never,
+                { fallback: h("p", null, "loading") },
+                h(ReviewList, { reviews: data.reviews }),
+              ),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
     });
 
     const reader = response.body!.getReader();
     await reader.read();
-    controller.abort();
     await reader.cancel();
 
-    // Nothing to assert beyond "this terminates rather than hanging"; the
-    // regression it guards is a stream that never closes after an abort.
-    expect(true).toBe(true);
+    expect(loaderSignal?.aborted).toBe(true);
   });
 });
 
 describe("streaming deferred wire format", () => {
-  it("serializes a deferred field as a sentinel rather than an empty object", async () => {
+  it("serializes a deferred field as an out-of-band reference", async () => {
     const response = await handlePrachtRequest({
       app: streamingApp(),
       registry: { routeModules: { "./routes/product.tsx": streamingRoute() } },
@@ -186,11 +225,10 @@ describe("streaming deferred wire format", () => {
     const html = (await readChunks(response)).join("");
     const state = JSON.parse(
       html.match(/<script id="pracht-state" type="application\/json">([\s\S]*?)<\/script>/)![1],
-    ) as { data: { reviews: { "$pracht:defer": string } } };
+    ) as { data: { reviews: null }; deferred: Array<{ id: string; path: string[] }> };
 
-    // The regression this guards is JSON.stringify turning an unresolved
-    // Deferred into `{}` and the client hydrating against nothing.
-    expect(state.data.reviews).toEqual({ "$pracht:defer": "reviews" });
+    expect(state.data.reviews).toBeNull();
+    expect(state.deferred).toEqual([{ id: "0:reviews", path: ["reviews"] }]);
   });
 
   it("delivers the value on the defer channel", async () => {
@@ -202,7 +240,7 @@ describe("streaming deferred wire format", () => {
 
     const html = (await readChunks(response)).join("");
     expect(html).toContain("window.__PRACHT_DEFER__");
-    expect(html).toContain('__PRACHT_DEFER__.r("reviews"');
+    expect(html).toContain('__PRACHT_DEFER__.r("0:reviews"');
     expect(html).toContain('{"id":7}');
   });
 
@@ -231,7 +269,7 @@ describe("streaming deferred wire format", () => {
     // stays 200 and the error travels as data.
     expect(response.status).toBe(200);
     const html = (await readChunks(response)).join("");
-    expect(html).toContain('__PRACHT_DEFER__.e("reviews"');
+    expect(html).toContain('__PRACHT_DEFER__.e("0:reviews"');
     expect(html).toContain("upstream 500");
   });
 
@@ -243,14 +281,15 @@ describe("streaming deferred wire format", () => {
     });
     expect(wire).toEqual({
       product: { name: "Widget" },
-      reviews: { "$pracht:defer": "reviews" },
+      reviews: null,
     });
 
     const globals = globalThis as { window?: unknown };
     const hadWindow = "window" in globals;
     globals.window = globals.window ?? {};
     try {
-      const rehydrated = rehydrateDeferredData(wire) as { reviews: unknown };
+      const references = pending.map(({ id, path }) => ({ id, path }));
+      const rehydrated = rehydrateDeferredData(wire, references) as { reviews: unknown };
       const registry = (globals.window as { __PRACHT_DEFER__: { r(id: string, v: unknown): void } })
         .__PRACHT_DEFER__;
       registry.r(pending[0].id, await pending[0].promise);
@@ -306,5 +345,19 @@ describe("streaming route validation", () => {
       }),
     );
     expect(app.routes[0].streaming).toBe(true);
+  });
+
+  it("streams routes whose omitted render mode defaults to SSR", async () => {
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        routes: [route("/product", "./routes/product.tsx", { streaming: true })],
+      }),
+      registry: { routeModules: { "./routes/product.tsx": streamingRoute() } },
+      request: new Request("http://localhost/product"),
+    });
+
+    const chunks = await readChunks(response);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join("")).toContain("loading");
   });
 });

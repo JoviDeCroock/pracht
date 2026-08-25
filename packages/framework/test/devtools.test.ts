@@ -52,6 +52,7 @@ const graphFixture: AppGraph = {
       shell: "public",
       shellFile: "./shells/public.tsx",
       speculation: null,
+      streaming: null,
     },
     {
       file: "./routes/user.tsx",
@@ -67,6 +68,7 @@ const graphFixture: AppGraph = {
       shell: null,
       shellFile: null,
       speculation: "prefetch",
+      streaming: null,
     },
   ],
 };
@@ -132,6 +134,7 @@ describe("buildDevtoolsHtml", () => {
           shell: null,
           shellFile: null,
           speculation: null,
+          streaming: null,
         },
       ],
     });
@@ -157,6 +160,7 @@ describe("buildDevtoolsHtml", () => {
         shell: "public",
         shellFile: "./shells/public.tsx",
         speculation: null,
+        streaming: null,
       },
     });
 
@@ -809,6 +813,7 @@ describe("buildAppGraph", () => {
           shell: "public",
           shellFile: "./shells/public.tsx",
           speculation: { eagerness: "eager", mode: "prerender" },
+          streaming: null,
         },
         {
           file: "./routes/user.tsx",
@@ -824,6 +829,7 @@ describe("buildAppGraph", () => {
           shell: null,
           shellFile: null,
           speculation: null,
+          streaming: null,
         },
       ],
     });
@@ -1247,6 +1253,7 @@ describe("serializeAppRoutes", () => {
       shell: null,
       shellFile: null,
       speculation: null,
+      streaming: null,
     });
   });
 });

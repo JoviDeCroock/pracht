@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { h, render } from "preact";
-import { Suspense } from "preact-suspense";
+import { Suspense } from "../src/suspense.ts";
 import { describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary } from "../src/error-boundary.ts";

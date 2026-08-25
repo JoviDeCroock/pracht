@@ -224,8 +224,9 @@ With it on, the response is written in this order:
 2. The shell: the tree with every unresolved `<Suspense>` boundary showing its
    fallback.
 3. The hydration state and the client entry script, so hydration can begin
-   while boundaries are still outstanding. Deferred fields appear in the state
-   as `{"$pracht:defer": "<field path>"}` sentinels.
+   while boundaries are still outstanding. Exact deferred locations travel as
+   framework metadata beside the user-owned loader data, so no user object
+   shape or property name is reserved by the wire format.
 4. Each deferred value as it settles — the resolved markup from the renderer,
    plus a small script carrying the data so the client has it too.
 5. `</body></html>`.
@@ -268,8 +269,7 @@ part of why streaming is opt-in.
   value whose whole point is arriving late.
 - **On Preact 10, a `<Suspense>` boundary that suspends must resolve to exactly
   one DOM element** — not `null`, not a multi-child fragment. This constraint
-  goes away with Preact 11's hydration rework. It does not bite today, because
-  nothing streams yet, but write boundaries to that shape now.
+  goes away with Preact 11's hydration rework.
 - Pass the un-awaited call. `defer(await getReviews(id))` throws, because it
   defeats the point silently.
 - Return the marker from an enumerable data property. A deferred value hidden

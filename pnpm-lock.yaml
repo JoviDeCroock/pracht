@@ -423,9 +423,6 @@ importers:
       preact-render-to-string:
         specifier: ^6.0.0
         version: 6.6.7(preact@10.29.1)
-      preact-suspense:
-        specifier: ^0.3.0
-        version: 0.3.0(preact@10.29.1)
 
   packages/i18n:
     dependencies:
@@ -2883,11 +2880,6 @@ packages:
     resolution: {integrity: sha512-3XdbsX3+vn9dQW+jJI/FsI9rlkgl6dbeUpqLsChak6jp3j3auFqBCkno7VChbMFs5Q8ylBj6DrUkKRwtVN3nvw==}
     peerDependencies:
       preact: '>=10 || >= 11.0.0-0'
-
-  preact-suspense@0.3.0:
-    resolution: {integrity: sha512-mKcwdDwvpEtRQ8dG8eNN2//GRxP84bI6q+j4D+WVkF8fSc7Aikk3sAhCj6SpGG8gyFUxE+Nu5ej6vqzPFqe8dg==}
-    peerDependencies:
-      preact: ^10.0.0
 
   preact@10.29.1:
     resolution: {integrity: sha512-gQCLc/vWroE8lIpleXtdJhTFDogTdZG9AjMUpVkDf2iTCNwYNWA+u16dL41TqUDJO4gm2IgrcMv3uTpjd4Pwmg==}
@@ -5422,10 +5414,6 @@ snapshots:
       source-map-js: 1.2.1
 
   preact-render-to-string@6.6.7(preact@10.29.1):
-    dependencies:
-      preact: 10.29.1
-
-  preact-suspense@0.3.0(preact@10.29.1):
     dependencies:
       preact: 10.29.1
 

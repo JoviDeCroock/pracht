@@ -18,12 +18,11 @@
  * the object keeps its shape, the type records exactly which fields defer, and
  * a route that calls `defer()` nowhere serializes byte-identically to before.
  *
- * Today every path resolves deferred values before the response is written —
- * `resolveDeferredData()` is called once, at the single loader call site in
- * `runtime.ts`. The authoring API is the finished one: when the streaming
- * renderer lands, `render: "ssr"` starts flushing the shell before these
- * settle and no route source has to change. `use()` already accepts a settled
- * value, a `Deferred`, or a bare promise for exactly that reason.
+ * Buffered documents and route-state responses resolve deferred values before
+ * writing. An SSR route with `streaming: true` instead flushes its shell and
+ * delivers the deferred values as they settle. The component API is identical
+ * on both paths: `use()` accepts a settled value, a `Deferred`, or a bare
+ * promise.
  *
  * Note that `ssg` and `isg` write files and therefore always resolve
  * everything — a static file cannot stream, and shipping fallback markup as
@@ -149,8 +148,8 @@ type SettledState<T> =
 const settled = new WeakMap<Promise<unknown>, SettledState<unknown>>();
 
 /**
- * Throw-until-settled, the shape `preact-suspense` and
- * `preact-render-to-string` both already understand.
+ * Throw-until-settled, the shape Preact Suspense and
+ * `preact-render-to-string` both understand.
  */
 function readSettled<T>(promise: Promise<T>): T {
   let state = settled.get(promise) as SettledState<T> | undefined;
@@ -318,75 +317,77 @@ function deferredSerializationError(): TypeError {
 /* -------------------------------------------------------------------------- *
  * Wire format
  *
- * A streamed document cannot serialize a value that has not settled, so each
- * unresolved `Deferred` is written into the hydration state as a sentinel and
- * its value follows later on its own channel. Both the HTML stream and (later)
- * the route-state response use the same sentinel and the same client registry,
- * so the two transports cannot drift.
+ * A streamed document cannot serialize a value that has not settled. The
+ * hydration state therefore carries null placeholders in `data` plus an
+ * out-of-band list of exact paths to replace with Deferred values. Keeping the
+ * metadata outside user data avoids reserving a magic object shape, while path
+ * segment arrays preserve keys containing dots, slashes, or numeric strings.
  * -------------------------------------------------------------------------- */
 
-/** Marks a deferred hole in serialized loader data. */
-export const DEFER_SENTINEL_KEY = "$pracht:defer";
+export type DeferredPathSegment = string | number;
 
-interface DeferSentinel {
-  [DEFER_SENTINEL_KEY]: string;
+export interface DeferredHydrationReference {
+  id: string;
+  path: DeferredPathSegment[];
 }
 
 export interface SerializedDeferred {
-  /** Loader data with each unresolved `Deferred` replaced by a sentinel. */
+  /** Loader data with each unresolved `Deferred` replaced by `null`. */
   data: unknown;
-  /** The deferred values, keyed by the id written into the sentinel. */
-  pending: { id: string; promise: Promise<unknown> }[];
-}
-
-function isDeferSentinel(value: unknown): value is DeferSentinel {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as DeferSentinel)[DEFER_SENTINEL_KEY] === "string"
-  );
+  /** Deferred values and the exact hydration-state locations they replace. */
+  pending: Array<DeferredHydrationReference & { promise: Promise<unknown> }>;
 }
 
 /**
- * Replace every `Deferred` with a sentinel, collecting the promises.
- *
- * Ids are the value's path in the loader result (`reviews`, `a.b.0.c`), which
- * keeps them stable and debuggable — a stuck boundary names the field it came
- * from rather than an opaque counter.
+ * Replace every `Deferred` with `null`, collecting its promise and exact path.
+ * IDs include a deterministic counter plus a readable path for diagnostics;
+ * the counter makes them unique even when user keys render alike.
  */
 export function serializeDeferred(data: unknown): SerializedDeferred {
-  const pending: { id: string; promise: Promise<unknown> }[] = [];
+  const pending: Array<DeferredHydrationReference & { promise: Promise<unknown> }> = [];
 
-  const walk = (value: unknown, path: string, seen: Set<object>): unknown => {
+  const walk = (value: unknown, path: DeferredPathSegment[], ancestors: Set<object>): unknown => {
     if (isDeferred(value)) {
-      pending.push({ id: path, promise: (value as unknown as DeferredBox<unknown>).promise() });
-      return { [DEFER_SENTINEL_KEY]: path };
+      const label = path.length === 0 ? "root" : path.map(String).join(".");
+      const id = `${pending.length}:${label}`;
+      pending.push({
+        id,
+        path: [...path],
+        promise: (value as unknown as DeferredBox<unknown>).promise(),
+      });
+      return null;
     }
     if (typeof value !== "object" || value === null) return value;
-    if (seen.has(value)) return value;
-    seen.add(value);
+    if (ancestors.has(value)) return value;
+    ancestors.add(value);
 
     if (Array.isArray(value)) {
-      return value.map((entry, i) => walk(entry, path ? `${path}.${i}` : String(i), seen));
+      const next = value.map((entry, index) => walk(entry, [...path, index], ancestors));
+      ancestors.delete(value);
+      return next;
     }
-    if (!isPlainObject(value)) return value;
+    if (!isPlainObject(value)) {
+      ancestors.delete(value);
+      return value;
+    }
 
     const next: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
-      next[key] = walk(entry, path ? `${path}.${key}` : key, seen);
+      next[key] = walk(entry, [...path, key], ancestors);
     }
+    ancestors.delete(value);
     return next;
   };
 
-  return { data: walk(data, "", new Set()), pending };
+  return { data: walk(data, [], new Set()), pending };
 }
 
 /**
  * The inline shim written before any deferred chunk.
  *
- * The client runtime is a module script and therefore deferred until the
- * document has parsed, so every `r`/`e` call in the stream lands before the
- * real registry exists. The shim queues them for it to drain.
+ * The streamed client runtime is an async module, so a deferred chunk can land
+ * before or after the real registry installs. The shim is emitted first and
+ * queues early `r`/`e` calls for the registry to drain.
  */
 export const DEFER_RUNTIME_SHIM =
   "window.__PRACHT_DEFER__=window.__PRACHT_DEFER__||{q:[]," +
@@ -454,44 +455,39 @@ export function installDeferRegistry(): void {
 }
 
 /**
- * Replace sentinels in hydrated loader data with `Deferred` values.
+ * Replace the out-of-band deferred locations in hydrated loader data.
  *
- * Returns the input by reference when it holds no sentinel, so a route that
- * defers nothing pays nothing.
+ * Returns the input by reference when there are no references, so a route that
+ * defers nothing pays nothing. The input comes directly from `JSON.parse`, so
+ * replacing its placeholder values in place cannot mutate application state.
  */
-export function rehydrateDeferredData<T>(data: T): T {
-  if (!containsSentinel(data)) return data;
+export function rehydrateDeferredData<T>(
+  data: T,
+  references: readonly DeferredHydrationReference[] = [],
+): T {
+  if (references.length === 0) return data;
   installDeferRegistry();
 
-  const walk = (value: unknown, seen: Set<object>): unknown => {
-    if (isDeferSentinel(value)) {
-      const id = value[DEFER_SENTINEL_KEY];
-      const entry = getClientEntry(id);
-      return defer(() => entry.promise);
+  let result: unknown = data;
+  for (const { id, path } of references) {
+    const replacement = defer(() => getClientEntry(id).promise);
+    if (path.length === 0) {
+      result = replacement;
+      continue;
     }
-    if (typeof value !== "object" || value === null) return value;
-    if (seen.has(value)) return value;
-    seen.add(value);
-    if (Array.isArray(value)) return value.map((entry) => walk(entry, seen));
-    if (!isPlainObject(value)) return value;
-    const next: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) next[key] = walk(entry, seen);
-    return next;
-  };
 
-  return walk(data, new Set()) as T;
-}
-
-function containsSentinel(value: unknown, seen = new Set<object>()): boolean {
-  if (isDeferSentinel(value)) return true;
-  if (typeof value !== "object" || value === null) return false;
-  if (seen.has(value)) return false;
-  seen.add(value);
-  if (Array.isArray(value)) {
-    for (const entry of value) if (containsSentinel(entry, seen)) return true;
-    return false;
+    let parent: unknown = result;
+    for (let index = 0; index < path.length - 1; index += 1) {
+      if (typeof parent !== "object" || parent === null) {
+        throw new Error(`Invalid deferred hydration path for ${JSON.stringify(id)}.`);
+      }
+      parent = (parent as Record<DeferredPathSegment, unknown>)[path[index]];
+    }
+    if (typeof parent !== "object" || parent === null) {
+      throw new Error(`Invalid deferred hydration path for ${JSON.stringify(id)}.`);
+    }
+    (parent as Record<DeferredPathSegment, unknown>)[path[path.length - 1]] = replacement;
   }
-  if (!isPlainObject(value)) return false;
-  for (const entry of Object.values(value)) if (containsSentinel(entry, seen)) return true;
-  return false;
+
+  return result as T;
 }

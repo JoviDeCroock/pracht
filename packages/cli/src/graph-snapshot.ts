@@ -157,7 +157,9 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
   const normalized: GraphSnapshot = {
     prachtGraphVersion: snapshot.prachtGraphVersion,
     mode: snapshot.mode,
-    routes: [...snapshot.routes].sort((left, right) => left.path.localeCompare(right.path)),
+    routes: snapshot.routes
+      .map((route) => ({ ...route, streaming: route.streaming ?? null }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
     api: [...snapshot.api].sort((left, right) => left.path.localeCompare(right.path)),
     capabilities: [...(snapshot.capabilities ?? [])].sort((left, right) =>
       left.name.localeCompare(right.name),
@@ -374,6 +376,7 @@ const ROUTE_DIFF_FIELDS = [
   "file",
   "loaderFile",
   "loaderCache",
+  "streaming",
   "markdown",
   "revalidate",
   "id",
@@ -949,6 +952,7 @@ export function formatPlanMarkdown(diff: GraphDiff, options: FormatPlanOptions):
 function describeRoute(route: AppGraphRoute): string {
   const parts = [`render=${route.render ?? "default"}`];
   if (route.hydration) parts.push(`hydration=${route.hydration}`);
+  if (route.streaming) parts.push("streaming=true");
   parts.push(`shell=${route.shell ?? "none"}`);
   parts.push(`middleware=[${route.middleware.join(", ")}]`);
   if (route.markdown) parts.push("markdown=true");

@@ -40,7 +40,7 @@ export function installHydrationMismatchWarning(): void {
   if (installed) return;
   installed = true;
 
-  // Put the suspense chain in place before capturing `__e`. `preact-suspense`
+  // Put the suspense chain in place before capturing `__e`. Preact Suspense
   // short-circuits once it finds a Suspense ancestor, so this wrapper only sees
   // suspending vnodes while it sits above it. Dev-only, like this whole module:
   // production builds drop the call along with the rest of the file.
@@ -105,7 +105,7 @@ function currentVNode(vnode: InternalVNode): InternalVNode {
   return vnode.__c?.__v ?? vnode;
 }
 
-// preact-suspense's `lazy()` returns a function component with
+// Preact's `lazy()` returns a function component with
 // `displayName === "Lazy"` that renders exactly one child — the resolved
 // user component. The lazy wrapper is the vnode that threw, so it's also
 // the vnode we captured in __e; for reporting we'd rather show the user's

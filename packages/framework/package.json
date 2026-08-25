@@ -93,8 +93,7 @@
   },
   "dependencies": {
     "@pracht/capabilities": "workspace:*",
-    "@standard-schema/spec": "^1.0.0",
-    "preact-suspense": "^0.3.0"
+    "@standard-schema/spec": "^1.0.0"
   },
   "peerDependencies": {
     "preact": "^10.0.0 || ^11.0.0-0",

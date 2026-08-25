@@ -201,8 +201,10 @@ The response is written in this order:
 1. The document head and the opening root element, before the tree renders at
    all, so stylesheets and preloads start downloading while loaders run.
 2. The shell, with every unresolved boundary showing its fallback.
-3. The hydration state and client entry, so hydration can start while
-   boundaries are still outstanding.
+3. The hydration state, defer-channel bootstrap, and async client entry, so
+   hydration can start while boundaries are still outstanding. Deferred
+   locations live in framework metadata beside the loader data; no user object
+   shape or property name is reserved.
 4. Each deferred value as it settles.
 5. The closing tags.
 
