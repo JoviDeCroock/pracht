@@ -9,7 +9,7 @@
     "deploy:cloudflare": "pnpm build:cloudflare && wrangler deploy",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "typegen": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=node -- typegen",
-    "typegen:check": "pnpm typegen:check:node && pnpm typegen:check:cloudflare && pnpm typegen:check:netlify && pnpm typegen:check:vercel",
+    "typegen:check": "node ../../scripts/run-parallel.mjs . typegen:check:node typegen:check:cloudflare typegen:check:netlify typegen:check:vercel",
     "typegen:check:node": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=node -- typegen --check",
     "typegen:check:cloudflare": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=cloudflare -- typegen --check",
     "typegen:check:netlify": "node ../../scripts/run-pracht.mjs PRACHT_ADAPTER=netlify -- typegen --check",

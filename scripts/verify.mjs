@@ -2,15 +2,22 @@
 // overlapping. Sequential `build && format && lint && typecheck && test && e2e`
 // spends most of its wall clock waiting on one core.
 //
-// `typecheck` runs beside the test suites because it is a single long tsc pass
-// that asserts nothing about timing. `test` and `e2e` do NOT run beside each
-// other: both already saturate every core, and some E2E specs assert on a
-// pending state that lasts a few hundred milliseconds against a 5s timeout.
-// Racing them turns those into flakes for no wall-clock gain.
+// The suite is CPU-bound, not scheduling-bound: on a ten-core machine the wall
+// clock tracks total work far more closely than it tracks the shape of the
+// dependency graph. So the two things that matter are not doing work twice
+// (`scripts/build.mjs` and `scripts/typecheck.mjs` are both incremental) and
+// not leaving cores idle.
 //
-//   node scripts/verify.mjs              build, then format/lint, then checks
-//   node scripts/verify.mjs --skip-build reuse the dist/ from a previous build
-//   node scripts/verify.mjs --skip-e2e   unit tests only (no browser needed)
+// Typecheck, the example's generated-type check, and the unit tests all run
+// together: none of them asserts anything about timing. `test` and `e2e` do NOT
+// run beside each other. Both already saturate every core, and some E2E specs
+// assert on a pending state that lasts a few hundred milliseconds against a 5s
+// timeout. Racing them turns those into flakes for no wall-clock gain.
+//
+//   node scripts/verify.mjs               build, then format/lint, then checks
+//   node scripts/verify.mjs --skip-build  reuse the dist/ from a previous build
+//   node scripts/verify.mjs --force-build rebuild every package, cache or not
+//   node scripts/verify.mjs --skip-e2e    unit tests only (no browser needed)
 //
 // Formatting runs before the checks rather than beside them: oxfmt and oxlint
 // rewrite files in place, and rewriting sources under a running test process
@@ -22,10 +29,12 @@ import { dirname, resolve } from "node:path";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
 const skipBuild = args.has("--skip-build");
+const forceBuild = args.has("--force-build");
 const skipE2e = args.has("--skip-e2e");
+const startedAt = Date.now();
 
 function run(name, command, commandArgs) {
-  const startedAt = Date.now();
+  const taskStartedAt = Date.now();
   return new Promise((resolveTask) => {
     const child = spawn(command, commandArgs, {
       cwd: repoRoot,
@@ -51,11 +60,13 @@ function run(name, command, commandArgs) {
         name,
         ok: code === 0,
         output,
-        seconds: (Date.now() - startedAt) / 1000,
+        seconds: (Date.now() - taskStartedAt) / 1000,
       });
     });
   });
 }
+
+const results = [];
 
 function report(result) {
   const status = result.ok ? "PASS" : "FAIL";
@@ -64,70 +75,56 @@ function report(result) {
   if (!result.ok || process.env.VERIFY_VERBOSE) {
     console.log(result.output.trimEnd());
   }
+  results.push(result);
   return result;
 }
 
-const results = [];
+const ok = () => results.every((result) => result.ok);
+
+/** Report each task the moment it settles, so a long group still shows progress. */
+function reportAsSettled(tasks) {
+  return Promise.all(tasks.map((task) => task.then(report)));
+}
 
 // 1. Build. The CLI tests compile against packages/*/dist, so a stale build
 //    fails (or passes) for reasons that have nothing to do with the change.
+//    scripts/build.mjs rebuilds only the packages whose inputs changed, so this
+//    is close to free on the common "edited one package" run.
 if (!skipBuild) {
-  results.push(report(await run("build", "pnpm", ["run", "build"])));
+  report(await run("build", "node", ["./scripts/build.mjs", ...(forceBuild ? ["--force"] : [])]));
 }
 
 // 2. Formatters, which mutate the tree.
-if (results.every((result) => result.ok)) {
-  results.push(report(await run("format", "pnpm", ["run", "format"])));
-  results.push(report(await run("lint", "pnpm", ["run", "lint"])));
+if (ok()) {
+  report(await run("format", "pnpm", ["run", "format"]));
+}
+if (ok()) {
+  report(await run("lint", "pnpm", ["run", "lint"]));
 }
 
-// 3. Check the canonical basic example before the workspace-wide checks.
-if (results.every((result) => result.ok)) {
-  // Type generation reads the app graph through Vite, and its output is an
-  // input to the example's dedicated TypeScript program.
-  results.push(
-    report(
-      await run("basic generated types", "pnpm", [
-        "--dir",
-        "examples/basic",
-        "run",
-        "typegen:check",
-      ]),
-    ),
-  );
-  if (results.every((result) => result.ok)) {
-    results.push(
-      report(
-        await run("basic generated typecheck", "pnpm", [
-          "--dir",
-          "examples/basic",
-          "run",
-          "typecheck",
-        ]),
-      ),
-    );
-  }
+// 3. Every check that only reads the tree, together. Type generation reads the
+//    app graph through Vite; in `--check` mode it writes nothing, so it does
+//    not race the TypeScript program that consumes its committed output.
+if (ok()) {
+  await reportAsSettled([
+    run("typecheck", "node", ["./scripts/typecheck.mjs"]),
+    run("basic generated types", "pnpm", ["--dir", "examples/basic", "run", "typegen:check"]),
+    run("test", "pnpm", ["run", "test"]),
+  ]);
 }
 
-// 4. Typecheck alongside the test suites, which run one after the other.
-if (results.every((result) => result.ok)) {
-  const suites = (async () => {
-    const finished = [run("test", "pnpm", ["run", "test"])];
-    if (!skipE2e && (await finished[0]).ok) {
-      finished.push(run("e2e", "pnpm", ["run", "e2e"]));
-    }
-    return Promise.all(finished);
-  })();
-
-  const typecheck = run("typecheck", "pnpm", ["run", "typecheck"]);
-  for (const result of [await typecheck, ...(await suites)]) {
-    results.push(report(result));
-  }
+// 4. E2E last and alone: it needs the whole machine to stay off the timing
+//    assertions described above.
+if (ok() && !skipE2e) {
+  report(await run("e2e", "pnpm", ["run", "e2e"]));
 }
 
 const failed = results.filter((result) => !result.ok);
-const total = results.reduce((sum, result) => sum + result.seconds, 0);
+const work = results.reduce((sum, result) => sum + result.seconds, 0);
+const wall = (Date.now() - startedAt) / 1000;
 console.log(
-  `\n${"=".repeat(60)}\n${failed.length === 0 ? "verify passed" : `verify failed: ${failed.map((result) => result.name).join(", ")}`} (${total.toFixed(1)}s of work)`,
+  `\n${"=".repeat(60)}\n${
+    failed.length === 0 ? "verify passed" : `verify failed: ${failed.map((r) => r.name).join(", ")}`
+  } (${wall.toFixed(1)}s wall, ${work.toFixed(1)}s of work)`,
 );
 process.exit(failed.length === 0 ? 0 : 1);
