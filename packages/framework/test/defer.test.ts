@@ -77,6 +77,19 @@ describe("resolveDeferredData()", () => {
     });
   });
 
+  it("continues resolving deferred values inside a deferred result", async () => {
+    const data = {
+      section: defer(
+        deferredLater({
+          items: [defer(deferredLater("a"))],
+        }),
+      ),
+    };
+    expect(await resolveDeferredData(data)).toEqual({
+      section: { items: ["a"] },
+    });
+  });
+
   it("resolves independent fields concurrently, not in series", async () => {
     const data = {
       a: defer(deferredLater("a", 40)),

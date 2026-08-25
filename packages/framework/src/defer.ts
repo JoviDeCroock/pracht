@@ -177,7 +177,8 @@ function containsDeferred(value: unknown, seen = new Set<object>()): boolean {
 
 async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise<unknown> {
   if (isDeferred(value)) {
-    return await (value as unknown as DeferredBox<unknown>).promise();
+    const resolved = await (value as unknown as DeferredBox<unknown>).promise();
+    return await resolveValue(resolved, seen);
   }
   if (typeof value !== "object" || value === null) return value;
 
