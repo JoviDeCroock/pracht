@@ -141,9 +141,10 @@ import { defer } from "@pracht/core";
 import type { LoaderArgs } from "@pracht/core";
 
 export async function loader({ params }: LoaderArgs) {
+  const reviews = defer(getReviews(params.id));
   return {
-    product: await getProduct(params.id),   // awaited
-    reviews: defer(getReviews(params.id)),  // deferred
+    product: await getProduct(params.id), // overlaps with reviews
+    reviews,
   };
 }
 ```

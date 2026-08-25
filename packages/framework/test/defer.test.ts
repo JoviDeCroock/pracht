@@ -18,6 +18,23 @@ describe("defer()", () => {
     expect(settled).toBe(false);
   });
 
+  it("observes an eager rejection until the marker is read", async () => {
+    const error = new Error("upstream 500");
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      const marked = defer(Promise.reject(error));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(unhandled).toEqual([]);
+      await expect(resolveDeferredData({ reviews: marked })).rejects.toBe(error);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("does not start a thunk until the value is read", async () => {
     const work = vi.fn(async () => "reviews");
     const marked = defer(work);

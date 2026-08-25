@@ -6,9 +6,10 @@
  *
  * ```ts
  * export async function loader({ params }: LoaderArgs) {
+ *   const reviews = defer(getReviews(params.id));
  *   return {
- *     product: await getProduct(params.id),   // blocks
- *     reviews: defer(getReviews(params.id)),  // does not
+ *     product: await getProduct(params.id), // overlaps with reviews
+ *     reviews,
  *   };
  * }
  * ```
@@ -69,11 +70,19 @@ export function defer<T>(source: Promise<T> | (() => Promise<T>)): Deferred<T> {
   }
 
   let started: Promise<T> | undefined;
+  if (typeof source !== "function") {
+    started = Promise.resolve(source);
+    // A loader can keep awaiting blocking data after it creates this marker.
+    // Observe eager rejections immediately so Node does not treat them as
+    // unhandled before the runtime reaches resolveDeferredData(). The original
+    // promise remains rejected and still surfaces when the value is read.
+    void started.catch(() => {});
+  }
   const box: DeferredBox<T> = {
     [DEFERRED]: true,
     promise() {
       if (!started) {
-        started = typeof source === "function" ? (async () => source())() : Promise.resolve(source);
+        started = (async () => (source as () => Promise<T>)())();
       }
       return started;
     },
