@@ -13,6 +13,7 @@ import {
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
 import {
+  createRouteHeadersHints,
   createRouteHeadHints,
   createRouteLoaderHints,
   createRouteStaticPathsHints,
@@ -273,7 +274,7 @@ export function createPrachtClientModuleSource(
     "  });",
     "}",
     "",
-    "// A route module's loader, head, headers, and getStaticPaths are stripped",
+    "// A route module's loader, head, and getStaticPaths are stripped",
     "// out of the browser copy, so Fast Refresh patching the component in place",
     "// leaves the page holding data the server would no longer send. The dev",
     "// server says when that happened; re-fetching route state is what the full",
@@ -554,6 +555,41 @@ export function createRouteHeadHintsForVirtualModules(
     {},
     ...directories.map(([prefix, directory]) =>
       createRouteHeadHints(directory, {
+        additionalExtensions: options.additionalExtensions,
+        appFileDir,
+        rootRelativePrefix: prefix,
+      }),
+    ),
+  );
+}
+
+export function createRouteHeadersHintsForVirtualModules(
+  options: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): Record<string, boolean> {
+  if (options.pagesDir) {
+    const pages = scanPagesDirectory(
+      resolve(root, options.pagesDir.slice(1)),
+      options.additionalExtensions,
+    );
+    const hints: Record<string, boolean> = {};
+    for (const page of pages) {
+      const key = `${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`;
+      hints[key] = !!page.hasHeaders;
+    }
+    return hints;
+  }
+
+  const appFileAbs = resolve(root, options.appFile.slice(1));
+  const appFileDir = dirname(appFileAbs);
+  const directories = [
+    [options.routesDir, resolve(root, options.routesDir.slice(1))] as const,
+    [options.shellsDir, resolve(root, options.shellsDir.slice(1))] as const,
+  ];
+  return Object.assign(
+    {},
+    ...directories.map(([prefix, directory]) =>
+      createRouteHeadersHints(directory, {
         additionalExtensions: options.additionalExtensions,
         appFileDir,
         rootRelativePrefix: prefix,

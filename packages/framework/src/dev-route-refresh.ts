@@ -10,10 +10,12 @@
  * route edit reloaded the document, which fetched the new data as a side
  * effect.
  *
- * Re-fetching route state gives back what the reload delivered without giving
- * up what Fast Refresh bought. `head()` output is deliberately not re-applied:
- * head metadata is server-rendered and does not follow the client router, and
- * dev matching production matters more than a fresh `<title>` here.
+ * Re-fetching route state gives back loader data and font state without giving
+ * up what Fast Refresh bought. Modules that own document `headers()` reload
+ * instead because a fetch cannot update the active document's response
+ * headers. Other `head()` output is deliberately not re-applied: head metadata
+ * is server-rendered and does not follow the client router, and dev matching
+ * production matters more than a fresh `<title>` here.
  *
  * The listener is installed by the generated client entry (the only module in
  * the graph with an `import.meta.hot` of its own), and the whole path is dead
@@ -32,11 +34,15 @@ export const DEV_ROUTE_DATA_STALE_EVENT = "pracht:route-data-stale";
  * @internal Called by the generated client entry's HMR listener.
  */
 export function refreshDevRouteData(): void {
+  let reloadRequested = false;
   for (const runtime of getMountedRuntimes()) {
     void revalidateRouteData(runtime).catch(() => {
-      // A loader mid-edit throws as often as not. The error already reaches
-      // the developer through the dev server's own response; failing the
-      // refresh must not take the page down with it.
+      // A route that is no longer current cannot own the visible error. For an
+      // active route, reload so a loader failure, not-found response, or error
+      // boundary is rendered exactly as it was before route Fast Refresh.
+      if (runtime.isCurrent?.() === false || reloadRequested) return;
+      reloadRequested = true;
+      window.location.reload();
     });
   }
 }

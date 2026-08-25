@@ -42,6 +42,7 @@ import {
   createPrachtClientModuleSource,
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
+  createRouteHeadersHintsForVirtualModules,
   createRouteHeadHintsForVirtualModules,
   createRouteLoaderHintsForVirtualModules,
   createPrachtServerModuleSource,
@@ -105,6 +106,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   let root = process.cwd();
   let routeFileDirs: string[] = [];
   let clientRouteHeadHints: Record<string, boolean> = {};
+  let clientRouteHeadersHints: Record<string, boolean> = {};
   let clientRouteLoaderHints: Record<string, boolean> = {};
   const routeFileExtensions = withAdditionalExtensions(
     DEFAULT_ROUTE_EXTENSIONS,
@@ -326,6 +328,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       if (isClientModule(id)) {
         clientRouteHeadHints = createRouteHeadHintsForVirtualModules(resolved, root);
+        clientRouteHeadersHints = createRouteHeadersHintsForVirtualModules(resolved, root);
         clientRouteLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, root);
         return createPrachtClientModuleSource(resolved, { root });
       }
@@ -412,9 +415,15 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         clientRouteHeadHints,
         { startAtImporters: changesRouteHeadSource },
       );
-      let shouldReloadClientEntry = changesRouteHeadDependency;
+      const changesRouteHeadersDependency = reachesHeadBearingModule(
+        modules,
+        serverRoot,
+        clientRouteHeadersHints,
+        { startAtImporters: changesRouteHeadSource },
+      );
+      let shouldReloadClientEntry = changesRouteHeadDependency || changesRouteHeadersDependency;
       let clientHeadModule: ReturnType<typeof server.moduleGraph.getModuleById>;
-      if (changesRouteHeadSource || changesRouteHeadDependency) {
+      if (changesRouteHeadSource || changesRouteHeadDependency || changesRouteHeadersDependency) {
         clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
       }
       if (changesRouteHeadSource) {
@@ -442,6 +451,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // A dependency such as src/fonts.ts is part of normal client HMR, but
         // its generated style/preload state only exists in the virtual entry.
         server.moduleGraph.invalidateModule(clientHeadModule);
+      }
+
+      if (changesRouteHeadSource) {
+        const previouslyHadHeaders = clientRouteHeadersHints[relative] === true;
+        try {
+          const nextHints = createRouteHeadersHintsForVirtualModules(resolved, root);
+          // A route-state fetch cannot update document response headers such
+          // as CSP or Cache-Control. Any edit to a module that owns headers —
+          // including adding or removing the export — needs a real navigation.
+          shouldReloadClientEntry ||= previouslyHadHeaders || nextHints[relative] === true;
+          clientRouteHeadersHints = nextHints;
+        } catch {
+          shouldReloadClientEntry = true;
+        }
       }
 
       if (changesRouteLoaderSource) {
@@ -528,11 +551,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       // Fast Refresh patches the component and stops there, which is right for
       // the half of a route module that runs in the browser and wrong for the
-      // half that does not: `loader`, `head`, `headers`, and `getStaticPaths`
+      // half that does not: `loader`, `head`, and `getStaticPaths`
       // are stripped out of the browser copy, so an edit to any of them leaves
-      // the page holding data the server would no longer send. Reloading was
-      // what used to deliver it. Tell the client to re-fetch route state
-      // instead — same freshness, without the state loss.
+      // the page holding data or font state the server would no longer send.
+      // Reloading was what used to deliver it. Tell the client to re-fetch
+      // route state instead — same freshness, without the state loss.
       if (!sentFullReload && changesRouteHeadSource) {
         sendRouteDataStale(server);
       }

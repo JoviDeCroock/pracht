@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, extname, join, relative } from "node:path";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
-import { detectHeadExport, detectLoaderExport } from "./route-loader-hints.ts";
+import { detectHeadExport, detectHeadersExport, detectLoaderExport } from "./route-loader-hints.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
   DEFAULT_SHELL_EXTENSIONS,
@@ -22,6 +22,7 @@ export interface ScannedPage {
   hasRevalidateExport?: boolean;
   hasLoader?: boolean;
   hasHead?: boolean;
+  hasHeaders?: boolean;
 }
 
 export interface PagesRouterOptions {
@@ -95,6 +96,7 @@ function scan(
       ext === ".mdx" ||
       additionalExtensions.has(ext) ||
       detectHeadExport(analysisSource);
+    const hasHeaders = detectHeadersExport(analysisSource);
 
     pages.push({
       absolutePath: abs,
@@ -109,6 +111,7 @@ function scan(
       hasRevalidateExport: revalidate.present,
       hasLoader,
       hasHead,
+      hasHeaders,
     });
   }
 }

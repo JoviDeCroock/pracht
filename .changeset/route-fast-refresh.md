@@ -27,7 +27,9 @@ reload, wiping client state on every save — while a component in
 Adding or removing a `head` export still reloads the document, as does a change
 that reaches `defineFont()` state. Adding or removing a `loader` export also
 reloads so the browser's route-state fetch hints cannot remain stale across a
-later client navigation.
+later client navigation. Editing a route or shell that exports document
+`headers()` reloads as well, because CSP, cache policy, and other response
+headers cannot be updated by a route-state fetch.
 
 Fast Refresh alone would have been a downgrade for data: a route module's
 `loader`, `head`, `headers`, and `getStaticPaths` are stripped out of the
@@ -36,8 +38,10 @@ the server would no longer send — something the old full reload hid by
 re-fetching everything. The dev server now sends a `pracht:route-data-stale`
 HMR event after a route or shell update, and the generated client entry
 re-fetches route state through the same path `useRevalidate()` uses. Data is as
-fresh as the reload made it, and client state survives. The whole path is dead
-code in a production build.
+fresh as the reload made it, and client state survives. A failed refresh falls
+back to a reload so loader errors, not-found responses, and route error
+boundaries replace stale data. The whole path is dead code in a production
+build.
 
 Synthetic prefresh registration ids use a reserved, injective namespace, so a
 real route filename or distinct remaining Vite query cannot collide with the

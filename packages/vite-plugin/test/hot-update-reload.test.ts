@@ -253,6 +253,66 @@ describe("pracht handleHotUpdate", () => {
     expect(invalidateModule).toHaveBeenCalledWith(clientModule);
     expect(result).toEqual([fontModule, clientModule]);
   });
+
+  it("reloads document headers when a shared policy dependency changes", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-headers-dependency-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const policyFile = join(root, "src", "policy.ts");
+    const route = join(root, "src", "routes", "home.tsx");
+    writeFileSync(
+      policyFile,
+      'export function headers() { return { "content-security-policy": "default-src self" }; }\n',
+    );
+    writeFileSync(
+      route,
+      'export { headers } from "../policy";\nexport function Component() { return null; }\n',
+    );
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+
+    const policyModule = createModuleNode(policyFile);
+    const routeModule = createModuleNode(route);
+    policyModule.importers.add(routeModule);
+    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+    const result = await handleHotUpdate.call(
+      {} as never,
+      {
+        file: policyFile,
+        modules: [policyModule],
+        server: {
+          config: { root },
+          moduleGraph: {
+            getModuleById: (id: string) =>
+              id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+            invalidateModule: vi.fn(),
+          },
+          environments: {
+            client: {
+              moduleGraph: { getModulesByFile: () => new Set([policyModule]) },
+              hot: { send: vi.fn() },
+            },
+          },
+        },
+      } as never,
+    );
+
+    expect(result).toEqual([policyModule, clientModule]);
+  });
 });
 
 describe("pracht handleHotUpdate route data staleness", () => {
@@ -312,6 +372,9 @@ describe("pracht handleHotUpdate route data staleness", () => {
     'export function head() { return { title: "a" }; }\n' +
     "export async function loader() { return { n: 1 }; }\n" +
     "export function Component() { return null; }\n";
+  const WITH_HEADERS =
+    'export function headers() { return { "content-security-policy": "default-src self" }; }\n' +
+    "export function Component() { return null; }\n";
 
   // The regression this guards: on main every edit to a head-bearing route
   // returned the client entry, which is not a Fast Refresh boundary, so Vite
@@ -332,6 +395,18 @@ describe("pracht handleHotUpdate route data staleness", () => {
       type: "custom",
       event: "pracht:route-data-stale",
     });
+  });
+
+  it("reloads when an edited route owns document response headers", async () => {
+    const { clientModule, result, routeModule, send } = await editRoute(
+      WITH_HEADERS,
+      WITH_HEADERS.replace("return null", "return 1"),
+    );
+
+    expect(result).toEqual([routeModule, clientModule]);
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: "pracht:route-data-stale" }),
+    );
   });
 
   it.each([

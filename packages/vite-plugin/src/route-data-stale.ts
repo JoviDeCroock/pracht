@@ -3,7 +3,7 @@ import { DEV_ROUTE_DATA_STALE_EVENT } from "@pracht/core/client";
 /**
  * Tell open pages that a route module's server half changed.
  *
- * A route module's `loader`, `head`, `headers`, and `getStaticPaths` are
+ * A route module's `loader`, `head`, and `getStaticPaths` are
  * stripped out of the browser copy, so Fast Refresh — which patches only what
  * the browser runs — leaves the document holding data the server would no
  * longer send. Before Fast Refresh reached route modules this was invisible:

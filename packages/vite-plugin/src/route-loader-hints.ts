@@ -18,6 +18,7 @@ function namedDeclarationRe(exportName: string): RegExp {
 }
 
 const HEAD_DECLARATION_RE = namedDeclarationRe("head");
+const HEADERS_DECLARATION_RE = namedDeclarationRe("headers");
 const STATIC_PATHS_DECLARATION_RE = namedDeclarationRe("getStaticPaths");
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
 const EXPORT_ALL_RE = /export\s+\*\s+from\b/;
@@ -198,6 +199,11 @@ export function detectHeadExport(source: string): boolean {
   // Markdown and MDX transforms can synthesize a head export from frontmatter.
   // Keep them conservative even when the raw source has no JS declaration.
   return detectNamedExport(source, "head", HEAD_DECLARATION_RE);
+}
+
+/** Whether the route or shell module exports document response headers. */
+export function detectHeadersExport(source: string): boolean {
+  return detectNamedExport(source, "headers", HEADERS_DECLARATION_RE);
 }
 
 /**
@@ -433,6 +439,38 @@ export function createRouteHeadHints(
     }
     if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
     for (const key of keys) hints[key] = hasHead;
+  }
+
+  return hints;
+}
+
+export function createRouteHeadersHints(
+  routesDir: string,
+  options: {
+    additionalExtensions?: readonly string[];
+    appFileDir?: string;
+    rootRelativePrefix?: string;
+  } = {},
+): Record<string, boolean> {
+  const files: string[] = [];
+  const hints: Record<string, boolean> = {};
+  const extensions = withAdditionalExtensions(
+    DEFAULT_ROUTE_EXTENSIONS,
+    normalizeAdditionalExtensions(options.additionalExtensions),
+  );
+  scanRouteFiles(routesDir, files, extensions);
+
+  for (const file of files) {
+    const hasHeaders = detectHeadersExport(readFileSync(file, "utf-8"));
+    const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
+    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
+    const keys = new Set<string>();
+    if (options.appFileDir) {
+      const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
+      keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
+    }
+    if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
+    for (const key of keys) hints[key] = hasHeaders;
   }
 
   return hints;

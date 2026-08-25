@@ -972,15 +972,21 @@ or shell changed, and the client re-fetches route state through the same path
 without the reload.
 
 The refresh carries font state with it, so a `defineFont()` declared inside a
-route or shell is added, changed, and removed live.
+route or shell is added, changed, and removed live. If refreshing route state
+fails because the edited loader now throws, redirects to an error, or returns
+not-found, Pracht reloads so the route's error boundary or not-found page is
+rendered instead of leaving stale data on screen.
 
-Three edits still reload the whole document, because each changes state the
+Four edits still reload the whole document, because each changes state the
 generated client entry bakes:
 
 - **Adding or removing a `loader` export** on a route. The client router reads
   that hint to decide whether navigation needs to fetch route state.
 - **Adding or removing a `head` export** on a route or shell. The client router
   reads that hint to decide whether a navigation needs to fetch route state.
+- **Editing a route or shell that exports `headers()`**. CSP, cache policy, and
+  other response headers belong to the active document and cannot be updated
+  by a route-state fetch.
 - **Changing a module *outside* `src/routes/` and `src/shells/` that a
   head-bearing route imports** — typically a `src/fonts.ts`. Reloading is the
   conservative answer there; so is a shared module under `src/routes/` that a
