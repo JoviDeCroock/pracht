@@ -886,6 +886,11 @@ may synthesize one from frontmatter or other format-specific metadata. This
 keeps client navigation correct at the cost of a conservative route-state
 request for otherwise headless custom modules.
 
+In development, the compiled component also participates in Preact Fast
+Refresh. Pracht runs refresh instrumentation after the companion transform, so
+Markdown, MDX, `.tsrx`, and configured formats preserve client state just like
+`.tsx` routes and shells.
+
 `.tsrx` remains discovered without this option for backward compatibility and
 keeps its bundled ambient module declaration. It may also be listed explicitly
 when adopting the format-agnostic configuration.

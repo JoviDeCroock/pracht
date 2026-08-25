@@ -30,6 +30,10 @@ export function stripPrachtClientModuleQuery(id: string): string {
 /** Extensions `@prefresh/vite` accepts: `/\.(c|m)?(t|j)sx?$/`, anchored at end. */
 const PREFRESH_EXTENSION_RE = /\.((?:c|m)?[tj]sx?)$/i;
 
+export function isPrefreshCompatibleId(id: string): boolean {
+  return PREFRESH_EXTENSION_RE.test(id);
+}
+
 /**
  * The id to hand `@prefresh/vite` for a pracht client module.
  *
@@ -53,15 +57,16 @@ const PREFRESH_EXTENSION_RE = /\.((?:c|m)?[tj]sx?)$/i;
  * `_jsxFileName` from the real id by the time prefresh runs, so dev source
  * locations and open-in-editor are unaffected.
  *
- * Ids whose extension prefresh would reject anyway (`.md`, `.mdx`, a configured
- * additional format) are returned query-stripped and left for prefresh to skip.
+ * Compiled formats whose real extension prefresh rejects (`.md`, `.mdx`, and
+ * configured additional formats) instead keep that extension in the basename
+ * and receive a synthetic `.jsx`. Their companion Vite plugin has already
+ * turned the authored format into JavaScript by the time this id is used.
  */
 export function toPrachtClientPrefreshId(id: string): string {
   const stripped = stripPrachtClientModuleQuery(id);
   const queryStart = stripped.indexOf("?");
   const path = queryStart === -1 ? stripped : stripped.slice(0, queryStart);
   const extension = PREFRESH_EXTENSION_RE.exec(path);
-  if (!extension) return stripped;
 
   // Any query the module carried besides `pracht-client` still distinguishes
   // module instances, so it has to survive into the key. Characters that would
@@ -71,6 +76,7 @@ export function toPrachtClientPrefreshId(id: string): string {
     queryStart === -1 ? "" : stripped.slice(queryStart + 1).replace(/[^\w.-]/g, "_");
   const marker = remainder ? `${CLIENT_MODULE_QUERY}.${remainder}` : CLIENT_MODULE_QUERY;
 
+  if (!extension) return `${path}.${marker}.jsx`;
   return `${path.slice(0, extension.index)}.${marker}.${extension[1]}`;
 }
 

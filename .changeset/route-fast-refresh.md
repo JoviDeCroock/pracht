@@ -16,7 +16,9 @@ reload, wiping client state on every save — while a component in
   propagated to the non-accepting virtual client entry. A new
   `pracht:client-module-prefresh` plugin runs prefresh's transform for those
   ids, ordered after the strip so prefresh sees a module whose exports are only
-  components.
+  components. Compiled Markdown, MDX, `.tsrx`, and configured route formats use
+  a synthetic JSX id so the same refresh instrumentation covers them after
+  their companion Vite transform runs.
 - Any route exporting `head` was reported as a head *change* on every edit,
   because the head-bearing walk started at the changed module itself. It now
   starts at that module's importers when the change is a route or shell source,

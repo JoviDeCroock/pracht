@@ -1,8 +1,7 @@
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
-import { createServer as createViteServer } from "vite";
-import type { ViteDevServer } from "vite";
+import { createServer as createViteServer, type Plugin, type ViteDevServer } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { pracht } from "../src/index.ts";
@@ -24,7 +23,7 @@ describe("Fast Refresh for route and shell modules", () => {
       appType: "custom",
       configFile: false,
       logLevel: "silent",
-      plugins: [pracht()],
+      plugins: [compiledRouteFormat(), pracht({ additionalExtensions: [".custom"] })],
       optimizeDeps: { noDiscovery: true },
       root: FIXTURE_ROOT,
       // No watcher: the test only transforms modules, and a live watcher keeps
@@ -48,6 +47,22 @@ describe("Fast Refresh for route and shell modules", () => {
     const result = await server.transformRequest("/src/shells/public.tsx?pracht-client");
 
     expect(result?.code).toContain("import.meta.hot.accept");
+  });
+
+  it("injects Fast Refresh after an MDX companion compiles the client module", async () => {
+    const result = await server.transformRequest("/src/routes/post.mdx?pracht-client");
+
+    expect(result?.code).toContain("import.meta.hot.accept");
+    expect(result?.code).toContain("$RefreshReg$");
+    expect(result?.code).not.toContain('greeting: "mdx server"');
+  });
+
+  it("injects Fast Refresh into bare configured route formats", async () => {
+    const result = await server.transformRequest("/src/routes/custom.custom");
+
+    expect(result?.code).toContain("import.meta.hot.accept");
+    expect(result?.code).toContain("$RefreshReg$");
+    expect(result?.code).not.toContain('greeting: "custom server"');
   });
 
   // The server-only exports are still gone: Fast Refresh must not be bought by
@@ -101,6 +116,24 @@ describe("Fast Refresh for route and shell modules", () => {
     expect(clientKey).not.toBe(bareKey);
   });
 });
+
+/** Stand-in for the companion compiler every non-JS route format requires. */
+function compiledRouteFormat(): Plugin {
+  return {
+    name: "test:compiled-route-format",
+    enforce: "pre",
+    transform(_code, id) {
+      const path = id.split("?", 1)[0];
+      if (!path.endsWith(".mdx") && !path.endsWith(".custom")) return null;
+      const label = path.endsWith(".mdx") ? "mdx" : "custom";
+      return [
+        'import { h } from "preact";',
+        `export function loader() { return { greeting: "${label} server" }; }`,
+        `export function Component() { return h("main", null, "${label}"); }`,
+      ].join("\n");
+    },
+  };
+}
 
 /** The id prefresh baked into the module's `$RefreshReg$`. */
 function refreshRegistrationKey(code: string | undefined): string | undefined {

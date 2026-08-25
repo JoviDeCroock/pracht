@@ -1,6 +1,14 @@
 import type { Plugin, PluginOption } from "vite";
 
-import { isPrachtClientModuleId, toPrachtClientPrefreshId } from "./client-module-query.ts";
+import {
+  isPrachtClientModuleId,
+  isPrefreshCompatibleId,
+  toPrachtClientPrefreshId,
+} from "./client-module-query.ts";
+
+interface ClientModulePrefreshOptions {
+  isRouteOrShellModule?: (id: string) => boolean;
+}
 
 /**
  * Give route and shell modules Preact Fast Refresh.
@@ -28,7 +36,10 @@ import { isPrachtClientModuleId, toPrachtClientPrefreshId } from "./client-modul
  * the authored file, because the same file can be in the client graph twice and
  * the id doubles as prefresh's component registration key.
  */
-export function createClientModulePrefreshPlugin(preactPlugins: PluginOption[]): Plugin | null {
+export function createClientModulePrefreshPlugin(
+  preactPlugins: PluginOption[],
+  config: ClientModulePrefreshOptions = {},
+): Plugin | null {
   const transform = resolvePrefreshTransform(preactPlugins);
   if (!transform) return null;
 
@@ -39,19 +50,25 @@ export function createClientModulePrefreshPlugin(preactPlugins: PluginOption[]):
     // production bundle has no business carrying a refresh runtime even by
     // accident.
     apply: "serve",
-    async transform(code, id, options) {
-      if (options?.ssr) return null;
-      if (!isPrachtClientModuleId(id)) return null;
+    async transform(code, id, transformOptions) {
+      if (transformOptions?.ssr) return null;
+      const carriesClientQuery = isPrachtClientModuleId(id);
+      const isBareCompiledFormat =
+        !carriesClientQuery &&
+        !isPrefreshCompatibleId(id) &&
+        config.isRouteOrShellModule?.(id) === true;
+      if (!carriesClientQuery && !isBareCompiledFormat) return null;
 
-      // Prefresh's filter rejects any id carrying a query, and the id it is
-      // given is also the key it embeds in component registrations. Both copies
+      // Prefresh's filter rejects ids carrying a query and compiled route
+      // formats such as `.mdx` or `.tsrx`; the id it is given is also the key
+      // it embeds in component registrations. Both copies
       // of a file that reaches the browser twice — through the route glob and
       // through a plain import from a sibling route — must therefore keep
       // *distinct* keys, or prefresh queues a component replacement no edit
       // asked for. `toPrachtClientPrefreshId` satisfies the filter by keeping
       // the extension last and preserves the distinction by moving the marker
       // into the basename.
-      return await transform.call(this, code, toPrachtClientPrefreshId(id), options);
+      return await transform.call(this, code, toPrachtClientPrefreshId(id), transformOptions);
     },
   };
 }

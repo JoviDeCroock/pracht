@@ -591,7 +591,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const preactPlugins = preact();
   // Ordered right after `clientModuleTransformPlugin` on purpose: prefresh has
   // to see the module with its server-only exports already stripped.
-  const clientModulePrefreshPlugin = createClientModulePrefreshPlugin(preactPlugins);
+  const clientModulePrefreshPlugin = createClientModulePrefreshPlugin(preactPlugins, {
+    isRouteOrShellModule: (id) => isRouteOrShellFile(id, routeFileDirs, routeFileExtensions),
+  });
 
   const plugins: Plugin[] = [
     ...(precompilePlugin ? [precompilePlugin] : []),

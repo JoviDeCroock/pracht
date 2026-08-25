@@ -39,6 +39,41 @@ describe("client-module prefresh bridge", () => {
     expect(transform).not.toHaveBeenCalled();
   });
 
+  it("transforms a bare compiled route format through a synthetic JSX id", async () => {
+    const transform = vi.fn().mockResolvedValue({ code: "refreshed" });
+    const plugin = createClientModulePrefreshPlugin([prefreshStub(transform)], {
+      isRouteOrShellModule: (id) => id === "/app/src/routes/home.tsrx",
+    });
+
+    const result = await (plugin!.transform as any).call(
+      {},
+      "source",
+      "/app/src/routes/home.tsrx",
+      { ssr: false },
+    );
+
+    expect(result).toEqual({ code: "refreshed" });
+    expect(transform).toHaveBeenCalledWith(
+      "source",
+      "/app/src/routes/home.tsrx.pracht-client.jsx",
+      { ssr: false },
+    );
+  });
+
+  it("does not double-transform a bare route id prefresh already accepts", async () => {
+    const transform = vi.fn();
+    const plugin = createClientModulePrefreshPlugin([prefreshStub(transform)], {
+      isRouteOrShellModule: () => true,
+    });
+
+    const result = await (plugin!.transform as any).call({}, "source", "/app/src/routes/home.tsx", {
+      ssr: false,
+    });
+
+    expect(result).toBeNull();
+    expect(transform).not.toHaveBeenCalled();
+  });
+
   it("ignores SSR transforms", async () => {
     const transform = vi.fn();
     const plugin = createClientModulePrefreshPlugin([prefreshStub(transform)]);
@@ -116,11 +151,17 @@ describe("toPrachtClientPrefreshId", () => {
     );
   });
 
-  // Prefresh rejects these anyway; leave them recognizable rather than inventing
-  // a `.tsx` that would make it transform Markdown.
-  it("leaves formats prefresh does not accept query-stripped", () => {
+  // Companion plugins compile these formats before pracht's post transforms;
+  // the synthetic extension lets prefresh parse the resulting JavaScript.
+  it("gives compiled formats a synthetic JSX extension", () => {
     expect(toPrachtClientPrefreshId("/app/src/routes/post.md?pracht-client")).toBe(
-      "/app/src/routes/post.md",
+      "/app/src/routes/post.md.pracht-client.jsx",
+    );
+    expect(toPrachtClientPrefreshId("/app/src/routes/post.mdx?pracht-client&used=1")).toBe(
+      "/app/src/routes/post.mdx.pracht-client.used_1.jsx",
+    );
+    expect(toPrachtClientPrefreshId("/app/src/routes/post.tsrx")).toBe(
+      "/app/src/routes/post.tsrx.pracht-client.jsx",
     );
   });
 });
