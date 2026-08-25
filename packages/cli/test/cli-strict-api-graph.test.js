@@ -20,7 +20,7 @@ describe("@pracht/cli strict API graph loading", () => {
         cwd: fixture,
         encoding: "utf-8",
         env: process.env,
-        timeout: 10_000,
+        timeout: 15_000,
       });
 
       expect(result.error).toBeUndefined();
@@ -31,6 +31,6 @@ describe("@pracht/cli strict API graph loading", () => {
       expect(output).toContain('from "/src/api/broken.js"');
       expect(output).toContain("API fixture initialization exploded");
     },
-    15_000,
+    25_000,
   );
 });

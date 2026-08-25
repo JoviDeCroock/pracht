@@ -196,20 +196,60 @@ documentation.
 
 ## Verifying a Change
 
-`pnpm run verify` is the pre-commit gate. It builds, formats, lints, and then
-runs typecheck, unit tests, and E2E together, printing output only for the
-steps that fail:
+`pnpm run verify` is the pre-commit gate. It builds, formats, lints, then runs
+typecheck, the example's generated-type check and the unit tests together, and
+finishes with E2E — printing output only for the steps that fail:
 
 | Flag           | Effect                                                     |
 | -------------- | ---------------------------------------------------------- |
 | `--skip-build` | Reuse `packages/*/dist` from a previous build               |
+| `--force-build`| Rebuild every package, ignoring the build cache             |
 | `--skip-e2e`   | Unit tests only — no dev servers, no browser                |
 | `VERIFY_VERBOSE=1` | Print output for passing steps too                     |
 
 The individual scripts (`pnpm run build|format|lint|typecheck|test|e2e`) still
-work on their own; `verify` only changes how they are scheduled. Two properties
-of the suite keep it fast, and both are easy to regress:
+work on their own; `verify` only changes how they are scheduled.
 
+The suite is **CPU-bound, not scheduling-bound**. On a ten-core machine the wall
+clock tracks total work far more closely than it tracks the shape of the
+dependency graph, so the wins come from not repeating work and from not leaving
+cores idle — and a step that burns CPU next to the unit tests slows *them* down
+by roughly what it costs itself. Four properties keep it fast, and all are easy
+to regress:
+
+- **Build and typecheck are incremental and parallel.**
+  `scripts/build.mjs` runs each package's own `build` script in topological
+  order, starting every package whose dependencies are done rather than pnpm's
+  fixed four at a time, and skips any package whose inputs are unchanged. Its
+  cache key is the shared root TypeScript config, the package's sources, and
+  the *outputs* of its workspace dependencies — keying on outputs is what stops
+  a rebuild that produced identical bytes from cascading through the graph.
+  `scripts/typecheck.mjs`
+  runs the four TypeScript programs side by side, each with its own
+  `.tsbuildinfo`. `tsBuildInfoFile` is passed per invocation rather than set in
+  `tsconfig.json` because the programs all extend the root config, and a
+  relative path declared there resolves against the root — so they would share
+  one file and invalidate each other every run.
+- **A contended machine uses less concurrency.** Several agent workspaces
+  routinely run this suite at once on the same machine. Before the read-only
+  checks, `verify` compares the one-minute load average with the available CPU
+  count. At two runnable tasks per core it runs typecheck, generated types, and
+  unit tests sequentially and caps Vitest at half the available cores; an idle
+  machine keeps the parallel fast path. This prevents the gate from adding
+  enough work to starve its own timeout-sensitive subprocesses.
+
+  If the host remains heavily saturated by other processes, two signatures are
+  environmental rather than regressions: `[vitest-worker]: Timeout
+  calling "onTaskUpdate"` printed above a line saying every test passed — the
+  worker could not be scheduled to answer the reporter, and the birpc budget is
+  not configurable from `vitest.config.ts` — and a CLI unit test failing with
+  `result.error` set, which is its `spawnSync` hitting the boot cap.
+
+  That cap is 15s, with a 25s budget on the enclosing test. A CLI boot takes
+  ~4s, so the headroom is deliberate: these two numbers bound a hang, they do
+  not assert how fast the CLI starts. Raise them together or not at all — a
+  `spawnSync` cap at or above the test budget just moves the failure from
+  `result.error` to a vitest timeout without buying any slack.
 - **Unit tests parallelise per file, never within one.** Vitest gives each test
   file its own worker but runs the tests inside a file in sequence, and the CLI
   tests block on `execFileSync`, so `it.concurrent` buys nothing there. A single
@@ -228,7 +268,10 @@ of the suite keep it fast, and both are easy to regress:
   budgets are deliberately generous. Timing-sensitive specs (pending navigation
   state, hover prefetch) assert on ordering and request counts, so a tight
   budget adds no coverage — it only turns a busy machine into a false failure.
-  Assert on the observable behaviour instead of on how fast it happened.
+  Assert on the observable behaviour instead of on how fast it happened. For
+  the same reason local runs retry once and CI does not: several agent
+  workspaces routinely run this suite at once, and re-running one spec is far
+  cheaper than re-running `verify`. A real regression fails both attempts.
 
 ## Later (Phase 2 remaining)
 

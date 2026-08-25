@@ -38,7 +38,14 @@ export default defineConfig({
   // a false failure, and a genuinely broken route still never settles.
   timeout: 20_000,
   workers,
-  retries: 0,
+  // CI runs on a machine that is doing nothing else, so a failure there is a
+  // failure. A developer machine is not: several agent workspaces routinely run
+  // this suite at once, and at a load average of 60 the timing-sensitive specs
+  // (hover prefetch, pending navigation state) blow their budget for reasons
+  // that have nothing to do with the code. Without a retry, that costs a full
+  // re-run of `verify` — far more than re-running the one spec. A real
+  // regression still fails both attempts.
+  retries: process.env.CI ? 0 : 1,
   projects: [
     {
       name: "basic",

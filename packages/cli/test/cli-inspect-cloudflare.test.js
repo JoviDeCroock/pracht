@@ -16,7 +16,7 @@ describe("@pracht/cli inspect with Cloudflare", () => {
         cwd: resolve(repoRoot, "examples/cloudflare"),
         encoding: "utf-8",
         env: process.env,
-        timeout: 10_000,
+        timeout: 15_000,
       });
 
       expect(result.error).toBeUndefined();
@@ -25,7 +25,7 @@ describe("@pracht/cli inspect with Cloudflare", () => {
       const report = JSON.parse(result.stdout);
       expect(report.mode ?? report.live?.mode).toBe("manifest");
     },
-    15_000,
+    25_000,
   );
 
   it("loads capability contracts that import cloudflare:workers and exits", () => {
@@ -33,7 +33,7 @@ describe("@pracht/cli inspect with Cloudflare", () => {
       cwd: resolve(repoRoot, "packages/cli/test/fixtures/cloudflare-runtime-import"),
       encoding: "utf-8",
       env: process.env,
-      timeout: 10_000,
+      timeout: 15_000,
     });
 
     expect(result.error).toBeUndefined();
@@ -48,7 +48,7 @@ describe("@pracht/cli inspect with Cloudflare", () => {
         transports: ["http"],
       },
     ]);
-  }, 15_000);
+  }, 25_000);
 
   it.each([
     [
@@ -97,7 +97,7 @@ describe("@pracht/cli inspect with Cloudflare", () => {
         cwd: resolve(repoRoot, "packages/cli/test/fixtures/cloudflare-runtime-import"),
         encoding: "utf-8",
         env: { ...process.env, PRACHT_GRAPH_FAILURE: failure },
-        timeout: 10_000,
+        timeout: 15_000,
       });
 
       expect(result.error).toBeUndefined();
@@ -105,6 +105,6 @@ describe("@pracht/cli inspect with Cloudflare", () => {
       expect(result.status).toBe(1);
       expect(`${result.stderr}\n${result.stdout}`).toMatch(message);
     },
-    15_000,
+    25_000,
   );
 });

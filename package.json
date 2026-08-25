@@ -5,10 +5,10 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "pnpm -r --filter @pracht/core --filter @pracht/capabilities --filter @pracht/content --filter @pracht/image --filter @pracht/i18n --filter @pracht/markdown --filter @pracht/openapi --filter @pracht/vite-plugin --filter @pracht/preact-ssr-precompile --filter @pracht/adapter-node --filter @pracht/adapter-cloudflare --filter @pracht/adapter-netlify --filter @pracht/adapter-vercel --filter @pracht/adapter-static --filter @pracht/test --filter @pracht/cli --filter create-pracht run build",
+    "build": "node ./scripts/build.mjs",
     "check": "pnpm build && pnpm typecheck && pnpm test",
     "verify": "node ./scripts/verify.mjs",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/cli/test/fixtures/cloudflare-runtime-import && tsc --noEmit -p examples/showcase",
+    "typecheck": "node ./scripts/typecheck.mjs",
     "test": "vitest run",
     "prepare": "playwright install chromium",
     "pracht": "node ./packages/cli/bin/pracht.js",
@@ -17,7 +17,7 @@
     "lint": "oxlint . --fix",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "pnpm build && changeset publish",
+    "release": "node ./scripts/build.mjs --force && changeset publish",
     "e2e": "playwright test",
     "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js dev",
     "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js build"
