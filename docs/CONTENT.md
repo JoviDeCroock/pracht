@@ -303,6 +303,10 @@ chunk, which the runtime loads when that document is resolved.
 that boundary too. Deferred content payloads remain one module per document,
 while unrelated lazy server roots such as route modules are packed into chunks
 with a 256 KiB target size instead of producing one tiny file per dynamic import.
+Only modules the server entry cannot reach statically are packed together — a
+module that is both statically and dynamically imported would pull the shared
+chunk into startup, and a client-only module batched alongside it would then
+run its `Worker` or `document` access when the server bundle loads.
 Cloudflare deployments must set `"no_bundle": true` and an `ESModule` rule
 covering `"**/*.js"` in `wrangler.jsonc`: Pracht's Vite output is already
 bundled, and the rule tells Wrangler to upload its chunks as Worker modules

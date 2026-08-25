@@ -222,7 +222,9 @@ document in a shared server chunk.
 The plugin enables server code splitting for webworker builds as well. Deferred
 content payloads remain one module per document, while unrelated lazy server
 roots are packed with a 256 KiB target size instead of producing one tiny file
-per dynamic import. A Cloudflare deployment must preserve Pracht's
+per dynamic import. Only modules the server entry cannot reach statically are
+packed together, so a module with both static and dynamic importers never drags
+a client-only module into the server's startup path. A Cloudflare deployment must preserve Pracht's
 pre-bundled output with `"no_bundle": true` and an `ESModule` rule covering
 `"**/*.js"` in `wrangler.jsonc`; otherwise Wrangler either bundles the deferred
 chunks again or omits them from the upload. New `create-pracht` projects include

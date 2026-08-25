@@ -536,6 +536,53 @@ describe("prachtContent", () => {
     expect(await runtime.load(3)).toMatchObject({ default: 3 });
   });
 
+  it("keeps a module with both static and dynamic importers out of the lazy server group", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const entry = join(temporaryDirectory, "entry.ts");
+    const output = join(temporaryDirectory, "dist");
+    // `shared.ts` is reachable statically from the entry *and* dynamically.
+    // Grouping it with the genuinely lazy modules would make the whole group a
+    // static dependency of the entry, evaluating browser-only module bodies on
+    // the server the moment the bundle is imported.
+    await writeFile(
+      entry,
+      [
+        `import shared from "./shared.ts";`,
+        `export const eager = shared;`,
+        `export const loadShared = () => import("./shared.ts");`,
+        `export const loadBrowser = () => import("./browser-only.ts");`,
+      ].join("\n"),
+    );
+    await writeFile(join(temporaryDirectory, "shared.ts"), `export default "shared";`);
+    await writeFile(
+      join(temporaryDirectory, "browser-only.ts"),
+      `import shared from "./shared.ts";\nglobalThis.__prachtLazyModuleEvaluated = true;\nexport default shared + "-browser";`,
+    );
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      plugins: prachtContent({ collections: [collection] }),
+      ssr: { noExternal: true, target: "webworker" },
+      build: {
+        outDir: output,
+        ssr: true,
+        rollupOptions: { input: entry },
+      },
+    });
+
+    try {
+      const runtime = await import(pathToFileURL(join(output, "entry.js")).href);
+      expect(runtime.eager).toBe("shared");
+      expect((globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated).toBeUndefined();
+      expect(await runtime.loadBrowser()).toMatchObject({ default: "shared-browser" });
+      expect((globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated).toBe(true);
+    } finally {
+      delete (globalThis as Record<string, unknown>).__prachtLazyModuleEvaluated;
+    }
+  });
+
   it("emits deploy-safe headers for production artifacts in the asset namespace", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");
