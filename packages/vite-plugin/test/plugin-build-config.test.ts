@@ -28,8 +28,12 @@ interface BuildConfig {
   };
 }
 
-function runConfigHook(adapter: PrachtAdapter, isSsrBuild: boolean): BuildConfig {
-  const plugin = pracht({ adapter }).find((candidate) => candidate.name === "pracht");
+function runConfigHook(
+  adapter: PrachtAdapter,
+  isSsrBuild: boolean,
+  options: Partial<Parameters<typeof pracht>[0]> = {},
+): BuildConfig {
+  const plugin = pracht({ adapter, ...options }).find((candidate) => candidate.name === "pracht");
   if (!plugin) throw new Error("pracht plugin not found");
   const hook = plugin.config as (
     config: Record<string, unknown>,
@@ -220,6 +224,40 @@ describe("pracht plugin build config", () => {
     expect(config.environments?.ssr?.resolve?.external).toEqual(["node:module"]);
     expect(config.environments?.ssr?.keepProcessEnv).toBeUndefined();
     expect(config.define?.["process.env.NODE_ENV"]).toBeUndefined();
+  });
+
+  it("defines every client feature as enabled by default", () => {
+    const config = runConfigHook(edgeAdapter, false);
+
+    expect(config.define?.__PRACHT_CLIENT_PREFETCH__).toBe("true");
+  });
+
+  it("defines a disabled client feature as false in dev as well as in builds", () => {
+    // The flag is declared by the app rather than derived from the manifest, so
+    // unlike __PRACHT_AGENT_SURFACE__ it must not be forced on outside builds —
+    // `pracht dev` has to behave like the bundle that ships.
+    const built = runConfigHook(edgeAdapter, false, { client: { prefetch: false } });
+    expect(built.define?.__PRACHT_CLIENT_PREFETCH__).toBe("false");
+
+    const plugin = pracht({ adapter: edgeAdapter, client: { prefetch: false } }).find(
+      (candidate) => candidate.name === "pracht",
+    );
+    if (!plugin) throw new Error("pracht plugin not found");
+    const hook = plugin.config as (
+      config: Record<string, unknown>,
+      env: { command: string; mode: string; isSsrBuild: boolean },
+    ) => BuildConfig;
+    const dev = hook.call(
+      plugin as never,
+      {},
+      {
+        command: "serve",
+        mode: "development",
+        isSsrBuild: false,
+      },
+    );
+
+    expect(dev.define?.__PRACHT_CLIENT_PREFETCH__).toBe("false");
   });
 
   it("keeps the vendor manualChunks split on client builds only", () => {

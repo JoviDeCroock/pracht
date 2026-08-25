@@ -29,6 +29,34 @@ describe("resolveOptions additionalExtensions", () => {
   });
 });
 
+describe("resolveOptions client", () => {
+  it("enables every client feature by default", () => {
+    expect(resolveOptions({}).client).toEqual({ prefetch: true });
+  });
+
+  it("applies an explicit override", () => {
+    expect(resolveOptions({ client: { prefetch: false } }).client).toEqual({ prefetch: false });
+  });
+
+  it("treats an explicit undefined as unset rather than as false", () => {
+    expect(resolveOptions({ client: { prefetch: undefined } }).client.prefetch).toBe(true);
+  });
+
+  it("rejects non-boolean feature values", () => {
+    // @ts-expect-error — feature flags are booleans.
+    expect(() => resolveOptions({ client: { prefetch: "no" } })).toThrow(
+      /client: \{ prefetch \} \}\) expects a boolean/,
+    );
+  });
+
+  it("rejects unknown feature names so a typo cannot silently do nothing", () => {
+    // @ts-expect-error — "prefetching" is not a feature.
+    expect(() => resolveOptions({ client: { prefetching: false } })).toThrow(
+      /does not accept "prefetching"/,
+    );
+  });
+});
+
 describe("resolveOptions budgets", () => {
   it("defaults to no budgets", () => {
     expect(resolveOptions({}).budgets).toEqual({});

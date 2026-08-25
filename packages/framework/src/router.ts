@@ -64,6 +64,28 @@ import {
 } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 
+/**
+ * JS prefetching, switched off at build time by
+ * `pracht({ client: { prefetch: false } })`.
+ *
+ * The router reaches the prefetch runtime directly — `initClientRouter()`
+ * registers the prefetch target and lazily imports the listeners on every page
+ * — so no bundler can decide on its own that an app does not use it. Gating on
+ * a define turns the branch, the modules only it reaches, and the lazily
+ * imported chunk into dead code.
+ *
+ * The constant is declared here rather than imported from a shared module
+ * because Rollup only folds it into the surrounding branch within one module,
+ * and without that fold the dynamic `import()` survives and its chunk still
+ * ships. The `typeof` guard keeps the module loadable where the define is
+ * absent (unit tests, direct Node imports), so an app that configures nothing
+ * behaves exactly as before.
+ */
+declare const __PRACHT_CLIENT_PREFETCH__: boolean | undefined;
+
+const PREFETCH_ENABLED =
+  typeof __PRACHT_CLIENT_PREFETCH__ === "undefined" || __PRACHT_CLIENT_PREFETCH__ !== false;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -530,7 +552,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
               cache: "reload",
               signal: abortController.signal,
             })
-          : (getCachedRouteState(target.requestUrl) ??
+          : ((PREFETCH_ENABLED ? getCachedRouteState(target.requestUrl) : undefined) ??
             fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal }));
       } else {
         statePromise = Promise.resolve({
@@ -1014,14 +1036,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  const warmModules: ModuleWarmFn = (match) => {
-    startRouteImport(match);
-    startShellImport(match);
-  };
-  registerPrefetchTarget(app, warmModules);
-  void import("./prefetch.ts").then(({ setupPrefetching }) => {
-    setupPrefetching(app, warmModules);
-  });
+  if (PREFETCH_ENABLED) {
+    const warmModules: ModuleWarmFn = (match) => {
+      startRouteImport(match);
+      startShellImport(match);
+    };
+    registerPrefetchTarget(app, warmModules);
+    void import("./prefetch.ts").then(({ setupPrefetching }) => {
+      setupPrefetching(app, warmModules);
+    });
+  }
 }
 
 /**

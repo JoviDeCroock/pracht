@@ -359,7 +359,10 @@ they also work on plain anchors if you set the attributes yourself.
 ### Prefetching
 
 Every internal link is prefetched on hover/focus by default (`"intent"`, with a
-50ms debounce). A per-route default can be set via the `prefetch` route meta,
+50ms debounce). An app that wants no JS prefetching at all can compile the whole
+mechanism out with `pracht({ client: { prefetch: false } })` — see
+[PERFORMANCE.md](PERFORMANCE.md#switching-off-js-prefetching). A
+per-route default can be set via the `prefetch` route meta,
 and `<Link prefetch>` overrides it per link:
 
 - `"intent"` — prefetch on hover or keyboard focus (default)
