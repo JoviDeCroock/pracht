@@ -373,7 +373,7 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
 
     const next: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
-      next[key] = walk(entry, [...path, key], ancestors);
+      defineOwnDataProperty(next, key, walk(entry, [...path, key], ancestors));
     }
     ancestors.delete(value);
     return next;
@@ -478,16 +478,35 @@ export function rehydrateDeferredData<T>(
 
     let parent: unknown = result;
     for (let index = 0; index < path.length - 1; index += 1) {
-      if (typeof parent !== "object" || parent === null) {
+      const segment = path[index];
+      if (typeof parent !== "object" || parent === null || !Object.hasOwn(parent, segment)) {
         throw new Error(`Invalid deferred hydration path for ${JSON.stringify(id)}.`);
       }
-      parent = (parent as Record<DeferredPathSegment, unknown>)[path[index]];
+      parent = (parent as Record<DeferredPathSegment, unknown>)[segment];
     }
     if (typeof parent !== "object" || parent === null) {
       throw new Error(`Invalid deferred hydration path for ${JSON.stringify(id)}.`);
     }
-    (parent as Record<DeferredPathSegment, unknown>)[path[path.length - 1]] = replacement;
+    defineOwnDataProperty(
+      parent as Record<DeferredPathSegment, unknown>,
+      path[path.length - 1],
+      replacement,
+    );
   }
 
   return result as T;
+}
+
+/** Define an enumerable own property without invoking the legacy `__proto__` setter. */
+function defineOwnDataProperty(
+  target: Record<PropertyKey, unknown>,
+  key: PropertyKey,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
 }

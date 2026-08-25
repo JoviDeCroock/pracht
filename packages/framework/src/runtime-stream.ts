@@ -28,6 +28,7 @@ import type { VNode } from "preact";
 
 import { escapeHtml, escapeScriptText } from "./runtime-html.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
+import { normalizeRouteError } from "./runtime-errors.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
 
 export interface StreamingHtmlResponseOptions {
@@ -58,6 +59,8 @@ export interface StreamingHtmlResponseOptions {
   pending?: { id: string; promise: Promise<unknown> }[];
   /** CSP nonce for the deferred-data scripts pracht emits. */
   nonce?: string;
+  /** Whether unexpected server error details may be exposed to the browser. */
+  exposeErrorDetails?: boolean;
 }
 
 /**
@@ -81,15 +84,30 @@ export async function streamingHtmlResponse(
     onCancel,
     pending = [],
     nonce,
+    exposeErrorDetails = false,
   } = options;
 
   const renderToReadableStream = await getRenderToReadableStream();
   const encoder = new TextEncoder();
 
-  // The render is started here rather than inside start() so a synchronous
-  // throw — a shell that fails to render at all — surfaces to the caller
-  // before any byte is committed.
+  // Produce the shell before constructing the outer response. The renderer
+  // reports even synchronous component failures through its Web stream, so
+  // awaiting the first read is the actual pre-flush error boundary: failures
+  // still reach handlePrachtRequest's normal error-document path.
   const rendered = renderToReadableStream(tree);
+  // `preact-render-to-string` exposes the same failure through `allReady` as
+  // well as the body stream. The body remains authoritative below; observing
+  // this second promise prevents an uncaught render from becoming an unhandled
+  // rejection in Node.
+  void rendered.allReady.catch(() => {});
+  const reader = rendered.getReader();
+  let firstRead: ReadableStreamReadResult<Uint8Array>;
+  try {
+    firstRead = await reader.read();
+  } catch (error) {
+    reader.releaseLock();
+    throw error;
+  }
 
   // Set by every path that ends the stream -- normal close, error, client
   // cancel, request abort. A deferred value can settle long after any of them,
@@ -102,8 +120,6 @@ export async function streamingHtmlResponse(
         if (closed) return;
         controller.enqueue(encoder.encode(text));
       };
-      const reader = rendered.getReader();
-
       const abort = () => {
         if (closed) return;
         closed = true;
@@ -140,9 +156,11 @@ export async function streamingHtmlResponse(
             // A deferred value cannot redirect or set headers -- the response
             // is already committed -- so a rejection is delivered as data and
             // rendered by the nearest ErrorBoundary.
-            const message = error instanceof Error ? error.message : String(error);
+            const serializedError = normalizeRouteError(error, {
+              exposeDetails: exposeErrorDetails,
+            });
             writeDeferred(
-              `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify({ message }))})</script>`,
+              `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(serializedError))})</script>`,
             );
           },
         ),
@@ -152,6 +170,18 @@ export async function streamingHtmlResponse(
         write(prefix);
 
         let takeFirstChunk = true;
+        if (!firstRead.done) {
+          controller.enqueue(firstRead.value);
+          takeFirstChunk = false;
+          // The shim has to exist before any deferred script runs, and the
+          // async client runtime may execute as soon as it is fetched. The
+          // document builder places the shim before that entry script.
+          write(afterShell);
+          deferChannelReady = true;
+          for (const script of queuedDeferredScripts) write(script);
+          queuedDeferredScripts.length = 0;
+        }
+
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -159,16 +189,6 @@ export async function streamingHtmlResponse(
           // once; enqueuing it would throw on the closed controller.
           if (closed) break;
           controller.enqueue(value);
-          if (takeFirstChunk) {
-            takeFirstChunk = false;
-            // The shim has to exist before any deferred script runs, and the
-            // async client runtime may execute as soon as it is fetched. The
-            // document builder places the shim before that entry script.
-            write(afterShell);
-            deferChannelReady = true;
-            for (const script of queuedDeferredScripts) write(script);
-            queuedDeferredScripts.length = 0;
-          }
         }
 
         if (closed) {

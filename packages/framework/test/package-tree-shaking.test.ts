@@ -16,6 +16,7 @@ const clientEntry = join(outputDir, "client.mjs");
 const serverEntry = join(outputDir, "server.mjs");
 
 type FrameworkPackage = {
+  peerDependencies?: Record<string, string>;
   sideEffects?: boolean | string[];
 };
 
@@ -109,6 +110,10 @@ async function bundleExport(
 describe("published package tree shaking", () => {
   it("keeps prerender initialization while marking other modules as side-effect-free", () => {
     expect(packageJson.sideEffects).toEqual(["./dist/prerender.mjs"]);
+  });
+
+  it("requires a renderer version that exports the streaming entry point", () => {
+    expect(packageJson.peerDependencies?.["preact-render-to-string"]).toBe("^6.5.0");
   });
 
   it("emits source modules instead of shared cross-entry chunks", () => {

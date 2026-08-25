@@ -318,6 +318,23 @@ export function createDevSSRMiddleware(
         return;
       }
 
+      if (
+        response.body &&
+        contentType.includes("text/html") &&
+        framework.matchAppRoute(serverMod.resolvedApp, requestUrl.pathname)?.route.streaming ===
+          true
+      ) {
+        await streamDevHtmlResponse(
+          server,
+          res,
+          url,
+          response,
+          devBase,
+          framework.formatServerTimingHeader(timings),
+        );
+        return;
+      }
+
       let body = await response.text();
 
       if (contentType.includes("text/html")) {
@@ -337,6 +354,143 @@ export function createDevSSRMiddleware(
       await handleDevError(server, req, res, next, url, error, devBase);
     }
   };
+}
+
+async function streamDevHtmlResponse(
+  server: ViteDevServer,
+  res: ServerResponse,
+  url: string,
+  response: Response,
+  base: string,
+  serverTiming: string | undefined,
+): Promise<void> {
+  const reader = response.body!.getReader();
+  let committed = false;
+  const cancel = () => {
+    if (!res.writableFinished) void reader.cancel().catch(() => undefined);
+  };
+  res.on("close", cancel);
+
+  try {
+    // The runtime emits the complete document prefix as one encoded chunk. It
+    // includes </head>, so Vite and pracht's transformIndexHtml hooks can add
+    // the dev client and route CSS before any bytes are committed; later
+    // renderer/deferred chunks then pass through untouched.
+    const first = await reader.read();
+    const prefix = first.done ? "" : new TextDecoder().decode(first.value);
+    const transformed = await transformStreamingDevHtmlPrefix(server, url, prefix, base);
+
+    res.statusCode = response.status;
+    response.headers.forEach((value, key) => {
+      res.setHeader(key, value);
+    });
+    res.removeHeader("content-length");
+    if (serverTiming) res.setHeader("Server-Timing", serverTiming);
+    committed = true;
+
+    if (transformed.prefix) await writeDevResponseChunk(res, transformed.prefix);
+    let bodyEndInjected = transformed.beforeBodyClose === "";
+    const decoder = new TextDecoder();
+    while (!first.done) {
+      const next = await reader.read();
+      if (next.done) break;
+      let chunk: string | Uint8Array = next.value;
+      if (!bodyEndInjected) {
+        const injection = injectStreamingBodyEnd(
+          decoder.decode(next.value),
+          transformed.beforeBodyClose,
+        );
+        chunk = injection.html;
+        bodyEndInjected = injection.injected;
+      }
+      await writeDevResponseChunk(res, chunk);
+    }
+    res.end();
+  } catch (error) {
+    if (committed || res.headersSent) {
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    throw error;
+  } finally {
+    res.removeListener("close", cancel);
+    reader.releaseLock();
+  }
+}
+
+const STREAM_PREFIX_END_MARKER = '<template data-pracht-stream-prefix-end=""></template>';
+const STREAM_BODY_END_MARKER = '<template data-pracht-stream-body-end=""></template>';
+
+/**
+ * Run Vite's HTML hooks against a syntactically complete document, then split
+ * their output back into the prefix that can be committed now and tags that
+ * belong immediately before `</body>` once the stream finishes.
+ */
+export async function transformStreamingDevHtmlPrefix(
+  server: ViteDevServer,
+  url: string,
+  prefix: string,
+  base: string,
+): Promise<{ prefix: string; beforeBodyClose: string }> {
+  const completed =
+    `${prefix}${STREAM_PREFIX_END_MARKER}</div>` + `${STREAM_BODY_END_MARKER}</body></html>`;
+  const transformed = await transformDevHtml(server, url, completed, base);
+  const prefixEnd = transformed.indexOf(STREAM_PREFIX_END_MARKER);
+  const bodyMarker = transformed.indexOf(STREAM_BODY_END_MARKER, prefixEnd);
+  const bodyClose = transformed.indexOf("</body>", bodyMarker);
+
+  if (prefixEnd < 0 || bodyMarker < 0 || bodyClose < 0) {
+    throw new Error(
+      "A Vite transform removed Pracht's streaming HTML markers; the document cannot be streamed safely in development.",
+    );
+  }
+
+  return {
+    prefix: transformed.slice(0, prefixEnd),
+    beforeBodyClose: transformed.slice(bodyMarker + STREAM_BODY_END_MARKER.length, bodyClose),
+  };
+}
+
+/** Insert deferred Vite `body` tags into the runtime-owned closing chunk. */
+export function injectStreamingBodyEnd(
+  html: string,
+  beforeBodyClose: string,
+): { html: string; injected: boolean } {
+  const bodyClose = html.indexOf("</body>");
+  if (bodyClose < 0) return { html, injected: false };
+  return {
+    html: `${html.slice(0, bodyClose)}${beforeBodyClose}${html.slice(bodyClose)}`,
+    injected: true,
+  };
+}
+
+async function writeDevResponseChunk(
+  res: ServerResponse,
+  chunk: string | Uint8Array,
+): Promise<void> {
+  if (res.destroyed || res.writableEnded || res.write(chunk)) return;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      res.removeListener("close", onClose);
+      res.removeListener("drain", onDrain);
+      res.removeListener("error", onError);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    res.once("close", onClose);
+    res.once("drain", onDrain);
+    res.once("error", onError);
+  });
 }
 
 /**
@@ -433,10 +587,13 @@ export async function createDevCssManifest(
     ) => { route: ResolvedRoute } | undefined;
     pathname: string | null;
     registry: ModuleRegistry;
+    route?: ResolvedRoute | null;
+    streaming?: boolean;
   },
 ): Promise<Record<string, string[]>> {
-  const route =
-    options.pathname === null
+  const route = Object.hasOwn(options, "route")
+    ? (options.route ?? undefined)
+    : options.pathname === null
       ? undefined
       : (options.matchAppRoute(options.app, options.pathname)?.route ?? options.app.notFound);
   if (!route) return {};
@@ -565,11 +722,18 @@ async function resolveDevCssContextForPath(
   // against the same base-free route manifest. `null` deliberately suppresses
   // not-found CSS for adapter HTML responses outside this app's base.
   const pathname = options.basePathRetained ? framework.stripBase(publicPathname) : publicPathname;
+  const route =
+    pathname === null
+      ? undefined
+      : (framework.matchAppRoute(serverMod.resolvedApp, pathname)?.route ??
+        serverMod.resolvedApp.notFound);
   return {
     app: serverMod.resolvedApp,
     matchAppRoute: framework.matchAppRoute,
     pathname,
     registry: serverMod.registry,
+    route: route ?? null,
+    streaming: route?.streaming === true,
   };
 }
 
@@ -603,9 +767,44 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
       }
       return null;
     });
-    const chunks: Buffer[] = [];
+    const bufferedWrites: Array<{ chunk: Buffer; callback?: () => void }> = [];
     const originalEnd = res.end.bind(res);
+    const originalWrite = res.write.bind(res);
     const originalWriteHead = res.writeHead.bind(res);
+    let passThrough = false;
+    let streamingFlush: Promise<boolean> | undefined;
+
+    const flushStreamingPrefix = (): Promise<boolean> => {
+      if (streamingFlush) return streamingFlush;
+      streamingFlush = (async () => {
+        const context = await contextPromise;
+        const contentType = String(res.getHeader("content-type") ?? "");
+        if (!context?.streaming || !contentType.includes("text/html")) return false;
+
+        // By the first body write the adapter has completed the framework
+        // render setup and populated Vite's module graph. Inject the discovered
+        // route CSS into the buffered document prefix, then let every later
+        // renderer/deferred chunk pass straight through.
+        let manifest: Record<string, string[]> = {};
+        try {
+          manifest = await createDevCssManifest(server, context);
+        } catch {
+          // CSS discovery is an enhancement; it must not turn a stream back
+          // into a buffered response when the module graph is temporarily
+          // unavailable during development.
+        }
+        const body = Buffer.concat(bufferedWrites.map(({ chunk }) => chunk));
+        const html = injectDevCssLinks(body.toString("utf-8"), manifest, server.config.base || "/");
+        const callbacks = bufferedWrites.flatMap(({ callback }) => (callback ? [callback] : []));
+        bufferedWrites.length = 0;
+        passThrough = true;
+        originalWrite(html, () => {
+          for (const callback of callbacks) callback();
+        });
+        return true;
+      })().catch(() => false);
+      return streamingFlush;
+    };
 
     res.writeHead = ((statusCode: number, ...args: unknown[]) => {
       res.removeHeader("content-length");
@@ -616,19 +815,21 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
     }) as typeof res.writeHead;
 
     res.write = ((chunk: unknown, encodingOrCallback?: unknown, callback?: unknown) => {
-      chunks.push(toBuffer(chunk, encodingOrCallback));
       const done: (() => void) | undefined =
         typeof encodingOrCallback === "function"
           ? (encodingOrCallback as () => void)
           : typeof callback === "function"
             ? (callback as () => void)
             : undefined;
-      done?.();
+      if (passThrough) {
+        return Reflect.apply(originalWrite, res, [chunk, encodingOrCallback, callback]);
+      }
+      bufferedWrites.push({ chunk: toBuffer(chunk, encodingOrCallback), callback: done });
+      void flushStreamingPrefix();
       return true;
     }) as typeof res.write;
 
     res.end = ((chunk?: unknown, encodingOrCallback?: unknown, callback?: unknown) => {
-      if (chunk != null) chunks.push(toBuffer(chunk, encodingOrCallback));
       const done: (() => void) | undefined =
         typeof encodingOrCallback === "function"
           ? (encodingOrCallback as () => void)
@@ -636,11 +837,26 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
             ? (callback as () => void)
             : undefined;
 
+      if (passThrough) {
+        return Reflect.apply(originalEnd, res, [chunk, encodingOrCallback, callback]);
+      }
+      if (chunk != null) bufferedWrites.push({ chunk: toBuffer(chunk, encodingOrCallback) });
+
       void (async () => {
-        const body = Buffer.concat(chunks);
+        if (await flushStreamingPrefix()) {
+          originalEnd(undefined, done);
+          return;
+        }
+
+        const body = Buffer.concat(bufferedWrites.map(({ chunk: value }) => value));
+        const callbacks = bufferedWrites.flatMap(({ callback }) => (callback ? [callback] : []));
+        bufferedWrites.length = 0;
         const contentType = String(res.getHeader("content-type") ?? "");
         if (!contentType.includes("text/html")) {
-          originalEnd(body, done);
+          originalEnd(body, () => {
+            for (const callback of callbacks) callback();
+            done?.();
+          });
           return;
         }
 
@@ -650,9 +866,15 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
           const html = manifest
             ? injectDevCssLinks(body.toString("utf-8"), manifest, server.config.base || "/")
             : body.toString("utf-8");
-          originalEnd(html, done);
+          originalEnd(html, () => {
+            for (const callback of callbacks) callback();
+            done?.();
+          });
         } catch {
-          originalEnd(body, done);
+          originalEnd(body, () => {
+            for (const callback of callbacks) callback();
+            done?.();
+          });
         }
       })();
 

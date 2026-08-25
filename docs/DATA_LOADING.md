@@ -218,30 +218,37 @@ route("/product/:id", () => import("./routes/product.tsx"), {
 
 With it on, the response is written in this order:
 
-1. The document head and the opening `<div id="pracht-root">`, flushed before
-   the component tree renders at all — stylesheet and preload tags reach the
-   browser while loaders are still running.
-2. The shell: the tree with every unresolved `<Suspense>` boundary showing its
-   fallback.
-3. The hydration state and the client entry script, so hydration can begin
+1. The document head and the opening `<div id="pracht-root">`, followed by the
+   shell: the tree with every unresolved `<Suspense>` boundary showing its
+   fallback. The renderer prepares that shell before committing the response,
+   so a shell failure can still produce a normal error document; stylesheet and
+   preload tags still reach the browser before deferred loader work completes.
+2. The hydration state and the client entry script, so hydration can begin
    while boundaries are still outstanding. Exact deferred locations travel as
    framework metadata beside the user-owned loader data, so no user object
    shape or property name is reserved by the wire format.
-4. Each deferred value as it settles — the resolved markup from the renderer,
+3. Each deferred value as it settles — the resolved markup from the renderer,
    plus a small script carrying the data so the client has it too.
-5. `</body></html>`.
+4. `</body></html>`.
 
 Streaming is rejected at manifest-resolution time for any other combination:
 `ssg` and `isg` write files, and a `hydration` other than `"full"` ships no
 client runtime to resume a boundary with.
+
+Development uses the same streaming path: Vite transforms the document prefix
+before it is committed, then forwards the remaining renderer and deferred-data
+chunks without buffering them.
 
 ##### What changes when a route streams
 
 - **A deferred rejection no longer fails the response.** Before the first flush
   a failure still produces a normal error document. After it, the status is
   already sent, so a rejection is delivered on the defer channel and surfaces
-  where the value is read — the nearest `ErrorBoundary` renders. The response
-  stays `200`.
+  where the value is read — the route or shell `ErrorBoundary` export renders,
+  or a nearer standalone `<ErrorBoundary>` can recover only that subtree. The
+  response stays `200`. Unexpected server errors keep the same production
+  sanitization as buffered route errors; `debugErrors` only exposes their
+  details outside production.
 - **`<Script strategy="beforeHydration">` is emitted in place** rather than
   hoisted into `<head>`, which has already been written. A body script in SSR
   HTML still runs before hydration, so the guarantee holds.

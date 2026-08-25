@@ -31,9 +31,9 @@ that look like part of the router are deliberately reachable only from the code
 that uses them:
 
 - **Suspense hydration tracking.** `onHydrationComplete()` waits for suspended
-  boundaries to settle, which needs `preact-suspense`. That counter is attached
+  boundaries to settle, which needs Preact's compat Suspense implementation. That counter is attached
   to the `Suspense` and `lazy` exports through a `/* @__PURE__ */` wrapper, so
-  an app that renders no boundary drops both the counter and `preact-suspense`.
+  an app that renders no boundary drops both the counter and compat Suspense.
 - **Capability revalidation.** A settled non-`read` capability call refreshes
   the active route's loader data. The listener is installed by the two paths
   that can dispatch the event — `<Form capability>` and the generated
@@ -245,7 +245,7 @@ When a route blows its budget, the usual levers, in order of impact:
 1. **Move heavy work server-side** — loaders run on the server; data-crunching
    dependencies never need to ship to the client.
 2. **Lazy-load below-the-fold or interaction-gated code** with `lazy()` from
-   `preact-suspense`, or a dynamic `import()` inside an event handler.
+   `@pracht/core`, or a dynamic `import()` inside an event handler.
 3. **Check the shell** — shell chunks are shared by every route using that
    shell; a heavy dependency imported in a shell taxes every page.
 4. **Audit the vendor chunk** — see the `audit-bundles` skill for a guided

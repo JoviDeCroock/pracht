@@ -1188,6 +1188,7 @@ export async function handlePrachtRequest<TContext>(
             signal: requestSignal,
             pending,
             nonce: head.fontNonce,
+            exposeErrorDetails: exposeDiagnostics,
             onError: (error) => {
               // Past the first flush there is no error document to send, so the
               // only remaining job is to make the failure visible server-side.

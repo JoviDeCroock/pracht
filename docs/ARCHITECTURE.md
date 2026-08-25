@@ -650,7 +650,9 @@ After hydration, the client router handles all subsequent navigation.
 
 ### Hydration & Suspense tracking
 
-During SSR, Suspense boundaries render their resolved content (not the fallback).
+During buffered SSR, Suspense boundaries render their resolved content (not the
+fallback). A `streaming: true` SSR route instead commits the prepared shell with
+unresolved fallbacks and resumes each boundary as its data settles.
 When the client hydrates, lazy components throw promises but Suspense keeps the
 server HTML alive in the DOM — no fallback is shown. The framework tracks these
 in-flight suspensions so it knows when hydration is truly complete.
@@ -665,7 +667,7 @@ in-flight suspensions so it knows when hydration is truly complete.
   important: without it, an unrelated `render()` tree (portal, island, modal)
   that suspends while a hydrate is still in-flight would be mis-counted as a
   hydration suspension and pin `_hydrated` to `false`. This mirrors the same
-  check preact-suspense uses internally to decide whether to preserve server
+  check Preact's compat Suspense uses internally to decide whether to preserve server
   DOM.
 - `options.__c` (\_commit / commitRoot) runs once per commit root after the whole
   subtree has finished diffing. When `_hydrating` is true and `_suspensionCount`
@@ -710,7 +712,7 @@ visible banner:
   item with the offending component name.
 - `options.__e` (catchError) + `options.__c` (commit) — together they detect
   Suspense boundaries that resolve **during** hydration but render a number
-  of top-level DOM nodes other than 1. Preact-suspense's hydration path
+  of top-level DOM nodes other than 1. Preact's compat hydration path
   assumes the resolved subtree replaces the server HTML in-place; if the
   resolved component returns 0 nodes (e.g. `null`) or >1 (a `Fragment` with
   multiple roots), sibling DOM offsets drift and subsequent updates can bind
@@ -721,7 +723,7 @@ visible banner:
   through the component instance's current vnode rather than the captured
   reference, so intermediate wrapper components between the Suspense
   boundary and the suspending vnode are handled correctly. The reported
-  component name drills past preact-suspense's `Lazy` wrapper (identified
+  component name drills past Preact compat's `Lazy` wrapper (identified
   by its `displayName === "Lazy"`) so the warning names the resolved user
   component instead of the wrapper. See
   [preact issue #4442](https://github.com/preactjs/preact/issues/4442) for

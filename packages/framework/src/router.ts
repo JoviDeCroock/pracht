@@ -1,8 +1,8 @@
-import { createContext, h } from "preact";
+import { Component, createContext, h } from "preact";
 import { hydrate, render } from "preact";
 import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { StateUpdater } from "preact/hooks";
-import type { FunctionComponent } from "preact";
+import type { ComponentChildren, FunctionComponent } from "preact";
 import type { FontHeadFragments } from "./font.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
@@ -89,12 +89,33 @@ const PREFETCH_ENABLED =
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
+  ErrorBoundary: FunctionComponent | null;
   componentProps: Record<string, unknown>;
   data: unknown;
   params: RouteParams;
   routeId: string;
   url: string;
   version: number;
+}
+
+interface RouteErrorBoundaryProps {
+  Boundary: FunctionComponent;
+  children: ComponentChildren;
+}
+
+class RouteErrorBoundary extends Component<RouteErrorBoundaryProps, { error: Error | null }> {
+  state = { error: null };
+
+  componentDidCatch(error: unknown): void {
+    if (typeof (error as { then?: unknown } | null)?.then === "function") throw error;
+    this.setState({ error: error as Error });
+  }
+
+  render(props: RouteErrorBoundaryProps, state: { error: Error | null }): ComponentChildren {
+    return state.error === null
+      ? props.children
+      : h(props.Boundary as FunctionComponent<Record<string, unknown>>, { error: state.error });
+  }
 }
 
 declare global {
@@ -358,7 +379,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     updateRouteState = setRouteState;
     const navigateValue = useMemo(() => navigate, []);
 
-    const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
+    const { Shell, Component, ErrorBoundary, componentProps, data, params, routeId, url, version } =
+      routeState;
     activeRouteStateVersion = version;
 
     useLayoutEffect(() => {
@@ -368,9 +390,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       callback();
     }, [version]);
     const routeElement = h(RouteComponent, { Component, componentProps });
-    const componentTree = Shell
-      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, routeElement)
+    const guardedRouteElement = ErrorBoundary
+      ? h(RouteErrorBoundary, {
+          key: version,
+          Boundary: ErrorBoundary,
+          children: routeElement,
+        })
       : routeElement;
+    const componentTree = Shell
+      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, guardedRouteElement)
+      : guardedRouteElement;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -431,6 +460,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component,
+      ErrorBoundary: state.error
+        ? null
+        : ((ErrorBoundary as FunctionComponent | undefined) ?? null),
       componentProps,
       data: state.data,
       params: match.params,
@@ -456,6 +488,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component: Loading ?? (() => null),
+      ErrorBoundary: null,
       componentProps: {},
       data: undefined,
       params: match.params,

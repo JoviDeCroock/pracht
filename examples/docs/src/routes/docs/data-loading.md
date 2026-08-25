@@ -198,27 +198,33 @@ buffers depending on this one flag.
 
 The response is written in this order:
 
-1. The document head and the opening root element, before the tree renders at
-   all, so stylesheets and preloads start downloading while loaders run.
-2. The shell, with every unresolved boundary showing its fallback.
-3. The hydration state, defer-channel bootstrap, and async client entry, so
+1. The document head and opening root element, followed by the shell with every
+   unresolved boundary showing its fallback. The shell is prepared before the
+   response commits, so an early render failure can still produce a normal
+   error page while styles and preloads arrive before deferred work completes.
+2. The hydration state, defer-channel bootstrap, and async client entry, so
    hydration can start while boundaries are still outstanding. Deferred
    locations live in framework metadata beside the loader data; no user object
    shape or property name is reserved.
-4. Each deferred value as it settles.
-5. The closing tags.
+3. Each deferred value as it settles.
+4. The closing tags.
 
 Streaming is rejected for any other combination: `ssg` and `isg` write files,
 and a `hydration` mode other than `"full"` ships no client runtime to resume a
 boundary with.
+
+`pracht dev` preserves the same behavior: Vite transforms the initial document
+prefix, then passes later renderer and deferred-data chunks through directly.
 
 Two behaviour changes worth knowing:
 
 - **A deferred rejection no longer fails the response.** Before the first flush
   a failure still renders a normal error document. After it, the status is
   already sent, so the rejection travels with the data and surfaces where the
-  value is read — your nearest `ErrorBoundary` renders and the response stays
-  `200`.
+  value is read. The route or shell `ErrorBoundary` export renders, or a nearer
+  standalone `<ErrorBoundary>` can recover just that subtree; the response
+  stays `200`. Unexpected server failures remain sanitized in production, just
+  like buffered route errors.
 - **`<Script strategy="beforeHydration">` is emitted in place** rather than
   hoisted into `<head>`, which has already been sent. It still runs before
   hydration.

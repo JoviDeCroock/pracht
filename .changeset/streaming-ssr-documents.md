@@ -10,4 +10,4 @@ locations travel as framework-owned hydration metadata, and the async client
 entry resumes the public `<Suspense>` boundary without reserving any user data
 shape. Rejections after the first flush surface at the read site instead of
 failing the response. Off by default; rejected for prerendered and non-full
-hydration modes.
+hydration modes. Streaming requires `preact-render-to-string` 6.5 or newer.

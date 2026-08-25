@@ -26,7 +26,7 @@ On the server, pracht knows which route and shell are being rendered. It uses th
 
 ## Vendor Chunk
 
-Preact, preact/hooks, and preact-suspense are extracted into a shared `vendor` chunk. This means:
+Preact and its hook/compat entry points are extracted into a shared `vendor` chunk. This means:
 
 - The vendor chunk is cached once by the browser and shared across all routes.
 - Route chunks stay small — they only contain route-specific code.

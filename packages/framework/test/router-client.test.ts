@@ -8,6 +8,7 @@ import {
   Form,
   Link,
   Suspense,
+  defer,
   defineApp,
   initClientRouter,
   resolveApp,
@@ -17,6 +18,7 @@ import {
   useRevalidate,
   useRouteData,
   useSearchParams,
+  use,
 } from "../src/index.ts";
 import { _resetForTesting } from "../src/hydration.ts";
 
@@ -58,6 +60,57 @@ describe("initClientRouter", () => {
     delete window.__PRACHT_NAVIGATE__;
     delete window.__PRACHT_ROUTER_READY__;
     delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
+  });
+
+  it("renders the exported route boundary when deferred data rejects on the client", async () => {
+    history.replaceState(null, "", "/deferred");
+    let rejectDeferred!: (error: Error) => void;
+    const pending = new Promise<string>((_resolve, reject) => {
+      rejectDeferred = reject;
+    });
+    const app = resolveApp(
+      defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/deferred", "./routes/deferred.tsx", { render: "spa", shell: "app" })],
+      }),
+    );
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/deferred.tsx": async () => ({
+          default: ({ data }: { data: { value: unknown } }) =>
+            h(
+              Suspense as never,
+              { fallback: h("p", null, "loading") },
+              h(() => h("p", null, use(data.value as never)), null),
+            ),
+          ErrorBoundary: ({ error }: { error: Error }) =>
+            h("p", null, `route boundary: ${error.message}`),
+        }),
+      },
+      shellModules: {
+        "./shells/app.tsx": async () => ({
+          Shell: ({ children }: { children: ComponentChildren }) =>
+            h("section", { "data-shell": "app" }, h("nav", null, "navigation"), children),
+        }),
+      },
+      initialState: {
+        data: { value: defer(pending) },
+        routeId: "deferred",
+        url: "/deferred",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(root.textContent).toContain("loading");
+    rejectDeferred(new Error("deferred failure"));
+    await pending.catch(() => {});
+    await flush();
+
+    expect(root.textContent).toContain("navigation");
+    expect(root.textContent).toContain("route boundary: deferred failure");
   });
 
   it("renders shell-less SPA routes after the pending bootstrap fetch resolves", async () => {

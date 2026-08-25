@@ -59,6 +59,25 @@ function streamingApp() {
 }
 
 describe("streaming SSR documents", () => {
+  it("returns a normal error response when the shell fails before the first flush", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            Component: () => {
+              throw new Error("shell failed");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.text()).resolves.toBe("Internal Server Error");
+  });
+
   it("flushes the head and shell before the deferred value settles", async () => {
     const response = await handlePrachtRequest({
       app: streamingApp(),
@@ -270,7 +289,8 @@ describe("streaming deferred wire format", () => {
     expect(response.status).toBe(200);
     const html = (await readChunks(response)).join("");
     expect(html).toContain('__PRACHT_DEFER__.e("0:reviews"');
-    expect(html).toContain("upstream 500");
+    expect(html).toContain("Internal Server Error");
+    expect(html).not.toContain("upstream 500");
   });
 
   it("round-trips through the client rehydration path", async () => {

@@ -108,7 +108,7 @@ For each route chunk over 50 KB gz, run `pracht inspect build --json` plus
 - Grep the chunk source for known heavy module headers (`moment`, `lodash`,
   `chart.js`, `three`, `@stripe/stripe-js`, etc.).
 - For each, recommend: (a) tree-shakeable alternative, (b) dynamic import
-  inside an event handler, (c) lazy-load via `lazy()` from `preact-suspense`.
+  inside an event handler, (c) lazy-load via `lazy()` from `@pracht/core`.
 
 ## Step 6: Prefetch strategy
 

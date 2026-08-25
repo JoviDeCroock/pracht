@@ -447,4 +447,49 @@ describe("streaming wire metadata", () => {
       ["second", "value"],
     ]);
   });
+
+  it("preserves __proto__ data without polluting Object.prototype", async () => {
+    const source = JSON.parse('{"__proto__":{}}') as Record<string, any>;
+    source.__proto__.polluted = defer(Promise.resolve("safe"));
+    const { data, pending } = serializeDeferred(source);
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+
+    try {
+      expect(Object.hasOwn(data as object, "__proto__")).toBe(true);
+      const hydrated = rehydrateDeferredData(
+        JSON.parse(JSON.stringify(data)),
+        pending.map(({ id, path }) => ({ id, path })),
+      ) as Record<string, any>;
+      const registry = (
+        globals.window as {
+          __PRACHT_DEFER__: { r(id: string, value: unknown): void };
+        }
+      ).__PRACHT_DEFER__;
+      registry.r(pending[0].id, await pending[0].promise);
+
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+      expect(Object.hasOwn(hydrated, "__proto__")).toBe(true);
+      await expect(settle(hydrated.__proto__.polluted)).resolves.toBe("safe");
+    } finally {
+      delete (Object.prototype as { polluted?: unknown }).polluted;
+      if (!hadWindow) delete globals.window;
+    }
+  });
+
+  it("rejects deferred paths that would traverse inherited properties", () => {
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+    try {
+      expect(() =>
+        rehydrateDeferredData({}, [{ id: "forged", path: ["__proto__", "polluted"] }]),
+      ).toThrow(/Invalid deferred hydration path/);
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+    } finally {
+      delete (Object.prototype as { polluted?: unknown }).polluted;
+      if (!hadWindow) delete globals.window;
+    }
+  });
 });
