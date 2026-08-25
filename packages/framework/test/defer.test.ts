@@ -204,6 +204,67 @@ describe("resolveDeferredData()", () => {
     expect(reads).toBe(1);
   });
 
+  it("does not evaluate array index getters while looking for deferred fields", async () => {
+    let reads = 0;
+    const values: unknown[] = [];
+    Object.defineProperty(values, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads;
+      },
+    });
+    values.length = 1;
+    const data = { values };
+
+    const resolved = await resolveDeferredData(data);
+
+    expect(resolved).toBe(data);
+    expect(reads).toBe(0);
+    expect(JSON.stringify(resolved)).toBe('{"values":[1]}');
+    expect(reads).toBe(1);
+  });
+
+  it("preserves array index getters while resolving sibling deferred values", async () => {
+    let reads = 0;
+    const values: unknown[] = [];
+    Object.defineProperty(values, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads += 1;
+        return reads;
+      },
+    });
+    values[1] = defer(deferredLater("ok"));
+
+    const resolved = await resolveDeferredData({ values });
+
+    expect(reads).toBe(0);
+    expect(JSON.stringify(resolved)).toBe('{"values":[1,"ok"]}');
+    expect(reads).toBe(1);
+  });
+
+  it("rejects a deferred marker returned from an array getter", async () => {
+    const value = defer(deferredLater("ok"));
+    const values: unknown[] = [];
+    Object.defineProperty(values, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return value;
+      },
+    });
+    values.length = 1;
+
+    const resolved = await resolveDeferredData({ values });
+
+    expect(() => JSON.stringify(resolved)).toThrow(
+      "Return defer() from an enumerable data property, not from a getter",
+    );
+  });
+
   it("preserves non-enumerable state read by an enumerable getter", async () => {
     const data = {
       get publicId() {

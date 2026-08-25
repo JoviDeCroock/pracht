@@ -188,7 +188,14 @@ function containsDeferred(value: unknown, seen = new Set<object>()): boolean {
   seen.add(value);
 
   if (Array.isArray(value)) {
-    for (const entry of value) if (containsDeferred(entry, seen)) return true;
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+      // Array iteration reads accessor-backed indices, which would add an
+      // observable access even when the route does not defer anything. Inspect
+      // only the data descriptors JSON serialization can consume directly.
+      if (isArrayIndexKey(key) && "value" in descriptor) {
+        if (containsDeferred(descriptor.value, seen)) return true;
+      }
+    }
     return false;
   }
   if (!isPlainObject(value)) return false;
@@ -224,9 +231,30 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
 
   if (Array.isArray(value)) {
     const next: unknown[] = [];
+    Object.setPrototypeOf(next, Object.getPrototypeOf(value));
     seen.set(value, next);
-    const resolved = await Promise.all(value.map((entry) => resolveValue(entry, seen)));
-    next.push(...resolved);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const entries = Reflect.ownKeys(descriptors)
+      .filter((key) => key !== "length")
+      .map((key) => [key, descriptors[key as keyof typeof descriptors]] as const);
+    const resolved = await Promise.all(
+      entries.map(([key, descriptor]) =>
+        isArrayIndexKey(key) && "value" in descriptor
+          ? resolveValue(descriptor.value, seen)
+          : undefined,
+      ),
+    );
+    for (let i = 0; i < entries.length; i += 1) {
+      const [key, descriptor] = entries[i];
+      Object.defineProperty(
+        next,
+        key,
+        isArrayIndexKey(key) && "value" in descriptor
+          ? { ...descriptor, value: resolved[i] }
+          : descriptor,
+      );
+    }
+    Object.defineProperty(next, "length", descriptors.length);
     return next;
   }
 
@@ -265,6 +293,12 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
 function isPlainObject(value: object): value is Record<string, unknown> {
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
+}
+
+function isArrayIndexKey(key: PropertyKey): key is string {
+  if (typeof key !== "string" || key === "") return false;
+  const index = Number(key);
+  return Number.isInteger(index) && index >= 0 && index < 2 ** 32 - 1 && String(index) === key;
 }
 
 function deferredResponseError(): TypeError {
