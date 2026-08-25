@@ -168,6 +168,8 @@ export { useIsHydrated } from "./hydration.ts";
 export { Script } from "./script.ts";
 export type { ScriptProps, ScriptStrategy } from "./script.ts";
 export { Suspense, lazy } from "preact-suspense";
+export { ErrorBoundary } from "./error-boundary.ts";
+export type { ErrorBoundaryComponentProps } from "./error-boundary.ts";
 export {
   applyDefaultSecurityHeaders,
   Form,

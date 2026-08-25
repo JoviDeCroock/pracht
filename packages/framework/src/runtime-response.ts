@@ -1,4 +1,4 @@
-import { h } from "preact";
+import { h, options as preactOptions } from "preact";
 import type { ComponentChildren, FunctionComponent, VNode } from "preact";
 
 import {
@@ -55,6 +55,14 @@ export function isFrameworkFontHeadResponse(response: Response): boolean {
 }
 
 export async function getRenderToStringAsync() {
+  // preact-render-to-string leaves class error boundaries disabled by default.
+  // Keep this enabled process-wide: Pracht can render many SSG routes in
+  // parallel, so temporarily toggling the global option would be racy.
+  (
+    preactOptions as typeof preactOptions & {
+      errorBoundaries?: boolean;
+    }
+  ).errorBoundaries = true;
   if (_renderToStringAsync) return _renderToStringAsync;
   const mod = await import("preact-render-to-string");
   _renderToStringAsync = mod.renderToStringAsync;

@@ -646,6 +646,26 @@ Shells can also export `ErrorBoundary` to provide a shared fallback for routes
 inside that shell. A route-level `ErrorBoundary` takes precedence when both are
 present.
 
+### Containing a failure inside a page
+
+A route or shell `ErrorBoundary` replaces the whole page. When only part of an
+otherwise working page should be replaced — an embedded editor, a lazy island, a
+third-party widget — wrap that subtree in the `ErrorBoundary` component:
+
+```tsx
+import { ErrorBoundary } from "@pracht/core";
+
+<ErrorBoundary fallback={(error, retry) => <Failed error={error} onRetry={retry} />}>
+  <Editor />
+</ErrorBoundary>;
+```
+
+`fallback` takes a node or a function of `(error, retry)`; `retry` clears the
+captured error and re-renders the children. `onError` is called with every
+caught error. The same boundary renders during SSR, SSG, and ISG. Promises
+thrown for suspension are declined, so an enclosing `<Suspense>` still handles
+them.
+
 ---
 
 ## Middleware
