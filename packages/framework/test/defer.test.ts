@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { defer, isDeferred, resolveDeferredData, type Deferred, use } from "../src/defer.ts";
+import type { HeadArgs, HeadersArgs, RouteComponentProps } from "../src/types.ts";
 
 function deferredLater<T>(value: T, ms = 0): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -155,7 +156,25 @@ describe("resolveDeferredData()", () => {
   it("handles a null prototype object", async () => {
     const bare = Object.create(null) as Record<string, unknown>;
     bare.reviews = defer(deferredLater("ok"));
-    expect(await resolveDeferredData({ bare })).toEqual({ bare: { reviews: "ok" } });
+    const resolved = await resolveDeferredData({ bare });
+    expect(resolved).toEqual({ bare: { reviews: "ok" } });
+    expect(Object.getPrototypeOf(resolved.bare)).toBeNull();
+  });
+
+  it("preserves an own __proto__ data property", async () => {
+    const data = JSON.parse('{"__proto__":{"polluted":true},"reviews":null}') as Record<
+      string,
+      unknown
+    >;
+    data.reviews = defer(deferredLater("ok"));
+
+    const resolved = await resolveDeferredData(data);
+
+    expect(Object.getPrototypeOf(resolved)).toBe(Object.prototype);
+    expect(Object.hasOwn(resolved, "__proto__")).toBe(true);
+    expect(resolved.__proto__).toEqual({ polluted: true });
+    expect("polluted" in resolved).toBe(false);
+    expect(JSON.stringify(resolved)).toBe('{"__proto__":{"polluted":true},"reviews":"ok"}');
   });
 
   it("does not recurse forever on a cyclic value", async () => {
@@ -168,6 +187,30 @@ describe("resolveDeferredData()", () => {
     expect(await resolveDeferredData(null)).toBe(null);
     expect(await resolveDeferredData(undefined)).toBe(undefined);
     expect(await resolveDeferredData("plain")).toBe("plain");
+  });
+});
+
+describe("deferred loader data types", () => {
+  async function loader() {
+    return {
+      product: { name: "Widget" },
+      reviews: defer(Promise.resolve([{ id: 1 }])),
+      summary: { score: defer(Promise.resolve(5)) },
+    };
+  }
+
+  type ResolvedData = {
+    product: { name: string };
+    reviews: { id: number }[];
+    summary: { score: number };
+  };
+
+  it("resolves deferred fields for head and headers while preserving component markers", () => {
+    expectTypeOf<HeadArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();
+    expectTypeOf<HeadersArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();
+    expectTypeOf<RouteComponentProps<typeof loader>["data"]["reviews"]>().toEqualTypeOf<
+      Deferred<{ id: number }[]>
+    >();
   });
 });
 

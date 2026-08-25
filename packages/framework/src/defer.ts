@@ -220,11 +220,18 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
   // prototype.
   if (!isPlainObject(value)) return value;
 
-  const next: Record<string, unknown> = {};
+  const next = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
   seen.set(value, next);
   const entries = Object.entries(value);
   const resolved = await Promise.all(entries.map(([, entry]) => resolveValue(entry, seen)));
-  for (let i = 0; i < entries.length; i += 1) next[entries[i][0]] = resolved[i];
+  for (let i = 0; i < entries.length; i += 1) {
+    Object.defineProperty(next, entries[i][0], {
+      configurable: true,
+      enumerable: true,
+      value: resolved[i],
+      writable: true,
+    });
+  }
   return next;
 }
 

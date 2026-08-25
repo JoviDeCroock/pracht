@@ -860,8 +860,8 @@ export async function handlePrachtRequest<TContext>(
         loaderFile = resolvedLoaderFile;
 
         let loaderResult: unknown;
+        const loaderStart = loader && timings ? performance.now() : 0;
         if (loader) {
-          const loaderStart = timings ? performance.now() : 0;
           try {
             loaderResult = await loader(routeArgs);
           } catch (error: unknown) {
@@ -871,13 +871,11 @@ export async function handlePrachtRequest<TContext>(
             if (!(error instanceof Response)) throw error;
             loaderResult = error;
           }
-          if (timings) {
-            timings.loader = performance.now() - loaderStart;
-          }
         }
 
         // Allow loaders to return a Response directly (e.g. for redirects)
         if (loaderResult instanceof Response) {
+          if (timings) timings.loader = performance.now() - loaderStart;
           return loaderResult;
         }
 
@@ -885,7 +883,12 @@ export async function handlePrachtRequest<TContext>(
         // call covers every render mode and both the document and route-state
         // paths, because this is the only place a loader is invoked. Returns
         // the input untouched when the route defers nothing.
-        const data = await resolveDeferredData(loaderResult);
+        let data: unknown;
+        try {
+          data = await resolveDeferredData(loaderResult);
+        } finally {
+          if (loader && timings) timings.loader = performance.now() - loaderStart;
+        }
 
         if (isRouteStateRequest) {
           // Route head exports are stripped from the client bundle. Return the
