@@ -442,7 +442,9 @@ build).
   rebuild. Set `"no_bundle": true` and add an `ESModule` rule covering
   `"**/*.js"` because this output is already bundled by Vite and may contain
   lazy server chunks. The two settings make Wrangler upload those files as
-  separate Worker modules instead of folding them into the entry file.
+  separate Worker modules instead of folding them into the entry file. If a
+  named Wrangler environment overrides either setting, it must preserve the
+  same contract; `pracht verify` checks those effective environment settings.
 - **Local preview**: `pracht preview` runs `pracht build` and then delegates to
   `wrangler dev --port <port>` against the built worker. It requires wrangler
   (in `node_modules` or on PATH) and a wrangler config; it errors with install

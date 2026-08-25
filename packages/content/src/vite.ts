@@ -24,6 +24,7 @@ const RESOLVED_CONTENT_MODULE_PREFIX = `\0${CONTENT_MODULE_PREFIX}`;
  */
 const CONTENT_PAYLOAD_MODULE_PREFIX = "virtual:pracht/content-payload/";
 const RESOLVED_CONTENT_PAYLOAD_MODULE_PREFIX = `\0${CONTENT_PAYLOAD_MODULE_PREFIX}`;
+const CONTENT_PAYLOAD_SLUG_MAX_LENGTH = 80;
 export const CONTENT_BUILD_MANIFEST_FILE = "_pracht/content-manifest.json";
 
 export interface ViteContentCollection {
@@ -421,7 +422,12 @@ function payloadModuleId(collection: string, index: number, relativeSource: stri
   const slug = relativeSource
     .replace(/\.[^./]*$/, "")
     .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/^-+|-+$/g, "")
+    // Rolldown derives the emitted chunk basename from this suffix. Flattening
+    // an otherwise valid deep source path without a bound can exceed the
+    // filesystem's per-component limit and make the build fail at write time.
+    .slice(0, CONTENT_PAYLOAD_SLUG_MAX_LENGTH)
+    .replace(/-+$/g, "");
   return `${CONTENT_PAYLOAD_MODULE_PREFIX}${encodeURIComponent(collection)}/${index}${slug ? `-${slug}` : ""}`;
 }
 

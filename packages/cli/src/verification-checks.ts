@@ -942,12 +942,13 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
 
   const display = displayPath(root, configFile);
   collectCloudflareTrailingSlashCheck(project, root, configFile, display, checks);
-  const bundling = readWranglerBundleSettings(configFile);
-  if (bundling && (bundling.noBundle !== true || !bundling.hasJavaScriptModuleRule)) {
+  for (const bundling of readWranglerBundleSettings(configFile) ?? []) {
+    if (bundling.noBundle === true && bundling.hasJavaScriptModuleRule) continue;
+    const where = bundling.environment ? ` for environment "${bundling.environment}"` : "";
     checks.push(
       createCheck(
         "warning",
-        `${display} does not preserve Pracht's Vite output as separate Worker modules. Pracht may emit deferred server chunks; Wrangler's default second bundle folds those chunks back into the entry file. Add "no_bundle": true and an ESModule rule whose globs include "**/*.js" so Wrangler uploads the build output unchanged.`,
+        `${display}${where} does not preserve Pracht's Vite output as separate Worker modules. Pracht may emit deferred server chunks; Wrangler's default second bundle folds those chunks back into the entry file. Add "no_bundle": true and an ESModule rule whose globs include "**/*.js" so Wrangler uploads the build output unchanged.`,
       ),
     );
   }

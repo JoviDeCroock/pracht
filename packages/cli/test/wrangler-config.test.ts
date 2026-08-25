@@ -248,7 +248,7 @@ describe("readWranglerBundleSettings", () => {
           `{ "no_bundle": true, "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }] }`,
         ),
       ),
-    ).toEqual({ noBundle: true, hasJavaScriptModuleRule: true });
+    ).toEqual([{ environment: null, noBundle: true, hasJavaScriptModuleRule: true }]);
     expect(
       readWranglerBundleSettings(
         writeConfig(
@@ -256,13 +256,58 @@ describe("readWranglerBundleSettings", () => {
           `no_bundle = false # let wrangler bundle\n[[rules]]\ntype = "ESModule"\nglobs = ["**/*.js", "**/*.mjs"]\n`,
         ),
       ),
-    ).toEqual({ noBundle: false, hasJavaScriptModuleRule: true });
+    ).toEqual([{ environment: null, noBundle: false, hasJavaScriptModuleRule: true }]);
+  });
+
+  it("applies JSONC and TOML environment overrides to inherited settings", () => {
+    expect(
+      readWranglerBundleSettings(
+        writeConfig(
+          "wrangler.jsonc",
+          `{
+            "no_bundle": true,
+            "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+            "env": {
+              "production": { "no_bundle": false },
+              "preview": { "rules": [{ "type": "Text", "globs": ["**/*.txt"] }] },
+              "inherited": { "name": "app-inherited" }
+            }
+          }`,
+        ),
+      ),
+    ).toEqual([
+      { environment: null, noBundle: true, hasJavaScriptModuleRule: true },
+      { environment: "production", noBundle: false, hasJavaScriptModuleRule: true },
+      { environment: "preview", noBundle: true, hasJavaScriptModuleRule: false },
+    ]);
+    expect(
+      readWranglerBundleSettings(
+        writeConfig(
+          "wrangler.toml",
+          [
+            "no_bundle = true",
+            "[[rules]]",
+            'type = "ESModule"',
+            'globs = ["**/*.js"]',
+            "[env.production]",
+            "no_bundle = false",
+            "[[env.preview.rules]]",
+            'type = "Text"',
+            'globs = ["**/*.txt"]',
+          ].join("\n"),
+        ),
+      ),
+    ).toEqual([
+      { environment: null, noBundle: true, hasJavaScriptModuleRule: true },
+      { environment: "production", noBundle: false, hasJavaScriptModuleRule: true },
+      { environment: "preview", noBundle: true, hasJavaScriptModuleRule: false },
+    ]);
   });
 
   it("distinguishes an omitted setting from an unreadable config", () => {
     expect(
       readWranglerBundleSettings(writeConfig("wrangler.jsonc", `{ "main": "worker.js" }`)),
-    ).toEqual({ noBundle: undefined, hasJavaScriptModuleRule: false });
+    ).toEqual([{ environment: null, noBundle: undefined, hasJavaScriptModuleRule: false }]);
     expect(readWranglerBundleSettings(writeConfig("wrangler.jsonc", `{ nope`))).toBeNull();
   });
 });

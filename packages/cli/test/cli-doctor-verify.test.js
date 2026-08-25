@@ -635,6 +635,38 @@ export const app = defineApp({
       ),
     ).toBe(true);
   });
+
+  it("warns when a Wrangler environment overrides safe bundle settings", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-env-bundle-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+  "env": {
+    "production": { "no_bundle": false }
+  }
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" &&
+          check.message.includes('environment "production"') &&
+          check.message.includes("deferred server chunks"),
+      ),
+    ).toBe(true);
+  });
   it("warns when a Markdown page is routed with no transform plugin", () => {
     const appDir = createTempDir("pracht-cli-doctor-md-page-");
     writePagesApp(appDir);

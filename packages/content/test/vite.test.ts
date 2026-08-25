@@ -453,6 +453,12 @@ describe("prachtContent", () => {
     const output = join(temporaryDirectory, "dist");
     await writeFile(join(temporaryDirectory, "one.md"), "First document");
     await writeFile(join(temporaryDirectory, "two.md"), "Second document");
+    let deepDirectory = temporaryDirectory;
+    for (let index = 0; index < 4; index++) {
+      deepDirectory = join(deepDirectory, `${index}-${"a".repeat(80)}`);
+      await mkdir(deepDirectory);
+    }
+    await writeFile(join(deepDirectory, "deep.md"), "Deep document");
     const collection = defineCollection({ name: "docs", root: temporaryDirectory });
 
     await build({
@@ -483,7 +489,11 @@ describe("prachtContent", () => {
     // ...and none of what it does not.
     expect(entryCode).not.toContain("First document");
     expect(entryCode).not.toContain("Second document");
-    expect(chunks.filter((file) => String(file) !== "docs.js")).toHaveLength(2);
+    expect(entryCode).not.toContain("Deep document");
+    expect(chunks.filter((file) => String(file) !== "docs.js")).toHaveLength(3);
+    expect(
+      chunks.every((file) => Buffer.byteLength(String(file).split("/").at(-1) ?? "") < 255),
+    ).toBe(true);
 
     const runtime = (await import(pathToFileURL(join(output, "docs.js")).href)).default;
     expect(await runtime.getByRoute("/one")).toMatchObject({ compiled: "First document" });

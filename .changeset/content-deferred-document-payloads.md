@@ -24,9 +24,12 @@ at a time; `all()` loads the collection.
 
 Malformed documents are still rejected while the snapshot module is generated,
 with the same `documents[n].compiled…` diagnostic path, rather than when the
-page that happens to use them is first rendered.
+page that happens to use them is first rendered. Descriptive payload chunk
+names are bounded so deeply nested, valid source paths cannot exceed filesystem
+filename limits during a build.
 
 Server builds now preserve dynamic imports even for webworker targets. New
 Cloudflare projects deploy Pracht's pre-bundled output with `no_bundle: true`
 and a JavaScript `ESModule` rule, and `pracht verify` warns existing Wrangler
-configs that would inline or omit the deferred chunks.
+configs, including named-environment overrides, that would inline or omit the
+deferred chunks.
