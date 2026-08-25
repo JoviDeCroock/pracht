@@ -48,18 +48,15 @@ describe("<Link> data attributes", () => {
     expect(anchor.getAttribute("data-pracht-prefetch")).toBe("none");
   });
 
-  // `href` is a declared prop only so the compiler error can carry the fix; it
-  // is never destructured, so it rides along in the rest spread. The computed
-  // href is assigned after that spread and has to win, on every render path.
-  it("never lets a passed href reach the anchor", () => {
-    expect(renderLink({ href: "https://evil.example/" }).getAttribute("href")).toBe("/logout");
+  it("rejects a passed href even when route is present", () => {
+    expect(() => renderLink({ href: "https://evil.example/" })).toThrow(
+      /navigates by route id, not href/,
+    );
   });
 
-  it("never lets a passed href reach the anchor during SSR", () => {
-    const html = renderToString(
-      h(Link, { route: "logout", href: "https://evil.example/" } as never),
-    );
-    expect(html).toContain('href="/logout"');
-    expect(html).not.toContain("evil.example");
+  it("rejects a passed href during SSR even when route is present", () => {
+    expect(() =>
+      renderToString(h(Link, { route: "logout", href: "https://evil.example/" } as never)),
+    ).toThrow(/navigates by route id, not href/);
   });
 });

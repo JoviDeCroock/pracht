@@ -35,7 +35,8 @@ function ButtonLink({ route, ...rest }: ButtonLinkProps) {
 Migration: drop `href` from the wrapper's own props —
 `Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href">` — or stop forwarding
 it. The link never navigated to that `href`, so nothing about the rendered
-output changes.
+output changes. Untyped JavaScript and JSX receive the same direct diagnostic in
+development, including when `route` and `href` arrive together.
 
 **`<Link>` now accepts the anchor attributes.** `LinkProps` was based on
 `JSX.HTMLAttributes<HTMLAnchorElement>`, but Preact keeps `target`, `rel`,

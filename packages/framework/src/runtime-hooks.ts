@@ -290,20 +290,23 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     preserveScroll,
     viewTransition,
     speculate,
+    href,
     ...anchorProps
   } = props as unknown as Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> &
     UntypedRouteTarget & {
+      href?: unknown;
       prefetch?: LinkPrefetchStrategy;
       preserveScroll?: boolean;
       viewTransition?: boolean;
       speculate?: boolean;
     };
 
-  // `<Link href="/blog">` is a TypeScript error, but untyped JSX and JS
-  // callers reach here with no `route`. Without this the missing id runs the
-  // "did you mean" search and fails with an unrelated TypeError. Dev-only,
-  // like the rest of pracht's authoring diagnostics.
-  if (import.meta.env?.DEV !== false && typeof route !== "string") {
+  // `<Link href="/blog">` is a TypeScript error, but untyped JSX and JS callers
+  // can still reach here, including through a spread alongside a valid route.
+  // Fail directly instead of letting a missing id produce an unrelated error
+  // or silently overwriting the supplied href. Dev-only, like the rest of
+  // pracht's authoring diagnostics.
+  if (import.meta.env?.DEV !== false && (typeof route !== "string" || href !== undefined)) {
     throw new Error(
       '<Link> navigates by route id, not href: use <Link route="home"> (with `params` for ' +
         "dynamic segments), or a plain <a href> for external and user-provided URLs.",
