@@ -38,6 +38,7 @@ collide with other skill packs installed in the same app.
 | `/audit-bundles`    | Per-route client payload size and code-splitting recommendations.   |
 | `/audit-seo`        | `head()` coverage, OG cards, sitemap, robots.txt.                   |
 | `/audit-a11y`       | Per-route axe-core run with WCAG 2.1 AA defaults.                   |
+| `/audit-agent-surface` | Inventory what agents can reach: capability exposure, `agents` trust config, `llms.txt`, OpenAPI. |
 | `/tune-render-mode` | Recommend SSG/ISG/SSR/SPA per route based on loader contents.       |
 | `/pre-deploy`       | Adapter-aware pre-deployment checklist.                             |
 
@@ -57,6 +58,10 @@ collide with other skill packs installed in the same app.
 | `/add-db`             | Wire Drizzle ORM (D1, PlanetScale, Neon, Postgres, ...).          |
 | `/add-i18n`           | Wire `@pracht/i18n`: locale routing, dictionaries, hreflang.      |
 | `/add-observability`  | Wire Sentry / OpenTelemetry plus Web Vitals.                      |
+| `/add-content`        | Wire `@pracht/content` / `@pracht/markdown`: collections, Markdown routes, artifacts. |
+| `/add-images`         | Wire `@pracht/image`: `<Image>`, per-target loaders, static variants. |
+| `/add-capabilities`   | Expose typed operations to agents over HTTP, WebMCP, and remote MCP. |
+| `/add-openapi`        | Wire `@pracht/openapi`: OpenAPI 3.1 document plus optional reference UI. |
 | `/typed-routes`       | Generate and adopt route-id based typed links/navigation.         |
 | `/configure-isg`      | Wire ISG revalidation (time + webhook) per adapter.               |
 

@@ -64,6 +64,12 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 //   keep the canonical server manifests private to build tooling
 // - Vite client manifest: build.ts / build-metadata.ts read
 //   "dist/client/.vite/manifest.json"
+// - Generated llms.txt: build.ts writes "dist/client/llms.txt" when the plugin's
+//   llmsTxt option is enabled (docs/LLMS_TXT.md)
+// - OpenAPI companion output: @pracht/openapi's vite plugin emits its document
+//   as a client asset ("dist/client/openapi.json" at the default documentPath)
+//   and, with a UI, the reference shell under dist/client/<ui path>/index.html
+//   (covered by the prerendered-HTML pattern below)
 // - Prerendered route HTML: build.ts writes "<route>/index.html" under
 //   dist/client (routeToStaticHtmlPath in build-shared.ts)
 // - Vercel Build Output API: build-shared.ts writeVercelBuildOutput emits
@@ -76,6 +82,7 @@ const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
   /^dist\/client\/\.vite\/manifest\.json$/,
+  /^dist\/client\/(?:llms\.txt|openapi\.json)$/,
   // Static export fixed artifacts: the notFound document and the opt-in SPA
   // fallback (`staticAdapter({ fallback })`, conventionally 200.html).
   /^dist\/client\/(?:404|200)\.html$/,
