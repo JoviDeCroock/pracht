@@ -109,6 +109,76 @@ current user, permissions, session, or cookies. `loaderCache` does not change
 ISG `revalidate`, and it is separate from Pracht's short in-memory prefetch
 cache.
 
+### Deferred values
+
+A loader is only as fast as its slowest `await`. Wrap the slow fields in
+`defer()` so they stay out of that critical path:
+
+```ts [src/routes/product.tsx]
+import { defer } from "@pracht/core";
+import type { LoaderArgs } from "@pracht/core";
+
+export async function loader({ params }: LoaderArgs) {
+  return {
+    product: await getProduct(params.id),   // awaited
+    reviews: defer(getReviews(params.id)),  // deferred
+  };
+}
+```
+
+The marker goes on the value rather than around the whole return, so the object
+keeps its shape and the type records exactly which fields defer. A route that
+never calls `defer()` behaves exactly as it did before.
+
+Read a deferred value with `use()` inside a `<Suspense>` boundary:
+
+```tsx [src/routes/product.tsx]
+import { Suspense, use } from "@pracht/core";
+import type { Deferred } from "@pracht/core";
+
+export default function Product({ data }) {
+  return (
+    <article>
+      <h1>{data.product.name}</h1>
+      <Suspense fallback={<ReviewsSkeleton />}>
+        <Reviews reviews={data.reviews} />
+      </Suspense>
+    </article>
+  );
+}
+
+function Reviews({ reviews }: { reviews: Deferred<Review[]> }) {
+  const list = use(reviews);
+  return <ul>{list.map((r) => <li key={r.id}>{r.body}</li>)}</ul>;
+}
+```
+
+`Deferred<T>` stays in the loader data type, so passing `data.reviews` where
+`Review[]` is expected is a compile error — reading it goes through `use()`.
+Boundaries are always explicit; Pracht never wraps a component for you.
+
+`defer()` takes a promise, or a function returning one when the work should not
+start until something reads the value. It is memoized, so two reads never do
+the work twice.
+
+Today every render mode resolves deferred values before the response is
+written. The immediate win is concurrency — two independent 300 ms fields cost
+300 ms instead of 600 ms. The reason to write it now is that this is the
+finished API: when the streaming renderer lands, `render: "ssr"` will flush the
+shell first and stream these in with no change to your route source. `ssg` and
+`isg` will always resolve everything, because a static file cannot stream.
+
+Three rules:
+
+- **A deferred value cannot redirect or set headers.** By the time it settles,
+  the status and headers are already sent. Auth belongs in middleware or in the
+  awaited part of the loader.
+- **`head()` and `headers()` see awaited data only.** They run before the
+  render.
+- **A suspending `<Suspense>` boundary must resolve to exactly one DOM
+  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11
+  removes this constraint.
+
 ### Error handling
 
 Throw `PrachtHttpError` for structured error responses. Pair it with an `ErrorBoundary` export to render a fallback UI:

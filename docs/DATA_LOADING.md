@@ -131,6 +131,91 @@ For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state
 request resolves.
 
+### Deferred values — `defer()` and `use()`
+
+A loader that awaits everything is only as fast as its slowest call. Wrap the
+slow fields in `defer()` to keep them out of that critical path:
+
+```typescript
+import { defer } from "@pracht/core";
+import type { LoaderArgs } from "@pracht/core";
+
+export async function loader({ params }: LoaderArgs) {
+  return {
+    product: await getProduct(params.id),   // awaited
+    reviews: defer(getReviews(params.id)),  // deferred
+  };
+}
+```
+
+The marker sits on the value, not around the return, so the object keeps its
+shape and the type records exactly which fields defer. A route that never calls
+`defer()` behaves and serializes exactly as before.
+
+Read a deferred value with `use()` inside a `<Suspense>` boundary:
+
+```tsx
+import { Suspense, use } from "@pracht/core";
+import type { Deferred } from "@pracht/core";
+
+export default function Product({ data }) {
+  return (
+    <article>
+      <h1>{data.product.name}</h1>
+      <Suspense fallback={<ReviewsSkeleton />}>
+        <Reviews reviews={data.reviews} />
+      </Suspense>
+    </article>
+  );
+}
+
+function Reviews({ reviews }: { reviews: Deferred<Review[]> }) {
+  const list = use(reviews);
+  return <ul>{list.map((r) => <li key={r.id}>{r.body}</li>)}</ul>;
+}
+```
+
+`Deferred<T>` is preserved in the loader data type, so passing `data.reviews`
+where `Review[]` is expected is a compile error — reading it goes through
+`use()`. Boundaries are always explicit; pracht never auto-wraps a component.
+
+`defer()` accepts a promise, or a function returning one when the work should
+not start until something reads the value. The call is memoized, so two reads
+of the same deferred value never do the work twice.
+
+#### What defers, and when
+
+Today **every render mode resolves deferred values before the response is
+written.** The benefit right now is the authoring shape and the concurrency:
+independent deferred fields resolve together rather than in series, so two
+300 ms calls cost 300 ms, not 600 ms.
+
+The reason to write `defer()` now is that it is the finished API. When the
+streaming renderer lands, `render: "ssr"` will flush the shell before deferred
+values settle and stream them in — with no change to route source. `use()`
+already accepts a settled value, a deferred one, or a bare promise for exactly
+that reason, and the same component works either way.
+
+`ssg` and `isg` will always resolve everything: those modes write files, a file
+cannot stream, and shipping fallback markup as permanent static output would be
+a correctness bug.
+
+#### Rules
+
+- **A deferred value may not redirect or set headers.** By the time it settles,
+  the response status and headers are already decided. Auth checks belong in
+  middleware or in the awaited part of the loader — which is the existing
+  pracht convention.
+- **`head()` and `headers()` see awaited data only.** Both run before the
+  render and receive the resolved loader result, so metadata cannot depend on a
+  value whose whole point is arriving late.
+- **On Preact 10, a `<Suspense>` boundary that suspends must resolve to exactly
+  one DOM element** — not `null`, not a multi-child fragment. This constraint
+  goes away with Preact 11's hydration rework. It does not bite today, because
+  nothing streams yet, but write boundaries to that shape now.
+- Pass the un-awaited call. `defer(await getReviews(id))` throws, because it
+  defeats the point silently.
+
 ### Redirecting from a loader
 
 A loader can answer with a `Response` instead of data — most often a redirect.

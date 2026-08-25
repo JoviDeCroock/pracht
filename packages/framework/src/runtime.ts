@@ -2,6 +2,7 @@ import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
+import { resolveDeferredData } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -880,7 +881,11 @@ export async function handlePrachtRequest<TContext>(
           return loaderResult;
         }
 
-        const data = loaderResult;
+        // Resolve any defer()ed fields before anything serializes them. One
+        // call covers every render mode and both the document and route-state
+        // paths, because this is the only place a loader is invoked. Returns
+        // the input untouched when the route defers nothing.
+        const data = await resolveDeferredData(loaderResult);
 
         if (isRouteStateRequest) {
           // Route head exports are stripped from the client bundle. Return the
