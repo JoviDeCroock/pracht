@@ -715,10 +715,14 @@ answers them with a `text/plain` body, which is the right answer for a
 production adapter and the wrong one for a browser. The dev middleware
 therefore passes `onRouteError` and swaps that fallback for the overlay
 (`shouldRenderDevErrorOverlay()`). The swap is deliberately narrow — a route
-or shell `ErrorBoundary` produces `text/html` and is left alone, and
-route-state failures are JSON owned by the client router.
-`RouteErrorContext` carries the phase and the route/loader/shell module paths
-into the overlay, since neither is recoverable from a stack trace.
+or shell `ErrorBoundary` is identified explicitly and left alone (even when
+custom shell headers change its content type), and route-state failures are
+JSON owned by the client router. `RouteErrorContext` carries that boundary
+selection plus the phase and route/loader/shell module paths into the overlay,
+since none is reliably recoverable from a stack trace. A loader module path
+comes from the resolved route as a fallback, so a loader that fails during its
+own import is still linked. Overlay responses retain the phase timings already
+collected for the dev `Server-Timing` header.
 
 Three ergonomics features are built in:
 

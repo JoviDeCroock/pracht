@@ -318,8 +318,11 @@ shell modules involved.
 
 Two failures deliberately keep their own response: a route or shell that
 declares an `ErrorBoundary` renders that boundary (it is your app's error
-UI, and dev must not hide it), and `x-pracht-route-state-request` failures
-stay JSON for the client router.
+UI, and dev must not hide it even when custom shell headers override its
+content type), and `x-pracht-route-state-request` failures stay JSON for the
+client router. Overlay responses keep the dev `Server-Timing` phase durations,
+and a separately wired loader remains linked even when its module fails during
+import.
 
 Manifest wiring mistakes fail loudly with a "did you mean" hint. Referencing
 an unregistered shell or middleware name (including `api.middleware`) throws

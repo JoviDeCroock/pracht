@@ -372,6 +372,7 @@ describe("development error overlay handoff", () => {
         capturedRouteError: true,
         exposeServerErrors: true,
         contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: false,
         status: 500,
       }),
     ).toBe(true);
@@ -383,6 +384,7 @@ describe("development error overlay handoff", () => {
         capturedRouteError: true,
         exposeServerErrors: true,
         contentType: "Text/Plain; Charset=UTF-8",
+        hasErrorBoundary: false,
         status: 500,
       }),
     ).toBe(true);
@@ -390,12 +392,13 @@ describe("development error overlay handoff", () => {
 
   // A route or shell ErrorBoundary rendered the failure itself. That HTML is
   // the app's own error UI and dev must not replace it.
-  it("leaves an ErrorBoundary render alone", () => {
+  it("leaves an ErrorBoundary render alone regardless of its content type", () => {
     expect(
       shouldRenderDevErrorOverlay({
         capturedRouteError: true,
         exposeServerErrors: true,
-        contentType: "text/html; charset=utf-8",
+        contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: true,
         status: 500,
       }),
     ).toBe(false);
@@ -408,6 +411,7 @@ describe("development error overlay handoff", () => {
         capturedRouteError: true,
         exposeServerErrors: true,
         contentType: "application/json; charset=utf-8",
+        hasErrorBoundary: false,
         status: 500,
       }),
     ).toBe(false);
@@ -421,6 +425,7 @@ describe("development error overlay handoff", () => {
         capturedRouteError: false,
         exposeServerErrors: true,
         contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: false,
         status: 500,
       }),
     ).toBe(false);
@@ -429,6 +434,7 @@ describe("development error overlay handoff", () => {
         capturedRouteError: true,
         exposeServerErrors: true,
         contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: false,
         status: 404,
       }),
     ).toBe(false);
@@ -447,6 +453,7 @@ describe("development error overlay redaction", () => {
         capturedRouteError: true,
         contentType: "text/plain; charset=utf-8",
         exposeServerErrors: false,
+        hasErrorBoundary: false,
         status: 500,
       }),
     ).toBe(false);

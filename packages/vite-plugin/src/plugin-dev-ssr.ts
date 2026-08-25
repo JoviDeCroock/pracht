@@ -291,9 +291,11 @@ export function createDevSSRMiddleware(
           capturedRouteError,
           contentType,
           exposeServerErrors: shouldExposeDevServerErrors(),
+          hasErrorBoundary: routeErrorContext?.errorBoundary != null,
           status: response.status,
         })
       ) {
+        const serverTiming = framework.formatServerTimingHeader(timings);
         await respondWithErrorOverlay(
           server,
           res,
@@ -302,6 +304,7 @@ export function createDevSSRMiddleware(
           routeErrorContext,
           devBase,
           response.status,
+          serverTiming,
         );
         return;
       }
@@ -759,11 +762,14 @@ export function shouldRenderDevErrorOverlay(options: {
    * had just refused to put in the response body under `NODE_ENV=production`.
    */
   exposeServerErrors: boolean;
+  /** The runtime found a route or shell ErrorBoundary for this failure. */
+  hasErrorBoundary: boolean;
   status: number;
 }): boolean {
   return (
     options.capturedRouteError &&
     options.exposeServerErrors &&
+    !options.hasErrorBoundary &&
     options.status >= 500 &&
     options.contentType.toLowerCase().startsWith("text/plain")
   );
@@ -799,6 +805,7 @@ async function respondWithErrorOverlay(
   context: RouteErrorContext | undefined,
   base: string,
   status: number,
+  serverTiming: string,
 ): Promise<void> {
   if (error instanceof Error) {
     server.ssrFixStacktrace(error);
@@ -825,6 +832,9 @@ async function respondWithErrorOverlay(
   applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
     res.setHeader(key, value);
   });
+  if (serverTiming) {
+    res.setHeader("Server-Timing", serverTiming);
+  }
   res.end(html);
 }
 

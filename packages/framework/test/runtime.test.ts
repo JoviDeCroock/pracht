@@ -3211,4 +3211,39 @@ describe("onRouteError route context", () => {
 
     expect(context).toMatchObject({ phase: "render", routeId: "home" });
   });
+
+  it("keeps the configured loader path when its module import fails", async () => {
+    const app = defineApp({
+      routes: [
+        route("/", {
+          component: "./routes/home.tsx",
+          loader: "./server/home-loader.ts",
+        }),
+      ],
+    });
+
+    let context: Record<string, unknown> | undefined;
+    await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({ Component: () => null }),
+        },
+        dataModules: {
+          "./server/home-loader.ts": async () => {
+            throw new SyntaxError("loader module did not compile");
+          },
+        },
+      },
+      request: new Request("http://localhost/"),
+      onRouteError: (_error, _requestPath, routeContext) => {
+        context = routeContext as unknown as Record<string, unknown>;
+      },
+    });
+
+    expect(context).toMatchObject({
+      phase: "loader",
+      loaderFile: "./server/home-loader.ts",
+    });
+  });
 });

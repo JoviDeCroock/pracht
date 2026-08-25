@@ -30,3 +30,8 @@ withheld, declares its auto-reload block as a module (`import.meta` is a parse
 error in a classic script, so the block was silently dropped), and no longer
 mangles OSC terminal hyperlinks — the sequence miette, and therefore oxc, emits
 for diagnostic codes.
+
+The handoff now identifies declared route and shell error boundaries explicitly
+instead of inferring them from `Content-Type`, preserves `Server-Timing` on the
+overlay response, and retains a separately wired loader path when that module
+fails during import.

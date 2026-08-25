@@ -33,14 +33,31 @@ function createResponse() {
   return { res: res as unknown as ServerResponse, state };
 }
 
-async function render(routeModule: Record<string, unknown>) {
+async function render(
+  routeModule: Record<string, unknown>,
+  options: { shellModule?: Record<string, unknown> } = {},
+) {
+  const routeDefinition = options.shellModule
+    ? route("/boom", {
+        component: "./routes/boom.tsx",
+        id: "boom",
+        render: "ssr",
+        shell: "plain",
+      })
+    : route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr" });
   const serverMod = {
     apiRoutes: [],
     islandsBootstrapRequired: false,
-    registry: { routeModules: { "./routes/boom.tsx": async () => routeModule } },
+    registry: {
+      routeModules: { "./routes/boom.tsx": async () => routeModule },
+      shellModules: options.shellModule
+        ? { "./shells/plain.tsx": async () => options.shellModule }
+        : undefined,
+    },
     resolvedApp: resolveApp(
       defineApp({
-        routes: [route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr" })],
+        routes: [routeDefinition],
+        shells: options.shellModule ? { plain: "./shells/plain.tsx" } : undefined,
       }),
     ),
   };
@@ -77,6 +94,7 @@ describe("dev SSR error overlay", () => {
     expect(state.body).toContain("render exploded");
     // The route metadata the runtime knows and a stack trace cannot recover.
     expect(state.body).toContain("boom");
+    expect(state.headers["server-timing"]).toMatch(/render;dur=/);
   });
 
   // The runtime response this replaces carried them; dev must not become the
@@ -119,6 +137,28 @@ describe("dev SSR error overlay", () => {
     });
 
     expect(state.statusCode).toBe(500);
+    expect(state.body).toContain('id="boundary"');
+    expect(state.body).not.toContain("pracht error");
+  });
+
+  it("leaves an ErrorBoundary alone when shell headers override its content type", async () => {
+    const state = await render(
+      {
+        Component: () => {
+          throw new Error("render exploded");
+        },
+        ErrorBoundary: ({ error }: { error: Error }) => h("p", { id: "boundary" }, error.message),
+      },
+      {
+        shellModule: {
+          Shell: ({ children }: { children?: unknown }) => children,
+          headers: () => ({ "content-type": "text/plain; charset=utf-8" }),
+        },
+      },
+    );
+
+    expect(state.statusCode).toBe(500);
+    expect(state.headers["content-type"]).toContain("text/plain");
     expect(state.body).toContain('id="boundary"');
     expect(state.body).not.toContain("pracht error");
   });
