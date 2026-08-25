@@ -53,3 +53,7 @@ route-id API, since that file is what a coding agent reads before writing its
 first link. The ids it names come from the router that was actually scaffolded:
 the manifest scaffold declares `home`, and the pages router derives ids from
 filenames, so its home page is `index`.
+
+The scaffolded `README.md` gained the same Navigating note, since `AGENTS.md`
+is only seeded when agent tooling is enabled and this is the convention a new
+app trips over before it writes anything else.

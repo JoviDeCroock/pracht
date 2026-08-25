@@ -86,6 +86,10 @@ describe("create-pracht", () => {
     expect(routes).toContain('shell: "public",');
     expect(routes).not.toContain("// notFound:");
 
+    const manifestReadme = await readFile(join(targetDir, "README.md"), "utf-8");
+    expect(manifestReadme).toContain('`<Link route="home">`');
+    expect(manifestReadme).toContain("`<Link href>` is a compile error");
+
     const notFound = await readFile(join(targetDir, "src/routes/not-found.tsx"), "utf-8");
     expect(notFound).toContain("Page not found.");
     expect(notFound).toContain('<a href="/">Back to home</a>');
@@ -511,6 +515,13 @@ describe("create-pracht", () => {
     expect(readme).toContain("src/pages/");
     expect(readme).toContain("The pages router has no manifest");
     expect(readme).toContain("export const REVALIDATE = 3600");
+
+    // AGENTS.md is only seeded with agent tooling, so the README — which every
+    // scaffold gets — carries the same convention for human readers, with the
+    // same router-derived id.
+    const pagesReadme = await readFile(join(targetDir, "README.md"), "utf-8");
+    expect(pagesReadme).toContain('`<Link route="index">`');
+    expect(pagesReadme).not.toContain('`<Link route="home">`');
 
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
     // `href` is the muscle-memory prop from every other router, and it is the

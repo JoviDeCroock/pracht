@@ -1601,6 +1601,9 @@ function createReadme({
   const deployCommand = packageManager === "npm" ? "npm run deploy" : `${packageManager} deploy`;
   const typecheckCommand =
     packageManager === "npm" ? "npm run typecheck" : `${packageManager} typecheck`;
+  // The pages router derives route ids from filenames, so its home page is
+  // "index" where the manifest starter names it "home".
+  const homeRouteId = router === "pages" ? "index" : "home";
 
   const lines = [
     `# ${projectName}`,
@@ -1683,6 +1686,20 @@ function createReadme({
   if (adapter.id !== "static") {
     lines.push("- `src/api/health.ts` is a sample API route.");
   }
+
+  // The one convention a new app trips over before it writes anything else,
+  // and AGENTS.md — where the same note lives for coding agents — is only
+  // seeded when agent tooling is enabled.
+  lines.push("");
+  lines.push("## Navigating");
+  lines.push("");
+  lines.push(
+    `Pracht navigates by route id, not by path: \`<Link route="${homeRouteId}">\`, ` +
+      `\`href("${homeRouteId}")\`, \`navigate({ route: "${homeRouteId}" })\`. Dynamic routes ` +
+      "take their segments through `params`. The id survives a path change, and `pracht " +
+      "typegen` types both the id and its params — so `<Link href>` is a compile error. Use a " +
+      "plain `<a href>` for external and user-provided URLs.",
+  );
 
   if (packageManager === "pnpm") {
     lines.push(
