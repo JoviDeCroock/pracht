@@ -1,5 +1,46 @@
 # create-pracht
 
+## 0.6.1
+
+### Patch Changes
+
+- [#322](https://github.com/JoviDeCroock/pracht/pull/322) [`fb68b24`](https://github.com/JoviDeCroock/pracht/commit/fb68b24f15bf933ccb4c6464b15c4d8b184337cd) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Generated collection snapshots now defer each document's `compiled`, `body`,
+  and `raw` representations to a per-document chunk instead of embedding them in
+  the snapshot module.
+  
+  The snapshot module is imported by loaders, which the bundler hoists into a
+  chunk shared by every content-backed route. Inlining the whole collection there
+  meant the first request to reach that chunk — including the not-found handler —
+  parsed every document in the collection. On a documentation site with a few
+  hundred translated pages that is tens of megabytes of JavaScript on a cold
+  start.
+  
+  The snapshot index keeps everything lookup needs (ids, routes, locales,
+  frontmatter, source paths), so resolution still runs without touching a chunk
+  it has not loaded. Every accessor that hands out a document is already
+  asynchronous and now awaits the document's payload, so `document.compiled` is
+  still populated and no application code changes. `iterate()` loads one document
+  at a time; `all()` loads the collection.
+  
+  Malformed documents are still rejected while the snapshot module is generated,
+  with the same `documents[n].compiled…` diagnostic path, rather than when the
+  page that happens to use them is first rendered. Descriptive payload chunk
+  names are bounded so deeply nested, valid source paths cannot exceed filesystem
+  filename limits during a build.
+  
+  Server builds now preserve dynamic imports even for webworker targets, so
+  deferred document payloads and lazy route modules each stay independently
+  loadable. Chunking is left to the bundler's automatic algorithm: a chunk is an
+  evaluation unit, so packing unrelated lazy roots together to cut the file count
+  would make the first import of any one of them run all of their module bodies,
+  and collecting one route's static paths would evaluate every route packed
+  alongside it — including client-only ones whose bodies touch `Worker`,
+  `document`, or `window`. New
+  Cloudflare projects deploy Pracht's pre-bundled output with `no_bundle: true`
+  and a JavaScript `ESModule` rule, and `pracht verify` warns existing Wrangler
+  configs, including named-environment overrides, that would inline or omit the
+  deferred chunks.
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,71 @@
 # @pracht/vite-plugin
 
+## 0.10.0
+
+### Minor Changes
+
+- [#327](https://github.com/JoviDeCroock/pracht/pull/327) [`e16185e`](https://github.com/JoviDeCroock/pracht/commit/e16185ea91a478f469ec6ecd8d5f4318c997d069) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `pracht({ client: { prefetch: false } })` to compile JS prefetching out of
+  the client bundle.
+  
+  Every internal link is prefetched on hover/focus by default, and the listeners
+  that do it live in a chunk the router lazily imports on *every* page. Setting
+  each route to `prefetch: "none"` stops the fetching but still ships that chunk:
+  `initClientRouter()` reaches the prefetch runtime directly, so no bundler can
+  work out that nothing uses it.
+  
+  ```ts
+  pracht({ client: { prefetch: false } });
+  ```
+  
+  The flag defaults to `true`, so apps that configure nothing are unchanged byte
+  for byte. Disabled, a production build of the router runtime drops from 9,917 to
+  7,286 gzip bytes (−26.5%); measured end to end on `examples/basic`, whose shared
+  client JS includes Preact, a cold load drops from 21,087 to 18,692 gzip bytes
+  (−11.4%) and makes one fewer request.
+  
+  Turning it off makes the router stop honouring `route({ prefetch })` and
+  `<Link prefetch>`, and makes the imperative `prefetch()` export a no-op — all
+  silently, because the code is gone. Browser speculation rules are unaffected.
+
+### Patch Changes
+
+- [#326](https://github.com/JoviDeCroock/pracht/pull/326) [`4a7f8ef`](https://github.com/JoviDeCroock/pracht/commit/4a7f8ef16e41694153d61e2ee030714e30d284f6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Drop Suspense and capability code from client bundles that do not use them.
+  
+  Two features were reachable from `@pracht/core/client` — the entry every
+  hydrating route loads — even when an app used neither, because they were wired
+  through module-level side effects rather than through the code that needs them.
+  
+  - The hydration suspension counter, which needs `preact-suspense`, moved out of
+    `hydration.ts` into `hydration-suspense.ts`. It is installed by a
+    `/* @__PURE__ */` wrapper on the `Suspense` and `lazy` exports, so an app that
+    renders no boundary drops the counter and `preact-suspense` with it.
+  - Capability revalidation moved out of `PrachtRuntimeProvider` into
+    `runtime-capability-revalidate.ts`, installed by the two paths that can
+    dispatch `CAPABILITY_SETTLED_EVENT`: `<Form capability>` and the generated
+    `callCapability()`. Apps with no capabilities no longer pull
+    `@pracht/capabilities` or the revalidation runtime into the client bundle.
+  
+  No API or behaviour change: `onHydrationComplete()` still waits for suspended
+  boundaries, and a settled non-`read` capability call still refreshes route data.
+  A production build of the router runtime drops from 9,917 to 9,410 gzip
+  bytes; `package-tree-shaking.test.ts` now holds a ceiling on it.
+
+- [#325](https://github.com/JoviDeCroock/pracht/pull/325) [`b0d4bad`](https://github.com/JoviDeCroock/pracht/commit/b0d4bad27a993750e7d1fd3139a33bec13818785) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep `@pracht/*` packages inlined in the dev SSR environment, not just in SSR
+  builds. `pracht dev` renders through `ssrLoadModule("@pracht/core/server")`,
+  which Vite always inlines, while an app's own `import { useLocation } from
+  "@pracht/core"` is a bare node_modules id Vite externalizes to a native Node
+  import. Apps that install Pracht from the registry therefore rendered with two
+  copies of the runtime in the same request: the document was rendered with the
+  inlined copy's `RouteDataContext.Provider`, and every component read the
+  externalized copy's context. `useLocation()` fell back to `/`, `useParams()` to
+  `{}`, and `useRouteData()` to `undefined` during development SSR, and the page
+  hydrated into a mismatch — while production builds, which already inlined these
+  packages, were correct. Workspace-linked installs were inlined either way and
+  never saw it.
+- Updated dependencies [[`e16185e`](https://github.com/JoviDeCroock/pracht/commit/e16185ea91a478f469ec6ecd8d5f4318c997d069), [`4a7f8ef`](https://github.com/JoviDeCroock/pracht/commit/4a7f8ef16e41694153d61e2ee030714e30d284f6), [`acd5ad6`](https://github.com/JoviDeCroock/pracht/commit/acd5ad643b91df31d34a3e41f9e1018db0d28cd2), [`87560b3`](https://github.com/JoviDeCroock/pracht/commit/87560b328172b9a2d52984d69b708694b84ded6f), [`2201995`](https://github.com/JoviDeCroock/pracht/commit/22019954d7c2941536d49166928ddd0503e09afd)]:
+  - @pracht/core@0.15.0
+  - @pracht/adapter-node@0.4.1
+
 ## 0.9.0
 
 ### Minor Changes
