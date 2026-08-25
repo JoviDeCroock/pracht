@@ -219,12 +219,14 @@ loaded when an asynchronous collection accessor resolves that document.
 This keeps the first request to any content-backed route from parsing every
 document in a shared server chunk.
 
-The plugin enables server code splitting for webworker builds as well. A
-Cloudflare deployment must preserve Pracht's pre-bundled output with
-`"no_bundle": true` and an `ESModule` rule covering `"**/*.js"` in
-`wrangler.jsonc`; otherwise Wrangler either bundles the deferred chunks again
-or omits them from the upload. New `create-pracht` projects include both
-settings, and `pracht verify` warns when either is missing.
+The plugin enables server code splitting for webworker builds as well. Deferred
+content payloads remain one module per document, while unrelated lazy server
+roots are packed with a 256 KiB target size instead of producing one tiny file
+per dynamic import. A Cloudflare deployment must preserve Pracht's
+pre-bundled output with `"no_bundle": true` and an `ESModule` rule covering
+`"**/*.js"` in `wrangler.jsonc`; otherwise Wrangler either bundles the deferred
+chunks again or omits them from the upload. New `create-pracht` projects include
+both settings, and `pracht verify` warns when either is missing.
 
 Those payload chunks still carry roughly two to three times the source content.
 An application that neither negotiates Markdown nor searches bodies can drop

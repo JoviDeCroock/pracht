@@ -499,6 +499,43 @@ describe("prachtContent", () => {
     expect(await runtime.getByRoute("/one")).toMatchObject({ compiled: "First document" });
   });
 
+  it("batches unrelated lazy webworker modules into bounded server chunks", async () => {
+    temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
+    const entry = join(temporaryDirectory, "entry.ts");
+    const output = join(temporaryDirectory, "dist");
+    await writeFile(
+      entry,
+      `export const load = (index) => [${Array.from(
+        { length: 4 },
+        (_, index) => `() => import("./lazy-${index}.ts")`,
+      ).join(",")}][index]();`,
+    );
+    for (let index = 0; index < 4; index++) {
+      await writeFile(join(temporaryDirectory, `lazy-${index}.ts`), `export default ${index};`);
+    }
+    const collection = defineCollection({ name: "docs", root: temporaryDirectory });
+
+    await build({
+      configFile: false,
+      logLevel: "silent",
+      plugins: prachtContent({ collections: [collection] }),
+      ssr: { noExternal: true, target: "webworker" },
+      build: {
+        outDir: output,
+        ssr: true,
+        rollupOptions: { input: entry },
+      },
+    });
+
+    const chunks = (await readdir(output, { recursive: true })).filter((file) =>
+      /\.m?js$/.test(String(file)),
+    );
+    expect(chunks).toHaveLength(2);
+    expect(chunks.some((file) => String(file).includes("pracht-server-lazy"))).toBe(true);
+    const runtime = await import(pathToFileURL(join(output, "entry.js")).href);
+    expect(await runtime.load(3)).toMatchObject({ default: 3 });
+  });
+
   it("emits deploy-safe headers for production artifacts in the asset namespace", async () => {
     temporaryDirectory = await mkdtemp(join(tmpdir(), "pracht-content-vite-"));
     await writeFile(join(temporaryDirectory, "page.md"), "Page");

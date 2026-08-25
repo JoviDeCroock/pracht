@@ -28,7 +28,10 @@ page that happens to use them is first rendered. Descriptive payload chunk
 names are bounded so deeply nested, valid source paths cannot exceed filesystem
 filename limits during a build.
 
-Server builds now preserve dynamic imports even for webworker targets. New
+Server builds now preserve dynamic imports even for webworker targets. Deferred
+document payloads remain independent, while unrelated lazy server roots are
+packed with a 256 KiB target size instead of producing one tiny chunk per
+dynamic import. New
 Cloudflare projects deploy Pracht's pre-bundled output with `no_bundle: true`
 and a JavaScript `ESModule` rule, and `pracht verify` warns existing Wrangler
 configs, including named-environment overrides, that would inline or omit the

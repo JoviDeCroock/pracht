@@ -300,12 +300,15 @@ source paths. Each document's `raw`, `body`, and `compiled` live in their own
 chunk, which the runtime loads when that document is resolved.
 
 `prachtContent()` enables server code splitting so webworker builds preserve
-that boundary too. Cloudflare deployments must set `"no_bundle": true` and an
-`ESModule` rule covering `"**/*.js"` in `wrangler.jsonc`: Pracht's Vite output
-is already bundled, and the rule tells Wrangler to upload its chunks as Worker
-modules instead of inlining them into the entry. New `create-pracht` Cloudflare
-projects include both settings, while `pracht verify` warns older configs that
-omit either one.
+that boundary too. Deferred content payloads remain one module per document,
+while unrelated lazy server roots such as route modules are packed into chunks
+with a 256 KiB target size instead of producing one tiny file per dynamic import.
+Cloudflare deployments must set `"no_bundle": true` and an `ESModule` rule
+covering `"**/*.js"` in `wrangler.jsonc`: Pracht's Vite output is already
+bundled, and the rule tells Wrangler to upload its chunks as Worker modules
+instead of inlining them into the entry. New `create-pracht` Cloudflare projects
+include both settings, while `pracht verify` warns older configs that omit
+either one.
 
 This matters because of where the snapshot module ends up. Loaders import it,
 and the bundler hoists a module shared by several route modules into a chunk
