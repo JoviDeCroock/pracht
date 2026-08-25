@@ -314,3 +314,184 @@ function deferredSerializationError(): TypeError {
       "Return defer() from an enumerable data property, not from a getter.",
   );
 }
+
+/* -------------------------------------------------------------------------- *
+ * Wire format
+ *
+ * A streamed document cannot serialize a value that has not settled, so each
+ * unresolved `Deferred` is written into the hydration state as a sentinel and
+ * its value follows later on its own channel. Both the HTML stream and (later)
+ * the route-state response use the same sentinel and the same client registry,
+ * so the two transports cannot drift.
+ * -------------------------------------------------------------------------- */
+
+/** Marks a deferred hole in serialized loader data. */
+export const DEFER_SENTINEL_KEY = "$pracht:defer";
+
+interface DeferSentinel {
+  [DEFER_SENTINEL_KEY]: string;
+}
+
+export interface SerializedDeferred {
+  /** Loader data with each unresolved `Deferred` replaced by a sentinel. */
+  data: unknown;
+  /** The deferred values, keyed by the id written into the sentinel. */
+  pending: { id: string; promise: Promise<unknown> }[];
+}
+
+function isDeferSentinel(value: unknown): value is DeferSentinel {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as DeferSentinel)[DEFER_SENTINEL_KEY] === "string"
+  );
+}
+
+/**
+ * Replace every `Deferred` with a sentinel, collecting the promises.
+ *
+ * Ids are the value's path in the loader result (`reviews`, `a.b.0.c`), which
+ * keeps them stable and debuggable — a stuck boundary names the field it came
+ * from rather than an opaque counter.
+ */
+export function serializeDeferred(data: unknown): SerializedDeferred {
+  const pending: { id: string; promise: Promise<unknown> }[] = [];
+
+  const walk = (value: unknown, path: string, seen: Set<object>): unknown => {
+    if (isDeferred(value)) {
+      pending.push({ id: path, promise: (value as unknown as DeferredBox<unknown>).promise() });
+      return { [DEFER_SENTINEL_KEY]: path };
+    }
+    if (typeof value !== "object" || value === null) return value;
+    if (seen.has(value)) return value;
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      return value.map((entry, i) => walk(entry, path ? `${path}.${i}` : String(i), seen));
+    }
+    if (!isPlainObject(value)) return value;
+
+    const next: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      next[key] = walk(entry, path ? `${path}.${key}` : key, seen);
+    }
+    return next;
+  };
+
+  return { data: walk(data, "", new Set()), pending };
+}
+
+/**
+ * The inline shim written before any deferred chunk.
+ *
+ * The client runtime is a module script and therefore deferred until the
+ * document has parsed, so every `r`/`e` call in the stream lands before the
+ * real registry exists. The shim queues them for it to drain.
+ */
+export const DEFER_RUNTIME_SHIM =
+  "window.__PRACHT_DEFER__=window.__PRACHT_DEFER__||{q:[]," +
+  "r:function(i,v){this.q.push([i,v,0])},e:function(i,v){this.q.push([i,v,1])}};";
+
+interface DeferRegistry {
+  q?: [string, unknown, 0 | 1][];
+  r(id: string, value: unknown): void;
+  e(id: string, error: unknown): void;
+}
+
+const clientDeferred = new Map<
+  string,
+  { promise: Promise<unknown>; resolve: (v: unknown) => void; reject: (e: unknown) => void }
+>();
+
+function getClientEntry(id: string) {
+  let entry = clientDeferred.get(id);
+  if (!entry) {
+    let resolve!: (v: unknown) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<unknown>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    // Nothing may observe this rejection before `use()` reads it, and an
+    // unobserved rejection is an unhandled-rejection warning in the browser.
+    promise.catch(() => {});
+    entry = { promise, resolve, reject };
+    clientDeferred.set(id, entry);
+  }
+  return entry;
+}
+
+/**
+ * Install the real registry and drain whatever the shim queued.
+ *
+ * Idempotent: repeated calls (client navigation, HMR) reuse the same map so a
+ * chunk that arrived before hydration is never lost.
+ */
+export function installDeferRegistry(): void {
+  if (typeof window === "undefined") return;
+  const existing = (window as unknown as { __PRACHT_DEFER__?: DeferRegistry }).__PRACHT_DEFER__;
+  const queued = existing?.q ?? [];
+
+  const registry: DeferRegistry = {
+    r(id, value) {
+      getClientEntry(id).resolve(value);
+    },
+    e(id, error) {
+      const err = new Error(
+        typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message: unknown }).message)
+          : String(error),
+      );
+      getClientEntry(id).reject(err);
+    },
+  };
+  (window as unknown as { __PRACHT_DEFER__: DeferRegistry }).__PRACHT_DEFER__ = registry;
+
+  for (const [id, value, kind] of queued) {
+    if (kind === 1) registry.e(id, value);
+    else registry.r(id, value);
+  }
+}
+
+/**
+ * Replace sentinels in hydrated loader data with `Deferred` values.
+ *
+ * Returns the input by reference when it holds no sentinel, so a route that
+ * defers nothing pays nothing.
+ */
+export function rehydrateDeferredData<T>(data: T): T {
+  if (!containsSentinel(data)) return data;
+  installDeferRegistry();
+
+  const walk = (value: unknown, seen: Set<object>): unknown => {
+    if (isDeferSentinel(value)) {
+      const id = value[DEFER_SENTINEL_KEY];
+      const entry = getClientEntry(id);
+      return defer(() => entry.promise);
+    }
+    if (typeof value !== "object" || value === null) return value;
+    if (seen.has(value)) return value;
+    seen.add(value);
+    if (Array.isArray(value)) return value.map((entry) => walk(entry, seen));
+    if (!isPlainObject(value)) return value;
+    const next: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) next[key] = walk(entry, seen);
+    return next;
+  };
+
+  return walk(data, new Set()) as T;
+}
+
+function containsSentinel(value: unknown, seen = new Set<object>()): boolean {
+  if (isDeferSentinel(value)) return true;
+  if (typeof value !== "object" || value === null) return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const entry of value) if (containsSentinel(entry, seen)) return true;
+    return false;
+  }
+  if (!isPlainObject(value)) return false;
+  for (const entry of Object.values(value)) if (containsSentinel(entry, seen)) return true;
+  return false;
+}

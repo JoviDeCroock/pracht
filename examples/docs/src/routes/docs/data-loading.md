@@ -162,12 +162,9 @@ Boundaries are always explicit; Pracht never wraps a component for you.
 start until something reads the value. It is memoized, so two reads never do
 the work twice.
 
-Today every render mode resolves deferred values before the response is
-written. The immediate win is concurrency — two independent 300 ms fields cost
-300 ms instead of 600 ms. The reason to write it now is that this is the
-finished API: when the streaming renderer lands, `render: "ssr"` will flush the
-shell first and stream these in with no change to your route source. `ssg` and
-`isg` will always resolve everything, because a static file cannot stream.
+By default every render mode resolves deferred values before the response is
+written. Even then `defer()` earns its keep: independent fields resolve
+concurrently, so two 300 ms calls cost 300 ms instead of 600 ms.
 
 Three rules:
 
@@ -182,6 +179,51 @@ Three rules:
 - Return `defer()` from an enumerable data property, not from a getter. Pracht
   does not eagerly invoke loader getters to discover hidden deferred values and
   throws instead of silently serializing an unresolved marker.
+
+### Streaming the document
+
+Add `streaming: true` to an SSR route and the shell is flushed *before* the
+deferred values settle, instead of after:
+
+```ts [src/routes.ts]
+route("/product/:id", () => import("./routes/product.tsx"), {
+  render: "ssr",
+  streaming: true,
+});
+```
+
+It is a group option too, so a whole section can opt in at once. Your route
+source does not change — the same `defer()` and `use()` code streams or
+buffers depending on this one flag.
+
+The response is written in this order:
+
+1. The document head and the opening root element, before the tree renders at
+   all, so stylesheets and preloads start downloading while loaders run.
+2. The shell, with every unresolved boundary showing its fallback.
+3. The hydration state and client entry, so hydration can start while
+   boundaries are still outstanding.
+4. Each deferred value as it settles.
+5. The closing tags.
+
+Streaming is rejected for any other combination: `ssg` and `isg` write files,
+and a `hydration` mode other than `"full"` ships no client runtime to resume a
+boundary with.
+
+Two behaviour changes worth knowing:
+
+- **A deferred rejection no longer fails the response.** Before the first flush
+  a failure still renders a normal error document. After it, the status is
+  already sent, so the rejection travels with the data and surfaces where the
+  value is read — your nearest `ErrorBoundary` renders and the response stays
+  `200`.
+- **`<Script strategy="beforeHydration">` is emitted in place** rather than
+  hoisted into `<head>`, which has already been sent. It still runs before
+  hydration.
+
+Streaming also needs a `script-src` that permits the renderer's inline
+bootstrap script, which has no nonce hook yet — see [CSP](/docs/recipes/csp).
+Non-streaming routes are unaffected, which is why this is opt-in.
 
 ### Error handling
 

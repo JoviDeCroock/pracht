@@ -1,0 +1,202 @@
+/**
+ * Streaming HTML documents.
+ *
+ * `buildHtmlDocumentParts()` gives us the document as prefix / afterShell /
+ * suffix; this module writes those around the renderer's chunks instead of
+ * around a finished string.
+ *
+ * Write order:
+ *
+ * 1. `prefix` — everything through `<div id="pracht-root">`. Flushed before the
+ *    render starts, so `<head>` reaches the browser immediately and preloads
+ *    begin while loaders are still running.
+ * 2. the renderer's first chunk — the shell, i.e. the tree with every
+ *    unresolved `<Suspense>` boundary rendered as its fallback.
+ * 3. `afterShell` — closes the root div and writes the state and entry scripts,
+ *    so hydration can start before the deferred subtrees land.
+ * 4. the renderer's remaining chunks — its bootstrap script and one
+ *    `<template>`-swap per boundary as each resolves.
+ * 5. `suffix` — `</body></html>`.
+ *
+ * Step 2 relies on `renderToReadableStream` enqueuing exactly once per internal
+ * write, with the shell first. That is the documented shape of the chunked
+ * renderer, but it is an implementation detail rather than a contract — hence
+ * `takeFirstChunk` being a named, testable step rather than an inline flag.
+ */
+
+import type { VNode } from "preact";
+
+import { DEFER_RUNTIME_SHIM } from "./defer.ts";
+import { escapeScriptText } from "./runtime-html.ts";
+import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
+import { getRenderToReadableStream } from "./runtime-response.ts";
+
+export interface StreamingHtmlResponseOptions {
+  /** The tree to render — route component inside its shell, as SSR builds it. */
+  tree: VNode;
+  /** Document pieces from `buildHtmlDocumentParts()`. */
+  prefix: string;
+  afterShell: string;
+  suffix: string;
+  status?: number;
+  headers?: HeadersInit;
+  /**
+   * Request abort signal. When the client hangs up mid-stream the render is
+   * torn down instead of resolving deferred work nobody will read.
+   */
+  signal?: AbortSignal;
+  /**
+   * Called if the render fails *after* the first flush, when the status and
+   * headers are already committed and no error document can be produced.
+   */
+  onError?: (error: unknown) => void;
+  /**
+   * Deferred loader values, written to the client as each settles. Their ids
+   * match the sentinels `serializeDeferred()` put in the hydration state.
+   */
+  pending?: { id: string; promise: Promise<unknown> }[];
+  /** CSP nonce for the deferred-data scripts pracht emits. */
+  nonce?: string;
+}
+
+/**
+ * Render `tree` into a streaming `text/html` response.
+ *
+ * Status and headers are committed with the first chunk. A failure before that
+ * point still throws, so the caller can fall back to a normal error document;
+ * after it, the stream is errored and `onError` is called.
+ */
+export async function streamingHtmlResponse(
+  options: StreamingHtmlResponseOptions,
+): Promise<Response> {
+  const {
+    tree,
+    prefix,
+    afterShell,
+    suffix,
+    status = 200,
+    signal,
+    onError,
+    pending = [],
+    nonce,
+  } = options;
+
+  const renderToReadableStream = await getRenderToReadableStream();
+  const encoder = new TextEncoder();
+
+  // The render is started here rather than inside start() so a synchronous
+  // throw — a shell that fails to render at all — surfaces to the caller
+  // before any byte is committed.
+  const rendered = renderToReadableStream(tree);
+
+  // Set by every path that ends the stream -- normal close, error, client
+  // cancel, request abort. A deferred value can settle long after any of them,
+  // and enqueuing on a closed controller throws.
+  let closed = false;
+
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (text: string) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(text));
+      };
+      const reader = rendered.getReader();
+
+      const abort = () => {
+        closed = true;
+        reader.cancel().catch(() => {});
+      };
+      if (signal) {
+        if (signal.aborted) {
+          abort();
+          controller.close();
+          return;
+        }
+        signal.addEventListener("abort", abort, { once: true });
+      }
+
+      const scriptOpen = `<script${nonce ? ` nonce="${nonce}"` : ""}>`;
+
+      // Each deferred value gets its own script as it settles. Writing them
+      // from the promise (rather than after the renderer finishes) is what
+      // lets the client resume a boundary while later ones are still pending.
+      const deferredWrites = pending.map(({ id, promise }) =>
+        promise.then(
+          (value) => {
+            write(
+              `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(value) ?? "null")})</script>`,
+            );
+          },
+          (error: unknown) => {
+            // A deferred value cannot redirect or set headers -- the response
+            // is already committed -- so a rejection is delivered as data and
+            // rendered by the nearest ErrorBoundary.
+            const message = error instanceof Error ? error.message : String(error);
+            write(
+              `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify({ message }))})</script>`,
+            );
+          },
+        ),
+      );
+
+      try {
+        write(prefix);
+
+        let takeFirstChunk = true;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // A read already in flight when the consumer cancels still resolves
+          // once; enqueuing it would throw on the closed controller.
+          if (closed) break;
+          controller.enqueue(value);
+          if (takeFirstChunk) {
+            takeFirstChunk = false;
+            // The shim has to exist before any deferred script runs, and the
+            // client runtime is a module script that will not have executed
+            // yet. It is written after the shell so the shell is not delayed.
+            write(afterShell);
+            if (pending.length > 0) write(`${scriptOpen}${DEFER_RUNTIME_SHIM}</script>`);
+          }
+        }
+
+        // A tree with no content at all never produces a chunk, so the shell
+        // close-out would otherwise be skipped entirely.
+        if (takeFirstChunk) {
+          write(afterShell);
+          if (pending.length > 0) write(`${scriptOpen}${DEFER_RUNTIME_SHIM}</script>`);
+        }
+
+        // The renderer resolves once every boundary it saw has flushed, but a
+        // deferred value with no boundary reading it has no other join point.
+        await Promise.all(deferredWrites);
+
+        write(suffix);
+        if (closed) return;
+        closed = true;
+        controller.close();
+      } catch (error) {
+        // Past the first flush the response is committed: the status is sent
+        // and no error document is possible. Error the stream so the client
+        // sees a truncated response rather than a silently short one.
+        closed = true;
+        onError?.(error);
+        controller.error(error);
+      } finally {
+        if (signal) signal.removeEventListener("abort", abort);
+      }
+    },
+    cancel() {
+      // Client hung up. Stop the renderer so pending deferred work is dropped,
+      // and stop any in-flight deferred value from writing to a dead stream.
+      closed = true;
+      rendered.cancel().catch(() => {});
+    },
+  });
+
+  const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
+  if (options.headers) applyHeaders(headers, options.headers);
+  applySecurityAndRouteHeaders(headers, { isRouteStateRequest: false });
+
+  return new Response(body, { status, headers });
+}

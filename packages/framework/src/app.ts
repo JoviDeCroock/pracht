@@ -70,6 +70,7 @@ interface InheritedRouteConfig {
   render?: ResolvedRoute["render"];
   hydration?: ResolvedRoute["hydration"];
   loaderCache?: ResolvedRoute["loaderCache"];
+  streaming?: ResolvedRoute["streaming"];
   middleware: string[];
   speculation?: SpeculationOption;
 }
@@ -333,6 +334,7 @@ function flattenRouteNode(
       render: node.meta.render ?? inherited.render,
       hydration: node.meta.hydration ?? inherited.hydration,
       loaderCache: node.meta.loaderCache ?? inherited.loaderCache,
+      streaming: node.meta.streaming ?? inherited.streaming,
       middleware: [...inherited.middleware, ...(node.meta.middleware ?? [])],
       speculation: node.meta.speculation ?? inherited.speculation,
     };
@@ -357,6 +359,7 @@ function flattenRouteNode(
   const render = node.render ?? inherited.render;
   const hydration = node.hydration ?? inherited.hydration;
   const loaderCache = node.loaderCache ?? inherited.loaderCache;
+  const streaming = node.streaming ?? inherited.streaming;
 
   if (VALIDATE_MANIFEST) {
     assertValidLoaderCache(node.loaderCache, `route "${fullPath}"`);
@@ -367,6 +370,26 @@ function flattenRouteNode(
           "SPA routes render entirely in the browser and always use full hydration — " +
           'remove the hydration option or use render: "ssg" / "isg" / "ssr".',
       );
+    }
+
+    // Streaming only has an effect on a per-request document render that also
+    // ships a client runtime. Rejecting the other combinations keeps the option
+    // from silently doing nothing: `ssg`/`isg` write files, and `hydration`
+    // other than "full" has no client router to resume a streamed boundary.
+    if (streaming) {
+      if (render !== undefined && render !== "ssr") {
+        throw new Error(
+          `Route "${fullPath}" combines streaming: true with render: "${render}". ` +
+            'Streaming applies to render: "ssr" only — a prerendered file cannot stream, ' +
+            "and SPA routes render no markup on the server.",
+        );
+      }
+      if (hydration !== undefined && hydration !== "full") {
+        throw new Error(
+          `Route "${fullPath}" combines streaming: true with hydration: "${hydration}". ` +
+            'Streamed boundaries are resumed by the client runtime, which only hydration: "full" ships.',
+        );
+      }
     }
 
     if (shell !== undefined && !hasOwnEntry(app.shells, shell)) {
@@ -394,6 +417,7 @@ function flattenRouteNode(
     render,
     hydration,
     loaderCache,
+    streaming,
     markdown: node.markdown,
     middleware,
     middlewareFiles: middleware.map((name) => {
@@ -448,6 +472,7 @@ const ROUTE_META_KEYS = [
   "revalidate",
   "shell",
   "speculation",
+  "streaming",
 ];
 const ROUTE_NODE_KEYS = [...ROUTE_META_KEYS, "file", "kind", "loaderFile", "path"];
 const GROUP_META_KEYS = [
@@ -458,6 +483,7 @@ const GROUP_META_KEYS = [
   "render",
   "shell",
   "speculation",
+  "streaming",
 ];
 const NOT_FOUND_CONFIG_KEYS = ["component", "hydration", "loader", "middleware", "shell"];
 

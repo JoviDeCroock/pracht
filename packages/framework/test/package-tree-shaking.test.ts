@@ -82,6 +82,9 @@ async function bundleExport(
           "preact",
           /^preact\//,
           "preact-render-to-string",
+          // The streaming renderer is a subpath import (`/stream`), so the
+          // bare specifier alone does not externalize it.
+          /^preact-render-to-string\//,
           "preact-suspense",
         ],
         input: publicId,

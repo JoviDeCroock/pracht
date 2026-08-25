@@ -1,3 +1,4 @@
+import { rehydrateDeferredData } from "./defer.ts";
 import { createContext, h } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -199,6 +200,9 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
   }
 
   const state = JSON.parse(raw) as PrachtHydrationState<TData>;
+  // Streamed documents serialize unresolved defer() values as sentinels; swap
+  // them back for Deferred values here, the one place the client reads data.
+  state.data = rehydrateDeferredData(state.data);
   window.__PRACHT_STATE__ = state as PrachtHydrationState;
   return state;
 }

@@ -186,20 +186,76 @@ of the same deferred value never do the work twice.
 
 #### What defers, and when
 
-Today **every render mode resolves deferred values before the response is
-written.** The benefit right now is the authoring shape and the concurrency:
-independent deferred fields resolve together rather than in series, so two
-300 ms calls cost 300 ms, not 600 ms.
+By default every render mode resolves deferred values before the response is
+written. Even then `defer()` earns its keep: independent deferred fields
+resolve concurrently rather than in series, so two 300 ms calls cost 300 ms,
+not 600 ms.
 
-The reason to write `defer()` now is that it is the finished API. When the
-streaming renderer lands, `render: "ssr"` will flush the shell before deferred
-values settle and stream them in — with no change to route source. `use()`
-already accepts a settled value, a deferred one, or a bare promise for exactly
-that reason, and the same component works either way.
+Add `streaming: true` to an `ssr` route and the shell is flushed before those
+values settle — see [Streaming the document](#streaming-the-document). The same
+component works either way, because `use()` accepts a settled value, a deferred
+one, or a bare promise.
 
-`ssg` and `isg` will always resolve everything: those modes write files, a file
+`ssg` and `isg` always resolve everything: those modes write files, a file
 cannot stream, and shipping fallback markup as permanent static output would be
-a correctness bug.
+a correctness bug. Client navigation fetches route state as JSON, which also
+resolves everything today.
+
+#### Streaming the document
+
+By default a deferred value still resolves before the response is written — the
+gain is concurrency, not an earlier first byte. Opt a route into streaming to
+get the earlier first byte too:
+
+```typescript
+route("/product/:id", () => import("./routes/product.tsx"), {
+  render: "ssr",
+  streaming: true,
+});
+```
+
+`streaming` is also a group option, so a whole section can opt in at once.
+
+With it on, the response is written in this order:
+
+1. The document head and the opening `<div id="pracht-root">`, flushed before
+   the component tree renders at all — stylesheet and preload tags reach the
+   browser while loaders are still running.
+2. The shell: the tree with every unresolved `<Suspense>` boundary showing its
+   fallback.
+3. The hydration state and the client entry script, so hydration can begin
+   while boundaries are still outstanding. Deferred fields appear in the state
+   as `{"$pracht:defer": "<field path>"}` sentinels.
+4. Each deferred value as it settles — the resolved markup from the renderer,
+   plus a small script carrying the data so the client has it too.
+5. `</body></html>`.
+
+Streaming is rejected at manifest-resolution time for any other combination:
+`ssg` and `isg` write files, and a `hydration` other than `"full"` ships no
+client runtime to resume a boundary with.
+
+##### What changes when a route streams
+
+- **A deferred rejection no longer fails the response.** Before the first flush
+  a failure still produces a normal error document. After it, the status is
+  already sent, so a rejection is delivered on the defer channel and surfaces
+  where the value is read — the nearest `ErrorBoundary` renders. The response
+  stays `200`.
+- **`<Script strategy="beforeHydration">` is emitted in place** rather than
+  hoisted into `<head>`, which has already been written. A body script in SSR
+  HTML still runs before hydration, so the guarantee holds.
+- **`Server-Timing` render totals are less meaningful**, since the render is no
+  longer over when the response is returned.
+- **The client must reach the end of the document** to receive every deferred
+  value. A boundary whose data never arrives keeps showing its fallback.
+
+##### Content-Security-Policy
+
+The renderer emits an inline bootstrap script for its boundary swaps, and it
+has no nonce hook (see [CSP.md](CSP.md)). A streaming route therefore needs
+`script-src` to permit that script; pracht's own deferred-data scripts do carry
+a nonce when one is configured. Non-streaming routes are unaffected, which is
+part of why streaming is opt-in.
 
 #### Rules
 

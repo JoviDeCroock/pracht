@@ -101,7 +101,7 @@ function isAllowedHeadAttribute(
   );
 }
 
-export function buildHtmlDocument(options: {
+export interface HtmlDocumentOptions {
   head: HeadMetadata;
   body: string;
   /**
@@ -115,10 +115,27 @@ export function buildHtmlDocument(options: {
   modulePreloadUrls?: string[];
   routeStatePreloadUrl?: string;
   speculationRules?: SpeculationRulesDocument | null;
-}): string {
+}
+
+/**
+ * Assemble the document as three pieces so the streaming renderer can write
+ * them around a body it does not have yet.
+ *
+ * `buildHtmlDocument()` is the concatenation of all three with the body in the
+ * middle, so the buffered and streamed paths cannot drift apart.
+ *
+ * - `prefix` — through the opening `<div id="pracht-root">`
+ * - `afterShell` — closes that div and carries the state and entry scripts, so
+ *   the client can begin hydrating before deferred subtrees arrive
+ * - `suffix` — `</body></html>`, written once the render is done
+ */
+export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
+  prefix: string;
+  afterShell: string;
+  suffix: string;
+} {
   const {
     head,
-    body,
     hydrationState,
     clientEntryUrl,
     cssUrls = [],
@@ -208,20 +225,26 @@ export function buildHtmlDocument(options: {
     ],
     "    ",
   );
-  const bodyLines = joinDocumentLines(
-    [`<div id="pracht-root">${body}</div>`, stateScript, entryScript],
-    "    ",
-  );
+  const trailingScripts = joinDocumentLines([stateScript, entryScript], "    ");
 
-  return `<!DOCTYPE html>
+  return {
+    prefix: `<!DOCTYPE html>
 <html${head.lang ? ` lang="${escapeHtml(head.lang)}"` : ""}>
   <head>
 ${headLines}
   </head>
   <body>
-${bodyLines}
+    <div id="pracht-root">`,
+    afterShell: `</div>${trailingScripts ? `\n${trailingScripts}` : ""}`,
+    suffix: `
   </body>
-</html>`;
+</html>`,
+  };
+}
+
+export function buildHtmlDocument(options: HtmlDocumentOptions): string {
+  const { prefix, afterShell, suffix } = buildHtmlDocumentParts(options);
+  return `${prefix}${options.body}${afterShell}${suffix}`;
 }
 
 function joinDocumentLines(parts: string[], indent: string): string {

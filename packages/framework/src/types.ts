@@ -515,6 +515,14 @@ export interface RouteMeta {
   middleware?: string[];
   revalidate?: RouteRevalidate;
   loaderCache?: LoaderCache;
+  /**
+   * Stream the HTML document instead of buffering it.
+   *
+   * Only meaningful with `render: "ssr"` and `hydration: "full"` — every other
+   * combination either writes a file or ships no client runtime, and resolves
+   * deferred values before responding. Off by default.
+   */
+  streaming?: boolean;
   prefetch?: PrefetchStrategy;
   speculation?: SpeculationOption;
   hasLoader?: boolean;
@@ -536,6 +544,8 @@ export interface GroupMeta {
   hydration?: HydrationMode;
   middleware?: string[];
   loaderCache?: LoaderCache;
+  /** Stream HTML documents for routes in this group. See `RouteMeta.streaming`. */
+  streaming?: boolean;
   pathPrefix?: string;
   speculation?: SpeculationOption;
 }

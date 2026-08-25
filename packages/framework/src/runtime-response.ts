@@ -43,6 +43,9 @@ import type {
 import { collectFontHeadFragments, type FontHeadFragments } from "./font.ts";
 
 let _renderToStringAsync: typeof import("preact-render-to-string").renderToStringAsync | undefined;
+let _renderToReadableStream:
+  | typeof import("preact-render-to-string/stream").renderToReadableStream
+  | undefined;
 const frameworkFontHeadResponses = new WeakSet<Response>();
 
 export function markFrameworkFontHeadResponse(response: Response): Response {
@@ -67,6 +70,26 @@ export async function getRenderToStringAsync() {
   const mod = await import("preact-render-to-string");
   _renderToStringAsync = mod.renderToStringAsync;
   return _renderToStringAsync;
+}
+
+/**
+ * The streaming renderer, loaded lazily so routes that never stream do not pay
+ * for the `preact-render-to-string/stream` entry.
+ *
+ * Sets the same process-wide `errorBoundaries` flag as the buffered renderer:
+ * both paths render the same trees and a class `ErrorBoundary` has to behave
+ * identically whichever one runs.
+ */
+export async function getRenderToReadableStream() {
+  (
+    preactOptions as typeof preactOptions & {
+      errorBoundaries?: boolean;
+    }
+  ).errorBoundaries = true;
+  if (_renderToReadableStream) return _renderToReadableStream;
+  const mod = await import("preact-render-to-string/stream");
+  _renderToReadableStream = mod.renderToReadableStream;
+  return _renderToReadableStream;
 }
 
 interface HandleRequestOptionsLike {

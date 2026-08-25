@@ -90,12 +90,20 @@ export interface ScriptCapture {
    * on an islands route they never run, which is worth a dev warning.
    */
   insideIsland?: boolean;
+  /**
+   * True when the document is streamed. `<head>` is already on the wire by the
+   * time a component renders, so there is nothing left to merge into and
+   * `beforeHydration` scripts are emitted in place instead — a body script in
+   * SSR HTML still runs before hydration, which is the guarantee the strategy
+   * actually makes.
+   */
+  streaming?: boolean;
 }
 
 export const ScriptCaptureContext = createContext<ScriptCapture | null>(null);
 
-export function createScriptCapture(hydration: HydrationMode): ScriptCapture {
-  return { scripts: [], keys: new Set(), hydration };
+export function createScriptCapture(hydration: HydrationMode, streaming = false): ScriptCapture {
+  return { scripts: [], keys: new Set(), hydration, streaming };
 }
 
 /** Merge captured scripts into the document head without duplicating head() entries. */
@@ -219,6 +227,12 @@ export function Script(props: ScriptProps): VNode | null {
   // by the renderer for every documented render path.
   if (capture) {
     if (strategy === "beforeHydration") {
+      // Streamed documents have no head left to merge into; emit in place.
+      if (capture.streaming) {
+        if (capture.keys.has(key)) return null;
+        capture.keys.add(key);
+        return renderInlineScriptTag(props, inline);
+      }
       if (!capture.keys.has(key)) {
         capture.keys.add(key);
         capture.scripts.push(toHeadScriptDescriptor(props, inline));

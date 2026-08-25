@@ -2,7 +2,7 @@ import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
-import { resolveDeferredData } from "./defer.ts";
+import { resolveDeferredData, serializeDeferred } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import {
   OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
@@ -23,7 +23,8 @@ import {
   withEnhancedCapabilityFormRedirect,
 } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
-import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
+import { buildHtmlDocument, buildHtmlDocumentParts, htmlResponse } from "./runtime-html.ts";
+import { streamingHtmlResponse } from "./runtime-stream.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
   getIslandsClientEntryUrl,
@@ -942,13 +943,20 @@ export async function handlePrachtRequest<TContext>(
           return loaderResult;
         }
 
-        // Resolve any defer()ed fields before anything serializes them. One
-        // call covers every render mode and both the document and route-state
-        // paths, because this is the only place a loader is invoked. Returns
-        // the input untouched when the route defers nothing.
+        // A streamed document is the one path that can serialize a value it
+        // does not have yet: the shell flushes with sentinels and each value
+        // follows on its own channel. Everywhere else -- prerendering, the
+        // buffered document, and the route-state JSON used by client
+        // navigation -- resolves first, because a file cannot stream and the
+        // JSON transport has no second channel yet.
+        const willStream =
+          match.route.streaming === true &&
+          match.route.render === "ssr" &&
+          (match.route.hydration ?? "full") === "full" &&
+          !isRouteStateRequest;
         let data: unknown;
         try {
-          data = await resolveDeferredData(loaderResult);
+          data = willStream ? loaderResult : await resolveDeferredData(loaderResult);
         } finally {
           if (loader && timings) timings.loader = performance.now() - loaderStart;
         }
@@ -1116,7 +1124,7 @@ export async function handlePrachtRequest<TContext>(
         // travels through context (not module state), so concurrent async
         // renders — e.g. parallel SSG prerendering — never attribute scripts
         // to the wrong page.
-        const scriptCapture = createScriptCapture(hydration);
+        const scriptCapture = createScriptCapture(hydration, willStream);
         tree = h(
           ScriptCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
           { value: scriptCapture },
@@ -1134,6 +1142,44 @@ export async function handlePrachtRequest<TContext>(
             { value: islandCapture },
             tree,
           );
+        }
+
+        if (willStream) {
+          // head/headers are already resolved above and the state script only
+          // needs the awaited loader data, so the whole document shape is known
+          // before a single component renders.
+          const { data: serializedData, pending } = serializeDeferred(data);
+          const { prefix, afterShell, suffix } = buildHtmlDocumentParts({
+            head: withCapturedScripts(head, scriptCapture),
+            body: "",
+            hydrationState: {
+              url: requestPath,
+              routeId: match.route.id ?? "",
+              data: serializedData,
+              error: null,
+            },
+            clientEntryUrl: options.clientEntryUrl,
+            cssUrls,
+            modulePreloadUrls,
+            speculationRules: getAppSpeculationRules(resolvedApp),
+          });
+
+          return await streamingHtmlResponse({
+            tree,
+            prefix,
+            afterShell,
+            suffix,
+            status: pageOptions.status,
+            headers: documentHeaders,
+            signal: requestSignal,
+            pending,
+            nonce: head.fontNonce,
+            onError: (error) => {
+              // Past the first flush there is no error document to send, so the
+              // only remaining job is to make the failure visible server-side.
+              console.error("[pracht] streaming render failed after the first flush:", error);
+            },
+          });
         }
 
         const renderToString = await getRenderToStringAsync();
