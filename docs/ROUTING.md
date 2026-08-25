@@ -954,6 +954,21 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
 - **File add/remove** in pages dir: dev server restarts (new routes need
   new globs)
 
+Editing a route, shell, or island component is ordinary Preact Fast Refresh:
+the component updates in place and client state — form input, open menus,
+`useState` — survives. Two edits still reload the whole document, because both
+change state the generated client entry bakes and HMR cannot patch:
+
+- **Adding or removing a `head` export** on a route or shell. The client router
+  reads that hint to decide whether a navigation needs to fetch route state.
+- **Changing a module that feeds `defineFont()`**, whose generated style and
+  preload markup only exists in the virtual entry.
+
+Editing the *body* of an existing `head()` updates the server render but not
+the open document — refresh to see the new title. That is the same rule pracht
+already applies to client-side navigation: head metadata is server-rendered and
+does not follow the router.
+
 During `pracht dev`, resolved routes take precedence over filename heuristics.
 That means URLs such as `/blog/release-1.2.3`, `/blog/openapi.json`, and
 `/@alice` still render through the framework when they exist as routes. Only

@@ -12,6 +12,8 @@ import {
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
+import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
+import { reachesHeadBearingModule } from "./head-hint-reload.ts";
 import { sendServerOnlyFullReload } from "./hot-update-reload.ts";
 import {
   PRACHT_CAPABILITIES_MODULE_ID,
@@ -94,38 +96,6 @@ export {
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
 };
-
-interface HotUpdateModuleLike {
-  file?: string | null;
-  id?: string | null;
-  importers?: Set<HotUpdateModuleLike>;
-}
-
-function reachesHeadBearingModule(
-  modules: readonly HotUpdateModuleLike[],
-  serverRoot: string,
-  headHints: Record<string, boolean>,
-): boolean {
-  const pending = [...modules];
-  const seen = new Set<HotUpdateModuleLike>();
-  while (pending.length > 0) {
-    const module = pending.pop();
-    if (!module || seen.has(module)) continue;
-    seen.add(module);
-
-    const modulePath = module.file ?? module.id?.split("?", 1)[0];
-    if (modulePath) {
-      const normalizedPath = toPosixPath(modulePath);
-      const relative = normalizedPath.startsWith(serverRoot)
-        ? normalizedPath.slice(serverRoot.length)
-        : normalizedPath;
-      if (headHints[relative] === true) return true;
-    }
-
-    if (module.importers) pending.push(...module.importers);
-  }
-  return false;
-}
 
 export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const resolved = resolveOptions(options);
@@ -433,6 +403,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         modules,
         serverRoot,
         clientRouteHeadHints,
+        { startAtImporters: changesRouteHeadSource },
       );
       let shouldReloadClientHead = changesRouteHeadDependency;
       let clientHeadModule: ReturnType<typeof server.moduleGraph.getModuleById>;
@@ -440,10 +411,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
       }
       if (changesRouteHeadSource) {
-        const previousHint = clientRouteHeadHints[relative];
+        const previousHint = clientRouteHeadHints[relative] === true;
         try {
           const nextHints = createRouteHeadHintsForVirtualModules(resolved, root);
-          shouldReloadClientHead ||= previousHint === true || nextHints[relative] === true;
+          // Only a *transition* changes what the virtual client entry bakes:
+          // the hint is "does this module export head", and the client router
+          // reads it to decide whether a navigation must fetch route state.
+          // Reloading whenever a head-bearing route is touched — the old
+          // behaviour — meant every edit to such a route lost client state,
+          // and most routes export head. Editing the head *body* still needs a
+          // manual refresh to show in the document, which is the same rule
+          // pracht already applies to client-side navigation: head metadata is
+          // server-rendered and does not follow the router.
+          shouldReloadClientHead ||= previousHint !== (nextHints[relative] === true);
           clientRouteHeadHints = nextHints;
         } catch {
           // A file can be observed while its editor is replacing it. Reloading
@@ -594,12 +574,18 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       })
     : null;
 
+  const preactPlugins = preact();
+  // Ordered right after `clientModuleTransformPlugin` on purpose: prefresh has
+  // to see the module with its server-only exports already stripped.
+  const clientModulePrefreshPlugin = createClientModulePrefreshPlugin(preactPlugins);
+
   const plugins: Plugin[] = [
     ...(precompilePlugin ? [precompilePlugin] : []),
-    ...preact(),
+    ...preactPlugins,
     prachtPlugin,
     configuredBasePlugin,
     clientModuleTransformPlugin,
+    ...(clientModulePrefreshPlugin ? [clientModulePrefreshPlugin] : []),
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     createEnvSafetyPlugin(resolved.envSafety),
   ];
