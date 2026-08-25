@@ -1,6 +1,6 @@
 {
   "name": "@pracht/test",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "First-party testing utilities for Pracht apps: typed factories for loader, API, and middleware args, a middleware chain runner, form submission helpers, and minimal response readers.",
   "keywords": [
     "pracht",

@@ -1,5 +1,21 @@
 # @pracht/openapi
 
+## 0.2.2
+
+### Patch Changes
+
+- [#328](https://github.com/JoviDeCroock/pracht/pull/328) [`0056349`](https://github.com/JoviDeCroock/pracht/commit/0056349f0c351946e2a3c84d9c52207818e0c665) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Publish internal peer dependency ranges as carets instead of exact pins.
+  
+  `@pracht/openapi` previously shipped `"@pracht/core": "0.14.0"` (and the same for
+  `@pracht/cli` / `@pracht/vite-plugin`), and `@pracht/content` pinned
+  `@pracht/capabilities` the same way, because `workspace:*` is replaced with the
+  exact version at publish time. Any patch release of a peer therefore produced a
+  peer-dependency conflict for consumers and forced a republish of these two
+  packages. They now use `workspace:^`, which publishes `^0.14.0`.
+- Updated dependencies [[`e16185e`](https://github.com/JoviDeCroock/pracht/commit/e16185ea91a478f469ec6ecd8d5f4318c997d069), [`4a7f8ef`](https://github.com/JoviDeCroock/pracht/commit/4a7f8ef16e41694153d61e2ee030714e30d284f6), [`acd5ad6`](https://github.com/JoviDeCroock/pracht/commit/acd5ad643b91df31d34a3e41f9e1018db0d28cd2), [`87560b3`](https://github.com/JoviDeCroock/pracht/commit/87560b328172b9a2d52984d69b708694b84ded6f), [`b0d4bad`](https://github.com/JoviDeCroock/pracht/commit/b0d4bad27a993750e7d1fd3139a33bec13818785), [`2201995`](https://github.com/JoviDeCroock/pracht/commit/22019954d7c2941536d49166928ddd0503e09afd)]:
+  - @pracht/vite-plugin@0.10.0
+  - @pracht/core@0.15.0
+
 ## 0.2.1
 
 ### Patch Changes
