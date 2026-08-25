@@ -251,7 +251,7 @@ describe("extractCapabilities", () => {
 async function importGeneratedModule<T>(source: string): Promise<T> {
   const standalone = source.replace(
     'from "@pracht/core"',
-    'from "data:text/javascript,export const createUseCapability = () => () => {};export const withBase = (p) => p;"',
+    'from "data:text/javascript,export const createUseCapability = () => () => {};export const ensureCapabilityRevalidation = () => {};export const withBase = (p) => p;"',
   );
   const url = `data:text/javascript;base64,${Buffer.from(standalone).toString("base64")}#${Date.now()}`;
   return (await import(url)) as T;
@@ -309,7 +309,9 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
     // would otherwise only surface in e2e, at build time, in an example app.
     const root = createFixture({ capabilities: { "notes-search.ts": SEARCH_CAPABILITY } });
     const source = createPrachtCapabilitiesClientModuleSource({}, { root });
-    expect(source).toContain('import { createUseCapability, withBase } from "@pracht/core";');
+    expect(source).toContain(
+      'import { createUseCapability, ensureCapabilityRevalidation, withBase } from "@pracht/core";',
+    );
     expect(source).toContain("export const useCapability = /*@__PURE__*/ createUseCapability(");
     expect(source).toContain("createUseCapability(callCapability)");
   });

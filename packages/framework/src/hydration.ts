@@ -1,50 +1,10 @@
 import { options } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { Suspense } from "preact-suspense";
-
-// Preact internal flag on vnode.__u. Set by the hydrate() diff path on every
-// vnode that is actually hydrating against existing DOM. Fresh mounts and
-// normal re-renders (including Suspense re-renders after a boundary resolves)
-// do NOT carry this bit. Mirrors the check preact-suspense uses.
-const MODE_HYDRATE = 1 << 5;
 
 let _hydrating = false;
 let _suspensionCount = 0;
 let _hydrated = false;
 const hydrationCompleteListeners = new Set<() => void>();
-
-// preact-suspense >=0.3 installs its options.__e patch lazily inside the
-// Suspense constructor. Construct one throwaway instance now so its patch
-// runs before we capture the chain below — otherwise our wrapper would sit
-// behind preact-suspense's, which short-circuits on Suspense ancestors and
-// would never let our suspension counter see hydration promises.
-new (Suspense as any)({});
-
-// options.__e (_catchError) — count thrown promises that belong to the
-// initial hydration pass. We must NOT count promises thrown from vnodes that
-// aren't hydrating (e.g. nested client-only lazy components inside a Suspense
-// boundary that re-renders after its own hydration promise settled): those
-// are regular render-cycle suspensions, not hydration suspensions, and
-// blocking the _hydrated flip on them would leave useIsHydrated false
-// forever whenever any nested lazy boundary is still pending.
-const oldCatchError = (options as any).__e;
-(options as any).__e = (err: any, newVNode: any, oldVNode: any, errorInfo?: any) => {
-  if (_hydrating && !_hydrated && err && err.then) {
-    const isHydratingVNode =
-      !!(newVNode && newVNode.__u && newVNode.__u & MODE_HYDRATE) || !!(newVNode && newVNode.__h);
-    if (isHydratingVNode) {
-      _suspensionCount++;
-      let settled = false;
-      const onSettled = () => {
-        if (settled) return;
-        settled = true;
-        _suspensionCount--;
-      };
-      err.then(onSettled, onSettled);
-    }
-  }
-  if (oldCatchError) oldCatchError(err, newVNode, oldVNode, errorInfo);
-};
 
 // options.__c (_commit / commitRoot) — fires once per commit root, after the
 // whole subtree has finished diffing. Flip _hydrated=true only if no
@@ -56,6 +16,12 @@ const oldCatchError = (options as any).__e;
 // subtree re-renders, that re-render goes through a normal diff→commit
 // cycle, __c fires at the end with _suspensionCount===0, and the flag flips
 // there.
+//
+// The *suspension counter* itself lives in `hydration-suspense.ts`: counting
+// hydration promises requires `preact-suspense`, and an app that never renders
+// a Suspense boundary should not pay for it. That module registers its
+// `options.__e` patch through `beginHydrationSuspension()` below, and is only
+// reachable from the `Suspense`/`lazy` exports.
 const oldCommit = (options as any).__c;
 (options as any).__c = (vnode: any, commitQueue: any) => {
   let completedHydration = false;
@@ -84,6 +50,29 @@ export function markHydrating(): void {
   if (!_hydrated) {
     _hydrating = true;
   }
+}
+
+/**
+ * @internal Whether an initial hydration pass is in flight. Read by
+ * `hydration-suspense.ts` to decide whether a thrown promise belongs to it.
+ */
+export function isHydrationPending(): boolean {
+  return _hydrating && !_hydrated;
+}
+
+/**
+ * @internal Register a hydration suspension. Returns the settle callback,
+ * which is idempotent — a promise that both resolves and rejects, or settles
+ * twice, must only decrement once.
+ */
+export function beginHydrationSuspension(): () => void {
+  _suspensionCount++;
+  let settled = false;
+  return () => {
+    if (settled) return;
+    settled = true;
+    _suspensionCount--;
+  };
 }
 
 /**

@@ -1,10 +1,8 @@
-import { CAPABILITY_SETTLED_EVENT } from "@pracht/capabilities";
 import { createContext, h } from "preact";
 import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 
 import { EMPTY_ROUTE_PARAMS, HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
-import { revalidateRouteData, shouldRevalidateAfterCapability } from "./runtime-revalidate.ts";
 import type { HrefRouteDefinition, RouteParams } from "./types.ts";
 
 export interface PrachtHydrationState<TData = unknown> {
@@ -45,6 +43,24 @@ export interface PrachtRuntimeValue {
 }
 
 export const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(undefined);
+
+/**
+ * Runtime values of every mounted provider, in mount order.
+ *
+ * Effect-driven revalidation (`runtime-capability-revalidate.ts`) reads this
+ * instead of the provider subscribing to `CAPABILITY_SETTLED_EVENT` itself:
+ * the listener is only installed by code that can *dispatch* the event, so an
+ * app with no capabilities never pulls the revalidation machinery — or
+ * `@pracht/capabilities` — into its client bundle. Keeping the set live rather
+ * than registering a subscriber also makes the two independent of ordering: a
+ * provider that mounted before the first `callCapability()` is still found.
+ */
+const mountedRuntimes = new Set<PrachtRuntimeValue>();
+
+/** @internal Live runtime values of the currently mounted providers. */
+export function getMountedRuntimes(): ReadonlySet<PrachtRuntimeValue> {
+  return mountedRuntimes;
+}
 
 export function PrachtRuntimeProvider<TData>({
   children,
@@ -132,19 +148,17 @@ export function PrachtRuntimeProvider<TData>({
     });
   }, [data, routeId, stateVersion, url]);
 
-  // Effect-driven revalidation: capabilities are effect-classed, so the
-  // runtime can refresh route data after any successful non-`read` call made
-  // from the browser — `callCapability()` and `<Form capability>` announce
-  // themselves via CAPABILITY_SETTLED_EVENT instead of importing the router.
+  // Publish this runtime value for effect-driven revalidation: capabilities
+  // are effect-classed, so the runtime refreshes route data after any
+  // successful non-`read` call made from the browser. `callCapability()` and
+  // `<Form capability>` announce themselves via CAPABILITY_SETTLED_EVENT, and
+  // the listener that acts on it lives with those dispatchers — see
+  // `runtime-capability-revalidate.ts`.
   useEffect(() => {
-    const handleSettled = (event: Event) => {
-      if (!shouldRevalidateAfterCapability((event as CustomEvent).detail)) return;
-      void revalidateRouteData(context).catch(() => {
-        // Revalidation is best-effort; the mutation itself already succeeded.
-      });
+    mountedRuntimes.add(context);
+    return () => {
+      mountedRuntimes.delete(context);
     };
-    window.addEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
-    return () => window.removeEventListener(CAPABILITY_SETTLED_EVENT, handleSettled);
   }, [context]);
 
   return h(RouteDataContext.Provider, {

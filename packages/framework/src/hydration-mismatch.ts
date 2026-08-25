@@ -1,6 +1,8 @@
 import { options as preactOptions } from "preact";
 import type { VNode } from "preact";
 
+import { installHydrationSuspenseTracking } from "./hydration-suspense.ts";
+
 const HYDRATION_BANNER_ID = "__pracht_hydration_mismatch__";
 
 // Preact flag on vnode.__u for vnodes diffing against existing DOM (hydrate path).
@@ -37,6 +39,12 @@ let flushScheduled = false;
 export function installHydrationMismatchWarning(): void {
   if (installed) return;
   installed = true;
+
+  // Put the suspense chain in place before capturing `__e`. `preact-suspense`
+  // short-circuits once it finds a Suspense ancestor, so this wrapper only sees
+  // suspending vnodes while it sits above it. Dev-only, like this whole module:
+  // production builds drop the call along with the rest of the file.
+  installHydrationSuspenseTracking();
 
   const opts = preactOptions as PreactOptions;
   prevMismatch = opts.__m;
