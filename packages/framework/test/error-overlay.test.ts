@@ -4,6 +4,7 @@ import {
   buildErrorOverlayHtml,
   normalizeStackFile,
   parseStackFrames,
+  stripAnsi,
 } from "../src/error-overlay.ts";
 
 const STACK_FIXTURE = [
@@ -204,5 +205,144 @@ describe("buildErrorOverlayHtml", () => {
 
     expect(html).toContain("boom");
     expect(html).not.toContain('class="stack"');
+  });
+});
+
+describe("terminal colour codes", () => {
+  // oxc/esbuild colourize their diagnostics for a terminal. The browser has no
+  // terminal: left in place, every character of the offending source line is
+  // wrapped in its own escape sequence and the error is unreadable.
+  const ESC = "\u001b";
+  const ANSI_PARSE_ERROR = [
+    `${ESC}[31m[PARSE_ERROR] ${ESC}[0mExpected a semicolon`,
+    `    ${ESC}[38;5;246m|${ESC}[0m src/routes/pricing.tsx:20:5`,
+  ].join("\n");
+
+  it("strips escape sequences from the message", () => {
+    expect(stripAnsi(ANSI_PARSE_ERROR)).toBe(
+      ["[PARSE_ERROR] Expected a semicolon", "    | src/routes/pricing.tsx:20:5"].join("\n"),
+    );
+  });
+
+  it("leaves text without escape sequences untouched", () => {
+    expect(stripAnsi("loader exploded at [1] of the list")).toBe(
+      "loader exploded at [1] of the list",
+    );
+  });
+
+  it("renders a colourized compiler diagnostic without escape sequences", () => {
+    const html = buildErrorOverlayHtml({ message: ANSI_PARSE_ERROR });
+
+    expect(html).not.toContain(ESC);
+    expect(html).not.toContain("[38;5;246m");
+    expect(html).toContain("[PARSE_ERROR] Expected a semicolon");
+  });
+
+  it("strips escape sequences from the stack as well", () => {
+    const html = buildErrorOverlayHtml({
+      message: "boom",
+      stack: `Error: boom\n    at ${ESC}[36mloader${ESC}[0m (/app/src/routes/home.tsx:1:1)`,
+    });
+
+    expect(html).not.toContain(ESC);
+    expect(html).toContain("/app/src/routes/home.tsx");
+  });
+
+  it("preserves multi-line diagnostics in the rendered message", () => {
+    const html = buildErrorOverlayHtml({ message: "line one\nline two" });
+
+    expect(html).toContain("white-space: pre-wrap");
+    expect(html).toContain("line one\nline two");
+  });
+});
+
+describe("route metadata rows", () => {
+  it("names the failing phase, route file, loader, and shell", () => {
+    const html = buildErrorOverlayHtml({
+      message: "loader exploded",
+      phase: "loader",
+      routeId: "blog-slug",
+      file: "./routes/blog/[slug].tsx",
+      loaderFile: "./server/blog-loader.ts",
+      shellFile: "./shells/public.tsx",
+      root: "/app",
+    });
+
+    expect(html).toContain('>Phase</span> <span class="value">loader<');
+    expect(html).toContain("blog-slug");
+    expect(html).toContain("./routes/blog/[slug].tsx");
+    expect(html).toContain("./server/blog-loader.ts");
+    expect(html).toContain("./shells/public.tsx");
+    expect(html).toContain('data-editor-file="/app/src/server/blog-loader.ts"');
+  });
+
+  it("omits the loader row when the loader is the route file itself", () => {
+    const html = buildErrorOverlayHtml({
+      message: "loader exploded",
+      file: "./routes/home.tsx",
+      loaderFile: "./routes/home.tsx",
+    });
+
+    expect(html).not.toContain(">Loader</span>");
+  });
+
+  it("omits every optional row when nothing is known", () => {
+    const html = buildErrorOverlayHtml({ message: "boom" });
+
+    expect(html).not.toContain(">Phase</span>");
+    expect(html).not.toContain(">Route</span>");
+    expect(html).not.toContain(">Shell</span>");
+  });
+});
+
+describe("escape sequences the naive pattern gets wrong", () => {
+  const ESC = "\u001b";
+  const BEL = "\u0007";
+
+  // miette — and therefore oxc — emits OSC 8 terminal hyperlinks for
+  // diagnostic codes. Matching them with the CSI branch stops at the first
+  // letter of the URL and eats it, leaving `ttps://…` plus a stray terminator.
+  it("strips an OSC 8 hyperlink without eating the URL text", () => {
+    const link = `${ESC}]8;;https://oxc.rs/docs/E0001${BEL}E0001${ESC}]8;;${BEL}`;
+
+    expect(stripAnsi(`see ${link} for details`)).toBe("see E0001 for details");
+  });
+
+  it("strips an OSC sequence terminated by ESC backslash", () => {
+    expect(stripAnsi(`a${ESC}]0;window title${ESC}\\b`)).toBe("ab");
+  });
+
+  // `ESC [ 3 ~` is a complete sequence; omitting `~` from the final-byte class
+  // leaves a stray tilde in the rendered message.
+  it("strips a CSI sequence whose final byte is a tilde", () => {
+    expect(stripAnsi(`a${ESC}[3~b`)).toBe("ab");
+  });
+
+  it("leaves a lone escape introducer alone rather than eating the next word", () => {
+    expect(stripAnsi(`unterminated ${ESC}`)).toBe(`unterminated ${ESC}`);
+  });
+
+  it("does not touch bracket-heavy prose", () => {
+    expect(stripAnsi("expected [1] but got (2) at #3; ok?")).toBe(
+      "expected [1] but got (2) at #3; ok?",
+    );
+  });
+});
+
+describe("overlay auto-reload script", () => {
+  // `import.meta` is a parse error in a classic script, so the whole block was
+  // silently dropped and the overlay never reloaded itself after the file was
+  // fixed.
+  it("declares the import.meta.hot block as a module", () => {
+    const html = buildErrorOverlayHtml({ message: "boom" });
+
+    expect(html).toMatch(/<script type="module">(?:(?!<\/script>)[\s\S])*import\.meta\.hot/);
+  });
+
+  it("reloads for ordinary HMR updates and full reloads", () => {
+    const html = buildErrorOverlayHtml({ message: "boom" });
+
+    expect(html).toContain('import.meta.hot.on("vite:beforeUpdate", reload)');
+    expect(html).toContain('import.meta.hot.on("vite:beforeFullReload", reload)');
   });
 });

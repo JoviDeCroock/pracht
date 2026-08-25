@@ -15,6 +15,16 @@ export interface ErrorOverlayOptions {
   routeId?: string;
   file?: string;
   /**
+   * Request phase the failure came from (`loader`, `render`, `middleware`, …),
+   * shown as a meta row. A loader failure and a render failure look identical
+   * in a stack trace once JSX is compiled away.
+   */
+  phase?: string;
+  /** Loader module path, when the route loads from a separate server file. */
+  loaderFile?: string;
+  /** Shell module path wrapping the failing route. */
+  shellFile?: string;
+  /**
    * Project root (Vite's `server.config.root`). Used to resolve
    * dev-server URL paths such as `/src/routes/home.tsx` to filesystem
    * paths for the open-in-editor links.
@@ -22,6 +32,45 @@ export interface ErrorOverlayOptions {
   root?: string;
   /** Vite deploy base used to reach the dev server's editor endpoint. */
   base?: string;
+}
+
+/**
+ * SGR/CSI/OSC escape sequences, as emitted by every compiler that colours its own
+ * diagnostics (oxc, esbuild, Babel). They are meaningless in a browser: a
+ * terminal renders `[31m` as "red", HTML renders it as `[31m`, and oxc
+ * wraps *every character* of the offending source line in its own sequence, so
+ * an uncleaned parse error reads as a wall of `[38;5;249m` noise.
+ */
+// Built from char codes rather than written as a literal: a `\u001B` escape
+// inside a regex literal is a lint error (`no-control-regex`), and suppressing
+// the rule would hide the one place it is genuinely intended.
+const ESC = String.fromCharCode(0x1b);
+const CSI = String.fromCharCode(0x9b);
+const BEL = String.fromCharCode(0x07);
+// OSC (`ESC ] … BEL` / `ESC ] … ESC \\`) has to be matched as its own
+// alternative rather than falling through to the CSI branch. Terminal
+// hyperlinks — which miette, and therefore oxc, emits for diagnostic codes —
+// are OSC 8: matching them with the CSI branch stops at the first letter of
+// the URL and eats it, turning `ESC ] 8 ;; https://…` into `ttps://…` while
+// leaving the terminator behind as a control character.
+const OSC_TERMINATOR = `(?:${BEL}|${ESC}\\\\)`;
+// The payload is anything up to the terminator. Deliberately more permissive
+// than the widely copied `ansi-regex` pattern, which enumerates URL-ish
+// characters and so fails on a payload containing a space (`ESC ] 0 ; window
+// title`) — it then falls through to the CSI branch and eats part of the text.
+// The class excludes both terminator characters, so the match cannot run past
+// the first one and an unterminated OSC simply fails this alternative.
+const OSC_SEQUENCE = `[^${BEL}${ESC}]*${OSC_TERMINATOR}`;
+// `~` belongs in the final-byte class: `ESC [ 3 ~` is a complete sequence, and
+// omitting it leaves a stray `~` in the rendered message.
+const CSI_SEQUENCE = `(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-PR-TZcf-ntqry=><~]`;
+const ANSI_ESCAPE = new RegExp(
+  `[${ESC}${CSI}][[\\]()#;?]*(?:${OSC_SEQUENCE}|${CSI_SEQUENCE})`,
+  "g",
+);
+
+export function stripAnsi(value: string): string {
+  return value.replace(ANSI_ESCAPE, "");
 }
 
 export interface StackFrame {
@@ -141,11 +190,20 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
 }
 
 export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
-  const { message, stack, routeId, file, root } = options;
+  const { routeId, file, root } = options;
+  // Compiler diagnostics arrive colourized for a terminal. Left in place they
+  // render as literal escape sequences around every character of the offending
+  // line — the error becomes unreadable exactly when it matters most.
+  const message = stripAnsi(options.message);
+  const stack = options.stack ? stripAnsi(options.stack) : undefined;
   const openInEditorEndpoint = resolveOpenInEditorEndpoint(options.base);
 
   const stackHtml = stack
     ? `<pre class="stack">${renderStackFrames(parseStackFrames(stack, { root }))}</pre>`
+    : "";
+
+  const phaseHtml = options.phase
+    ? `<div class="meta"><span class="label">Phase</span> <span class="value">${escapeHtml(options.phase)}</span></div>`
     : "";
 
   const routeHtml = routeId
@@ -154,6 +212,18 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
 
   const fileHtml = file
     ? `<div class="meta"><span class="label">File</span> ${renderFileValue(file, root)}</div>`
+    : "";
+
+  // A separate loader file only exists when the manifest wires one, and the
+  // shell is worth naming because a shell throw surfaces on every route that
+  // uses it rather than on the one being requested.
+  const loaderHtml =
+    options.loaderFile && options.loaderFile !== file
+      ? `<div class="meta"><span class="label">Loader</span> ${renderFileValue(options.loaderFile, root)}</div>`
+      : "";
+
+  const shellHtml = options.shellFile
+    ? `<div class="meta"><span class="label">Shell</span> ${renderFileValue(options.shellFile, root)}</div>`
     : "";
 
   return `<!DOCTYPE html>
@@ -202,6 +272,9 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
       color: #ff6b6b;
       margin-bottom: 20px;
       word-break: break-word;
+      /* Compiler diagnostics are multi-line source frames; collapsing their
+         whitespace turns the caret line into gibberish. */
+      white-space: pre-wrap;
     }
     .meta {
       font-size: 13px;
@@ -255,8 +328,11 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
       <span class="title">pracht dev</span>
     </div>
     <div class="message">${escapeHtml(message)}</div>
+    ${phaseHtml}
     ${routeHtml}
     ${fileHtml}
+    ${loaderHtml}
+    ${shellHtml}
     ${stackHtml}
     <div class="hint">Click a stack frame to open it in your editor. Fix the error and save — the page will reload automatically.</div>
   </div>
@@ -271,12 +347,18 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
       fetch(${JSON.stringify(openInEditorEndpoint)} + "?file=" + encodeURIComponent(link.getAttribute("data-editor-file")));
     });
   </script>
-  <script>
-    // Auto-reload when Vite triggers a full reload (e.g. file saved after fix)
+  <script type="module">
+    // Auto-reload when Vite publishes either an ordinary HMR update for a
+    // client-reachable route or a full reload for a server-only module.
+    // Must be a module: \`import.meta\` is a parse error in a classic script, so
+    // a plain <script> silently dropped this whole block and the overlay never
+    // reloaded itself after the underlying file was fixed.
     if (import.meta.hot) {
-      import.meta.hot.on("vite:beforeFullReload", function () {
+      var reload = function () {
         window.location.reload();
-      });
+      };
+      import.meta.hot.on("vite:beforeUpdate", reload);
+      import.meta.hot.on("vite:beforeFullReload", reload);
     }
   </script>
 </body>

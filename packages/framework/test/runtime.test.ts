@@ -3123,3 +3123,127 @@ describe("handlePrachtRequest pipeline parallelism", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("onRouteError route context", () => {
+  it("names the phase, route, loader, shell, and middleware that failed", async () => {
+    const app = defineApp({
+      shells: { public: "./shells/public.tsx" },
+      middleware: { auth: "./middleware/auth.ts" },
+      routes: [
+        route("/blog/:slug", {
+          component: "./routes/blog/[slug].tsx",
+          id: "blog-slug",
+          loader: "./server/blog-loader.ts",
+          middleware: ["auth"],
+          shell: "public",
+        }),
+      ],
+    });
+
+    let captured: unknown;
+    let context: Record<string, unknown> | undefined;
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/blog/[slug].tsx": async () => ({ Component: () => null }),
+        },
+        shellModules: {
+          "./shells/public.tsx": async () => ({
+            Shell: ({ children }: { children?: unknown }) => children as never,
+          }),
+        },
+        middlewareModules: {
+          "./middleware/auth.ts": async () => ({
+            middleware: (_args: unknown, next: () => Promise<Response>) => next(),
+          }),
+        },
+        dataModules: {
+          "./server/blog-loader.ts": async () => ({
+            loader: () => {
+              throw new Error("loader exploded");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/blog/hello"),
+      onRouteError: (error, _requestPath, routeContext) => {
+        captured = error;
+        context = routeContext as unknown as Record<string, unknown>;
+      },
+    });
+
+    expect(response.status).toBe(500);
+    expect((captured as Error).message).toBe("loader exploded");
+    expect(context).toMatchObject({
+      phase: "loader",
+      routeId: "blog-slug",
+      routePath: "/blog/:slug",
+      routeFile: "./routes/blog/[slug].tsx",
+      loaderFile: "./server/blog-loader.ts",
+      shellFile: "./shells/public.tsx",
+      middlewareFiles: ["./middleware/auth.ts"],
+    });
+  });
+
+  it("reports a render failure as the render phase", async () => {
+    const app = defineApp({
+      routes: [route("/", "./routes/home.tsx", { id: "home" })],
+    });
+
+    let context: Record<string, unknown> | undefined;
+    await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => {
+              throw new Error("render exploded");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+      onRouteError: (_error, _requestPath, routeContext) => {
+        context = routeContext as unknown as Record<string, unknown>;
+      },
+    });
+
+    expect(context).toMatchObject({ phase: "render", routeId: "home" });
+  });
+
+  it("keeps the configured loader path when its module import fails", async () => {
+    const app = defineApp({
+      routes: [
+        route("/", {
+          component: "./routes/home.tsx",
+          loader: "./server/home-loader.ts",
+        }),
+      ],
+    });
+
+    let context: Record<string, unknown> | undefined;
+    await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({ Component: () => null }),
+        },
+        dataModules: {
+          "./server/home-loader.ts": async () => {
+            throw new SyntaxError("loader module did not compile");
+          },
+        },
+      },
+      request: new Request("http://localhost/"),
+      onRouteError: (_error, _requestPath, routeContext) => {
+        context = routeContext as unknown as Record<string, unknown>;
+      },
+    });
+
+    expect(context).toMatchObject({
+      phase: "loader",
+      loaderFile: "./server/home-loader.ts",
+    });
+  });
+});

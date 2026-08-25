@@ -10,6 +10,7 @@ import {
   isPrachtHttpError,
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
+  type RouteErrorContext,
 } from "./runtime-errors.ts";
 import {
   appendVaryHeader,
@@ -325,7 +326,7 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * (prerendering, static export) with a bare status and no cause. Prerender
    * passes this so a failing SSG page can name what actually threw.
    */
-  onRouteError?: (error: unknown, requestPath: string) => void;
+  onRouteError?: (error: unknown, requestPath: string, context?: RouteErrorContext) => void;
 }
 
 export async function handlePrachtRequest<TContext>(
@@ -1243,8 +1244,26 @@ export async function handlePrachtRequest<TContext>(
       // was still started in parallel, so retain route-scoped error metadata
       // (notably fonts used by the route ErrorBoundary) when it resolves.
       routeModule ??= await routeModulePromise?.catch(() => undefined);
+      // A loader or middleware failure can happen before the shell await in
+      // pageTerminal. Resolve the already-started import here so callers know
+      // whether the response will be rendered by a route/shell ErrorBoundary
+      // instead of having to infer that from mutable response headers.
+      shellModule ??= await shellModulePromise.catch(() => undefined);
 
-      options.onRouteError?.(thrownResponseFailure ?? error, requestPath);
+      options.onRouteError?.(thrownResponseFailure ?? error, requestPath, {
+        errorBoundary: routeModule?.ErrorBoundary
+          ? "route"
+          : shellModule?.ErrorBoundary
+            ? "shell"
+            : undefined,
+        loaderFile: loaderFile ?? match.route.loaderFile,
+        middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+        phase: currentPhase,
+        routeFile: match.route.file,
+        routeId: match.route.id,
+        routePath: match.route.path,
+        shellFile: match.route.shellFile,
+      });
 
       return renderRouteErrorResponse({
         error: thrownResponseFailure ?? error,
@@ -1383,6 +1402,7 @@ export {
   deserializeRouteError,
   type PrachtRuntimeDiagnosticPhase,
   type PrachtRuntimeDiagnostics,
+  type RouteErrorContext,
   type SerializedRouteError,
 } from "./runtime-errors.ts";
 export {

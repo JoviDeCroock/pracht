@@ -710,7 +710,28 @@ as `@pracht/core/error-overlay`). The overlay is deliberately not a Preact
 component — it must render even when Preact itself fails — and it is only
 served by the dev middleware, never in production builds.
 
-Two ergonomics features are built in:
+Failures *inside* `handlePrachtRequest()` never escape it: the runtime
+answers them with a `text/plain` body, which is the right answer for a
+production adapter and the wrong one for a browser. The dev middleware
+therefore passes `onRouteError` and swaps that fallback for the overlay
+(`shouldRenderDevErrorOverlay()`). The swap is deliberately narrow — a route
+or shell `ErrorBoundary` is identified explicitly and left alone (even when
+custom shell headers change its content type), and route-state failures are
+JSON owned by the client router. `RouteErrorContext` carries that boundary
+selection plus the phase and route/loader/shell module paths into the overlay,
+since none is reliably recoverable from a stack trace. A loader module path
+comes from the resolved route as a fallback, so a loader that fails during its
+own import is still linked. Overlay responses retain the phase timings already
+collected for the dev `Server-Timing` header.
+
+Four ergonomics features are built in:
+
+- **Terminal colour codes are stripped.** oxc, esbuild, and Babel colourize
+  their diagnostics for a TTY, and oxc wraps every character of the offending
+  source line in its own SGR sequence. Rendered as-is in a browser, a syntax
+  error becomes an unreadable wall of `[38;5;249m`. `stripAnsi()` runs over
+  the message and the stack; the message keeps `white-space: pre-wrap` so the
+  caret line still lines up.
 
 - **Open-in-editor links.** `parseStackFrames()` parses V8-style stack
   traces into frames with `file:line:column` locations. App-code frames
@@ -722,6 +743,13 @@ Two ergonomics features are built in:
   Vite transform queries (`?t=…`, `?pracht-client`), and root-relative
   dev-server URLs (`/src/routes/home.tsx`), which are joined onto the
   project root the dev middleware passes in (`server.config.root`).
+
+- **Fixes reload the overlay.** The inline Vite HMR client reloads for both
+  ordinary updates (`vite:beforeUpdate`) from client-reachable route modules
+  and full reloads (`vite:beforeFullReload`) from server-only loaders or
+  middleware. The listener is a module script because `import.meta.hot` is not
+  valid in a classic script.
+
 - **"Did you mean" wiring errors.** `resolveApp()` fails loudly when a
   route, group, or the `notFound` page references an unknown shell or
   middleware name (including `api.middleware`), and `buildHref()` does the

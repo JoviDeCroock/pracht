@@ -305,11 +305,25 @@ with framework metadata such as `phase`, `routeId`, `routePath`, `routeFile`,
 
 #### Dev error overlay
 
-In dev, uncaught server errors render pracht's full-page error overlay
-instead of a bare 500. Stack frames from your app code (and the reported
-file path) are clickable — they open the file at the exact line and column
-in your editor through Vite's built-in `/__open-in-editor` endpoint. Frames
-from `node_modules` and Node internals are de-emphasized.
+In dev, server errors render pracht's full-page error overlay instead of a
+bare 500 — middleware, loader, and render failures alike, including the
+compiler diagnostic you get from a syntax error in a route file. Terminal
+colour codes are stripped, so a colourized `[PARSE_ERROR]` frame reads as
+source rather than as escape sequences. Stack frames from your app code (and
+the reported file path) are clickable — they open the file at the exact line
+and column in your editor through Vite's built-in `/__open-in-editor`
+endpoint. Frames from `node_modules` and Node internals are de-emphasized.
+The overlay also names the failing `phase` and links the route, loader, and
+shell modules involved. Saving a fix reloads the overlay for both ordinary
+client HMR updates and server-only full reloads.
+
+Two failures deliberately keep their own response: a route or shell that
+declares an `ErrorBoundary` renders that boundary (it is your app's error
+UI, and dev must not hide it even when custom shell headers override its
+content type), and `x-pracht-route-state-request` failures stay JSON for the
+client router. Overlay responses keep the dev `Server-Timing` phase durations,
+and a separately wired loader remains linked even when its module fails during
+import.
 
 Manifest wiring mistakes fail loudly with a "did you mean" hint. Referencing
 an unregistered shell or middleware name (including `api.middleware`) throws

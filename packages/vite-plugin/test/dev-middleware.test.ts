@@ -8,6 +8,7 @@ import {
   isEventStreamContentType,
   isDevNotFoundRequest,
   shouldBypassDevSSR,
+  shouldRenderDevErrorOverlay,
 } from "../src/plugin-dev-ssr.ts";
 import { PRACHT_DEV_MODULE_ID } from "../src/plugin-assets.ts";
 
@@ -359,6 +360,101 @@ describe("shouldBypassDevSSR", () => {
       shouldBypassDevSSR("/", {
         headers: { accept: "*/*" },
         method: "GET",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("development error overlay handoff", () => {
+  it("replaces the runtime's plain-text render failure", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        exposeServerErrors: true,
+        contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: false,
+        status: 500,
+      }),
+    ).toBe(true);
+  });
+
+  it("matches the media type case-insensitively", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        exposeServerErrors: true,
+        contentType: "Text/Plain; Charset=UTF-8",
+        hasErrorBoundary: false,
+        status: 500,
+      }),
+    ).toBe(true);
+  });
+
+  // A route or shell ErrorBoundary rendered the failure itself. That HTML is
+  // the app's own error UI and dev must not replace it.
+  it("leaves an ErrorBoundary render alone regardless of its content type", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        exposeServerErrors: true,
+        contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: true,
+        status: 500,
+      }),
+    ).toBe(false);
+  });
+
+  // Route-state and capability failures are JSON owned by the client router.
+  it("leaves JSON failures alone", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        exposeServerErrors: true,
+        contentType: "application/json; charset=utf-8",
+        hasErrorBoundary: false,
+        status: 500,
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves plain-text responses that are not render failures alone", () => {
+    // `notFound()`, "Method not allowed", and an app's own text/plain 500 from
+    // an API route never fire the page-render hook.
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: false,
+        exposeServerErrors: true,
+        contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: false,
+        status: 500,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        exposeServerErrors: true,
+        contentType: "text/plain; charset=utf-8",
+        hasErrorBoundary: false,
+        status: 404,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("development error overlay redaction", () => {
+  // `pracht dev` passes `debugErrors: true` unconditionally, but the runtime
+  // refuses to honor it under NODE_ENV=production — a dev server started inside
+  // a container that exports it answers with a redacted body. The overlay is
+  // built from the raw error, so it has to repeat that check or it would print
+  // the stack and filesystem paths the runtime had just withheld.
+  it("does not replace a redacted failure with the raw-error overlay", () => {
+    expect(
+      shouldRenderDevErrorOverlay({
+        capturedRouteError: true,
+        contentType: "text/plain; charset=utf-8",
+        exposeServerErrors: false,
+        hasErrorBoundary: false,
+        status: 500,
       }),
     ).toBe(false);
   });

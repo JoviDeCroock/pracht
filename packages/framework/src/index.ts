@@ -361,6 +361,7 @@ export type {
   PrachtPhaseTimings,
   PrachtRuntimeDiagnosticPhase,
   PrachtRuntimeDiagnostics,
+  RouteErrorContext,
   RouteStateResult,
   SerializedRouteError,
   StartAppOptions,
