@@ -338,4 +338,11 @@ describe("overlay auto-reload script", () => {
 
     expect(html).toMatch(/<script type="module">(?:(?!<\/script>)[\s\S])*import\.meta\.hot/);
   });
+
+  it("reloads for ordinary HMR updates and full reloads", () => {
+    const html = buildErrorOverlayHtml({ message: "boom" });
+
+    expect(html).toContain('import.meta.hot.on("vite:beforeUpdate", reload)');
+    expect(html).toContain('import.meta.hot.on("vite:beforeFullReload", reload)');
+  });
 });

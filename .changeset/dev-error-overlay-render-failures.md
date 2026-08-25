@@ -27,9 +27,10 @@ The overlay itself gained fixes found while reviewing this change: it keeps the
 framework's default security headers, honours the runtime's
 `NODE_ENV=production` redaction instead of printing the internals the body just
 withheld, declares its auto-reload block as a module (`import.meta` is a parse
-error in a classic script, so the block was silently dropped), and no longer
-mangles OSC terminal hyperlinks — the sequence miette, and therefore oxc, emits
-for diagnostic codes.
+error in a classic script, so the block was silently dropped), reloads for both
+ordinary client HMR updates and server-only full reloads, and no longer mangles
+OSC terminal hyperlinks — the sequence miette, and therefore oxc, emits for
+diagnostic codes.
 
 The handoff now identifies declared route and shell error boundaries explicitly
 instead of inferring them from `Content-Type`, preserves `Server-Timing` on the

@@ -724,7 +724,7 @@ comes from the resolved route as a fallback, so a loader that fails during its
 own import is still linked. Overlay responses retain the phase timings already
 collected for the dev `Server-Timing` header.
 
-Three ergonomics features are built in:
+Four ergonomics features are built in:
 
 - **Terminal colour codes are stripped.** oxc, esbuild, and Babel colourize
   their diagnostics for a TTY, and oxc wraps every character of the offending
@@ -743,6 +743,13 @@ Three ergonomics features are built in:
   Vite transform queries (`?t=…`, `?pracht-client`), and root-relative
   dev-server URLs (`/src/routes/home.tsx`), which are joined onto the
   project root the dev middleware passes in (`server.config.root`).
+
+- **Fixes reload the overlay.** The inline Vite HMR client reloads for both
+  ordinary updates (`vite:beforeUpdate`) from client-reachable route modules
+  and full reloads (`vite:beforeFullReload`) from server-only loaders or
+  middleware. The listener is a module script because `import.meta.hot` is not
+  valid in a classic script.
+
 - **"Did you mean" wiring errors.** `resolveApp()` fails loudly when a
   route, group, or the `notFound` page references an unknown shell or
   middleware name (including `api.middleware`), and `buildHref()` does the

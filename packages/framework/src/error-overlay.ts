@@ -348,14 +348,17 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
     });
   </script>
   <script type="module">
-    // Auto-reload when Vite triggers a full reload (e.g. file saved after fix).
+    // Auto-reload when Vite publishes either an ordinary HMR update for a
+    // client-reachable route or a full reload for a server-only module.
     // Must be a module: \`import.meta\` is a parse error in a classic script, so
     // a plain <script> silently dropped this whole block and the overlay never
     // reloaded itself after the underlying file was fixed.
     if (import.meta.hot) {
-      import.meta.hot.on("vite:beforeFullReload", function () {
+      var reload = function () {
         window.location.reload();
-      });
+      };
+      import.meta.hot.on("vite:beforeUpdate", reload);
+      import.meta.hot.on("vite:beforeFullReload", reload);
     }
   </script>
 </body>

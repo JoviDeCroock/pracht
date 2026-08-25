@@ -314,7 +314,8 @@ the reported file path) are clickable — they open the file at the exact line
 and column in your editor through Vite's built-in `/__open-in-editor`
 endpoint. Frames from `node_modules` and Node internals are de-emphasized.
 The overlay also names the failing `phase` and links the route, loader, and
-shell modules involved.
+shell modules involved. Saving a fix reloads the overlay for both ordinary
+client HMR updates and server-only full reloads.
 
 Two failures deliberately keep their own response: a route or shell that
 declares an `ErrorBoundary` renders that boundary (it is your app's error
