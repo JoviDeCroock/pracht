@@ -892,6 +892,40 @@ verified identity, so composing application code cannot satisfy the nested
 policy by replacing `context.agent`. `CapabilityAuditEvent.via` records every
 allowed or denied nested attempt as a `"server"` dispatch caused by MCP.
 
+### Addendum (2026-08-26 — destructive capabilities over MCP)
+
+The policy choice above has been reversed, on the terms it set for itself. What
+the ban waited on was exactly-once commit; that now exists as a shipped
+implementation rather than an SPI, so the transport carries destructive tools
+behind an explicit third opt-in.
+
+- **`createSqlApprovalStore({ execute })` is the first-party store.** One
+  dependency-free implementation covers every SQL backend — the application
+  supplies a parameterized-query function, the store supplies the portable SQL.
+  `create()` is `INSERT … ON CONFLICT DO UPDATE … WHERE expires_at < now` and
+  `consume()` is one conditional `UPDATE`, so the *database* enforces
+  exactly-once. `RETURNING` is avoided because D1 and older SQLite cannot be
+  relied on for it; the affected-row count every driver reports is used instead.
+- **`agents.mcp.destructive` is the opt-in, and it fails closed.** Absent, the
+  projection filters destructive effects exactly as before. Present without a
+  registered approval store, `pracht verify` errors and the endpoint answers a
+  JSON-RPC error rather than serving anything — the one behaviour worse than
+  refusing is quietly serving a replayable commit.
+- **The confirmation flow moved transports without changing.** MCP has no
+  per-call header channel and the token cannot ride in `arguments` (it binds a
+  hash of them), so it travels in `_meta["io.pracht/confirmation"]`. The gate,
+  the binding, the store, and the audit events are the HTTP ones.
+- **The nested rule got sharper rather than looser.** "Refuse destructive
+  effects" became "refuse destructive effects unless the tool being served is a
+  destructive capability that already cleared prepare/commit". Composition has
+  no confirmation channel, so this is precisely the set of destructive effects
+  the direct surface would have allowed — a `read`/`write` tool still cannot
+  lend an unconfirmed one, and the confirmed scope dies with the request.
+
+WebMCP is not covered by the reversal and is no longer waiting on a mechanism:
+a page host's approval UX is not a security boundary, so there is nothing
+server-verified for the flow to bind to.
+
 ## Final Recommendation
 
 > **Status note (2026-08-26).** This document is the original bet, kept as

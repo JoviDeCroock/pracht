@@ -36,7 +36,7 @@ declare module "@pracht/core" {
         input: { "titlePrefix": string; };
         output: { "purged": number; [key: string]: unknown; };
         effect: "destructive";
-        exposed: { http: true; webmcp: false; mcp: false };
+        exposed: { http: true; webmcp: false; mcp: true };
       };
       /**
        * Agent whoami

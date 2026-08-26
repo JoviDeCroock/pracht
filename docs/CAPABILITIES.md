@@ -68,8 +68,8 @@ and registers the name in the manifest. `--effect` defaults to `read`;
 `--expose` is omitted for a private capability, and `--description` is required
 whenever it is set — that text is the contract an agent reads. The generator
 refuses the combinations the runtime and `pracht verify` reject anyway: a
-`destructive` capability exposed over `webmcp`/`mcp`, or `webmcp` without
-`http`. Then edit the schemas and the `run()` body.
+`destructive` capability exposed over `webmcp`, or `webmcp` without `http`.
+Then edit the schemas and the `run()` body.
 
 ## Installing
 
@@ -167,16 +167,25 @@ so humans and agents can pinpoint what to fix.
 
 Every capability declares one of `read`, `write`, or `destructive`.
 Destructive capabilities (delete, publish, pay, send, change access) may be
-exposed over HTTP only, and every dispatch is gated by a server-verified
-prepare/commit confirmation flow that requires `PRACHT_CONFIRMATION_SECRET`
-to be configured — optionally backed by a durable approval store for
-exactly-once commits and, in human mode, human approval (which also requires an
-authenticated principal from Web Bot Auth or
+exposed over HTTP and over remote MCP, and every dispatch is gated by a
+server-verified prepare/commit confirmation flow that requires
+`PRACHT_CONFIRMATION_SECRET` to be configured — optionally backed by a durable
+approval store for exactly-once commits and, in human mode, human approval
+(which also requires an authenticated principal from Web Bot Auth or
 `setCapabilityApprovalPrincipalResolver()`), see
-[AGENT_TRUST.md](AGENT_TRUST.md). Exposing them to
-agent projections (`expose.webmcp`/`expose.mcp`) stays disallowed:
-`defineCapability()`, the runtime registry, and `pracht verify` all enforce
-this.
+[AGENT_TRUST.md](AGENT_TRUST.md).
+
+Two rules narrow that:
+
+- `expose.webmcp` on a destructive capability stays disallowed —
+  `defineCapability()`, the runtime registry, and `pracht verify` all reject it.
+  A page host's approval UX is not a security boundary.
+- `expose.mcp` is served only when the app sets
+  `agents: { mcp: { destructive: true } }` *and* registers a durable approval
+  store, because a confirmation token handed to a remote agent must be
+  consumable exactly once. Without the opt-in the capability is filtered out of
+  the MCP surface; with the opt-in and no store, the endpoint fails closed. See
+  [REMOTE_MCP.md](REMOTE_MCP.md#destructive-tools).
 
 ## Invocation
 
@@ -206,9 +215,10 @@ direct invocation.
 
 Transport policy normally answers incoming calls rather than composition.
 Remote MCP is the safety exception: a nested call caused by an MCP tool
-re-applies the callee's `agentPolicy` and refuses `destructive` effects. Private
-non-destructive capabilities remain available as building blocks, and their
-named middleware still runs. See
+re-applies the callee's `agentPolicy` and refuses `destructive` effects unless
+the tool being served is itself a destructive capability that already cleared
+prepare/commit. Private non-destructive capabilities remain available as
+building blocks, and their named middleware still runs. See
 [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 When composition runs under a served HTTP or MCP request, `context.agent` and
 the audit event remain bound to the identity verified by that transport; an
@@ -541,7 +551,9 @@ adds a transport rather than a second set of rules.
 
 `expose.mcp` does not require `expose.http` — a capability can be reachable by
 remote agents with no public browser endpoint. Cookie-bearing MCP requests are
-rejected, and `destructive` capabilities cannot be exposed this way.
+rejected. A `destructive` capability is served only with the
+`agents.mcp.destructive` opt-in and a registered approval store; the
+prepare/commit token then travels in `_meta["io.pracht/confirmation"]`.
 The supported MCP versions require both `input` and `output` schemas to declare
 `type: "object"`; other schema roots remain available to non-MCP projections.
 Full contract in [REMOTE_MCP.md](REMOTE_MCP.md).
@@ -566,7 +578,8 @@ file, and `pracht verify` reports the same projection constraints.
 - **Composition keeps transport boundaries explicit** — `invokeCapability()`
   runs the callee's own pipeline but not app-level `api.middleware`. When the
   caller is a remote MCP tool, the runtime additionally re-applies the callee's
-  `agentPolicy` and rejects destructive effects; private non-destructive
+  `agentPolicy` and rejects destructive effects unless the served tool already
+  cleared its own confirmation gate; private non-destructive
   callees remain composable. Other composing entry points must own any
   transport-specific authorization they need. Every nested dispatch audits as
   `transport: "server"` with `via` naming the transport that caused it. See
@@ -574,10 +587,12 @@ file, and `pracht verify` reports the same projection constraints.
 - **Exposure requires a complete contract** — `pracht verify` fails for
   exposed capabilities missing a description, input schema, output schema, or
   effect classification.
-- **`destructive` is confirmation-gated** — HTTP exposure requires the
-  prepare/commit confirmation flow (and its secret); `webmcp`/`mcp` exposure
-  is an error, enforced by `defineCapability()`, the registry, `pracht verify`,
-  and the MCP projection at serve time. See [AGENT_TRUST.md](AGENT_TRUST.md).
+- **`destructive` is confirmation-gated** — HTTP and remote MCP exposure both
+  require the prepare/commit confirmation flow (and its secret). `webmcp`
+  exposure is an error, and MCP exposure is only served with the
+  `agents.mcp.destructive` opt-in plus a durable approval store — enforced by
+  `defineCapability()`, the registry, `pracht verify`, and the MCP projection at
+  serve time. See [AGENT_TRUST.md](AGENT_TRUST.md).
 - **Remote MCP never accepts cookies** — the MCP endpoint rejects cookie-bearing
   requests before capability dispatch, so even a session decoded by an adapter
   context factory cannot authenticate the remote agent transport. See

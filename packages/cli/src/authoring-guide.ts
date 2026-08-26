@@ -115,9 +115,12 @@ Rules that are enforced, not advisory:
 
 - **Private by default.** No \`expose\` means no network surface at all.
 - **\`effect\` is a security classification.** \`destructive\` (delete, publish,
-  pay, send, change access) may only use \`expose.http\`, is gated by a
-  prepare/commit confirmation flow, and needs \`PRACHT_CONFIRMATION_SECRET\` in
-  the deployed environment. Exposing it over \`webmcp\`/\`mcp\` is an error.
+  pay, send, change access) may use \`expose.http\` and \`expose.mcp\`, is gated
+  by a prepare/commit confirmation flow, and needs
+  \`PRACHT_CONFIRMATION_SECRET\` in the deployed environment. \`expose.webmcp\`
+  is an error. Serving it over remote MCP additionally needs
+  \`agents: { mcp: { destructive: true } }\` and a registered approval store
+  (\`setCapabilityApprovalStore()\`), or the endpoint fails closed.
   Never downgrade an effect class to make a call easier — that is a policy
   change a human must approve.
 - **\`expose\`, \`effect\`, and \`input\` must be inline literals.** The browser

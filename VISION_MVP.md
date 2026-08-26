@@ -154,8 +154,10 @@ from `@pracht/capabilities`:
   class drives the client cache. The wire protocol (paths, headers, error
   codes, envelope) has a single home in `@pracht/capabilities`.
 - Private by default; exposure requires a complete contract, `destructive`
-  effects are HTTP-only behind a server-verified prepare/commit confirmation
-  flow, and the graph feeds `pracht inspect capabilities`, `/_pracht`,
+  effects sit behind a server-verified prepare/commit confirmation flow on
+  every transport that carries them (HTTP, and remote MCP with the
+  `agents.mcp.destructive` opt-in plus a durable approval store — never WebMCP),
+  and the graph feeds `pracht inspect capabilities`, `/_pracht`,
   `pracht verify`, and the CLI MCP server.
 - Agent trust layer: Web Bot Auth (RFC 9421) verified agent identity as
   `context.agent` with observe/require policies, capability audit events,

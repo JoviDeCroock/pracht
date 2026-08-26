@@ -21,12 +21,21 @@ function createProject(options: {
   manifestPrefix?: string;
   middlewareBlock?: string;
   registration?: string;
+  /** Extra `defineApp` members, e.g. an `agents: { mcp: { … } }` block. */
+  appBlock?: string;
+  /** Extra files written under `src/`, keyed by relative path. */
+  extraFiles?: Record<string, string>;
 }): ProjectConfig {
   const root = mkdtempSync(join(tmpdir(), "pracht-verify-capabilities-"));
   tempDirs.push(root);
   mkdirSync(join(root, "src/capabilities"), { recursive: true });
 
   writeFileSync(join(root, "src/capabilities/notes-search.ts"), options.capability, "utf-8");
+  for (const [path, contents] of Object.entries(options.extraFiles ?? {})) {
+    const target = join(root, "src", path);
+    mkdirSync(join(target, ".."), { recursive: true });
+    writeFileSync(target, contents, "utf-8");
+  }
   writeFileSync(
     join(root, "src/routes.ts"),
     [
@@ -34,6 +43,7 @@ function createProject(options: {
       options.manifestPrefix ?? "",
       "export const app = defineApp({",
       options.middlewareBlock ?? "",
+      options.appBlock ?? "",
       "  capabilities: {",
       options.registration ?? '    "notes.search": () => import("./capabilities/notes-search.ts"),',
       "  },",
@@ -388,15 +398,15 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
-  it("fails destructive capabilities exposed to agent projections", () => {
-    // COMPLETE_FIELDS exposes http + webmcp — destructive may only use http.
+  it("fails destructive capabilities exposed as WebMCP page tools", () => {
+    // COMPLETE_FIELDS exposes http + webmcp — destructive may not use webmcp.
     const checks = runChecks(
       capabilitySource(COMPLETE_FIELDS.replace('effect: "read"', 'effect: "destructive"')),
     );
 
     const errors = checks.filter((check) => check.status === "error");
     expect(errors.map((error) => error.message)).toContainEqual(
-      expect.stringContaining("is destructive and exposed to agent projections"),
+      expect.stringContaining("is destructive and exposed as a WebMCP page tool"),
     );
   });
 
@@ -505,6 +515,93 @@ describe("collectCapabilityChecks", () => {
       if (previous === undefined) delete process.env.PRACHT_CONFIRMATION_SECRET;
       else process.env.PRACHT_CONFIRMATION_SECRET = previous;
     }
+  });
+
+  describe("destructive capabilities over MCP", () => {
+    const DESTRUCTIVE_MCP = capabilitySource(
+      COMPLETE_FIELDS.replace('effect: "read"', 'effect: "destructive"').replace(
+        "expose: { http: true, webmcp: true },",
+        "expose: { mcp: true },",
+      ),
+    );
+    const STORE_MODULE = [
+      'import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core/server";',
+      "setCapabilityApprovalStore(createSqlApprovalStore({ execute }));",
+      "",
+    ].join("\n");
+
+    function checksFor(options: { appBlock?: string; extraFiles?: Record<string, string> }) {
+      const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+      process.env.PRACHT_CONFIRMATION_SECRET = "verify-test-secret";
+      try {
+        const checks: Check[] = [];
+        collectCapabilityChecks(createProject({ capability: DESTRUCTIVE_MCP, ...options }), checks);
+        return checks;
+      } finally {
+        if (previous === undefined) delete process.env.PRACHT_CONFIRMATION_SECRET;
+        else process.env.PRACHT_CONFIRMATION_SECRET = previous;
+      }
+    }
+
+    const errorsOf = (checks: Check[]): string[] =>
+      checks.filter((check) => check.status === "error").map((check) => check.message);
+
+    it("fails when the app serves MCP without opting into destructive tools", () => {
+      const checks = checksFor({ appBlock: "  agents: { mcp: {} }," });
+      expect(errorsOf(checks)).toContainEqual(
+        expect.stringContaining("does not set agents.mcp.destructive"),
+      );
+    });
+
+    it("fails when the opt-in is on but no approval store is registered", () => {
+      const checks = checksFor({ appBlock: "  agents: { mcp: { destructive: true } }," });
+      expect(errorsOf(checks)).toContainEqual(
+        expect.stringContaining("no setCapabilityApprovalStore() call was found"),
+      );
+    });
+
+    it("accepts the opt-in with a registered approval store", () => {
+      const checks = checksFor({
+        appBlock: "  agents: { mcp: { destructive: true } },",
+        extraFiles: { "server/approvals.ts": STORE_MODULE },
+      });
+
+      expect(errorsOf(checks)).toEqual([]);
+      expect(checks.map((check) => check.message)).toContainEqual(
+        expect.stringContaining("back onto a registered approval store"),
+      );
+    });
+
+    it("fails destructive MCP exposure without the confirmation secret", () => {
+      const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+      delete process.env.PRACHT_CONFIRMATION_SECRET;
+      try {
+        const checks: Check[] = [];
+        collectCapabilityChecks(
+          createProject({
+            capability: DESTRUCTIVE_MCP,
+            appBlock: "  agents: { mcp: { destructive: true } },",
+            extraFiles: { "server/approvals.ts": STORE_MODULE },
+          }),
+          checks,
+        );
+        expect(errorsOf(checks)).toContainEqual(
+          expect.stringContaining("without PRACHT_CONFIRMATION_SECRET"),
+        );
+      } finally {
+        if (previous !== undefined) process.env.PRACHT_CONFIRMATION_SECRET = previous;
+      }
+    });
+
+    it("only warns when the manifest's agents config cannot be read statically", () => {
+      // No visible `agents.mcp`: the existing "nothing serves it" warning is the
+      // honest answer, and a static scan must not fail a build it cannot judge.
+      const checks = checksFor({});
+      expect(errorsOf(checks)).toEqual([]);
+      expect(
+        checks.filter((check) => check.status === "warning").map((check) => check.message),
+      ).toContainEqual(expect.stringContaining("does not configure agents.mcp"));
+    });
   });
 
   it("fails webmcp exposure without http", () => {
@@ -718,7 +815,7 @@ describe("collectCapabilityChecks", () => {
     );
 
     expect(checks.map((check) => check.message)).toContainEqual(
-      expect.stringContaining("exposed to agent projections (webmcp/mcp)"),
+      expect.stringContaining("exposed as a WebMCP page tool"),
     );
   });
 

@@ -14,10 +14,12 @@ import {
 
 /**
  * Side-effect classification. Every capability must declare one; the
- * framework's exposure policy is driven by it. `destructive` capabilities
- * may only be exposed over HTTP, where every dispatch is gated by the
- * server-verified prepare/commit confirmation flow (see docs/AGENT_TRUST.md);
- * agent projections (`webmcp`/`mcp`) stay disallowed for them in v1.
+ * framework's exposure policy is driven by it. `destructive` capabilities may
+ * be exposed over HTTP and over remote MCP, where every dispatch is gated by
+ * the server-verified prepare/commit confirmation flow (see
+ * docs/AGENT_TRUST.md) — MCP additionally requires the `agents.mcp.destructive`
+ * opt-in. WebMCP page tools stay disallowed for them: a browser host's
+ * approval UX is not a security boundary.
  */
 export type CapabilityEffect = "read" | "write" | "destructive";
 
@@ -38,7 +40,11 @@ export interface CapabilityHttpExposure {
 export interface CapabilityExposeConfig {
   /** Serve the capability over HTTP. `true` uses `POST` at the default path. */
   http?: true | { method?: "POST"; path?: string };
-  /** Advertise the capability to the configured remote MCP projection. */
+  /**
+   * Advertise the capability to the configured remote MCP projection. A
+   * `destructive` capability is only served when the app also sets
+   * `agents.mcp.destructive`; otherwise the projection filters it out.
+   */
   mcp?: boolean;
   /** Register the capability as a WebMCP page tool. Requires `http` — calls dispatch through the HTTP projection. */
   webmcp?: boolean;
@@ -139,8 +145,10 @@ export interface CapabilityErrorPayload {
 }
 
 export const DESTRUCTIVE_EXPOSURE_ERROR =
-  "destructive capabilities cannot be exposed to agent projections (webmcp/mcp) yet — " +
-  "only expose.http, where the prepare/commit confirmation flow gates every call";
+  "destructive capabilities cannot be exposed to WebMCP page tools — a browser host's " +
+  "approval UX is not a security boundary. Use expose.http, or expose.mcp with " +
+  "agents.mcp.destructive, where the server-verified prepare/commit confirmation flow " +
+  "gates every call";
 
 export const MCP_SCHEMA_ROOT_ERROR =
   'expose.mcp requires "input" and "output" schemas with type: "object" for the supported MCP protocol versions';
@@ -151,9 +159,14 @@ export const MCP_SCHEMA_ROOT_ERROR =
  * Fails fast (throws) on invalid definitions instead of deferring problems to
  * request time: missing contract fields, schemas outside the supported JSON
  * Schema subset, `webmcp` exposure without an HTTP projection to dispatch
- * through, and `webmcp`/`mcp` exposure of a `destructive` capability
- * (destructive + `expose.http` is allowed — the runtime's server-verified
- * prepare/commit confirmation flow gates every dispatch).
+ * through, and `webmcp` exposure of a `destructive` capability.
+ *
+ * `destructive` + `expose.http` and `destructive` + `expose.mcp` are both
+ * allowed — the runtime's server-verified prepare/commit confirmation flow
+ * gates every dispatch on either transport. Serving destructive tools over
+ * remote MCP additionally requires the app-level `agents.mcp.destructive`
+ * opt-in and a registered approval store; without the opt-in the projection
+ * filters them out at serve time.
  */
 export function defineCapability<TInput = unknown, TOutput = unknown, TContext = CapabilityContext>(
   definition: CapabilityDefinition<TInput, TOutput, TContext>,
@@ -162,7 +175,7 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
 
   const expose = normalizeExposure(definition.expose);
 
-  if (definition.effect === "destructive" && (expose?.webmcp || expose?.mcp)) {
+  if (definition.effect === "destructive" && expose?.webmcp) {
     throw new Error(`defineCapability("${definition.title}"): ${DESTRUCTIVE_EXPOSURE_ERROR}.`);
   }
   if (expose?.webmcp && !expose.http) {

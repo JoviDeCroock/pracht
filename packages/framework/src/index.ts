@@ -151,10 +151,17 @@ export { createUseCapability, type CapabilityHookResult } from "./capability-hoo
 export { ensureCapabilityRevalidation } from "./runtime-capability-revalidate.ts";
 export {
   createMemoryApprovalStore,
+  createSqlApprovalStore,
   setCapabilityApprovalStore,
   setCapabilityApprovalPrincipalResolver,
 } from "./runtime-approval.ts";
-export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
+export type {
+  MemoryApprovalStoreOptions,
+  SqlApprovalStoreDialect,
+  SqlApprovalStoreExecute,
+  SqlApprovalStoreOptions,
+  SqlApprovalStoreResult,
+} from "./runtime-approval.ts";
 export {
   createEventStream,
   serializeEventStreamMessage,

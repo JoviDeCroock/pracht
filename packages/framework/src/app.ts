@@ -518,6 +518,14 @@ function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
       'defineApp({ agents.mcp.path }) must be an exact same-origin pathname starting with "/".',
     );
   }
+  // Compared with `=== true` at serve time, so a truthy typo would otherwise
+  // read as "off" while looking enabled in the manifest. Reject anything that
+  // is not a boolean instead.
+  if (mcp?.destructive !== undefined && typeof mcp.destructive !== "boolean") {
+    throw new Error(
+      `defineApp({ agents.mcp.destructive }) must be a boolean, got ${JSON.stringify(mcp.destructive)}.`,
+    );
+  }
 }
 
 function assertPositiveNumber(value: number | undefined, label: string): void {

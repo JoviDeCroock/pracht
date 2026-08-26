@@ -344,7 +344,7 @@ export function createPrachtMcpServer(): McpServer {
           .enum(["read", "write", "destructive"])
           .optional()
           .describe(
-            "Effect class (defaults to read). `destructive` may only be exposed over http and is confirmation-gated.",
+            "Effect class (defaults to read). `destructive` is confirmation-gated and may be exposed over http and mcp, never webmcp.",
           ),
         expose: z
           .array(z.enum(["http", "webmcp", "mcp"]))

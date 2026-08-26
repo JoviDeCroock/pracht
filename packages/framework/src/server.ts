@@ -96,10 +96,17 @@ export {
 } from "./runtime-confirmation.ts";
 export {
   createMemoryApprovalStore,
+  createSqlApprovalStore,
   setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
 } from "./runtime-approval.ts";
-export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
+export type {
+  MemoryApprovalStoreOptions,
+  SqlApprovalStoreDialect,
+  SqlApprovalStoreExecute,
+  SqlApprovalStoreOptions,
+  SqlApprovalStoreResult,
+} from "./runtime-approval.ts";
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {

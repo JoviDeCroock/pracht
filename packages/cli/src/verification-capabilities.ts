@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import {
   collectInvalidSchemaKeywordValues,
@@ -31,9 +31,11 @@ const AGENT_POLICIES = new Set(["observe", "require"]);
  * but run without executing application code so `pracht verify` stays fast
  * and safe. Spec security rule 1: exposed capabilities without a full
  * contract (description, input, output, effect) fail verification. Spec rule
- * 3: destructive capabilities may only be exposed over HTTP, and only when
- * the prepare/commit confirmation secret (PRACHT_CONFIRMATION_SECRET) is
- * configured in the environment `pracht verify` runs in.
+ * 3: destructive capabilities may only be exposed over HTTP and remote MCP,
+ * and only when the prepare/commit confirmation secret
+ * (PRACHT_CONFIRMATION_SECRET) is configured in the environment `pracht verify`
+ * runs in — MCP additionally needs the `agents.mcp.destructive` opt-in and a
+ * registered approval store.
  */
 export function collectCapabilityChecks(project: ProjectConfig, checks: Check[]): void {
   const manifestPath = resolveProjectPath(project.root, project.appFile);
@@ -59,6 +61,8 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   const manifestDir = dirname(manifestPath);
   const httpExposedNames: string[] = [];
   const mcpExposed: string[] = [];
+  const destructiveMcpExposed: string[] = [];
+  const projection = readMcpProjectionConfig(manifestSource);
   for (const entry of entries) {
     // Root-relative refs ("/src/capabilities/x.ts") resolve against the project
     // root, matching the runtime registry and the Vite plugin; everything else
@@ -86,18 +90,117 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     if (hasValidStaticHttpExposure(source)) {
       httpExposedNames.push(entry.name);
     }
-    collectSingleCapabilityChecks(
-      entry.name,
-      entry.path,
-      source,
-      registeredMiddleware,
-      checks,
+    collectSingleCapabilityChecks(entry.name, entry.path, source, registeredMiddleware, checks, {
       mcpExposed,
-    );
+      destructiveMcpExposed,
+      projection,
+    });
   }
 
   collectShadowedNameChecks(httpExposedNames, checks);
   collectMcpProjectionChecks(mcpExposed, manifestSource, checks);
+  collectDestructiveMcpChecks(destructiveMcpExposed, projection, project, checks);
+}
+
+/**
+ * What the manifest source says about `agents.mcp`. Static, so a manifest that
+ * assembles its `agents` config elsewhere reads as unconfigured — which is why
+ * an unseen projection downgrades to the existing warning instead of failing
+ * the build.
+ */
+interface McpProjectionConfigScan {
+  /** `agents: { … mcp: … }` is visible in the manifest source. */
+  configured: boolean;
+  /** `destructive: true` appears inside the visible `agents` config. */
+  destructive: boolean;
+}
+
+function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigScan {
+  const agentsIndex = manifestSource.search(/\bagents\s*:\s*\{/);
+  if (agentsIndex === -1) return { configured: false, destructive: false };
+  const agentsSource = manifestSource.slice(agentsIndex);
+  if (!/\bmcp\s*:/.test(agentsSource)) return { configured: false, destructive: false };
+  return { configured: true, destructive: /\bdestructive\s*:\s*true\b/.test(agentsSource) };
+}
+
+/**
+ * Destructive tools on the MCP surface are the one exposure that needs state:
+ * the confirmation token travels to the same agent that will commit with it, so
+ * only a durable approval store makes the commit exactly-once. Verification
+ * fails rather than letting a deployment discover that at request time.
+ */
+function collectDestructiveMcpChecks(
+  destructiveMcpExposed: string[],
+  projection: McpProjectionConfigScan,
+  project: ProjectConfig,
+  checks: Check[],
+): void {
+  if (destructiveMcpExposed.length === 0) return;
+  const names = destructiveMcpExposed.map((name) => JSON.stringify(name)).join(", ");
+
+  if (!projection.destructive) {
+    // Only an error when the manifest's own `agents.mcp` block is visible: an
+    // unseen one already produced the "nothing serves it" warning above.
+    if (projection.configured) {
+      checks.push(
+        createCheck(
+          "error",
+          `Capabilities ${names} are destructive and set expose.mcp, but the manifest does not ` +
+            "set agents.mcp.destructive — the projection filters them out at serve time. Add " +
+            "`agents: { mcp: { destructive: true } }` (with an approval store) or drop expose.mcp.",
+        ),
+      );
+    }
+    return;
+  }
+
+  if (!projectRegistersApprovalStore(project)) {
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.destructive is enabled, but no setCapabilityApprovalStore() call was found " +
+          "in the project sources. Destructive MCP commits must be exactly-once: register a " +
+          "durable approval store (createSqlApprovalStore from @pracht/core/server) from a " +
+          "server-only module, imported by a server entry or a capability module.",
+      ),
+    );
+    return;
+  }
+
+  checks.push(
+    createCheck(
+      "ok",
+      `Destructive MCP tools (${names}) are opted in and back onto a registered approval store.`,
+    ),
+  );
+}
+
+/**
+ * Conservative source scan for a store registration. It cannot prove the module
+ * is actually imported — only that the app was written to register one — which
+ * is exactly why the runtime fails closed as well.
+ */
+function projectRegistersApprovalStore(project: ProjectConfig): boolean {
+  const roots = [resolve(project.root, "src")];
+  for (const root of roots) {
+    if (!existsSync(root)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(root, { recursive: true }) as string[];
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!/\.(ts|tsx|js|jsx|mts|mjs)$/.test(entry)) continue;
+      const filePath = resolve(root, entry);
+      try {
+        if (readFileSync(filePath, "utf-8").includes("setCapabilityApprovalStore(")) return true;
+      } catch {
+        // Directories and unreadable files are not registrations.
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -193,8 +296,13 @@ function collectSingleCapabilityChecks(
   source: string,
   registeredMiddleware: Set<string>,
   checks: Check[],
-  mcpExposed: string[],
+  graph: {
+    mcpExposed: string[];
+    destructiveMcpExposed: string[];
+    projection: McpProjectionConfigScan;
+  },
 ): void {
+  const { mcpExposed, destructiveMcpExposed } = graph;
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
   const args = extractDefineCapabilityArgs(source);
   if (!args) {
@@ -324,14 +432,16 @@ function collectSingleCapabilityChecks(
     }
 
     if (effectValue === "destructive") {
-      if (hasWebmcp || hasMcp) {
+      if (hasMcp) destructiveMcpExposed.push(name);
+      if (hasWebmcp) {
         problems.push(
-          "is destructive and exposed to agent projections (webmcp/mcp) — only expose.http " +
-            "is allowed, gated by the prepare/commit confirmation flow",
+          "is destructive and exposed as a WebMCP page tool — a browser host's approval UX is " +
+            "not a security boundary. Use expose.http, or expose.mcp with agents.mcp.destructive, " +
+            "both gated by the prepare/commit confirmation flow",
         );
-      } else if (hasHttp && !process.env.PRACHT_CONFIRMATION_SECRET) {
+      } else if ((hasHttp || hasMcp) && !process.env.PRACHT_CONFIRMATION_SECRET) {
         problems.push(
-          "is destructive and exposed over HTTP without PRACHT_CONFIRMATION_SECRET in the " +
+          "is destructive and exposed without PRACHT_CONFIRMATION_SECRET in the " +
             "environment — the prepare/commit confirmation flow needs the secret and the " +
             "runtime fails closed without it. Verification reads the real environment, not " +
             "`.env`: `pracht dev` loads that file, but a deployed server takes its " +

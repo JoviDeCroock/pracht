@@ -142,17 +142,17 @@ async function resolveAppCapabilitiesUncached(
       );
     }
 
-    // `defineCapability()` already refuses these; re-check here so a
+    // `defineCapability()` already refuses this; re-check here so a
     // hand-rolled capability object fails closed before it can be served.
-    // Destructive + HTTP is allowed (the prepare/commit confirmation flow
-    // gates every dispatch); agent-initiated projections stay disallowed in v1.
-    if (
-      capability.effect === "destructive" &&
-      (capability.expose?.webmcp || capability.expose?.mcp)
-    ) {
+    // Destructive + HTTP and destructive + MCP are both allowed — the
+    // prepare/commit confirmation flow gates every dispatch on either, and the
+    // MCP projection additionally requires the `agents.mcp.destructive`
+    // opt-in before it serves one. WebMCP stays disallowed: a browser host's
+    // approval UX is not a security boundary.
+    if (capability.effect === "destructive" && capability.expose?.webmcp) {
       throw new Error(
-        `Capability "${name}": destructive capabilities cannot be exposed to agent ` +
-          "projections (webmcp/mcp) yet — only expose.http with the confirmation flow.",
+        `Capability "${name}": destructive capabilities cannot be exposed as WebMCP page ` +
+          "tools — use expose.http, or expose.mcp with agents.mcp.destructive.",
       );
     }
     if (capability.expose?.webmcp && !capability.expose.http) {
@@ -819,7 +819,13 @@ async function dispatchCapabilityHttp<TContext>(
     // issues because the pipeline validates before reaching the hook.
     const beforeRun =
       capability.effect === "destructive"
-        ? (validatedInput: unknown) => enforceDestructiveConfirmation(options, validatedInput)
+        ? async (validatedInput: unknown) => {
+            const gate = await enforceDestructiveConfirmation(options, validatedInput);
+            // Passing the gate is what puts destructive work in scope for this
+            // request, including anything the capability composes.
+            if (gate === null) markDestructiveConfirmed(options.request);
+            return gate;
+          }
         : undefined;
 
     const outcome = await runCapabilityPipeline({
@@ -924,6 +930,24 @@ async function enforceDestructiveConfirmation<TContext>(
   const name = options.match.name;
   const store = resolveCapabilityApprovalStore();
   const mode = options.agents?.confirmation?.mode ?? "token";
+
+  // Remote MCP hands the confirmation token to the very agent that will commit
+  // with it, over a transport with no browser session to bind it to. A
+  // stateless HMAC token replays until it expires, so the exactly-once store is
+  // what makes destructive tools safe to serve at all — never degrade to
+  // token-only replay protection here.
+  if (options.transport === "mcp" && !store) {
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_unavailable",
+        message:
+          `Destructive capability "${name}" cannot run over remote MCP: no approval store is ` +
+          "registered, so commits could not be made exactly-once (call " +
+          "setCapabilityApprovalStore() from a server-only module).",
+      }),
+    };
+  }
 
   // A manifest asking for human approval without a store to hold proposals in
   // would silently degrade to self-approval. Fail closed and say why.
@@ -1191,6 +1215,13 @@ export interface CapabilityHost {
    * hosts), which serve no request.
    */
   via?: CapabilityAuditEvent["via"];
+  /**
+   * Set once the destructive capability being served on this request has
+   * passed its prepare/commit gate. Remote MCP composition uses it: nested
+   * destructive work is only in scope for an operation an agent already
+   * confirmed. Never set by callers — the gate sets it, from the server side.
+   */
+  destructiveConfirmed?: boolean;
 }
 
 // Bind each host to the incoming Request rather than a process-global slot.
@@ -1199,6 +1230,16 @@ export interface CapabilityHost {
 // A WeakMap keeps those overlapping invocations isolated on every Web runtime
 // without retaining completed requests.
 const activeCapabilityHosts = new WeakMap<Request, CapabilityHost>();
+
+/**
+ * Record that the destructive dispatch on this request cleared prepare/commit,
+ * so capabilities it composes may perform destructive work too. Called only
+ * from the confirmation gate; there is no caller-reachable path to it.
+ */
+function markDestructiveConfirmed(request: Request): void {
+  const host = activeCapabilityHosts.get(request);
+  if (host) host.destructiveConfirmed = true;
+}
 
 export function setActiveCapabilityHost(
   request: Request,
@@ -1235,9 +1276,10 @@ export interface InvokeCapabilityContext<TContext = unknown> {
  * This is trusted first-party composition, so app-level `api.middleware` is
  * deliberately not re-applied and private capabilities remain callable as
  * building blocks. Remote MCP is the exception: a call composed under an MCP
- * tool re-applies the callee's `agentPolicy` and refuses destructive effects,
- * because otherwise a non-destructive tool could lend remote agents authority
- * that the callee's MCP projection would deny. Composed dispatches are audited
+ * tool re-applies the callee's `agentPolicy`, and refuses destructive effects
+ * unless the tool being served is itself a destructive capability that already
+ * cleared prepare/commit — otherwise a non-destructive tool could lend remote
+ * agents an effect no one confirmed. Composed dispatches are audited
  * with `transport: "server"` and `via` set to the transport of the request being
  * served, so a remote-agent-caused effect stays attributable.
  *
@@ -1383,7 +1425,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
 /**
  * Remote MCP tools may compose private capabilities, but they must not turn
  * that server-only reachability into a bypass around agent identity or the
- * transport's destructive-effect prohibition. These checks run before the
+ * confirmation flow destructive effects require. These checks run before the
  * callee's pipeline, matching the placement of `agentPolicy` in HTTP dispatch
  * and ensuring denied calls cannot trigger middleware side effects.
  */
@@ -1403,10 +1445,20 @@ function mcpCompositionGuard(
     return { kind: "envelope", status: 401, envelope, response: envelopeResponse(401, envelope) };
   }
 
-  if (resolved.capability.effect === "destructive") {
+  // Composition must not widen what the transport allows. Nested calls carry
+  // no confirmation channel of their own, so destructive work is only in scope
+  // when the tool being served is itself a destructive capability that already
+  // cleared prepare/commit — which the projection only serves at all when
+  // `agents.mcp.destructive` is on. A `read`/`write` tool therefore still
+  // cannot lend a remote agent an unconfirmed destructive effect, and a
+  // destructive tool the agent confirmed may compose its own helpers exactly
+  // as it can under HTTP.
+  if (resolved.capability.effect === "destructive" && !host.destructiveConfirmed) {
     const envelope = errorEnvelope({
       code: "forbidden",
-      message: `Capability "${resolved.name}" cannot be composed from remote MCP because it is destructive.`,
+      message:
+        `Capability "${resolved.name}" cannot be composed from remote MCP because it is ` +
+        "destructive and no confirmed destructive dispatch is in scope for this request.",
     });
     return { kind: "envelope", status: 403, envelope, response: envelopeResponse(403, envelope) };
   }

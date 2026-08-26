@@ -15,11 +15,22 @@ const capabilitiesAuthority = new URL(capabilitiesUrl).host;
 // Runs against examples/basic, which registers five capabilities:
 //   notes.search — read, expose.http + expose.webmcp + expose.mcp
 //   notes.create — write, expose.http + expose.mcp
-//   notes.purge  — destructive, expose.http (prepare/commit confirmation flow)
+//   notes.purge  — destructive, expose.http + expose.mcp (prepare/commit
+//                  confirmation flow, durable approval store)
 //   agent.whoami — read, expose.http (echoes the Web Bot Auth identity)
 //   agent.ping   — read, expose.http + expose.mcp, agentPolicy: "require"
-// The app serves the remote MCP projection at /mcp (`agents.mcp`), and the dev
-// server runs with PRACHT_CONFIRMATION_SECRET set (playwright.config.ts).
+// The app serves the remote MCP projection at /mcp with
+// `agents.mcp.destructive`, and the dev server runs with
+// PRACHT_CONFIRMATION_SECRET set (playwright.config.ts).
+
+/**
+ * A purge target unique to this run. Consumed proposals stay closed until they
+ * expire, so reusing one input across a retry would answer
+ * `confirmation_invalid` instead of re-preparing.
+ */
+function purgePrefix(label: string): string {
+  return `${label} ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 // ---------------------------------------------------------------------------
 // HTTP projection
@@ -428,31 +439,35 @@ test("a bad signature does not verify", async ({ request }) => {
 test("destructive capability requires confirmation, then commits with the token", async ({
   request,
 }) => {
+  const prefix = purgePrefix("E2E purge target");
+
   // Seed a note the purge will target.
   const created = await request.post("/api/capabilities/notes/create", {
-    data: { title: "E2E purge target", body: "to be deleted" },
+    data: { title: prefix, body: "to be deleted" },
   });
   expect((await created.json()).ok).toBe(true);
 
   // Prepare: no token → 409 with a confirmation token, nothing deleted.
   const prepare = await request.post("/api/capabilities/notes/purge", {
-    data: { titlePrefix: "E2E purge target" },
+    data: { titlePrefix: prefix },
   });
   expect(prepare.status()).toBe(409);
   const prepareBody = await prepare.json();
   expect(prepareBody.error.code).toBe("confirmation_required");
   const token = prepareBody.error.confirmationToken as string;
   expect(typeof token).toBe("string");
+  // With an approval store registered, prepare also records a proposal.
+  expect(typeof prepareBody.error.approvalId).toBe("string");
 
   // The note still exists — prepare must not run the capability.
   const searchAfterPrepare = await request.post("/api/capabilities/notes/search", {
-    data: { query: "E2E purge target" },
+    data: { query: prefix },
   });
   expect((await searchAfterPrepare.json()).data.notes.length).toBeGreaterThan(0);
 
   // Tampered token → 403, fail closed.
   const tampered = await request.post("/api/capabilities/notes/purge", {
-    data: { titlePrefix: "E2E purge target" },
+    data: { titlePrefix: prefix },
     headers: { "x-pracht-confirm": `${token}x` },
   });
   expect(tampered.status()).toBe(403);
@@ -467,7 +482,7 @@ test("destructive capability requires confirmation, then commits with the token"
 
   // Commit: same input + token → runs.
   const commit = await request.post("/api/capabilities/notes/purge", {
-    data: { titlePrefix: "E2E purge target" },
+    data: { titlePrefix: prefix },
     headers: { "x-pracht-confirm": token },
   });
   expect(commit.status()).toBe(200);
@@ -475,8 +490,16 @@ test("destructive capability requires confirmation, then commits with the token"
   expect(commitBody.ok).toBe(true);
   expect(commitBody.data.purged).toBeGreaterThan(0);
 
+  // Replay of a consumed approval → 403, the store enforces single use.
+  const replay = await request.post("/api/capabilities/notes/purge", {
+    data: { titlePrefix: prefix },
+    headers: { "x-pracht-confirm": token },
+  });
+  expect(replay.status()).toBe(403);
+  expect((await replay.json()).error.code).toBe("confirmation_invalid");
+
   const searchAfterCommit = await request.post("/api/capabilities/notes/search", {
-    data: { query: "E2E purge target" },
+    data: { query: prefix },
   });
   expect((await searchAfterCommit.json()).data.notes).toEqual([]);
 });
@@ -515,14 +538,73 @@ test("MCP tools/list projects only capabilities that set expose.mcp", async ({ r
   const { body } = await rpc(request, "tools/list");
   const names = body.result.tools.map((tool: { name: string }) => tool.name).sort();
 
-  expect(names).toEqual(["agent_ping", "notes_create", "notes_search"]);
-  // Destructive and non-mcp capabilities stay off the agent surface.
-  expect(names).not.toContain("notes_purge");
+  expect(names).toEqual(["agent_ping", "notes_create", "notes_purge", "notes_search"]);
+  // Capabilities without expose.mcp (agent.whoami) stay off the agent surface.
   expect(names).not.toContain("agent_whoami");
 
   const search = body.result.tools.find((tool: { name: string }) => tool.name === "notes_search");
   expect(search.inputSchema.required).toEqual(["query"]);
   expect(search.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+
+  // The destructive tool advertises itself as such and says how to confirm.
+  const purge = body.result.tools.find((tool: { name: string }) => tool.name === "notes_purge");
+  expect(purge.annotations).toMatchObject({ destructiveHint: true, readOnlyHint: false });
+  expect(purge._meta["io.pracht/confirmation"]).toEqual({
+    required: true,
+    metaKey: "io.pracht/confirmation",
+  });
+});
+
+test("MCP destructive tool prepares, commits, and refuses a replay", async ({ request }) => {
+  const prefix = purgePrefix("MCP purge target");
+
+  const created = await rpc(request, "tools/call", {
+    name: "notes_create",
+    arguments: { title: prefix, body: "to be deleted by an agent" },
+  });
+  expect(created.body.result.isError).toBe(false);
+
+  // Prepare: the tool call answers with a confirmation token and changes nothing.
+  const prepare = await rpc(request, "tools/call", {
+    name: "notes_purge",
+    arguments: { titlePrefix: prefix },
+  });
+  expect(prepare.body.result.isError).toBe(true);
+  const prepareError = prepare.body.result._meta["io.pracht/error"];
+  expect(prepareError.code).toBe("confirmation_required");
+  const token = prepareError.confirmationToken as string;
+  expect(typeof token).toBe("string");
+  expect(typeof prepareError.approvalId).toBe("string");
+
+  const stillThere = await rpc(request, "tools/call", {
+    name: "notes_search",
+    arguments: { query: prefix },
+  });
+  expect(stillThere.body.result.structuredContent.notes.length).toBeGreaterThan(0);
+
+  // Commit: identical arguments plus the token in _meta.
+  const commit = await rpc(request, "tools/call", {
+    name: "notes_purge",
+    arguments: { titlePrefix: prefix },
+    _meta: { "io.pracht/confirmation": token },
+  });
+  expect(commit.body.result.isError).toBe(false);
+  expect(commit.body.result.structuredContent.purged).toBeGreaterThan(0);
+
+  // Replay: the approval store consumed the proposal exactly once.
+  const replay = await rpc(request, "tools/call", {
+    name: "notes_purge",
+    arguments: { titlePrefix: prefix },
+    _meta: { "io.pracht/confirmation": token },
+  });
+  expect(replay.body.result.isError).toBe(true);
+  expect(replay.body.result._meta["io.pracht/error"].code).toBe("confirmation_invalid");
+
+  const gone = await rpc(request, "tools/call", {
+    name: "notes_search",
+    arguments: { query: prefix },
+  });
+  expect(gone.body.result.structuredContent.notes).toEqual([]);
 });
 
 test("MCP tools/call runs the capability and returns structured content", async ({ request }) => {
@@ -549,7 +631,7 @@ test("MCP tools/call reports validation failures as tool errors", async ({ reque
 });
 
 test("MCP rejects an unknown tool as a JSON-RPC error", async ({ request }) => {
-  const { body } = await rpc(request, "tools/call", { name: "notes_purge", arguments: {} });
+  const { body } = await rpc(request, "tools/call", { name: "agent_whoami", arguments: {} });
 
   expect(body.error.code).toBe(-32602);
   expect(body.error.message).toContain("Unknown tool");

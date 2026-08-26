@@ -104,7 +104,7 @@ export async function loader({ request, context, signal }) {
 }
 ```
 
-`invokeCapability()` is trusted server composition. It runs the callee's input validation, named middleware, body, and output validation, but not app-level API middleware. Remote MCP is the safety exception: nested calls re-apply the callee's `agentPolicy` and refuse destructive effects, while private non-destructive capabilities remain composable. HTTP and WebMCP composing capabilities must still own any transport-specific authorization they need. Under a served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent`. Every nested audit event uses `transport: "server"` and `via` to retain the trusted request transport that caused it.
+`invokeCapability()` is trusted server composition. It runs the callee's input validation, named middleware, body, and output validation, but not app-level API middleware. Remote MCP is the safety exception: nested calls re-apply the callee's `agentPolicy` and refuse destructive effects unless the tool being served is itself a destructive capability that already cleared prepare/commit, while private non-destructive capabilities remain composable. HTTP and WebMCP composing capabilities must still own any transport-specific authorization they need. Under a served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent`. Every nested audit event uses `transport: "server"` and `via` to retain the trusted request transport that caused it.
 
 From the browser — `virtual:pracht/capabilities` contains only http-exposed names, endpoints, and effect classes; capability modules never enter the client bundle:
 
@@ -219,7 +219,7 @@ The shim ships as its own chunk behind feature detection: browsers without the A
 
 - A capability without `expose` is never reachable over the network.
 - Exposure requires a complete contract — `pracht verify` fails for exposed capabilities missing a description, schema, or effect class.
-- `destructive` capabilities are gated by a server-verified confirmation flow and cannot be exposed to agent projections — see [Agent Trust](/docs/agent-trust).
+- `destructive` capabilities are gated by a server-verified confirmation flow. They may be exposed over HTTP and over [remote MCP](/docs/remote-mcp#destructive-tools) — the latter only with the `agents.mcp.destructive` opt-in and a registered approval store — never as a WebMCP page tool. See [Agent Trust](/docs/agent-trust).
 - Output is validated too: a handler returning data outside its output schema produces a redacted 500, never the raw value.
 - HTTP-exposed capabilities are listed in the generated [`/llms.txt`](/docs/llms) with their endpoint, effect class, and description, so agents can discover them without scraping.
 

@@ -107,7 +107,7 @@ export default defineCapability({
 
 ## Destructive Capabilities: Prepare/Commit
 
-Capabilities declaring `effect: "destructive"` (delete, publish, pay, send) may be exposed over HTTP only, and every dispatch is confirmation-gated. Set `PRACHT_CONFIRMATION_SECRET` in the server environment; without it, destructive calls fail closed. For Cloudflare local preview, put the value in a gitignored `.dev.vars` file — prefixing `pracht preview` with a host environment variable does not create a Worker binding.
+Capabilities declaring `effect: "destructive"` (delete, publish, pay, send) may be exposed over HTTP and over [remote MCP](/docs/remote-mcp#destructive-tools), never as a WebMCP page tool, and every dispatch is confirmation-gated. Set `PRACHT_CONFIRMATION_SECRET` in the server environment; without it, destructive calls fail closed. For Cloudflare local preview, put the value in a gitignored `.dev.vars` file — prefixing `pracht preview` with a host environment variable does not create a Worker binding.
 
 The first call never runs the capability — it answers with a short-lived token:
 
@@ -143,7 +143,7 @@ if (confirmationToken) {
 }
 ```
 
-Agent hosts cannot yet be trusted to carry this two-step flow faithfully, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it.
+A browser host's approval UX is not a security boundary, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it. Remote MCP is different: the same server-verified exchange happens on `tools/call`, with the token in `_meta["io.pracht/confirmation"]` instead of a header. It stays off by default and needs [two more opt-ins](/docs/remote-mcp#destructive-tools): `agents.mcp.destructive` and a registered approval store, because a token handed to a remote agent has to be consumable exactly once.
 
 Two things a stateless HMAC cannot do on its own: stop a captured token being replayed until it expires, and prove a *person* agreed — the calling agent receives the token and can hand it straight back to itself. Registering an approval store fixes replay; enabling human mode additionally requires a person's decision.
 
@@ -201,7 +201,69 @@ export async function POST({ request, context }: ApiRouteArgs) {
 }
 ```
 
-`createMemoryApprovalStore()` is correct for one instance — use it in tests and development. For a real deployment, implement `CapabilityApprovalStore` over a backend with **conditional writes** (D1, Durable Objects, Postgres, Redis; *not* Cloudflare KV): `create()` must atomically insert-if-absent without overwriting an existing proposal, and `consume()` must be a compare-and-set.
+`createMemoryApprovalStore()` is correct for one instance — use it in tests and development. It is lost on restart and not shared across replicas.
+
+### `createSqlApprovalStore()`: the Durable One
+
+For a real deployment, use the SQL store. It ships in `@pracht/core/server` with **no driver dependency**: you pass a parameterized-query function, and the same store works on Postgres, Cloudflare D1, and SQLite/Turso.
+
+```ts [src/server/approvals.ts]
+import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core/server";
+
+export const approvalStore = createSqlApprovalStore({
+  dialect: "postgres",            // "sqlite" (default, `?`) | "postgres" ($1, $2, …)
+  // table: "pracht_approvals",   // default; plain identifier or schema.identifier
+  execute: (sql, params) => pool.query(sql, params),
+});
+
+setCapabilityApprovalStore(approvalStore);
+```
+
+One migration works everywhere. Timestamps are unix seconds, `input` is JSON text, and `requires_approval` is an **integer** 0/1 rather than a boolean, so one DDL and one set of statements stay valid on Postgres and SQLite alike:
+
+```sql
+CREATE TABLE IF NOT EXISTS pracht_approvals (
+  id                TEXT    PRIMARY KEY,
+  principal         TEXT    NOT NULL,
+  capability        TEXT    NOT NULL,
+  input_hash        TEXT    NOT NULL,
+  input             TEXT    NOT NULL,
+  requires_approval INTEGER NOT NULL,
+  created_at        BIGINT  NOT NULL,
+  expires_at        BIGINT  NOT NULL,
+  state             TEXT    NOT NULL,
+  decided_by        TEXT,
+  decided_at        BIGINT
+);
+CREATE INDEX IF NOT EXISTS pracht_approvals_pending ON pracht_approvals (state, expires_at);
+CREATE INDEX IF NOT EXISTS pracht_approvals_expires_at ON pracht_approvals (expires_at);
+```
+
+The `PRIMARY KEY` is load-bearing. `create()` is an `INSERT … ON CONFLICT (id) DO UPDATE … WHERE expires_at < now`, so a live proposal is never overwritten by a concurrent re-prepare and an expired one is replaced atomically. `consume()` is a single conditional `UPDATE` carrying the whole eligibility rule, so two concurrent commits produce exactly one winner — the database decides, not the process. Nothing uses `RETURNING`, which D1 and SQLite before 3.35 cannot be relied on for; the store reads the affected-row count every driver reports. Expired rows are swept opportunistically (at most once per `sweepIntervalSeconds`, default 60).
+
+`execute(sql, params)` must return the driver's result so the store can read both rows and the affected-row count. Every mainstream shape is accepted (`rows`/`results`, `rowCount`/`rowsAffected`/`changes`/`meta.changes`), so it is usually a one-liner:
+
+```ts
+// Postgres (pg / Neon / Supabase) — dialect: "postgres"
+execute: (sql, params) => pool.query(sql, params),
+
+// Cloudflare D1 — bind the database as `DB` in wrangler.jsonc
+execute: (sql, params) => env.DB.prepare(sql).bind(...params).all(),
+
+// better-sqlite3 / node:sqlite / Turso — reads and writes take different calls
+async execute(sql, params) {
+  const statement = db.prepare(sql);
+  return /^\s*SELECT/i.test(sql)
+    ? { rows: statement.all(...params) }
+    : { changes: statement.run(...params).changes };
+},
+```
+
+If a write's result carries no affected-row count the store throws rather than assuming success, and the gate closes. The `table` option is interpolated into SQL (identifiers cannot be parameters), so it is validated at construction: a plain identifier or `schema.identifier`, nothing else.
+
+### Writing Your Own
+
+For a non-SQL backend, implement `CapabilityApprovalStore` over anything with **conditional writes** (Durable Objects, Redis; *not* Cloudflare KV): `create()` must atomically insert-if-absent without overwriting an existing proposal, and `consume()` must be a compare-and-set.
 
 ### Production Store Checklist
 
@@ -389,7 +451,7 @@ To see the *configured* surface rather than live traffic, run [`pracht inspect a
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.
 
-Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy` and refuse `destructive` effects before middleware or the body can run. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent` passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
+Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy`, and refuse `destructive` effects before middleware or the body can run unless the tool being served is itself a destructive capability that already cleared prepare/commit. Nested calls carry no confirmation channel of their own, so that is exactly the set of destructive effects the direct MCP surface would have allowed — a `read` or `write` tool can never lend a remote agent an unconfirmed one, and the confirmed scope dies with the request. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent` passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
 
 ---
 

@@ -38,6 +38,7 @@ import {
   type CapabilityHostApp,
   type ResolvedCapability,
 } from "./runtime-capabilities.ts";
+import { resolveCapabilityApprovalStore } from "./runtime-approval.ts";
 export { resolveMcpEndpoint } from "./mcp-config.ts";
 import type {
   CapabilityAuditHook,
@@ -70,16 +71,26 @@ export function normalizeMcpRequestPath(path: string): string {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
-/** Capabilities the MCP projection serves, in graph order. */
+/**
+ * Capabilities the MCP projection serves, in graph order.
+ *
+ * `destructive` effects are filtered out unless the app opted in with
+ * `agents.mcp.destructive`. The default is the conservative one: a capability
+ * that declares `expose.mcp` and is destructive is simply invisible to the
+ * transport, exactly as it was before the opt-in existed.
+ */
 export function mcpExposedCapabilities(
   capabilities: readonly ResolvedCapability[],
+  mcp?: McpProjectionConfig,
 ): ResolvedCapability[] {
+  // Compared with `=== true` so an absent, undefined, or non-boolean config
+  // reads as "off". Manifest validation rejects non-booleans; this is the
+  // second line of defense for a hand-rolled app object.
+  const allowDestructive = mcp?.destructive === true;
   return capabilities.filter(
-    // Destructive capabilities cannot declare `expose.mcp` today (the registry
-    // rejects it). The second check is defense in depth: a hand-rolled
-    // capability object must not be able to reach agents without the
-    // prepare/commit flow a host cannot be trusted to carry.
-    (entry) => entry.capability.expose?.mcp === true && entry.capability.effect !== "destructive",
+    (entry) =>
+      entry.capability.expose?.mcp === true &&
+      (allowDestructive || entry.capability.effect !== "destructive"),
   );
 }
 
@@ -237,7 +248,29 @@ export interface HandleMcpRequestOptions<TContext> {
     });
   }
 
-  const exposedCapabilities = mcpExposedCapabilities(options.capabilities);
+  const exposedCapabilities = mcpExposedCapabilities(options.capabilities, options.mcp);
+
+  // Fail closed, loudly, rather than quietly serving destructive tools whose
+  // commits could be replayed: with `agents.mcp.destructive` on, exactly-once
+  // consumption is the whole reason the transport may carry them, and only a
+  // registered approval store provides it. Register the store from a server
+  // entry or a capability module so it exists before the graph is served.
+  if (exposedCapabilities.some((entry) => entry.capability.effect === "destructive")) {
+    if (!resolveCapabilityApprovalStore()) {
+      return respond(200, {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: JSONRPC_INTERNAL_ERROR,
+          message:
+            "agents.mcp.destructive serves destructive capabilities, which requires a durable " +
+            "approval store for exactly-once commits. Register one with " +
+            "setCapabilityApprovalStore() from a server-only module.",
+        },
+      });
+    }
+  }
+
   const invalidToolNames = exposedCapabilities.filter(
     (entry) => !isValidMcpToolName(mcpToolName(entry.name)),
   );
@@ -306,7 +339,7 @@ export interface HandleMcpRequestOptions<TContext> {
       return respond(200, {
         jsonrpc: "2.0",
         id,
-        result: { tools: mcpExposedCapabilities(options.capabilities).map(toolDescriptor) },
+        result: { tools: exposedCapabilities.map(toolDescriptor) },
       });
 
     case "tools/call":
@@ -329,10 +362,16 @@ export interface HandleMcpRequestOptions<TContext> {
 // ---------------------------------------------------------------------------
 function toolDescriptor(entry: ResolvedCapability) {
   const { capability } = entry;
+  const destructive = capability.effect === "destructive";
   return {
     name: mcpToolName(entry.name),
     title: capability.title,
-    description: capability.description,
+    description: destructive
+      ? `${capability.description}\n\nDestructive: the first call returns ` +
+        `"confirmation_required" with a confirmation token and changes nothing. To commit, ` +
+        `repeat the call with identical arguments and the token in ` +
+        `_meta[${JSON.stringify(MCP_CONFIRMATION_META_KEY)}]. A token works once.`
+      : capability.description,
     inputSchema: capability.input,
     outputSchema: capability.output,
     // Client UX hints, never enforcement — the effect class that produced
@@ -343,9 +382,18 @@ function toolDescriptor(entry: ResolvedCapability) {
       // operation is additive. Omit the hint so MCP's conservative default
       // applies unless Pracht grows a more precise effect classification.
       ...(capability.effect === "read" ? { destructiveHint: false } : {}),
+      ...(destructive ? { destructiveHint: true } : {}),
       idempotentHint: capability.effect === "read",
     },
-    _meta: { [MCP_CAPABILITY_META_KEY]: entry.name, [MCP_EFFECT_META_KEY]: capability.effect },
+    _meta: {
+      [MCP_CAPABILITY_META_KEY]: entry.name,
+      [MCP_EFFECT_META_KEY]: capability.effect,
+      // Machine-readable counterpart of the description note above, so a host
+      // can drive prepare/commit without parsing prose.
+      ...(destructive
+        ? { [MCP_CONFIRMATION_META_KEY]: { required: true, metaKey: MCP_CONFIRMATION_META_KEY } }
+        : {}),
+    },
   };
 }
 
@@ -389,7 +437,7 @@ async function handleToolsCall<TContext>(
     });
   }
 
-  const exposed = mcpExposedCapabilities(options.capabilities);
+  const exposed = mcpExposedCapabilities(options.capabilities, options.mcp);
   const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
   if (!match) {
     // An unknown tool is a protocol-level error, not a tool execution failure.
@@ -522,6 +570,15 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
   if (error.issues?.length) {
     lines.push(...error.issues.map((issue) => `- ${issue.path || "(root)"}: ${issue.message}`));
   }
+  // The confirmation token is the whole point of a `confirmation_required`
+  // answer, and MCP hosts that only read text still have to be able to complete
+  // the flow — so it goes in both renderings, not just the structured one.
+  if (error.confirmationToken) {
+    lines.push(
+      `Confirmation token (pass as _meta[${JSON.stringify(MCP_CONFIRMATION_META_KEY)}] on an ` +
+        `identical call): ${error.confirmationToken}`,
+    );
+  }
 
   return {
     content: [{ type: "text", text: lines.join("\n") }],
@@ -533,6 +590,9 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
         code: error.code,
         message: error.message,
         ...(error.issues ? { issues: error.issues } : {}),
+        ...(error.confirmationToken ? { confirmationToken: error.confirmationToken } : {}),
+        ...(error.expiresAt !== undefined ? { expiresAt: error.expiresAt } : {}),
+        ...(error.approvalId ? { approvalId: error.approvalId } : {}),
       },
     },
   };

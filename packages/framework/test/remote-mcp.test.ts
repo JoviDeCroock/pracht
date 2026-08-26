@@ -8,12 +8,15 @@ import {
   mcpToolName,
 } from "../../capabilities/src/index.ts";
 import {
+  createMemoryApprovalStore,
   defineApp,
   handlePrachtRequest,
   invokeCapability,
   route,
+  setCapabilityApprovalStore,
   setCapabilityAuditHook,
 } from "../src/index.ts";
+import { setCapabilityConfirmationSecret } from "../src/runtime-confirmation.ts";
 import { invokeCapabilityOnHost, setActiveCapabilityHost } from "../src/runtime-capabilities.ts";
 import {
   MCP_LATEST_PROTOCOL_VERSION,
@@ -24,11 +27,13 @@ import {
 import type { CapabilityAuditEvent, ModuleRegistry, PrachtAgentsConfig } from "../src/types.ts";
 
 const ORIGIN = "https://app.example";
+const SECRET = "remote-mcp-test-confirmation-secret";
 
 type CapabilityDefinition = Parameters<typeof defineCapability>[0];
 
 const created: string[] = [];
 const destroyed: string[] = [];
+const purged: string[] = [];
 const observedAgentKeys: string[] = [];
 const observedTenants: string[] = [];
 
@@ -210,6 +215,50 @@ const notesComposeDestructive = defineCapability({
   },
 } as CapabilityDefinition);
 
+/** Destructive and MCP-exposed: only served with `agents.mcp.destructive`. */
+const notesPurge = defineCapability({
+  title: "Purge notes",
+  description: "Delete notes by title prefix.",
+  input: {
+    type: "object",
+    properties: { titlePrefix: { type: "string", minLength: 1 } },
+    required: ["titlePrefix"],
+    additionalProperties: false,
+  },
+  output: { type: "object", properties: { purged: { type: "integer" } }, required: ["purged"] },
+  effect: "destructive",
+  expose: { mcp: true },
+  async run({ input }) {
+    purged.push((input as { titlePrefix: string }).titlePrefix);
+    return { purged: purged.length };
+  },
+} as CapabilityDefinition);
+
+/**
+ * A confirmed destructive tool composing a *private* destructive helper — the
+ * one shape nested composition may reach once the agent has confirmed.
+ */
+const notesPurgeCascade = defineCapability({
+  title: "Purge cascade",
+  description: "Purge notes and destroy their attachments.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { code: { type: "string" } }, required: ["code"] },
+  effect: "destructive",
+  expose: { mcp: true },
+  async run({ request, context, signal }) {
+    const result = await invokeCapability(
+      "notes.destroy" as never,
+      {},
+      {
+        request,
+        context,
+        signal,
+      },
+    );
+    return { code: result.ok ? "ok" : result.error.code };
+  },
+} as CapabilityDefinition);
+
 const agentOnly = defineCapability({
   title: "Agent only",
   description: "Requires a verified agent.",
@@ -311,6 +360,8 @@ function createApp(agents: PrachtAgentsConfig | undefined) {
     "notes.compose-agent-only": notesComposeAgentOnly,
     "notes.compose-destructive": notesComposeDestructive,
     "notes.destroy": notesDestroy,
+    "notes.purge": notesPurge,
+    "notes.purge-cascade": notesPurgeCascade,
     "notes.internal": notesInternal,
     "notes.guarded": guarded,
     "agent.context-probe": agentContextProbe,
@@ -435,6 +486,7 @@ function callTool(name: string, args: unknown, options: McpCallOptions = {}) {
 beforeEach(() => {
   created.length = 0;
   destroyed.length = 0;
+  purged.length = 0;
   observedAgentKeys.length = 0;
   observedTenants.length = 0;
 });
@@ -1122,8 +1174,24 @@ describe("tools/call runs the same pipeline as the HTTP projection", () => {
 // Destructive capabilities
 // ---------------------------------------------------------------------------
 
-describe("destructive capabilities stay off the MCP surface", () => {
-  it("is rejected at definition time", () => {
+describe("destructive capabilities stay off the MCP surface by default", () => {
+  it("rejects WebMCP page tools at definition time", () => {
+    expect(() =>
+      defineCapability({
+        title: "Purge",
+        description: "Delete everything.",
+        input: { type: "object", properties: {}, additionalProperties: false },
+        output: { type: "object", properties: {}, additionalProperties: false },
+        effect: "destructive",
+        expose: { http: true, webmcp: true },
+        async run() {
+          return {};
+        },
+      } as CapabilityDefinition),
+    ).toThrow(/WebMCP page tools/);
+  });
+
+  it("accepts expose.mcp at definition time — serving it is the app's opt-in", () => {
     expect(() =>
       defineCapability({
         title: "Purge",
@@ -1136,10 +1204,10 @@ describe("destructive capabilities stay off the MCP surface", () => {
           return {};
         },
       } as CapabilityDefinition),
-    ).toThrow(/agent projections/);
+    ).not.toThrow();
   });
 
-  it("is filtered from the tool list even if one reaches the registry", async () => {
+  it("is filtered from the tool list without the opt-in", async () => {
     const { mcpExposedCapabilities } = await import("../src/runtime-mcp.ts");
     const smuggled = {
       name: "notes.purge",
@@ -1150,6 +1218,272 @@ describe("destructive capabilities stay off the MCP surface", () => {
     };
 
     expect(mcpExposedCapabilities([smuggled as never])).toEqual([]);
+    expect(mcpExposedCapabilities([smuggled as never], {})).toEqual([]);
+    // A non-boolean is not an opt-in: the flag is compared with `=== true`.
+    expect(mcpExposedCapabilities([smuggled as never], { destructive: 1 as never })).toEqual([]);
+    expect(mcpExposedCapabilities([smuggled as never], { destructive: true })).toHaveLength(1);
+  });
+
+  it("keeps destructive tools out of tools/list and tools/call", async () => {
+    const { json } = await mcp({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    const names = json?.result.tools.map((tool: { name: string }) => tool.name);
+    expect(names).not.toContain("notes_purge");
+    expect(names).not.toContain("notes_purge-cascade");
+
+    const call = await callTool("notes_purge", { titlePrefix: "Old" });
+    expect(call.json?.error.code).toBe(-32602);
+    expect(call.json?.error.message).toContain("Unknown tool");
+    expect(purged).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Destructive capabilities over MCP (agents.mcp.destructive)
+// ---------------------------------------------------------------------------
+
+describe("destructive capabilities over MCP", () => {
+  const DESTRUCTIVE_AGENTS: PrachtAgentsConfig = { mcp: { destructive: true } };
+  const CONFIRMATION_META_KEY = "io.pracht/confirmation";
+
+  /** `tools/call` with an optional confirmation token in `_meta`. */
+  function callDestructive(
+    name: string,
+    args: unknown,
+    options: { confirm?: string; agents?: PrachtAgentsConfig } & Omit<
+      McpCallOptions,
+      "agents"
+    > = {},
+  ) {
+    const { confirm, agents, ...rest } = options;
+    return mcp(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name,
+          arguments: args,
+          ...(confirm ? { _meta: { [CONFIRMATION_META_KEY]: confirm } } : {}),
+        },
+      },
+      { agents: agents ?? DESTRUCTIVE_AGENTS, ...rest },
+    );
+  }
+
+  function errorMeta(json: Record<string, any> | null): Record<string, any> {
+    return json?.result._meta["io.pracht/error"];
+  }
+
+  beforeEach(() => {
+    setCapabilityConfirmationSecret(SECRET);
+    setCapabilityApprovalStore(createMemoryApprovalStore());
+  });
+
+  afterEach(() => {
+    setCapabilityApprovalStore(null);
+    setCapabilityConfirmationSecret(null);
+  });
+
+  it("serves destructive tools with a destructive hint and the confirmation contract", async () => {
+    const { json } = await mcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { agents: DESTRUCTIVE_AGENTS },
+    );
+    const purge = json?.result.tools.find((tool: { name: string }) => tool.name === "notes_purge");
+
+    expect(purge).toBeDefined();
+    expect(purge.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+    });
+    expect(purge._meta["io.pracht/effect"]).toBe("destructive");
+    expect(purge._meta[CONFIRMATION_META_KEY]).toEqual({
+      required: true,
+      metaKey: CONFIRMATION_META_KEY,
+    });
+    // Hosts that only read prose still have to be able to complete the flow.
+    expect(purge.description).toContain(CONFIRMATION_META_KEY);
+  });
+
+  it("prepares then commits over tools/call", async () => {
+    const prepare = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    expect(prepare.json?.result.isError).toBe(true);
+    expect(errorMeta(prepare.json).code).toBe("confirmation_required");
+    const token = errorMeta(prepare.json).confirmationToken as string;
+    expect(typeof token).toBe("string");
+    expect(errorMeta(prepare.json).approvalId).toBeTruthy();
+    // Text-only hosts get the token too.
+    expect(prepare.json?.result.content[0].text).toContain(token);
+    // Prepare never runs the capability.
+    expect(purged).toEqual([]);
+
+    const commit = await callDestructive("notes_purge", { titlePrefix: "Old" }, { confirm: token });
+    expect(commit.json?.result.isError).toBe(false);
+    expect(commit.json?.result.structuredContent).toEqual({ purged: 1 });
+    expect(purged).toEqual(["Old"]);
+  });
+
+  it("refuses to replay a consumed approval", async () => {
+    const prepare = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    const token = errorMeta(prepare.json).confirmationToken as string;
+
+    const first = await callDestructive("notes_purge", { titlePrefix: "Old" }, { confirm: token });
+    expect(first.json?.result.isError).toBe(false);
+
+    const replay = await callDestructive("notes_purge", { titlePrefix: "Old" }, { confirm: token });
+    expect(replay.json?.result.isError).toBe(true);
+    expect(errorMeta(replay.json).code).toBe("confirmation_invalid");
+    expect(errorMeta(replay.json).message).toContain("already_used");
+    expect(purged).toEqual(["Old"]);
+  });
+
+  it("refuses a commit that never prepared", async () => {
+    // No token at all: the answer is a fresh proposal, never an execution.
+    const none = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    expect(errorMeta(none.json).code).toBe("confirmation_required");
+
+    // A forged token fails on the HMAC, before the store is touched.
+    const forged = await callDestructive(
+      "notes_purge",
+      { titlePrefix: "Old" },
+      { confirm: `${errorMeta(none.json).confirmationToken}x` },
+    );
+    expect(errorMeta(forged.json).code).toBe("confirmation_invalid");
+    expect(purged).toEqual([]);
+  });
+
+  it("refuses a token whose proposal the store does not know", async () => {
+    const prepare = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    const token = errorMeta(prepare.json).confirmationToken as string;
+
+    // A different replica, or one that lost its proposals: the token is
+    // cryptographically valid and still fails closed.
+    setCapabilityApprovalStore(createMemoryApprovalStore());
+
+    const commit = await callDestructive("notes_purge", { titlePrefix: "Old" }, { confirm: token });
+    expect(errorMeta(commit.json).code).toBe("confirmation_invalid");
+    expect(errorMeta(commit.json).message).toContain("unknown");
+    expect(purged).toEqual([]);
+  });
+
+  it("binds the token to the exact input", async () => {
+    const prepare = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    const token = errorMeta(prepare.json).confirmationToken as string;
+
+    const other = await callDestructive("notes_purge", { titlePrefix: "New" }, { confirm: token });
+    expect(errorMeta(other.json).code).toBe("confirmation_invalid");
+    expect(purged).toEqual([]);
+  });
+
+  it("fails closed when the opt-in is on without an approval store", async () => {
+    setCapabilityApprovalStore(null);
+
+    const list = await mcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { agents: DESTRUCTIVE_AGENTS },
+    );
+    expect(list.json?.error.code).toBe(-32603);
+    expect(list.json?.error.message).toContain("approval store");
+
+    const call = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    expect(call.json?.error.message).toContain("approval store");
+    expect(purged).toEqual([]);
+  });
+
+  it("audits the prepare and the commit as MCP dispatches", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    const prepare = await callDestructive(
+      "notes_purge",
+      { titlePrefix: "Old" },
+      { onCapabilityAudit: (event) => events.push(event) },
+    );
+    await callDestructive(
+      "notes_purge",
+      { titlePrefix: "Old" },
+      {
+        confirm: errorMeta(prepare.json).confirmationToken as string,
+        onCapabilityAudit: (event) => events.push(event),
+      },
+    );
+
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({
+      capability: "notes.purge",
+      effect: "destructive",
+      transport: "mcp",
+      via: null,
+      outcome: "confirmation_required",
+      status: 409,
+    });
+    expect(events[1]).toMatchObject({
+      capability: "notes.purge",
+      transport: "mcp",
+      outcome: "ok",
+      status: 200,
+    });
+  });
+
+  it("still refuses destructive composition from a non-destructive tool", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    const { json } = await callDestructive(
+      "notes_compose-destructive",
+      {},
+      { onCapabilityAudit: (event) => events.push(event) },
+    );
+
+    // The opt-in serves destructive *tools*; it does not let a read tool
+    // perform an effect nobody confirmed.
+    expect(json?.result.structuredContent).toEqual({ code: "forbidden" });
+    expect(destroyed).toEqual([]);
+    expect(events[0]).toMatchObject({
+      capability: "notes.destroy",
+      transport: "server",
+      via: "mcp",
+      outcome: "forbidden",
+      status: 403,
+    });
+  });
+
+  it("allows a confirmed destructive tool to compose destructive work", async () => {
+    const prepare = await callDestructive("notes_purge-cascade", {});
+    expect(errorMeta(prepare.json).code).toBe("confirmation_required");
+    expect(destroyed).toEqual([]);
+
+    const events: CapabilityAuditEvent[] = [];
+    const commit = await callDestructive(
+      "notes_purge-cascade",
+      {},
+      {
+        confirm: errorMeta(prepare.json).confirmationToken as string,
+        onCapabilityAudit: (event) => events.push(event),
+      },
+    );
+
+    expect(commit.json?.result.structuredContent).toEqual({ code: "ok" });
+    expect(destroyed).toEqual(["notes"]);
+    // The nested effect stays attributable to the remote agent that caused it.
+    expect(events[0]).toMatchObject({
+      capability: "notes.destroy",
+      effect: "destructive",
+      transport: "server",
+      via: "mcp",
+      outcome: "ok",
+    });
+  });
+
+  it("does not leak the confirmed scope to a later request", async () => {
+    const prepare = await callDestructive("notes_purge-cascade", {});
+    await callDestructive(
+      "notes_purge-cascade",
+      {},
+      { confirm: errorMeta(prepare.json).confirmationToken as string },
+    );
+    expect(destroyed).toEqual(["notes"]);
+
+    const { json } = await callDestructive("notes_compose-destructive", {});
+    expect(json?.result.structuredContent).toEqual({ code: "forbidden" });
+    expect(destroyed).toEqual(["notes"]);
   });
 });
 
