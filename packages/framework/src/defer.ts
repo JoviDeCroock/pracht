@@ -357,7 +357,7 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
       pending.push({
         id,
         path: [...path],
-        promise: (value as unknown as DeferredBox<unknown>).promise(),
+        promise: resolveDeferredData(value),
       });
       return null;
     }

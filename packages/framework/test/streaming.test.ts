@@ -373,6 +373,31 @@ describe("streaming deferred wire format", () => {
     expect(html).toContain('{"id":7}');
   });
 
+  it("resolves nested deferred values before writing the defer channel", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({
+              section: defer(
+                Promise.resolve({
+                  items: [defer(Promise.resolve("nested"))],
+                }),
+              ),
+            }),
+            Component: () => h("main", null, "shell"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    const html = (await readChunks(response)).join("");
+    expect(html).toContain('__PRACHT_DEFER__.r("0:section",{"items":["nested"]})');
+    expect(html.trimEnd().endsWith("</html>")).toBe(true);
+  });
+
   it("delivers a rejection on the same channel instead of failing the response", async () => {
     const response = await handlePrachtRequest({
       app: streamingApp(),
