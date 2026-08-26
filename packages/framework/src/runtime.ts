@@ -364,10 +364,17 @@ export async function handlePrachtRequest<TContext>(
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     const metadataAuth = options.app.agents?.mcp?.auth;
     if (metadataAuth && url.pathname.includes(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN)) {
+      // This branch returns before normal route resolution below. Resolve the
+      // app explicitly so malformed security config cannot publish metadata
+      // that every other request rejects.
+      const resolvedMetadataAuth = getResolvedApp(options.app as PrachtApp).agents?.mcp?.auth;
+      if (!resolvedMetadataAuth) {
+        throw new Error("Resolved MCP OAuth configuration is missing.");
+      }
       const mcpAuthRuntime = await import("./runtime-mcp.ts");
-      if (mcpAuthRuntime.isMcpResourceMetadataPath(url.pathname, metadataAuth)) {
+      if (mcpAuthRuntime.isMcpResourceMetadataPath(url.pathname, resolvedMetadataAuth)) {
         return withDefaultSecurityHeaders(
-          await mcpAuthRuntime.handleMcpMetadataRequest(options.request, metadataAuth),
+          await mcpAuthRuntime.handleMcpMetadataRequest(options.request, resolvedMetadataAuth),
         );
       }
     }

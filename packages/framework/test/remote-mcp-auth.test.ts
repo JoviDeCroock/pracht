@@ -667,6 +667,28 @@ describe("manifest validation", () => {
   it("accepts a well-formed config", () => {
     expect(build(BASE_AUTH)).not.toThrow();
   });
+
+  it("validates auth before serving the metadata fast path", async () => {
+    const app = defineApp({
+      agents: {
+        mcp: {
+          auth: {
+            ...BASE_AUTH,
+            resource: "http://public.example/mcp",
+            authorizationServers: [],
+          },
+        },
+      },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+
+    await expect(
+      handlePrachtRequest({
+        app,
+        request: new Request(`${ORIGIN}/.well-known/oauth-protected-resource/mcp`),
+      }),
+    ).rejects.toThrow(/must use https/);
+  });
 });
 
 describe("zero cost when unconfigured", () => {

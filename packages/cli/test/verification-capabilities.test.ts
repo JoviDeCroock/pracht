@@ -1049,6 +1049,97 @@ ${extra}        verify: () => import("${verifyPath}"),
     );
   });
 
+  it("errors on resource-server fields that runtime validation rejects", () => {
+    for (const [agentsBlock, message] of [
+      [
+        `  agents: {
+    mcp: {
+      auth: {
+        authorizationServers: ["https://auth.example.com"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`,
+        "without a `resource` URL",
+      ],
+      [authBlock('        resource: "http://public.example/mcp",\n'), "must use https"],
+      [
+        `  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: [],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`,
+        "must list at least one",
+      ],
+      [
+        `  agents: {
+    mcp: {
+      path: "/agent/mcp",
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`,
+        "does not address the configured MCP endpoint",
+      ],
+      [
+        `  agents: {
+    mcp: {
+      path: "agent/mcp",
+      auth: {
+        resource: "https://app.example.com/agent/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`,
+        "must be an exact same-origin pathname",
+      ],
+      [authBlock('        requiredScopes: ["notes read"],\n'), "scope tokens"],
+      [
+        authBlock('        resourceDocumentation: "http://docs.example/mcp",\n'),
+        "resourceDocumentation",
+      ],
+    ] as const) {
+      const checks = runAuthChecks(agentsBlock);
+      expect(checks).toContainEqual(
+        expect.objectContaining({ message: expect.stringContaining(message), status: "error" }),
+      );
+      expect(checks.map((check) => check.message)).not.toContainEqual(
+        expect.stringContaining("OAuth 2.0 protected resource"),
+      );
+    }
+  });
+
+  it("allows cleartext resource and issuer URLs only on loopback", () => {
+    const accepted = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        resource: "http://127.0.0.1:3000/mcp",
+        authorizationServers: ["http://localhost:8787"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`);
+    expect(accepted.filter((check) => check.status === "error")).toHaveLength(0);
+
+    const rejected = runAuthChecks(
+      authBlock('        authorizationServers: ["http://auth.example"],\n'),
+    );
+    expect(rejected).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("must use https"),
+        status: "error",
+      }),
+    );
+  });
+
   it("errors when auth is configured without a verify module", () => {
     const checks = runAuthChecks(`  agents: {
     mcp: {

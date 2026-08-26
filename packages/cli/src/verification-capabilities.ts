@@ -323,9 +323,22 @@ function collectMcpAuthChecks(
   // analyzer cannot follow it, and a verify *error* on a config that works at
   // runtime is worse than no check at all — so anything unprovable stays quiet.
   const authIsPartlyOpaque = /\.\.\./.test(maskCommentsAndStrings(authBody));
+  let authIsProvablyValid = !authIsPartlyOpaque;
 
   const properties = scanTopLevelProperties(authBody);
-  const resource = evaluateLiteral(properties.get("resource") ?? "");
+  const resourceExpression = properties.get("resource");
+  const resource = evaluateLiteral(resourceExpression ?? "");
+  if (resourceExpression === undefined && !authIsPartlyOpaque) {
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.auth is configured without a `resource` URL. It must identify the remote MCP endpoint's absolute deployed URL.",
+      ),
+    );
+    authIsProvablyValid = false;
+  } else if (resourceExpression !== undefined && typeof resource !== "string") {
+    authIsProvablyValid = false;
+  }
   if (typeof resource === "string") {
     let parsed: URL | null = null;
     try {
@@ -334,6 +347,7 @@ function collectMcpAuthChecks(
       parsed = null;
     }
     if (!parsed) {
+      authIsProvablyValid = false;
       checks.push(
         createCheck(
           "error",
@@ -342,7 +356,16 @@ function collectMcpAuthChecks(
             "endpoint's absolute https URL.",
         ),
       );
+    } else if (!oauthUrlUsesSafeTransport(parsed)) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must use https (http is allowed for loopback development only).`,
+        ),
+      );
     } else if (parsed.search || parsed.hash) {
+      authIsProvablyValid = false;
       checks.push(
         createCheck(
           "error",
@@ -350,11 +373,154 @@ function collectMcpAuthChecks(
         ),
       );
     } else if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
+      authIsProvablyValid = false;
       checks.push(
         createCheck(
           "error",
           `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a trailing slash. ` +
             "OAuth resource identifiers are matched exactly; use the MCP endpoint's canonical path.",
+        ),
+      );
+    } else {
+      const mcpProperties = scanTopLevelProperties(mcpBody);
+      const configuredPath = evaluateLiteral(mcpProperties.get("path") ?? "");
+      if (mcpProperties.has("path") && typeof configuredPath !== "string") {
+        authIsProvablyValid = false;
+      } else if (typeof configuredPath === "string" && !isValidCapabilityHttpPath(configuredPath)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            'agents.mcp.path must be an exact same-origin pathname starting with "/".',
+          ),
+        );
+      } else {
+        const endpoint =
+          ((configuredPath as string | undefined) ?? "/mcp").replace(/\/$/, "") || "/";
+        if (
+          endpoint !== "/" &&
+          parsed.pathname !== endpoint &&
+          !parsed.pathname.endsWith(endpoint)
+        ) {
+          authIsProvablyValid = false;
+          checks.push(
+            createCheck(
+              "error",
+              `agents.mcp.auth.resource path ${JSON.stringify(parsed.pathname)} does not address the configured MCP endpoint ${JSON.stringify(endpoint)}.`,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  const authorizationServersExpression = properties.get("authorizationServers");
+  const authorizationServers = evaluateLiteral(authorizationServersExpression ?? "");
+  if (authorizationServersExpression === undefined) {
+    authIsProvablyValid = false;
+    if (!authIsPartlyOpaque) {
+      checks.push(
+        createCheck(
+          "error",
+          "agents.mcp.auth.authorizationServers must list at least one absolute authorization server issuer URL.",
+        ),
+      );
+    }
+  } else if (authorizationServersExpression !== undefined && authorizationServers === undefined) {
+    authIsProvablyValid = false;
+  } else if (!Array.isArray(authorizationServers) || authorizationServers.length === 0) {
+    authIsProvablyValid = false;
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.auth.authorizationServers must list at least one absolute authorization server issuer URL.",
+      ),
+    );
+  } else {
+    for (const issuer of authorizationServers) {
+      let parsed: URL | null = null;
+      if (typeof issuer === "string") {
+        try {
+          parsed = new URL(issuer);
+        } catch {
+          parsed = null;
+        }
+      }
+      if (!parsed) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers contains a non-absolute issuer URL: ${JSON.stringify(issuer)}.`,
+          ),
+        );
+      } else if (!oauthUrlUsesSafeTransport(parsed)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers issuer ${JSON.stringify(issuer)} must use https (http is allowed for loopback development only).`,
+          ),
+        );
+      } else if (parsed.search || parsed.hash) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers issuer ${JSON.stringify(issuer)} must not carry a query string or fragment.`,
+          ),
+        );
+      }
+    }
+  }
+
+  const resourceDocumentationExpression = properties.get("resourceDocumentation");
+  if (resourceDocumentationExpression !== undefined) {
+    const resourceDocumentation = evaluateLiteral(resourceDocumentationExpression);
+    if (typeof resourceDocumentation !== "string") {
+      authIsProvablyValid = false;
+    } else {
+      let parsed: URL | null = null;
+      try {
+        parsed = new URL(resourceDocumentation);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.resourceDocumentation ${JSON.stringify(resourceDocumentation)} is not an absolute URL.`,
+          ),
+        );
+      } else if (!oauthUrlUsesSafeTransport(parsed)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.resourceDocumentation ${JSON.stringify(resourceDocumentation)} must use https (http is allowed for loopback development only).`,
+          ),
+        );
+      }
+    }
+  }
+
+  for (const field of ["scopesSupported", "requiredScopes"] as const) {
+    const expression = properties.get(field);
+    if (expression === undefined) continue;
+    const scopes = evaluateLiteral(expression);
+    if (scopes === undefined) {
+      authIsProvablyValid = false;
+    } else if (
+      !Array.isArray(scopes) ||
+      scopes.some((scope) => typeof scope !== "string" || scope === "" || /[\s"\\]/.test(scope))
+    ) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.${field} must be an array of non-empty scope tokens without whitespace, quotes, or backslashes.`,
         ),
       );
     }
@@ -410,9 +576,23 @@ function collectMcpAuthChecks(
     return;
   }
 
-  checks.push(
-    createCheck("ok", "Remote MCP endpoint is an OAuth 2.0 protected resource (RFC 9728)."),
-  );
+  if (authIsProvablyValid) {
+    checks.push(
+      createCheck("ok", "Remote MCP endpoint is an OAuth 2.0 protected resource (RFC 9728)."),
+    );
+  }
+}
+
+function oauthUrlUsesSafeTransport(url: URL): boolean {
+  return url.protocol === "https:" || (url.protocol === "http:" && isLoopbackHost(url.hostname));
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "[::1]") {
+    return true;
+  }
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  return !!ipv4 && Number(ipv4[1]) === 127 && ipv4.slice(1).every((part) => Number(part) <= 255);
 }
 
 /** Whether an absolute file path sits inside a project-relative directory. */
