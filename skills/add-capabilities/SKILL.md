@@ -227,12 +227,24 @@ browser calls to private capabilities, destructive calls without
 `prepare`/`confirm`, and runtime-computed names (assert
 `as HttpCapabilityName`). Re-run `pracht typegen --check` in CI.
 
-`pracht eval` runs JSON scenarios against the live HTTP projection and exits 1
-on a failed expectation — the repeatable answer to "can an agent actually
-finish this task?". Steps can reference earlier results
+`pracht eval` runs JSON scenarios against the live app and exits 1 on a failed
+expectation — the repeatable answer to "can an agent actually finish this
+task?". Steps can reference earlier results
 (`$steps[0].error.confirmationToken`) and a scenario-level `signAs` block signs
-every step as a verified agent. `createCapabilityTestHost()` from
-`@pracht/core` covers the same pipeline in unit tests without a server.
+every step as a verified agent.
+
+A scenario targets the HTTP projection by default; set scenario-level
+`"transport": "mcp"` to run the same steps over the app's remote MCP endpoint
+(`initialize` handshake, then one `tools/call` per step, tool names mapped
+`notes.search` → `notes_search`). Write one of each for any capability with
+`expose.mcp` — passing over HTTP does not prove an MCP host can reach it. Over
+MCP, `expect.status` is the JSON-RPC POST status (200 for any answered call),
+so assert `errorCode` instead; steps for capabilities without `expose.mcp`
+(always including destructive ones) fail the scenario with an explicit message
+rather than passing.
+
+`createCapabilityTestHost()` from `@pracht/core` covers the same pipeline in
+unit tests without a server.
 
 For an audit of what the whole agent surface currently exposes, run
 `/audit-agent-surface`.

@@ -595,6 +595,12 @@ test("pracht eval runs the example scenarios against the dev server", async () =
   expect(stdout).toContain("PASS  verified agent identity");
   expect(stdout).toContain("agent_required");
 
+  // The same notes task over the remote MCP transport: a real initialize
+  // handshake plus one tools/call per step, which is the only way to prove the
+  // `expose.mcp` capabilities are reachable by an MCP host rather than merely
+  // declared.
+  expect(stdout).toContain("PASS  notes agent flow over MCP  [mcp]");
+
   // Asserted on the failure count rather than a scenario total, so adding a
   // scenario does not break this test.
   expect(stdout).toMatch(/\d+ scenario\(s\) passed, 0 failed/);

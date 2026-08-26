@@ -647,10 +647,14 @@ test setup). See `packages/framework/test/capability-test-host.test.ts` for
 worked examples.
 
 `pracht eval` runs scripted scenarios (search → validation failure →
-confirmation flow) against the capability HTTP projection and exits 1 on any
-failed expectation — `--start "<command>"` launches and stops the app itself.
-See [AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios)
-and `examples/basic/evals/notes.eval.json`.
+confirmation flow) against a live app and exits 1 on any failed expectation —
+`--start "<command>"` launches and stops the app itself. Scenarios drive either
+projection: the capability HTTP endpoints by default, or the remote MCP
+endpoint with `"transport": "mcp"`, which issues each step as a `tools/call`
+after a real `initialize` handshake. See
+[AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios),
+`examples/basic/evals/notes.eval.json`, and
+`examples/basic/evals/notes-mcp.eval.json`.
 
 ## Not built yet
 

@@ -74,6 +74,13 @@ For every exposed capability, ask whether the exposure is deliberate:
   empty `middleware` list that touch sensitive data.
 - Custom `expose.http.path` values that land outside `/api/**` and therefore
   escape path-scoped middleware or host rules.
+- Declared vs. actually served: `expose.mcp` in source is what the graph
+  claims. A `pracht eval` scenario with `"transport": "mcp"` proves what the
+  endpoint answers — it performs a real `initialize` handshake and issues each
+  step as a `tools/call`. Run it only against a local throwaway server, and
+  only with `read` steps. If the app ships MCP-exposed capabilities with no
+  such scenario, report the missing proof: an HTTP-only scenario says nothing
+  about whether an MCP host can reach the tool.
 
 ## Step 3: The destructive gate
 

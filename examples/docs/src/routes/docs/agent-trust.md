@@ -247,7 +247,7 @@ Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agent
 
 ## pracht eval: Prove Agent Flows in CI
 
-Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against the HTTP projection and exits 1 on any failed expectation:
+Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against your live app's agent surface and exits 1 on any failed expectation:
 
 ```jsonc [evals/notes.eval.json]
 {
@@ -278,5 +278,29 @@ pracht eval --start "pracht preview"    # runs evals/**/*.eval.json
 pracht preview                          # in another terminal
 pracht eval --url http://localhost:3000
 ```
+
+### The Same Scenario Over Remote MCP
+
+An `expose.mcp` capability is only proven when an MCP host can actually call it. Add one line and the same scenario runs over the [remote MCP endpoint](/docs/remote-mcp) instead: the runner performs a real `initialize` handshake, then issues every step as a `tools/call` with the projected tool name (`notes.search` → `notes_search`).
+
+```jsonc [evals/notes-mcp.eval.json]
+{
+  "name": "notes agent flow over MCP",
+  "transport": "mcp",              // default is "http"
+  "mcpPath": "/mcp",               // optional; only if you moved the endpoint
+  "steps": [
+    { "capability": "notes.search", "input": { "query": "roadmap" } },
+    {
+      "capability": "notes.search",
+      "input": { "query": "" },
+      "expect": { "ok": false, "errorCode": "invalid_input" }
+    }
+  ]
+}
+```
+
+Expectations mean the same thing on both transports: `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, and `errorCode` reads the error metadata the projection attaches to a failed call. `confirm` travels in the call's `_meta` (MCP has no per-call header channel), and a `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests — so an `agentPolicy: "require"` capability is provable over MCP too.
+
+Two differences are deliberate. `status` is the status of the request that was actually made, and an answered `tools/call` is `200` even when the tool reports an error — assert `errorCode` instead, which is what the failure message tells you. And a capability the endpoint does not project — anything without `expose.mcp`, which always includes destructive capabilities — fails the scenario with the tool name it looked for and what to do about it, rather than passing quietly.
 
 The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing the full dispatch pipeline with `createCapabilityTestHost()` — including this confirmation flow and simulated agent identities — plus Playwright patterns, faking the WebMCP API, and signing Web Bot Auth requests in tests.

@@ -520,9 +520,11 @@ Custom server entries can also pass `onCapabilityAudit` directly to
 
 ## `pracht eval`: scripted agent-task scenarios
 
-`pracht eval [files...]` runs JSON scenarios against a live app's capability
-HTTP projection and exits 1 on any failed expectation — "can an agent
-actually complete this task through my tools?" as a repeatable CI check.
+`pracht eval [files...]` runs JSON scenarios against a live app's agent surface
+and exits 1 on any failed expectation — "can an agent actually complete this
+task through my tools?" as a repeatable CI check. A scenario drives either
+projection: the capability HTTP endpoints (default) or the
+[remote MCP endpoint](REMOTE_MCP.md) via `"transport": "mcp"`.
 
 ```bash
 pracht eval --start "pracht preview"             # starts the app, runs evals/**/*.eval.json, stops it
@@ -546,6 +548,8 @@ example):
   "name": "notes agent flow",
   "task": "optional human description",
   "url": "http://localhost:3000",   // optional; --url overrides
+  "transport": "http",              // or "mcp"; default "http"
+  "mcpPath": "/mcp",                // only with "transport": "mcp", when not the default
   "steps": [
     {
       "capability": "notes.purge",   // name → POST /api/capabilities/notes/purge
@@ -602,8 +606,31 @@ example):
   is a working example. Keep real private keys out of the repo: read them from
   the environment and write the scenario file in CI, or use a test-only key as
   the example does.
+- **MCP transport**: `"transport": "mcp"` makes the runner speak the protocol
+  an MCP host speaks — one `initialize` handshake (the newest advertised
+  protocol version, negotiated down to whatever the server answers), the
+  `notifications/initialized` follow-up, then every step as a `tools/call`
+  against the app's MCP endpoint (`/mcp` unless `mcpPath` says otherwise),
+  with the projection's dot→underscore tool naming (`notes.search` →
+  `notes_search`). Expectations keep their meaning: `ok` is the tool result's
+  `isError` inverted, `output` matches its `structuredContent`, and `errorCode`
+  reads the `io.pracht/error` metadata the projection attaches to a failed
+  call. `confirm` travels in the `tools/call` `_meta` rather than a header,
+  because MCP has no per-call header channel. `signAs` signs the JSON-RPC
+  POSTs exactly as it signs HTTP-projection requests, so an agent-identity
+  policy is provable on either transport.
+
+  Two things differ honestly rather than silently. `status` is the status of
+  the request that was actually made, and an answered `tools/call` is a 200
+  even when the tool reports an error — assert `errorCode` instead (the runner
+  says so when a status expectation fails over MCP). And a capability the
+  endpoint does not project — anything without `expose.mcp`, which always
+  includes destructive capabilities — fails the scenario with the tool name it
+  looked for and what to do about it, instead of passing quietly.
+  `examples/basic/evals/notes-mcp.eval.json` is a working example.
 - Output: a human transcript (step, capability, outcome, status, latency,
-  denial reasons) or `--json` for CI.
+  denial reasons; MCP scenarios are marked `[mcp]`) or `--json` for CI, where
+  each step also carries its `transport`.
 
 ## Signing requests as an agent
 
@@ -667,7 +694,6 @@ not verify. Sign [the authority the Worker sees](#preview-authority-with-custom-
   transfers to the MCP transport unchanged; what it needs first is
   exactly-once commit, which the [approval store](#durable-approvals) now
   provides — unblocking this is a follow-up.
-- `pracht eval` speaking MCP instead of the HTTP projection.
 - RSA-PSS signing (the signer is Ed25519-only, matching the verifier).
 - Framework-level rate limiting, write-idempotency helpers, and result-size
   limits — see [operational

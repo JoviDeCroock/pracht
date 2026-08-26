@@ -135,6 +135,8 @@ curl -sX POST http://localhost:3000/mcp \
 
 Protocol versions are negotiated on `initialize`, newest first: `2025-11-25`, `2025-06-18`. The `2026-07-28` profile is not advertised until its self-describing request headers and result codec are implemented together.
 
+For a repeatable check instead of a `curl`, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives this endpoint the way a host does: one `initialize` handshake, then a `tools/call` per step. That is the difference between a capability that declares `expose.mcp` and one you have proven an MCP host can call.
+
 Not built yet: OAuth resource-server metadata (authentication lives in your middleware for now), `resources/*` and `prompts/*`, streaming and progress, and MCP Apps UI views.
 
 > `pracht mcp` is a different thing entirely: a stdio server that gives *coding* agents access to your app graph while you build. This page is about your deployed app's own tools.

@@ -33,6 +33,7 @@ afterEach(() => {
 function stepResult(overrides: Partial<EvalStepResult> = {}): EvalStepResult {
   return {
     capability: "notes.search",
+    transport: "http",
     status: 200,
     ok: true,
     latencyMs: 1,
@@ -264,6 +265,368 @@ describe("runScenario", () => {
   it("maps capability names to default HTTP paths", () => {
     expect(capabilityHttpPath("notes.purge")).toBe("/api/capabilities/notes/purge");
     expect(capabilityHttpPath("ping")).toBe("/api/capabilities/ping");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MCP transport
+// ---------------------------------------------------------------------------
+
+interface RecordedRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: {
+    jsonrpc: string;
+    id?: number;
+    method: string;
+    params?: { name?: string; arguments?: unknown; _meta?: Record<string, unknown> };
+  };
+}
+
+type ToolResponder = (
+  params: RecordedRequest["body"]["params"],
+  index: number,
+) => { result?: unknown; error?: unknown };
+
+/** Minimal stand-in for the framework's Streamable HTTP projection. */
+function fakeMcpServer(
+  respond: ToolResponder,
+  options: { negotiatedVersion?: string; initializeStatus?: number; initializeBody?: string } = {},
+): { requests: RecordedRequest[]; fetchImpl: typeof fetch } {
+  const requests: RecordedRequest[] = [];
+  let toolCalls = 0;
+  const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as RecordedRequest["body"];
+    requests.push({
+      url: String(url),
+      headers: (init?.headers ?? {}) as Record<string, string>,
+      body,
+    });
+
+    if (body.method === "initialize") {
+      if (options.initializeStatus !== undefined) {
+        return new Response(options.initializeBody ?? "Not Found", {
+          status: options.initializeStatus,
+        });
+      }
+      return Response.json({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: {
+          protocolVersion: options.negotiatedVersion ?? "2025-11-25",
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: { name: "fake", version: "0.0.0" },
+        },
+      });
+    }
+    // Notifications carry no id and get no body, exactly like the projection.
+    if (body.id === undefined) return new Response(null, { status: 202 });
+    return Response.json({ jsonrpc: "2.0", id: body.id, ...respond(body.params, toolCalls++) });
+  }) as typeof fetch;
+
+  return { requests, fetchImpl };
+}
+
+const TEST_AGENT = {
+  agent: "https://test-agent.example",
+  privateKeyJwk: {
+    kty: "OKP",
+    crv: "Ed25519",
+    d: "JZlLQqnxH-0O_1mfnuqDBB1U5XgqETE5eiRXxXRhZNM",
+    x: "s5n91rPm5ymJjl--scT4WWq7HE9kUdj-6sVe5r__xgc",
+  },
+} as const;
+
+describe("runScenario over the MCP transport", () => {
+  it("initializes, then issues each step as a tools/call with the mapped tool name", async () => {
+    const { requests, fetchImpl } = fakeMcpServer(
+      () => ({
+        result: {
+          content: [{ type: "text", text: "{}" }],
+          structuredContent: { notes: [{ id: "n1", title: "Capabilities" }] },
+          isError: false,
+        },
+      }),
+      { negotiatedVersion: "2025-06-18" },
+    );
+
+    const scenario: EvalScenario = {
+      name: "notes over mcp",
+      transport: "mcp",
+      steps: [
+        {
+          capability: "notes.search",
+          input: { query: "capabilities" },
+          expect: { ok: true, status: 200, output: { notes: [{ title: "Capabilities" }] } },
+        },
+      ],
+    };
+
+    const result = await runScenario(scenario, "mcp.eval.json", {
+      baseUrl: "http://localhost:3103",
+      fetchImpl,
+    });
+
+    expect(result.error).toBe(null);
+    expect(result.ok).toBe(true);
+    expect(result.steps[0].transport).toBe("mcp");
+
+    expect(requests.map((request) => request.body.method)).toEqual([
+      "initialize",
+      "notifications/initialized",
+      "tools/call",
+    ]);
+    expect(requests.every((request) => request.url === "http://localhost:3103/mcp")).toBe(true);
+    expect(requests[0].body.params).toMatchObject({
+      protocolVersion: "2025-11-25",
+      clientInfo: { name: "pracht-eval" },
+    });
+    // Nothing is negotiated before initialize; afterwards every request
+    // declares the version the server actually agreed to.
+    expect(requests[0].headers["mcp-protocol-version"]).toBeUndefined();
+    expect(requests[2].headers["mcp-protocol-version"]).toBe("2025-06-18");
+    expect(requests[2].body.params).toMatchObject({
+      name: "notes_search",
+      arguments: { query: "capabilities" },
+    });
+  });
+
+  it("reads tool errors as envelope error codes", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({
+      result: {
+        content: [{ type: "text", text: "invalid_input: input did not validate" }],
+        isError: true,
+        _meta: {
+          "io.pracht/status": 400,
+          "io.pracht/error": {
+            code: "invalid_input",
+            message: "input did not validate",
+            issues: [{ path: "/query", message: "must be at least 1 character(s) long" }],
+          },
+        },
+      },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "validation over mcp",
+        transport: "mcp",
+        steps: [
+          {
+            capability: "notes.search",
+            input: { query: "" },
+            expect: { ok: false, errorCode: "invalid_input" },
+          },
+        ],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.steps[0].ok).toBe(false);
+    expect(result.steps[0].errorCode).toBe("invalid_input");
+    // The reference root keeps the HTTP shape, so `$steps[n].error.*` reads the same.
+    expect(result.steps[0].resultForReferences.error).toMatchObject({ code: "invalid_input" });
+  });
+
+  it("explains a status expectation written for the HTTP projection", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({
+      result: {
+        content: [{ type: "text", text: "invalid_input: nope" }],
+        isError: true,
+        _meta: { "io.pracht/error": { code: "invalid_input", message: "nope" } },
+      },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "status over mcp",
+        transport: "mcp",
+        steps: [{ capability: "notes.search", expect: { ok: false, status: 400 } }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.steps[0].failures[0]).toContain("expected status 400, got 200");
+    expect(result.steps[0].failures[0]).toContain("JSON-RPC POST");
+  });
+
+  it("carries the confirm shorthand in the tools/call _meta", async () => {
+    const { requests, fetchImpl } = fakeMcpServer((_params, index) =>
+      index === 0
+        ? {
+            result: {
+              content: [{ type: "text", text: "confirmation_required" }],
+              isError: true,
+              _meta: {
+                "io.pracht/error": {
+                  code: "confirmation_required",
+                  message: "confirm to continue",
+                  confirmationToken: "tok-mcp",
+                },
+              },
+            },
+          }
+        : { result: { structuredContent: { purged: 1 }, isError: false } },
+    );
+
+    const result = await runScenario(
+      {
+        name: "confirm over mcp",
+        transport: "mcp",
+        steps: [
+          { capability: "notes.tidy", expect: { errorCode: "confirmation_required" } },
+          {
+            capability: "notes.tidy",
+            confirm: "$steps[0].error.confirmationToken",
+            expect: { ok: true, output: { purged: 1 } },
+          },
+        ],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(true);
+    const commit = requests.at(-1)!;
+    expect(commit.body.params?._meta).toEqual({ "io.pracht/confirmation": "tok-mcp" });
+  });
+
+  it("fails with an actionable message when the endpoint does not serve the tool", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({
+      error: {
+        code: -32602,
+        message: 'Unknown tool "notes_purge". Known tools: notes_create, notes_search.',
+      },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "destructive over mcp",
+        transport: "mcp",
+        steps: [{ capability: "notes.purge", expect: { ok: true } }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('capability "notes.purge"');
+    expect(result.error).toContain("expose: { mcp: true }");
+    expect(result.error).toContain("destructive capabilities are never projected");
+  });
+
+  it("fails with an actionable message when the app serves no MCP endpoint", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({ result: {} }), { initializeStatus: 404 });
+
+    const result = await runScenario(
+      {
+        name: "no mcp",
+        transport: "mcp",
+        steps: [{ capability: "notes.search" }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("http://localhost:3103/mcp returned 404");
+    expect(result.error).toContain("agents: { mcp: {} }");
+  });
+
+  it("signs every MCP POST with the scenario identity, honouring per-step opt-outs", async () => {
+    const { requests, fetchImpl } = fakeMcpServer(() => ({
+      result: { structuredContent: { pong: true }, isError: false },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "signed mcp",
+        transport: "mcp",
+        signAs: TEST_AGENT,
+        steps: [
+          { capability: "agent.ping", expect: { ok: true } },
+          { capability: "agent.ping", sign: false, expect: { ok: true } },
+        ],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.error).toBe(null);
+    const signed = requests.filter((request) => request.headers["signature-input"] !== undefined);
+    // initialize, the initialized notification, and the first tools/call.
+    expect(signed).toHaveLength(3);
+    expect(signed[0].headers["signature-agent"]).toBe('"https://test-agent.example"');
+    expect(requests.at(-1)!.headers["signature-input"]).toBeUndefined();
+  });
+
+  it("uses the scenario's mcpPath and falls back to text content", async () => {
+    const { requests, fetchImpl } = fakeMcpServer(() => ({
+      result: { content: [{ type: "text", text: '{"notes":[]}' }], isError: false },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "custom endpoint",
+        transport: "mcp",
+        mcpPath: "/agent/mcp",
+        steps: [{ capability: "notes.search", expect: { ok: true, output: { notes: [] } } }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(requests[0].url).toBe("http://localhost:3103/agent/mcp");
+  });
+
+  it("refuses step headers the MCP projection would reject", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({ result: { isError: false } }));
+
+    const result = await runScenario(
+      {
+        name: "cookie over mcp",
+        transport: "mcp",
+        steps: [{ capability: "notes.search", headers: { cookie: "session=abc" } }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('"cookie" header');
+    expect(result.error).toContain('"transport": "http"');
+  });
+});
+
+describe("MCP scenario validation", () => {
+  it("rejects transports, paths, and step fields that cannot apply", () => {
+    const dir = makeTempDir();
+    const file = join(dir, "mcp.eval.json");
+    const base = { name: "x", steps: [{ capability: "notes.search" }] };
+
+    writeFileSync(file, JSON.stringify({ ...base, transport: "grpc" }));
+    expect(() => parseScenario(file)).toThrow(/"transport" must be "http" or "mcp"/);
+
+    writeFileSync(file, JSON.stringify({ ...base, mcpPath: "/mcp" }));
+    expect(() => parseScenario(file)).toThrow(/"mcpPath" only applies/);
+
+    writeFileSync(file, JSON.stringify({ ...base, transport: "mcp", mcpPath: "mcp" }));
+    expect(() => parseScenario(file)).toThrow(/absolute path/);
+
+    writeFileSync(
+      file,
+      JSON.stringify({
+        name: "x",
+        transport: "mcp",
+        steps: [{ capability: "notes.search", path: "/api/custom" }],
+      }),
+    );
+    expect(() => parseScenario(file)).toThrow(/addressed by its projected tool name/);
   });
 });
 

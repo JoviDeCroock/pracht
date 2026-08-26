@@ -894,6 +894,17 @@ allowed or denied nested attempt as a `"server"` dispatch caused by MCP.
 
 ## Final Recommendation
 
+> **Status note (2026-08-26).** This document is the original bet, kept as
+> written. Stages 1, 2, and 2b have since shipped, along with the trust layer:
+> capabilities with effect classes, the HTTP and WebMCP projections, the
+> stateless remote MCP endpoint ([REMOTE_MCP.md](REMOTE_MCP.md)), Web Bot Auth
+> identity, the prepare/commit confirmation flow, audit events, and the
+> `pracht eval` harness — which now drives both the HTTP projection and the MCP
+> transport ([AGENT_TRUST.md](AGENT_TRUST.md)). What remains open is Stage 3
+> (MCP Apps UI views), destructive effects over MCP, and OAuth resource-server
+> metadata. Read the recommendation below as the rationale that got us here,
+> not as the current plan.
+
 Proceed with Stage 0 as the next product exploration. Continue streaming SSR and other framework
 parity work in parallel, but frame the capability graph as the next category-defining bet.
 

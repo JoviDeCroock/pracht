@@ -16,7 +16,8 @@ const DEFAULT_START_URL = "http://localhost:3000";
 export default defineCommand({
   meta: {
     name: "eval",
-    description: "Run scripted agent-task scenarios against the capability HTTP projection",
+    description:
+      "Run scripted agent-task scenarios against the capability HTTP projection or the remote MCP endpoint",
   },
   args: {
     files: {
@@ -210,7 +211,10 @@ function printTranscript(results: EvalScenarioResult[], cwd: string): void {
 
   for (const result of results) {
     const marker = result.ok && result.error === null ? "PASS" : "FAIL";
-    console.log(`\n${marker}  ${result.name}  (${relative(cwd, result.file)})`);
+    // The transport is worth a line of its own: the same scenario passing over
+    // HTTP says nothing about whether an MCP host can reach the capability.
+    const transport = result.steps[0]?.transport === "mcp" ? "  [mcp]" : "";
+    console.log(`\n${marker}  ${result.name}${transport}  (${relative(cwd, result.file)})`);
     if (result.error) {
       console.log(`      ${result.error}`);
     }
