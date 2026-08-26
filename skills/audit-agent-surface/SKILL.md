@@ -58,11 +58,10 @@ middleware → `agentPolicy`. A capability reported as `unreadable` means
 `@pracht/capabilities` is not installed; treat it as an `error` and stop
 reasoning about its policy until it loads.
 
-Cross-check `inspect agents` against the manifest's `agents` block. A
-manifest that builds its config in a separate variable still resolves
-correctly here (the report reads the resolved app, not the source text), but
-`llmsTxt` is detected by a text probe of the vite config and can read as `off`
-for an app that computes the option — verify it by hand when it matters.
+Cross-check `inspect agents` against the manifest's `agents` block. The report
+reads both the resolved app and the Vite plugin's resolved `llmsTxt` state, so
+configuration built in separate variables or computed expressions is reported
+accurately rather than inferred from source text.
 
 ## Step 2: Exposure vs. intent
 

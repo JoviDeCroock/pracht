@@ -132,6 +132,10 @@ ${capabilityRows}
   const trafficEvents = options.agentTraffic?.events ?? [];
   const composedCount = trafficEvents.filter((event) => !isAgentTraffic(event)).length;
   const agentCount = trafficEvents.length - composedCount;
+  const droppedCount = Math.max(
+    0,
+    (options.agentTraffic?.recorded ?? trafficEvents.length) - trafficEvents.length,
+  );
 
   const trafficRows = trafficEvents
     .map(
@@ -176,7 +180,11 @@ ${trafficRows}
       trafficEvents.length === 0
         ? `<p class="empty">No capability dispatches recorded yet. Call a capability over HTTP, WebMCP, or MCP and reload.</p>`
         : agentCount === 0
-          ? `<p class="empty">No external agent traffic yet — every recorded dispatch is this app calling itself.</p>
+          ? `<p class="empty">${
+              droppedCount > 0
+                ? "No external agent traffic in the retained window. Older dropped dispatches may include external traffic."
+                : "No external agent traffic yet — every recorded dispatch is this app calling itself."
+            }</p>
     ${trafficTable}`
           : trafficTable
     }`

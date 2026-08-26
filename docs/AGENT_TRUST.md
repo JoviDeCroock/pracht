@@ -543,7 +543,9 @@ one.
 
 The returned unsubscribe only removes its own registration, so a reloaded
 module's cleanup running after the new registration cannot delete the live
-sink.
+sink. Delivery snapshots the registered sinks before invoking any of them, so
+a sink added or replaced from inside a callback starts receiving events on the
+next dispatch rather than receiving the current event twice.
 
 Every registered sink receives the same frozen snapshot for every dispatch, on
 every transport. The contract for all of them:
@@ -678,7 +680,9 @@ lives in the vite plugin's dev middleware, so no production adapter, bundle, or
 endpoint can reach it. Under adapter-owned dev servers (`ownsDevServer: true`,
 e.g. Cloudflare `workerd`) the middleware is never registered at all, so
 `/_pracht` and `/_pracht.json` do not exist there — they 404 rather than
-answering with an empty log.
+answering with an empty log. Transport counts and empty-state conclusions only
+describe the retained events; once older events have been dropped, the panel
+does not claim whether those older dispatches were external or first-party.
 
 The JSON keeps every recorded dispatch and carries `transport` on each, so
 consumers filter for themselves. The HTML page does not: `transport: "server"`
@@ -732,11 +736,12 @@ Agents
 ```
 
 `--json` emits the same data for CI checks, and the CLI's MCP server exposes it
-as the `inspect_agents` tool. Capabilities with no `expose` config count as
-`private`: reachable only through `invokeCapability()`. When capabilities set
-`expose.mcp` but the manifest never configures `agents.mcp`, the report calls
-out that the exposure is recorded and unserved — the same condition
-`pracht verify` warns about.
+as the `inspect_agents` tool. The `llmsTxt` state comes from the Vite plugin's
+resolved configuration, including computed options, rather than a source-text
+guess. Capabilities with no `expose` config count as `private`: reachable only
+through `invokeCapability()`. When capabilities set `expose.mcp` but the
+manifest never configures `agents.mcp`, the report calls out that the exposure
+is recorded and unserved — the same condition `pracht verify` warns about.
 
 ## `pracht eval`: scripted agent-task scenarios
 

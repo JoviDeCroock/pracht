@@ -370,6 +370,32 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).toContain("Show 1 first-party");
   });
 
+  it("does not classify agent traffic that has already been dropped", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 1,
+        recorded: 201,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.stats",
+            effect: "read",
+            transport: "server",
+            via: "http",
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("No external agent traffic in the retained window.");
+    expect(html).toContain("Older dropped dispatches may include external traffic.");
+    expect(html).not.toContain("every recorded dispatch is this app calling itself");
+  });
+
   it("renders one row per dispatch with transport, agent, outcome and duration", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: {

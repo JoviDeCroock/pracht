@@ -489,6 +489,23 @@ describe("agent policy and audit", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("defers listener replacements made during delivery until the next event", async () => {
+    const events: string[] = [];
+    let stop: () => void;
+    stop = addCapabilityAuditListener("rotating", () => {
+      events.push("old");
+      stop();
+      addCapabilityAuditListener("rotating", () => events.push("new"));
+    });
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+    expect(events).toEqual(["old"]);
+
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "y" }) });
+    expect(events).toEqual(["old", "new"]);
+  });
+
   it("stops delivering after unsubscribe", async () => {
     const events: CapabilityAuditEvent[] = [];
     const unsubscribe = addCapabilityAuditListener("logs", (event) => events.push(event));

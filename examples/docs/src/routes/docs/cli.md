@@ -200,9 +200,10 @@ Targets are `routes`, `api`, `capabilities`, `agents`, `build`, and `all`. The
 slice: the Web Bot Auth policy and trusted keys, the destructive-confirmation
 mode, whether remote MCP and `llms.txt` are enabled, and which capabilities are
 exposed on which transports (with capabilities that have no `expose` config
-counted as `private`). It also flags capabilities that set `expose.mcp` while
-the manifest leaves `agents.mcp` unconfigured — exposure recorded in the graph
-that nothing serves. The `build`
+counted as `private`). The `llms.txt` state comes from the Vite plugin's resolved
+configuration, so computed options are reported accurately. It also flags
+capabilities that set `expose.mcp` while the manifest leaves `agents.mcp`
+unconfigured — exposure recorded in the graph that nothing serves. The `build`
 target reports the adapter, client entry, and asset manifests and is most useful
 after `pracht build`; the other targets evaluate the live Vite app graph. Use
 `--json` for stable machine-readable output. Unknown targets and graph-loading

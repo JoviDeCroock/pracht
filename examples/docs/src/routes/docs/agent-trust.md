@@ -249,7 +249,7 @@ const stop = addCapabilityAuditListener("metrics", (event) => metrics.record(eve
 
 The name is required, and registering the same name again **replaces** that sink. That is what makes the call safe at a module's top level, which is where it belongs. In dev, `@pracht/core` is inlined into Vite's SSR graph and Vite re-executes importers on every save, so a module-scope registration runs again with a fresh closure each time you edit the file. Keyed by name the reload replaces; keyed by function identity it would accumulate one live sink per keystroke, each delivering the same event again and inflating every counter. Pick a stable name per sink (`"otel"`, `"audit-log"`), not a computed one.
 
-The returned unsubscribe removes only its own registration, so a reloaded module's cleanup running after the new registration cannot delete the live sink.
+The returned unsubscribe removes only its own registration, so a reloaded module's cleanup running after the new registration cannot delete the live sink. Delivery snapshots the registered sinks before invoking any of them, so a sink added or replaced from inside a callback starts receiving events on the next dispatch rather than receiving the current event twice.
 
 Every registered sink receives the same frozen snapshot for every dispatch, on every transport. The contract for all of them:
 
@@ -355,7 +355,7 @@ The same data is available as machine-readable JSON at `/_pracht.json`:
 }
 ```
 
-`recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. Under adapter-owned dev servers (Cloudflare `workerd`) that middleware is never registered, so `/_pracht` and `/_pracht.json` do not exist there at all — they 404 rather than answering with an empty log.
+`recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. Transport counts and empty-state conclusions only describe the retained events; once older events have been dropped, the panel does not claim whether those older dispatches were external or first-party. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. Under adapter-owned dev servers (Cloudflare `workerd`) that middleware is never registered, so `/_pracht` and `/_pracht.json` do not exist there at all — they 404 rather than answering with an empty log.
 
 The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page does not. `transport: "server"` is `invokeCapability()`, which any loader or API route can call, and on an app whose loaders compose capabilities it is the large majority of rows. The panel therefore defaults to dispatches that came from *outside* the app — every non-`server` transport, plus `server` dispatches whose `via` is `"mcp"` (trusted dispatch state, so the effect really was agent-caused) — and puts the rest behind a "show first-party" toggle with a count. `via: "http"` does not qualify: a capability host is installed for every served request, so an ordinary page loader's composition carries it too and cannot be told apart from an agent's. The agent's own HTTP dispatch still gets its own row, so no agent activity is hidden — only its internal composition is collapsed.
 
@@ -369,7 +369,7 @@ The audit trail covers *dispatch*. Several rejections happen before a capability
 
 An agent — or a scanner — enumerating tool names or probing capability URLs therefore leaves no trace in the audit trail. Absence of events is not evidence that nothing tried. Use the deployment's HTTP access log for reconnaissance detection, and treat the audit trail as the record of what actually ran.
 
-To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect).
+To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its `llmsTxt` state comes from the Vite plugin's resolved configuration, including computed options, rather than a source-text guess.
 
 ### Remote MCP Composition Is Guarded
 

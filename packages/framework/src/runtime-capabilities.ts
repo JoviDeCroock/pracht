@@ -505,7 +505,12 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
     agent: snapshotAgentIdentity(event.agent),
   });
   deliverCapabilityAudit("setCapabilityAuditHook", capabilityAuditHook, snapshot);
-  for (const [name, hook] of capabilityAuditListeners) {
+  // Snapshot before invoking user code. A sink may unsubscribe or replace a
+  // registration while handling this event; iterating the live Map would then
+  // deliver the same event to the replacement as well (and a sink that keeps
+  // rotating itself could prevent dispatch from completing).
+  const listeners = Array.from(capabilityAuditListeners);
+  for (const [name, hook] of listeners) {
     deliverCapabilityAudit(name, hook, snapshot);
   }
   deliverCapabilityAudit("onCapabilityAudit", extra, snapshot);

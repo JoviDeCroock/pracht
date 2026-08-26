@@ -284,6 +284,9 @@ Key properties to state when scaffolding this:
 - `setCapabilityAuditHook()` is a **single slot** — a second call replaces the
   first. Use `addCapabilityAuditListener()` whenever more than one sink exists;
   it returns an unsubscribe handle that removes only its own registration.
+- Delivery snapshots the registered sinks before callbacks run. Adding or
+  replacing a sink from inside a callback takes effect on the next dispatch,
+  so the current event is never delivered twice to one name.
 - On Cloudflare Workers, a batching exporter must flush within the request or
   be handed the execution context by app code
   (`context.executionContext.waitUntil(exporter.flush())`). Pracht does not
@@ -298,8 +301,9 @@ In dev the same events are already collected: the **Agents** section of
 outcome, and duration, and `/_pracht.json` exposes all of them under
 `agentTraffic`. The page defaults to externally-originated dispatches and hides
 first-party `invokeCapability()` composition behind a toggle, so the panel's
-visible count can be lower than the sink's. Use it to confirm the sink sees
-what the panel sees before wiring a paid backend.
+visible count can be lower than the sink's. Counts and empty-state conclusions
+only cover the retained window when older events have been dropped. Use it to
+confirm the sink sees what the panel sees before wiring a paid backend.
 
 ## Step 7: Sampling and PII
 

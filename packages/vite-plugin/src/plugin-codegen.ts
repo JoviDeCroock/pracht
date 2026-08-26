@@ -467,6 +467,7 @@ export function createPrachtDevModuleSource(
     `export const buildTarget = ${JSON.stringify(resolved.adapter?.id ?? "node")};`,
     `export const staticTarget = ${JSON.stringify(resolved.adapter?.staticTarget === true)};`,
     `export const buildBase = ${JSON.stringify(buildOptions.base ?? "/")};`,
+    `export const llmsTxtEnabled = ${JSON.stringify(Boolean(resolved.llmsTxt))};`,
     "",
   ].join("\n");
 }

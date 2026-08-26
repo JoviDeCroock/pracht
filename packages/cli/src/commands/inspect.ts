@@ -18,7 +18,6 @@ import { defineCommand } from "citty";
 
 import { capabilityModuleLoader, createSourceReader } from "../app-graph.js";
 import { withAppServer } from "../app-server.js";
-import { projectPublishesItsOwnLlmsTxt } from "./llms.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 
@@ -103,7 +102,7 @@ export interface InspectAgents {
     endpoint: string | null;
   };
   llmsTxt: {
-    /** Detected from the vite config's `llmsTxt` option (a text probe). */
+    /** Whether the resolved vite plugin configuration enables `llmsTxt`. */
     enabled: boolean;
   };
   /** One row per capability, in manifest order. */
@@ -200,7 +199,7 @@ export async function runInspect(
       report.agents = summarizeAgentSurface(
         serverModule.resolvedApp.agents,
         capabilities,
-        projectPublishesItsOwnLlmsTxt(root),
+        serverModule.llmsTxtEnabled === true,
       );
     }
 

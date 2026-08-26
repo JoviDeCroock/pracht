@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -5,6 +8,7 @@ import {
   createRepoTempDir,
   runCli,
   runCliStatus,
+  writeProjectFile,
   writeTypedManifestApp,
 } from "./helpers/cli-fixtures.js";
 
@@ -80,6 +84,24 @@ describe("@pracht/cli inspect agents", () => {
     // rather than printing a bare "null".
     expect(stdout).toContain("policy=require (inherited)");
     expect(stdout).toContain("notes.set-status  effect=write  transports=private");
+  }, 30_000);
+
+  it("reads llms.txt state from the resolved plugin options", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-agents-llms-");
+    writeTypedManifestApp(appDir, { capabilities: true, agents: true });
+    const configPath = resolve(appDir, "vite.config.ts");
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      readFileSync(configPath, "utf-8").replace(
+        'pracht({ llmsTxt: { title: "Fixture app" } })',
+        "pracht({ llmsTxt: undefined })",
+      ),
+    );
+
+    const { agents } = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
+
+    expect(agents.llmsTxt).toEqual({ enabled: false });
   }, 30_000);
 
   it("rejects an unknown target and lists the valid ones", () => {
