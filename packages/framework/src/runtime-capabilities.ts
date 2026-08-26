@@ -438,7 +438,11 @@ let capabilityAuditHook: CapabilityAuditHook | null = null;
 // would be delivered N times (inflating counters and duplicating log lines).
 // A name-keyed Map makes re-registration a replacement, which is what the
 // author meant, and is why `setCapabilityAuditHook` never had this problem.
-const capabilityAuditListeners = new Map<string, CapabilityAuditHook>();
+interface CapabilityAuditListenerRegistration {
+  hook: CapabilityAuditHook;
+}
+
+const capabilityAuditListeners = new Map<string, CapabilityAuditListenerRegistration>();
 
 export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
   capabilityAuditHook = hook;
@@ -455,9 +459,12 @@ export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
  * closure's unsubscribe must not delete the live sink.
  */
 export function addCapabilityAuditListener(name: string, hook: CapabilityAuditHook): () => void {
-  capabilityAuditListeners.set(name, hook);
+  const registration = { hook };
+  capabilityAuditListeners.set(name, registration);
   return () => {
-    if (capabilityAuditListeners.get(name) === hook) capabilityAuditListeners.delete(name);
+    if (capabilityAuditListeners.get(name) === registration) {
+      capabilityAuditListeners.delete(name);
+    }
   };
 }
 
@@ -490,11 +497,24 @@ function deliverCapabilityAudit(
   } catch (error: unknown) {
     if (warnedAuditSinks.has(hook)) return;
     warnedAuditSinks.add(hook);
-    console.warn(
-      `[pracht] Capability audit sink ${JSON.stringify(label)} threw and was ignored: ${
-        error instanceof Error ? error.message : String(error)
-      }. Audit sinks must never throw; further failures from this sink are not reported.`,
-    );
+    try {
+      console.warn(
+        `[pracht] Capability audit sink ${JSON.stringify(label)} threw and was ignored: ${describeCapabilityAuditError(
+          error,
+        )}. Audit sinks must never throw; further failures from this sink are not reported.`,
+      );
+    } catch {
+      // Diagnostics are best-effort too: a hostile thrown value or patched
+      // console must not let an observer break the capability request.
+    }
+  }
+}
+
+function describeCapabilityAuditError(error: unknown): string {
+  try {
+    return error instanceof Error ? error.message : String(error);
+  } catch {
+    return "<unprintable error>";
   }
 }
 
@@ -511,8 +531,8 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
   const singleSlotHook = capabilityAuditHook;
   const listeners = Array.from(capabilityAuditListeners);
   deliverCapabilityAudit("setCapabilityAuditHook", singleSlotHook, snapshot);
-  for (const [name, hook] of listeners) {
-    deliverCapabilityAudit(name, hook, snapshot);
+  for (const [name, registration] of listeners) {
+    deliverCapabilityAudit(name, registration.hook, snapshot);
   }
   deliverCapabilityAudit("onCapabilityAudit", extra, snapshot);
 }

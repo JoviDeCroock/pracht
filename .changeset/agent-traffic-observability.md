@@ -10,4 +10,6 @@ Named audit listeners now compose safely with existing hooks and dev HMR. In
 development, `/_pracht` records recent capability dispatches while distinguishing
 agent-attributed activity from unverified HTTP, and the new CLI and MCP inspection
 commands summarize agent policies, transports, and discovery. Audit callbacks run
-synchronously and should stay cheap; returned promises are not awaited.
+synchronously and should stay cheap; returned promises are not awaited. Listener
+replacement remains safe when callbacks are reused, and sink diagnostics cannot
+interrupt dispatch.

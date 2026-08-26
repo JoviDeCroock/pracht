@@ -552,6 +552,20 @@ describe("agent policy and audit", () => {
     expect(live).toHaveLength(1);
   });
 
+  it("does not let stale cleanup remove a replacement that reuses the same hook", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    const hook = (event: CapabilityAuditEvent) => events.push(event);
+    const staleUnsubscribe = addCapabilityAuditListener("otel", hook);
+    addCapabilityAuditListener("otel", hook);
+
+    staleUnsubscribe();
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+
+    expect(events).toHaveLength(1);
+  });
+
   it("keeps a throwing sink from breaking dispatch or the other sinks", async () => {
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const survivors: CapabilityAuditEvent[] = [];
@@ -570,6 +584,25 @@ describe("agent policy and audit", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, data: { purged: 1 } });
     expect(survivors).toHaveLength(1);
+    consoleWarn.mockRestore();
+  });
+
+  it("keeps an unprintable sink failure from breaking dispatch", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    addCapabilityAuditListener("broken", () => {
+      throw Object.create(null);
+    });
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postPurge({ titlePrefix: "x" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, data: { purged: 1 } });
+    expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("<unprintable error>"));
     consoleWarn.mockRestore();
   });
 
