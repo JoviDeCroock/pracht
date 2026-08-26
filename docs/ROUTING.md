@@ -404,8 +404,10 @@ Every other anchor attribute passes straight through, including `target`, `rel`,
 ### Prefetching
 
 Every internal link is prefetched on hover/focus by default (`"intent"`, with a
-50ms debounce). An app that wants no JS prefetching at all can compile the whole
-mechanism out with `pracht({ client: { prefetch: false } })` — see
+50ms debounce). The listener runtime loads lazily after hydration; if hover or
+focus begins while that chunk is loading, a still-hovered link is picked up
+once setup completes. An app that wants no JS prefetching at all can compile
+the whole mechanism out with `pracht({ client: { prefetch: false } })` — see
 [PERFORMANCE.md](PERFORMANCE.md#switching-off-js-prefetching). A
 per-route default can be set via the `prefetch` route meta,
 and `<Link prefetch>` overrides it per link:

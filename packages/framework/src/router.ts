@@ -1042,9 +1042,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       startShellImport(match);
     };
     registerPrefetchTarget(app, warmModules);
-    void import("./prefetch.ts").then(({ setupPrefetching }) => {
-      setupPrefetching(app, warmModules);
-    });
+    const { setupPrefetching } = await import("./prefetch.ts");
+    setupPrefetching(app, warmModules);
   }
 }
 
