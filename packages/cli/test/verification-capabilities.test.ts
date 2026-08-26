@@ -578,7 +578,7 @@ describe("collectCapabilityChecks", () => {
         expect.stringContaining("does not set agents.mcp.destructive"),
       );
       expect(checks.map((check) => check.message)).toContainEqual(
-        expect.stringContaining("back onto a registered approval store"),
+        expect.stringContaining("setCapabilityApprovalStore() call exists in the scanned source"),
       );
     });
 
@@ -629,6 +629,43 @@ describe("collectCapabilityChecks", () => {
       expect(warning).toContain("workspace package");
     });
 
+    it("ignores store registration text in comments and literals", () => {
+      const checks = checksFor({
+        appBlock: "  agents: { mcp: { destructive: true } },",
+        extraFiles: {
+          "server/approvals.ts": [
+            "// setCapabilityApprovalStore(store);",
+            "/* setCapabilityApprovalStore(store); */",
+            'const example = "setCapabilityApprovalStore(store)";',
+            "const template = `setCapabilityApprovalStore(store)`;",
+            "const pattern = /setCapabilityApprovalStore\\(store\\)/;",
+          ].join("\n"),
+        },
+      });
+
+      expect(errorsOf(checks)).toEqual([]);
+      expect(warningsOf(checks)).toContainEqual(
+        expect.stringContaining("no `setCapabilityApprovalStore(` call was found"),
+      );
+      expect(checks.map((check) => check.message)).not.toContainEqual(
+        expect.stringContaining("call exists in the scanned source"),
+      );
+    });
+
+    it("recognizes a store registration call split across whitespace", () => {
+      const checks = checksFor({
+        appBlock: "  agents: { mcp: { destructive: true } },",
+        extraFiles: {
+          "server/approvals.ts": "setCapabilityApprovalStore\n  (approvalStore);",
+        },
+      });
+
+      expect(errorsOf(checks)).toEqual([]);
+      expect(checks.map((check) => check.message)).toContainEqual(
+        expect.stringContaining("setCapabilityApprovalStore() call exists in the scanned source"),
+      );
+    });
+
     it("finds a store registered under a non-default serverDir", () => {
       const checks = checksFor(
         {
@@ -640,7 +677,7 @@ describe("collectCapabilityChecks", () => {
 
       expect(errorsOf(checks)).toEqual([]);
       expect(checks.map((check) => check.message)).toContainEqual(
-        expect.stringContaining("back onto a registered approval store"),
+        expect.stringContaining("setCapabilityApprovalStore() call exists in the scanned source"),
       );
     });
 
@@ -652,7 +689,7 @@ describe("collectCapabilityChecks", () => {
 
       expect(errorsOf(checks)).toEqual([]);
       expect(checks.map((check) => check.message)).toContainEqual(
-        expect.stringContaining("back onto a registered approval store"),
+        expect.stringContaining("setCapabilityApprovalStore() call exists in the scanned source"),
       );
     });
 

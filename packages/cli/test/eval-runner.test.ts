@@ -490,12 +490,8 @@ describe("runScenario over the MCP transport", () => {
     expect(result.ok).toBe(false);
   });
 
-  // The plumbing only: `confirm` cannot complete a round trip over MCP today,
-  // because destructive capabilities are refused `expose.mcp` at registration
-  // and filtered at serve time, so no MCP tool can answer
-  // `confirmation_required`. This asserts the token reaches the wire in the
-  // slot the projection reads, which is what the destructive-over-MCP opt-in
-  // will need — not that the flow completes.
+  // A destructive MCP round trip uses this slot after the first call returns
+  // `confirmation_required`; the server owns the approval-store checks.
   it("puts the confirm shorthand in the tools/call _meta", async () => {
     const { requests, fetchImpl } = fakeMcpServer(() => ({
       result: { structuredContent: { ok: true }, isError: false },

@@ -16,6 +16,7 @@ import {
   extractCapabilityRegistrations,
   extractDefineAppObjectBody,
   extractDefineCapabilityArgs,
+  maskCommentsAndStrings,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 
@@ -194,16 +195,19 @@ function collectDestructiveMcpChecks(
   checks.push(
     createCheck(
       "ok",
-      `Destructive MCP tools (${names}) are opted in and back onto a registered approval store.`,
+      `Destructive MCP tools (${names}) are opted in and a setCapabilityApprovalStore() call ` +
+        "exists in the scanned source. The runtime still verifies that the module loaded and a " +
+        "store is registered before serving them.",
     ),
   );
 }
 
 /**
  * Conservative source scan for a store registration, over the directories the
- * project actually configures. It cannot prove the module is imported — only
- * that the app was written to register one — which is why its absence is a
- * warning and the runtime fails closed regardless.
+ * project actually configures. It ignores comments and literals, but cannot
+ * prove the module is imported — only that source contains a call-shaped
+ * registration — which is why its absence is a warning and the runtime fails
+ * closed regardless.
  */
 function scanForApprovalStore(project: ProjectConfig): { found: boolean; searched: string[] } {
   // Deduplicated because the defaults nest (`/src/server` under `/src`) and a
@@ -222,7 +226,8 @@ function scanForApprovalStore(project: ProjectConfig): { found: boolean; searche
     for (const entry of entries) {
       if (!/\.(ts|tsx|js|jsx|mts|mjs)$/.test(entry)) continue;
       try {
-        if (readFileSync(resolve(root, entry), "utf-8").includes("setCapabilityApprovalStore(")) {
+        const source = maskCommentsAndStrings(readFileSync(resolve(root, entry), "utf-8"));
+        if (/\bsetCapabilityApprovalStore\s*\(/.test(source)) {
           return { found: true, searched };
         }
       } catch {

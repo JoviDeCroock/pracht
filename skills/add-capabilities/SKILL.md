@@ -267,11 +267,11 @@ both transports, so the same `{ "ok": false, "status": 400, "errorCode":
 "invalid_input" }` holds either way.
 
 Three MCP limits fail loudly rather than silently: a step for a capability
-without `expose.mcp` (always including destructive ones), a step header other
-than `authorization` (the projection forwards nothing else), and a `confirm`
-round trip — destructive capabilities cannot be served over MCP today, so no
-MCP tool can answer `confirmation_required`. Keep confirmation scenarios on the
-HTTP transport.
+without `expose.mcp`, a step header other than `authorization` (the projection
+forwards nothing else), and a destructive step whose app has not enabled
+`agents.mcp.destructive` with an approval store. For an exposed destructive MCP
+tool, `confirm` completes the same prepare/commit round trip as HTTP; the token
+travels in the call's `_meta["io.pracht/confirmation"]` field.
 
 `createCapabilityTestHost()` from `@pracht/core` covers the same pipeline in
 unit tests without a server.

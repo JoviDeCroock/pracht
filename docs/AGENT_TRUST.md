@@ -1054,15 +1054,14 @@ example):
   status metadata (a non-Pracht server) reports 500 rather than borrowing the
   transport's 200.
 
-  What genuinely does not carry over is the destructive confirmation flow.
-  Destructive capabilities cannot declare `expose.mcp` today, so no MCP tool
-  can answer `confirmation_required` — `confirm` on an MCP step travels in the
-  `tools/call` `_meta` (the slot the projection reads, since MCP has no
-  per-call header channel), but the round trip only becomes exercisable when
-  destructive-over-MCP lands. Until then, run confirmation scenarios over HTTP.
-  A step for any capability the endpoint does not project fails the scenario
-  with the tool name it looked for and what to do about it, rather than passing
-  quietly. `examples/basic/evals/notes-mcp.eval.json` is a working example.
+  Destructive confirmation scenarios carry over too when the app explicitly
+  enables `agents.mcp.destructive`, exposes the capability over MCP, and
+  registers an approval store. `confirm` on an MCP step travels in the
+  `tools/call` `_meta["io.pracht/confirmation"]` field, since MCP has no
+  per-call header channel. A step for any capability the endpoint does not
+  project fails the scenario with the tool name it looked for and what to do
+  about it, rather than passing quietly.
+  `examples/basic/evals/notes-mcp.eval.json` exercises the complete round trip.
 - Output: a human transcript (step, capability, outcome, status, latency,
   denial reasons; MCP scenarios are marked `[mcp]`) or `--json` for CI, where
   each step also carries its `transport`.

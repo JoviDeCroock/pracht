@@ -53,7 +53,7 @@ const GUARANTEES = [
   {
     title: "Destructive is gated, not annotated",
     detail:
-      "A destructive capability cannot be exposed to WebMCP or MCP at all, and its HTTP dispatch is refused until a person approves the proposal.",
+      "A destructive capability cannot be exposed to WebMCP. HTTP and explicitly enabled remote MCP dispatches are refused until the server verifies approval.",
   },
   {
     title: "Identity is verified, not claimed",
