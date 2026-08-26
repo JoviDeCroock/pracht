@@ -176,6 +176,20 @@ export function Script(props: ScriptProps): VNode | null {
   // circuits on the server, where this component renders exactly once.
   const hydrated = useIsHydrationComplete();
 
+  // A streamed beforeHydration script occupies this component's body slot in
+  // the server HTML. Hydration removes that node because the client component
+  // renders nothing, so remember it while it is still present instead of
+  // waiting for the effect below and injecting the script a second time.
+  if (
+    capture === null &&
+    strategy === "beforeHydration" &&
+    key !== null &&
+    !injectedScripts.has(key) &&
+    existsInDocument(props, inline)
+  ) {
+    injectedScripts.add(key);
+  }
+
   useEffect(() => {
     // Server captures never reach effects; this is the client-only path.
     if (!hydrated || key === null) return;
