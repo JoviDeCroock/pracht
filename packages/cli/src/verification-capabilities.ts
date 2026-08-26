@@ -316,7 +316,7 @@ function collectSingleCapabilityChecks(
     projection: McpProjectionConfigScan;
   },
 ): void {
-  const { mcpExposed, destructiveMcpExposed } = graph;
+  const { mcpExposed, destructiveMcpExposed, projection } = graph;
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
   const args = extractDefineCapabilityArgs(source);
   if (!args) {
@@ -453,7 +453,10 @@ function collectSingleCapabilityChecks(
             "not a security boundary. Use expose.http, or expose.mcp with agents.mcp.destructive, " +
             "both gated by the prepare/commit confirmation flow",
         );
-      } else if ((hasHttp || hasMcp) && !process.env.PRACHT_CONFIRMATION_SECRET) {
+      } else if (
+        (hasHttp || (hasMcp && projection.destructive)) &&
+        !process.env.PRACHT_CONFIRMATION_SECRET
+      ) {
         problems.push(
           "is destructive and exposed without PRACHT_CONFIRMATION_SECRET in the " +
             "environment — the prepare/commit confirmation flow needs the secret and the " +

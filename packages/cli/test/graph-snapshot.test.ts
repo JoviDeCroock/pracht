@@ -63,6 +63,13 @@ describe("normalizeGraphSnapshot", () => {
 
     expect(serializeGraphSnapshot(left)).toBe(serializeGraphSnapshot(right));
   });
+
+  it("only serializes the destructive MCP opt-in when it is enabled", () => {
+    expect(JSON.parse(serializeGraphSnapshot(makeSnapshot()))).not.toHaveProperty("mcpDestructive");
+    expect(
+      JSON.parse(serializeGraphSnapshot(makeSnapshot({ mcpDestructive: true }))).mcpDestructive,
+    ).toBe(true);
+  });
 });
 
 describe("diffGraphSnapshots", () => {
@@ -253,6 +260,42 @@ describe("capability diff", () => {
     expect(diff.widensAgentSurface).toBe(true);
     expect(formatPlanText(diff, { base: "origin/main" })).toContain(
       "! mcp endpoint /mcp enabled — declared MCP capabilities are now reachable by agents",
+    );
+  });
+
+  it("flags enabling destructive MCP tools as an agent-surface widening", () => {
+    const capability = makeCapability({
+      effect: "destructive",
+      transports: ["mcp"],
+      httpPath: null,
+    });
+    const base = makeSnapshot({ capabilities: [capability], mcpEndpoint: "/mcp" });
+    const enabled = diffGraphSnapshots(
+      base,
+      makeSnapshot({
+        capabilities: [capability],
+        mcpEndpoint: "/mcp",
+        mcpDestructive: true,
+      }),
+    );
+
+    expect(enabled.mcpDestructiveChange).toEqual({
+      field: "mcpDestructive",
+      from: false,
+      to: true,
+    });
+    expect(enabled.widensAgentSurface).toBe(true);
+    expect(formatPlanText(enabled, { base: "origin/main" })).toContain(
+      "! mcp destructive tools enabled",
+    );
+
+    const disabled = diffGraphSnapshots(
+      makeSnapshot({ mcpEndpoint: "/mcp", mcpDestructive: true }),
+      makeSnapshot({ mcpEndpoint: "/mcp" }),
+    );
+    expect(disabled.widensAgentSurface).toBe(false);
+    expect(formatPlanText(disabled, { base: "origin/main" })).toContain(
+      "- mcp destructive tools disabled",
     );
   });
 

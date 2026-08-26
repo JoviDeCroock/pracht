@@ -45,8 +45,10 @@ do" has a canonical answer that is not the raw code diff.
   `additionalProperties`, a raised or removed bound, including nested ones like
   `input.limit: maximum raised (50 → 5000)`). Narrowings and removals stay quiet.
   Enabling `agents.mcp` is also a widening because it turns every declared
-  `expose.mcp` capability from graph metadata into a remotely served tool; the
-  plan records endpoint enablement, moves, and removal explicitly.
+  `expose.mcp` capability from graph metadata into a remotely served tool.
+  Enabling `agents.mcp.destructive` is a second widening because it makes the
+  declared destructive subset reachable too. The plan records endpoint and
+  destructive-mode changes explicitly.
   When anything widened, `--markdown` puts a callout above the diff instead of
   leaving it to be spotted in the fence.
 

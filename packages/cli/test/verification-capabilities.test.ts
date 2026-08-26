@@ -567,6 +567,23 @@ describe("collectCapabilityChecks", () => {
       );
     });
 
+    it.each([
+      ["does not configure MCP", ""],
+      ["keeps destructive MCP disabled", "  agents: { mcp: { destructive: false } },"],
+    ])("does not require a confirmation secret when the app %s", (_label, appBlock) => {
+      const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+      delete process.env.PRACHT_CONFIRMATION_SECRET;
+      try {
+        const checks: Check[] = [];
+        collectCapabilityChecks(createProject({ capability: DESTRUCTIVE_MCP, appBlock }), checks);
+
+        expect(errorsOf(checks)).toEqual([]);
+        expect(warningsOf(checks)).toContainEqual(expect.stringContaining("expose.mcp"));
+      } finally {
+        if (previous !== undefined) process.env.PRACHT_CONFIRMATION_SECRET = previous;
+      }
+    });
+
     it("warns, and never blocks, when no approval store registration is found", () => {
       const checks = checksFor({ appBlock: "  agents: { mcp: { destructive: true } }," });
       expect(errorsOf(checks)).toEqual([]);

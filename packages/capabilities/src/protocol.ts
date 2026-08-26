@@ -130,14 +130,6 @@ export function findMcpToolNameCollisions(names: readonly string[]): McpToolName
  */
 export const CONFIRMATION_HEADER = "x-pracht-confirm";
 
-/**
- * `_meta` key carrying the same token over remote MCP, which has no per-call
- * header channel. It cannot travel in `arguments`: the token binds a hash of
- * the canonicalized input, so adding it there would invalidate the binding it
- * carries. `_meta` is the protocol's designated extension slot.
- */
-export const MCP_CONFIRMATION_META_KEY = "io.pracht/confirmation";
-
 /** Environment variable holding the confirmation-token HMAC secret. */
 export const CONFIRMATION_SECRET_ENV = "PRACHT_CONFIRMATION_SECRET";
 

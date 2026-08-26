@@ -208,9 +208,10 @@ pracht plan --json --base origin/main
 diff cannot: a new exposure, a destructive capability reclassified out of the
 gate, an `agentPolicy` downgraded from `require`, dropped middleware, a
 loosened input schema (dropped `required`, opened `additionalProperties`, raised
-bound), or newly enabled `agents.mcp`. Report every widening explicitly, with
-the before/after. A stale snapshot makes this useless — `pracht verify` fails
-on staleness, so trust it only when verify passes.
+bound), newly enabled `agents.mcp`, or newly enabled
+`agents.mcp.destructive`. Report every widening explicitly, with the
+before/after. A stale snapshot makes this useless — `pracht verify` fails on
+staleness, so trust it only when verify passes.
 
 ## Step 7: The no-agent-surface case
 

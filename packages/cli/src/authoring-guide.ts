@@ -180,7 +180,7 @@ policy change a human must approve.
 ## Finishing a change
 
 1. \`pracht verify\` passes (and \`pracht build\` if budgets or prerendering are affected).
-2. \`pracht plan --write\` if routes/API/capabilities/constraints changed; commit the snapshot.
+2. \`pracht plan --write\` if routes/API/capabilities/constraints or agent projection settings changed; commit the snapshot.
 3. Run the app's tests (Playwright e2e if present).
 4. Base the PR description on \`pracht report\` output; add the human "why" yourself.
 `;

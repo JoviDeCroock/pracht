@@ -908,9 +908,11 @@ behind an explicit third opt-in.
   relied on for it; the affected-row count every driver reports is used instead.
 - **`agents.mcp.destructive` is the opt-in, and it fails closed.** Absent, the
   projection filters destructive effects exactly as before. Present without a
-  registered approval store, `pracht verify` errors and the endpoint answers a
-  JSON-RPC error rather than serving anything — the one behaviour worse than
-  refusing is quietly serving a replayable commit.
+  registered approval store, `pracht verify` warns and the endpoint answers a
+  JSON-RPC error rather than serving anything — the source scan cannot prove a
+  workspace package did not register the store, so the runtime remains the
+  fail-closed gate. The graph snapshot records this opt-in separately from the
+  endpoint, so `pracht plan` marks enabling destructive tools as a widening.
 - **The confirmation flow moved transports without changing.** MCP has no
   per-call header channel and the token cannot ride in `arguments` (it binds a
   hash of them), so it travels in `_meta["io.pracht/confirmation"]`. The gate,
