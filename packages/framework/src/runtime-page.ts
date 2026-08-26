@@ -16,6 +16,7 @@ import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
+import { stripServerOnlyValues } from "./server-only-strip.ts";
 import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
@@ -521,7 +522,7 @@ async function renderServerDocument<TContext>(
       hydrationState: {
         url: ctx.requestPath,
         routeId: match.route.id ?? "",
-        data: serializedData,
+        data: stripServerOnlyValues(serializedData),
         deferred: pending.map(({ id, path }) => ({ id, path })),
         error: null,
       },
@@ -655,7 +656,11 @@ async function renderServerDocument<TContext>(
       hydrationState: {
         url: ctx.requestPath,
         routeId: match.route.id ?? "",
-        data,
+        // The document already carries whatever a serverOnly() field
+        // rendered into, so the state script carries a placeholder
+        // instead of a second copy. Route-state responses — what a
+        // client-side navigation fetches — keep the real value.
+        data: stripServerOnlyValues(data),
         error: null,
       },
       clientEntryUrl: ctx.options.clientEntryUrl,

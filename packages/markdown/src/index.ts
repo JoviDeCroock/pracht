@@ -106,7 +106,10 @@ function moduleCode<TFrontmatter extends Record<string, unknown>>(
   const metadata = document.compiled.images.map(
     (image) => `__prachtImage${uniqueSources.indexOf(image.source)}`,
   );
-  const lines = [`import { h } from "preact";`];
+  const lines = [
+    `import { h } from "preact";`,
+    `import { serverOnly, StaticHtml } from "@pracht/core";`,
+  ];
   if (imports.length > 0) {
     lines.push(`import { renderMarkdownImages } from "@pracht/markdown/runtime";`, ...imports);
   }
@@ -126,11 +129,29 @@ function moduleCode<TFrontmatter extends Record<string, unknown>>(
   // image metadata are constants, so re-running the marker substitution on
   // every SSR render would repeat the work and defer its validation errors
   // into the middle of a response.
+  //
+  // The markup reaches the page as a server-only loader field rather than as a
+  // module constant the component closes over. Both forms render the same
+  // document, but a constant is part of the route's client chunk, so every
+  // reader downloads the prose twice: once as the HTML they are looking at,
+  // and again as JavaScript. `loader` is stripped from client builds, and
+  // <StaticHtml> adopts the server-rendered subtree instead of hydrating it,
+  // so the browser never needs that second copy. A client-side navigation gets
+  // the markup from the route-state response pracht already fetches for
+  // `head()`.
   lines.push(
     `const __prachtHtml = ${html};`,
     ``,
-    `export function Component() {`,
-    `  return h("div", { class: "pracht-markdown", dangerouslySetInnerHTML: { __html: __prachtHtml } });`,
+    `export function loader() {`,
+    `  return { html: serverOnly(__prachtHtml) };`,
+    `}`,
+    ``,
+    `export function Component({ data }) {`,
+    // No loader data at all is the documented render-without-state path (a
+    // static host whose route-state file is unreachable); an empty boundary is
+    // the honest result there. `data.html` missing from data that does exist
+    // is a bug, and <StaticHtml> names it.
+    `  return h(StaticHtml, { class: "pracht-markdown", html: data ? data.html : "" });`,
     `}`,
   );
   return lines.join("\n");
