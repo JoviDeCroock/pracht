@@ -4,6 +4,7 @@ import {
   diffGraphSnapshots,
   formatPlanMarkdown,
   formatPlanText,
+  GRAPH_SNAPSHOT_VERSION,
   normalizeGraphSnapshot,
   serializeGraphSnapshot,
   type GraphSnapshot,
@@ -30,13 +31,14 @@ function makeRoute(path: string, overrides: Record<string, unknown> = {}) {
 
 function makeSnapshot(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
   return {
-    prachtGraphVersion: 1,
+    prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
     mode: "manifest",
     routes: [],
     api: [],
     capabilities: [],
     mcpEndpoint: null,
     mcpAuthenticated: false,
+    mcpAuth: null,
     constraints: [],
     ...overrides,
   };
@@ -340,6 +342,66 @@ describe("capability diff", () => {
     expect(formatPlanText(disabled, { base: "origin/main" })).toContain(
       "! mcp oauth protection disabled — remote MCP endpoint no longer requires bearer tokens",
     );
+  });
+
+  it("tracks OAuth policy fields and flags guard weakening", () => {
+    const auth = {
+      authorizationServers: ["https://auth.example"],
+      requiredScopes: ["notes.read", "notes.write"],
+      resource: "https://app.example/mcp",
+      scopesSupported: ["notes.read", "notes.write"],
+      verify: "./server/mcp-token.ts",
+    };
+    const base = makeSnapshot({
+      mcpEndpoint: "/mcp",
+      mcpAuthenticated: true,
+      mcpAuth: auth,
+    });
+    const head = makeSnapshot({
+      mcpEndpoint: "/mcp",
+      mcpAuthenticated: true,
+      mcpAuth: {
+        ...auth,
+        authorizationServers: [...auth.authorizationServers, "https://other.example"],
+        requiredScopes: ["notes.read"],
+        resource: "https://api.example/mcp",
+        verify: "./server/other-token.ts",
+      },
+    });
+
+    const diff = diffGraphSnapshots(base, head);
+    expect(diff.mcpAuthChanges.map((change) => change.field)).toEqual([
+      "resource",
+      "authorizationServers",
+      "requiredScopes",
+      "verify",
+    ]);
+    expect(diff.widensAgentSurface).toBe(true);
+    const text = formatPlanText(diff, { base: "origin/main" });
+    expect(text).toContain("! mcp oauth authorizationServers:");
+    expect(text).toContain("! mcp oauth requiredScopes:");
+    expect(text).toContain("~ mcp oauth resource:");
+  });
+
+  it("does not classify adding a required OAuth scope as a widening", () => {
+    const auth = {
+      authorizationServers: ["https://auth.example"],
+      requiredScopes: ["notes.read"],
+      resource: "https://app.example/mcp",
+      scopesSupported: ["notes.read", "notes.write"],
+      verify: "./server/mcp-token.ts",
+    };
+    const diff = diffGraphSnapshots(
+      makeSnapshot({ mcpEndpoint: "/mcp", mcpAuthenticated: true, mcpAuth: auth }),
+      makeSnapshot({
+        mcpEndpoint: "/mcp",
+        mcpAuthenticated: true,
+        mcpAuth: { ...auth, requiredScopes: ["notes.read", "notes.write"] },
+      }),
+    );
+
+    expect(diff.widensAgentSurface).toBe(false);
+    expect(formatPlanText(diff, { base: "origin/main" })).toContain("~ mcp oauth requiredScopes:");
   });
 
   it("flags a capability becoming reachable by remote agents", () => {

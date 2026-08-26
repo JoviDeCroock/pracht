@@ -1013,6 +1013,25 @@ ${extra}        verify: () => import("${verifyPath}"),
     );
   });
 
+  it("rejects the reserved protected-resource metadata path", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      path: "/.well-known/oauth-protected-resource",
+      auth: {
+        resource: "https://app.example.com/.well-known/oauth-protected-resource",
+        authorizationServers: ["https://auth.example.com"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`);
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("reserved OAuth protected-resource metadata path"),
+        status: "error",
+      }),
+    );
+  });
+
   it("errors on a relative resource identifier", () => {
     const checks = runAuthChecks(`  agents: {
     mcp: {

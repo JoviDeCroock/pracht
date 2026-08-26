@@ -43,6 +43,8 @@ interface VercelBuildOutputOptions {
   revalidateToken?: string;
   regions?: VercelRegions;
   root: string;
+  /** Exact runtime-owned paths that must win over Vercel's filesystem layer. */
+  runtimeRoutes?: string[];
   staticAssetRoutes?: string[];
   staticRoutes: string[];
 }
@@ -56,6 +58,7 @@ export function writeVercelBuildOutput({
   revalidateToken = process.env.PRACHT_REVALIDATE_TOKEN || randomBytes(32).toString("hex"),
   regions,
   root,
+  runtimeRoutes = [],
   staticAssetRoutes = [],
   staticRoutes,
 }: VercelBuildOutputOptions): string {
@@ -102,6 +105,7 @@ export function writeVercelBuildOutput({
         functionName,
         headersManifest,
         markdownRoutes,
+        runtimeRoutes,
         staticAssetRoutes,
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
@@ -268,6 +272,7 @@ function createVercelOutputConfig({
   functionName,
   headersManifest,
   markdownRoutes,
+  runtimeRoutes,
   staticAssetRoutes,
   staticRoutes,
   isgRoutes,
@@ -276,6 +281,7 @@ function createVercelOutputConfig({
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
   markdownRoutes: string[];
+  runtimeRoutes: string[];
   staticAssetRoutes: string[];
   isgRoutes: string[];
   staticRoutes: string[];
@@ -314,6 +320,13 @@ function createVercelOutputConfig({
       dest: target,
       methods: ["GET", "HEAD"],
       src: `^${escapeRegex(deployBase.slice(0, -1))}$`,
+    });
+  }
+
+  for (const route of sortStaticRoutes(runtimeRoutes)) {
+    routes.push({
+      dest: target,
+      src: routeToStaticAssetExpression(route),
     });
   }
 

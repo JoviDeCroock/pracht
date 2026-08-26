@@ -1,6 +1,9 @@
 ---
 "@pracht/core": minor
 "@pracht/cli": minor
+"@pracht/adapter-cloudflare": patch
+"@pracht/adapter-netlify": patch
+"@pracht/adapter-node": patch
 ---
 
 Add `agents.mcp.auth`: OAuth 2.0 resource-server metadata and bearer-token
@@ -10,4 +13,6 @@ Configuring it publishes RFC 9728 metadata, challenges unauthenticated requests,
 redirects non-canonical resource URLs before authentication, validates OAuth
 scope syntax, and surfaces the principal from your server-only verifier as
 request-local `context.tokenAuth`. A throwing verifier is logged once while
-still failing closed. Apps that omit `auth` are unchanged.
+still failing closed. Metadata routes take precedence over copied static files,
+and `pracht plan` reports OAuth policy changes. Apps that omit `auth` are
+unchanged.

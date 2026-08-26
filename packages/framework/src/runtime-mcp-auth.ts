@@ -204,7 +204,10 @@ export async function authenticateMcpRequest(options: {
 
   let principal: McpTokenPrincipal | null;
   try {
-    principal = normalizePrincipal(await verifier(token, { request }));
+    // A verifier may inspect the JSON-RPC body for tenant-aware token checks.
+    // Give it an independent stream so consuming that body cannot turn the
+    // later protocol parse into a spurious JSON-RPC parse error.
+    principal = normalizePrincipal(await verifier(token, { request: request.clone() }));
   } catch (error: unknown) {
     // A throwing verifier is a rejection, never an accept. Its message may
     // carry provider internals, so it does not reach the caller.

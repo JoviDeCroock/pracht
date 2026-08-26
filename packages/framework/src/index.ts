@@ -144,6 +144,7 @@ export {
   isValidOAuthScopeToken,
   mcpResourceMetadataPath,
   mcpResourceMetadataUrl,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
   resolveMcpEndpoint,
 } from "./runtime-mcp.ts";
 export type { HandleMcpRequestOptions } from "./runtime-mcp.ts";

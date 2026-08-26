@@ -96,6 +96,31 @@ describe("writeVercelBuildOutput", () => {
     expect(routesJson(withoutMarkdown)).not.toContain("mM][aA][rR][kK]");
   });
 
+  it("routes OAuth metadata to the runtime before static filesystem lookup", () => {
+    const root = createBuildRoot();
+    writeVercelBuildOutput({
+      isgManifest: {},
+      root,
+      runtimeRoutes: [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+      ],
+      staticRoutes: [],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: { dest?: string; handle?: string; src?: string }[];
+    };
+    const filesystemIndex = config.routes.findIndex((route) => route.handle === "filesystem");
+    const metadataRoutes = config.routes.filter(
+      (route) => route.dest === "/render" && route.src?.includes("oauth"),
+    );
+    expect(metadataRoutes).toHaveLength(2);
+    for (const route of metadataRoutes) {
+      expect(config.routes.indexOf(route)).toBeLessThan(filesystemIndex);
+    }
+  });
+
   it("emits configured headers for non-HTML static assets without adding page rewrites", () => {
     const root = createBuildRoot();
 

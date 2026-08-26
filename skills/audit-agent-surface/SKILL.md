@@ -126,6 +126,8 @@ commonly misunderstood line of an app's agent surface.
     RFC 8414 issuer and must be an `error`.
   - `verify` is a **module reference**, not an inline function. An inline
     function ships the token verifier to every browser visitor — `error`.
+    Its `request` argument is an independent clone; reading its body must not
+    consume the JSON-RPC body dispatched afterward.
   - The `verify` module lives under `src/server/`, `src/middleware/`, or
     `src/capabilities/`. Those are the only directories globbed into the module
     registry; a verifier anywhere else is never loadable and every `/mcp`
@@ -146,6 +148,9 @@ commonly misunderstood line of an app's agent surface.
     actually publishes — origin root, base inside the suffix
     (`/.well-known/oauth-protected-resource/app/mcp`) — and fetch it to confirm
     it answers, because a wrong `resource` yields a challenge nobody can follow.
+  - `mcp.path` must not be the reserved bare
+    `/.well-known/oauth-protected-resource` discovery path. Confirm copied
+    static files at either metadata form do not shadow the runtime response.
 - `/.well-known/oauth-protected-resource` is intentionally public and CORS-open.
   It carries only the resource identifier, issuer URLs, and scope names; flag it
   only if a scope name leaks something (internal tenant or customer names).
@@ -284,13 +289,14 @@ diff cannot: a new exposure, a destructive capability reclassified out of the
 gate, an `agentPolicy` downgraded from `require`, dropped middleware, a
 loosened input schema (dropped `required`, opened `additionalProperties`, raised
 bound), newly enabled `agents.mcp`, newly enabled `agents.mcp.destructive` when
-a declared destructive MCP capability actually exists, or OAuth protection
-removed from a still-live MCP endpoint. Enabling the destructive switch in
-advance, with no such tool, is not a widening. The snapshot records the
-authentication bit separately from the endpoint path, so an unchanged `/mcp`
-is not evidence that the guard stayed the same. Report every widening
-explicitly, with the before/after. A stale snapshot makes this useless —
-`pracht verify` fails on staleness, so trust it only when verify passes.
+a declared destructive MCP capability actually exists, OAuth protection
+removed from a still-live MCP endpoint, a removed required scope, or a newly
+trusted authorization server. Enabling the destructive switch in advance,
+with no such tool, is not a widening. The snapshot records the OAuth policy
+separately from the endpoint path, so an unchanged `/mcp` is not evidence that
+the guard stayed the same. Report every widening explicitly, with the
+before/after. A stale snapshot makes this useless — `pracht verify` fails on
+staleness, so trust it only when verify passes.
 
 ## Step 7: The no-agent-surface case
 

@@ -4,6 +4,7 @@ import {
   diffGraphSnapshots,
   formatPlanMarkdown,
   formatPlanText,
+  GRAPH_SNAPSHOT_VERSION,
   GRAPH_SNAPSHOT_PATH,
   readGraphSnapshotFromDisk,
   readRouteBudgets,
@@ -21,13 +22,14 @@ import { handleCliError } from "../utils.js";
 export const DEFAULT_BASE_REF = "origin/main";
 
 const EMPTY_GRAPH: GraphSnapshot = {
-  prachtGraphVersion: 1,
+  prachtGraphVersion: GRAPH_SNAPSHOT_VERSION,
   mode: "manifest",
   routes: [],
   api: [],
   capabilities: [],
   mcpEndpoint: null,
   mcpAuthenticated: false,
+  mcpAuth: null,
   constraints: [],
 };
 

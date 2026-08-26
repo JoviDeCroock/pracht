@@ -362,9 +362,12 @@ alternate host, and query-bearing request to `resource` with `308` before
 challenging or verifying it.
 
 The committed app-graph snapshot records whether the endpoint is OAuth
-protected. `pracht plan` reports enabling protection and marks removing it from
-a still-live endpoint as a guard weakening, so the trust-boundary change cannot
-hide behind an unchanged `/mcp` path.
+protected and its resource, authorization servers, required and advertised
+scopes, and verifier module. `pracht plan` reports policy changes as well as
+enabling protection. Removing a required scope, trusting another authorization
+server, or removing auth from a still-live endpoint is marked as a guard
+weakening, so the trust-boundary change cannot hide behind an unchanged `/mcp`
+path.
 
 ### The metadata document
 
@@ -409,8 +412,10 @@ base onto the well-known path is tolerated too. When `agents.mcp.path` is `/`,
 the resource is the deployed app root itself (`https://app.example.com/app` for
 that same base).
 
-Because the match happens before routing, an application route cannot shadow the
-document. Rename `resource` (and with it the endpoint) if you need that path.
+Because the match happens before routing and production-adapter static lookup,
+neither an application route nor a copied static file can shadow the document
+on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and
+cannot be used as `agents.mcp.path`; choose another endpoint path instead.
 
 ### The challenge
 
@@ -476,6 +481,9 @@ that is not a principal with a non-empty string `subject` all produce the same
 `401 invalid_token`. A thrown error's message never reaches the caller (it may
 carry provider internals); it is logged once. A `verify` module that cannot be
 loaded at all answers 401 for every request rather than serving tools unguarded.
+The verifier's second argument contains an independent `request` clone. It may
+inspect headers, URL, or even read the JSON-RPC body without consuming the body
+the MCP dispatcher reads afterward.
 
 ### The verified principal
 

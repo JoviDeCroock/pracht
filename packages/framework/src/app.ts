@@ -22,9 +22,14 @@ import type {
   PrachtAgentsConfig,
 } from "./types.ts";
 import { isValidCapabilityHttpPath } from "@pracht/capabilities";
+import { withBase } from "./base.ts";
 import { isValidOAuthScopeToken } from "./mcp-config.ts";
 import { formatUnknownNameError } from "./name-suggestions.ts";
-import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
+import {
+  NOT_FOUND_ROUTE_ID,
+  NOT_FOUND_ROUTE_PATH,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+} from "./runtime-constants.ts";
 import {
   matchResolvedRoute,
   matchRouteSegments,
@@ -576,6 +581,11 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
   // the metadata URL from it. Pointing it at a path the app does not serve
   // yields tokens no request can ever present.
   const endpoint = (mcp.path ?? "/mcp").replace(/\/$/, "") || "/";
+  if (endpoint === OAUTH_PROTECTED_RESOURCE_WELL_KNOWN) {
+    throw new Error(
+      `${label}.path }) must not use the reserved OAuth protected-resource metadata path ${JSON.stringify(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN)}.`,
+    );
+  }
   const resourcePath = resource.pathname || "/";
   if (resourcePath.length > 1 && resourcePath.endsWith("/")) {
     throw new Error(
@@ -583,11 +593,12 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
         `matched exactly; use the endpoint's canonical path ${JSON.stringify(endpoint)}.`,
     );
   }
-  if (endpoint !== "/" && resourcePath !== endpoint && !resourcePath.endsWith(endpoint)) {
+  const publicEndpoint = withBase(endpoint).replace(/\/$/, "") || "/";
+  if (resourcePath !== publicEndpoint) {
     throw new Error(
       `${label}.resource }) path ${JSON.stringify(resource.pathname)} does not address the MCP ` +
-        `endpoint ${JSON.stringify(endpoint)}. The resource identifier is the token audience; ` +
-        "it must be the endpoint's absolute URL (a deploy base may prefix it).",
+        `endpoint ${JSON.stringify(publicEndpoint)}. The resource identifier is the token audience; ` +
+        "it must be the endpoint's exact absolute public URL, including the configured deploy base.",
     );
   }
 

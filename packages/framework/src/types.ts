@@ -833,7 +833,11 @@ export interface McpTokenPrincipal {
 }
 
 export interface McpTokenVerifyArgs {
-  /** The raw MCP transport request, for issuer/audience or per-tenant checks. */
+  /**
+   * An independent clone of the MCP transport request, for issuer/audience or
+   * per-tenant checks. Reading its body does not consume the JSON-RPC body the
+   * framework dispatches afterward.
+   */
   request: Request;
 }
 
@@ -867,8 +871,9 @@ export interface McpAuthConfig {
   /**
    * Absolute URL identifying this MCP resource — the audience (RFC 8707) tokens
    * must be bound to, and the identifier in the metadata document. No query or
-   * fragment; its path must end with the served MCP endpoint path. Requests for
-   * any other URL are redirected here before authentication.
+   * fragment; its path must exactly match the served MCP endpoint's public path,
+   * including any deploy base. Requests for any other URL are redirected here
+   * before authentication.
    */
   resource: string;
   /** Absolute issuer URLs of the authorization servers that may mint tokens. At least one. */

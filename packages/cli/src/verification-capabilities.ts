@@ -25,7 +25,7 @@ import {
   maskCommentsAndStrings,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
-import { isValidOAuthScopeToken } from "@pracht/core";
+import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
 
 import { extractRegistryEntries } from "./manifest.js";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
@@ -398,7 +398,15 @@ function collectMcpAuthChecks(
       } else {
         const endpoint =
           ((configuredPath as string | undefined) ?? "/mcp").replace(/\/$/, "") || "/";
-        if (
+        if (endpoint === OAUTH_PROTECTED_RESOURCE_WELL_KNOWN) {
+          authIsProvablyValid = false;
+          checks.push(
+            createCheck(
+              "error",
+              `agents.mcp.path must not use the reserved OAuth protected-resource metadata path ${JSON.stringify(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN)}.`,
+            ),
+          );
+        } else if (
           endpoint !== "/" &&
           parsed.pathname !== endpoint &&
           !parsed.pathname.endsWith(endpoint)

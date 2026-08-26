@@ -214,7 +214,7 @@ export const app = defineApp({
 
 `verify` is a module reference, not an inline function, for the same reason capabilities and middleware are: the manifest is bundled into the client, and a token verifier — with its JWKS client and issuer configuration — must never be. `pracht verify` and manifest resolution reject a relative `resource`, a `resource` carrying a query, fragment, or non-root trailing slash, a `resource` whose path does not exactly identify the served endpoint, a non-loopback cleartext URL, an authorization-server issuer with a query or fragment, an empty `authorizationServers`, a scope token outside OAuth's printable-ASCII grammar, and a missing `verify`. HTTP is accepted only on loopback during local development; deployed resource and issuer URLs must use HTTPS. Use the endpoint's canonical URL: `/mcp/` is not an equivalent OAuth resource identifier for `/mcp`, even though routing accepts either spelling. Authenticated endpoints redirect every non-canonical spelling, alternate host, and query-bearing request to `resource` with `308` before challenging or verifying it.
 
-The committed app-graph snapshot records whether the endpoint is OAuth protected. `pracht plan` reports enabling protection and warns when it is removed from a still-live endpoint, even when the `/mcp` path itself did not change.
+The committed app-graph snapshot records whether the endpoint is OAuth protected and its resource, authorization servers, required and advertised scopes, and verifier module. `pracht plan` reports those policy changes as well as enabling protection. Removing a required scope, trusting another authorization server, or removing auth from a still-live endpoint is a guard weakening, even when the `/mcp` path itself did not change.
 
 ### The Metadata Document
 
@@ -243,7 +243,7 @@ https://app.example.com/.well-known/oauth-protected-resource/app/mcp
 
 That is what the challenge advertises and what the runtime serves — the path is matched before base stripping, precisely so the advertised URL is fetchable. Set `resource` to the endpoint's real deployed URL, base included; pracht derives the rest. A reverse proxy that re-prefixes the base onto the well-known path is tolerated too. If `agents.mcp.path` is `/`, the resource is the deployed app root itself (`https://app.example.com/app` in this example).
 
-Because the match happens before routing, an application route cannot shadow the document.
+Because the match happens before routing and production-adapter static lookup, neither an application route nor a copied static file can shadow the document on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and cannot be used as `agents.mcp.path`; choose another endpoint path instead.
 
 ### The Challenge
 
@@ -293,6 +293,8 @@ export default verify;
 `jose` is a documentation choice, not a framework dependency — it runs on Workers and Vercel Edge, which is why the recipe uses it. Any library, or an introspection call to your provider, works the same way.
 
 The hook **fails closed**. Returning `null`, throwing, or returning anything that is not a principal with a non-empty string `subject` all produce the same `401 invalid_token`. A thrown error's message never reaches the caller — it may carry provider internals — and is logged once instead. A `verify` module that cannot be loaded at all answers 401 for every request rather than serving tools unguarded.
+
+The verifier's second argument contains an independent `request` clone. It may inspect headers, URL, or even read the JSON-RPC body without consuming the body the MCP dispatcher reads afterward.
 
 ### The Verified Principal
 

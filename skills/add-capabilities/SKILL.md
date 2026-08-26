@@ -199,7 +199,9 @@ Rules to hold the user to:
 - **It fails closed.** `null`, a throw, or a malformed principal all give
   `401 invalid_token`; a missing required scope gives `403 insufficient_scope`.
   When `requiredScopes` is set, every challenge advertises it so hosts request
-  the right grant on the first authorization attempt.
+  the right grant on the first authorization attempt. The verifier receives an
+  independent request clone, so reading its JSON-RPC body does not consume the
+  body that MCP dispatch reads next.
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
   and `run()` for per-user authorization; the framework only authenticates. It
@@ -211,8 +213,8 @@ Rules to hold the user to:
   event does not carry it yet, so read it in your own audit hook if MCP calls
   must be attributable to an account.
 - `resource` must be the endpoint's **real deployed URL**: absolute, free of
-  query/fragment, free of a non-root trailing slash, and ending with the served
-  endpoint path — deploy base included, e.g.
+  query/fragment, free of a non-root trailing slash, and exactly matching the
+  served endpoint's public path — deploy base included, e.g.
   `https://app.example.com/app/mcp` for an app mounted at `/app/`.
   `resolveApp()` and `pracht verify` reject otherwise. The metadata document
   then lands at the origin root with the base inside the suffix
@@ -223,9 +225,12 @@ Rules to hold the user to:
   exactly this identifier are redirected to it with `308` before token
   verification. Scope values must use OAuth's printable ASCII grammar (no
   spaces, controls, non-ASCII, quotes, or backslashes).
-- `pracht plan` snapshots the OAuth-protection bit separately from the endpoint
-  path. Removing `auth` from a still-live endpoint is a guard weakening even
-  when `/mcp` itself did not move.
+- The bare `/.well-known/oauth-protected-resource` path is reserved for
+  discovery and cannot be used as `mcp.path`. Production adapters route both
+  metadata forms ahead of copied static files.
+- `pracht plan` snapshots the OAuth policy separately from the endpoint path.
+  Removing `auth` or a required scope, or trusting another authorization server,
+  is a guard weakening even when `/mcp` itself did not move.
 
 See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
 

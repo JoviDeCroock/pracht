@@ -11,6 +11,7 @@ import {
   handlePrachtRequest,
   isCacheableISGResponse,
   isDangerousPrerenderHeader,
+  isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
   prefersMarkdown,
@@ -146,6 +147,9 @@ export function createNetlifyHandler<
     if (baseRedirect) return baseRedirect;
     const url = new URL(request.url);
     const routePathname = stripBase(url.pathname);
+    const mcpAuth = options.app.agents?.mcp?.auth;
+    const isMcpMetadataRequest =
+      mcpAuth !== undefined && isMcpResourceMetadataPath(url.pathname, mcpAuth);
 
     if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       return handleNetlifyRevalidation(request, options, isgManifest);
@@ -184,6 +188,7 @@ export function createNetlifyHandler<
     if (
       options.staticDir &&
       staticMethod &&
+      !isMcpMetadataRequest &&
       !routeStateRequest &&
       !wantsMarkdown &&
       pathname !== null &&
@@ -198,6 +203,7 @@ export function createNetlifyHandler<
     const isgRoute =
       pathname !== null &&
       staticMethod &&
+      !isMcpMetadataRequest &&
       !routeStateRequest &&
       !wantsMarkdown &&
       pathname in isgManifest

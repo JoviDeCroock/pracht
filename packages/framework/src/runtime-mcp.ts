@@ -55,6 +55,7 @@ export {
   isValidOAuthScopeToken,
   mcpResourceMetadataPath,
   mcpResourceMetadataUrl,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
   resolveMcpEndpoint,
 } from "./mcp-config.ts";
 import type {

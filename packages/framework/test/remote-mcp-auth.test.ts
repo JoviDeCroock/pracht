@@ -435,6 +435,21 @@ describe("fail-closed verification", () => {
 });
 
 describe("principal surfacing", () => {
+  it("lets the verifier inspect the body without consuming MCP dispatch", async () => {
+    let verifiedBody: unknown;
+    const { status, json } = await call(toolsCall, {
+      headers: { authorization: "Bearer good" },
+      verify: async (_token, { request }) => {
+        verifiedBody = await request.json();
+        return { subject: "user-1" };
+      },
+    });
+
+    expect(verifiedBody).toEqual(toolsCall);
+    expect(status).toBe(200);
+    expect(json?.result?.structuredContent).toEqual({ subject: "user-1" });
+  });
+
   it("surfaces the verified principal as context.tokenAuth", async () => {
     const { status, json } = await call(toolsCall, { headers: { authorization: "Bearer good" } });
 
@@ -640,12 +655,9 @@ describe("manifest validation", () => {
     expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/mcp` }, "/agent/mcp")).toThrow(
       /does not address the MCP endpoint/,
     );
-    // A deploy base belongs in front of the endpoint path: the resource is the
-    // endpoint's real deployed URL, base included. RFC 9728 then puts the
-    // document at the origin root with the base inside the suffix.
-    expect(
-      build({ ...BASE_AUTH, resource: `${ORIGIN}/app/agent/mcp` }, "/agent/mcp"),
-    ).not.toThrow();
+    expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/other/agent/mcp` }, "/agent/mcp")).toThrow(
+      /exact absolute public URL/,
+    );
   });
 
   it("rejects a trailing slash that changes the exact OAuth resource identifier", () => {
@@ -669,8 +681,10 @@ describe("manifest validation", () => {
     );
   });
 
-  it("accepts an MCP root endpoint under a deploy base", () => {
-    expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/app` }, "/")).not.toThrow();
+  it("reserves the OAuth protected-resource metadata path", () => {
+    expect(build(BASE_AUTH, "/.well-known/oauth-protected-resource")).toThrow(
+      /reserved OAuth protected-resource metadata path/,
+    );
   });
 
   it("rejects scope tokens that would break the challenge header", () => {
