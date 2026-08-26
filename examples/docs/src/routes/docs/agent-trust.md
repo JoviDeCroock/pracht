@@ -260,7 +260,7 @@ Every registered sink receives the same frozen snapshot for every dispatch, on e
 | Guarantee | What it means for your sink |
 | --- | --- |
 | Never throws into dispatch | A throwing sink is swallowed. Its first failure is reported via `console.warn`, naming the sink; later failures from that sink stay quiet rather than logging one line per capability call. Warn-once is per sink, so a broken log sink cannot silence a broken metrics sink. |
-| Never awaited | The hook returns `void`. Returning a promise is fine and the runtime does not wait for it, so an async exporter adds no latency — but an unhandled rejection is yours to catch. |
+| Never awaited | The hook is invoked synchronously, so keep work before its return or first `await` cheap. A returned promise is not awaited; its asynchronous continuation does not add dispatch latency, but an unhandled rejection is yours to catch. |
 | Runs everywhere | No Node-only APIs, so the same sink works on Node, Workers, Vercel, and Netlify. |
 
 **Cloudflare Workers caveat.** Work started inside a sink but unfinished when the response is returned may be cancelled once the request context ends. Pracht does not call `ctx.waitUntil()` for you — it holds no handle on your sink's promises. A batching exporter must either flush within the request or be handed the execution context by your own code, for example `context.executionContext.waitUntil(exporter.flush())` from a middleware or API route.
@@ -326,7 +326,7 @@ const stopOtel = addCapabilityAuditListener("otel", (event) => {
     attributes: { ...attributes, "http.response.status_code": event.status },
     startTime: end - event.durationMs,
   });
-  if (event.outcome !== "ok") {
+  if (event.status >= 400) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: event.outcome });
   }
   span.end(end);

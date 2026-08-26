@@ -278,9 +278,10 @@ custom server entry — anywhere that runs before the first request.
 
 Key properties to state when scaffolding this:
 
-- Sinks are never awaited and a throwing sink is swallowed (first failure per
-  sink reported via `console.warn`, naming it), so an exporter cannot fail or
-  slow a capability call.
+- Sinks are invoked synchronously, so keep work before the callback returns or
+  reaches its first `await` cheap. A returned promise is never awaited, and a
+  synchronous throw is swallowed (first failure per sink reported via
+  `console.warn`, naming it), so a broken exporter cannot fail the call.
 - **Always pass a stable name** as the first argument. Registering the same
   name again replaces that sink, which is what keeps a module-scope call safe
   under dev HMR: Vite re-executes importers on every save, so an unkeyed
@@ -353,7 +354,8 @@ before wiring a paid backend.
    third-party SaaS. The same applies to audit events: log the capability
    name, effect, transport, outcome, and agent domain — not the capability's
    input, which is application data.
-6. Never make an audit sink block: no `await` the runtime would have to wait
-   on, no synchronous network call. The contract is fire-and-forget.
+6. Keep the synchronous part of an audit sink cheap: no CPU-heavy work or
+   synchronous network call. Returned promises are fire-and-forget; the runtime
+   does not await them or catch their rejections.
 
 $ARGUMENTS

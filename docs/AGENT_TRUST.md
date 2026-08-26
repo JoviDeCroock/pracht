@@ -562,9 +562,10 @@ every transport. The contract for all of them:
   from that sink stay quiet rather than emitting one line per capability call.
   Warn-once is tracked per sink, so a broken log sink cannot silence a broken
   metrics sink.
-- **Never awaited.** The hook signature returns `void`. Returning a promise is
-  allowed and the runtime does not wait for it, so an async exporter cannot add
-  latency to a capability call — but it also means an unhandled rejection is
+- **Never awaited.** The hook is invoked synchronously, so keep the work it does
+  before returning (or before its first `await`) cheap. The hook signature
+  returns `void`; a returned promise is not awaited, so its asynchronous
+  continuation does not add dispatch latency, but an unhandled rejection is
   yours to catch.
 - **Runs everywhere.** No Node-only APIs are involved, so the same sink works
   on Workers, Vercel, Netlify, and Node.
@@ -645,7 +646,7 @@ const stopOtel = addCapabilityAuditListener("otel", (event) => {
     attributes: { ...attributes, "http.response.status_code": event.status },
     startTime: end - event.durationMs,
   });
-  if (event.outcome !== "ok") {
+  if (event.status >= 400) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: event.outcome });
   }
   span.end(end);

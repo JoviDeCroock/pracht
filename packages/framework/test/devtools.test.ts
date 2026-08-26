@@ -470,6 +470,31 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).toContain("<td>destructive</td>\n        <td>—</td>");
   });
 
+  it("renders successful middleware short-circuits as successes", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "middleware_204",
+            status: 204,
+            durationMs: 1,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(`<td class="ok">middleware_204 (204)</td>`);
+    expect(html).not.toContain(`<td class="err">middleware_204 (204)</td>`);
+  });
+
   it("says how many older events the ring buffer dropped", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: {

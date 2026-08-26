@@ -147,7 +147,7 @@ ${capabilityRows}
         <td>${escapeHtml(formatTransport(event))}</td>
         <td>${escapeHtml(event.effect)}</td>
         <td>${escapeHtml(formatAgent(event.agent))}</td>
-        <td class="${event.outcome === "ok" ? "ok" : "err"}">${escapeHtml(formatOutcome(event))}</td>
+        <td class="${event.status < 400 ? "ok" : "err"}">${escapeHtml(formatOutcome(event))}</td>
         <td class="file">${escapeHtml(formatDuration(event.durationMs))}</td>
       </tr>`,
     )

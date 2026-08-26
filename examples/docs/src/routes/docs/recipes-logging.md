@@ -267,14 +267,14 @@ if (import.meta.hot) {
 
 Import the module for its side effect from a middleware, an API route, or a custom server entry — anywhere that runs before the first request. Keep the HMR disposal hook so removing the module or renaming the sink cannot leave a stale listener in the dev server.
 
-Sinks are strictly non-blocking: they are never awaited, and a sink that throws is swallowed (the first failure is reported once via `console.warn`). On Cloudflare Workers, a batching exporter must flush within the request or be handed the execution context by your own code — pracht does not call `ctx.waitUntil()` on a sink's behalf.
+Sinks are invoked synchronously, so keep work before the callback returns or reaches its first `await` cheap. A returned promise is never awaited, and a sink that throws synchronously is swallowed (the first failure is reported once via `console.warn`). On Cloudflare Workers, a batching exporter must flush within the request or be handed the execution context by your own code — pracht does not call `ctx.waitUntil()` on a sink's behalf.
 
 The three metrics worth deriving from these events:
 
 | Metric | Derivation | What it tells you |
 | --- | --- | --- |
 | Activation | Count verified identities, MCP, WebMCP, and MCP-caused composition; keep unverified HTTP separate | Whether attributable agents are visiting, without counting human forms and browser clients as agents |
-| Task completion | Ratio of `outcome === "ok"` per `capability` | Whether they can finish what they came for |
+| Task completion | Ratio of `status < 400` per `capability` | Whether they can finish what they came for, including successful middleware short-circuits |
 | Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
 
 In development, the same events are already collected for you: the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.
