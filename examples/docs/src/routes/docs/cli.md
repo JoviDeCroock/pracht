@@ -190,11 +190,19 @@ pracht inspect                 # all targets
 pracht inspect routes
 pracht inspect api
 pracht inspect capabilities
+pracht inspect agents
 pracht inspect build
 pracht inspect all --json
 ```
 
-Targets are `routes`, `api`, `capabilities`, `build`, and `all`. The `build`
+Targets are `routes`, `api`, `capabilities`, `agents`, `build`, and `all`. The
+`agents` target summarizes the configured agent surface rather than one graph
+slice: the Web Bot Auth policy and trusted keys, the destructive-confirmation
+mode, whether remote MCP and `llms.txt` are enabled, and which capabilities are
+exposed on which transports (with capabilities that have no `expose` config
+counted as `private`). It also flags capabilities that set `expose.mcp` while
+the manifest leaves `agents.mcp` unconfigured — exposure recorded in the graph
+that nothing serves. The `build`
 target reports the adapter, client entry, and asset manifests and is most useful
 after `pracht build`; the other targets evaluate the live Vite app graph. Use
 `--json` for stable machine-readable output. Unknown targets and graph-loading

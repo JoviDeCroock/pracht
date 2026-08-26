@@ -233,3 +233,44 @@ export const POST = withRequestLogging(async ({ request, context }) => {
 ```
 
 Multiple wrappers compose: `withRequestLogging(withAuth(handler))`.
+
+---
+
+## Agent Traffic
+
+Request logging covers pages and API routes. Capability dispatches get their own structured event — one per call, on every transport, including nested `invokeCapability()` composition — so agent traffic is observable without instrumenting each capability.
+
+```ts [src/server/audit.ts]
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+addCapabilityAuditListener((event) => {
+  console.log(
+    JSON.stringify({
+      msg: "capability",
+      at: new Date().toISOString(),
+      capability: event.capability,
+      effect: event.effect,
+      transport: event.transport, // "http" | "webmcp" | "mcp" | "server"
+      via: event.via, // causal transport for nested dispatches
+      outcome: event.outcome, // "ok" or the envelope error code
+      status: event.status,
+      durationMs: Math.round(event.durationMs),
+      agent: event.agent?.agentDomain ?? null,
+    }),
+  );
+});
+```
+
+Import the module for its side effect from a middleware, an API route, or a custom server entry — anywhere that runs before the first request.
+
+Sinks are strictly non-blocking: they are never awaited, and a sink that throws is swallowed (the first failure is reported once via `console.warn`). On Cloudflare Workers, a batching exporter must flush within the request or be handed the execution context by your own code — pracht does not call `ctx.waitUntil()` on a sink's behalf.
+
+The three metrics worth deriving from these events:
+
+| Metric | Derivation | What it tells you |
+| --- | --- | --- |
+| Activation | Count of events by `transport` | Whether agents are visiting at all, and over which surface |
+| Task completion | Ratio of `outcome === "ok"` per `capability` | Whether they can finish what they came for |
+| Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
+
+In development, the same events are already collected for you: the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.

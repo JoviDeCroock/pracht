@@ -46,6 +46,7 @@ describe("pracht MCP server", () => {
       "generate_route",
       "generate_shell",
       "get_docs",
+      "inspect_agents",
       "inspect_api",
       "inspect_build",
       "inspect_capabilities",

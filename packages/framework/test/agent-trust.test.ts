@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
 import {
+  addCapabilityAuditListener,
+  clearCapabilityAuditListeners,
   defineApp,
   handlePrachtRequest,
   resolveApp,
@@ -87,6 +89,7 @@ afterEach(() => {
   setServerEnv(undefined);
   clearConsumedConfirmationTokens();
   setCapabilityAuditHook(null);
+  clearCapabilityAuditListeners();
 });
 
 // ---------------------------------------------------------------------------
@@ -427,6 +430,7 @@ describe("agent policy and audit", () => {
   });
 
   it("also invokes the onCapabilityAudit runtime option and survives hook errors", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     setCapabilityAuditHook(() => {
       throw new Error("hook exploded");
     });
@@ -443,6 +447,65 @@ describe("agent policy and audit", () => {
     expect(response.status).toBe(200);
     expect(events).toHaveLength(1);
     expect(events[0].outcome).toBe("ok");
+    // A broken sink is swallowed but not silent.
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining("capability audit hook threw and was ignored"),
+    );
+    consoleWarn.mockRestore();
+  });
+
+  it("fans out to every additive listener alongside the single-slot hook", async () => {
+    // A real app ships more than one sink (structured logs *and* metrics); the
+    // single-slot setter alone would silently drop all but the last.
+    const slot: CapabilityAuditEvent[] = [];
+    const first: CapabilityAuditEvent[] = [];
+    const second: CapabilityAuditEvent[] = [];
+    setCapabilityAuditHook((event) => slot.push(event));
+    addCapabilityAuditListener((event) => first.push(event));
+    addCapabilityAuditListener((event) => second.push(event));
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+
+    expect(slot).toHaveLength(1);
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(first[0]).toBe(slot[0]);
+  });
+
+  it("stops delivering after unsubscribe", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    const unsubscribe = addCapabilityAuditListener((event) => events.push(event));
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+    expect(events).toHaveLength(1);
+
+    unsubscribe();
+    unsubscribe(); // idempotent
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "y" }) });
+    expect(events).toHaveLength(1);
+  });
+
+  it("keeps a throwing listener from breaking dispatch or the other sinks", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const survivors: CapabilityAuditEvent[] = [];
+    addCapabilityAuditListener(() => {
+      throw new Error("sink exploded");
+    });
+    addCapabilityAuditListener((event) => survivors.push(event));
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: postPurge({ titlePrefix: "x" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, data: { purged: 1 } });
+    expect(survivors).toHaveLength(1);
+    consoleWarn.mockRestore();
   });
 });
 

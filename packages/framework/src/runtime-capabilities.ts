@@ -424,9 +424,38 @@ async function responseMatchesEnvelope(
 // style as `setActiveCapabilityHost`/`setIslandsClientEntryUrl`.
 let capabilityAuditHook: CapabilityAuditHook | null = null;
 
+// The single-slot setter below is the original API and stays single-slot:
+// calling it twice replaces the hook. Real apps ship more than one sink
+// (structured logs *and* metrics, plus whatever the framework's own dev
+// tooling attaches), and silently dropping one of them is the wrong default,
+// so additive subscribers get their own registry with an unsubscribe handle.
+const capabilityAuditListeners = new Set<CapabilityAuditHook>();
+
 export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
   capabilityAuditHook = hook;
 }
+
+/**
+ * Register an additional audit sink without displacing an existing one.
+ * Returns an unsubscribe function; registering the same function twice is a
+ * no-op (Set semantics), and unsubscribing twice is safe.
+ */
+export function addCapabilityAuditListener(hook: CapabilityAuditHook): () => void {
+  capabilityAuditListeners.add(hook);
+  return () => {
+    capabilityAuditListeners.delete(hook);
+  };
+}
+
+/** Test/teardown helper — drops every additive listener. */
+export function clearCapabilityAuditListeners(): void {
+  capabilityAuditListeners.clear();
+}
+
+// A sink that throws on every dispatch would otherwise flood the log with one
+// line per capability call. Report the first failure loudly and stay quiet
+// afterwards, matching `shouldExposeServerErrors`'s warn-once stance.
+let warnedAboutFailingAuditHook = false;
 
 /** Audit hooks observe; they must never break a request. */
 function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAuditHook): void {
@@ -434,12 +463,21 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
     ...event,
     agent: snapshotAgentIdentity(event.agent),
   });
-  for (const hook of [capabilityAuditHook, extra]) {
+  for (const hook of [capabilityAuditHook, ...capabilityAuditListeners, extra]) {
     if (!hook) continue;
     try {
       hook(snapshot);
-    } catch {
-      // Deliberately swallowed.
+    } catch (error: unknown) {
+      // Swallowed on purpose: an observer must not fail a capability call.
+      // Surfaced once so a broken sink is not invisible.
+      if (!warnedAboutFailingAuditHook) {
+        warnedAboutFailingAuditHook = true;
+        console.warn(
+          `[pracht] A capability audit hook threw and was ignored: ${
+            error instanceof Error ? error.message : String(error)
+          }. Audit hooks must never throw; further failures are not reported.`,
+        );
+      }
     }
   }
 }

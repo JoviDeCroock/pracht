@@ -110,7 +110,9 @@ export type {
 export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export {
+  addCapabilityAuditListener,
   capabilityHttpPath,
+  clearCapabilityAuditListeners,
   invokeCapability,
   matchCapabilityRoute,
   resolveAppCapabilities,

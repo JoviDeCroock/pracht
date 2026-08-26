@@ -1,6 +1,6 @@
 ---
 name: audit-agent-surface
-version: 1.0.1
+version: 1.0.2
 description: |
   Inventory what agents can reach in a pracht app — capability exposure (HTTP,
   WebMCP, remote MCP), `agents` trust config, the destructive-confirmation gate,
@@ -32,25 +32,37 @@ auditing the opt-outs:
 
 This skill reports; it never mutates. Prerequisites: `pracht inspect` needs a
 vite config registering the pracht plugin. If the pracht MCP server is
-registered (see `docs/MCP.md`), prefer its tools (`inspect_capabilities`,
-`inspect_routes`, `inspect_api`, `doctor`, `verify`) over shelling out.
+registered (see `docs/MCP.md`), prefer its tools (`inspect_agents`,
+`inspect_capabilities`, `inspect_routes`, `inspect_api`, `doctor`, `verify`)
+over shelling out.
 
 ## Step 1: Inventory the declared surface
 
 ```bash
+pracht inspect agents --json         # the whole configured surface in one call
 pracht inspect capabilities --json   # name, effect, transports, HTTP path, middleware, schemas
 pracht inspect routes --json         # markdown negotiation, hydration, middleware
 pracht inspect api --json
 pracht verify --json                 # contract, exposure, and projection checks
 ```
 
+`inspect agents` is the fastest way in: it reports `webBotAuth`
+(policy/keys/directories), `confirmation` (mode/ttl/singleUse), `mcp`
+(enabled + endpoint), `llmsTxt`, a per-capability row (name, effect,
+`agentPolicy`, transports, HTTP path), and `exposure` counts per transport with
+unexposed capabilities counted as `private`. Use `inspect capabilities` when
+you also need the input/output schemas or the middleware chain.
+
 Build the inventory table: capability → effect → transports → HTTP path →
 middleware → `agentPolicy`. A capability reported as `unreadable` means
 `@pracht/capabilities` is not installed; treat it as an `error` and stop
 reasoning about its policy until it loads.
 
-Read the manifest's `agents` block and record which of `webBotAuth`,
-`confirmation`, and `mcp` are configured, plus the MCP endpoint path.
+Cross-check `inspect agents` against the manifest's `agents` block. A
+manifest that builds its config in a separate variable still resolves
+correctly here (the report reads the resolved app, not the source text), but
+`llmsTxt` is detected by a text probe of the vite config and can read as `off`
+for an app that computes the option — verify it by hand when it matters.
 
 ## Step 2: Exposure vs. intent
 
@@ -114,8 +126,18 @@ For every exposed capability, ask whether the exposure is deliberate:
   uniqueness, and the default covered components (`@authority`,
   `signature-agent`) bind a signature to a host, not to a method, path, or body.
   Treat a verified identity as authentication, not per-request authorization.
-- Confirm an audit hook exists (`setCapabilityAuditHook()` or
-  `onCapabilityAudit`) — without one there is no record of who called what.
+- Confirm an audit sink exists (`setCapabilityAuditHook()`,
+  `addCapabilityAuditListener()`, or `onCapabilityAudit`) — without one there
+  is no record of who called what. Grep for all three; `setCapabilityAuditHook`
+  is a single slot, so two calls to it mean one sink is silently dead — report
+  that as a `warn` and point at `addCapabilityAuditListener()`.
+- To see the surface actually being exercised rather than merely declared, run
+  the app with `pracht dev`, drive the capability, and read the **Agents**
+  section of `/_pracht` (JSON under `agentTraffic` at `/_pracht.json`). It
+  records transport, `via` for nested composition, verified identity, outcome
+  code, and duration for the last 200 dispatches — useful for proving a guard
+  actually fires. It is dev-only and empty under adapter-owned dev servers
+  (Cloudflare `workerd`).
 
 ## Step 5: The discovery surface
 
@@ -181,7 +203,8 @@ Severities:
   session; approval store on a backend without conditional writes.
 - `warn` — auth-gated route advertised in `llms.txt`; `expose.mcp` with no
   `agents.mcp`; exposed capability with no named middleware; unbounded output
-  (no `limit`/`maximum`); no audit hook; `singleUse` treated as durable.
+  (no `limit`/`maximum`); no audit sink; a second `setCapabilityAuditHook()`
+  call silently replacing the first; `singleUse` treated as durable.
 - `info` — exposure that is intentional and guarded, recorded so the reviewer
   sees the whole surface in one place; framework gaps that are deployment
   responsibilities (rate limiting, write idempotency, result-size limits).

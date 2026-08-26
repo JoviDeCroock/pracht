@@ -237,6 +237,124 @@ auditing can neither rewrite trusted request identity nor break a request.
 
 A capability that calls `invokeCapability()` produces a second event with `transport: "server"` and `via` set to the transport of the request it ran under, so an effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }` rather than looking like an ordinary loader call. `via` is `null` for top-level dispatches and outside a served request.
 
+### Registering More Than One Sink
+
+`setCapabilityAuditHook()` is a single slot — calling it twice replaces the hook. An app that wants both structured logs and metrics uses `addCapabilityAuditListener()`, which composes and returns an unsubscribe handle:
+
+```ts [src/server/audit.ts]
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+const stop = addCapabilityAuditListener((event) => metrics.record(event));
+```
+
+Every registered sink receives the same frozen snapshot for every dispatch, on every transport. The contract for all of them:
+
+| Guarantee | What it means for your sink |
+| --- | --- |
+| Never throws into dispatch | A throwing sink is swallowed. The first failure is reported once via `console.warn` so it is not silent; later failures stay quiet rather than logging one line per capability call. |
+| Never awaited | The hook returns `void`. Returning a promise is fine and the runtime does not wait for it, so an async exporter adds no latency — but an unhandled rejection is yours to catch. |
+| Runs everywhere | No Node-only APIs, so the same sink works on Node, Workers, Vercel, and Netlify. |
+
+**Cloudflare Workers caveat.** Work started inside a sink but unfinished when the response is returned may be cancelled once the request context ends. Pracht does not call `ctx.waitUntil()` for you — it holds no handle on your sink's promises. A batching exporter must either flush within the request or be handed the execution context by your own code, for example `context.executionContext.waitUntil(exporter.flush())` from a middleware or API route.
+
+### Production Recipes
+
+A plain structured log is the whole loop for most apps — one line per dispatch, queryable by capability, transport, and outcome:
+
+```ts [src/server/audit.ts]
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+addCapabilityAuditListener((event) => {
+  // Synchronous and allocation-light: safe on every runtime.
+  console.log(
+    JSON.stringify({
+      msg: "capability",
+      at: new Date().toISOString(),
+      capability: event.capability,
+      effect: event.effect,
+      transport: event.transport,
+      via: event.via,
+      outcome: event.outcome,
+      status: event.status,
+      durationMs: Math.round(event.durationMs),
+      agent: event.agent?.agentDomain ?? null,
+    }),
+  );
+});
+```
+
+The OpenTelemetry version records the metrics that actually answer "is the agent surface working?" — dispatch count by transport (activation), and the schema and authorization failure rates:
+
+```ts [src/server/audit-otel.ts]
+import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+const meter = metrics.getMeter("pracht.capabilities");
+const dispatches = meter.createCounter("pracht.capability.dispatches");
+const duration = meter.createHistogram("pracht.capability.duration", { unit: "ms" });
+const tracer = trace.getTracer("pracht.capabilities");
+
+addCapabilityAuditListener((event) => {
+  const attributes = {
+    "pracht.capability": event.capability,
+    "pracht.effect": event.effect,
+    "pracht.transport": event.transport,
+    "pracht.via": event.via ?? "none",
+    "pracht.outcome": event.outcome,
+    "pracht.agent": event.agent?.agentDomain ?? "unverified",
+  };
+
+  dispatches.add(1, attributes);
+  duration.record(event.durationMs, attributes);
+
+  // The dispatch already finished, so the span is backdated to its real start
+  // rather than wrapping work that is still running.
+  const end = Date.now();
+  const span = tracer.startSpan(`capability ${event.capability}`, {
+    attributes: { ...attributes, "http.response.status_code": event.status },
+    startTime: end - event.durationMs,
+  });
+  if (event.outcome !== "ok") {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: event.outcome });
+  }
+  span.end(end);
+});
+```
+
+Both modules are server-only and imported for their side effect from a middleware, an API route, or a custom server entry — anywhere that runs before the first request is served. See [Logging and observability](/docs/recipes-logging) for the surrounding request-level tracing setup.
+
+### Watching Agent Traffic In Dev
+
+`pracht dev` keeps the last 200 audit events in memory and renders them as the **Agents** section of the `/_pracht` devtools page — timestamp, capability, transport, effect, verified agent, outcome with error code, and duration, one row per dispatch, newest first. Nested composition shows both ends of the causal chain (`http → server`).
+
+The same data is available as machine-readable JSON at `/_pracht.json`:
+
+```json
+{
+  "agentTraffic": {
+    "limit": 200,
+    "recorded": 3,
+    "events": [
+      {
+        "at": 1787718593323,
+        "capability": "notes.search",
+        "effect": "read",
+        "transport": "mcp",
+        "via": null,
+        "outcome": "ok",
+        "status": 200,
+        "durationMs": 0.28,
+        "agent": null
+      }
+    ]
+  }
+}
+```
+
+`recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. It is also empty under adapter-owned dev servers such as Cloudflare `workerd`, which do not route through the dev SSR middleware.
+
+To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect).
+
 ### Remote MCP Composition Is Guarded
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.

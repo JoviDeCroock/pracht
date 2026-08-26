@@ -33,7 +33,43 @@ export type {
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 
-export function buildDevtoolsHtml(graph: AppGraph, options: { base?: string } = {}): string {
+/**
+ * One recorded capability dispatch, as the dev devtools show it. A flattened
+ * projection of `CapabilityAuditEvent` plus the wall-clock time the dev server
+ * observed it — the audit event itself carries no timestamp, because a
+ * production sink stamps events with its own clock.
+ */
+export interface AgentTrafficEvent {
+  /** Unix milliseconds, stamped when the dev server recorded the dispatch. */
+  at: number;
+  capability: string;
+  effect: string;
+  /** `"http" | "server" | "webmcp" | "mcp"` — how the dispatch arrived. */
+  transport: string;
+  /** Causal transport for nested `invokeCapability()` dispatches, else `null`. */
+  via: string | null;
+  /** `"ok"` or the envelope error code. */
+  outcome: string;
+  status: number;
+  durationMs: number;
+  /** Verified agent identity, `null` when unsigned or Web Bot Auth is off. */
+  agent: { agentDomain: string | null; keyId: string } | null;
+}
+
+/** The `agentTraffic` field of `/_pracht.json`. */
+export interface DevtoolsAgentTraffic {
+  /** Ring-buffer capacity — older events past this count are dropped. */
+  limit: number;
+  /** Total dispatches observed since the dev server started; survives eviction. */
+  recorded: number;
+  /** Newest first, at most `limit` entries. */
+  events: AgentTrafficEvent[];
+}
+
+export function buildDevtoolsHtml(
+  graph: AppGraph,
+  options: { base?: string; agentTraffic?: DevtoolsAgentTraffic } = {},
+): string {
   const base = options.base ?? "/";
   const routeRows = graph.routes
     .map(
@@ -91,6 +127,39 @@ export function buildDevtoolsHtml(graph: AppGraph, options: { base?: string } = 
 ${capabilityRows}
       </tbody>
     </table>`
+      : "";
+
+  const trafficRows = (options.agentTraffic?.events ?? [])
+    .map(
+      (event) => `<tr>
+        <td class="file">${escapeHtml(formatEventTime(event.at))}</td>
+        <td>${escapeHtml(event.capability)}</td>
+        <td>${escapeHtml(formatTransport(event))}</td>
+        <td>${escapeHtml(event.effect)}</td>
+        <td>${escapeHtml(formatAgent(event.agent))}</td>
+        <td class="${event.outcome === "ok" ? "ok" : "err"}">${escapeHtml(formatOutcome(event))}</td>
+        <td class="file">${escapeHtml(formatDuration(event.durationMs))}</td>
+      </tr>`,
+    )
+    .join("\n");
+
+  // Same rule as the capabilities table: an app with no capabilities has no
+  // agent surface to observe, so its devtools page stays byte-for-byte
+  // unchanged. Once capabilities exist the section is always present — an
+  // empty traffic log is itself the answer to "are agents calling this?".
+  const agentsSection =
+    (graph.capabilities ?? []).length > 0
+      ? `<h2>Agents${agentTrafficCaption(options.agentTraffic)}</h2>
+    ${
+      trafficRows === ""
+        ? `<p class="empty">No capability dispatches recorded yet. Call a capability over HTTP, WebMCP, or MCP and reload.</p>`
+        : `<table>
+      <thead><tr><th>Time</th><th>Capability</th><th>Transport</th><th>Effect</th><th>Agent</th><th>Outcome</th><th>Duration</th></tr></thead>
+      <tbody>
+${trafficRows}
+      </tbody>
+    </table>`
+    }`
       : "";
 
   const apiSection =
@@ -180,6 +249,12 @@ ${apiRows}
     .file {
       color: #888;
     }
+    .ok {
+      color: #8ce99a;
+    }
+    .err {
+      color: #ffa8a8;
+    }
     .empty {
       font-size: 13px;
       color: #888;
@@ -210,15 +285,61 @@ ${notFoundRow}
     </table>
     ${apiSection}
     ${capabilitiesSection}
+    ${agentsSection}
     <div class="hint">
       Raw JSON at <a href="${escapeHtml(withDevBase(DEVTOOLS_JSON_PATH, base))}">${DEVTOOLS_JSON_PATH}</a> ·
-      same data as <code>pracht inspect --json</code> ·
+      same graph as <code>pracht inspect --json</code>, plus a dev-only
+      <code>agentTraffic</code> log ·
+      configured agent surface: <code>pracht inspect agents</code> ·
       per-request middleware/loader/render timings are on the <code>Server-Timing</code>
       response header in the browser Network panel.
     </div>
   </div>
 </body>
 </html>`;
+}
+
+/**
+ * `12 of 200 · 3 dropped` — the dropped count matters: a reader who only sees
+ * the tail of a busy log should know the log is a tail.
+ */
+function agentTrafficCaption(traffic: DevtoolsAgentTraffic | undefined): string {
+  if (!traffic || traffic.recorded === 0) return "";
+  const dropped = Math.max(0, traffic.recorded - traffic.events.length);
+  const suffix = dropped > 0 ? ` · ${dropped} older dropped` : "";
+  return escapeHtml(
+    ` — ${traffic.recorded} dispatch${traffic.recorded === 1 ? "" : "es"}${suffix}`,
+  );
+}
+
+/** `HH:MM:SS.mmm` in UTC — stable across locales and trivially testable. */
+function formatEventTime(at: number): string {
+  return new Date(at).toISOString().slice(11, 23);
+}
+
+/**
+ * A nested dispatch is rendered as `http → server`: the transport the request
+ * arrived on, then the composed dispatch it caused.
+ */
+function formatTransport(event: AgentTrafficEvent): string {
+  return event.via ? `${event.via} → ${event.transport}` : event.transport;
+}
+
+/**
+ * In-process dispatch is routinely sub-millisecond; rounding those to `0ms`
+ * reads as "not measured" rather than "fast".
+ */
+function formatDuration(durationMs: number): string {
+  return durationMs < 1 ? "<1ms" : `${Math.round(durationMs)}ms`;
+}
+
+function formatOutcome(event: AgentTrafficEvent): string {
+  return `${event.outcome} (${event.status})`;
+}
+
+function formatAgent(agent: AgentTrafficEvent["agent"]): string {
+  if (!agent) return "—";
+  return agent.agentDomain ?? agent.keyId;
 }
 
 function routeLinkHtml(route: AppGraphRoute, base: string): string {

@@ -214,6 +214,153 @@ describe("buildDevtoolsHtml", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Agent traffic panel
+// ---------------------------------------------------------------------------
+
+const capabilityGraphFixture: AppGraph = {
+  ...graphFixture,
+  capabilities: [
+    {
+      agentPolicy: null,
+      description: null,
+      effect: "read",
+      hasUi: false,
+      httpPath: "/api/capabilities/notes/search",
+      input: null,
+      middleware: [],
+      name: "notes.search",
+      output: null,
+      source: "./capabilities/notes-search.ts",
+      title: null,
+      transports: ["http"],
+    },
+  ],
+};
+
+describe("buildDevtoolsHtml — agent traffic", () => {
+  it("omits the Agents section for an app with no capabilities", () => {
+    const html = buildDevtoolsHtml(graphFixture, {
+      agentTraffic: { limit: 200, recorded: 0, events: [] },
+    });
+
+    expect(html).not.toContain("<h2>Agents");
+  });
+
+  it("shows an empty state once capabilities exist but nothing has been called", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: { limit: 200, recorded: 0, events: [] },
+    });
+
+    expect(html).toContain("<h2>Agents</h2>");
+    expect(html).toContain("No capability dispatches recorded yet.");
+  });
+
+  it("renders one row per dispatch with transport, agent, outcome and duration", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 2,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "mcp",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 4.2,
+            agent: { agentDomain: "agent.example", keyId: "kid-1" },
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 14, 0),
+            capability: "notes.purge",
+            effect: "destructive",
+            transport: "server",
+            via: "http",
+            outcome: "confirmation_required",
+            status: 409,
+            durationMs: 11,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 2 dispatches</h2>");
+    expect(html).toContain("09:30:15.250");
+    expect(html).toContain("agent.example");
+    expect(html).toContain(`<td class="ok">ok (200)</td>`);
+    expect(html).toContain("4ms");
+    expect(html).toContain("11ms");
+    // Nested composition names the transport it was composed under.
+    expect(html).toContain("http → server");
+    expect(html).toContain(`<td class="err">confirmation_required (409)</td>`);
+    // No verified identity renders as the em dash the other tables use.
+    expect(html).toContain("<td>destructive</td>\n        <td>—</td>");
+  });
+
+  it("says how many older events the ring buffer dropped", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 1,
+        recorded: 5,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 0.4,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 5 dispatches · 4 older dropped</h2>");
+    // Sub-millisecond in-process dispatch must not round to a misleading 0ms.
+    expect(html).toContain("&lt;1ms");
+  });
+
+  it("escapes capability and agent values", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "<script>alert(1)</script>",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: { agentDomain: "<img onerror=x>", keyId: "kid" },
+          },
+        ],
+      },
+    });
+
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("&lt;img onerror=x&gt;");
+  });
+
+  it("renders unchanged when no traffic is supplied at all", () => {
+    expect(buildDevtoolsHtml(capabilityGraphFixture)).toContain("<h2>Agents</h2>");
+    expect(buildDevtoolsHtml(capabilityGraphFixture)).toContain(
+      "No capability dispatches recorded yet.",
+    );
+  });
+});
+
 describe("buildAppGraph", () => {
   it("fails a strict API graph read with the route, file, and original module error", async () => {
     await expect(

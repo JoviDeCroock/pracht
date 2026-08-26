@@ -628,10 +628,19 @@ The capability graph feeds every existing inspection surface:
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
   path, middleware, source, plus the input/output JSON Schemas in `--json`
   output;
-- the `/_pracht` devtools page gains a Capabilities table (dev only, rendered
-  only when capabilities exist);
-- the `pracht mcp` server exposes an `inspect_capabilities` tool;
+- `pracht inspect agents [--json]` rolls the same graph up against
+  `defineApp({ agents })` — Web Bot Auth policy and keys, confirmation mode,
+  remote MCP endpoint, `llms.txt`, and per-transport exposure counts;
+- the `/_pracht` devtools page gains a Capabilities table and an Agents traffic
+  log (dev only, rendered only when capabilities exist);
+- the `pracht mcp` server exposes `inspect_capabilities` and `inspect_agents`
+  tools;
 - `pracht verify` runs the static contract checks described above.
+
+Those are all *static* views. To see whether agents are actually calling the
+surface — and whether their calls succeed — read the audit events: the dev
+Agents panel in `/_pracht`, or a production sink registered with
+`addCapabilityAuditListener()`. See [AGENT_TRUST](AGENT_TRUST.md).
 
 ## Testing agent flows
 

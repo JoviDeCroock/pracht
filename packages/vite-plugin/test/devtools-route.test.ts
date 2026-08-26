@@ -166,6 +166,14 @@ describe("dev middleware /_pracht devtools route", () => {
         path: "/api/health",
       },
     ]);
+    // Dev-only live state, merged on top of the static graph that `pracht
+    // inspect --json` shares. Present and empty for an app that has served no
+    // capability calls.
+    expect((graph as unknown as { agentTraffic: unknown }).agentTraffic).toEqual({
+      limit: 200,
+      recorded: 0,
+      events: [],
+    });
   });
 
   it("warns once and lets devtools win when an app route collides in dev", async () => {

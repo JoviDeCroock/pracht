@@ -103,10 +103,10 @@ The prompts cover the target directory, hosting adapter (Node.js, Cloudflare Wor
 
 The starter gives you:
 
-- `pracht dev` — local SSR + HMR, a `/_pracht` devtools page with the resolved route/API graph (JSON at `/_pracht.json`), and `Server-Timing` middleware/loader/render phase timings on every dev SSR response
+- `pracht dev` — local SSR + HMR, a `/_pracht` devtools page with the resolved route/API graph plus a live agent-traffic log of capability dispatches (JSON at `/_pracht.json`), and `Server-Timing` middleware/loader/render phase timings on every dev SSR response
 - `pracht build` — client/server output plus SSG/ISG prerendering, with `--analyze` for a per-route client JS report and budget enforcement
 - `pracht preview` — build and serve the production build locally
-- `pracht inspect [routes|api|capabilities|build] --json` — resolved app graph metadata
+- `pracht inspect [routes|api|capabilities|agents|build] --json` — resolved app graph metadata; `agents` summarizes the configured agent surface (transports, policies, MCP, llms.txt)
 - `pracht generate route|shell|middleware|api` — framework-native scaffolding; `generate route` also emits a Playwright smoke test when the app has an e2e setup
 - `pracht verify` — fast framework-aware checks with `--changed` and `--json`, including `defineApp({ constraints })` enforcement and app-graph snapshot freshness
 - `pracht plan` — semantic app-graph diff against a base git ref (`--write` refreshes the committed `.pracht/app-graph.json` snapshot; `--markdown` for PR comments)
