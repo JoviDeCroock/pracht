@@ -237,11 +237,17 @@ A scenario targets the HTTP projection by default; set scenario-level
 `"transport": "mcp"` to run the same steps over the app's remote MCP endpoint
 (`initialize` handshake, then one `tools/call` per step, tool names mapped
 `notes.search` → `notes_search`). Write one of each for any capability with
-`expose.mcp` — passing over HTTP does not prove an MCP host can reach it. Over
-MCP, `expect.status` is the JSON-RPC POST status (200 for any answered call),
-so assert `errorCode` instead; steps for capabilities without `expose.mcp`
-(always including destructive ones) fail the scenario with an explicit message
-rather than passing.
+`expose.mcp` — passing over HTTP does not prove an MCP host can reach it.
+Expectations are portable: `expect.status` is the capability dispatch status on
+both transports, so the same `{ "ok": false, "status": 400, "errorCode":
+"invalid_input" }` holds either way.
+
+Three MCP limits fail loudly rather than silently: a step for a capability
+without `expose.mcp` (always including destructive ones), a step header other
+than `authorization` (the projection forwards nothing else), and a `confirm`
+round trip — destructive capabilities cannot be served over MCP today, so no
+MCP tool can answer `confirmation_required`. Keep confirmation scenarios on the
+HTTP transport.
 
 `createCapabilityTestHost()` from `@pracht/core` covers the same pipeline in
 unit tests without a server.

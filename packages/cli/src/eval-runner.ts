@@ -20,7 +20,7 @@
  *       {
  *         "capability": "notes.search",       // or "path": "/api/custom"
  *         "input": { "query": "roadmap" },
- *         "confirm": "$steps[0].error.confirmationToken",  // sets the confirmation header
+ *         "confirm": "$steps[0].error.confirmationToken",  // HTTP: confirmation header
  *         "expect": { "ok": true, "errorCode": "...", "status": 200,
  *                     "output": { "notes": [] } }  // subset match
  *       }
@@ -38,15 +38,25 @@
  * signs the JSON-RPC POSTs, so an agent-identity policy is exercisable on
  * either transport.
  *
+ * What MCP cannot do yet: the destructive prepare/commit flow. Destructive
+ * capabilities are refused `expose.mcp` at registration and filtered at serve
+ * time, so no MCP tool can answer `confirmation_required`. `confirm` is still
+ * carried in the `tools/call` `_meta` — the slot the projection reads — so the
+ * client half is ready for the destructive-over-MCP opt-in; until then those
+ * scenarios belong on the HTTP transport. Step `headers` are likewise limited
+ * to `authorization` over MCP, the only header the projection forwards.
+ *
  * Reference syntax: a string value that is exactly `$steps[<index>].<path>`
  * is replaced with that value from an earlier step's result. The root object
  * per step is `{ status, ok, data, error }` — e.g.
  * `$steps[0].error.confirmationToken` or `$steps[1].data.note.id`. MCP steps
- * fill the same shape: `data` is the tool result's `structuredContent` and
- * `error` is its `io.pracht/error` metadata, so expectations are written once
- * and read the same on both transports. The one honest difference is `status`,
- * which always reports the HTTP status of the request that was actually made —
- * a JSON-RPC `tools/call` answers 200 even when the tool reports an error.
+ * fill the same shape: `data` is the tool result's `structuredContent`,
+ * `error` is its `io.pracht/error` metadata, and `status` is the capability
+ * dispatch status the projection reports in `io.pracht/status` — *not* the
+ * JSON-RPC POST status, which is 200 for every answered `tools/call` and would
+ * make `"status": 200` pass on a failed call. Expectations are therefore
+ * written once and mean the same thing on both transports; the raw transport
+ * status stays available as `$steps[n].transportStatus`.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -59,6 +69,8 @@ import {
   MCP_ERROR_META_KEY,
   MCP_LATEST_PROTOCOL_VERSION,
   MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSIONS,
+  MCP_STATUS_META_KEY,
   mcpToolName,
 } from "@pracht/capabilities";
 import { createAgentSignatureHeaders, type AgentSigningJwk } from "@pracht/core/agent-auth";
@@ -85,11 +97,21 @@ export interface EvalStep {
   /** Custom HTTP path override (for `expose.http.path` capabilities). */
   path?: string;
   input?: unknown;
+  /**
+   * Extra request headers. Over MCP only `authorization` is accepted: the
+   * projection synthesizes the capability request and copies nothing else, so
+   * any other header would silently never reach the capability.
+   */
   headers?: Record<string, string>;
   /**
    * Confirmation token for committing a destructive capability — usually a
    * `$steps[n].error.confirmationToken` reference. Sets the confirmation
    * header without spelling out the header name.
+   *
+   * HTTP-only in practice: destructive capabilities cannot declare
+   * `expose.mcp` today, so no MCP tool can answer `confirmation_required`. The
+   * MCP side is wired (the token travels in the `tools/call` `_meta`) for when
+   * that opt-in lands.
    */
   confirm?: string;
   /**
@@ -131,8 +153,14 @@ export interface EvalStepResult {
   capability: string;
   /** Projection the step was dispatched through. */
   transport: EvalTransport;
-  /** HTTP status of the request that was made (200 for any answered `tools/call`). */
+  /**
+   * Capability dispatch status. Over HTTP that is the response status; over MCP
+   * it is the projection's `io.pracht/status` metadata, so the same expectation
+   * holds on both transports.
+   */
   status: number;
+  /** Status of the request actually made — differs from `status` only over MCP. */
+  transportStatus: number;
   ok: boolean;
   latencyMs: number;
   /** Envelope error code when the step failed at the capability layer. */
@@ -146,6 +174,11 @@ export interface EvalStepResult {
 export interface EvalScenarioResult {
   name: string;
   file: string;
+  /**
+   * Projection the scenario drives. Carried here rather than read off the first
+   * step so a scenario that fails before any step ran still reports it.
+   */
+  transport: EvalTransport;
   ok: boolean;
   steps: EvalStepResult[];
   /** Scenario-level failure (bad file, no URL, network error). */
@@ -325,11 +358,16 @@ export function matchesSubset(actual: unknown, expected: unknown): boolean {
   );
 }
 
+/**
+ * `status` is the *capability dispatch* status on either transport — see
+ * `dispatchFromToolResult()` for how the MCP side derives it. Passing the
+ * JSON-RPC POST status here instead would make `"status": 200` pass on a failed
+ * `tools/call`.
+ */
 export function collectExpectationFailures(
   expect: EvalExpectation | undefined,
   status: number,
   envelope: { ok?: unknown; data?: unknown; error?: { code?: unknown } },
-  transport: EvalTransport = "http",
 ): string[] {
   const failures: string[] = [];
   if (!expect) {
@@ -345,15 +383,7 @@ export function collectExpectationFailures(
     failures.push(`expected ok=${expect.ok}, got ok=${String(envelope.ok)}`);
   }
   if (expect.status !== undefined && status !== expect.status) {
-    failures.push(
-      `expected status ${expect.status}, got ${status}` +
-        // A capability failure is carried *inside* a 200 tools/call response, so
-        // an HTTP-shaped status expectation copied into an MCP scenario would
-        // otherwise fail with no hint about which layer answered.
-        (transport === "mcp"
-          ? ` — over MCP this is the status of the JSON-RPC POST, which is 200 for any answered tools/call. Assert "errorCode" instead.`
-          : ""),
-    );
+    failures.push(`expected status ${expect.status}, got ${status}`);
   }
   if (expect.errorCode !== undefined && envelope.error?.code !== expect.errorCode) {
     failures.push(
@@ -382,8 +412,16 @@ interface EvalEnvelope {
   error?: { code?: unknown } & Record<string, unknown>;
 }
 
+interface DispatchOutcome {
+  /** Capability dispatch status — what `expect.status` asserts on either transport. */
+  status: number;
+  /** Status of the request actually made (identical to `status` over HTTP). */
+  transportStatus: number;
+  envelope: EvalEnvelope;
+}
+
 /** One dispatched step, or a scenario-fatal explanation of why it could not be. */
-type DispatchResult = { status: number; envelope: EvalEnvelope } | { error: string };
+type DispatchResult = DispatchOutcome | { error: string };
 
 export async function runScenario(
   scenario: EvalScenario,
@@ -396,6 +434,7 @@ export async function runScenario(
   const abort = (error: string): EvalScenarioResult => ({
     name: scenario.name,
     file,
+    transport,
     ok: false,
     steps,
     error,
@@ -444,12 +483,13 @@ export async function runScenario(
     if ("error" in dispatched) return abort(dispatched.error);
     const latencyMs = performance.now() - started;
 
-    const { status, envelope } = dispatched;
-    const failures = collectExpectationFailures(step.expect, status, envelope, transport);
+    const { status, transportStatus, envelope } = dispatched;
+    const failures = collectExpectationFailures(step.expect, status, envelope);
     steps.push({
       capability: step.capability,
       transport,
       status,
+      transportStatus,
       ok: envelope.ok === true,
       latencyMs,
       errorCode:
@@ -459,13 +499,14 @@ export async function runScenario(
             ? envelope.error.code
             : null,
       failures,
-      resultForReferences: { status, ...envelope } as Record<string, unknown>,
+      resultForReferences: { status, transportStatus, ...envelope } as Record<string, unknown>,
     });
   }
 
   return {
     name: scenario.name,
     file,
+    transport,
     ok: steps.every((step) => step.failures.length === 0),
     steps,
     error: null,
@@ -505,7 +546,11 @@ async function callHttpCapability(args: {
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(input),
     });
-    return { status: response.status, envelope: (await response.json()) as EvalEnvelope };
+    return {
+      status: response.status,
+      transportStatus: response.status,
+      envelope: (await response.json()) as EvalEnvelope,
+    };
   } catch (error: unknown) {
     return {
       error: `request to ${url} failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -536,8 +581,16 @@ async function signRequestHeaders(
 const MCP_CLIENT_INFO = { name: "pracht-eval", version: "1.0.0" } as const;
 
 /**
- * Headers the MCP projection refuses outright (403), because remote MCP has no
+ * The only step header the MCP projection forwards to the capability. It
+ * synthesizes the inner request itself and copies nothing else, so any other
+ * header would be accepted by the runner and then silently never arrive.
+ */
+const MCP_FORWARDED_HEADER = "authorization";
+
+/**
+ * Headers the MCP endpoint refuses outright (403), because remote MCP has no
  * browser use case and must never be authenticated by an ambient cookie.
+ * Called out separately so the failure explains the 403 rather than the drop.
  */
 const MCP_REFUSED_HEADERS = ["cookie", "origin", "sec-fetch-site"];
 
@@ -604,6 +657,16 @@ async function openMcpSession(
       error: `MCP initialize at ${endpoint} answered without a protocolVersion: ${snippet(response.bodyText)}`,
     };
   }
+  // Adopting whatever came back would make the runner declare a version the
+  // endpoint then rejects on the next request, and the resulting 400 would read
+  // as if the scenario sent a bad header.
+  if (!(MCP_PROTOCOL_VERSIONS as readonly string[]).includes(negotiated)) {
+    return {
+      error:
+        `MCP initialize at ${endpoint} negotiated protocol version ${JSON.stringify(negotiated)}, ` +
+        `which pracht eval does not speak. Supported: ${MCP_PROTOCOL_VERSIONS.join(", ")}.`,
+    };
+  }
   session.protocolVersion = negotiated;
 
   // The spec's post-handshake notification. It carries no id, so the server
@@ -630,15 +693,23 @@ async function callMcpTool(args: {
   const { session, step, index, input, headers, confirmation, sign } = args;
   const toolName = mcpToolName(step.capability);
 
-  const refused = Object.keys(headers).find((name) =>
-    MCP_REFUSED_HEADERS.includes(name.toLowerCase()),
+  // Fail loudly rather than sending a header the projection will drop: a step
+  // whose authorization rides on `x-api-key` would otherwise look like it
+  // tested something it never sent.
+  const unsupported = Object.keys(headers).find(
+    (name) => name.toLowerCase() !== MCP_FORWARDED_HEADER,
   );
-  if (refused) {
+  if (unsupported) {
+    const refused = MCP_REFUSED_HEADERS.includes(unsupported.toLowerCase());
     return {
       error:
-        `step ${index + 1} "${step.capability}" sets the "${refused}" header, which the MCP ` +
-        "endpoint refuses with 403 — remote MCP is never browser-originated and never " +
-        'cookie-authenticated. Drop the header, or run this step with "transport": "http".',
+        `step ${index + 1} "${step.capability}" sets the "${unsupported}" header, which cannot ` +
+        (refused
+          ? "reach the capability over MCP: the endpoint refuses the whole request with 403, " +
+            "because remote MCP is never browser-originated and never cookie-authenticated."
+          : "reach the capability over MCP: the projection synthesizes the capability request " +
+            `and copies only "${MCP_FORWARDED_HEADER}", so the header would silently vanish.`) +
+        ' Drop it, or run this step with "transport": "http".',
     };
   }
 
@@ -678,7 +749,7 @@ async function callMcpTool(args: {
     };
   }
 
-  return { status: response.status, envelope: envelopeFromToolResult(toolName, result) };
+  return dispatchFromToolResult(toolName, result, response.status);
 }
 
 async function mcpRequest(
@@ -695,7 +766,9 @@ async function mcpRequest(
 ): Promise<McpHttpResponse | { error: string }> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
-    accept: "application/json",
+    // Both media types, as the Streamable HTTP transport requires: Pracht's
+    // endpoint is lenient, but a conformant server answers 406 without them.
+    accept: "application/json, text/event-stream",
     ...options.headers,
   };
   if (options.declareProtocolVersion !== false) {
@@ -748,39 +821,73 @@ async function mcpRequest(
 }
 
 /**
- * Envelope view of an MCP tool result, so `expect` means the same thing on both
- * transports: `isError` is the envelope's `ok`, `structuredContent` is its
- * `data`, and the projection's `io.pracht/error` metadata is its `error`.
+ * Envelope + status view of an MCP tool result, so `expect` means the same
+ * thing on both transports: `isError` is the envelope's `ok`,
+ * `structuredContent` is its `data`, and the projection's `io.pracht/error`
+ * metadata is its `error`.
+ *
+ * `status` is the deliberate one. Every answered `tools/call` is HTTP 200, so
+ * reporting the transport status would make `"status": 200` pass on a call that
+ * failed — a silent false green, and the opposite of what the same expectation
+ * does over HTTP. The projection sends the capability's dispatch status in
+ * `io.pracht/status` precisely so a machine caller can recover it; a failed
+ * result without that metadata (a non-Pracht server) reports 500 rather than
+ * borrowing the transport's 200, because "the tool failed" must never satisfy a
+ * success expectation.
  */
-function envelopeFromToolResult(toolName: string, result: Record<string, unknown>): EvalEnvelope {
+function dispatchFromToolResult(
+  toolName: string,
+  result: Record<string, unknown>,
+  transportStatus: number,
+): DispatchOutcome {
+  const meta = asRecord(result._meta);
+
   if (result.isError === true) {
-    const meta = asRecord(result._meta);
+    const metaStatus = meta?.[MCP_STATUS_META_KEY];
+    const status = typeof metaStatus === "number" ? metaStatus : 500;
     const error = asRecord(meta?.[MCP_ERROR_META_KEY]);
     if (error && typeof error.code === "string") {
-      return { ok: false, error: error as EvalEnvelope["error"] };
+      return {
+        status,
+        transportStatus,
+        envelope: { ok: false, error: error as EvalEnvelope["error"] },
+      };
     }
     // A non-Pracht server (or a future projection that drops the metadata)
     // reports errors as prose only; keep the text rather than inventing a code.
     return {
-      ok: false,
-      error: {
-        code: "mcp_tool_error",
-        message: toolResultText(result) || `Tool "${toolName}" reported an error.`,
+      status,
+      transportStatus,
+      envelope: {
+        ok: false,
+        error: {
+          code: "mcp_tool_error",
+          message: toolResultText(result) || `Tool "${toolName}" reported an error.`,
+        },
       },
     };
   }
+
+  // A successful capability dispatch is a 200 on the HTTP projection, and the
+  // projection only attaches `io.pracht/status` to failures.
+  const status =
+    typeof meta?.[MCP_STATUS_META_KEY] === "number" ? (meta[MCP_STATUS_META_KEY] as number) : 200;
 
   // `structuredContent` is what the projection always sends; the text fallback
   // keeps `output` expectations meaningful against a server that only sends
   // the JSON as content.
   if ("structuredContent" in result) {
-    return { ok: true, data: result.structuredContent };
+    return { status, transportStatus, envelope: { ok: true, data: result.structuredContent } };
   }
   const text = toolResultText(result);
   try {
-    return { ok: true, data: text === "" ? undefined : JSON.parse(text) };
+    return {
+      status,
+      transportStatus,
+      envelope: { ok: true, data: text === "" ? undefined : JSON.parse(text) },
+    };
   } catch {
-    return { ok: true, data: text };
+    return { status, transportStatus, envelope: { ok: true, data: text } };
   }
 }
 

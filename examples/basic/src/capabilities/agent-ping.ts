@@ -19,8 +19,12 @@ export default defineCapability({
   },
   effect: "read",
   agentPolicy: "require",
+  // Exposed over both agent transports on purpose: Web Bot Auth is verified
+  // before MCP dispatch, so this is what proves an `agentPolicy: "require"`
+  // capability answers a signed MCP caller and refuses an unsigned one.
   expose: {
     http: true,
+    mcp: true,
   },
   async run() {
     return { pong: true };

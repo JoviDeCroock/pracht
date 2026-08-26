@@ -45,7 +45,8 @@ generated `/llms.txt`:
 - `notes.create` — write, exposed over HTTP and remote MCP
 - `notes.purge` — destructive, HTTP with the prepare/commit confirmation flow
 - `agent.whoami` — read, echoes the verified Web Bot Auth identity
-- `agent.ping` — read, `agentPolicy: "require"` (answers verified agents only)
+- `agent.ping` — read, exposed over HTTP and remote MCP, `agentPolicy: "require"`
+  (answers verified agents only, on either transport)
 
 The destructive flow needs a confirmation secret — without it, `notes.purge`
 fails closed with `confirmation_unavailable`:
@@ -54,7 +55,8 @@ fails closed with `confirmation_unavailable`:
 PRACHT_CONFIRMATION_SECRET=dev-secret pnpm pracht dev
 ```
 
-Try a capability, then run the scripted agent scenario in `evals/`:
+Try a capability, then run the scripted agent scenarios in `evals/` — two over
+the HTTP projection and two (`*-mcp.eval.json`) over the remote MCP endpoint:
 
 ```sh
 curl -s -X POST http://localhost:3000/api/capabilities/notes/search \

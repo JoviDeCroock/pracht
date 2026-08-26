@@ -113,11 +113,11 @@ pnpm pracht eval --url http://localhost:3000
 #
 # PASS  notes agent flow over MCP  [mcp]  (evals/notes-mcp.eval.json)
 #   ✓ 1. notes.search → ok (200)
-#   ✓ 2. notes.search → invalid_input (200)
+#   ✓ 2. notes.search → invalid_input (400)
 #   ✓ 3. notes.create → ok (200)
 ```
 
-The second scenario is the same task run the way an MCP host runs it — one `initialize` handshake, then a `tools/call` per step. Nothing changes but one line in the scenario file: `"transport": "mcp"`.
+The second scenario is the same task run the way an MCP host runs it — one `initialize` handshake, then a `tools/call` per step. Nothing changes but one line in the scenario file: `"transport": "mcp"`. The statuses match the HTTP run because the runner reports the capability's dispatch status, not the JSON-RPC transport's blanket `200`.
 
 Visit [`/notes`](http://localhost:3000/notes) in the browser to see the human projection of the same contracts, and read the [Testing recipe](/docs/recipes/testing) for Vitest, Playwright, and CI patterns — including how to fake the WebMCP API and sign Web Bot Auth requests in tests.
 

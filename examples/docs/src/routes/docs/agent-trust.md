@@ -293,14 +293,15 @@ An `expose.mcp` capability is only proven when an MCP host can actually call it.
     {
       "capability": "notes.search",
       "input": { "query": "" },
-      "expect": { "ok": false, "errorCode": "invalid_input" }
+      // The identical expectation the HTTP scenario writes.
+      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
     }
   ]
 }
 ```
 
-Expectations mean the same thing on both transports: `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, and `errorCode` reads the error metadata the projection attaches to a failed call. `confirm` travels in the call's `_meta` (MCP has no per-call header channel), and a `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests — so an `agentPolicy: "require"` capability is provable over MCP too.
+Expectations mean the same thing on both transports — including `status`. `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, `errorCode` reads the error metadata the projection attaches to a failed call, and `status` is the **capability dispatch status**, which the projection reports alongside the result. It is deliberately not the JSON-RPC POST status: every answered `tools/call` is a transport-level `200`, so asserting that would let `"status": 200` pass on a call that failed. Scenarios stay portable between transports as a result. A `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests, so an `agentPolicy: "require"` capability is provable over MCP too.
 
-Two differences are deliberate. `status` is the status of the request that was actually made, and an answered `tools/call` is `200` even when the tool reports an error — assert `errorCode` instead, which is what the failure message tells you. And a capability the endpoint does not project — anything without `expose.mcp`, which always includes destructive capabilities — fails the scenario with the tool name it looked for and what to do about it, rather than passing quietly.
+Two things do not carry over, and both fail loudly rather than quietly. A capability the endpoint does not project — anything without `expose.mcp` — fails the scenario with the tool name it looked for and what to do about it. And the destructive confirmation flow is not exercisable over MCP yet: destructive capabilities cannot declare `expose.mcp`, so no MCP tool can answer `confirmation_required`. The `confirm` field is wired for the transport (the token rides in the call's `_meta`, since MCP has no per-call header channel), but until destructive-over-MCP lands, run confirmation scenarios over HTTP. Step `headers` are similarly limited: the projection forwards only `authorization`, so any other header on an MCP step fails the scenario instead of silently never arriving.
 
 The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing the full dispatch pipeline with `createCapabilityTestHost()` — including this confirmation flow and simulated agent identities — plus Playwright patterns, faking the WebMCP API, and signing Web Bot Auth requests in tests.

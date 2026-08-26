@@ -210,6 +210,7 @@ export function createPrachtMcpServer(): McpServer {
           results.push({
             file,
             name: file,
+            transport: "http" as const,
             ok: false,
             steps: [],
             error: `could not load scenario: ${error instanceof Error ? error.message : String(error)}`,

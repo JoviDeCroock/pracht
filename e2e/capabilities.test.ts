@@ -17,7 +17,7 @@ const capabilitiesAuthority = new URL(capabilitiesUrl).host;
 //   notes.create — write, expose.http + expose.mcp
 //   notes.purge  — destructive, expose.http (prepare/commit confirmation flow)
 //   agent.whoami — read, expose.http (echoes the Web Bot Auth identity)
-//   agent.ping   — read, expose.http, agentPolicy: "require"
+//   agent.ping   — read, expose.http + expose.mcp, agentPolicy: "require"
 // The app serves the remote MCP projection at /mcp (`agents.mcp`), and the dev
 // server runs with PRACHT_CONFIRMATION_SECRET set (playwright.config.ts).
 
@@ -515,7 +515,7 @@ test("MCP tools/list projects only capabilities that set expose.mcp", async ({ r
   const { body } = await rpc(request, "tools/list");
   const names = body.result.tools.map((tool: { name: string }) => tool.name).sort();
 
-  expect(names).toEqual(["notes_create", "notes_search"]);
+  expect(names).toEqual(["agent_ping", "notes_create", "notes_search"]);
   // Destructive and non-mcp capabilities stay off the agent surface.
   expect(names).not.toContain("notes_purge");
   expect(names).not.toContain("agent_whoami");
@@ -598,8 +598,15 @@ test("pracht eval runs the example scenarios against the dev server", async () =
   // The same notes task over the remote MCP transport: a real initialize
   // handshake plus one tools/call per step, which is the only way to prove the
   // `expose.mcp` capabilities are reachable by an MCP host rather than merely
-  // declared.
+  // declared. Both MCP scenarios assert capability statuses (400 on the
+  // validation step, 401 on the unsigned one) that only hold because the runner
+  // maps `io.pracht/status`; a regression to the transport status makes every
+  // `tools/call` a 200 and fails these scenarios rather than passing quietly.
   expect(stdout).toContain("PASS  notes agent flow over MCP  [mcp]");
+
+  // Web Bot Auth over MCP: the signed caller reaches an `agentPolicy: "require"`
+  // tool and the unsigned one is refused with the 401 envelope.
+  expect(stdout).toContain("PASS  verified agent identity over MCP  [mcp]");
 
   // Asserted on the failure count rather than a scenario total, so adding a
   // scenario does not break this test.

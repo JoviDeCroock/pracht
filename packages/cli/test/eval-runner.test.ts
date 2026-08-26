@@ -35,6 +35,7 @@ function stepResult(overrides: Partial<EvalStepResult> = {}): EvalStepResult {
     capability: "notes.search",
     transport: "http",
     status: 200,
+    transportStatus: 200,
     ok: true,
     latencyMs: 1,
     errorCode: null,
@@ -391,7 +392,7 @@ describe("runScenario over the MCP transport", () => {
     });
   });
 
-  it("reads tool errors as envelope error codes", async () => {
+  it("maps the capability status out of io.pracht/status, not the JSON-RPC 200", async () => {
     const { fetchImpl } = fakeMcpServer(() => ({
       result: {
         content: [{ type: "text", text: "invalid_input: input did not validate" }],
@@ -415,7 +416,8 @@ describe("runScenario over the MCP transport", () => {
           {
             capability: "notes.search",
             input: { query: "" },
-            expect: { ok: false, errorCode: "invalid_input" },
+            // The identical expectation the HTTP scenario writes.
+            expect: { ok: false, status: 400, errorCode: "invalid_input" },
           },
         ],
       },
@@ -425,64 +427,36 @@ describe("runScenario over the MCP transport", () => {
 
     expect(result.ok).toBe(true);
     expect(result.steps[0].ok).toBe(false);
+    expect(result.steps[0].status).toBe(400);
+    // The POST itself was a 200; asserting that as `status` would have made
+    // `expect: { status: 200 }` pass on a failed call.
+    expect(result.steps[0].transportStatus).toBe(200);
     expect(result.steps[0].errorCode).toBe("invalid_input");
     // The reference root keeps the HTTP shape, so `$steps[n].error.*` reads the same.
     expect(result.steps[0].resultForReferences.error).toMatchObject({ code: "invalid_input" });
   });
 
-  it("explains a status expectation written for the HTTP projection", async () => {
+  it("does not let a success status expectation pass on a failed tools/call", async () => {
     const { fetchImpl } = fakeMcpServer(() => ({
       result: {
-        content: [{ type: "text", text: "invalid_input: nope" }],
+        content: [{ type: "text", text: "agent_required: sign this request" }],
         isError: true,
-        _meta: { "io.pracht/error": { code: "invalid_input", message: "nope" } },
+        _meta: {
+          "io.pracht/status": 401,
+          "io.pracht/error": { code: "agent_required", message: "sign this request" },
+        },
       },
     }));
 
     const result = await runScenario(
       {
-        name: "status over mcp",
-        transport: "mcp",
-        steps: [{ capability: "notes.search", expect: { ok: false, status: 400 } }],
-      },
-      "mcp.eval.json",
-      { baseUrl: "http://localhost:3103", fetchImpl },
-    );
-
-    expect(result.ok).toBe(false);
-    expect(result.steps[0].failures[0]).toContain("expected status 400, got 200");
-    expect(result.steps[0].failures[0]).toContain("JSON-RPC POST");
-  });
-
-  it("carries the confirm shorthand in the tools/call _meta", async () => {
-    const { requests, fetchImpl } = fakeMcpServer((_params, index) =>
-      index === 0
-        ? {
-            result: {
-              content: [{ type: "text", text: "confirmation_required" }],
-              isError: true,
-              _meta: {
-                "io.pracht/error": {
-                  code: "confirmation_required",
-                  message: "confirm to continue",
-                  confirmationToken: "tok-mcp",
-                },
-              },
-            },
-          }
-        : { result: { structuredContent: { purged: 1 }, isError: false } },
-    );
-
-    const result = await runScenario(
-      {
-        name: "confirm over mcp",
+        name: "denial over mcp",
         transport: "mcp",
         steps: [
-          { capability: "notes.tidy", expect: { errorCode: "confirmation_required" } },
+          { capability: "agent.ping", expect: { status: 200 } },
           {
-            capability: "notes.tidy",
-            confirm: "$steps[0].error.confirmationToken",
-            expect: { ok: true, output: { purged: 1 } },
+            capability: "agent.ping",
+            expect: { ok: false, status: 401, errorCode: "agent_required" },
           },
         ],
       },
@@ -490,9 +464,56 @@ describe("runScenario over the MCP transport", () => {
       { baseUrl: "http://localhost:3103", fetchImpl },
     );
 
-    expect(result.ok).toBe(true);
-    const commit = requests.at(-1)!;
-    expect(commit.body.params?._meta).toEqual({ "io.pracht/confirmation": "tok-mcp" });
+    expect(result.ok).toBe(false);
+    expect(result.steps[0].failures).toEqual(["expected status 200, got 401"]);
+    // The denial spelled out in full still passes — parity with HTTP.
+    expect(result.steps[1].failures).toEqual([]);
+  });
+
+  it("reports 500 for a tool error that carries no pracht status metadata", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({
+      result: { content: [{ type: "text", text: "boom" }], isError: true },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "foreign server",
+        transport: "mcp",
+        steps: [{ capability: "notes.search", expect: { status: 200 } }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.steps[0].status).toBe(500);
+    expect(result.steps[0].errorCode).toBe("mcp_tool_error");
+    expect(result.ok).toBe(false);
+  });
+
+  // The plumbing only: `confirm` cannot complete a round trip over MCP today,
+  // because destructive capabilities are refused `expose.mcp` at registration
+  // and filtered at serve time, so no MCP tool can answer
+  // `confirmation_required`. This asserts the token reaches the wire in the
+  // slot the projection reads, which is what the destructive-over-MCP opt-in
+  // will need — not that the flow completes.
+  it("puts the confirm shorthand in the tools/call _meta", async () => {
+    const { requests, fetchImpl } = fakeMcpServer(() => ({
+      result: { structuredContent: { ok: true }, isError: false },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "confirm plumbing over mcp",
+        transport: "mcp",
+        steps: [{ capability: "notes.tidy", confirm: "v1.token.signature" }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.error).toBe(null);
+    const call = requests.at(-1)!;
+    expect(call.body.params?._meta).toEqual({ "io.pracht/confirmation": "v1.token.signature" });
   });
 
   it("fails with an actionable message when the endpoint does not serve the tool", async () => {
@@ -584,22 +605,87 @@ describe("runScenario over the MCP transport", () => {
     expect(requests[0].url).toBe("http://localhost:3103/agent/mcp");
   });
 
-  it("refuses step headers the MCP projection would reject", async () => {
-    const { fetchImpl } = fakeMcpServer(() => ({ result: { isError: false } }));
+  it("refuses step headers the MCP projection would drop or reject", async () => {
+    const runWithHeaders = async (headers: Record<string, string>) => {
+      const { requests, fetchImpl } = fakeMcpServer(() => ({
+        result: { structuredContent: {}, isError: false },
+      }));
+      const result = await runScenario(
+        {
+          name: "headers over mcp",
+          transport: "mcp",
+          steps: [{ capability: "notes.search", headers }],
+        },
+        "mcp.eval.json",
+        { baseUrl: "http://localhost:3103", fetchImpl },
+      );
+      return { result, requests };
+    };
+
+    // Refused by the endpoint outright.
+    const cookie = await runWithHeaders({ cookie: "session=abc" });
+    expect(cookie.result.ok).toBe(false);
+    expect(cookie.result.error).toContain('"cookie" header');
+    expect(cookie.result.error).toContain("403");
+
+    // Accepted by the endpoint but never copied into the capability request —
+    // the silent case, which must fail rather than look tested.
+    const apiKey = await runWithHeaders({ "x-api-key": "secret" });
+    expect(apiKey.result.ok).toBe(false);
+    expect(apiKey.result.error).toContain('"x-api-key" header');
+    expect(apiKey.result.error).toContain("copies only");
+    expect(apiKey.result.error).toContain('"transport": "http"');
+
+    // `authorization` is the one header the projection forwards.
+    const authorized = await runWithHeaders({ authorization: "Bearer t" });
+    expect(authorized.result.error).toBe(null);
+    expect(authorized.requests.at(-1)!.headers.authorization).toBe("Bearer t");
+  });
+
+  it("sends the Streamable HTTP accept header on every request", async () => {
+    const { requests, fetchImpl } = fakeMcpServer(() => ({
+      result: { structuredContent: {}, isError: false },
+    }));
+
+    await runScenario(
+      { name: "accept", transport: "mcp", steps: [{ capability: "notes.search" }] },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(requests).toHaveLength(3);
+    for (const request of requests) {
+      expect(request.headers.accept).toBe("application/json, text/event-stream");
+    }
+  });
+
+  it("refuses a negotiated protocol version it does not speak", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({ result: {} }), {
+      negotiatedVersion: "2099-01-01",
+    });
 
     const result = await runScenario(
-      {
-        name: "cookie over mcp",
-        transport: "mcp",
-        steps: [{ capability: "notes.search", headers: { cookie: "session=abc" } }],
-      },
+      { name: "future protocol", transport: "mcp", steps: [{ capability: "notes.search" }] },
       "mcp.eval.json",
       { baseUrl: "http://localhost:3103", fetchImpl },
     );
 
     expect(result.ok).toBe(false);
-    expect(result.error).toContain('"cookie" header');
-    expect(result.error).toContain('"transport": "http"');
+    expect(result.error).toContain('negotiated protocol version "2099-01-01"');
+    expect(result.error).toContain("Supported:");
+  });
+
+  it("reports the scenario transport even when it fails before any step", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({ result: {} }), { initializeStatus: 404 });
+
+    const result = await runScenario(
+      { name: "no mcp", transport: "mcp", steps: [{ capability: "notes.search" }] },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.steps).toHaveLength(0);
+    expect(result.transport).toBe("mcp");
   });
 });
 

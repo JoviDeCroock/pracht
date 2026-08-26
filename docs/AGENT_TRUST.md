@@ -555,10 +555,10 @@ example):
       "capability": "notes.purge",   // name → POST /api/capabilities/notes/purge
       "path": "/api/custom",         // optional override for custom expose.http.path
       "input": { "titlePrefix": "Old" },
-      "confirm": "$steps[0].error.confirmationToken", // sets the confirmation header
+      "confirm": "$steps[0].error.confirmationToken", // HTTP: sets the confirmation header
       "expect": {
         "ok": false,                        // envelope ok flag
-        "status": 409,                      // HTTP status
+        "status": 409,                      // capability dispatch status (both transports)
         "errorCode": "confirmation_required", // envelope error.code
         "output": { "purged": 1 }           // deep subset match on data
       }
@@ -576,7 +576,11 @@ example):
   `$steps[1].data.note.id`. References work anywhere in `input`, `headers`,
   and `confirm`; unresolvable references fail the scenario.
 - **Confirmation flow**: `confirm` sets the confirmation header without
-  spelling out its name; raw `headers` still work for anything else.
+  spelling out its name. Over HTTP, raw `headers` still work for anything else;
+  over MCP only `authorization` is accepted, because the projection synthesizes
+  the capability request and copies nothing else — a step that sets any other
+  header there fails the scenario rather than sending something that never
+  arrives.
 - **Signed agent identity**: a scenario-level `signAs` block signs every step
   as a verified Web Bot Auth agent — the only way to reach a capability that
   declares `agentPolicy: "require"`. Per-step `"sign": false` opts a step out,
@@ -608,26 +612,38 @@ example):
   the example does.
 - **MCP transport**: `"transport": "mcp"` makes the runner speak the protocol
   an MCP host speaks — one `initialize` handshake (the newest advertised
-  protocol version, negotiated down to whatever the server answers), the
+  protocol version, negotiated down to whatever the server answers; a version
+  Pracht does not speak fails the scenario instead of being adopted), the
   `notifications/initialized` follow-up, then every step as a `tools/call`
   against the app's MCP endpoint (`/mcp` unless `mcpPath` says otherwise),
   with the projection's dot→underscore tool naming (`notes.search` →
-  `notes_search`). Expectations keep their meaning: `ok` is the tool result's
-  `isError` inverted, `output` matches its `structuredContent`, and `errorCode`
-  reads the `io.pracht/error` metadata the projection attaches to a failed
-  call. `confirm` travels in the `tools/call` `_meta` rather than a header,
-  because MCP has no per-call header channel. `signAs` signs the JSON-RPC
-  POSTs exactly as it signs HTTP-projection requests, so an agent-identity
-  policy is provable on either transport.
+  `notes_search`). `signAs` signs the JSON-RPC POSTs exactly as it signs
+  HTTP-projection requests, so an agent-identity policy is provable on either
+  transport — `examples/basic/evals/agent-identity-mcp.eval.json` proves both
+  halves of `agentPolicy: "require"` over `tools/call`.
 
-  Two things differ honestly rather than silently. `status` is the status of
-  the request that was actually made, and an answered `tools/call` is a 200
-  even when the tool reports an error — assert `errorCode` instead (the runner
-  says so when a status expectation fails over MCP). And a capability the
-  endpoint does not project — anything without `expose.mcp`, which always
-  includes destructive capabilities — fails the scenario with the tool name it
-  looked for and what to do about it, instead of passing quietly.
-  `examples/basic/evals/notes-mcp.eval.json` is a working example.
+  **Expectations mean the same thing on both transports**, including `status`.
+  `ok` is the tool result's `isError` inverted, `output` matches its
+  `structuredContent`, `errorCode` reads the `io.pracht/error` metadata, and
+  `status` is the *capability dispatch* status the projection reports in
+  `io.pracht/status` — not the JSON-RPC POST status, which is 200 for every
+  answered `tools/call` and would make `"status": 200` pass on a call that
+  failed. A scenario is therefore portable between transports: the same
+  `{ "ok": false, "status": 400, "errorCode": "invalid_input" }` holds over
+  both. The raw transport status remains readable as
+  `$steps[n].transportStatus`, and a failed tool result carrying no Pracht
+  status metadata (a non-Pracht server) reports 500 rather than borrowing the
+  transport's 200.
+
+  What genuinely does not carry over is the destructive confirmation flow.
+  Destructive capabilities cannot declare `expose.mcp` today, so no MCP tool
+  can answer `confirmation_required` — `confirm` on an MCP step travels in the
+  `tools/call` `_meta` (the slot the projection reads, since MCP has no
+  per-call header channel), but the round trip only becomes exercisable when
+  destructive-over-MCP lands. Until then, run confirmation scenarios over HTTP.
+  A step for any capability the endpoint does not project fails the scenario
+  with the tool name it looked for and what to do about it, rather than passing
+  quietly. `examples/basic/evals/notes-mcp.eval.json` is a working example.
 - Output: a human transcript (step, capability, outcome, status, latency,
   denial reasons; MCP scenarios are marked `[mcp]`) or `--json` for CI, where
   each step also carries its `transport`.

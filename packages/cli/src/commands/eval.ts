@@ -182,6 +182,8 @@ async function runEvalFile(
     return {
       name: relative(cwd, file),
       file,
+      // The file never parsed, so its transport is unknown; report the default.
+      transport: "http",
       ok: false,
       steps: [],
       error: `could not load scenario: ${error instanceof Error ? error.message : String(error)}`,
@@ -193,6 +195,7 @@ async function runEvalFile(
     return {
       name: scenario.name,
       file,
+      transport: scenario.transport ?? "http",
       ok: false,
       steps: [],
       error:
@@ -213,7 +216,9 @@ function printTranscript(results: EvalScenarioResult[], cwd: string): void {
     const marker = result.ok && result.error === null ? "PASS" : "FAIL";
     // The transport is worth a line of its own: the same scenario passing over
     // HTTP says nothing about whether an MCP host can reach the capability.
-    const transport = result.steps[0]?.transport === "mcp" ? "  [mcp]" : "";
+    // Read from the scenario result, not its first step — a scenario that fails
+    // during the handshake has no steps and is exactly when this matters.
+    const transport = result.transport === "mcp" ? "  [mcp]" : "";
     console.log(`\n${marker}  ${result.name}${transport}  (${relative(cwd, result.file)})`);
     if (result.error) {
       console.log(`      ${result.error}`);
