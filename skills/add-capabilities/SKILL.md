@@ -1,6 +1,6 @@
 ---
 name: add-capabilities
-version: 1.0.1
+version: 1.0.2
 description: |
   Expose an app operation as a typed pracht capability — one contract projected
   into direct server calls, an HTTP endpoint, a WebMCP page tool, and a remote MCP
@@ -28,8 +28,9 @@ input validation → named middleware chain → run() → output validation
 ```
 
 Registration is opt-in and private by default: no loader or API route is ever
-inferred as a capability, and an app that registers none ships no agent surface
-at all (the build drops ~15 KB gzip of dispatch and verifier code).
+inferred as a capability, and an app that registers none ships no capability
+dispatch surface (the build drops ~15 KB gzip of dispatch and verifier code).
+Other agent-facing surfaces such as `llms.txt` remain independent.
 
 ## Step 1: Decide the contract before writing code
 

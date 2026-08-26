@@ -238,9 +238,10 @@ prefer that over a custom beacon if you've gone the Sentry route.
 ## Step 6: Agent traffic (capability apps only)
 
 Skip when `pracht inspect agents --json` reports an empty `capabilities` list.
-Otherwise the app has an agent surface, and every dispatch already emits a
-structured `CapabilityAuditEvent` — nothing is instrumented per capability, a
-sink just has to be registered.
+That only means there are no capability operations to audit; `llms.txt`, MCP,
+or Web Bot Auth may still expose other agent-facing surfaces. When capabilities
+do exist, every dispatch already emits a structured `CapabilityAuditEvent` —
+nothing is instrumented per capability, a sink just has to be registered.
 
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
@@ -305,9 +306,11 @@ Key properties to state when scaffolding this:
 In dev the same events are already collected: the **Agents** section of
 `/_pracht` shows recent dispatches with transport, `via`, verified identity,
 outcome, and duration, and `/_pracht.json` exposes all of them under
-`agentTraffic`. The page defaults to externally-originated and verified
-dispatches and hides ambiguous first-party `invokeCapability()` composition
-behind a toggle, so the panel's visible count can be lower than the sink's.
+`agentTraffic`. The page counts verified identities, MCP, WebMCP, and
+MCP-caused composition as agent-attributed; shows unverified HTTP separately
+because it may be a person, agent, or other client; and hides ordinary
+first-party `invokeCapability()` composition behind a toggle, so the panel's
+visible count can be lower than the sink's.
 Counts and empty-state conclusions only cover the retained window when older
 events have been dropped. Use it to confirm the sink sees what the panel sees
 before wiring a paid backend.

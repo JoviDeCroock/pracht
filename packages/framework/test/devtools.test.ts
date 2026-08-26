@@ -256,7 +256,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).toContain("No capability dispatches recorded yet.");
   });
 
-  it("hides first-party invokeCapability() composition behind a toggle", () => {
+  it("separates unverified HTTP from agent-attributed and first-party traffic", () => {
     // A composing app's loaders produce far more `server` dispatches than
     // agents produce real ones; leaving them in the default view buries the
     // rows that answer "is anything external calling this?".
@@ -305,7 +305,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     });
 
     expect(html).toContain(
-      "<h2>Agents — 2 agent dispatches (http 1 · server 1) · 1 first-party</h2>",
+      "<h2>Agents — 1 agent-attributed dispatch (server 1) · 1 unverified HTTP · 1 first-party</h2>",
     );
     expect(html).toContain("Show 1 first-party");
     // Only the ambiguous `via: "http"` composition is collapsed.
@@ -338,7 +338,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 1 agent dispatch (mcp 1)</h2>");
+    expect(html).toContain("<h2>Agents — 1 agent-attributed dispatch (mcp 1)</h2>");
     expect(html).not.toContain("first-party");
     expect(html).not.toContain("<input");
   });
@@ -367,7 +367,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 1 agent dispatch (server 1)</h2>");
+    expect(html).toContain("<h2>Agents — 1 agent-attributed dispatch (server 1)</h2>");
     expect(html).not.toContain("first-party");
     expect(html).not.toContain(`<tr class="composed">`);
   });
@@ -393,8 +393,8 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 0 agent dispatches · 1 first-party</h2>");
-    expect(html).toContain("No external agent traffic yet");
+    expect(html).toContain("<h2>Agents — 0 agent-attributed dispatches · 1 first-party</h2>");
+    expect(html).toContain("No agent-attributed traffic yet");
     // The rows are still reachable through the toggle.
     expect(html).toContain("Show 1 first-party");
   });
@@ -420,8 +420,8 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("No external agent traffic in the retained window.");
-    expect(html).toContain("Older dropped dispatches may include external traffic.");
+    expect(html).toContain("No agent-attributed traffic in the retained window.");
+    expect(html).toContain("Older dropped dispatches may include agent traffic.");
     expect(html).not.toContain("every recorded dispatch is this app calling itself");
   });
 
@@ -457,7 +457,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 2 agent dispatches (mcp 1 · server 1)</h2>");
+    expect(html).toContain("<h2>Agents — 2 agent-attributed dispatches (mcp 1 · server 1)</h2>");
     expect(html).toContain("09:30:15.250");
     expect(html).toContain("agent.example");
     expect(html).toContain(`<td class="ok">ok (200)</td>`);
@@ -491,7 +491,10 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 1 agent dispatch (http 1) · 4 older dropped</h2>");
+    expect(html).toContain(
+      "<h2>Agents — 0 agent-attributed dispatches · 1 unverified HTTP · 4 older dropped</h2>",
+    );
+    expect(html).toContain("Unverified HTTP dispatches may be people, agents, or other clients.");
     // Sub-millisecond in-process dispatch must not round to a misleading 0ms.
     expect(html).toContain("&lt;1ms");
   });

@@ -104,6 +104,19 @@ describe("@pracht/cli inspect agents", () => {
     expect(agents.llmsTxt).toEqual({ enabled: false });
   }, 30_000);
 
+  it("does not erase other agent surfaces when no capabilities are registered", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-agents-empty-capabilities-");
+    writeTypedManifestApp(appDir, { agents: true });
+
+    const { stdout } = runCli(["inspect", "agents"], { cwd: appDir });
+
+    expect(stdout).toContain("webBotAuth=on");
+    expect(stdout).toContain("mcp=on  endpoint=/mcp");
+    expect(stdout).toContain("llmsTxt=on");
+    expect(stdout).toContain("No capability operations registered.");
+    expect(stdout).not.toContain("this app exposes no agent surface");
+  }, 30_000);
+
   it("rejects an unknown target and lists the valid ones", () => {
     const appDir = createRepoTempDir("pracht-cli-inspect-agents-unknown-");
     writeTypedManifestApp(appDir, { capabilities: true });

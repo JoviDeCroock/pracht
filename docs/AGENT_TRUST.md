@@ -609,9 +609,10 @@ if (import.meta.hot) {
 }
 ```
 
-The OpenTelemetry version records the framework's proof metrics — activation
-(dispatch count by transport), and the schema/authorization failure rates that
-say whether agents can actually complete a task:
+The OpenTelemetry version records dispatch counts and schema/authorization
+failure rates. Derive agent activation from verified identities, MCP, WebMCP,
+and MCP-caused composition; an unverified HTTP dispatch may instead be a human
+`<Form capability>` submission or browser-client call:
 
 ```ts [src/server/audit-otel.ts]
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
@@ -700,18 +701,16 @@ describe the retained events; once older events have been dropped, the panel
 does not claim whether those older dispatches were external or first-party.
 
 The JSON keeps every recorded dispatch and carries `transport` on each, so
-consumers filter for themselves. The HTML page does not: `transport: "server"`
-is `invokeCapability()`, which any loader or API route can call, and on an app
-whose loaders compose capabilities it is the large majority of rows. The panel
-therefore defaults to dispatches that came from outside the app — every
-non-`server` transport, every verified dispatch, plus `server` dispatches whose
-`via` is `"mcp"`, since that is trusted dispatch state and the effect really was
-agent-caused — and puts the rest behind a "show first-party" toggle with a
-count. An unsigned
-`via: "http"` dispatch does not qualify: a capability host is installed for
-every served request, so an ordinary page loader's composition carries it too.
-A non-null verified agent identity does qualify, including when the agent enters
-through a page or ordinary API route and that composed dispatch is its only row.
+consumers filter for themselves. The HTML page separates three categories:
+verified identities, MCP, WebMCP, and MCP-caused composition are
+**agent-attributed**; top-level unverified HTTP stays visible but is counted
+separately because the same endpoint serves human `<Form capability>` and
+browser-client calls; ordinary `invokeCapability()` composition is hidden
+behind a "show first-party" toggle. An unsigned `via: "http"` dispatch is
+first-party because a capability host is installed for every served request,
+so an ordinary page loader's composition carries it too. A non-null verified
+identity qualifies as agent-attributed, including when the agent enters through
+a page or ordinary API route and that composed dispatch is its only row.
 
 ### What is not audited
 
@@ -757,7 +756,9 @@ resolved configuration, including computed options, rather than a source-text
 guess. Capabilities with no `expose` config count as `private`: reachable only
 through `invokeCapability()`. When capabilities set `expose.mcp` but the
 manifest never configures `agents.mcp`, the report calls out that the exposure
-is recorded and unserved — the same condition `pracht verify` warns about.
+is recorded and unserved — the same condition `pracht verify` warns about. An
+empty capability list means there are no capability operations; it does not
+erase separately reported `llms.txt`, MCP endpoint, or Web Bot Auth surfaces.
 
 ## `pracht eval`: scripted agent-task scenarios
 

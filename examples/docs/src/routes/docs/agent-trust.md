@@ -295,7 +295,7 @@ if (import.meta.hot) {
 }
 ```
 
-The OpenTelemetry version records the metrics that actually answer "is the agent surface working?" — dispatch count by transport (activation), and the schema and authorization failure rates:
+The OpenTelemetry version records dispatch counts and schema/authorization failure rates. Derive agent activation from verified identities, MCP, WebMCP, and MCP-caused composition. An unverified HTTP dispatch may instead be a human `<Form capability>` submission or browser-client call:
 
 ```ts [src/server/audit-otel.ts]
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
@@ -369,7 +369,7 @@ The same data is available as machine-readable JSON at `/_pracht.json`:
 
 `recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. Transport counts and empty-state conclusions only describe the retained events; once older events have been dropped, the panel does not claim whether those older dispatches were external or first-party. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. Under adapter-owned dev servers (Cloudflare `workerd`) that middleware is never registered, so `/_pracht` and `/_pracht.json` do not exist there at all — they 404 rather than answering with an empty log.
 
-The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page does not. `transport: "server"` is `invokeCapability()`, which any loader or API route can call, and on an app whose loaders compose capabilities it is the large majority of rows. The panel therefore defaults to dispatches that came from *outside* the app — every non-`server` transport, verified dispatches, plus `server` dispatches whose `via` is `"mcp"` (trusted dispatch state, so the effect really was agent-caused) — and puts the rest behind a "show first-party" toggle with a count. An unsigned `via: "http"` dispatch does not qualify because an ordinary page loader's composition carries the same provenance. A non-null verified agent identity does qualify, including when the agent enters through a page or ordinary API route and that composed dispatch is its only row.
+The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page separates three categories. Verified identities, MCP, WebMCP, and MCP-caused composition are **agent-attributed**. Top-level unverified HTTP stays visible but is counted separately because the same endpoint serves human `<Form capability>` and browser-client calls. Ordinary `invokeCapability()` composition is hidden behind a "show first-party" toggle. An unsigned `via: "http"` dispatch is first-party because an ordinary page loader's composition carries the same provenance. A non-null verified identity qualifies as agent-attributed, including when the agent enters through a page or ordinary API route and that composed dispatch is its only row.
 
 ### What Is Not Audited
 

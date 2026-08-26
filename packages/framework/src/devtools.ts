@@ -130,8 +130,10 @@ ${capabilityRows}
       : "";
 
   const trafficEvents = options.agentTraffic?.events ?? [];
-  const composedCount = trafficEvents.filter((event) => !isAgentTraffic(event)).length;
-  const agentCount = trafficEvents.length - composedCount;
+  const trafficKinds = trafficEvents.map(classifyAgentTraffic);
+  const agentCount = trafficKinds.filter((kind) => kind === "agent").length;
+  const unverifiedHttpCount = trafficKinds.filter((kind) => kind === "unverified-http").length;
+  const composedCount = trafficKinds.filter((kind) => kind === "first-party").length;
   const droppedCount = Math.max(
     0,
     (options.agentTraffic?.recorded ?? trafficEvents.length) - trafficEvents.length,
@@ -139,7 +141,7 @@ ${capabilityRows}
 
   const trafficRows = trafficEvents
     .map(
-      (event) => `<tr${isAgentTraffic(event) ? "" : ` class="composed"`}>
+      (event) => `<tr${classifyAgentTraffic(event) === "first-party" ? ` class="composed"` : ""}>
         <td class="file">${escapeHtml(formatEventTime(event.at))}</td>
         <td>${escapeHtml(event.capability)}</td>
         <td>${escapeHtml(formatTransport(event))}</td>
@@ -175,18 +177,26 @@ ${trafficRows}
   // empty traffic log is itself the answer to "are agents calling this?".
   const agentsSection =
     (graph.capabilities ?? []).length > 0
-      ? `<h2>Agents${agentTrafficCaption(options.agentTraffic, agentCount, composedCount)}</h2>
+      ? `<h2>Agents${agentTrafficCaption(
+          options.agentTraffic,
+          agentCount,
+          unverifiedHttpCount,
+          composedCount,
+        )}</h2>
     ${
       trafficEvents.length === 0
         ? `<p class="empty">No capability dispatches recorded yet. Call a capability over HTTP, WebMCP, or MCP and reload.</p>`
-        : agentCount === 0
+        : agentCount === 0 && unverifiedHttpCount === 0
           ? `<p class="empty">${
               droppedCount > 0
-                ? "No external agent traffic in the retained window. Older dropped dispatches may include external traffic."
-                : "No external agent traffic yet — every recorded dispatch is this app calling itself."
+                ? "No agent-attributed traffic in the retained window. Older dropped dispatches may include agent traffic."
+                : "No agent-attributed traffic yet — every recorded dispatch is this app calling itself."
             }</p>
     ${trafficTable}`
-          : trafficTable
+          : agentCount === 0
+            ? `<p class="empty">No agent-attributed traffic in the retained window. Unverified HTTP dispatches may be people, agents, or other clients.</p>
+    ${trafficTable}`
+            : trafficTable
     }`
       : "";
 
@@ -352,8 +362,8 @@ ${notFoundRow}
 }
 
 /**
- * Whether a dispatch came from outside the app rather than from the app
- * composing its own capabilities.
+ * Classify a dispatch as agent-attributed, ambiguous unverified HTTP, or the
+ * app composing its own capabilities.
  *
  * `transport: "server"` is `invokeCapability()`, which every loader and API
  * route can call — on a composing app it is the large majority of dispatches
@@ -361,40 +371,54 @@ ${notFoundRow}
  * under a remote MCP request (`via: "mcp"`): that is trusted dispatch state, so
  * the effect really was agent-caused and belongs in the default view.
  *
- * An unsigned `via: "http"` dispatch is deliberately not treated as
- * agent-caused: a capability host is installed for every served request, so an
- * ordinary page loader's composition carries it too. A verified identity does
- * distinguish the request, though, including when an agent enters through a
- * page or ordinary API route and the composed dispatch is its only audit row.
+ * Top-level unsigned HTTP is also ambiguous: Pracht's human `<Form capability>`
+ * and browser client use the same endpoint as an HTTP agent. Keep those rows
+ * visible, but never count them as agent-attributed without a verified identity
+ * or an agent-specific transport marker.
  */
-function isAgentTraffic(event: AgentTrafficEvent): boolean {
-  return event.transport !== "server" || event.via === "mcp" || event.agent !== null;
+type AgentTrafficKind = "agent" | "unverified-http" | "first-party";
+
+function classifyAgentTraffic(event: AgentTrafficEvent): AgentTrafficKind {
+  if (
+    event.agent !== null ||
+    event.transport === "mcp" ||
+    event.transport === "webmcp" ||
+    event.via === "mcp"
+  ) {
+    return "agent";
+  }
+  if (event.transport === "http") return "unverified-http";
+  return "first-party";
 }
 
 /**
- * `— 6 agent dispatches (http 3 · mcp 3) · 8 first-party · 4 older dropped`.
- * The per-transport breakdown is the activation metric in miniature, and the
- * dropped count matters: a reader who only sees the tail of a busy log should
- * know the log is a tail.
+ * `— 3 agent-attributed dispatches (mcp 3) · 3 unverified HTTP · 8 first-party
+ * · 4 older dropped`. The separate unverified count prevents human form and
+ * browser-client calls from masquerading as agent activation, and the dropped
+ * count tells a reader that the visible log is only a tail.
  */
 function agentTrafficCaption(
   traffic: DevtoolsAgentTraffic | undefined,
   agentCount: number,
+  unverifiedHttpCount: number,
   composedCount: number,
 ): string {
   if (!traffic || traffic.recorded === 0) return "";
 
   const byTransport = new Map<string, number>();
   for (const event of traffic.events) {
-    if (!isAgentTraffic(event)) continue;
+    if (classifyAgentTraffic(event) !== "agent") continue;
     byTransport.set(event.transport, (byTransport.get(event.transport) ?? 0) + 1);
   }
   const breakdown = [...byTransport]
     .map(([transport, count]) => `${transport} ${count}`)
     .join(" · ");
 
-  const parts = [`${agentCount} agent dispatch${agentCount === 1 ? "" : "es"}`];
+  const parts = [`${agentCount} agent-attributed dispatch${agentCount === 1 ? "" : "es"}`];
   if (breakdown !== "") parts[0] += ` (${breakdown})`;
+  if (unverifiedHttpCount > 0) {
+    parts.push(`${unverifiedHttpCount} unverified HTTP`);
+  }
   if (composedCount > 0) parts.push(`${composedCount} first-party`);
   const dropped = Math.max(0, traffic.recorded - traffic.events.length);
   if (dropped > 0) parts.push(`${dropped} older dropped`);

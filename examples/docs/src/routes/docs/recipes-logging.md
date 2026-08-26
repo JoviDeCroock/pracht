@@ -273,7 +273,7 @@ The three metrics worth deriving from these events:
 
 | Metric | Derivation | What it tells you |
 | --- | --- | --- |
-| Activation | Count of events by `transport` | Whether agents are visiting at all, and over which surface |
+| Activation | Count verified identities, MCP, WebMCP, and MCP-caused composition; keep unverified HTTP separate | Whether attributable agents are visiting, without counting human forms and browser clients as agents |
 | Task completion | Ratio of `outcome === "ok"` per `capability` | Whether they can finish what they came for |
 | Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
 

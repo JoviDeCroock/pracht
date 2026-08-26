@@ -354,7 +354,7 @@ function printInspectReport(report: InspectReport): void {
     );
 
     if (agents.capabilities.length === 0) {
-      console.log("  No capabilities registered — this app exposes no agent surface.");
+      console.log("  No capability operations registered.");
     } else {
       for (const capability of agents.capabilities) {
         const transports =
