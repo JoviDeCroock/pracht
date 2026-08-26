@@ -72,6 +72,13 @@ with `/index.html` or `/guide` with `/guide/index.html`.
 
 Prerendering runs concurrently (default: 10 parallel renders). Tune it with `pracht({ prerenderConcurrency })` in your Vite config when CI needs more or less parallelism.
 
+With a serverful adapter, an individual SSG/ISG path that returns a non-200
+response is warned about and skipped because the runtime server can still
+answer it. If every attempted SSG/ISG render fails, however, `pracht build`
+exits non-zero instead of producing empty prerender output. A partially
+successful prerender remains valid. Static exports fail on the first failed
+path because they have no runtime fallback.
+
 ---
 
 ## SSR — Server-Side Rendering

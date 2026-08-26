@@ -177,6 +177,68 @@ describe("prerenderApp staticExport", () => {
     expect(pages.every((page) => page.routeState === undefined)).toBe(true);
   });
 
+  it("fails a serverful build instead of producing empty prerender output", async () => {
+    const renderError = new Error("docs transform stub is unavailable");
+    const app = defineApp({
+      routes: [
+        route("/docs", "./routes/docs.tsx", { render: "ssg", hasLoader: true }),
+        route("/account", "./routes/account.tsx", { render: "ssr" }),
+      ],
+    });
+    const brokenRegistry = {
+      routeModules: {
+        "/src/routes/docs.tsx": async () => ({
+          Component: () => h("main", null, "docs"),
+          loader: () => {
+            throw renderError;
+          },
+        }),
+      },
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      await expect(prerenderApp({ app, registry: brokenRegistry })).rejects.toMatchObject({
+        cause: renderError,
+        message: expect.stringMatching(
+          /No SSG\/ISG pages were prerendered: all 1 attempted render returned a non-200 response.*empty prerender output/s,
+        ),
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps successful output when only some serverful prerenders fail", async () => {
+    const app = defineApp({
+      routes: [
+        route("/working", "./routes/working.tsx", { render: "ssg" }),
+        route("/broken", "./routes/broken.tsx", { render: "ssg", hasLoader: true }),
+      ],
+    });
+    const partialRegistry = {
+      routeModules: {
+        "/src/routes/working.tsx": async () => ({
+          Component: () => h("main", null, "working"),
+        }),
+        "/src/routes/broken.tsx": async () => ({
+          Component: () => h("main", null, "broken"),
+          loader: () => {
+            throw new Error("optional page data unavailable");
+          },
+        }),
+      },
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const pages = await prerenderApp({ app, registry: partialRegistry });
+      expect(pages.map((page) => page.path)).toEqual(["/working"]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("fails a static export when a build-time loader redirects", async () => {
     const app = defineApp({
       routes: [route("/old", "./routes/redirect.tsx", { render: "ssg", hasLoader: true })],
