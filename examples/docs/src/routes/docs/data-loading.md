@@ -171,8 +171,11 @@ Three rules:
 - **A deferred value cannot redirect, throw `PrachtHttpError`, or set response
   status or headers.** By the time it settles, the status and headers are
   already sent. Auth belongs in middleware or in the awaited part of the loader.
-- **`head()` and `headers()` see awaited data only.** They run before the
-  render.
+- **`head()` and `headers()` cannot depend on deferred fields.** On a streaming
+  route they run before deferred work settles and receive the same `Deferred`
+  markers as the component. Their argument types keep those markers visible,
+  so keep metadata, status, and cache-header inputs in the awaited part of the
+  loader.
 - **A suspending `<Suspense>` boundary must resolve to exactly one DOM
   element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11
   removes this constraint.

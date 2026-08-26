@@ -40,11 +40,11 @@ export function withHydrationSuspenseTracking<T>(value: T): T {
 /**
  * Install the counter directly.
  *
- * Anything that wraps `options.__e` and needs to see suspensions must call this
- * first: Preact's Suspense handler stops the chain at the first boundary it
- * finds, so a wrapper installed behind it never sees a thrown promise. Ordering
- * used to be implicit — `hydration.ts` ran on import — so the one dev-only
- * caller (`hydration-mismatch.ts`) now asks for it explicitly.
+ * Preact's Suspense handler stops the chain at the first boundary it finds, so
+ * the compat handler must already exist before this tracker is installed, and
+ * any wrapper that also needs to observe suspensions must install after it.
+ * Route and shell modules load before the dev-only mismatch checker asks for
+ * this tracker, preserving that order without pulling compat into every app.
  */
 export function installHydrationSuspenseTracking(): void {
   if (installed) return;

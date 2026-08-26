@@ -156,7 +156,9 @@ early. Do not recommend it for:
 Also mention the tradeoffs when proposing it: a deferred rejection surfaces at
 the read site rather than as an error document (the response is already
 committed at `200`), and streaming needs a `script-src` that allows the
-renderer's inline bootstrap script. Confirm the app uses
+renderer's inline bootstrap script. Route `head()` and `headers()` hooks run
+before deferred work settles, so any data they need must stay awaited. Confirm
+the app uses
 `preact-render-to-string` 6.7 or newer before enabling streaming.
 
 ## Step 4: Propose diffs, then apply on confirmation

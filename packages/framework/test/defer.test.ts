@@ -324,15 +324,13 @@ describe("deferred loader data types", () => {
     };
   }
 
-  type ResolvedData = {
-    product: { name: string };
-    reviews: { id: number }[];
-    summary: { score: number };
-  };
-
-  it("resolves deferred fields for head and headers while preserving component markers", () => {
-    expectTypeOf<HeadArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();
-    expectTypeOf<HeadersArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();
+  it("preserves deferred markers for head, headers, and components", () => {
+    expectTypeOf<HeadArgs<typeof loader>["data"]>().toEqualTypeOf<
+      Awaited<ReturnType<typeof loader>>
+    >();
+    expectTypeOf<HeadersArgs<typeof loader>["data"]>().toEqualTypeOf<
+      Awaited<ReturnType<typeof loader>>
+    >();
     expectTypeOf<RouteComponentProps<typeof loader>["data"]["reviews"]>().toEqualTypeOf<
       Deferred<{ id: number }[]>
     >();
@@ -435,6 +433,48 @@ describe("streaming wire metadata", () => {
   it("does not interpret user objects as deferred metadata", () => {
     const userValue = { "$pracht:defer": "ordinary-data" };
     expect(rehydrateDeferredData(userValue)).toBe(userValue);
+  });
+
+  it("does not invoke accessors while discovering deferred values", () => {
+    let reads = 0;
+    const source = {
+      get reviews() {
+        reads += 1;
+        return defer(Promise.resolve(`reviews-${reads}`));
+      },
+    };
+
+    const { data, pending } = serializeDeferred(source);
+
+    expect(reads).toBe(0);
+    expect(pending).toEqual([]);
+    expect(() => JSON.stringify(data)).toThrow(
+      "Return defer() from an enumerable data property, not from a getter",
+    );
+    expect(reads).toBe(1);
+  });
+
+  it("does not invoke array accessors while discovering deferred values", () => {
+    let reads = 0;
+    const source: unknown[] = [];
+    Object.defineProperty(source, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads += 1;
+        return defer(Promise.resolve(`reviews-${reads}`));
+      },
+    });
+    source.length = 1;
+
+    const { data, pending } = serializeDeferred(source);
+
+    expect(reads).toBe(0);
+    expect(pending).toEqual([]);
+    expect(() => JSON.stringify(data)).toThrow(
+      "Return defer() from an enumerable data property, not from a getter",
+    );
+    expect(reads).toBe(1);
   });
 
   it("preserves serialized error metadata on deferred rejections", async () => {

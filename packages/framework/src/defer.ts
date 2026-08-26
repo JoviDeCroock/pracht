@@ -366,7 +366,24 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
     ancestors.add(value);
 
     if (Array.isArray(value)) {
-      const next = value.map((entry, index) => walk(entry, [...path, index], ancestors));
+      const next: unknown[] = [];
+      Object.setPrototypeOf(next, Object.getPrototypeOf(value));
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      for (const key of Reflect.ownKeys(descriptors)) {
+        if (key === "length") continue;
+        const descriptor = descriptors[key as keyof typeof descriptors];
+        Object.defineProperty(
+          next,
+          key,
+          isArrayIndexKey(key) && "value" in descriptor
+            ? {
+                ...descriptor,
+                value: walk(descriptor.value, [...path, Number(key)], ancestors),
+              }
+            : descriptor,
+        );
+      }
+      Object.defineProperty(next, "length", descriptors.length);
       ancestors.delete(value);
       return next;
     }
@@ -375,9 +392,17 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
       return value;
     }
 
-    const next: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      defineOwnDataProperty(next, key, walk(entry, [...path, key], ancestors));
+    const next = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const key of Reflect.ownKeys(descriptors)) {
+      const descriptor = descriptors[key as keyof typeof descriptors];
+      Object.defineProperty(
+        next,
+        key,
+        typeof key === "string" && descriptor.enumerable && "value" in descriptor
+          ? { ...descriptor, value: walk(descriptor.value, [...path, String(key)], ancestors) }
+          : descriptor,
+      );
     }
     ancestors.delete(value);
     return next;

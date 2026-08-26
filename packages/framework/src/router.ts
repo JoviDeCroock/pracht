@@ -179,10 +179,6 @@ export interface InitClientRouterOptions {
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
   const { app, routeModules, shellModules, root, findModuleKey } = options;
 
-  if (import.meta.env?.DEV) {
-    installHydrationMismatchWarning();
-  }
-
   const moduleCache = new Map<string, Promise<unknown>>();
 
   function loadModule(modules: ModuleMap, key: string): Promise<unknown> {
@@ -821,6 +817,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialShellPromise,
       );
       if (pendingState) {
+        if (import.meta.env?.DEV) installHydrationMismatchWarning();
         hydrate(h(RouterRoot, { initialState: pendingState }), root);
       }
 
@@ -883,6 +880,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         if (initialMatch.route.render === "spa") {
           render(h(RouterRoot, { initialState: initialRouteState }), root);
         } else {
+          // Route and shell imports have settled by this point. If either uses
+          // Suspense, compat's boundary handler is now in place, so the dev
+          // tracker can wrap it instead of being hidden behind it later.
+          if (import.meta.env?.DEV) installHydrationMismatchWarning();
           markHydrating();
           hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
           onHydrationComplete(() => {
@@ -1082,8 +1083,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       startShellImport(match);
     };
     registerPrefetchTarget(app, warmModules);
-    const { setupPrefetching } = await import("./prefetch.ts");
-    setupPrefetching(app, warmModules);
+    try {
+      const { setupPrefetching } = await import("./prefetch.ts");
+      setupPrefetching(app, warmModules);
+    } catch (error) {
+      // Prefetching is an optional enhancement. A missing or stale lazy chunk
+      // must not leave an otherwise hydrated page permanently "not ready".
+      console.warn("[pracht] Prefetching could not be initialized.", error);
+    }
   }
 
   // Publish readiness only after a static fallback has resolved and committed

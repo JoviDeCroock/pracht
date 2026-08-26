@@ -276,9 +276,11 @@ part of why streaming is opt-in.
   status or headers.** By the time it settles, the response status and headers
   are already decided. Auth checks belong in middleware or in the awaited part
   of the loader — which is the existing pracht convention.
-- **`head()` and `headers()` see awaited data only.** Both run before the
-  render and receive the resolved loader result, so metadata cannot depend on a
-  value whose whole point is arriving late.
+- **`head()` and `headers()` cannot depend on deferred fields.** On a streaming
+  route they run before deferred work settles and receive the same `Deferred`
+  markers as the component; their argument types preserve those markers so an
+  accidental direct read is a type error. Keep values needed for metadata,
+  status, or cache headers in the awaited part of the loader.
 - **On Preact 10, a `<Suspense>` boundary that suspends must resolve to exactly
   one DOM element** — not `null`, not a multi-child fragment. This constraint
   goes away with Preact 11's hydration rework.

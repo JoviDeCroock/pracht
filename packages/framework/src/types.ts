@@ -1114,18 +1114,6 @@ export type LoaderData<TLoader extends LoaderLike> = TLoader extends (
   ? Awaited<TResult>
   : never;
 
-type ResolveDeferredLoaderData<T> = T extends import("./defer.ts").Deferred<infer TValue>
-  ? ResolveDeferredLoaderData<TValue>
-  : T extends readonly unknown[]
-    ? { [TKey in keyof T]: ResolveDeferredLoaderData<T[TKey]> }
-    : T extends object
-      ? { [TKey in keyof T]: ResolveDeferredLoaderData<T[TKey]> }
-      : T;
-
-type ResolvedLoaderData<TLoader extends LoaderLike> = ResolveDeferredLoaderData<
-  LoaderData<TLoader>
->;
-
 /**
  * Extract loader data from a route module type. `pracht typegen` uses this to
  * register per-route loader data on `Register["routes"]`. When a separate
@@ -1146,14 +1134,14 @@ export interface HeadArgs<
   TLoader extends LoaderLike = undefined,
   TContext = any,
 > extends BaseRouteArgs<TContext> {
-  data: ResolvedLoaderData<TLoader>;
+  data: LoaderData<TLoader>;
 }
 
 export interface HeadersArgs<
   TLoader extends LoaderLike = undefined,
   TContext = any,
 > extends BaseRouteArgs<TContext> {
-  data: ResolvedLoaderData<TLoader>;
+  data: LoaderData<TLoader>;
 }
 
 export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
