@@ -171,6 +171,8 @@ export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
 export { Script } from "./script.ts";
 export type { ScriptProps, ScriptStrategy } from "./script.ts";
+export { defer, use } from "./defer.ts";
+export type { Deferred } from "./defer.ts";
 export { lazy, Suspense } from "./suspense.ts";
 export { ErrorBoundary } from "./error-boundary.ts";
 export type { ErrorBoundaryComponentProps } from "./error-boundary.ts";

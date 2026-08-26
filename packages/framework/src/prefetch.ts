@@ -125,23 +125,31 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     if (warmModules) warmModules(match);
   }
 
+  function prefetchAnchorOnIntent(anchor: HTMLAnchorElement, debounce: boolean): void {
+    const href = getInternalHref(anchor);
+    if (!href) return;
+
+    const strategy = getAnchorStrategy(anchor, href);
+    if (strategy !== "hover" && strategy !== "intent") return;
+
+    if (!debounce) {
+      prefetchHref(href);
+      return;
+    }
+
+    if (hoverTimer) clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      prefetchHref(href);
+    }, 50);
+  }
+
   // Hover / focus prefetching (intent-based)
   document.addEventListener(
     "mouseenter",
     (e: MouseEvent) => {
       const anchor = (e.target as Element).closest?.("a") as HTMLAnchorElement | null;
       if (!anchor) return;
-
-      const href = getInternalHref(anchor);
-      if (!href) return;
-
-      const strategy = getAnchorStrategy(anchor, href);
-      if (strategy !== "hover" && strategy !== "intent") return;
-
-      if (hoverTimer) clearTimeout(hoverTimer);
-      hoverTimer = setTimeout(() => {
-        prefetchHref(href);
-      }, 50);
+      prefetchAnchorOnIntent(anchor, true);
     },
     true,
   );
@@ -164,17 +172,16 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     (e: FocusEvent) => {
       const anchor = (e.target as Element).closest?.("a") as HTMLAnchorElement | null;
       if (!anchor) return;
-
-      const href = getInternalHref(anchor);
-      if (!href) return;
-
-      const strategy = getAnchorStrategy(anchor, href);
-      if (strategy !== "hover" && strategy !== "intent") return;
-
-      prefetchHref(href);
+      prefetchAnchorOnIntent(anchor, false);
     },
     true,
   );
+
+  // The prefetch runtime is loaded lazily after the router becomes ready. If
+  // hover began while that chunk was still loading, no DOM event is replayed
+  // after these listeners attach, so catch up from the current state.
+  const hoveredAnchor = document.querySelector<HTMLAnchorElement>("a:hover");
+  if (hoveredAnchor) prefetchAnchorOnIntent(hoveredAnchor, true);
 
   // Viewport-based prefetching via IntersectionObserver
   const observer =

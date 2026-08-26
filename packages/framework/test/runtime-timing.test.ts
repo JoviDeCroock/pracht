@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
+import { defer, defineApp, handlePrachtRequest, route } from "../src/index.ts";
 import { formatServerTimingHeader, type PrachtPhaseTimings } from "../src/runtime-timing.ts";
 
 describe("formatServerTimingHeader", () => {
@@ -82,5 +82,27 @@ describe("handlePrachtRequest timings option", () => {
     expect(timings.loader).toBeUndefined();
     expect(timings.mw).toBeTypeOf("number");
     expect(timings.render).toBeTypeOf("number");
+  });
+
+  it("includes deferred value resolution in the loader phase", async () => {
+    const timings: PrachtPhaseTimings = {};
+    const response = await handlePrachtRequest({
+      app: defineApp({ routes: [route("/", "./routes/deferred.tsx")] }),
+      registry: {
+        routeModules: {
+          "./routes/deferred.tsx": async () => ({
+            Component: () => null,
+            loader: async () => ({
+              slow: defer(new Promise((resolve) => setTimeout(() => resolve("ok"), 30))),
+            }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+      timings,
+    });
+
+    expect(response.status).toBe(200);
+    expect(timings.loader).toBeGreaterThanOrEqual(20);
   });
 });

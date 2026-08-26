@@ -2,6 +2,7 @@ import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
+import { resolveDeferredData } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -859,8 +860,8 @@ export async function handlePrachtRequest<TContext>(
         loaderFile = resolvedLoaderFile;
 
         let loaderResult: unknown;
+        const loaderStart = loader && timings ? performance.now() : 0;
         if (loader) {
-          const loaderStart = timings ? performance.now() : 0;
           try {
             loaderResult = await loader(routeArgs);
           } catch (error: unknown) {
@@ -870,17 +871,24 @@ export async function handlePrachtRequest<TContext>(
             if (!(error instanceof Response)) throw error;
             loaderResult = error;
           }
-          if (timings) {
-            timings.loader = performance.now() - loaderStart;
-          }
         }
 
         // Allow loaders to return a Response directly (e.g. for redirects)
         if (loaderResult instanceof Response) {
+          if (timings) timings.loader = performance.now() - loaderStart;
           return loaderResult;
         }
 
-        const data = loaderResult;
+        // Resolve any defer()ed fields before anything serializes them. One
+        // call covers every render mode and both the document and route-state
+        // paths, because this is the only place a loader is invoked. Returns
+        // the input untouched when the route defers nothing.
+        let data: unknown;
+        try {
+          data = await resolveDeferredData(loaderResult);
+        } finally {
+          if (loader && timings) timings.loader = performance.now() - loaderStart;
+        }
 
         if (isRouteStateRequest) {
           // Route head exports are stripped from the client bundle. Return the

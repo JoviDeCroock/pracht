@@ -125,6 +125,20 @@ describe("prefetch strategies", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("catches up hover intent that began before the lazy listeners loaded", () => {
+    const anchor = addAnchor("/pricing");
+    const querySelector = vi
+      .spyOn(document, "querySelector")
+      .mockImplementation((selector) => (selector === "a:hover" ? anchor : null));
+
+    setupPrefetching(createApp());
+    vi.advanceTimersByTime(60);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe("/pricing");
+    querySelector.mockRestore();
+  });
+
   it('honors a per-anchor data-pracht-prefetch="none" override on hover', () => {
     const anchor = addAnchor("/pricing", { "data-pracht-prefetch": "none" });
     setupPrefetching(createApp());
