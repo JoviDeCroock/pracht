@@ -915,12 +915,17 @@ behind an explicit third opt-in.
   per-call header channel and the token cannot ride in `arguments` (it binds a
   hash of them), so it travels in `_meta["io.pracht/confirmation"]`. The gate,
   the binding, the store, and the audit events are the HTTP ones.
-- **The nested rule got sharper rather than looser.** "Refuse destructive
+- **The nested rule is a scope, not a per-callee check.** "Refuse destructive
   effects" became "refuse destructive effects unless the tool being served is a
-  destructive capability that already cleared prepare/commit". Composition has
-  no confirmation channel, so this is precisely the set of destructive effects
-  the direct surface would have allowed — a `read`/`write` tool still cannot
-  lend an unconfirmed one, and the confirmed scope dies with the request.
+  destructive capability that already cleared prepare/commit". Be precise about
+  what that buys: one cleared confirmation opens the *whole* private destructive
+  graph to that tool's own server code, for the rest of the request — any
+  destructive callee, private or not, any number of times, with inputs the tool
+  chooses. It is deliberately the same deal HTTP has always offered a confirmed
+  destructive endpoint, and the boundary is the same one: first-party `run()`
+  code picks the callees. What it does buy is that the *agent* cannot pick them:
+  a `read`/`write` tool has no such scope, so no remote caller can reach a
+  destructive effect that nobody confirmed, and the scope dies with the request.
 
 WebMCP is not covered by the reversal and is no longer waiting on a mechanism:
 a page host's approval UX is not a security boundary, so there is nothing

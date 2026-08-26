@@ -63,6 +63,15 @@ export function setCapabilityApprovalPrincipalResolver<TContext = PrachtRequestC
   approvalPrincipalResolver = resolver as CapabilityApprovalPrincipalResolver | null;
 }
 
+/**
+ * Whether an application principal resolver exists at all. Used by serve-time
+ * precondition checks — it says a principal is *possible*, never that one was
+ * resolved for a given request.
+ */
+export function hasCapabilityApprovalPrincipalResolver(): boolean {
+  return approvalPrincipalResolver !== null;
+}
+
 export interface ResolvedCapabilityApprovalPrincipal {
   /** Identity persisted with the proposal for review and correlation. */
   record: string;
@@ -130,7 +139,12 @@ export async function capabilityApprovalId(
 }
 
 export interface MemoryApprovalStoreOptions {
-  /** Clock override, unix seconds. Defaults to `Date.now()`. */
+  /**
+   * Clock override. MUST return **unix seconds**, not milliseconds — every
+   * record's `expiresAt` is compared against it, so a millisecond clock makes
+   * every proposal look expired and kills every approval. Defaults to
+   * `Math.floor(Date.now() / 1000)`.
+   */
   now?: () => number;
 }
 
@@ -254,8 +268,13 @@ export interface SqlApprovalStoreResult {
   rowCount?: number | null;
   /** better-sqlite3, node:sqlite. */
   changes?: number | bigint;
-  /** Cloudflare D1. */
-  meta?: { changes?: number; rows_written?: number };
+  /**
+   * Cloudflare D1. Only `changes` is read: `rows_written` is billing-page
+   * accounting (index pages touched), not the number of rows a statement
+   * matched, so treating it as an affected-row count would report success for
+   * a conditional update that changed nothing.
+   */
+  meta?: { changes?: number };
 }
 
 /**
@@ -278,7 +297,12 @@ export interface SqlApprovalStoreOptions {
    * or `schema.identifier`; anything else throws at construction.
    */
   table?: string;
-  /** Clock override, unix seconds. Defaults to `Date.now()`. */
+  /**
+   * Clock override. MUST return **unix seconds**, not milliseconds — every
+   * record's `expiresAt` is compared against it, so a millisecond clock makes
+   * every proposal look expired and kills every approval. Defaults to
+   * `Math.floor(Date.now() / 1000)`.
+   */
   now?: () => number;
   /**
    * Minimum seconds between opportunistic `DELETE`s of expired rows. Default
@@ -398,8 +422,7 @@ export function createSqlApprovalStore(options: SqlApprovalStoreOptions): Capabi
       result.rowsAffected ??
       (typeof result.rowCount === "number" ? result.rowCount : undefined) ??
       (typeof result.changes === "bigint" ? Number(result.changes) : result.changes) ??
-      result.meta?.changes ??
-      result.meta?.rows_written;
+      result.meta?.changes;
     if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
       throw new Error(
         "createSqlApprovalStore(): execute() must report how many rows a write affected " +

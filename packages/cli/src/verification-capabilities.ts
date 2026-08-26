@@ -126,8 +126,14 @@ function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigSca
 /**
  * Destructive tools on the MCP surface are the one exposure that needs state:
  * the confirmation token travels to the same agent that will commit with it, so
- * only a durable approval store makes the commit exactly-once. Verification
- * fails rather than letting a deployment discover that at request time.
+ * only a durable approval store makes the commit exactly-once.
+ *
+ * Both checks here are warnings, deliberately. Neither fact is decidable from
+ * source: the manifest may assemble `agents` elsewhere, and the store may be
+ * registered by a workspace package this scan never reads. The gate that
+ * actually holds is the runtime's — the MCP endpoint refuses to serve a
+ * destructive tool when the store, the confirmation secret, or a resolvable
+ * principal is missing — so a static grep must report, not hard-block.
  */
 function collectDestructiveMcpChecks(
   destructiveMcpExposed: string[],
@@ -139,12 +145,11 @@ function collectDestructiveMcpChecks(
   const names = destructiveMcpExposed.map((name) => JSON.stringify(name)).join(", ");
 
   if (!projection.destructive) {
-    // Only an error when the manifest's own `agents.mcp` block is visible: an
-    // unseen one already produced the "nothing serves it" warning above.
+    // An unseen `agents.mcp` already produced the "nothing serves it" warning.
     if (projection.configured) {
       checks.push(
         createCheck(
-          "error",
+          "warning",
           `Capabilities ${names} are destructive and set expose.mcp, but the manifest does not ` +
             "set agents.mcp.destructive — the projection filters them out at serve time. Add " +
             "`agents: { mcp: { destructive: true } }` (with an approval store) or drop expose.mcp.",
@@ -154,14 +159,17 @@ function collectDestructiveMcpChecks(
     return;
   }
 
-  if (!projectRegistersApprovalStore(project)) {
+  const scan = scanForApprovalStore(project);
+  if (!scan.found) {
     checks.push(
       createCheck(
-        "error",
-        "agents.mcp.destructive is enabled, but no setCapabilityApprovalStore() call was found " +
-          "in the project sources. Destructive MCP commits must be exactly-once: register a " +
-          "durable approval store (createSqlApprovalStore from @pracht/core/server) from a " +
-          "server-only module, imported by a server entry or a capability module.",
+        "warning",
+        "agents.mcp.destructive is enabled, but no `setCapabilityApprovalStore(` call was found " +
+          `in ${scan.searched.join(", ")}. Destructive MCP commits must be exactly-once: ` +
+          "register a durable approval store (createSqlApprovalStore from @pracht/core/server) " +
+          "from a server-only module, imported by a server entry or a capability module. The " +
+          "MCP endpoint refuses to serve destructive tools without one. Ignore this if the " +
+          "registration lives outside those directories (a workspace package, say).",
       ),
     );
     return;
@@ -176,13 +184,18 @@ function collectDestructiveMcpChecks(
 }
 
 /**
- * Conservative source scan for a store registration. It cannot prove the module
- * is actually imported — only that the app was written to register one — which
- * is exactly why the runtime fails closed as well.
+ * Conservative source scan for a store registration, over the directories the
+ * project actually configures. It cannot prove the module is imported — only
+ * that the app was written to register one — which is why its absence is a
+ * warning and the runtime fails closed regardless.
  */
-function projectRegistersApprovalStore(project: ProjectConfig): boolean {
-  const roots = [resolve(project.root, "src")];
-  for (const root of roots) {
+function scanForApprovalStore(project: ProjectConfig): { found: boolean; searched: string[] } {
+  // Deduplicated because the defaults nest (`/src/server` under `/src`) and a
+  // project may point several of these at one directory.
+  const configured = [project.serverDir, project.capabilitiesDir, dirname(project.appFile)];
+  const searched = [...new Set(configured)];
+  for (const dir of searched) {
+    const root = resolveProjectPath(project.root, dir);
     if (!existsSync(root)) continue;
     let entries: string[];
     try {
@@ -192,15 +205,16 @@ function projectRegistersApprovalStore(project: ProjectConfig): boolean {
     }
     for (const entry of entries) {
       if (!/\.(ts|tsx|js|jsx|mts|mjs)$/.test(entry)) continue;
-      const filePath = resolve(root, entry);
       try {
-        if (readFileSync(filePath, "utf-8").includes("setCapabilityApprovalStore(")) return true;
+        if (readFileSync(resolve(root, entry), "utf-8").includes("setCapabilityApprovalStore(")) {
+          return { found: true, searched };
+        }
       } catch {
         // Directories and unreadable files are not registrations.
       }
     }
   }
-  return false;
+  return { found: false, searched };
 }
 
 /**

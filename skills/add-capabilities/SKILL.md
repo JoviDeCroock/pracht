@@ -193,9 +193,11 @@ Off by default. To serve one:
 
 1. `agents: { mcp: { destructive: true } }` in `defineApp()`.
 2. Register an approval store from a server entry or a capability module, so it
-   exists before the graph is served. This is not optional — the endpoint
-   answers a JSON-RPC error and `pracht verify` fails without it, because a
-   token handed to the committing agent must be consumable exactly once.
+   exists before the graph is served. This is not optional — a token handed to
+   the committing agent must be consumable exactly once. The endpoint refuses
+   to serve at all when the store, `PRACHT_CONFIRMATION_SECRET`, or (in human
+   mode) any resolvable principal is missing; `pracht verify` warns when it
+   cannot find the registration in the configured source directories.
 3. The flow is unchanged; only the channel differs. Prepare answers
    `isError: true` with the token in `_meta["io.pracht/error"]`, and the commit
    repeats `tools/call` with identical `arguments` plus

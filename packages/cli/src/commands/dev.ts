@@ -71,6 +71,7 @@ export default defineCommand({
           color: supportsColor(),
           localUrls: urls.local,
           mcpEndpoint: graph.mcpEndpoint ?? null,
+          mcpDestructive: graph.mcpDestructive === true,
           networkUrls: urls.network,
           notFound: graph.notFound,
           routes: graph.routes,

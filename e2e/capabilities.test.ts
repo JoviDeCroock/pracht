@@ -498,6 +498,18 @@ test("destructive capability requires confirmation, then commits with the token"
   expect(replay.status()).toBe(403);
   expect((await replay.json()).error.code).toBe("confirmation_invalid");
 
+  // Re-preparing the identical operation is refused until the decided proposal
+  // expires. That is deliberate, so the refusal has to say when to come back
+  // rather than reading as a broken token.
+  const reprepare = await request.post("/api/capabilities/notes/purge", {
+    data: { titlePrefix: prefix },
+  });
+  expect(reprepare.status()).toBe(403);
+  const reprepareBody = await reprepare.json();
+  expect(reprepareBody.error.code).toBe("confirmation_invalid");
+  expect(reprepareBody.error.message).toContain("already_used");
+  expect(reprepareBody.error.retryAfterSeconds).toBeGreaterThan(0);
+
   const searchAfterCommit = await request.post("/api/capabilities/notes/search", {
     data: { query: prefix },
   });

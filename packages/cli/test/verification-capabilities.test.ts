@@ -530,12 +530,21 @@ describe("collectCapabilityChecks", () => {
       "",
     ].join("\n");
 
-    function checksFor(options: { appBlock?: string; extraFiles?: Record<string, string> }) {
+    function checksFor(
+      options: {
+        appBlock?: string;
+        extraFiles?: Record<string, string>;
+      },
+      project: Partial<ProjectConfig> = {},
+    ) {
       const previous = process.env.PRACHT_CONFIRMATION_SECRET;
       process.env.PRACHT_CONFIRMATION_SECRET = "verify-test-secret";
       try {
         const checks: Check[] = [];
-        collectCapabilityChecks(createProject({ capability: DESTRUCTIVE_MCP, ...options }), checks);
+        collectCapabilityChecks(
+          { ...createProject({ capability: DESTRUCTIVE_MCP, ...options }), ...project },
+          checks,
+        );
         return checks;
       } finally {
         if (previous === undefined) delete process.env.PRACHT_CONFIRMATION_SECRET;
@@ -545,18 +554,44 @@ describe("collectCapabilityChecks", () => {
 
     const errorsOf = (checks: Check[]): string[] =>
       checks.filter((check) => check.status === "error").map((check) => check.message);
+    const warningsOf = (checks: Check[]): string[] =>
+      checks.filter((check) => check.status === "warning").map((check) => check.message);
 
-    it("fails when the app serves MCP without opting into destructive tools", () => {
+    it("warns when the app serves MCP without opting into destructive tools", () => {
       const checks = checksFor({ appBlock: "  agents: { mcp: {} }," });
-      expect(errorsOf(checks)).toContainEqual(
+      // A warning, not an error: the manifest scan is a regex, and the runtime
+      // is the gate that actually refuses to serve.
+      expect(errorsOf(checks)).toEqual([]);
+      expect(warningsOf(checks)).toContainEqual(
         expect.stringContaining("does not set agents.mcp.destructive"),
       );
     });
 
-    it("fails when the opt-in is on but no approval store is registered", () => {
+    it("warns, and never blocks, when no approval store registration is found", () => {
       const checks = checksFor({ appBlock: "  agents: { mcp: { destructive: true } }," });
-      expect(errorsOf(checks)).toContainEqual(
-        expect.stringContaining("no setCapabilityApprovalStore() call was found"),
+      expect(errorsOf(checks)).toEqual([]);
+      const warning = warningsOf(checks).find((message) =>
+        message.includes("setCapabilityApprovalStore("),
+      );
+      // Naming where it looked is the difference between an actionable warning
+      // and a mystery: the registration may legitimately live elsewhere.
+      expect(warning).toContain("/src/server");
+      expect(warning).toContain("/src/capabilities");
+      expect(warning).toContain("workspace package");
+    });
+
+    it("finds a store registered under a non-default serverDir", () => {
+      const checks = checksFor(
+        {
+          appBlock: "  agents: { mcp: { destructive: true } },",
+          extraFiles: { "runtime/approvals.ts": STORE_MODULE },
+        },
+        { serverDir: "/src/runtime" },
+      );
+
+      expect(errorsOf(checks)).toEqual([]);
+      expect(checks.map((check) => check.message)).toContainEqual(
+        expect.stringContaining("back onto a registered approval store"),
       );
     });
 

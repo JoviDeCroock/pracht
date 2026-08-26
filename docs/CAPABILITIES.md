@@ -579,8 +579,9 @@ file, and `pracht verify` reports the same projection constraints.
   runs the callee's own pipeline but not app-level `api.middleware`. When the
   caller is a remote MCP tool, the runtime additionally re-applies the callee's
   `agentPolicy` and rejects destructive effects unless the served tool already
-  cleared its own confirmation gate; private non-destructive
-  callees remain composable. Other composing entry points must own any
+  cleared its own confirmation gate — which then grants that request's server
+  code every destructive callee, exactly as a confirmed HTTP endpoint has;
+  private non-destructive callees remain composable. Other composing entry points must own any
   transport-specific authorization they need. Every nested dispatch audits as
   `transport: "server"` with `via` naming the transport that caused it. See
   [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
@@ -686,6 +687,9 @@ after a real `initialize` handshake. See
 
 - MCP Apps UI (`ui` option) — `hasUi` is always `false` in the graph.
 - MCP `resources/*` and `prompts/*` — only `tools/*` is projected.
-- Destructive capabilities over WebMCP/MCP (HTTP-only, confirmation-gated —
-  see [AGENT_TRUST.md](AGENT_TRUST.md)).
+- Destructive capabilities over WebMCP. They are confirmation-gated over HTTP
+  and over remote MCP (the latter behind `agents.mcp.destructive` and an
+  approval store); a page host's approval UX is not a security boundary, so
+  WebMCP has nothing server-verified to bind the flow to. See
+  [AGENT_TRUST.md](AGENT_TRUST.md).
 - Pages-router support.

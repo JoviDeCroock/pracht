@@ -43,6 +43,8 @@ export interface AppGraph {
    * graph but nothing serves it).
    */
   mcpEndpoint: string | null;
+  /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
+  mcpDestructive: boolean;
   routes: AppGraphRoute[];
   /** The app-level not-found page (never part of `routes`), or `null`. */
   notFound?: AppGraphRoute | null;
@@ -122,6 +124,7 @@ export async function collectAppGraph(
       readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
     }),
     mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
+    mcpDestructive: serverModule.resolvedApp.agents?.mcp?.destructive === true,
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };

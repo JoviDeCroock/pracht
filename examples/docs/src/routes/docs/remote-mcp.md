@@ -131,7 +131,7 @@ import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core
 setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 ```
 
-The store is not optional. Over MCP the confirmation token is handed to the very agent that will commit with it, and a stateless HMAC token replays until it expires — so exactly-once consumption is the whole reason the transport may carry a destructive effect at all. `pracht verify` errors when the opt-in is on and the project registers no store, and the endpoint answers a JSON-RPC error rather than serving destructive tools without one. There is no silent downgrade in either direction: without the opt-in the tool is invisible; with the opt-in and no store, nothing is served. See [Durable Approvals](/docs/agent-trust#durable-approvals) for the store itself.
+The store is not optional. Over MCP the confirmation token is handed to the very agent that will commit with it, and a stateless HMAC token replays until it expires — so exactly-once consumption is the whole reason the transport may carry a destructive effect at all. The runtime is the gate: the endpoint answers an explanatory JSON-RPC error instead of serving destructive tools whenever the store, the confirmation secret, or (in `mode: "human"`) any resolvable principal is missing. `pracht verify` *warns* when it cannot find a `setCapabilityApprovalStore()` call in the configured source directories — a warning, not an error, because a source scan cannot see a registration that lives in a workspace package. There is no silent downgrade in either direction: without the opt-in the tool is invisible; with the opt-in and an unmet precondition, nothing is served. See [Durable Approvals](/docs/agent-trust#durable-approvals) for the store itself.
 
 ### Prepare and Commit over `tools/call`
 
@@ -151,7 +151,7 @@ The flow is [the same one HTTP uses](/docs/agent-trust). MCP has no per-call hea
     "io.pracht/status": 409,
     "io.pracht/error": {
       "code": "confirmation_required",
-      "confirmationToken": "v1.<claims>.<hmac>",
+      "confirmationToken": "v2.<claims>.<hmac>",
       "expiresAt": 1735689720,
       "approvalId": "…"
     }
@@ -161,7 +161,7 @@ The flow is [the same one HTTP uses](/docs/agent-trust). MCP has no per-call hea
 // 2. Commit — identical arguments plus the token.
 {"jsonrpc":"2.0","id":2,"method":"tools/call",
  "params":{"name":"notes_purge","arguments":{"titlePrefix":"Old"},
-           "_meta":{"io.pracht/confirmation":"v1.<claims>.<hmac>"}}}
+           "_meta":{"io.pracht/confirmation":"v2.<claims>.<hmac>"}}}
 ```
 
 Everything the HTTP flow guarantees holds here: the token binds the principal, the capability, and the exact input; a tampered, expired, or replayed token answers `confirmation_invalid`; and in `mode: "human"` the commit answers `confirmation_pending` until a person decides. Each `tools/list` descriptor advertises the contract as `_meta["io.pracht/confirmation"] = { required: true, metaKey: "io.pracht/confirmation" }`, so a host can drive the flow without parsing prose.
@@ -176,7 +176,7 @@ Every capability guarantee carries over. The projection adds three of its own:
 
 **Browser-originated requests are rejected.** Remote MCP has no browser use case, so requests carrying `Origin` or `Sec-Fetch-Site` receive 403. This avoids trusting a Host-derived request URL during Origin validation, closing the DNS-rebinding path. Non-browser MCP clients send neither header and are unaffected.
 
-**Destructive capabilities are unreachable without the opt-in.** Without `agents.mcp.destructive` they are filtered out of `tools/list` and `tools/call`, and `invokeCapability()` refuses a destructive callee while serving an MCP tool, even when that callee is private. With the opt-in, reachability is exactly the [prepare/commit flow](#destructive-tools) and nothing more: composition still refuses destructive effects unless the tool being served is itself a destructive capability that already cleared its own gate — a `read` or `write` tool can never lend a remote agent an effect nobody confirmed, and the confirmed scope dies with the request.
+**Destructive capabilities are unreachable without the opt-in.** Without `agents.mcp.destructive` they are filtered out of `tools/list` and `tools/call`, and `invokeCapability()` refuses a destructive callee while serving an MCP tool, even when that callee is private. With the opt-in, a remote agent reaches a destructive effect only through the [prepare/commit flow](#destructive-tools): composition refuses destructive callees unless the tool being served is itself a destructive capability that already cleared its own gate. Note what that does *not* say — once a tool has cleared it, that tool's own `run()` may compose any destructive capability, private ones included, as often as it likes for the rest of the request, exactly as an HTTP endpoint can. The confirmation gates the agent's entry point, not the first-party code behind it; the scope dies with the request.
 
 Authentication is your app's, in the capability's named middleware; nested calls also re-apply the callee's `agentPolicy`. Every dispatch emits an audit event with `transport: "mcp"` — passed as internal dispatch state rather than read from the public transport-marker header, so unlike the client-declared `"webmcp"` marker it is trustworthy — and anything the tool composes emits its own event carrying `via: "mcp"`.
 

@@ -21,6 +21,7 @@ import {
   DEFAULT_MCP_ENDPOINT,
   isValidCapabilityHttpPath,
   isValidMcpToolName,
+  MCP_CONFIRMATION_META_KEY,
   MCP_SCHEMA_ROOT_ERROR,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
@@ -1040,12 +1041,22 @@ async function enforceDestructiveConfirmation<TContext>(
       );
       if (!created.ok) return created.failure;
       if (created.value.state === "consumed" || created.value.state === "rejected") {
+        // A decided proposal stays closed until it expires, so the identical
+        // operation cannot be re-proposed yet. That is the safety property —
+        // it is what stops a still-valid old token becoming reusable — but to
+        // an agent it looks like a broken token unless we say when to come
+        // back. Name the window instead of leaving it to guess and retry.
+        const retryAfterSeconds = Math.max(1, created.value.expiresAt - now);
         const reason = created.value.state === "consumed" ? "already_used" : "rejected";
         return {
           status: 403,
           envelope: errorEnvelope({
             code: "confirmation_invalid",
-            message: `Confirmation request rejected (${reason}).`,
+            message:
+              `Confirmation request rejected (${reason}): this exact operation was already ` +
+              `decided and stays closed until its approval expires. Retry the same input in ` +
+              `${retryAfterSeconds}s, or call with different input.`,
+            retryAfterSeconds,
           }),
         };
       }
@@ -1058,17 +1069,24 @@ async function enforceDestructiveConfirmation<TContext>(
       ...binding,
       ttlSeconds: store ? Math.max(1, expiresAtLimit) : ttlSeconds,
     });
+    // The channel the caller has to use is transport-specific: remote MCP has
+    // no per-call header, so telling an agent to set one would send it looking
+    // for something that does not exist on its transport.
+    const echo =
+      options.transport === "mcp"
+        ? `repeat the tools/call with identical arguments and the token in ` +
+          `_meta["${MCP_CONFIRMATION_META_KEY}"]`
+        : `repeat the call with identical input and the "${CONFIRMATION_HEADER}" header set to ` +
+          "the confirmation token";
     return {
       status: 409,
       envelope: errorEnvelope({
         code: "confirmation_required",
         message:
           mode === "human"
-            ? `Capability "${name}" is destructive and needs human approval. Repeat the call ` +
-              `with identical input and the "${CONFIRMATION_HEADER}" header once the proposal ` +
-              "is approved."
-            : `Capability "${name}" is destructive. Repeat the call with identical input and ` +
-              `the "${CONFIRMATION_HEADER}" header set to the confirmation token.`,
+            ? `Capability "${name}" is destructive and needs human approval. Once the proposal ` +
+              `is approved, ${echo}.`
+            : `Capability "${name}" is destructive. To commit, ${echo}.`,
         confirmationToken: token,
         expiresAt,
         ...(approvalId ? { approvalId } : {}),
@@ -1217,9 +1235,10 @@ export interface CapabilityHost {
   via?: CapabilityAuditEvent["via"];
   /**
    * Set once the destructive capability being served on this request has
-   * passed its prepare/commit gate. Remote MCP composition uses it: nested
-   * destructive work is only in scope for an operation an agent already
-   * confirmed. Never set by callers — the gate sets it, from the server side.
+   * passed its prepare/commit gate. Remote MCP composition uses it as a
+   * request-scoped grant: after it is set, this request's server code may
+   * compose any destructive capability. Never set by callers — the gate sets
+   * it, from the server side.
    */
   destructiveConfirmed?: boolean;
 }
@@ -1279,7 +1298,9 @@ export interface InvokeCapabilityContext<TContext = unknown> {
  * tool re-applies the callee's `agentPolicy`, and refuses destructive effects
  * unless the tool being served is itself a destructive capability that already
  * cleared prepare/commit — otherwise a non-destructive tool could lend remote
- * agents an effect no one confirmed. Composed dispatches are audited
+ * agents an effect no one confirmed. That clearance is a request-scoped grant
+ * covering every destructive callee, like a confirmed HTTP endpoint, not a
+ * per-callee check. Composed dispatches are audited
  * with `transport: "server"` and `via` set to the transport of the request being
  * served, so a remote-agent-caused effect stays attributable.
  *
@@ -1445,14 +1466,17 @@ function mcpCompositionGuard(
     return { kind: "envelope", status: 401, envelope, response: envelopeResponse(401, envelope) };
   }
 
-  // Composition must not widen what the transport allows. Nested calls carry
-  // no confirmation channel of their own, so destructive work is only in scope
-  // when the tool being served is itself a destructive capability that already
-  // cleared prepare/commit — which the projection only serves at all when
-  // `agents.mcp.destructive` is on. A `read`/`write` tool therefore still
-  // cannot lend a remote agent an unconfirmed destructive effect, and a
-  // destructive tool the agent confirmed may compose its own helpers exactly
-  // as it can under HTTP.
+  // Destructive work is in scope only when the tool being served is itself a
+  // destructive capability that already cleared prepare/commit — which the
+  // projection only serves at all when `agents.mcp.destructive` is on. A
+  // `read`/`write` tool therefore cannot lend a remote agent a destructive
+  // effect nobody confirmed.
+  //
+  // This is a request-scoped grant, not a per-callee check: once the gate is
+  // cleared, the tool's own `run()` may compose any destructive capability,
+  // private ones included, as often as it likes — exactly as a confirmed HTTP
+  // endpoint can. First-party code picks those callees; the agent only picks
+  // the entry point it confirmed by name and input.
   if (resolved.capability.effect === "destructive" && !host.destructiveConfirmed) {
     const envelope = errorEnvelope({
       code: "forbidden",

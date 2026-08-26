@@ -1391,6 +1391,127 @@ describe("destructive capabilities over MCP", () => {
     expect(purged).toEqual([]);
   });
 
+  it("fails closed when no confirmation secret is configured", async () => {
+    // Otherwise the tool is advertised and every call answers
+    // confirmation_unavailable — advertised but dead.
+    setCapabilityConfirmationSecret(null);
+
+    const list = await mcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { agents: DESTRUCTIVE_AGENTS },
+    );
+    expect(list.json?.error.code).toBe(-32603);
+    expect(list.json?.error.message).toContain("confirmation secret");
+    expect(list.json?.result).toBeUndefined();
+
+    const call = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    expect(call.json?.error.message).toContain("confirmation secret");
+    expect(purged).toEqual([]);
+  });
+
+  it("fails closed in human mode when no principal could ever be resolved", async () => {
+    const agents: PrachtAgentsConfig = {
+      mcp: { destructive: true },
+      confirmation: { mode: "human" },
+    };
+
+    const list = await mcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { agents });
+    expect(list.json?.error.code).toBe(-32603);
+    expect(list.json?.error.message).toContain("human");
+    expect(list.json?.error.message).toContain("principal");
+
+    // Web Bot Auth makes a principal possible, so the endpoint serves again.
+    const withIdentity = await mcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { agents: { ...agents, webBotAuth: { policy: "observe" } } },
+    );
+    expect(withIdentity.json?.error).toBeUndefined();
+    expect(withIdentity.json?.result.tools.map((tool: { name: string }) => tool.name)).toContain(
+      "notes_purge",
+    );
+  });
+
+  it("reports every unmet precondition at once", async () => {
+    setCapabilityApprovalStore(null);
+    setCapabilityConfirmationSecret(null);
+
+    const { json } = await mcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { agents: DESTRUCTIVE_AGENTS },
+    );
+    expect(json?.error.message).toContain("approval store");
+    expect(json?.error.message).toContain("confirmation secret");
+  });
+
+  it("rejects a confirmation token that is not header-safe", async () => {
+    // `_meta` is JSON, so an unauthenticated caller can put a newline in the
+    // token. It must land on the forged-token path, not throw out of dispatch.
+    const events: CapabilityAuditEvent[] = [];
+    const { response, json } = await callDestructive(
+      "notes_purge",
+      { titlePrefix: "Old" },
+      { confirm: "v2.aaa\nbbb", onCapabilityAudit: (event) => events.push(event) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(json?.result.isError).toBe(true);
+    expect(errorMeta(json).code).toBe("confirmation_invalid");
+    expect(purged).toEqual([]);
+    // Same audit shape a forged token produces — the dispatch is not invisible.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      capability: "notes.purge",
+      transport: "mcp",
+      outcome: "confirmation_invalid",
+      status: 403,
+    });
+  });
+
+  // Every character `Headers.set()` refuses, written as escapes: a raw NUL or
+  // newline in a source file breaks tooling that reads it as text.
+  it.each(["v2.aaa\rbbb", "v2.aaa bbb", "v2.aaa\u0000bbb", "v2.aaa\u00e9bbb"])(
+    "rejects the non-header-safe token %j without throwing",
+    async (token) => {
+      const { response, json } = await callDestructive(
+        "notes_purge",
+        { titlePrefix: "Old" },
+        { confirm: token },
+      );
+      expect(response.status).toBe(200);
+      expect(errorMeta(json).code).toBe("confirmation_invalid");
+      expect(purged).toEqual([]);
+    },
+  );
+
+  it("tells a re-preparing agent how long the operation stays closed", async () => {
+    const prepare = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    await callDestructive(
+      "notes_purge",
+      { titlePrefix: "Old" },
+      { confirm: errorMeta(prepare.json).confirmationToken as string },
+    );
+    expect(purged).toEqual(["Old"]);
+
+    // The consumed proposal stays closed until it expires — that is the safety
+    // property. Say when to come back instead of looking like a broken token.
+    const again = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    const error = errorMeta(again.json);
+    expect(error.code).toBe("confirmation_invalid");
+    expect(error.message).toContain("already_used");
+    expect(error.retryAfterSeconds).toBeGreaterThan(0);
+    expect(error.retryAfterSeconds).toBeLessThanOrEqual(120);
+    expect(purged).toEqual(["Old"]);
+  });
+
+  it("names the MCP confirmation channel, not the HTTP header", async () => {
+    const { json } = await callDestructive("notes_purge", { titlePrefix: "Old" });
+    const message = errorMeta(json).message as string;
+
+    expect(message).toContain("tools/call");
+    expect(message).toContain(CONFIRMATION_META_KEY);
+    expect(message).not.toContain("x-pracht-confirm");
+  });
+
   it("audits the prepare and the commit as MCP dispatches", async () => {
     const events: CapabilityAuditEvent[] = [];
     const prepare = await callDestructive(

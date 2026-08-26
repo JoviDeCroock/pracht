@@ -75,7 +75,10 @@ named middleware and capability bodies can compose registered operations with
 non-destructive capabilities remain available as building blocks and run their
 own validation and named middleware. Because the host also carries trusted MCP
 provenance, nested calls re-apply the callee's `agentPolicy` and reject
-`destructive` effects before their middleware or body runs. See
+`destructive` effects before their middleware or body runs — unless the tool
+being served is itself a destructive capability that already cleared
+prepare/commit, which grants that request's server code the destructive scope a
+confirmed HTTP endpoint has. See
 [Remote MCP composition is guarded](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 The incoming transport request carries the same provenance, so adapter context
 that retains that request cannot escape the nested-call guard.
@@ -192,11 +195,15 @@ setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 The store is not optional. Over MCP the confirmation token is handed to the
 very agent that will commit with it, and a stateless HMAC token replays until
 it expires — so exactly-once consumption is the whole reason the transport may
-carry a destructive effect at all. `pracht verify` errors when the opt-in is on
-and no `setCapabilityApprovalStore()` call exists in the project, and the
-endpoint answers a JSON-RPC internal error rather than serving destructive tools
-without one. There is no silent downgrade in either direction: without the
-opt-in the tool is invisible; with it and no store, nothing is served.
+carry a destructive effect at all. The runtime is the gate: the endpoint
+answers an explanatory JSON-RPC error instead of serving destructive tools
+whenever the store, the confirmation secret, or (in `mode: "human"`) any
+resolvable principal is missing. `pracht verify` *warns* when it cannot find a
+`setCapabilityApprovalStore()` call in the configured source directories — a
+warning rather than an error because a source scan cannot see a registration
+that lives in a workspace package. There is no silent downgrade in either
+direction: without the opt-in the tool is invisible; with it and an unmet
+precondition, nothing is served.
 
 ### Prepare and commit over `tools/call`
 
@@ -219,7 +226,7 @@ canonicalized input), so it uses `_meta`, the protocol's extension slot.
     "io.pracht/status": 409,
     "io.pracht/error": {
       "code": "confirmation_required",
-      "confirmationToken": "v1.<claims>.<hmac>",
+      "confirmationToken": "v2.<claims>.<hmac>",
       "expiresAt": 1735689720,
       "approvalId": "…"
     }
@@ -229,7 +236,7 @@ canonicalized input), so it uses `_meta`, the protocol's extension slot.
 // 2. Commit — identical arguments plus the token.
 {"jsonrpc":"2.0","id":2,"method":"tools/call",
  "params":{"name":"notes_purge","arguments":{"titlePrefix":"Old"},
-           "_meta":{"io.pracht/confirmation":"v1.<claims>.<hmac>"}}}
+           "_meta":{"io.pracht/confirmation":"v2.<claims>.<hmac>"}}}
 ```
 
 Everything the HTTP flow guarantees holds here: the token is bound to the
@@ -257,11 +264,16 @@ The projection inherits every capability guarantee and adds three of its own:
 - **Destructive capabilities are unreachable without the opt-in.** Without
   `agents.mcp.destructive` the projection filters them out of `tools/list` and
   `tools/call`, and `invokeCapability()` refuses a destructive callee while
-  serving an MCP tool, even when that callee is private. With the opt-in,
-  reachability is exactly the [prepare/commit flow](#destructive-tools) and
-  nothing else: composition still refuses destructive effects unless the tool
-  being served is a destructive capability that already cleared its own gate.
-  See [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
+  serving an MCP tool, even when that callee is private. With the opt-in, a
+  remote agent reaches a destructive effect only through the
+  [prepare/commit flow](#destructive-tools): composition refuses destructive
+  callees unless the tool being served is a destructive capability that already
+  cleared its own gate. Note what that *does not* say — once a tool has cleared
+  it, that tool's own `run()` may compose any destructive capability, private
+  ones included, as often as it likes for the rest of the request, exactly as an
+  HTTP endpoint can. The confirmation gates the agent's entry point, not the
+  first-party code behind it. See
+  [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 
 Authentication is your app's: put it in the capability's named middleware,
 which sees the forwarded `Authorization` header and `context.agent`; nested

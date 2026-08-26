@@ -531,7 +531,18 @@ Two operational consequences worth knowing before you turn this on:
 - **Consumed and rejected proposals stay closed until expiry.** Re-preparing
   the identical operation during that window is refused, which prevents an
   old still-valid token from becoming reusable. After expiry, the operation
-  can create a fresh proposal.
+  can create a fresh proposal. The refusal carries `retryAfterSeconds` and
+  names the window in its message, so an agent backs off instead of reading
+  `already_used` as a broken token and retrying in a loop.
+
+  Plan for that window. A proposal is identified by `(principal, capability,
+  canonical input, mode)`, so `ttlSeconds` is both how long a token is valid
+  and how long a *completed* operation stays closed — and without Web Bot Auth
+  or a principal resolver every caller is `"anonymous"`, which makes the
+  lockout shared across all unauthenticated agents. Bind a real principal
+  before serving destructive tools to more than one caller, and give genuinely
+  repeatable operations an input that differs per call (an id, an idempotency
+  key) rather than fighting the window.
 
 `singleUse` is ignored while a store is registered — the store enforces single
 use durably.
@@ -616,6 +627,17 @@ tool the agent confirmed composes its own helpers exactly as it would under
 HTTP. The rule is the same with and without `agents.mcp.destructive` — the
 opt-in only decides whether a destructive tool is served at all, and therefore
 whether the confirmed case can ever arise.
+
+Be precise about what clearing the gate buys, because it is a **scope, not a
+per-callee check**. One cleared confirmation opens the request's whole private
+destructive graph to that tool's own server code: any destructive callee,
+private ones included, any number of times, with whatever input the tool
+chooses. That is the same deal HTTP has always offered a confirmed destructive
+endpoint, and the boundary is the same one — first-party `run()` code picks the
+callees, and the effect class you gave that tool is the promise you are making
+about them. What the rule does buy is that the *agent* never picks them: it
+cannot reach a destructive effect except through a tool it confirmed by name and
+input.
 
 Private `read` and `write` capabilities remain composable; their named
 middleware is still the authorization seam. The confirmed scope belongs to one

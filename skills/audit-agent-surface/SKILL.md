@@ -104,10 +104,14 @@ For every exposed capability, ask whether the exposure is deliberate:
   deliberate widening and check both halves: the opt-in, and a
   `setCapabilityApprovalStore()` call the running server actually executes
   (imported by a server entry or a capability module — a module nothing imports
-  registers nothing). Opt-in without a store is an `error`: `pracht verify`
-  fails and the endpoint refuses to serve. Destructive `expose.mcp` *without*
-  the opt-in is dead exposure — the tool is invisible — and `pracht verify`
-  reports it.
+  registers nothing). Opt-in without a store is an `error` in your report: the
+  endpoint refuses to serve at all, and `pracht verify` only warns (its source
+  scan cannot see a registration in a workspace package, so it must not
+  hard-block). Two more preconditions fail the endpoint the same way — a
+  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither
+  `agents.webBotAuth` nor a principal resolver — so check all three together.
+  Destructive `expose.mcp` *without* the opt-in is dead exposure: the tool is
+  invisible, and `pracht verify` warns.
 - `PRACHT_CONFIRMATION_SECRET` must be set in the server environment for each
   deployment target (build environment too on Vercel, since it becomes the
   bypass token there). Missing → every destructive call answers

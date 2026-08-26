@@ -117,9 +117,11 @@ target. From `pracht inspect api --json`:
   `invokeCapability()`. Direct composition never re-applies app-level API
   middleware. Remote MCP additionally re-applies the callee's `agentPolicy`
   and refuses destructive callees unless the tool being served is itself a
-  destructive capability that already cleared prepare/commit, but private
-  non-destructive capabilities stay composable and rely on their named
-  middleware for authorization. For
+  destructive capability that already cleared prepare/commit — a request-scoped
+  grant over every destructive callee, private ones included, so audit a
+  confirmed destructive tool's body the way you would a confirmed HTTP
+  endpoint's. Private non-destructive capabilities stay composable and rely on
+  their named middleware for authorization. For
   HTTP/WebMCP composition, flag sensitive callees whose required transport
   authorization or approval is absent from the composing capability and the
   callee's named middleware.

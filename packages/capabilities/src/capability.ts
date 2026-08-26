@@ -142,6 +142,14 @@ export interface CapabilityErrorPayload {
    * never accepted from a caller.
    */
   approvalId?: string;
+  /**
+   * Present when a decided proposal is blocking a re-prepare of the identical
+   * operation: seconds until it expires and the operation can be proposed
+   * again. The refusal is deliberate — it stops an old still-valid token
+   * becoming reusable — so this says when to come back rather than inviting an
+   * immediate retry.
+   */
+  retryAfterSeconds?: number;
 }
 
 export const DESTRUCTIVE_EXPOSURE_ERROR =

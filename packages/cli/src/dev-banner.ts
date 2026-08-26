@@ -24,6 +24,8 @@ export interface DevBannerOptions {
   localUrls: string[];
   /** Path the remote MCP projection is served from, `null` when unconfigured. */
   mcpEndpoint?: string | null;
+  /** `agents.mcp.destructive` — without it the endpoint filters destructive tools out. */
+  mcpDestructive?: boolean;
   networkUrls?: string[];
   notFound?: DevBannerRoute | null;
   routes: DevBannerRoute[];
@@ -62,6 +64,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
     capabilities = [],
     color = false,
     localUrls,
+    mcpDestructive = false,
     mcpEndpoint = null,
     networkUrls = [],
     notFound,
@@ -156,9 +159,13 @@ export function formatDevBanner(options: DevBannerOptions): string {
         capability.transports.length > 0
           ? capability.transports
               // `expose.mcp` is only served when the app configures
-              // `agents.mcp` — don't let the banner imply it otherwise.
+              // `agents.mcp`, and a destructive capability additionally needs
+              // `agents.mcp.destructive` — don't let the banner imply either.
               .map((transport) =>
-                transport === "mcp" && !mcpEndpoint ? "mcp(unserved)" : transport,
+                transport === "mcp" &&
+                (!mcpEndpoint || (capability.effect === "destructive" && !mcpDestructive))
+                  ? "mcp(unserved)"
+                  : transport,
               )
               .join(",")
           : "private",

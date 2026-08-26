@@ -276,6 +276,17 @@ Every method participates in the approval boundary. A production adapter should 
 | `decide(id, decision, by)` | Atomically move an unexpired `pending` proposal to `approved` or `rejected`. Refuse unknown, expired, already-decided, or consumed proposals. |
 | `consume(id)` | Compare-and-set the eligible proposal to `consumed`, enforcing the proposal's stored `requiresApproval` value. When approval is required, only `approved` is eligible; otherwise `pending` or `approved` may be consumed. Concurrent commits must produce exactly one success. |
 
+#### Know the Lockout Window
+
+A decided proposal — consumed or rejected — stays in the store until `expiresAt`. That is the safety property: it is what stops a still-valid old token becoming reusable after a commit. The consequence is worth planning for, because it surprises people.
+
+Proposal identity is `(principal, capability, canonical input, mode)`. So for `ttlSeconds` after a successful commit, **the identical operation cannot be prepared again** and answers `confirmation_invalid` with reason `already_used`. The error carries `retryAfterSeconds` and says so in its message, so an agent can back off rather than read it as a broken token and retry in a loop.
+
+Two things follow:
+
+- Without Web Bot Auth or `setCapabilityApprovalPrincipalResolver()`, every caller is the principal `"anonymous"` — so the lockout is shared across *all* unauthenticated agents. One agent purging `{ titlePrefix: "Old" }` locks that exact call out for everyone until it expires. Bind a real principal before you serve destructive tools to more than one caller.
+- Tune `agents.confirmation.ttlSeconds` with this in mind: it is both how long a token stays valid and how long a completed operation stays closed. Genuinely repeatable operations usually differ in their input (an id, a timestamp); ones that do not should either carry an idempotency key in their schema or accept the window.
+
 Approval records contain the validated capability input and the raw application principal so a reviewer can understand who requested what. Treat both as sensitive server-side data: protect review endpoints with your own authentication and authorization, avoid logging records wholesale, and apply retention or deletion after expiry according to your application's policy.
 
 The in-memory reference store defensively clones records on input and output. Custom stores should provide the same snapshot behaviour even when their database client already deserializes rows into new objects; it keeps application code from changing approval state without an atomic store operation.
@@ -451,7 +462,9 @@ To see the *configured* surface rather than live traffic, run [`pracht inspect a
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.
 
-Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy`, and refuse `destructive` effects before middleware or the body can run unless the tool being served is itself a destructive capability that already cleared prepare/commit. Nested calls carry no confirmation channel of their own, so that is exactly the set of destructive effects the direct MCP surface would have allowed — a `read` or `write` tool can never lend a remote agent an unconfirmed one, and the confirmed scope dies with the request. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent` passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
+Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy`, and refuse `destructive` effects before middleware or the body can run unless the tool being served is itself a destructive capability that already cleared prepare/commit.
+
+That is a **scope, not a per-callee check**, and the difference matters. One cleared confirmation opens the request's whole private destructive graph to that tool's own server code — any destructive callee, private ones included, any number of times, with inputs the tool chooses. It is the same deal HTTP has always offered a confirmed destructive endpoint, and the boundary is the same one: first-party `run()` code picks the callees, so the effect class you gave that tool is the promise you are making about them. What the rule buys is that the *agent* never picks them — it cannot reach a destructive effect except through a tool it confirmed by name and input, a `read` or `write` tool has no such scope, and the scope dies with the request. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent` passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
 
 ---
 
