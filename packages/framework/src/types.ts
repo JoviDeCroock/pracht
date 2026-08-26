@@ -867,16 +867,17 @@ export interface McpAuthConfig {
   /**
    * Absolute URL identifying this MCP resource — the audience (RFC 8707) tokens
    * must be bound to, and the identifier in the metadata document. No query or
-   * fragment; its path must end with the served MCP endpoint path.
+   * fragment; its path must end with the served MCP endpoint path. Requests for
+   * any other URL are redirected here before authentication.
    */
   resource: string;
   /** Absolute issuer URLs of the authorization servers that may mint tokens. At least one. */
   authorizationServers: readonly string[];
-  /** Advertised in the metadata document so hosts know what to request. */
+  /** OAuth scope tokens advertised in the metadata document so hosts know what to request. */
   scopesSupported?: readonly string[];
   /**
-   * Scopes every `/mcp` call must carry. A verified token missing any of them
-   * gets `403 insufficient_scope` instead of running a tool.
+   * OAuth scope tokens every `/mcp` call must carry. A verified token missing
+   * any of them gets `403 insufficient_scope` instead of running a tool.
    */
   requiredScopes?: readonly string[];
   /** Human-facing documentation URL, advertised as `resource_documentation`. */

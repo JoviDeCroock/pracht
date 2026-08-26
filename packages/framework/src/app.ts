@@ -22,6 +22,7 @@ import type {
   PrachtAgentsConfig,
 } from "./types.ts";
 import { isValidCapabilityHttpPath } from "@pracht/capabilities";
+import { isValidOAuthScopeToken } from "./mcp-config.ts";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
 import {
@@ -644,12 +645,9 @@ function isLoopbackHost(hostname: string): boolean {
 
 function assertScopeList(value: readonly string[] | undefined, label: string): void {
   if (value === undefined) return;
-  if (
-    !Array.isArray(value) ||
-    value.some((scope) => typeof scope !== "string" || scope === "" || /[\s"\\]/.test(scope))
-  ) {
+  if (!Array.isArray(value) || value.some((scope) => !isValidOAuthScopeToken(scope))) {
     throw new Error(
-      `${label} must be an array of non-empty scope tokens without whitespace, quotes, or backslashes.`,
+      `${label} must be an array of OAuth scope tokens using printable ASCII except quotes and backslashes.`,
     );
   }
 }

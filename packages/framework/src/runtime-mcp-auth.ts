@@ -156,6 +156,9 @@ export async function authenticateMcpRequest(options: {
   request: Request;
 }): Promise<McpAuthResult> {
   const { auth, request } = options;
+  const canonicalRedirect = redirectToCanonicalMcpResource(request, auth);
+  if (canonicalRedirect) return { ok: false, response: canonicalRedirect };
+
   const token = readBearerToken(request.headers.get("authorization"));
 
   if (token === null) {
@@ -237,6 +240,24 @@ export async function authenticateMcpRequest(options: {
   }
 
   return { ok: true, principal };
+}
+
+/**
+ * RFC 9728 requires challenged metadata to name exactly the URL the client
+ * used for the protected-resource request. Redirect any alias, query-bearing,
+ * or trailing-slash spelling before emitting a challenge that a conforming
+ * client would have to discard. Status 308 preserves the MCP POST body.
+ */
+function redirectToCanonicalMcpResource(request: Request, auth: McpAuthConfig): Response | null {
+  if (new URL(request.url).href === new URL(auth.resource).href) return null;
+  return new Response("Redirecting to the canonical MCP resource.", {
+    status: 308,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+      location: auth.resource,
+    },
+  });
 }
 
 /**

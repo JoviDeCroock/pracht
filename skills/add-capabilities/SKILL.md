@@ -219,7 +219,10 @@ Rules to hold the user to:
   (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it. Require
   HTTPS outside loopback development, and reject authorization-server issuers
   with query strings or fragments. For `mcp.path: "/"`, the resource is the
-  deployed app root, including its base.
+  deployed app root, including its base. Authenticated requests whose URL is not
+  exactly this identifier are redirected to it with `308` before token
+  verification. Scope values must use OAuth's printable ASCII grammar (no
+  spaces, controls, non-ASCII, quotes, or backslashes).
 - `pracht plan` snapshots the OAuth-protection bit separately from the endpoint
   path. Removing `auth` from a still-live endpoint is a guard weakening even
   when `/mcp` itself did not move.

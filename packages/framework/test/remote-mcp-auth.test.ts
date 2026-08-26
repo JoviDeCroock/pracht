@@ -92,13 +92,14 @@ interface CallOptions extends HarnessOptions {
   headers?: Record<string, string>;
   method?: string;
   path?: string;
+  url?: string;
   context?: unknown;
 }
 
 async function call(body: unknown, options: CallOptions = {}) {
   const { app, registry } = createHarness(options);
   const method = options.method ?? "POST";
-  const request = new Request(`${ORIGIN}${options.path ?? "/mcp"}`, {
+  const request = new Request(options.url ?? `${ORIGIN}${options.path ?? "/mcp"}`, {
     method,
     headers: { "content-type": "application/json", ...options.headers },
     body:
@@ -221,6 +222,23 @@ describe("protected-resource metadata document", () => {
 });
 
 describe("WWW-Authenticate challenges", () => {
+  it("redirects non-canonical resource URLs before challenging or verifying", async () => {
+    for (const url of [
+      `${ORIGIN}/mcp/`,
+      `${ORIGIN}/mcp?tenant=acme`,
+      "https://alias.example/mcp",
+    ]) {
+      const { response, status } = await call(toolsCall, {
+        headers: { authorization: "Bearer good" },
+        url,
+      });
+      expect(status).toBe(308);
+      expect(response.headers.get("location")).toBe(`${ORIGIN}/mcp`);
+      expect(response.headers.get("www-authenticate")).toBeNull();
+    }
+    expect(verifyCalls).toEqual([]);
+  });
+
   it("answers 401 with a resource_metadata pointer when no token is presented", async () => {
     const { status, response, json } = await call(toolsCall);
 
@@ -656,8 +674,12 @@ describe("manifest validation", () => {
   });
 
   it("rejects scope tokens that would break the challenge header", () => {
-    expect(build({ ...BASE_AUTH, scopesSupported: ["a b"] })).toThrow(/scope tokens/);
-    expect(build({ ...BASE_AUTH, requiredScopes: ['a"b'] })).toThrow(/scope tokens/);
+    for (const scope of ["a b", 'a"b', "a\\b", "a\u0000b", "a\u007fb", "café"]) {
+      expect(build({ ...BASE_AUTH, requiredScopes: [scope] })).toThrow(/scope tokens/);
+    }
+    expect(
+      build({ ...BASE_AUTH, scopesSupported: ["urn:notes:read", "notes+write"] }),
+    ).not.toThrow();
   });
 
   it("requires a verify module reference", () => {

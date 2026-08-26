@@ -52,6 +52,7 @@ import {
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 export {
   isMcpResourceMetadataPath,
+  isValidOAuthScopeToken,
   mcpResourceMetadataPath,
   mcpResourceMetadataUrl,
   resolveMcpEndpoint,

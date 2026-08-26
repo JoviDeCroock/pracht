@@ -212,7 +212,7 @@ export const app = defineApp({
 });
 ```
 
-`verify` is a module reference, not an inline function, for the same reason capabilities and middleware are: the manifest is bundled into the client, and a token verifier — with its JWKS client and issuer configuration — must never be. `pracht verify` and manifest resolution reject a relative `resource`, a `resource` carrying a query, fragment, or non-root trailing slash, a `resource` whose path does not exactly identify the served endpoint, a non-loopback cleartext URL, an authorization-server issuer with a query or fragment, an empty `authorizationServers`, a scope token that would break the challenge header, and a missing `verify`. HTTP is accepted only on loopback during local development; deployed resource and issuer URLs must use HTTPS. Use the endpoint's canonical URL: `/mcp/` is not an equivalent OAuth resource identifier for `/mcp`, even though routing accepts either spelling.
+`verify` is a module reference, not an inline function, for the same reason capabilities and middleware are: the manifest is bundled into the client, and a token verifier — with its JWKS client and issuer configuration — must never be. `pracht verify` and manifest resolution reject a relative `resource`, a `resource` carrying a query, fragment, or non-root trailing slash, a `resource` whose path does not exactly identify the served endpoint, a non-loopback cleartext URL, an authorization-server issuer with a query or fragment, an empty `authorizationServers`, a scope token outside OAuth's printable-ASCII grammar, and a missing `verify`. HTTP is accepted only on loopback during local development; deployed resource and issuer URLs must use HTTPS. Use the endpoint's canonical URL: `/mcp/` is not an equivalent OAuth resource identifier for `/mcp`, even though routing accepts either spelling. Authenticated endpoints redirect every non-canonical spelling, alternate host, and query-bearing request to `resource` with `308` before challenging or verifying it.
 
 The committed app-graph snapshot records whether the endpoint is OAuth protected. `pracht plan` reports enabling protection and warns when it is removed from a still-live endpoint, even when the `/mcp` path itself did not change.
 
@@ -249,6 +249,7 @@ Because the match happens before routing, an application route cannot shadow the
 
 | Situation | Answer |
 | --- | --- |
+| Request URL is not exactly `resource` | `308` to the configured canonical URL; no challenge or token verification |
 | No `Authorization: Bearer` | `401`, `WWW-Authenticate: Bearer resource_metadata="…"` and configured `scope="…"` |
 | Token present but rejected | `401`, plus `error="invalid_token"` and configured `scope="…"` |
 | Token valid, scope missing | `403`, plus `error="insufficient_scope"`, `scope="…"` |

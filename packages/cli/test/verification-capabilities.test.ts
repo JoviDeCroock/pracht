@@ -1102,6 +1102,8 @@ ${extra}        verify: () => import("${verifyPath}"),
         "must be an exact same-origin pathname",
       ],
       [authBlock('        requiredScopes: ["notes read"],\n'), "scope tokens"],
+      [authBlock('        requiredScopes: ["notes\\u0000read"],\n'), "scope tokens"],
+      [authBlock('        requiredScopes: ["café"],\n'), "scope tokens"],
       [
         authBlock('        resourceDocumentation: "http://docs.example/mcp",\n'),
         "resourceDocumentation",
@@ -1155,6 +1157,50 @@ ${extra}        verify: () => import("${verifyPath}"),
         status: "error",
       }),
     );
+  });
+
+  it("rejects an inline verifier instead of silently accepting it", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        verify: async () => ({ subject: "demo" }),
+      },
+    },
+  },`);
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("must be a module reference"),
+        status: "error",
+      }),
+    );
+  });
+
+  it("does not mistake commented or nested verifier references for the auth hook", () => {
+    for (const verifyText of [
+      '// verify: () => import("./server/mcp-token.ts")',
+      'options: { verify: () => import("./server/mcp-token.ts") },',
+    ]) {
+      const checks = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        ${verifyText}
+      },
+    },
+  },`);
+      expect(checks).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("without a `verify` module"),
+          status: "error",
+        }),
+      );
+      expect(checks.map((check) => check.message)).not.toContainEqual(
+        expect.stringContaining("OAuth 2.0 protected resource"),
+      );
+    }
   });
 
   // A spread can carry `verify` in from a shared constant. Verification cannot

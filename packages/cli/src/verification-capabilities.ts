@@ -25,6 +25,7 @@ import {
   maskCommentsAndStrings,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
+import { isValidOAuthScopeToken } from "@pracht/core";
 
 import { extractRegistryEntries } from "./manifest.js";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
@@ -512,25 +513,19 @@ function collectMcpAuthChecks(
     const scopes = evaluateLiteral(expression);
     if (scopes === undefined) {
       authIsProvablyValid = false;
-    } else if (
-      !Array.isArray(scopes) ||
-      scopes.some((scope) => typeof scope !== "string" || scope === "" || /[\s"\\]/.test(scope))
-    ) {
+    } else if (!Array.isArray(scopes) || scopes.some((scope) => !isValidOAuthScopeToken(scope))) {
       authIsProvablyValid = false;
       checks.push(
         createCheck(
           "error",
-          `agents.mcp.auth.${field} must be an array of non-empty scope tokens without whitespace, quotes, or backslashes.`,
+          `agents.mcp.auth.${field} must be an array of OAuth scope tokens using printable ASCII except quotes and backslashes.`,
         ),
       );
     }
   }
 
-  const verifyMatch =
-    /\bverify\s*:\s*(?:\(\)\s*=>\s*import\(\s*(["'`])([^"'`]+)\1\s*\)|(["'`])([^"'`]+)\3)/.exec(
-      authBody,
-    );
-  if (!verifyMatch) {
+  const verifyExpression = findProvableTopLevelProperty(authBody, "verify");
+  if (verifyExpression === undefined) {
     if (!authIsPartlyOpaque) {
       checks.push(
         createCheck(
@@ -544,7 +539,18 @@ function collectMcpAuthChecks(
     return;
   }
 
-  const verifyPath = verifyMatch[2] ?? verifyMatch[4];
+  const verifyPath = extractMcpVerifyModulePath(verifyExpression);
+  if (!verifyPath) {
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.auth.verify must be a module reference such as " +
+          '`verify: () => import("./server/mcp-token.ts")`.',
+      ),
+    );
+    return;
+  }
+
   const filePath = verifyPath.startsWith("/")
     ? resolveProjectPath(project.root, verifyPath)
     : resolve(dirname(manifestPath), verifyPath);
@@ -581,6 +587,47 @@ function collectMcpAuthChecks(
       createCheck("ok", "Remote MCP endpoint is an OAuth 2.0 protected resource (RFC 9728)."),
     );
   }
+}
+
+/** A statically provable ModuleRef shape that the manifest transform supports. */
+function extractMcpVerifyModulePath(expression: string): string | null {
+  const literal = evaluateLiteral(expression);
+  if (typeof literal === "string" && literal !== "") return literal;
+
+  const importRef = /^\s*\(\)\s*=>\s*import\(\s*(["'])([^"']+)\1\s*\)\s*$/.exec(expression);
+  return importRef?.[2] ?? null;
+}
+
+/**
+ * Read an explicit top-level property even when an earlier spread truncated the
+ * shared scanner. A later spread resets the proof because it may override the
+ * value; a later explicit property makes the value knowable again.
+ */
+function findProvableTopLevelProperty(objectBody: string, key: string): string | undefined {
+  const searchable = maskCommentsAndStrings(objectBody);
+  const entries: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index <= searchable.length; index += 1) {
+    const character = searchable[index];
+    if (character === "{" || character === "[" || character === "(") depth += 1;
+    else if (character === "}" || character === "]" || character === ")") depth -= 1;
+    if ((character === "," && depth === 0) || index === searchable.length) {
+      entries.push(objectBody.slice(start, index));
+      start = index + 1;
+    }
+  }
+
+  let expression: string | undefined;
+  for (const entry of entries) {
+    if (maskCommentsAndStrings(entry).trimStart().startsWith("...")) {
+      expression = undefined;
+      continue;
+    }
+    const candidate = scanTopLevelProperties(entry).get(key);
+    if (candidate !== undefined) expression = candidate;
+  }
+  return expression;
 }
 
 function oauthUrlUsesSafeTransport(url: URL): boolean {

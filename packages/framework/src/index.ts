@@ -141,6 +141,7 @@ export {
   mcpExposedCapabilities,
   handleMcpMetadataRequest,
   isMcpResourceMetadataPath,
+  isValidOAuthScopeToken,
   mcpResourceMetadataPath,
   mcpResourceMetadataUrl,
   resolveMcpEndpoint,

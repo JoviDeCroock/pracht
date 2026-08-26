@@ -119,6 +119,8 @@ commonly misunderstood line of an app's agent surface.
     the served endpoint (`resolveApp()` and `pracht verify` reject otherwise,
     so a failure here means the app does not build). `mcp.path: "/"`
     legitimately identifies the deployed app root, including its base.
+    Confirm aliases, query-bearing URLs, and trailing-slash spellings redirect
+    with `308` to this exact identifier before emitting an OAuth challenge.
   - Every `authorizationServers` entry is an HTTPS issuer without a query or
     fragment (loopback HTTP is development-only). Anything else is an invalid
     RFC 8414 issuer and must be an `error`.
@@ -135,7 +137,8 @@ commonly misunderstood line of an app's agent surface.
     against `context.tokenAuth.scopes`. Authentication without authorization is
     a `warn`: every valid token reaches every tool. When `requiredScopes` is
     present, confirm the initial 401 challenge advertises the same `scope` list,
-    not only the later `insufficient_scope` response.
+    not only the later `insufficient_scope` response. Scope values must be
+    printable ASCII other than quotes and backslashes.
   - Capabilities reading `context.tokenAuth` must tolerate its absence on other
     transports — it is only set on authenticated MCP dispatch.
   - Under a deploy base, `resource` must carry the base
