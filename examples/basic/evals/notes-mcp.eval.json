@@ -27,12 +27,18 @@
     },
     {
       "capability": "notes.purge",
-      "input": { "titlePrefix": "MCP purge target" },
+      "input": {
+        "titlePrefix": "MCP purge target",
+        "idempotencyKey": "$steps[2].data.note.id"
+      },
       "expect": { "ok": false, "status": 409, "errorCode": "confirmation_required" }
     },
     {
       "capability": "notes.purge",
-      "input": { "titlePrefix": "MCP purge target" },
+      "input": {
+        "titlePrefix": "MCP purge target",
+        "idempotencyKey": "$steps[2].data.note.id"
+      },
       "confirm": "$steps[3].error.confirmationToken",
       "expect": { "ok": true, "status": 200 }
     }

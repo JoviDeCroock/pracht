@@ -675,37 +675,42 @@ const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
 
 test("pracht eval runs the example scenarios against the dev server", async () => {
-  const { stdout } = await execFileAsync(
-    process.execPath,
-    [cliEntry, "eval", "--url", capabilitiesUrl],
-    { cwd: resolve(repoRoot, "examples/basic") },
-  );
-  expect(stdout).toContain("PASS  notes agent flow");
-  expect(stdout).toContain("confirmation_required");
+  // Run twice against one long-lived approval store. Consumed proposals stay
+  // closed until expiry, so the scenarios must give each intentional purge a
+  // per-run idempotency key rather than reusing one fixed operation identity.
+  for (let run = 0; run < 2; run += 1) {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [cliEntry, "eval", "--url", capabilitiesUrl],
+      { cwd: resolve(repoRoot, "examples/basic") },
+    );
+    expect(stdout).toContain("PASS  notes agent flow");
+    expect(stdout).toContain("confirmation_required");
 
-  // Both halves of the agent-trust policy, which only became expressible in a
-  // scenario once `signAs` shipped: a signed caller reaches a capability
-  // declaring `agentPolicy: "require"`, and an unsigned one is refused.
-  expect(stdout).toContain("PASS  verified agent identity");
-  expect(stdout).toContain("agent_required");
+    // Both halves of the agent-trust policy, which only became expressible in a
+    // scenario once `signAs` shipped: a signed caller reaches a capability
+    // declaring `agentPolicy: "require"`, and an unsigned one is refused.
+    expect(stdout).toContain("PASS  verified agent identity");
+    expect(stdout).toContain("agent_required");
 
-  // The same notes task over the remote MCP transport: a real initialize
-  // handshake plus one tools/call per step, which is the only way to prove the
-  // `expose.mcp` capabilities are reachable by an MCP host rather than merely
-  // declared. Both MCP scenarios assert capability statuses (400 on the
-  // validation step, 401 on the unsigned one) that only hold because the runner
-  // maps `io.pracht/status`; a regression to the transport status makes every
-  // `tools/call` a 200 and fails these scenarios rather than passing quietly.
-  expect(stdout).toContain("PASS  notes agent flow over MCP  [mcp]");
+    // The same notes task over the remote MCP transport: a real initialize
+    // handshake plus one tools/call per step, which is the only way to prove the
+    // `expose.mcp` capabilities are reachable by an MCP host rather than merely
+    // declared. Both MCP scenarios assert capability statuses (400 on the
+    // validation step, 401 on the unsigned one) that only hold because the runner
+    // maps `io.pracht/status`; a regression to the transport status makes every
+    // `tools/call` a 200 and fails these scenarios rather than passing quietly.
+    expect(stdout).toContain("PASS  notes agent flow over MCP  [mcp]");
 
-  // Web Bot Auth over MCP: the signed caller reaches an `agentPolicy: "require"`
-  // tool and the unsigned one is refused with the 401 envelope.
-  expect(stdout).toContain("PASS  verified agent identity over MCP  [mcp]");
+    // Web Bot Auth over MCP: the signed caller reaches an `agentPolicy: "require"`
+    // tool and the unsigned one is refused with the 401 envelope.
+    expect(stdout).toContain("PASS  verified agent identity over MCP  [mcp]");
 
-  // Asserted on the failure count rather than a scenario total, so adding a
-  // scenario does not break this test.
-  expect(stdout).toMatch(/\d+ scenario\(s\) passed, 0 failed/);
-  expect(stdout).not.toContain("FAIL");
+    // Asserted on the failure count rather than a scenario total, so adding a
+    // scenario does not break this test.
+    expect(stdout).toMatch(/\d+ scenario\(s\) passed, 0 failed/);
+    expect(stdout).not.toContain("FAIL");
+  }
 });
 
 test("pracht eval --start launches the app, runs the scenario, and stops it", async () => {

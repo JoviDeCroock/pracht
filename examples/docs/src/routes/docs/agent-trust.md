@@ -291,6 +291,8 @@ Two things follow:
 - Without Web Bot Auth or `setCapabilityApprovalPrincipalResolver()`, every caller is the principal `"anonymous"` — so the lockout is shared across *all* unauthenticated agents. One agent purging `{ titlePrefix: "Old" }` locks that exact call out for everyone until it expires. Bind a real principal before you serve destructive tools to more than one caller.
 - Tune `agents.confirmation.ttlSeconds` with this in mind: it is both how long a token stays valid and how long a completed operation stays closed. Genuinely repeatable operations usually differ in their input (an id, a timestamp); ones that do not should either carry an idempotency key in their schema or accept the window.
 
+The bundled notes evals demonstrate the idempotency-key pattern: each purge carries the freshly created note id as `idempotencyKey`, so rerunning `pracht eval` against one long-lived server proposes a distinct operation without weakening replay protection.
+
 Approval records contain the validated capability input and the raw application principal so a reviewer can understand who requested what. Treat both as sensitive server-side data: protect review endpoints with your own authentication and authorization, avoid logging records wholesale, and apply retention or deletion after expiry according to your application's policy.
 
 The in-memory reference store defensively clones records on input and output. Custom stores should provide the same snapshot behaviour even when their database client already deserializes rows into new objects; it keeps application code from changing approval state without an atomic store operation.

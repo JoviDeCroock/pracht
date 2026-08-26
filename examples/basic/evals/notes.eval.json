@@ -19,12 +19,18 @@
     },
     {
       "capability": "notes.purge",
-      "input": { "titlePrefix": "Purge target" },
+      "input": {
+        "titlePrefix": "Purge target",
+        "idempotencyKey": "$steps[2].data.note.id"
+      },
       "expect": { "ok": false, "status": 409, "errorCode": "confirmation_required" }
     },
     {
       "capability": "notes.purge",
-      "input": { "titlePrefix": "Purge target" },
+      "input": {
+        "titlePrefix": "Purge target",
+        "idempotencyKey": "$steps[2].data.note.id"
+      },
       "confirm": "$steps[3].error.confirmationToken",
       "expect": { "ok": true }
     }

@@ -558,6 +558,11 @@ Two operational consequences worth knowing before you turn this on:
   repeatable operations an input that differs per call (an id, an idempotency
   key) rather than fighting the window.
 
+  The bundled notes evals demonstrate that pattern by carrying the freshly
+  created note id as the purge's `idempotencyKey`, so rerunning `pracht eval`
+  against one long-lived server proposes a new operation without weakening
+  replay protection.
+
 `singleUse` is ignored while a store is registered — the store enforces single
 use durably.
 

@@ -7,6 +7,8 @@ import "../server/approvals.ts";
 
 interface PurgeInput {
   titlePrefix: string;
+  /** Distinguishes intentional repeat operations for confirmation replay protection. */
+  idempotencyKey?: string;
 }
 
 // Destructive demo capability, exposed over HTTP *and* remote MCP — which means
@@ -25,6 +27,12 @@ export default defineCapability({
     type: "object",
     properties: {
       titlePrefix: { type: "string", minLength: 3 },
+      idempotencyKey: {
+        type: "string",
+        minLength: 1,
+        description:
+          "Stable operation identity. Change it only when intentionally repeating the purge.",
+      },
     },
     required: ["titlePrefix"],
     additionalProperties: false,
