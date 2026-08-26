@@ -183,6 +183,67 @@ Three rules:
   does not eagerly invoke loader getters to discover hidden deferred values and
   throws instead of silently serializing an unresolved marker.
 
+### Server-only values
+
+Loader data is written into the SSR document twice: once as the markup the
+server rendered, and again as the JSON the client hydrates from. For a field
+whose only job was to *become* that markup — compiled Markdown, a rendered
+diff, a syntax-highlighted snippet — the second copy is the bytes the reader
+already downloaded.
+
+`serverOnly()` marks such a field, and `<StaticHtml>` renders it:
+
+```tsx [src/routes/article.tsx]
+import { StaticHtml, serverOnly } from "@pracht/core";
+import type { RouteComponentProps } from "@pracht/core";
+
+export async function loader({ params }: LoaderArgs) {
+  const article = await getArticle(params.slug);
+  return { title: article.title, html: serverOnly(article.html) };
+}
+
+export default function Article({ data }: RouteComponentProps<typeof loader>) {
+  return (
+    <article>
+      <h1>{data.title}</h1>
+      <StaticHtml html={data.html} class="prose" />
+    </article>
+  );
+}
+```
+
+The document now carries the article once. In the hydration state the field is
+a placeholder, and `<StaticHtml>` renders no markup for it — Preact never
+writes into a `dangerouslySetInnerHTML` element while hydrating, so the subtree
+the server rendered is adopted exactly as it stands.
+
+**No request moves anywhere.** A client-side navigation to the route gets the
+real value from the route-state response Pracht already fetches for the
+route's `head()`. Only the duplicate in the initial document is gone.
+
+`ServerOnly<T>` stays in the loader data type, so passing `data.html` where a
+`string` is expected is a compile error. `<StaticHtml>` accepts it; anything
+else reads it with `readServerOnly()`, which throws in the browser rather than
+rendering a hole in production.
+
+Three rules:
+
+- **Nothing inside a `<StaticHtml>` boundary is interactive.** It never
+  hydrates, so event handlers, hooks, and islands do not exist in it. Decide
+  this first: if the markup embeds components — custom elements mapped to
+  Preact components, say — they render as literal unmounted elements, because
+  nothing is left to hydrate them. That page needs a hydrating renderer or
+  [islands](/docs/islands), and pays for its markup twice by design.
+- **The markup is injected as raw HTML.** Treat it like
+  `dangerouslySetInnerHTML`: it must come from a source you trust, or be
+  sanitized on the server first.
+- **Return `serverOnly()` from an enumerable data property, not a getter** —
+  the same rule `defer()` has, for the same reason.
+
+Markdown routes from [`@pracht/markdown`](/docs/content) use this already: the
+compiled page is their `html` loader field, so no docs page ships its own prose
+as JavaScript.
+
 ### Error handling
 
 Throw `PrachtHttpError` for structured error responses. Pair it with an `ErrorBoundary` export to render a fallback UI:

@@ -150,6 +150,39 @@ export default defineConfig({
 });
 ```
 
+## Markdown pages ship their prose once
+
+A compiled document becomes a route module whose exports are all server-only
+except the component:
+
+```js
+export const markdown = "…raw source…"; // Accept: text/markdown, llms.txt
+export function head() { … }             // frontmatter title by default
+export function loader() {
+  return { html: serverOnly(compiledHtml) };
+}
+export function Component({ data }) {
+  return <StaticHtml class="pracht-markdown" html={data.html} />;
+}
+```
+
+`loader` is stripped from client builds, and it takes the compiled page with
+it. `<StaticHtml>` adopts the markup the server already wrote into the document
+instead of hydrating it, so a Markdown page's route chunk is a couple of
+hundred bytes rather than a second copy of the article. Client-side navigation
+is unaffected — the markup arrives in the route-state response Pracht already
+fetches for `head()`. See
+[server-only values](/docs/data-loading) for the underlying primitives.
+
+Two things follow from this:
+
+- `useRouteData()` on a Markdown route returns `{ html }`, where `html` is a
+  `ServerOnly<string>`. Read it with `readServerOnly()` or render it through
+  `<StaticHtml>`.
+- Nothing inside the rendered Markdown is interactive — that subtree never
+  hydrates. Put interactive pieces in the shell, or on an
+  [islands](/docs/islands) route.
+
 ## Resolve content on the server
 
 The package is server-only. Loaders and other deployed server code consume a

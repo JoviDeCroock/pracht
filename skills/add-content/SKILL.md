@@ -114,8 +114,14 @@ plugin owns one internal build manifest and rejects a second registration.
 
 ## Step 5: Point routes at the documents
 
-Markdown modules are ordinary route modules (they export `Component`, `head()`,
-and the raw `markdown` string for `Accept: text/markdown` negotiation):
+Markdown modules are ordinary route modules. They export `Component`, `head()`,
+the raw `markdown` string for `Accept: text/markdown` negotiation, and a
+`loader()` returning the compiled page as a `serverOnly()` field — the client
+build strips all three server-only exports, so the prose is not also shipped as
+JavaScript. `Component` renders it through `<StaticHtml>`, which adopts the
+server-rendered subtree rather than hydrating it: nothing inside a Markdown
+page is interactive, and `useRouteData()` on one returns
+`{ html: ServerOnly<string> }`.
 
 ```ts
 route("/docs/routing", () => import("./routes/docs/routing.md"), {

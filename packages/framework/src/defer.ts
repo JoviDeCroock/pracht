@@ -30,6 +30,7 @@
  * permanent output would be a correctness bug.
  */
 
+import { isArrayIndexKey, isPlainObject } from "./loader-values.ts";
 import { isPrachtHttpError } from "./runtime-errors.ts";
 
 const DEFERRED = Symbol.for("pracht.deferred");
@@ -288,17 +289,6 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
     );
   }
   return next;
-}
-
-function isPlainObject(value: object): value is Record<string, unknown> {
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-function isArrayIndexKey(key: PropertyKey): key is string {
-  if (typeof key !== "string" || key === "") return false;
-  const index = Number(key);
-  return Number.isInteger(index) && index >= 0 && index < 2 ** 32 - 1 && String(index) === key;
 }
 
 function deferredResponseError(): TypeError {

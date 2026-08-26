@@ -3,6 +3,7 @@ import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import { resolveDeferredData } from "./defer.ts";
+import { stripServerOnlyValues } from "./server-only-strip.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -1142,7 +1143,11 @@ export async function handlePrachtRequest<TContext>(
             hydrationState: {
               url: requestPath,
               routeId: match.route.id ?? "",
-              data,
+              // The document already carries whatever a serverOnly() field
+              // rendered into, so the state script carries a placeholder
+              // instead of a second copy. Route-state responses — what a
+              // client-side navigation fetches — keep the real value.
+              data: stripServerOnlyValues(data),
               error: null,
             },
             clientEntryUrl: options.clientEntryUrl,

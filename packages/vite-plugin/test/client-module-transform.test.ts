@@ -471,6 +471,44 @@ export function Component() {
     expect(transformed).toContain("function Component");
     expectValidModuleSource(transformed);
   });
+
+  it("takes the compiled markup out of a markdown route's client module", () => {
+    // The shape `@pracht/markdown` generates: the prose is reachable only from
+    // `loader`, so stripping the loader takes the second copy of the page with
+    // it and leaves a component that adopts the server-rendered subtree.
+    const source = `
+import { h } from "preact";
+import { serverOnly, StaticHtml } from "@pracht/core";
+
+export const markdown = "# Docs — the raw source.";
+
+export function head() {
+  return { title: "docs" };
+}
+
+const __prachtHtml = "<h1>Docs</h1><p>Several kilobytes of prose.</p>";
+
+export function loader() {
+  return { html: serverOnly(__prachtHtml) };
+}
+
+export function Component({ data }) {
+  return h(StaticHtml, { class: "pracht-markdown", html: data ? data.html : "" });
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(
+      source,
+      "/src/routes/docs/page.md?pracht-client",
+    );
+
+    expect(transformed).not.toContain("Several kilobytes of prose");
+    expect(transformed).not.toContain("The raw source");
+    expect(transformed).not.toContain("serverOnly");
+    expect(transformed).toContain("StaticHtml");
+    expect(transformed).toContain("function Component");
+    expectValidModuleSource(transformed);
+  });
 });
 
 describe("client route module build", () => {

@@ -57,6 +57,15 @@ Flag returns that contain any of:
 | `bigint`                     | `JSON.stringify` throws             |
 | `undefined` in arrays/object | Drops keys; arrays become `null`    |
 
+`serverOnly(value)` is fine anywhere in a loader return: it serializes to the
+value it wraps for route-state responses and to a placeholder in the inline
+hydration state. Flag it only when it is read outside a `<StaticHtml>` boundary
+or a `readServerOnly()` call — during hydration the browser holds the
+placeholder, so a component reaching into it renders a hole (or throws) in
+production only. Also flag a large markup string returned *without* it from a
+route that renders it straight into `dangerouslySetInnerHTML`: that page ships
+its own content twice.
+
 A bare promise in loader data is always a bug — it serializes to `{}`. The fix
 is `defer(promise)`, which marks the field as deferred and is read in the
 component with `use()` inside a `<Suspense>` boundary. Flag a bare promise as an
