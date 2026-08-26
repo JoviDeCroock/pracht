@@ -73,6 +73,16 @@ export interface PrachtPluginOptions {
    * compiled out of the client bundle. See {@link PrachtClientOptions}.
    */
   client?: PrachtClientOptions;
+  /**
+   * Group the Preact runtime into a shared `vendor` chunk. Defaults to `true`.
+   *
+   * The group is appended to whatever `build.rollupOptions.output` chunking
+   * the app configures, so app-level grouping and the framework chunk compose
+   * (see `frameworkChunkGroups()`). Set `false` to contribute nothing at all —
+   * for an app that places `frameworkChunkGroups()` itself, or one that wants
+   * Preact merged into its own chunks.
+   */
+  vendorChunk?: boolean;
   appFile?: string;
   routesDir?: string;
   shellsDir?: string;
@@ -142,6 +152,7 @@ export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
 
 const DEFAULTS: ResolvedPrachtPluginOptions = {
   client: CLIENT_FEATURE_DEFAULTS,
+  vendorChunk: true,
   appFile: "/src/routes.ts",
   middlewareDir: "/src/middleware",
   routesDir: "/src/routes",
@@ -173,6 +184,11 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
     resolved.llmsTxt = false;
   }
   resolved.client = resolveClientOptions(options.client);
+  if (typeof resolved.vendorChunk !== "boolean") {
+    throw new Error(
+      `pracht({ vendorChunk }) expects a boolean, got ${JSON.stringify(resolved.vendorChunk)}.`,
+    );
+  }
   resolved.additionalExtensions = normalizeAdditionalExtensions(resolved.additionalExtensions);
   if (!new Set(["spa", "ssr", "ssg", "isg"]).has(resolved.pagesDefaultRender)) {
     throw new Error('pracht({ pagesDefaultRender }) expects "spa", "ssr", "ssg", or "isg".');
