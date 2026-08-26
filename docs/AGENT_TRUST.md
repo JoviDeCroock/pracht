@@ -4,7 +4,9 @@ The agent trust layer answers three questions about the capability graph
 (see [CAPABILITIES.md](CAPABILITIES.md)):
 
 - **Who is calling?** — Web Bot Auth verification puts a cryptographically
-  verified agent identity on the request context.
+  verified agent identity on the request context; on the remote MCP endpoint,
+  OAuth resource-server metadata additionally identifies *on whose behalf* the
+  agent is acting.
 - **May they do this?** — policy modes per app and per capability, plus a
   server-verified prepare/commit confirmation flow for destructive
   capabilities, optionally backed by a durable approval store for
@@ -174,6 +176,27 @@ export default defineCapability({
 
 `agentPolicy: "require"` fails closed even when `webBotAuth` is not
 configured (every request would be 401 — a loud misconfiguration signal).
+
+## OAuth bearer identity on remote MCP
+
+Web Bot Auth answers "which agent software is this?". It does not answer "which
+user is it acting for" — that is an OAuth question, and on the remote MCP
+endpoint it has a standard answer. `defineApp({ agents: { mcp: { auth } } })`
+turns `/mcp` into an OAuth 2.0 protected resource: it publishes RFC 9728
+metadata at `/.well-known/oauth-protected-resource`, answers unauthenticated
+calls with the `WWW-Authenticate` challenge MCP hosts follow, and hands the
+presented token to an application-supplied `verify` module.
+
+Pracht stays the resource server. It does not validate JWTs, fetch JWKS, or
+issue tokens — the design rule is *define the authentication hook first, ship
+deployment recipes before owning an authorization server*. The verified
+principal lands on `context.tokenAuth` under the same immutable-snapshot rules
+as `context.agent` above, and the two compose: `agent` is the caller's software
+identity, `tokenAuth` is the account it acts for.
+
+Full configuration, the metadata document, the challenge table, the JWKS recipe,
+and the fail-closed rules live in
+[REMOTE_MCP.md](REMOTE_MCP.md#oauth-resource-server-metadata).
 
 ## Effect classes and the confirmation flow
 
@@ -1138,6 +1161,12 @@ not verify. Sign [the authority the Worker sees](#preview-authority-with-custom-
 - `nonce` uniqueness enforcement.
 - A Durable Objects approval store. SQL backends (Postgres, D1, SQLite/Turso)
   are covered by [`createSqlApprovalStore()`](#createsqlapprovalstore-the-first-party-durable-store).
+- An authorization server. `agents.mcp.auth` makes pracht an OAuth *resource
+  server*; token issuance, dynamic client registration, and consent UI stay
+  with your identity provider.
+- OAuth bearer auth on the HTTP and WebMCP projections — `agents.mcp.auth`
+  covers the remote MCP transport only; browser projections are
+  cookie-authenticated by design.
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
 - Destructive capabilities over **WebMCP**. Unlike remote MCP, this is not
   waiting on a mechanism: a page host's approval UX is not a security boundary,

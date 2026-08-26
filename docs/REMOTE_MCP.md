@@ -160,6 +160,7 @@ The split follows what actually failed:
 | --- | --- |
 | Unknown tool, malformed params, bad JSON-RPC | JSON-RPC `error` |
 | Unsupported protocol version, non-POST, browser-originated, cookie-bearing request | HTTP 400 / 405 / 403 |
+| Missing, rejected, or under-scoped bearer token (when `agents.mcp.auth` is set) | HTTP 401 / 403 with `WWW-Authenticate` |
 | Validation failure, middleware rejection, policy denial | `isError: true` result |
 
 Execution failures stay results because the call itself succeeded and the
@@ -295,13 +296,184 @@ The projection inherits every capability guarantee and adds three of its own:
   first-party code behind it. See
   [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 
-Authentication is your app's: put it in the capability's named middleware,
-which sees the forwarded `Authorization` header and `context.agent`; nested
-calls also re-apply the callee's `agentPolicy`. Every dispatch emits an audit
-event with `transport: "mcp"` — passed as internal dispatch state by the
-projection, never read from the public transport-marker header, so unlike the
-client-declared `"webmcp"` marker it is trustworthy — and anything the tool
-composes emits its own event carrying `via: "mcp"`.
+Every dispatch emits an audit event with `transport: "mcp"` — passed as
+internal dispatch state by the projection, never read from the public
+transport-marker header, so unlike the client-declared `"webmcp"` marker it is
+trustworthy — and anything the tool composes emits its own event carrying
+`via: "mcp"`.
+
+Authentication has two shapes. Without `agents.mcp.auth` (below) the endpoint is
+open and authentication is your app's: put it in the capability's named
+middleware, which sees the forwarded `Authorization` header and `context.agent`.
+With it, the transport itself becomes an OAuth 2.0 protected resource.
+
+## OAuth resource-server metadata
+
+MCP hosts (Claude, ChatGPT connectors, Inspector) cannot connect to an
+authenticated server they have to be told about out of band. The
+[MCP authorization spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+answers that with two standards: [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)
+protected-resource metadata, and an
+[RFC 6750](https://www.rfc-editor.org/rfc/rfc6750) `WWW-Authenticate` challenge
+that points at it. Pracht implements the **resource server** half of both.
+
+It is not, and will not become, an authorization server. Token issuance,
+refresh, consent screens, and dynamic client registration belong to an identity
+provider you already run (Auth0, Clerk, Entra, Keycloak, WorkOS, your own).
+Pracht's job is to publish where that provider is and to check what it issued.
+
+```ts
+// src/routes.ts
+export const app = defineApp({
+  agents: {
+    mcp: {
+      serverInfo: { name: "notes", version: "1.4.0" },
+      auth: {
+        // Absolute URL of this endpoint. It is the RFC 8707 audience tokens
+        // must be bound to, and the base for the metadata URL hosts discover.
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        scopesSupported: ["notes.read", "notes.write"],
+        requiredScopes: ["notes.read"],          // optional gate on every call
+        resourceDocumentation: "https://app.example.com/docs/mcp", // optional
+        // Server-only module; its default export verifies one bearer token.
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },
+  // capabilities, routes, ...
+});
+```
+
+`verify` is a module reference, not an inline function, for the same reason
+capabilities and middleware are: the manifest is bundled into the client, and a
+token verifier — with its JWKS client and issuer configuration — must never be.
+`resolveApp()` and `pracht verify` reject a relative `resource`, a `resource`
+carrying a query or fragment, a `resource` whose path does not address the
+served endpoint, an empty `authorizationServers`, a scope token that would break
+the challenge header, and a missing `verify`.
+
+### The metadata document
+
+Served unauthenticated, with `Access-Control-Allow-Origin: *` (discovery
+happens before a host has a token, and in-browser hosts need to read it), at the
+RFC 9728 path — the well-known segment goes *between* the host and the
+resource's path:
+
+```bash
+curl -s https://app.example.com/.well-known/oauth-protected-resource/mcp
+```
+
+```json
+{
+  "resource": "https://app.example.com/mcp",
+  "authorization_servers": ["https://auth.example.com"],
+  "scopes_supported": ["notes.read", "notes.write"],
+  "bearer_methods_supported": ["header"]
+}
+```
+
+The body is byte-stable across requests. The bare
+`/.well-known/oauth-protected-resource` answers with the same document, because
+hosts in the wild probe either form. `bearer_methods_supported` is always
+`["header"]`: Pracht reads the `Authorization` header and nothing else — never a
+form field or query parameter.
+
+An explicit API route file at the same path still wins, so an app that wants to
+serve its own document can.
+
+### The challenge
+
+| Situation | Answer |
+| --- | --- |
+| No `Authorization: Bearer` | `401`, `WWW-Authenticate: Bearer resource_metadata="…"` |
+| Token present but rejected | `401`, plus `error="invalid_token"` |
+| Token valid, scope missing | `403`, plus `error="insufficient_scope"`, `scope="…"` |
+
+```text
+WWW-Authenticate: Bearer error="invalid_token",
+  error_description="The bearer token is invalid or expired.",
+  resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp"
+```
+
+`resource_metadata` is the whole point: it is how a host that has never seen
+this server discovers which authorization server to talk to. Per RFC 6750 the
+no-credentials challenge carries no `error` code — "authenticate", not "your
+token is bad". The body repeats the same fields as JSON.
+
+The check runs with the existing transport hardening, before the JSON-RPC body
+is parsed and long before a tool is resolved, so an unauthenticated caller
+learns nothing about the graph — not even whether a tool name exists. Method,
+`Origin`, and cookie rejections still come first: a cookie-bearing request is
+403 whether or not it also carries a token.
+
+### Writing `verify`
+
+```ts
+// src/server/mcp-token.ts
+import { createRemoteJWKSet, jwtVerify } from "jose"; // your dependency, not pracht's
+import type { McpTokenVerifier } from "@pracht/core";
+
+const jwks = createRemoteJWKSet(new URL("https://auth.example.com/.well-known/jwks.json"));
+
+const verify: McpTokenVerifier = async (token) => {
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: "https://auth.example.com",
+    // Bind the audience to the resource identifier (RFC 8707). Without this a
+    // token minted for another service on the same issuer would be accepted.
+    audience: "https://app.example.com/mcp",
+  });
+  return {
+    subject: payload.sub!,
+    scopes: typeof payload.scope === "string" ? payload.scope.split(" ") : [],
+    clientId: typeof payload.client_id === "string" ? payload.client_id : null,
+  };
+};
+
+export default verify;
+```
+
+`jose` is a documentation choice, not a framework dependency — it works on
+Workers and Vercel Edge, which is why the recipe uses it. Any library, or an
+introspection call to your provider, works the same way.
+
+The hook **fails closed**: returning `null`, throwing, or returning anything
+that is not a principal with a non-empty string `subject` all produce the same
+`401 invalid_token`. A thrown error's message never reaches the caller (it may
+carry provider internals); it is logged once. A `verify` module that cannot be
+loaded at all answers 401 for every request rather than serving tools unguarded.
+
+### The verified principal
+
+The principal is bound to the request context as `context.tokenAuth`, mirroring
+how [`context.agent`](AGENT_TRUST.md#web-bot-auth-verified-agent-identity)
+carries Web Bot Auth identity:
+
+```ts
+async run({ context }) {
+  context.tokenAuth; // { subject, scopes?, clientId?, claims? } — frozen
+}
+```
+
+It is a frozen snapshot on a non-writable, non-configurable framework-owned
+field. Middleware may derive its own authorization state elsewhere on `context`,
+but cannot rewrite the identity a later capability or audit check sees. Reusing
+one context object across two different principals — which would mean an adapter
+shared a context between requests — fails the request with a 500 rather than
+leaking the previous caller's identity, as does a context that already owns a
+`tokenAuth` field or is frozen. `tokenAuth` is absent on every other request
+path; an unauthenticated MCP request never reaches application code at all.
+
+The two identities compose: `context.agent` says *which agent software* signed
+the request, `context.tokenAuth` says *on whose behalf* it is acting.
+
+### Cost when unused
+
+An app without `agents.mcp.auth` gets no metadata route, no `WWW-Authenticate`
+header, and no new bytes: the auth module is behind its own dynamic import from
+the MCP runtime, which is itself only imported when `agents.mcp` is configured,
+and the manifest validation is inside the `__PRACHT_AGENT_SURFACE__` guard the
+build folds away for apps that configure no agents at all.
 
 ## Talking to it
 
@@ -333,9 +505,9 @@ format is documented in
 
 ## Not built yet
 
-- **OAuth resource-server metadata** (`/.well-known/oauth-protected-resource`,
-  `WWW-Authenticate` on 401). Authentication currently lives in your
-  middleware.
+- **Authorization-server duties.** Pracht is the resource server
+  ([above](#oauth-resource-server-metadata)); token issuance, dynamic client
+  registration (RFC 7591), and consent UI stay with your identity provider.
 - **`resources/*` and `prompts/*`** — only `tools/*` is projected.
 - **The `2026-07-28` wire profile.** It replaces the initialization exchange
   with self-describing requests and requires its own header/result codec; the

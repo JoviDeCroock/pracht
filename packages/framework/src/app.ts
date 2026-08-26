@@ -55,6 +55,9 @@ const VALIDATE_MANIFEST = import.meta.env?.DEV !== false;
 // is where a fail-open manifest key actually matters.
 const VALIDATE_META_KEYS = import.meta.env?.SSR !== false;
 
+/** Build-time define; `false` proves the manifest configures no `agents` at all. */
+declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
+
 interface InheritedRouteConfig {
   pathPrefix: string;
   shell?: string;
@@ -139,7 +142,7 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
     shells: resolveModuleRefRecord(config.shells ?? {}),
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
     capabilities: resolveModuleRefRecord(config.capabilities ?? {}),
-    agents: config.agents,
+    agents: resolveAgentsModuleRefs(config.agents),
     api: config.api ?? {},
     routes: config.routes,
     notFound: resolveNotFoundDefinition(config.notFound),
@@ -165,6 +168,23 @@ function resolveNotFoundDefinition(
     loaderFile: resolveModuleRef(loader),
     hasLoader: loader ? true : undefined,
     ...meta,
+  };
+}
+
+/**
+ * The one ModuleRef inside `agents`: the remote MCP token verifier. Resolving
+ * it here keeps the rest of the config plain serializable data, which is what
+ * every consumer of `app.agents` (client manifest, graph snapshot, verify)
+ * already assumes.
+ */
+function resolveAgentsModuleRefs(
+  agents: PrachtAgentsConfig | undefined,
+): PrachtAgentsConfig | undefined {
+  const auth = agents?.mcp?.auth;
+  if (!auth || typeof auth.verify !== "function") return agents;
+  return {
+    ...agents,
+    mcp: { ...agents!.mcp, auth: { ...auth, verify: resolveModuleRef(auth.verify) } },
   };
 }
 
@@ -524,6 +544,93 @@ function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
   if (mcp?.destructive !== undefined && typeof mcp.destructive !== "boolean") {
     throw new Error(
       `defineApp({ agents.mcp.destructive }) must be a boolean, got ${JSON.stringify(mcp.destructive)}.`,
+    );
+  }
+  // Only reachable when the manifest carries an `agents` config, which is
+  // exactly what `__PRACHT_AGENT_SURFACE__: false` proves absent — so this
+  // whole block leaves the bundle of an app that configures no agents.
+  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
+    if (mcp?.auth) validateMcpAuthConfig(mcp);
+  }
+}
+
+/**
+ * `agents.mcp.auth` turns `/mcp` into an OAuth protected resource. Every field
+ * here feeds either the published metadata document or the token gate, so a
+ * malformed value is a security misconfiguration, not a cosmetic one: a
+ * relative `resource` cannot be an audience, and a missing `verify` would leave
+ * the endpoint advertising authentication it does not perform.
+ */
+function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): void {
+  const auth = mcp.auth!;
+  const label = "defineApp({ agents.mcp.auth";
+  const resource = assertAbsoluteUrl(auth.resource, `${label}.resource })`);
+  if (resource.search || resource.hash) {
+    throw new Error(
+      `${label}.resource }) must not carry a query string or fragment, got ${JSON.stringify(auth.resource)}.`,
+    );
+  }
+
+  // RFC 8707 makes the resource identifier the token audience, and hosts derive
+  // the metadata URL from it. Pointing it at a path the app does not serve
+  // yields tokens no request can ever present.
+  const endpoint = (mcp.path ?? "/mcp").replace(/\/$/, "") || "/";
+  const resourcePath = resource.pathname.replace(/\/$/, "") || "/";
+  if (resourcePath !== endpoint && !resourcePath.endsWith(endpoint)) {
+    throw new Error(
+      `${label}.resource }) path ${JSON.stringify(resource.pathname)} does not address the MCP ` +
+        `endpoint ${JSON.stringify(endpoint)}. The resource identifier is the token audience; ` +
+        "it must be the endpoint's absolute URL (a deploy base may prefix it).",
+    );
+  }
+
+  if (!Array.isArray(auth.authorizationServers) || auth.authorizationServers.length === 0) {
+    throw new Error(
+      `${label}.authorizationServers }) must list at least one absolute authorization server issuer URL.`,
+    );
+  }
+  for (const issuer of auth.authorizationServers) {
+    assertAbsoluteUrl(issuer, `${label}.authorizationServers })`);
+  }
+  if (auth.resourceDocumentation !== undefined) {
+    assertAbsoluteUrl(auth.resourceDocumentation, `${label}.resourceDocumentation })`);
+  }
+
+  assertScopeList(auth.scopesSupported, `${label}.scopesSupported })`);
+  assertScopeList(auth.requiredScopes, `${label}.requiredScopes })`);
+
+  if (typeof auth.verify !== "string" || auth.verify === "") {
+    throw new Error(
+      `${label}.verify }) must reference a server-only module whose default export verifies a ` +
+        'bearer token, e.g. `verify: () => import("./server/mcp-token.ts")`.',
+    );
+  }
+}
+
+function assertAbsoluteUrl(value: unknown, label: string): URL {
+  if (typeof value !== "string" || value === "") {
+    throw new Error(`${label} must be an absolute URL string, got ${JSON.stringify(value)}.`);
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${label} must be an absolute URL, got ${JSON.stringify(value)}.`);
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`${label} must use https (http is allowed for local development only).`);
+  }
+  return url;
+}
+
+function assertScopeList(value: readonly string[] | undefined, label: string): void {
+  if (value === undefined) return;
+  if (
+    !Array.isArray(value) ||
+    value.some((scope) => typeof scope !== "string" || scope === "" || /[\s"\\]/.test(scope))
+  ) {
+    throw new Error(
+      `${label} must be an array of non-empty scope tokens without whitespace, quotes, or backslashes.`,
     );
   }
 }

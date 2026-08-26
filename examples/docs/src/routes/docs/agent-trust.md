@@ -31,7 +31,7 @@ next:
 
 Exposing [capabilities](/docs/capabilities) to agents raises questions a schema cannot answer. The agent trust layer answers all three, and everything is opt-in. When the build can prove that an app registers neither capabilities nor `defineApp({ agents })`, the capability dispatch and Web Bot Auth verifier are dropped from the server bundle entirely.
 
-- **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context.
+- **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context. On the remote MCP endpoint, [OAuth resource-server metadata](#oauth-on-the-remote-mcp-endpoint) additionally identifies *on whose behalf* the agent is acting.
 - **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects, optionally backed by a durable approval store for exactly-once commits and, in human mode, real human approval.
 - **What happened?** — one structured audit event per capability dispatch.
 
@@ -102,6 +102,33 @@ export default defineCapability({
   agentPolicy: "require", // this endpoint answers only verified agents
 });
 ```
+
+---
+
+## OAuth on the Remote MCP Endpoint
+
+Web Bot Auth answers "which agent software is this?". It does not answer "which user is it acting for" — that is an OAuth question, and on the [remote MCP endpoint](/docs/remote-mcp) it has a standard answer.
+
+`defineApp({ agents: { mcp: { auth } } })` turns `/mcp` into an OAuth 2.0 protected resource: it publishes RFC 9728 metadata at `/.well-known/oauth-protected-resource`, answers unauthenticated calls with the `WWW-Authenticate` challenge MCP hosts follow, and hands the presented token to a `verify` module you supply.
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        scopesSupported: ["notes.read"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },
+});
+```
+
+pracht stays the resource server. It does not validate JWTs, fetch JWKS, or issue tokens — the rule is *define the authentication hook first, ship deployment recipes before owning an authorization server*. The verified principal lands on `context.tokenAuth` under the same immutable-snapshot rules as `context.agent`, so the two compose: `agent` is the caller's software identity, `tokenAuth` is the account it acts for.
+
+The full setup — the metadata document, the challenge table, a JWKS `verify` recipe, and the fail-closed rules — is on the [Remote MCP page](/docs/remote-mcp#oauth-letting-a-real-host-connect).
 
 ---
 

@@ -50,12 +50,19 @@ import {
   resolveConfirmationSecret,
 } from "./runtime-confirmation.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
-export { resolveMcpEndpoint } from "./mcp-config.ts";
+export {
+  isMcpResourceMetadataPath,
+  mcpResourceMetadataPath,
+  mcpResourceMetadataUrl,
+  resolveMcpEndpoint,
+} from "./mcp-config.ts";
 import type {
   CapabilityAuditHook,
   CapabilityEnvelope,
+  McpAuthConfig,
   McpProjectionConfig,
   MiddlewareModule,
+  McpTokenPrincipal,
   ModuleRegistry,
   PrachtAgentIdentity,
   PrachtAgentsConfig,
@@ -169,6 +176,16 @@ export interface HandleMcpRequestOptions<TContext> {
       status: 403,
       headers: { "content-type": "text/plain; charset=utf-8" },
     });
+  }
+
+  // OAuth resource-server gate. Part of the transport hardening above, not a
+  // capability concern: it runs before the body is parsed and long before any
+  // tool is resolved, so an unauthenticated caller learns nothing about the
+  // graph — not even whether a tool name exists.
+  if (options.mcp.auth) {
+    const authResult = await authenticateMcp(options.mcp.auth, options, request);
+    if (!authResult.ok) return authResult.response;
+    options = { ...options, context: authResult.context };
   }
 
   const declaredVersion = request.headers.get(MCP_PROTOCOL_VERSION_HEADER);
@@ -453,6 +470,66 @@ export function destructiveMcpPreconditionErrors(agents: PrachtAgentsConfig | un
     );
   }
   return unmet;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth resource-server gate
+// ---------------------------------------------------------------------------
+
+/**
+ * Serve the RFC 9728 protected-resource metadata document.
+ *
+ * Split out so `handlePrachtRequest()` can route the well-known path without
+ * knowing anything about OAuth, and so the whole auth module stays behind a
+ * dynamic import that apps with an unauthenticated `/mcp` never take.
+ */
+export async function handleMcpMetadataRequest(
+  request: Request,
+  auth: McpAuthConfig,
+): Promise<Response> {
+  const { handleMcpResourceMetadataRequest } = await import("./runtime-mcp-auth.ts");
+  return handleMcpResourceMetadataRequest(request, auth);
+}
+
+type McpAuthOutcome<TContext> =
+  | { ok: true; context: TContext; principal: McpTokenPrincipal }
+  | { ok: false; response: Response };
+
+async function authenticateMcp<TContext>(
+  auth: McpAuthConfig,
+  options: HandleMcpRequestOptions<TContext>,
+  request: Request,
+): Promise<McpAuthOutcome<TContext>> {
+  const { authenticateMcpRequest, bindMcpTokenContext } = await import("./runtime-mcp-auth.ts");
+  const result = await authenticateMcpRequest({ auth, registry: options.registry, request });
+  if (!result.ok) return result;
+
+  try {
+    return {
+      ok: true,
+      principal: result.principal,
+      context: bindMcpTokenContext(options.context, result.principal),
+    };
+  } catch (error: unknown) {
+    // The identity could not be bound immutably. Refusing the request is the
+    // only safe outcome: dispatching with `context.tokenAuth` silently absent
+    // would run a tool as if no one had authenticated.
+    console.error(
+      "[pracht] Could not bind the verified MCP token principal to the request context.",
+      error,
+    );
+    return {
+      ok: false,
+      response: new Response(
+        options.exposeErrors
+          ? `Request context could not carry the verified token principal: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          : "Internal Server Error",
+        { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
+      ),
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------

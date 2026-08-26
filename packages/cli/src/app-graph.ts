@@ -46,6 +46,8 @@ export interface CapabilityAppGraph {
   mcpEndpoint: string | null;
   /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
   mcpDestructive: boolean;
+  /** Whether that endpoint is an OAuth protected resource (`agents.mcp.auth`). */
+  mcpAuthenticated: boolean;
   /**
    * Graph-only inspection cannot verify registrations performed exclusively
    * by the adapter server entry, so unmet runtime checks are `unverified`
@@ -190,6 +192,7 @@ export async function collectCapabilityAppGraph(
     capabilities,
     mcpEndpoint,
     mcpDestructive,
+    mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
     mcpRuntimeStatus:
       mcpEndpoint === null
         ? "not-configured"

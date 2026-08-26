@@ -17,6 +17,7 @@ import {
   extractDefineAppObjectBody,
   extractDefineCapabilityArgs,
   maskCommentsAndStrings,
+  findTopLevelObjectProperty,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 
@@ -48,6 +49,9 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     name,
     path: file,
   }));
+  // Runs before the early return: an app can protect its MCP endpoint while
+  // its capabilities live behind a manifest shape this analyzer cannot read.
+  collectMcpAuthChecks(project, manifestPath, manifestSource, checks);
   if (entries.length === 0) return;
   const registeredMiddleware = new Set(
     extractRegistryEntries(manifestSource, "middleware").map((entry) => entry.name),
@@ -272,6 +276,117 @@ function collectMcpProjectionChecks(
       ),
     );
   }
+}
+
+/**
+ * Static checks for `agents.mcp.auth` — the OAuth resource-server config.
+ *
+ * `resolveApp()` validates the same config at build time and throws, but that
+ * requires running the app. These checks read the manifest source, so `pracht
+ * verify` reports a broken `/mcp` auth setup without a Vite server. Everything
+ * this analyzer cannot read stays silent rather than guessing.
+ */
+function collectMcpAuthChecks(
+  project: ProjectConfig,
+  manifestPath: string,
+  manifestSource: string,
+  checks: Check[],
+): void {
+  const agentsBody = findTopLevelObjectProperty(manifestSource, "agents");
+  const mcpBody = agentsBody && findTopLevelObjectProperty(agentsBody, "mcp");
+  const authBody = mcpBody && findTopLevelObjectProperty(mcpBody, "auth");
+  if (!authBody) {
+    // An `auth` block outside a `mcp` block is the one shape that is definitely
+    // wrong: nothing reads it, so the endpoint stays open while the manifest
+    // reads as protected.
+    if (agentsBody && !mcpBody && findTopLevelObjectProperty(agentsBody, "auth")) {
+      checks.push(
+        createCheck(
+          "error",
+          "defineApp({ agents.auth }) is not a thing. OAuth resource-server config belongs to the " +
+            "remote MCP endpoint: move it to `agents: { mcp: { auth: { … } } }`, which is also " +
+            "what enables the endpoint in the first place.",
+        ),
+      );
+    }
+    return;
+  }
+
+  const properties = scanTopLevelProperties(authBody);
+  const resource = evaluateLiteral(properties.get("resource") ?? "");
+  if (typeof resource === "string") {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(resource);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) {
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} is not an absolute URL. It is the ` +
+            "token audience and the base for the metadata URL hosts discover, so it must be the " +
+            "endpoint's absolute https URL.",
+        ),
+      );
+    } else if (parsed.search || parsed.hash) {
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a query string or fragment.`,
+        ),
+      );
+    }
+  }
+
+  const verifyMatch =
+    /\bverify\s*:\s*(?:\(\)\s*=>\s*import\(\s*(["'`])([^"'`]+)\1\s*\)|(["'`])([^"'`]+)\3)/.exec(
+      authBody,
+    );
+  if (!verifyMatch) {
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.auth is configured without a `verify` module. The endpoint would advertise " +
+          "authentication it never performs — add " +
+          '`verify: () => import("./server/mcp-token.ts")` whose default export verifies a bearer token.',
+      ),
+    );
+    return;
+  }
+
+  const verifyPath = verifyMatch[2] ?? verifyMatch[4];
+  const filePath = verifyPath.startsWith("/")
+    ? resolveProjectPath(project.root, verifyPath)
+    : resolve(dirname(manifestPath), verifyPath);
+  if (!existsSync(filePath)) {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify references missing file ${JSON.stringify(verifyPath)}.`,
+      ),
+    );
+    return;
+  }
+
+  checks.push(
+    createCheck("ok", "Remote MCP endpoint is an OAuth 2.0 protected resource (RFC 9728)."),
+  );
+}
+
+/**
+ * Conservative source scan for `agents: { … mcp: … }` in the manifest.
+ *
+ * Verification is static (no Vite server), so a manifest that builds its
+ * `agents` config in a separate variable reads as unconfigured. That only
+ * costs one spurious warning, never a failed build — which is why this stays
+ * a warning.
+ */
+function manifestConfiguresMcpProjection(manifestSource: string): boolean {
+  const agentsIndex = manifestSource.search(/\bagents\s*:\s*\{/);
+  if (agentsIndex === -1) return false;
+  return /\bmcp\s*:/.test(manifestSource.slice(agentsIndex));
 }
 
 /**

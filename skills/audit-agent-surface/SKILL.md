@@ -27,7 +27,9 @@ auditing the opt-outs:
   WebMCP page tools, and every dispatch is confirmation-gated.
 - Remote MCP rejects cookie-bearing and browser-originated requests, and serves
   destructive capabilities only with `agents.mcp.destructive` plus a registered
-  approval store — otherwise it filters them out at serve time.
+  approval store — otherwise it filters them out at serve time. `agents.mcp.auth`
+  additionally makes it an OAuth 2.0 protected resource; without it the endpoint
+  is open and authentication is the capability middleware's job.
 - An app that registers neither capabilities nor `agents` has the dispatch path
   and Web Bot Auth verifier dropped from its server bundle at build time.
 
@@ -67,6 +69,8 @@ inferred from source text or development settings. If `llmsTxt.enabled` is
 `null`, the installed Vite plugin predates that metadata contract; report the
 state as unknown and recommend upgrading `@pracht/vite-plugin`, never as an
 opt-out.
+Also record whether `mcp.auth` is present (`pracht dev` prints `(oauth)` next
+to the endpoint when it is).
 
 ## Step 2: Exposure vs. intent
 
@@ -94,6 +98,38 @@ For every exposed capability, ask whether the exposure is deliberate:
   only with `read` steps. If the app ships MCP-exposed capabilities with no
   such scenario, report the missing proof: an HTTP-only scenario says nothing
   about whether an MCP host can reach the tool.
+
+## Step 2b: The `/mcp` auth posture
+
+`agents: { mcp: {} }` without `auth` serves an **open** endpoint: anyone who can
+reach the URL calls every `expose.mcp` tool, and the only authorization is
+whatever each capability's named middleware does with the forwarded
+`Authorization` header. State that plainly in the report — it is the single most
+commonly misunderstood line of an app's agent surface.
+
+- Endpoint configured, no `agents.mcp.auth`, and at least one `expose.mcp`
+  capability whose `middleware` list is empty → `error`: unauthenticated tools
+  reachable by anyone on the internet.
+- Endpoint configured, no `auth`, tools guarded only by named middleware →
+  `warn`, and name which middleware is carrying the whole boundary.
+- `agents.mcp.auth` configured → check it end to end, because a half-configured
+  one advertises authentication it does not perform:
+  - `resource` is absolute, has no query or fragment, and its path addresses the
+    served endpoint (`resolveApp()` and `pracht verify` reject otherwise, so a
+    failure here means the app does not build).
+  - `verify` is a **module reference**, not an inline function. An inline
+    function ships the token verifier to every browser visitor — `error`.
+  - Open the `verify` module and confirm it binds the token **audience** to the
+    `resource` value. Without that check, a token minted by the same issuer for
+    a different service authenticates here — `error`.
+  - `requiredScopes` present, or per-capability middleware doing scope checks
+    against `context.tokenAuth.scopes`. Authentication without authorization is
+    a `warn`: every valid token reaches every tool.
+  - Capabilities reading `context.tokenAuth` must tolerate its absence on other
+    transports — it is only set on authenticated MCP dispatch.
+- `/.well-known/oauth-protected-resource` is intentionally public and CORS-open.
+  It carries only the resource identifier, issuer URLs, and scope names; flag it
+  only if a scope name leaks something (internal tenant or customer names).
 
 ## Step 3: The destructive gate
 
@@ -208,6 +244,10 @@ For every exposed capability, ask whether the exposure is deliberate:
 - `/.well-known/http-message-signatures-directory` and the MCP endpoint path
   should both be intentional; the MCP endpoint stays active with an empty
   capability graph.
+- `/.well-known/oauth-protected-resource` (and the RFC 9728 path-suffixed form,
+  e.g. `/.well-known/oauth-protected-resource/mcp`) is served only when
+  `agents.mcp.auth` is configured. Its presence is a *good* signal; its absence
+  next to a live `/mcp` means no MCP host can authenticate to the endpoint.
 
 ## Step 6: Did this change widen the surface?
 
@@ -252,13 +292,17 @@ Severities:
   memory store on a multi-replica deployment; `agentPolicy: "require"` with no
   `webBotAuth`; capability module unreadable; MCP-exposed capability whose only
   authorization is a cookie session; approval store on a backend without
-  conditional writes.
+  conditional writes; unguarded `expose.mcp` tool on an endpoint with neither
+  `agents.mcp.auth` nor named middleware; `agents.mcp.auth.verify` that does not
+  bind the token audience to `resource`, or that is an inline function in the
+  manifest.
 - `warn` — auth-gated route advertised in `llms.txt`; `expose.mcp` with no
   `agents.mcp`; destructive `expose.mcp` with no `agents.mcp.destructive` (dead
   exposure); exposed capability with no named middleware; unbounded output
   (no `limit`/`maximum`); no audit sink; a second `setCapabilityAuditHook()`
   call silently replacing the first; a module-scope listener without HMR
-  disposal; `singleUse` treated as durable.
+  disposal; `singleUse` treated as durable;
+  `agents.mcp.auth` with no `requiredScopes` and no per-capability scope check.
 - `info` — exposure that is intentional and guarded, recorded so the reviewer
   sees the whole surface in one place; framework gaps that are deployment
   responsibilities (rate limiting, write idempotency, result-size limits).

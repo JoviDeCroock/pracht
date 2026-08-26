@@ -139,6 +139,10 @@ export {
   MCP_PROTOCOL_VERSION_HEADER,
   MCP_PROTOCOL_VERSIONS,
   mcpExposedCapabilities,
+  handleMcpMetadataRequest,
+  isMcpResourceMetadataPath,
+  mcpResourceMetadataPath,
+  mcpResourceMetadataUrl,
   resolveMcpEndpoint,
 } from "./runtime-mcp.ts";
 export type { HandleMcpRequestOptions } from "./runtime-mcp.ts";
@@ -290,7 +294,12 @@ export type {
   CapabilityValidationResult,
   HasRegisteredCapabilities,
   HttpCapabilityName,
+  McpAuthConfig,
   McpProjectionConfig,
+  McpTokenPrincipal,
+  McpTokenVerifier,
+  McpTokenVerifierModule,
+  McpTokenVerifyArgs,
   PrachtContextExtensions,
   PrachtRequestContext,
   RegisteredCapabilityName,

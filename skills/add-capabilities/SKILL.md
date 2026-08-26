@@ -156,6 +156,52 @@ Auth `policy: "require"` gates capability HTTP endpoints (not pages or API
 routes) with `401 agent_required`; `agentPolicy: "require"` on a capability
 fails closed even when `webBotAuth` is unconfigured.
 
+### Authenticating the MCP endpoint (`agents.mcp.auth`)
+
+`agents: { mcp: {} }` alone serves an **open** endpoint — anyone who can reach
+the URL can call every `expose.mcp` tool, and authentication is whatever the
+capability's named middleware does with the forwarded `Authorization` header.
+That is fine for a public read surface and wrong for anything scoped to a user.
+
+Add `auth` and `/mcp` becomes an OAuth 2.0 protected resource: pracht publishes
+RFC 9728 metadata at `/.well-known/oauth-protected-resource`, answers
+unauthenticated calls with the `WWW-Authenticate` challenge MCP hosts follow,
+and calls your `verify` module. This is what makes a real host (Claude, a
+ChatGPT connector) able to connect at all.
+
+```ts
+mcp: {
+  serverInfo: { name: "notes", version: "1.0.0" },
+  auth: {
+    resource: "https://app.example.com/mcp",       // absolute; token audience
+    authorizationServers: ["https://auth.example.com"],
+    scopesSupported: ["notes.read", "notes.write"],
+    requiredScopes: ["notes.read"],                // optional per-request gate
+    verify: () => import("./server/mcp-token.ts"), // server-only module
+  },
+},
+```
+
+Rules to hold the user to:
+
+- **`verify` is a module reference, never an inline function.** The manifest is
+  bundled into the client; a JWKS client in it would ship to every visitor.
+  Put the module in `src/server/`, default-export the verifier.
+- **Pracht is not an authorization server.** Do not offer to implement token
+  issuance, refresh, or dynamic client registration — those belong to the
+  user's identity provider. Write `verify` with their library (`jose` works on
+  Workers and Vercel Edge) and **bind `audience` to the `resource` value**, or a
+  token minted for another service on the same issuer is accepted.
+- **It fails closed.** `null`, a throw, or a malformed principal all give
+  `401 invalid_token`; a missing required scope gives `403 insufficient_scope`.
+- **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
+  clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
+  and `run()` for per-user authorization; the framework only authenticates.
+- `resource` must be absolute, free of query/fragment, and its path must address
+  the served endpoint — `resolveApp()` and `pracht verify` reject otherwise.
+
+See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
+
 ## Step 5: Destructive capabilities
 
 `destructive` (delete, publish, pay, send, change access) may be exposed over

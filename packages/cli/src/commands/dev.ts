@@ -70,6 +70,7 @@ export default defineCommand({
           capabilities: graph.capabilities,
           color: supportsColor(),
           localUrls: urls.local,
+          mcpAuthenticated: graph.mcpAuthenticated,
           mcpEndpoint: graph.mcpEndpoint ?? null,
           mcpDestructive: graph.mcpDestructive === true,
           mcpRuntimeStatus: graph.mcpRuntimeStatus,

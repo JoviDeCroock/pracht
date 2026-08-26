@@ -575,6 +575,17 @@ export async function handlePrachtRequest<TContext>(
     }
   }
 
+  // OAuth 2.0 protected-resource metadata (RFC 9728), served only when the app
+  // opted into `agents.mcp.auth`. Placed after API-route matching so an
+  // application file at the same path still wins, and before capability
+  // dispatch because discovery must answer without credentials.
+  const mcpAuth = mcpConfig?.auth;
+  if (mcpAuth && mcpRuntime && mcpRuntime.isMcpResourceMetadataPath(routePathname, mcpAuth)) {
+    return withDefaultSecurityHeaders(
+      await mcpRuntime.handleMcpMetadataRequest(options.request, mcpAuth),
+    );
+  }
+
   // Capability projections. Explicit API route files take precedence (they
   // matched above). A configured MCP endpoint remains live with an empty or
   // broken graph so clients receive an empty list or a protocol error instead
