@@ -311,7 +311,7 @@ With it, the transport itself becomes an OAuth 2.0 protected resource.
 
 MCP hosts (Claude, ChatGPT connectors, Inspector) cannot connect to an
 authenticated server they have to be told about out of band. The
-[MCP authorization spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+[MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
 answers that with two standards: [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)
 protected-resource metadata, and an
 [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750) `WWW-Authenticate` challenge
@@ -350,8 +350,16 @@ capabilities and middleware are: the manifest is bundled into the client, and a
 token verifier — with its JWKS client and issuer configuration — must never be.
 `resolveApp()` and `pracht verify` reject a relative `resource`, a `resource`
 carrying a query or fragment, a `resource` whose path does not address the
-served endpoint, an empty `authorizationServers`, a scope token that would break
-the challenge header, and a missing `verify`.
+served endpoint, a non-loopback cleartext URL, an authorization-server issuer
+with a query or fragment, an empty `authorizationServers`, a scope token that
+would break the challenge header, and a missing `verify`. HTTP is accepted only
+for loopback development (`localhost`, `*.localhost`, `127.0.0.0/8`, or `::1`);
+deployed resource and issuer URLs must use HTTPS.
+
+The committed app-graph snapshot records whether the endpoint is OAuth
+protected. `pracht plan` reports enabling protection and marks removing it from
+a still-live endpoint as a guard weakening, so the trust-boundary change cannot
+hide behind an unchanged `/mcp` path.
 
 ### The metadata document
 
@@ -392,7 +400,9 @@ That is what the `WWW-Authenticate` challenge advertises and what the runtime
 serves — the path is matched before base stripping, precisely so the advertised
 URL is fetchable. Set `resource` to the endpoint's real deployed URL, base
 included; the framework derives the rest. A reverse proxy that re-prefixes the
-base onto the well-known path is tolerated too.
+base onto the well-known path is tolerated too. When `agents.mcp.path` is `/`,
+the resource is the deployed app root itself (`https://app.example.com/app` for
+that same base).
 
 Because the match happens before routing, an application route cannot shadow the
 document. Rename `resource` (and with it the endpoint) if you need that path.
@@ -401,20 +411,23 @@ document. Rename `resource` (and with it the endpoint) if you need that path.
 
 | Situation | Answer |
 | --- | --- |
-| No `Authorization: Bearer` | `401`, `WWW-Authenticate: Bearer resource_metadata="…"` |
-| Token present but rejected | `401`, plus `error="invalid_token"` |
+| No `Authorization: Bearer` | `401`, `WWW-Authenticate: Bearer resource_metadata="…"` and configured `scope="…"` |
+| Token present but rejected | `401`, plus `error="invalid_token"` and configured `scope="…"` |
 | Token valid, scope missing | `403`, plus `error="insufficient_scope"`, `scope="…"` |
 
 ```text
 WWW-Authenticate: Bearer error="invalid_token",
   error_description="The bearer token is invalid or expired.",
-  resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp"
+  resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp",
+  scope="notes.read"
 ```
 
 `resource_metadata` is the whole point: it is how a host that has never seen
 this server discovers which authorization server to talk to. Per RFC 6750 the
 no-credentials challenge carries no `error` code — "authenticate", not "your
-token is bad". The body repeats the same fields as JSON.
+token is bad". When `requiredScopes` is configured, every challenge includes
+those scopes so the host can request the right grant on its first authorization
+attempt. The body repeats the same fields as JSON.
 
 The check runs with the existing transport hardening, before the JSON-RPC body
 is parsed and long before a tool is resolved, so an unauthenticated caller
@@ -495,7 +508,9 @@ with delicate receiver semantics for no practical gain.
 `claims` is frozen **shallowly** — its own keys cannot be added, removed, or
 rewritten, but nested values are whatever your verifier returned and stay
 mutable. Deep-freezing would reach into objects your code still owns (a `jose`
-JWT payload, say). The framework never reads `claims`.
+JWT payload, say). The framework never reads `claims`, but it does recompute
+their structural identity before reusing a shared context so a nested mutation
+cannot carry stale authorization state into a later request.
 
 The two identities compose: `context.agent` says *which agent software* signed
 the request, `context.tokenAuth` says *on whose behalf* it is acting.

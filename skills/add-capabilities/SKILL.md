@@ -198,18 +198,27 @@ Rules to hold the user to:
   token minted for another service on the same issuer is accepted.
 - **It fails closed.** `null`, a throw, or a malformed principal all give
   `401 invalid_token`; a missing required scope gives `403 insufficient_scope`.
+  When `requiredScopes` is set, every challenge advertises it so hosts request
+  the right grant on the first authorization attempt.
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
   and `run()` for per-user authorization; the framework only authenticates.
-  `claims` is frozen shallowly. The capability audit event does not carry it
-  yet, so read it in your own audit hook if MCP calls must be attributable to
-  an account.
+  `claims` is frozen shallowly, but its structural identity is recomputed before
+  a shared context is reused so nested mutations cannot survive as stale auth
+  state. The capability audit event does not carry it yet, so read it in your
+  own audit hook if MCP calls must be attributable to an account.
 - `resource` must be the endpoint's **real deployed URL**: absolute, free of
   query/fragment, and ending with the served endpoint path — deploy base
   included, e.g. `https://app.example.com/app/mcp` for an app mounted at
   `/app/`. `resolveApp()` and `pracht verify` reject otherwise. The metadata
   document then lands at the origin root with the base inside the suffix
-  (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it.
+  (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it. Require
+  HTTPS outside loopback development, and reject authorization-server issuers
+  with query strings or fragments. For `mcp.path: "/"`, the resource is the
+  deployed app root, including its base.
+- `pracht plan` snapshots the OAuth-protection bit separately from the endpoint
+  path. Removing `auth` from a still-live endpoint is a guard weakening even
+  when `/mcp` itself did not move.
 
 See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
 

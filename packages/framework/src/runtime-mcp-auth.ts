@@ -165,6 +165,7 @@ export async function authenticateMcpRequest(options: {
       response: mcpAuthChallengeResponse(auth, {
         status: 401,
         description: "Authorization required. Present an OAuth 2.0 bearer token.",
+        scope: auth.requiredScopes,
       }),
     };
   }
@@ -175,6 +176,7 @@ export async function authenticateMcpRequest(options: {
         status: 401,
         error: "invalid_token",
         description: "Malformed Authorization header.",
+        scope: auth.requiredScopes,
       }),
     };
   }
@@ -191,6 +193,7 @@ export async function authenticateMcpRequest(options: {
         status: 401,
         error: "invalid_token",
         description: "Token verification is unavailable.",
+        scope: auth.requiredScopes,
       }),
     };
   }
@@ -211,6 +214,7 @@ export async function authenticateMcpRequest(options: {
         status: 401,
         error: "invalid_token",
         description: "The bearer token is invalid or expired.",
+        scope: auth.requiredScopes,
       }),
     };
   }
@@ -298,8 +302,6 @@ function normalizePrincipal(value: unknown): McpTokenPrincipal | null {
   }) as McpTokenPrincipal;
 }
 
-const principalIdentityKeys = new WeakMap<McpTokenPrincipal, string | null>();
-
 /**
  * A stable string identity for a principal, so two structurally identical
  * principals from two requests compare equal.
@@ -312,24 +314,21 @@ const principalIdentityKeys = new WeakMap<McpTokenPrincipal, string | null>();
  *
  * `null` means "cannot be compared" (a claim value that is not JSON-encodable,
  * or a cycle). Callers treat that as never-equal, which fails closed.
+ * Recalculate on every comparison: nested `claims` deliberately remain
+ * application-owned and mutable, so caching this key could let a reused context
+ * retain claims that changed after an earlier comparison.
  */
 function principalIdentityKey(principal: McpTokenPrincipal): string | null {
-  const cached = principalIdentityKeys.get(principal);
-  if (cached !== undefined) return cached;
-
-  let key: string | null;
   try {
-    key = stableJson([
+    return stableJson([
       principal.subject,
       principal.clientId ?? null,
       principal.scopes ? [...principal.scopes] : null,
       principal.claims ?? null,
     ]);
   } catch {
-    key = null;
+    return null;
   }
-  principalIdentityKeys.set(principal, key);
-  return key;
 }
 
 /** JSON with object keys in a fixed order, so equal data yields equal text. */

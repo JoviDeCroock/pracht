@@ -234,6 +234,15 @@ describe("WWW-Authenticate challenges", () => {
     expect(verifyCalls).toEqual([]);
   });
 
+  it("advertises required scopes on the initial challenge", async () => {
+    const { response, status } = await call(toolsCall, {
+      auth: { ...BASE_AUTH, requiredScopes: ["notes.read", "notes.write"] },
+    });
+
+    expect(status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toContain('scope="notes.read notes.write"');
+  });
+
   it("answers 401 invalid_token when a bad token is presented", async () => {
     const { status, response, json } = await call(toolsCall, {
       headers: { authorization: "Bearer nope" },
@@ -495,6 +504,35 @@ describe("principal surfacing", () => {
     expect(second.status).toBe(500);
   });
 
+  it("rechecks mutable nested claims before reusing a context again", async () => {
+    const context: Record<string, unknown> = {};
+    const verify: McpTokenVerifier = () => ({
+      subject: "user-1",
+      claims: { roles: ["reader"] },
+    });
+
+    // The second request proves the principal is structurally identical. This
+    // used to cache its identity key permanently.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await call(toolsCall, {
+        context,
+        headers: { authorization: "Bearer good" },
+        verify,
+      });
+      expect(result.status).toBe(200);
+    }
+
+    const principal = (context as { tokenAuth: { claims: { roles: string[] } } }).tokenAuth;
+    principal.claims.roles[0] = "admin";
+
+    const third = await call(toolsCall, {
+      context,
+      headers: { authorization: "Bearer good" },
+      verify,
+    });
+    expect(third.status).toBe(500);
+  });
+
   it("accepts a frozen context carrying the Web Bot Auth overlay, and rejects a bare frozen one", async () => {
     // Bare frozen object: no overlay exists to hold the field, so the request
     // fails closed rather than dispatching with `tokenAuth` silently absent.
@@ -559,6 +597,18 @@ describe("manifest validation", () => {
     expect(build({ ...BASE_AUTH, resource: "/mcp" })).toThrow(/absolute URL/);
   });
 
+  it("allows cleartext OAuth URLs only on loopback hosts", () => {
+    expect(build({ ...BASE_AUTH, resource: "http://public.example/mcp" })).toThrow(/https/);
+    expect(build({ ...BASE_AUTH, authorizationServers: ["http://auth.example"] })).toThrow(/https/);
+    expect(
+      build({
+        ...BASE_AUTH,
+        resource: "http://127.0.0.1:3000/mcp",
+        authorizationServers: ["http://localhost:8787"],
+      }),
+    ).not.toThrow();
+  });
+
   it("rejects a resource identifier carrying a query or fragment", () => {
     expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/mcp?x=1` })).toThrow(/query string/);
     expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/mcp#f` })).toThrow(/fragment/);
@@ -579,6 +629,19 @@ describe("manifest validation", () => {
   it("requires at least one authorization server", () => {
     expect(build({ ...BASE_AUTH, authorizationServers: [] })).toThrow(/at least one/);
     expect(build({ ...BASE_AUTH, authorizationServers: ["auth.example"] })).toThrow(/absolute URL/);
+  });
+
+  it("rejects authorization-server issuers carrying a query or fragment", () => {
+    expect(build({ ...BASE_AUTH, authorizationServers: [`${ORIGIN}/issuer?tenant=a`] })).toThrow(
+      /query string or fragment/,
+    );
+    expect(build({ ...BASE_AUTH, authorizationServers: [`${ORIGIN}/issuer#metadata`] })).toThrow(
+      /query string or fragment/,
+    );
+  });
+
+  it("accepts an MCP root endpoint under a deploy base", () => {
+    expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/app` }, "/")).not.toThrow();
   });
 
   it("rejects scope tokens that would break the challenge header", () => {

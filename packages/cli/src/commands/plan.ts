@@ -27,6 +27,7 @@ const EMPTY_GRAPH: GraphSnapshot = {
   api: [],
   capabilities: [],
   mcpEndpoint: null,
+  mcpAuthenticated: false,
   constraints: [],
 };
 

@@ -114,9 +114,14 @@ commonly misunderstood line of an app's agent surface.
   `warn`, and name which middleware is carrying the whole boundary.
 - `agents.mcp.auth` configured → check it end to end, because a half-configured
   one advertises authentication it does not perform:
-  - `resource` is absolute, has no query or fragment, and its path addresses the
-    served endpoint (`resolveApp()` and `pracht verify` reject otherwise, so a
-    failure here means the app does not build).
+  - `resource` is absolute, has no query or fragment, uses HTTPS outside
+    loopback development, and its path addresses the served endpoint
+    (`resolveApp()` and `pracht verify` reject otherwise, so a failure here
+    means the app does not build). `mcp.path: "/"` legitimately identifies the
+    deployed app root, including its base.
+  - Every `authorizationServers` entry is an HTTPS issuer without a query or
+    fragment (loopback HTTP is development-only). Anything else is an invalid
+    RFC 8414 issuer and must be an `error`.
   - `verify` is a **module reference**, not an inline function. An inline
     function ships the token verifier to every browser visitor — `error`.
   - The `verify` module lives under `src/server/`, `src/middleware/`, or
@@ -128,7 +133,9 @@ commonly misunderstood line of an app's agent surface.
     a different service authenticates here — `error`.
   - `requiredScopes` present, or per-capability middleware doing scope checks
     against `context.tokenAuth.scopes`. Authentication without authorization is
-    a `warn`: every valid token reaches every tool.
+    a `warn`: every valid token reaches every tool. When `requiredScopes` is
+    present, confirm the initial 401 challenge advertises the same `scope` list,
+    not only the later `insufficient_scope` response.
   - Capabilities reading `context.tokenAuth` must tolerate its absence on other
     transports — it is only set on authenticated MCP dispatch.
   - Under a deploy base, `resource` must carry the base
@@ -273,11 +280,14 @@ pracht plan --json --base origin/main
 diff cannot: a new exposure, a destructive capability reclassified out of the
 gate, an `agentPolicy` downgraded from `require`, dropped middleware, a
 loosened input schema (dropped `required`, opened `additionalProperties`, raised
-bound), newly enabled `agents.mcp`, or newly enabled
-`agents.mcp.destructive` when a declared destructive MCP capability actually
-exists. Enabling the destructive switch in advance, with no such tool, is not a
-widening. Report every widening explicitly, with the before/after. A stale snapshot makes this useless — `pracht verify` fails on
-staleness, so trust it only when verify passes.
+bound), newly enabled `agents.mcp`, newly enabled `agents.mcp.destructive` when
+a declared destructive MCP capability actually exists, or OAuth protection
+removed from a still-live MCP endpoint. Enabling the destructive switch in
+advance, with no such tool, is not a widening. The snapshot records the
+authentication bit separately from the endpoint path, so an unchanged `/mcp`
+is not evidence that the guard stayed the same. Report every widening
+explicitly, with the before/after. A stale snapshot makes this useless —
+`pracht verify` fails on staleness, so trust it only when verify passes.
 
 ## Step 7: The no-agent-surface case
 

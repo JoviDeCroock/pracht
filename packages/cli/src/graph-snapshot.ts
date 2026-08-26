@@ -48,6 +48,8 @@ export interface GraphSnapshot {
   mcpEndpoint: string | null;
   /** Present only when `agents.mcp.destructive` serves destructive MCP tools. */
   mcpDestructive?: true;
+  /** Whether the served remote MCP endpoint requires an OAuth bearer token. */
+  mcpAuthenticated: boolean;
   constraints: RouteConstraint[];
 }
 
@@ -91,6 +93,7 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
         ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
           ? { mcpDestructive: true as const }
           : {}),
+        mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
         constraints: serverModule.resolvedApp.constraints ?? [],
       }),
       loaderRoutePaths: new Set(
@@ -140,6 +143,7 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
     ),
     mcpEndpoint: snapshot.mcpEndpoint ?? null,
     ...(snapshot.mcpDestructive === true ? { mcpDestructive: true } : {}),
+    mcpAuthenticated: snapshot.mcpAuthenticated ?? false,
     constraints: snapshot.constraints ?? [],
   };
   return JSON.parse(JSON.stringify(normalized));
@@ -239,6 +243,9 @@ function parseSnapshot(contents: string): GraphSnapshot | null {
       // Omit the false/default form so snapshots from before the destructive
       // MCP opt-in remain byte-identical until an app actually enables it.
       ...(parsed.mcpDestructive === true ? { mcpDestructive: true } : {}),
+      // Older snapshots predate OAuth protection and therefore describe an
+      // endpoint whose authentication remained application middleware's job.
+      mcpAuthenticated: parsed.mcpAuthenticated === true,
       constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
     };
   } catch {
@@ -292,6 +299,7 @@ export interface GraphDiff {
   changedRoutes: ChangedEntry[];
   identical: boolean;
   mcpDestructiveChange: FieldChange | null;
+  mcpAuthenticationChange: FieldChange | null;
   mcpEndpointChange: FieldChange | null;
   removedApi: AppGraphApiRoute[];
   removedConstraints: RouteConstraint[];
@@ -347,6 +355,18 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
           from: baseMcpDestructive,
           to: headMcpDestructive,
         };
+  const baseMcpAuthenticated = base.mcpAuthenticated ?? false;
+  const headMcpAuthenticated = head.mcpAuthenticated ?? false;
+  // Disabling the endpoint already describes the complete contraction; its
+  // now-irrelevant auth flag does not need a second line in the plan.
+  const mcpAuthenticationChange =
+    headMcpEndpoint !== null && baseMcpAuthenticated !== headMcpAuthenticated
+      ? {
+          field: "mcpAuthenticated",
+          from: baseMcpAuthenticated,
+          to: headMcpAuthenticated,
+        }
+      : null;
 
   const identical =
     routeDiff.added.length === 0 &&
@@ -359,6 +379,7 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     removedConstraints.length === 0 &&
     mcpEndpointChange === null &&
     mcpDestructiveChange === null &&
+    mcpAuthenticationChange === null &&
     capabilityChanges.length === 0;
 
   return {
@@ -370,6 +391,7 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     changedRoutes: routeDiff.changed,
     identical,
     mcpDestructiveChange,
+    mcpAuthenticationChange,
     mcpEndpointChange,
     removedApi: apiDiff.removed,
     removedConstraints,
@@ -377,7 +399,8 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     widensAgentSurface:
       capabilityChanges.some((change) => change.severity === "warn") ||
       (baseMcpEndpoint === null && headMcpEndpoint !== null) ||
-      (!baseMcpDestructive && headMcpDestructive),
+      (!baseMcpDestructive && headMcpDestructive) ||
+      (baseMcpAuthenticated && !headMcpAuthenticated && headMcpEndpoint !== null),
   };
 }
 
@@ -731,6 +754,9 @@ export function formatPlanLines(diff: GraphDiff, options: FormatPlanOptions): st
   if (diff.mcpDestructiveChange) {
     lines.push(formatMcpDestructiveChange(diff.mcpDestructiveChange));
   }
+  if (diff.mcpAuthenticationChange) {
+    lines.push(formatMcpAuthenticationChange(diff.mcpAuthenticationChange));
+  }
   for (const change of diff.capabilityChanges) {
     lines.push(
       `${capabilityChangeMarker(change)} capability ${change.capability}  ${change.detail}`,
@@ -773,6 +799,12 @@ function formatMcpDestructiveChange(change: FieldChange): string {
     : "- mcp destructive tools disabled";
 }
 
+function formatMcpAuthenticationChange(change: FieldChange): string {
+  return change.to === true
+    ? "+ mcp oauth protection enabled"
+    : "! mcp oauth protection disabled — remote MCP endpoint no longer requires bearer tokens";
+}
+
 export function formatPlanText(diff: GraphDiff, options: FormatPlanOptions): string {
   const header = options.base
     ? `Pracht plan (base: ${options.base})`
@@ -804,6 +836,7 @@ export function formatPlanMarkdown(diff: GraphDiff, options: FormatPlanOptions):
     countLabel(diff.removedRoutes.length + diff.removedApi.length, "removed"),
     countLabel(diff.mcpEndpointChange ? 1 : 0, "MCP endpoint change"),
     countLabel(diff.mcpDestructiveChange ? 1 : 0, "MCP destructive-mode change"),
+    countLabel(diff.mcpAuthenticationChange ? 1 : 0, "MCP authentication change"),
     countLabel(diff.capabilityChanges.length, "capability change"),
   ]
     .filter(Boolean)

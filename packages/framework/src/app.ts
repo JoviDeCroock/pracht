@@ -576,7 +576,7 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
   // yields tokens no request can ever present.
   const endpoint = (mcp.path ?? "/mcp").replace(/\/$/, "") || "/";
   const resourcePath = resource.pathname.replace(/\/$/, "") || "/";
-  if (resourcePath !== endpoint && !resourcePath.endsWith(endpoint)) {
+  if (endpoint !== "/" && resourcePath !== endpoint && !resourcePath.endsWith(endpoint)) {
     throw new Error(
       `${label}.resource }) path ${JSON.stringify(resource.pathname)} does not address the MCP ` +
         `endpoint ${JSON.stringify(endpoint)}. The resource identifier is the token audience; ` +
@@ -590,7 +590,12 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
     );
   }
   for (const issuer of auth.authorizationServers) {
-    assertAbsoluteUrl(issuer, `${label}.authorizationServers })`);
+    const issuerUrl = assertAbsoluteUrl(issuer, `${label}.authorizationServers })`);
+    if (issuerUrl.search || issuerUrl.hash) {
+      throw new Error(
+        `${label}.authorizationServers }) issuer URLs must not carry a query string or fragment, got ${JSON.stringify(issuer)}.`,
+      );
+    }
   }
   if (auth.resourceDocumentation !== undefined) {
     assertAbsoluteUrl(auth.resourceDocumentation, `${label}.resourceDocumentation })`);
@@ -617,10 +622,18 @@ function assertAbsoluteUrl(value: unknown, label: string): URL {
   } catch {
     throw new Error(`${label} must be an absolute URL, got ${JSON.stringify(value)}.`);
   }
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error(`${label} must use https (http is allowed for local development only).`);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopbackHost(url.hostname))) {
+    throw new Error(`${label} must use https (http is allowed for loopback development only).`);
   }
   return url;
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "[::1]") {
+    return true;
+  }
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  return !!ipv4 && Number(ipv4[1]) === 127 && ipv4.slice(1).every((part) => Number(part) <= 255);
 }
 
 function assertScopeList(value: readonly string[] | undefined, label: string): void {

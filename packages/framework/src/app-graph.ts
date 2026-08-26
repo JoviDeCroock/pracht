@@ -113,6 +113,8 @@ export interface AppGraph {
   mcpEndpoint?: string | null;
   /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
   mcpDestructive?: boolean;
+  /** Whether the served remote MCP endpoint requires an OAuth bearer token. */
+  mcpAuthenticated?: boolean;
   /**
    * Whether the inspected MCP runtime is ready, blocked by a verified runtime
    * precondition, unverified, or not configured.
@@ -422,6 +424,7 @@ export async function buildAppGraph(
     capabilities,
     mcpEndpoint,
     mcpDestructive,
+    mcpAuthenticated: !!options.app.agents?.mcp?.auth,
     mcpRuntimeStatus:
       mcpEndpoint === null
         ? "not-configured"

@@ -36,6 +36,7 @@ function makeSnapshot(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
     api: [],
     capabilities: [],
     mcpEndpoint: null,
+    mcpAuthenticated: false,
     constraints: [],
     ...overrides,
   };
@@ -313,6 +314,31 @@ describe("capability diff", () => {
     expect(disabled.widensAgentSurface).toBe(false);
     expect(formatPlanText(disabled, { base: "origin/main" })).toContain(
       "- mcp endpoint /mcp disabled",
+    );
+  });
+
+  it("tracks OAuth protection and warns when it is removed from a live endpoint", () => {
+    const enabled = diffGraphSnapshots(
+      makeSnapshot({ mcpEndpoint: "/mcp" }),
+      makeSnapshot({ mcpEndpoint: "/mcp", mcpAuthenticated: true }),
+    );
+    expect(enabled.mcpAuthenticationChange).toEqual({
+      field: "mcpAuthenticated",
+      from: false,
+      to: true,
+    });
+    expect(enabled.widensAgentSurface).toBe(false);
+    expect(formatPlanText(enabled, { base: "origin/main" })).toContain(
+      "+ mcp oauth protection enabled",
+    );
+
+    const disabled = diffGraphSnapshots(
+      makeSnapshot({ mcpEndpoint: "/mcp", mcpAuthenticated: true }),
+      makeSnapshot({ mcpEndpoint: "/mcp" }),
+    );
+    expect(disabled.widensAgentSurface).toBe(true);
+    expect(formatPlanText(disabled, { base: "origin/main" })).toContain(
+      "! mcp oauth protection disabled — remote MCP endpoint no longer requires bearer tokens",
     );
   });
 
