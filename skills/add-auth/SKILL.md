@@ -1,14 +1,12 @@
 ---
 name: add-auth
-version: 1.1.0
+version: 1.2.0
 description: |
-  Drop session-based auth into a pracht app following the framework's
-  recommended pattern (middleware checks the session, loaders read user info,
-  API routes mutate it). Generates session utilities, the auth middleware,
-  login/logout/signup API routes, and the matching `<Form>`-driven pages —
-  then wires the manifest with public vs. protected groups.
-  Use when asked to "add auth", "set up login", "wire authentication",
-  "add session middleware", or "I need users".
+  Wire session-based auth into a pracht app: session utilities, auth middleware,
+  login/logout/signup API routes, `<Form>` pages, and public vs. protected route
+  groups.
+  Use for "add auth", "set up login", "wire authentication", "add session
+  middleware", "I need users".
 allowed-tools:
   - Bash
   - Read
@@ -21,31 +19,29 @@ allowed-tools:
 
 # Pracht Add Auth
 
-Implements the auth pattern documented in
-`examples/docs/src/routes/docs/recipes-auth.md`. This skill stamps out the
-files; the user replaces `verifyCredentials()` with a real DB lookup.
+Stamps out the auth pattern documented in
+`examples/docs/src/routes/docs/recipes-auth.md`; the user replaces
+`verifyCredentials()` with a real DB lookup.
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
-`generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
-config with the pracht plugin registered.
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
+tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
+config.
 
 ## Step 1: Confirm the scope
 
-Use `AskUserQuestion`:
+Use `AskUserQuestion` for:
 
-1. **What flavor?** Session cookie + email/password (default) OR magic link
-   OR OAuth (out of scope — recommend a separate skill / library).
-2. **Where do credentials live?** A DB the user already has, or no DB yet?
-   If no DB, recommend running `add-db` first.
-3. **Cookie posture for CSRF**: `SameSite=Lax` (default, recommended) vs.
-   `SameSite=Strict` vs. `SameSite=None` + token. (Cross-link `audit-csrf`.)
-
-This skill defaults to: session cookie + email/password + `SameSite=Lax`.
+1. **Flavor** — session cookie + email/password (default), magic link, or OAuth
+   (out of scope: recommend a dedicated library).
+2. **Where credentials live** — an existing DB, or none yet? If none, run
+   `/add-db` first.
+3. **Cookie posture** — `SameSite=Lax` (default, recommended), `Strict`, or
+   `None` + token. See `/audit-csrf`.
 
 ## Step 2: Session utilities
 
-`src/server/session.ts`:
+`src/server/session.ts` — HMAC-signed cookie payload:
 
 ```ts
 import { serverEnv } from "@pracht/core/env/server";
@@ -80,10 +76,10 @@ export function clearSessionCookie(): string {
 }
 
 async function getKey(usage: "sign" | "verify"): Promise<CryptoKey> {
-  // Read the secret INSIDE the function, never at module scope. On
-  // Cloudflare Workers env bindings only exist per request — a module-level
-  // `process.env.SESSION_SECRET` read (or throw) bricks the worker at import
-  // time. `serverEnv` resolves correctly per adapter (see docs/ENV.md).
+  // Read the secret INSIDE the function, never at module scope. On Cloudflare
+  // Workers env bindings only exist per request — a module-level read (or
+  // throw) bricks the worker at import time. `serverEnv` resolves correctly
+  // per adapter (docs/ENV.md).
   const secret = serverEnv.SESSION_SECRET;
   if (!secret) throw new Error("SESSION_SECRET is required");
   return crypto.subtle.importKey(
@@ -113,17 +109,17 @@ async function verify(data: string, signature: string): Promise<boolean> {
 }
 ```
 
-Notes:
 - `crypto.subtle` works in Node 18+, Cloudflare Workers, and Vercel Edge.
-- Signature verification goes through `crypto.subtle.verify`, which is a
-  constant-time comparison. Never compare signature strings with `===` — that
-  leaks timing information an attacker can use to forge signatures.
-- Drop `Secure` only if the user is on plain HTTP locally (recommend
-  conditionalizing on `NODE_ENV`).
+- Verification goes through `crypto.subtle.verify`, which compares in constant
+  time. Never compare signature strings with `===` — that leaks timing an
+  attacker can use to forge signatures.
+- Keep `HttpOnly`, `SameSite=Lax`, and `Secure` on the cookie. Drop `Secure`
+  only for plain-HTTP local dev, conditionalized on `NODE_ENV`.
 
 ## Step 3: Auth middleware
 
-`src/middleware/auth.ts`:
+`src/middleware/auth.ts` — a **Gate**: it short-circuits with a redirect rather
+than merely augmenting context (see `/audit-auth` for that distinction).
 
 ```ts
 import { redirect, type MiddlewareFn } from "@pracht/core";
@@ -141,10 +137,7 @@ export const middleware: MiddlewareFn = async ({ request, url }, next) => {
 };
 ```
 
-This is a **Gate** (short-circuits with a redirect on failure). Cross-reference
-`audit-auth` for the distinction between Gate and Augmenter.
-
-## Step 4: Login / logout API routes
+## Step 4: Auth API routes
 
 `src/api/auth/login.ts`:
 
@@ -158,23 +151,18 @@ export async function POST({ request }: ApiRouteArgs) {
   const password = String(form.get("password") ?? "");
   const requested = String(form.get("redirect") ?? "/dashboard");
 
-  // Enforce same-origin redirect (defense against open-redirect via form input).
+  // The redirect field is user input — gate it, or this is an open redirect.
   const safeRedirect = requested.startsWith("/") && !requested.startsWith("//")
     ? requested
     : "/dashboard";
 
   const user = await verifyCredentials(email, password);
   if (!user) {
-    // Redirect back to /login with an error flag — do NOT return a 401 JSON
-    // body. Pracht's <Form> only acts on 3xx responses (it follows the
-    // `location` header); a non-redirect response is silently ignored by the
-    // client, so the user would see nothing happen. The login page loader
-    // reads `?error=1` and renders the message.
+    // Redirect back with an error flag — do NOT return a 401 JSON body.
+    // Pracht's <Form> only acts on 3xx (it follows `location`); a non-redirect
+    // response is silently ignored and the user sees nothing happen.
     const back = new URLSearchParams({ error: "1", redirect: safeRedirect });
-    return new Response(null, {
-      status: 302,
-      headers: { location: `/login?${back}` },
-    });
+    return new Response(null, { status: 302, headers: { location: `/login?${back}` } });
   }
 
   const cookie = await createSessionCookie({ userId: user.id, email: user.email });
@@ -190,60 +178,26 @@ async function verifyCredentials(_email: string, _password: string) {
 }
 ```
 
-`src/api/auth/logout.ts`:
+`src/api/auth/logout.ts` — `POST` returning a 302 to `/` with
+`clearSessionCookie()` as `set-cookie`.
 
-```ts
-import type { ApiRouteArgs } from "@pracht/core";
-import { clearSessionCookie } from "../../server/session";
+`src/api/auth/signup.ts` — same shape as login: validate (`email` present,
+`password.length >= 8`), redirect to `/signup?error=1` on failure, otherwise
+hash the password, insert the user, and issue `createSessionCookie()` with a
+302 to `/dashboard`. Leave the hashing and insert as TODOs for the user.
 
-export async function POST(_args: ApiRouteArgs) {
-  return new Response(null, {
-    status: 302,
-    headers: { location: "/", "set-cookie": clearSessionCookie() },
-  });
-}
-```
+**Never ship the skeleton without real password hashing (argon2 or bcrypt).**
 
-`src/api/auth/signup.ts` (skeleton — user wires hashing + DB insert):
-
-```ts
-import type { ApiRouteArgs } from "@pracht/core";
-import { createSessionCookie } from "../../server/session";
-
-export async function POST({ request }: ApiRouteArgs) {
-  const form = await request.formData();
-  const email = String(form.get("email") ?? "").trim();
-  const password = String(form.get("password") ?? "");
-  if (!email || password.length < 8) {
-    // Same redirect-with-flag pattern as login — <Form> ignores non-3xx.
-    return new Response(null, {
-      status: 302,
-      headers: { location: "/signup?error=1" },
-    });
-  }
-  // TODO: hash password, insert user, set session.
-  const user = { id: crypto.randomUUID(), email };
-  const cookie = await createSessionCookie({ userId: user.id, email: user.email });
-  return new Response(null, {
-    status: 302,
-    headers: { location: "/dashboard", "set-cookie": cookie },
-  });
-}
-```
-
-## Step 5: Login & signup pages
+## Step 5: Login and signup pages
 
 `src/routes/login.tsx`:
 
 ```tsx
-import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
-import { Form } from "@pracht/core";
+import { Form, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
 
 export async function loader({ url }: LoaderArgs) {
   return {
     redirect: url.searchParams.get("redirect") ?? "/dashboard",
-    // Set by the login API route on failed credentials (see Step 4 — the
-    // API redirects back here because <Form> only acts on 3xx responses).
     error: url.searchParams.get("error") === "1",
   };
 }
@@ -272,17 +226,12 @@ Generate `signup.tsx` analogously, posting to `/api/auth/signup`.
 
 ## Step 6: Wire the manifest
 
-```ts
-import { defineApp, group, route } from "@pracht/core";
+Public routes in one group, protected routes in a group carrying the middleware:
 
+```ts
 export const app = defineApp({
-  shells: {
-    public: "./shells/public.tsx",
-    app: "./shells/app.tsx",
-  },
-  middleware: {
-    auth: "./middleware/auth.ts",
-  },
+  shells: { public: "./shells/public.tsx", app: "./shells/app.tsx" },
+  middleware: { auth: "./middleware/auth.ts" },
   routes: [
     group({ shell: "public" }, [
       route("/", "./routes/home.tsx", { render: "ssg" }),
@@ -291,56 +240,27 @@ export const app = defineApp({
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
-      // any other protected routes…
     ]),
   ],
 });
 ```
 
-If the project already has `defineApp({...})`, merge — preserve existing
-shells/middleware/routes.
+If the project already has a `defineApp({...})`, merge into it — preserve the
+existing shells, middleware, and routes.
 
-## Step 7: Env vars
+## Step 7: Env
 
-Add to `.env.example`:
-
-```
-SESSION_SECRET=<generate with: openssl rand -base64 32>
-```
-
-Confirm `.env*` is gitignored.
+Add `SESSION_SECRET=<generate with: openssl rand -base64 32>` to
+`.env.example`, and confirm `.env*` is gitignored.
 
 ## Step 8: Verify
 
-- Step 6 added routes — run `pracht typegen` to refresh
-  `src/pracht.d.ts` / `src/pracht-routes.ts` (use
-  `pracht typegen --check` in CI).
-- `pracht dev`, navigate to `/dashboard` → redirects to
-  `/login?redirect=%2Fdashboard`.
-- After successful login, lands on `/dashboard`. After a failed login, lands
-  back on `/login?error=1` with the error message rendered.
-- Logout posts to `/api/auth/logout` and clears the cookie.
-- Run `pnpm test` and `pnpm e2e`.
-- Run `pracht verify --json` and confirm no failures.
-- Run `audit-csrf` and `audit-auth` after wiring to confirm posture.
-
-## Rules
-
-1. Always set `HttpOnly`, `SameSite=Lax`, `Secure` on the session cookie.
-2. The login form's `redirect` input is user-supplied — gate it server-side
-   (`startsWith('/')` AND `!startsWith('//')`). Otherwise this is an open
-   redirect.
-3. `verifyCredentials` is a placeholder — never ship the skeleton without
-   real password hashing (argon2 or bcrypt).
-4. Read `SESSION_SECRET` via `serverEnv` (from `@pracht/core/env/server`)
-   inside the signing/verifying functions and fail loudly there if missing.
-   Never read or validate it at module scope — on Cloudflare Workers env
-   bindings only exist per request, so a module-level throw bricks the worker
-   at import time.
-5. Failed form posts must answer with a 3xx redirect carrying an error flag —
-   `<Form>` ignores non-redirect responses, so 4xx JSON bodies are invisible
-   to the user.
-6. After wiring, recommend running `audit-auth` to confirm protected routes
-   are gated and `audit-csrf` for CSRF posture.
+- `pracht typegen` (step 6 added routes); `pracht typegen --check` in CI.
+- In `pracht dev`: `/dashboard` redirects to `/login?redirect=%2Fdashboard`; a
+  successful login lands on `/dashboard`; a failed one lands back on
+  `/login?error=1` with the message rendered; logout posts to
+  `/api/auth/logout` and clears the cookie.
+- `pnpm test`, `pnpm e2e`, and `pracht verify --json` all pass.
+- Run `/audit-auth` and `/audit-csrf` to confirm the resulting posture.
 
 $ARGUMENTS

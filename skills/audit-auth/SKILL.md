@@ -1,12 +1,12 @@
 ---
 name: audit-auth
-version: 1.2.3
+version: 1.2.4
 description: |
-  Find pracht routes that look protected but aren't — missing auth middleware,
-  middleware that augments context but never gates, client-side auth checks
-  with no server enforcement, and API mutations exposed without guards.
-  Use when asked to "audit auth", "check route protection", "is my dashboard
-  protected", "find unauthenticated routes", or "review middleware coverage".
+  Find pracht routes that look protected but aren't: missing auth middleware,
+  middleware that augments context but never gates, client-only checks, and
+  unguarded API mutations.
+  Use for "audit auth", "check route protection", "find unauthenticated routes",
+  "review middleware coverage".
 allowed-tools:
   - Bash
   - Read
@@ -36,8 +36,8 @@ pracht plugin.
 pracht inspect routes --json
 ```
 
-If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 Middleware is registered by name in the app manifest —

@@ -1,13 +1,11 @@
 ---
 name: add-observability
-version: 1.1.0
+version: 1.1.1
 description: |
-  Wire error tracking, request tracing, and Web Vitals into a pracht app.
-  Supports Sentry or OpenTelemetry on the server side (loader/middleware
-  boundaries, API routes), and client-side Web Vitals reporting via the
-  `web-vitals` package.
-  Use when asked to "add observability", "wire Sentry", "set up tracing",
-  "add OpenTelemetry", "monitor Web Vitals", or "track errors".
+  Wire Sentry or OpenTelemetry into pracht server boundaries (loaders, middleware,
+  API routes) plus client-side Web Vitals reporting.
+  Use for "add observability", "wire Sentry", "set up tracing", "add
+  OpenTelemetry", "monitor Web Vitals", "track errors".
 allowed-tools:
   - Bash
   - Read
@@ -27,10 +25,10 @@ Three layers, each opt-in:
 3. **Web Vitals (LCP/CLS/INP/FCP/TTFB)** — client-side, posted to a beacon
    endpoint.
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
-`generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
-config with the pracht plugin registered.
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
+tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
+config.
 
 ## Step 1: Pick the stack
 

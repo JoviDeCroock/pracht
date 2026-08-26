@@ -1,12 +1,12 @@
 ---
 name: audit-seo
-version: 1.1.0
+version: 1.1.1
 description: |
-  Per-route SEO audit for a pracht app: `head()` coverage, title/description
-  presence, Open Graph and Twitter card completeness, canonical URLs, robots
-  rules, and a generated `sitemap.xml` derived from the route manifest.
-  Use when asked to "audit SEO", "check meta tags", "generate a sitemap",
-  "are my OG cards set", or "review robots.txt".
+  Per-route SEO audit: `head()` coverage, title and description presence, Open
+  Graph and Twitter cards, canonicals, robots rules, plus a `sitemap.xml`
+  generated from the route manifest.
+  Use for "audit SEO", "check meta tags", "generate a sitemap", "are my OG cards
+  set", "review robots.txt".
 allowed-tools:
   - Bash
   - Read
@@ -23,8 +23,8 @@ coverage and generates the static SEO artifacts.
 
 ## Step 1: Inventory
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 ```bash

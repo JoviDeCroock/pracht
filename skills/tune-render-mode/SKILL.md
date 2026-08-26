@@ -1,12 +1,11 @@
 ---
 name: tune-render-mode
-version: 1.1.0
+version: 1.1.1
 description: |
-  Recommend the right pracht render mode (ssg, isg, ssr, spa) for each route
-  based on what its loader actually does. Most apps pick a mode once and never
-  revisit; this skill surfaces routes that are mis-tuned.
-  Use when asked to "tune render modes", "make my site faster", "should this
-  route be SSG", "audit render modes", or "review SSG/ISG/SSR choices".
+  Recommend the right render mode (ssg, isg, ssr, spa) per route from what each
+  loader actually does, then apply the change after confirmation.
+  Use for "tune render modes", "should this route be SSG", "audit render modes",
+  "review SSG/ISG/SSR choices", "make my site faster".
 allowed-tools:
   - Bash
   - Read
@@ -61,8 +60,8 @@ For each route:
 
 ## Step 1: Enumerate
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 ```bash

@@ -1,14 +1,12 @@
 ---
 name: scaffold-tests
-version: 1.2.0
+version: 1.2.1
 description: |
-  Scaffold Vitest unit/integration tests for pracht routes, loaders, and
-  middleware. Asks the user once whether to use vitest browser mode with
-  `vitest-browser-preact` (real DOM, real events) or classic JSDOM-based
-  tests with `@testing-library/preact`. Wires `vitest.config.ts`, builds
-  `LoaderArgs` with `@pracht/test`, and emits ready-to-run files.
-  Use when asked to "scaffold tests", "set up Vitest", "add unit tests",
-  "test this loader", or "test this route".
+  Set up Vitest for pracht routes, loaders, and middleware — browser mode with
+  `vitest-browser-preact` or JSDOM with `@testing-library/preact` — wiring
+  `vitest.config.ts`, `LoaderArgs` via `@pracht/test`, and runnable test files.
+  Use for "scaffold tests", "set up Vitest", "add unit tests", "test this loader",
+  "test this route".
 allowed-tools:
   - Bash
   - Read
@@ -134,10 +132,10 @@ If `vitest.config.ts` already exists, merge — never clobber.
 
 ## Step 4: Generate the tests
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`,
-`generate_*`) over shelling out. Prerequisite: `pracht inspect` needs a vite
-config with the pracht plugin registered.
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
+tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
+config.
 
 This skill covers **loaders, middleware, and components**. For API handlers
 (`src/api/**`), delegate to `/pracht-test-api` — it owns handler enumeration and

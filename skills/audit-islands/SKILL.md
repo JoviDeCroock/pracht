@@ -1,14 +1,13 @@
 ---
 name: audit-islands
-version: 1.0.0
+version: 1.0.1
 description: |
-  Audit pracht islands usage: find over-hydrated routes that should use
-  `hydration: "islands"` or `"none"`, dead interactivity outside the islands
-  directory, non-serializable island props, mis-tuned client strategies, and
-  invalid render/hydration combinations.
-  Use when asked to "audit islands", "reduce hydration", "why is this island
-  not interactive", "should this page be an island", or "check partial
-  hydration".
+  Audit pracht hydration: over-hydrated routes that should be `hydration:
+  "islands"` or `"none"`, dead interactivity outside the islands directory,
+  non-serializable island props, mis-tuned `client` strategies, and invalid
+  render/hydration pairs.
+  Use for "audit islands", "reduce hydration", "why is this island not
+  interactive", "check partial hydration".
 allowed-tools:
   - Bash
   - Read
@@ -26,8 +25,8 @@ islands wired in ways that break at render time or ship dead handlers.
 
 ## Step 1: Enumerate routes and hydration modes
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 ```bash

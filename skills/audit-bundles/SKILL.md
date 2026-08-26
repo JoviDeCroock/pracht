@@ -1,13 +1,12 @@
 ---
 name: audit-bundles
-version: 1.2.0
+version: 1.2.1
 description: |
-  Analyze a pracht production build. Report client bundle size per route,
-  flag fat vendor chunks, find route components that ship large dependencies,
-  and suggest dynamic `import()` and prefetch strategies based on observed
-  navigation patterns.
-  Use when asked to "audit bundles", "why is my JS so big", "bundle size per
-  route", "what's in my vendor chunk", or "tune prefetching".
+  Analyze a pracht production build: client bytes per route, fat vendor chunks,
+  routes shipping large dependencies, and dynamic `import()` / prefetch
+  recommendations.
+  Use for "audit bundles", "why is my JS so big", "bundle size per route", "what's
+  in my vendor chunk", "tune prefetching".
 allowed-tools:
   - Bash
   - Read
@@ -23,11 +22,10 @@ and surfaces the worst offenders.
 
 ## Step 1: Build with analysis
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
-shelling out. Prerequisites: `pracht inspect` needs a vite config with the
-pracht plugin; `pracht inspect build` reads artifacts from a prior
-`pracht build`.
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
+shelling out. `pracht inspect` needs the pracht plugin in the vite config.
+`inspect build` needs a prior `pracht build`.
 
 ```bash
 pracht build --analyze --json

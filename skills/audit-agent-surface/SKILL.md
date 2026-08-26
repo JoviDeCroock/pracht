@@ -1,16 +1,13 @@
 ---
 name: audit-agent-surface
-version: 1.0.0
+version: 1.0.1
 description: |
-  Inventory everything in a pracht app that agents can reach — capabilities and
-  their exposure (HTTP, WebMCP, remote MCP), the `agents` trust configuration,
-  the destructive confirmation gate, `llms.txt`, Markdown negotiation, and the
-  OpenAPI document — then report where the surface is wider than intended or
-  missing a guard. Also confirms an app that wants no agent surface is actually
-  paying nothing for one.
-  Use when asked to "audit the agent surface", "what can agents do on my site",
-  "is my MCP endpoint safe", "check capability exposure", "did this PR widen
-  what agents can reach", or "make sure we ship no agent surface".
+  Inventory what agents can reach in a pracht app — capability exposure (HTTP,
+  WebMCP, remote MCP), `agents` trust config, the destructive-confirmation gate,
+  `llms.txt`, Markdown negotiation, OpenAPI — and report where the surface is
+  wider than intended, or confirm an opt-out app ships none.
+  Use for "audit the agent surface", "what can agents do on my site", "is my MCP
+  endpoint safe", "did this PR widen what agents can reach".
 allowed-tools:
   - Bash
   - Read

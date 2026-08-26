@@ -1,14 +1,12 @@
 ---
 name: add-openapi
-version: 1.0.0
+version: 1.0.1
 description: |
-  Wire `@pracht/openapi` into a pracht app: generate an OpenAPI 3.1 document
-  from existing `defineApi()` routes, attach the response contracts that cannot
-  be inferred with `defineOpenApi()`, serve an optional Scalar or Swagger
-  reference UI, handle deploy-base and CSP concerns, and turn warnings into a
-  CI completeness gate.
-  Use when asked to "add OpenAPI", "generate an API spec", "add Swagger",
-  "publish API docs", "add a reference UI", or "document my API routes".
+  Wire `@pracht/openapi`: generate an OpenAPI 3.1 document from `defineApi()`
+  routes, attach response contracts with `defineOpenApi()`, serve an optional
+  Scalar or Swagger UI, handle deploy-base and CSP, and gate completeness in CI.
+  Use for "add OpenAPI", "generate an API spec", "add Swagger", "publish API
+  docs", "document my API routes".
 allowed-tools:
   - Bash
   - Read
@@ -28,8 +26,8 @@ own descriptor.
 
 ## Step 1: Inventory the API first
 
-If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
-(`inspect_api`, `inspect_routes`, `doctor`, `verify`) over shelling out.
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_api`/`inspect_routes`/`doctor`/`verify` tools over shelling out.
 
 ```bash
 pracht inspect api --json   # endpoint paths, methods, hasDefaultHandler
