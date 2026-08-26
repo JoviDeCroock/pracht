@@ -560,8 +560,8 @@ every transport. The contract for all of them:
 - **Never throws into dispatch.** A sink that throws is swallowed; its first
   failure is reported via `console.warn`, naming the sink, and later failures
   from that sink stay quiet rather than emitting one line per capability call.
-  Warn-once is tracked per sink, so a broken log sink cannot silence a broken
-  metrics sink.
+  Warn-once is tracked per named registration, so a broken log sink cannot
+  silence a broken metrics sink even when both reuse the same callback.
 - **Never awaited.** The hook is invoked synchronously, so keep the work it does
   before returning (or before its first `await`) cheap. The hook signature
   returns `void`; a returned promise is not awaited, so its asynchronous
@@ -611,9 +611,10 @@ if (import.meta.hot) {
 ```
 
 The OpenTelemetry version records dispatch counts and schema/authorization
-failure rates. Derive agent activation from verified identities, MCP, WebMCP,
-and MCP-caused composition; an unverified HTTP dispatch may instead be a human
-`<Form capability>` submission or browser-client call:
+failure rates. Derive trusted agent activation from verified identities, MCP,
+and MCP-caused composition. Unsigned HTTP and WebMCP dispatches are ambiguous:
+the former may be a human `<Form capability>` submission or browser-client call,
+and the latter is only a client-declared marker:
 
 ```ts [src/server/audit-otel.ts]
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
@@ -703,11 +704,11 @@ does not claim whether those older dispatches were external or first-party.
 
 The JSON keeps every recorded dispatch and carries `transport` on each, so
 consumers filter for themselves. The HTML page separates three categories:
-verified identities, MCP, WebMCP, and MCP-caused composition are
-**agent-attributed**; top-level unverified HTTP stays visible but is counted
-separately because the same endpoint serves human `<Form capability>` and
-browser-client calls; ordinary `invokeCapability()` composition is hidden
-behind a "show first-party" toggle. An unsigned `via: "http"` dispatch is
+verified identities, MCP, and MCP-caused composition are **agent-attributed**;
+top-level unsigned HTTP and WebMCP stay visible but are counted as unverified
+client traffic because the HTTP endpoint also serves people and the WebMCP
+marker is caller-controlled; ordinary `invokeCapability()` composition is
+hidden behind a "show first-party" toggle. An unsigned `via: "http"` dispatch is
 first-party because a capability host is installed for every served request,
 so an ordinary page loader's composition carries it too. A non-null verified
 identity qualifies as agent-attributed, including when the agent enters through

@@ -292,6 +292,8 @@ Key properties to state when scaffolding this:
 - `setCapabilityAuditHook()` is a **single slot** — a second call replaces the
   first. Use `addCapabilityAuditListener()` whenever more than one sink exists;
   it returns an unsubscribe handle that removes only its own registration.
+- Warning suppression is per named registration, so differently named sinks
+  still report independently when they reuse one callback.
 - Delivery snapshots the registered sinks before callbacks run. Adding or
   replacing a sink from inside a callback takes effect on the next dispatch,
   so the current event is never delivered twice to one name.
@@ -307,11 +309,11 @@ Key properties to state when scaffolding this:
 In dev the same events are already collected: the **Agents** section of
 `/_pracht` shows recent dispatches with transport, `via`, verified identity,
 outcome, and duration, and `/_pracht.json` exposes all of them under
-`agentTraffic`. The page counts verified identities, MCP, WebMCP, and
-MCP-caused composition as agent-attributed; shows unverified HTTP separately
-because it may be a person, agent, or other client; and hides ordinary
-first-party `invokeCapability()` composition behind a toggle, so the panel's
-visible count can be lower than the sink's.
+`agentTraffic`. The page counts verified identities, MCP, and MCP-caused
+composition as agent-attributed; shows unsigned HTTP and client-declared WebMCP
+markers separately because they may be people, agents, or other clients; and
+hides ordinary first-party `invokeCapability()` composition behind a toggle, so
+the panel's visible count can be lower than the sink's.
 Counts and empty-state conclusions only cover the retained window when older
 events have been dropped. Use it to confirm the sink sees what the panel sees
 before wiring a paid backend.

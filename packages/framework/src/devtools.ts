@@ -132,7 +132,7 @@ ${capabilityRows}
   const trafficEvents = options.agentTraffic?.events ?? [];
   const trafficKinds = trafficEvents.map(classifyAgentTraffic);
   const agentCount = trafficKinds.filter((kind) => kind === "agent").length;
-  const unverifiedHttpCount = trafficKinds.filter((kind) => kind === "unverified-http").length;
+  const unverifiedClientCount = trafficKinds.filter((kind) => kind === "unverified-client").length;
   const composedCount = trafficKinds.filter((kind) => kind === "first-party").length;
   const droppedCount = Math.max(
     0,
@@ -180,13 +180,13 @@ ${trafficRows}
       ? `<h2>Agents${agentTrafficCaption(
           options.agentTraffic,
           agentCount,
-          unverifiedHttpCount,
+          unverifiedClientCount,
           composedCount,
         )}</h2>
     ${
       trafficEvents.length === 0
         ? `<p class="empty">No capability dispatches recorded yet. Call a capability over HTTP, WebMCP, or MCP and reload.</p>`
-        : agentCount === 0 && unverifiedHttpCount === 0
+        : agentCount === 0 && unverifiedClientCount === 0
           ? `<p class="empty">${
               droppedCount > 0
                 ? "No agent-attributed traffic in the retained window. Older dropped dispatches may include agent traffic."
@@ -194,7 +194,7 @@ ${trafficRows}
             }</p>
     ${trafficTable}`
           : agentCount === 0
-            ? `<p class="empty">No agent-attributed traffic in the retained window. Unverified HTTP dispatches may be people, agents, or other clients.</p>
+            ? `<p class="empty">No agent-attributed traffic in the retained window. Unverified HTTP and WebMCP dispatches may be people, agents, or other clients.</p>
     ${trafficTable}`
             : trafficTable
     }`
@@ -362,8 +362,8 @@ ${notFoundRow}
 }
 
 /**
- * Classify a dispatch as agent-attributed, ambiguous unverified HTTP, or the
- * app composing its own capabilities.
+ * Classify a dispatch as agent-attributed, ambiguous unverified client
+ * traffic, or the app composing its own capabilities.
  *
  * `transport: "server"` is `invokeCapability()`, which every loader and API
  * route can call — on a composing app it is the large majority of dispatches
@@ -372,35 +372,34 @@ ${notFoundRow}
  * the effect really was agent-caused and belongs in the default view.
  *
  * Top-level unsigned HTTP is also ambiguous: Pracht's human `<Form capability>`
- * and browser client use the same endpoint as an HTTP agent. Keep those rows
- * visible, but never count them as agent-attributed without a verified identity
- * or an agent-specific transport marker.
+ * and browser client use the same endpoint as an HTTP agent. The WebMCP marker
+ * is client-declared and equally untrusted. Keep both rows visible, but never
+ * count them as agent-attributed without a verified identity or trusted MCP
+ * provenance.
  */
-type AgentTrafficKind = "agent" | "unverified-http" | "first-party";
+type AgentTrafficKind = "agent" | "unverified-client" | "first-party";
 
 function classifyAgentTraffic(event: AgentTrafficEvent): AgentTrafficKind {
-  if (
-    event.agent !== null ||
-    event.transport === "mcp" ||
-    event.transport === "webmcp" ||
-    event.via === "mcp"
-  ) {
+  if (event.agent !== null || event.transport === "mcp" || event.via === "mcp") {
     return "agent";
   }
-  if (event.transport === "http") return "unverified-http";
+  if (event.transport === "http" || event.transport === "webmcp") {
+    return "unverified-client";
+  }
   return "first-party";
 }
 
 /**
- * `— 3 agent-attributed dispatches (mcp 3) · 3 unverified HTTP · 8 first-party
- * · 4 older dropped`. The separate unverified count prevents human form and
- * browser-client calls from masquerading as agent activation, and the dropped
- * count tells a reader that the visible log is only a tail.
+ * `— 3 agent-attributed dispatches (mcp 3) · 3 unverified clients · 8 first-party
+ * · 4 older dropped`. The separate unverified count prevents human form,
+ * browser-client, and spoofed WebMCP calls from masquerading as agent
+ * activation, and the dropped count tells a reader that the visible log is only
+ * a tail.
  */
 function agentTrafficCaption(
   traffic: DevtoolsAgentTraffic | undefined,
   agentCount: number,
-  unverifiedHttpCount: number,
+  unverifiedClientCount: number,
   composedCount: number,
 ): string {
   if (!traffic || traffic.recorded === 0) return "";
@@ -416,8 +415,10 @@ function agentTrafficCaption(
 
   const parts = [`${agentCount} agent-attributed dispatch${agentCount === 1 ? "" : "es"}`];
   if (breakdown !== "") parts[0] += ` (${breakdown})`;
-  if (unverifiedHttpCount > 0) {
-    parts.push(`${unverifiedHttpCount} unverified HTTP`);
+  if (unverifiedClientCount > 0) {
+    parts.push(
+      `${unverifiedClientCount} unverified client${unverifiedClientCount === 1 ? "" : "s"}`,
+    );
   }
   if (composedCount > 0) parts.push(`${composedCount} first-party`);
   const dropped = Math.max(0, traffic.recorded - traffic.events.length);

@@ -633,6 +633,23 @@ describe("agent policy and audit", () => {
 
     consoleWarn.mockRestore();
   });
+
+  it("reports differently-named sinks that reuse the same throwing callback", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const broken = () => {
+      throw new Error("shared callback exploded");
+    };
+    addCapabilityAuditListener("logs", broken);
+    addCapabilityAuditListener("metrics", broken);
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+
+    const warnings = consoleWarn.mock.calls.map(([message]) => String(message));
+    expect(warnings.filter((line) => line.includes('"logs"'))).toHaveLength(1);
+    expect(warnings.filter((line) => line.includes('"metrics"'))).toHaveLength(1);
+    consoleWarn.mockRestore();
+  });
 });
 
 describe("agents config validation", () => {

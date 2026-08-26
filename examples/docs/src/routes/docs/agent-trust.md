@@ -259,7 +259,7 @@ Every registered sink receives the same frozen snapshot for every dispatch, on e
 
 | Guarantee | What it means for your sink |
 | --- | --- |
-| Never throws into dispatch | A throwing sink is swallowed. Its first failure is reported via `console.warn`, naming the sink; later failures from that sink stay quiet rather than logging one line per capability call. Warn-once is per sink, so a broken log sink cannot silence a broken metrics sink. |
+| Never throws into dispatch | A throwing sink is swallowed. Its first failure is reported via `console.warn`, naming the sink; later failures from that sink stay quiet rather than logging one line per capability call. Warn-once is per named registration, so a broken log sink cannot silence a broken metrics sink even when both reuse the same callback. |
 | Never awaited | The hook is invoked synchronously, so keep work before its return or first `await` cheap. A returned promise is not awaited; its asynchronous continuation does not add dispatch latency, but an unhandled rejection is yours to catch. |
 | Runs everywhere | No Node-only APIs, so the same sink works on Node, Workers, Vercel, and Netlify. |
 
@@ -295,7 +295,7 @@ if (import.meta.hot) {
 }
 ```
 
-The OpenTelemetry version records dispatch counts and schema/authorization failure rates. Derive agent activation from verified identities, MCP, WebMCP, and MCP-caused composition. An unverified HTTP dispatch may instead be a human `<Form capability>` submission or browser-client call:
+The OpenTelemetry version records dispatch counts and schema/authorization failure rates. Derive trusted agent activation from verified identities, MCP, and MCP-caused composition. Unsigned HTTP and WebMCP dispatches are ambiguous: the former may be a human `<Form capability>` submission or browser-client call, and the latter is only a client-declared marker:
 
 ```ts [src/server/audit-otel.ts]
 import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
@@ -369,7 +369,7 @@ The same data is available as machine-readable JSON at `/_pracht.json`:
 
 `recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. Transport counts and empty-state conclusions only describe the retained events; once older events have been dropped, the panel does not claim whether those older dispatches were external or first-party. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. Under adapter-owned dev servers (Cloudflare `workerd`) that middleware is never registered, so `/_pracht` and `/_pracht.json` do not exist there at all — they 404 rather than answering with an empty log.
 
-The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page separates three categories. Verified identities, MCP, WebMCP, and MCP-caused composition are **agent-attributed**. Top-level unverified HTTP stays visible but is counted separately because the same endpoint serves human `<Form capability>` and browser-client calls. Ordinary `invokeCapability()` composition is hidden behind a "show first-party" toggle. An unsigned `via: "http"` dispatch is first-party because an ordinary page loader's composition carries the same provenance. A non-null verified identity qualifies as agent-attributed, including when the agent enters through a page or ordinary API route and that composed dispatch is its only row.
+The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page separates three categories. Verified identities, MCP, and MCP-caused composition are **agent-attributed**. Top-level unsigned HTTP and WebMCP stay visible but are counted as unverified client traffic because the HTTP endpoint also serves people and the WebMCP marker is caller-controlled. Ordinary `invokeCapability()` composition is hidden behind a "show first-party" toggle. An unsigned `via: "http"` dispatch is first-party because an ordinary page loader's composition carries the same provenance. A non-null verified identity qualifies as agent-attributed, including when the agent enters through a page or ordinary API route and that composed dispatch is its only row.
 
 ### What Is Not Audited
 

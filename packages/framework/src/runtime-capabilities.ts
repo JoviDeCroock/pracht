@@ -475,10 +475,11 @@ export function clearCapabilityAuditListeners(): void {
 
 // Tracked per sink, not globally: a working log sink alongside a broken metrics
 // sink is the whole point of supporting more than one, and a single global flag
-// would let the first failure silence every other sink's report forever. Keyed
-// on function identity, so a sink replaced under the same name is a new sink
-// and reports again.
-const warnedAuditSinks = new WeakSet<CapabilityAuditHook>();
+// would let the first failure silence every other sink's report forever. Named
+// listeners use their registration object as the key, so differently-named
+// sinks warn independently even when they deliberately reuse one callback, and
+// replacing a name creates a fresh sink that can report its own failure.
+const warnedAuditSinks = new WeakSet<object>();
 
 /**
  * Deliver one event to one sink. Exceptions are swallowed — an observer must
@@ -490,13 +491,15 @@ function deliverCapabilityAudit(
   label: string,
   hook: CapabilityAuditHook | null | undefined,
   snapshot: CapabilityAuditEvent,
+  warningKey?: object,
 ): void {
   if (!hook) return;
+  const sinkKey = warningKey ?? hook;
   try {
     hook(snapshot);
   } catch (error: unknown) {
-    if (warnedAuditSinks.has(hook)) return;
-    warnedAuditSinks.add(hook);
+    if (warnedAuditSinks.has(sinkKey)) return;
+    warnedAuditSinks.add(sinkKey);
     try {
       console.warn(
         `[pracht] Capability audit sink ${JSON.stringify(label)} threw and was ignored: ${describeCapabilityAuditError(
@@ -532,7 +535,7 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
   const listeners = Array.from(capabilityAuditListeners);
   deliverCapabilityAudit("setCapabilityAuditHook", singleSlotHook, snapshot);
   for (const [name, registration] of listeners) {
-    deliverCapabilityAudit(name, registration.hook, snapshot);
+    deliverCapabilityAudit(name, registration.hook, snapshot, registration);
   }
   deliverCapabilityAudit("onCapabilityAudit", extra, snapshot);
 }
