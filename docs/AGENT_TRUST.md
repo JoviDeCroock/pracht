@@ -456,7 +456,7 @@ createSqlApprovalStore({
 ```
 
 ```ts
-// better-sqlite3 / node:sqlite / Turso — reads and writes take different calls
+// better-sqlite3 / node:sqlite — reads and writes take different calls
 import Database from "better-sqlite3";
 const db = new Database("approvals.db");
 
@@ -467,6 +467,20 @@ createSqlApprovalStore({
       ? { rows: statement.all(...params) }
       : { changes: statement.run(...params).changes };
   },
+});
+```
+
+```ts
+// Turso / @libsql/client — ResultSet carries both rows and rowsAffected
+import { createClient } from "@libsql/client";
+const turso = createClient({
+  url: process.env.TURSO_DATABASE_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+createSqlApprovalStore({
+  execute: (sql, params) =>
+    turso.execute({ sql, args: params as (string | number | null)[] }),
 });
 ```
 

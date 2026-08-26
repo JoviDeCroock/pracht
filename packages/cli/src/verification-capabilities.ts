@@ -14,6 +14,7 @@ import {
 import {
   evaluateLiteral,
   extractCapabilityRegistrations,
+  extractDefineAppObjectBody,
   extractDefineCapabilityArgs,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
@@ -98,7 +99,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   }
 
   collectShadowedNameChecks(httpExposedNames, checks);
-  collectMcpProjectionChecks(mcpExposed, manifestSource, checks);
+  collectMcpProjectionChecks(mcpExposed, projection, checks);
   collectDestructiveMcpChecks(destructiveMcpExposed, projection, project, checks);
 }
 
@@ -111,16 +112,31 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
 interface McpProjectionConfigScan {
   /** `agents: { … mcp: … }` is visible in the manifest source. */
   configured: boolean;
-  /** `destructive: true` appears inside the visible `agents` config. */
+  /** `destructive: true` appears inside the visible `agents.mcp` config. */
   destructive: boolean;
 }
 
 function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigScan {
-  const agentsIndex = manifestSource.search(/\bagents\s*:\s*\{/);
-  if (agentsIndex === -1) return { configured: false, destructive: false };
-  const agentsSource = manifestSource.slice(agentsIndex);
-  if (!/\bmcp\s*:/.test(agentsSource)) return { configured: false, destructive: false };
-  return { configured: true, destructive: /\bdestructive\s*:\s*true\b/.test(agentsSource) };
+  const appBody = extractDefineAppObjectBody(manifestSource);
+  const agentsBody = readInlineObjectBody(
+    appBody ? scanTopLevelProperties(appBody).get("agents") : undefined,
+  );
+  if (agentsBody === null) return { configured: false, destructive: false };
+
+  const mcp = scanTopLevelProperties(agentsBody).get("mcp");
+  if (mcp === undefined) return { configured: false, destructive: false };
+
+  const mcpBody = readInlineObjectBody(mcp);
+  const destructive =
+    mcpBody !== null &&
+    evaluateLiteral(scanTopLevelProperties(mcpBody).get("destructive") ?? "") === true;
+  return { configured: true, destructive };
+}
+
+function readInlineObjectBody(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.startsWith("{") && trimmed.endsWith("}") ? trimmed.slice(1, -1) : null;
 }
 
 /**
@@ -224,7 +240,7 @@ function scanForApprovalStore(project: ProjectConfig): { found: boolean; searche
  */
 function collectMcpProjectionChecks(
   mcpExposed: string[],
-  manifestSource: string,
+  projection: McpProjectionConfigScan,
   checks: Check[],
 ): void {
   if (mcpExposed.length === 0) return;
@@ -240,7 +256,7 @@ function collectMcpProjectionChecks(
     );
   }
 
-  if (!manifestConfiguresMcpProjection(manifestSource)) {
+  if (!projection.configured) {
     checks.push(
       createCheck(
         "warning",
@@ -251,20 +267,6 @@ function collectMcpProjectionChecks(
       ),
     );
   }
-}
-
-/**
- * Conservative source scan for `agents: { … mcp: … }` in the manifest.
- *
- * Verification is static (no Vite server), so a manifest that builds its
- * `agents` config in a separate variable reads as unconfigured. That only
- * costs one spurious warning, never a failed build — which is why this stays
- * a warning.
- */
-function manifestConfiguresMcpProjection(manifestSource: string): boolean {
-  const agentsIndex = manifestSource.search(/\bagents\s*:\s*\{/);
-  if (agentsIndex === -1) return false;
-  return /\bmcp\s*:/.test(manifestSource.slice(agentsIndex));
 }
 
 /**

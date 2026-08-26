@@ -559,11 +559,43 @@ describe("collectCapabilityChecks", () => {
 
     it("warns when the app serves MCP without opting into destructive tools", () => {
       const checks = checksFor({ appBlock: "  agents: { mcp: {} }," });
-      // A warning, not an error: the manifest scan is a regex, and the runtime
-      // is the gate that actually refuses to serve.
+      // A warning, not an error: the runtime is the gate that actually refuses
+      // to serve.
       expect(errorsOf(checks)).toEqual([]);
       expect(warningsOf(checks)).toContainEqual(
         expect.stringContaining("does not set agents.mcp.destructive"),
+      );
+    });
+
+    it("recognizes quoted destructive MCP configuration keys", () => {
+      const checks = checksFor({
+        appBlock: '  "agents": { "mcp": { "destructive": true } },',
+        extraFiles: { "server/approvals.ts": STORE_MODULE },
+      });
+
+      expect(errorsOf(checks)).toEqual([]);
+      expect(warningsOf(checks)).not.toContainEqual(
+        expect.stringContaining("does not set agents.mcp.destructive"),
+      );
+      expect(checks.map((check) => check.message)).toContainEqual(
+        expect.stringContaining("back onto a registered approval store"),
+      );
+    });
+
+    it("ignores destructive text outside agents.mcp", () => {
+      const checks = checksFor({
+        appBlock: [
+          "  agents: { mcp: { destructive: false } },",
+          "  // An unrelated example may still say destructive: true.",
+        ].join("\n"),
+      });
+
+      expect(errorsOf(checks)).toEqual([]);
+      expect(warningsOf(checks)).toContainEqual(
+        expect.stringContaining("does not set agents.mcp.destructive"),
+      );
+      expect(warningsOf(checks)).not.toContainEqual(
+        expect.stringContaining("setCapabilityApprovalStore("),
       );
     });
 

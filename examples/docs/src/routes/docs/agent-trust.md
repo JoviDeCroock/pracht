@@ -250,13 +250,17 @@ execute: (sql, params) => pool.query(sql, params),
 // Cloudflare D1 — bind the database as `DB` in wrangler.jsonc
 execute: (sql, params) => env.DB.prepare(sql).bind(...params).all(),
 
-// better-sqlite3 / node:sqlite / Turso — reads and writes take different calls
+// better-sqlite3 / node:sqlite — reads and writes take different calls
 async execute(sql, params) {
   const statement = db.prepare(sql);
   return /^\s*SELECT/i.test(sql)
     ? { rows: statement.all(...params) }
     : { changes: statement.run(...params).changes };
 },
+
+// Turso / @libsql/client — ResultSet carries both rows and rowsAffected
+execute: (sql, params) =>
+  turso.execute({ sql, args: params as (string | number | null)[] }),
 ```
 
 If a write's result carries no affected-row count the store throws rather than assuming success, and the gate closes. The `table` option is interpolated into SQL (identifiers cannot be parameters), so it is validated at construction: a plain identifier or `schema.identifier`, nothing else.

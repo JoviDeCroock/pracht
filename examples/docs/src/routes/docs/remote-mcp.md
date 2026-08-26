@@ -145,7 +145,7 @@ The flow is [the same one HTTP uses](/docs/agent-trust). MCP has no per-call hea
 // → an isError result. The token is in _meta *and* in the text, so hosts
 //   that only read text can complete the flow too.
 {
-  "content": [{ "type": "text", "text": "confirmation_required: …\nConfirmation token …: v1.…" }],
+  "content": [{ "type": "text", "text": "confirmation_required: …\nConfirmation token …: v2.…" }],
   "isError": true,
   "_meta": {
     "io.pracht/status": 409,
