@@ -118,6 +118,10 @@ Work through these in order, stopping when you find the root cause:
 ### 8. Build / deployment issues
 
 - `pracht build` runs client + server builds, then prerenders SSG/ISG routes.
+- On serverful adapters, a failed SSG/ISG path is warned about and skipped, but
+  the build fails if every attempted prerender returns a non-200 response. Use
+  the reported underlying error to fix the shared loader/render dependency;
+  partial prerender output remains valid. Static exports fail on any bad path.
 - `pracht preview` builds and serves the production output locally (Node runs `dist/server/server.js`, Cloudflare delegates to `wrangler dev`).
 - `pracht inspect build --json` reports the resolved adapter target plus client/CSS/JS manifests from the latest build output (requires a prior `pracht build`).
 - Check `dist/client/` for client assets and `dist/server/` for server bundle.

@@ -50,6 +50,12 @@ export function Component({ data }) {
 
 The build calls `getStaticPaths()` to enumerate params, constructs full paths from the route pattern, then runs the loader and renderer for each. Prerendering runs concurrently (default: 10 parallel renders), configurable with `pracht({ prerenderConcurrency })`.
 
+With a serverful adapter, a path that returns a non-200 response during SSG/ISG
+is warned about and skipped because the runtime server can still answer it. If
+every attempted prerender fails, `pracht build` exits non-zero rather than
+produce empty prerender output. Partial output is still allowed. A static
+export fails on the first bad path because it has no runtime fallback.
+
 ---
 
 ## SSR — Server-Side Rendering

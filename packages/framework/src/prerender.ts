@@ -77,6 +77,8 @@ export async function prerenderApp(
   const results: PrerenderResult[] = [];
   const isgManifest: Record<string, ISGManifestEntry> = {};
   const generatedAt = Date.now();
+  let failedPrerenders = 0;
+  let firstPrerenderError: unknown;
 
   // Collect all work items first, then render in parallel batches
   const work: {
@@ -155,6 +157,10 @@ export async function prerenderApp(
           console.warn(
             `  Warning: ${item.render.toUpperCase()} route "${item.pathname}" returned status ${response.status}, skipping.`,
           );
+          failedPrerenders++;
+          if (firstPrerenderError === undefined && renderError !== undefined) {
+            firstPrerenderError = renderError;
+          }
           return null;
         }
 
@@ -256,6 +262,16 @@ export async function prerenderApp(
         };
       }
     }
+  }
+
+  if (work.length > 0 && failedPrerenders === work.length) {
+    const noun = failedPrerenders === 1 ? "render" : "renders";
+    throw new Error(
+      `No SSG/ISG pages were prerendered: all ${failedPrerenders} attempted ${noun} returned a non-200 response. ` +
+        "Refusing to finish a build with empty prerender output. Fix the build-time loader or render failures, or move request-dependent routes to SSR." +
+        describeRenderError(firstPrerenderError),
+      firstPrerenderError === undefined ? undefined : { cause: firstPrerenderError },
+    );
   }
 
   if (options.withISGManifest) {
