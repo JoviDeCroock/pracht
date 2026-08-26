@@ -1,16 +1,13 @@
 ---
 name: add-images
-version: 1.0.0
+version: 1.0.1
 description: |
-  Wire `@pracht/image` into a pracht app: the CLS-safe zero-runtime `<Image>`
-  component, the right loader for the deployment target (built-in sharp
-  endpoint, Cloudflare Image Resizing, Vercel Image Optimization, or
-  passthrough), build-time `?pracht` imports with blur placeholders, prebuilt
-  static WebP variants, and the security settings the optimization endpoint
-  needs.
-  Use when asked to "add images", "optimize images", "responsive images",
-  "set up next/image equivalent", "enable Cloudflare image resizing", "add blur
-  placeholders", or "my images cause layout shift".
+  Wire `@pracht/image`: the CLS-safe zero-runtime `<Image>`, the loader for your
+  target (sharp endpoint, Cloudflare, Vercel, passthrough), `?pracht` build-time
+  imports with blur placeholders, prebuilt WebP variants, and the optimization
+  endpoint's security settings.
+  Use for "add images", "optimize images", "responsive images", "next/image
+  equivalent", "blur placeholders", "my images cause layout shift".
 allowed-tools:
   - Bash
   - Read
@@ -30,8 +27,8 @@ zero hydration, works with `hydration: "none"`.
 
 ## Step 1: Choose the backend for the deployment target
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_build`, `doctor`, `verify`) over shelling out.
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_build`/`doctor`/`verify` tools over shelling out.
 
 ```bash
 pracht inspect build --json   # adapterTarget (requires a prior `pracht build`)

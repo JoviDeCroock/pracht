@@ -1,14 +1,13 @@
 ---
 name: upgrade-pracht
-version: 1.0.1
+version: 1.0.2
 description: |
-  Upgrade the @pracht/* packages in an app safely: inventory installed
-  versions, read the changelogs between installed and target, map breaking
-  changes to actual usage in the codebase, apply the upgrade, and walk the
-  verification ladder (doctor, typegen, verify, build, tests).
-  Use when asked to "upgrade pracht", "update @pracht packages", "bump the
-  framework", "what changed in the new pracht version", or "is this pracht
-  upgrade safe".
+  Upgrade the `@pracht/*` packages safely: inventory installed versions, read the
+  changelogs between installed and target, map breaking changes to real usage,
+  apply, then walk the verification ladder (doctor, typegen, verify, build,
+  tests).
+  Use for "upgrade pracht", "update @pracht packages", "bump the framework", "what
+  changed in the new pracht version", "is this upgrade safe".
 allowed-tools:
   - Bash
   - Read

@@ -1,14 +1,13 @@
 ---
 name: audit-redirects
-version: 1.1.0
+version: 1.1.1
 description: |
-  Find open-redirect vulnerabilities in pracht loaders, middleware, and
-  navigation calls. The framework guards both ends — the client router drops
-  unsafe URL schemes, and the server `redirect()` helper rejects unsafe
-  schemes and CRLF injection — but a hand-rolled 3xx Response bypasses every
-  guard, and even a guarded redirect to an attacker-chosen origin can phish.
-  Use when asked to "audit redirects", "check for open redirects", "is my
-  ?redirect= param safe", or "review login redirect handling".
+  Find open redirects in pracht loaders, middleware, and navigation. The framework
+  rejects unsafe schemes and CRLF at both ends, but a hand-rolled 3xx Response
+  bypasses every guard, and even a guarded redirect to an attacker-chosen origin
+  can phish.
+  Use for "audit redirects", "check for open redirects", "is my ?redirect= param
+  safe", "review login redirect handling".
 allowed-tools:
   - Bash
   - Read
@@ -41,8 +40,8 @@ Bound the search first — do not grep the whole repo blind:
 pracht inspect routes --json
 ```
 
-If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 The resolved graph gives you each route's `file`, `loaderFile`, and

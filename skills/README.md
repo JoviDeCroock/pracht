@@ -98,6 +98,13 @@ collide with other skill packs installed in the same app.
   without diffing first.
 - All skills end with `$ARGUMENTS` so the user can pass additional
   context at invocation time.
+- Skills are budgeted for context. A `description` is in the agent's system
+  prompt for every session whether the skill runs or not, so it is one sentence
+  of what the skill does plus the trigger phrases — nothing else — capped at 500
+  characters, with the catalog capped at 12,000. A body is loaded whole on
+  invocation and capped at 20,000 bytes: prefer tables over prose, drop
+  rationale that does not change what the agent does, and keep a trailing
+  `## Rules` section only for constraints the steps do not already state.
 - `skills/skills.test.ts` enforces these conventions in CI (frontmatter shape,
   `$ARGUMENTS`, tool policy, and that referenced CLI subcommands, MCP tools,
   and build-output paths actually exist).

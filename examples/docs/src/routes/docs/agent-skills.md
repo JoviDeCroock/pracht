@@ -25,6 +25,24 @@ The source of truth lives in the repo's [skills/ directory](https://github.com/J
 
 ---
 
+## Context Cost
+
+Installing the catalog is not free: an agent keeps every skill's `name` and `description` in its system prompt for the whole session, whether or not you invoke anything. The body of a `SKILL.md` is different — it is loaded only when you run `/<skill-name>`.
+
+Both are budgeted, and the budgets are enforced in CI:
+
+| Budget | Limit | Paid |
+| ------ | ----- | ---- |
+| One skill's `description` | 500 characters | Every session |
+| All 33 descriptions | 12,000 characters (~3k tokens) | Every session |
+| One `SKILL.md` | 20,000 bytes | Per invocation |
+
+So the whole catalog costs roughly 3k tokens of standing context, and a typical skill costs about 2k more when you actually run it. Descriptions are written as one sentence of what the skill does plus the phrases that should trigger it — the detail lives in the body, where you only pay for it on use.
+
+Installing a subset works fine if you want the bill smaller: each skill is a standalone file with no cross-file dependencies (see [Manual Install](#manual-install)).
+
+---
+
 ## Discovery Endpoint
 
 The skills are published following the [agent skills discovery RFC](https://github.com/cloudflare/agent-skills-discovery-rfc). A well-known manifest lists every skill with a canonical URL and a SHA-256 digest of its source:

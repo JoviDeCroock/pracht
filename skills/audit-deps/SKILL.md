@@ -1,12 +1,12 @@
 ---
 name: audit-deps
-version: 1.1.0
+version: 1.1.1
 description: |
-  Run a dependency vulnerability audit and map each finding to the pracht
-  routes, loaders, middleware, or API handlers that import the affected
-  package — so users know which surface area they need to test after upgrading.
-  Use when asked to "audit deps", "scan for CVEs", "which routes use this
-  vulnerable package", "npm audit", or "dependency security review".
+  Run a dependency vulnerability audit and map each advisory to the pracht routes,
+  loaders, middleware, and API handlers that import it — so you know what to
+  retest after upgrading.
+  Use for "audit deps", "scan for CVEs", "npm audit", "which routes use this
+  vulnerable package".
 allowed-tools:
   - Bash
   - Read
@@ -56,8 +56,8 @@ is the one the user owns.
 
 ## Step 3: Map to routes/APIs
 
-If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 For each direct dependency identified in step 2:

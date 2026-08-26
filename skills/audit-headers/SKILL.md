@@ -1,14 +1,13 @@
 ---
 name: audit-headers
-version: 1.2.0
+version: 1.2.1
 description: |
-  Audit security header coverage in a pracht app. The framework applies four
-  default security headers on every response path; this skill audits the
-  exceptions — static output served outside first-party adapters, `headers()`
-  exports that weaken the defaults, and the headers only the user can decide
-  (HSTS, CSP).
-  Use when asked to "audit security headers", "check CSP", "harden headers",
-  "set up HSTS", or "review header policy".
+  Audit security headers in a pracht app. The framework sets four defaults on
+  every response path; this covers the exceptions — static output served outside
+  first-party adapters, `headers()` exports that weaken defaults, and the choices
+  only you can make (HSTS, CSP).
+  Use for "audit security headers", "check CSP", "harden headers", "set up HSTS",
+  "review header policy".
 allowed-tools:
   - Bash
   - Read
@@ -62,8 +61,8 @@ pracht inspect routes --json
 pracht inspect api --json
 ```
 
-If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 Only route modules and shells have a `headers()` export — API handlers do not

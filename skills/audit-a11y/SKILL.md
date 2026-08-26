@@ -1,13 +1,12 @@
 ---
 name: audit-a11y
-version: 1.1.0
+version: 1.1.1
 description: |
-  Per-route accessibility audit for a pracht app. Drives a headless browser
-  through every route in the manifest, runs axe-core, and reports issues
-  grouped by severity and route. Catches alt-text gaps, contrast failures,
-  missing landmarks, focus-order bugs, and form-label problems.
-  Use when asked to "audit a11y", "check accessibility", "axe my app",
-  "WCAG compliance", or "screen reader test".
+  Per-route axe-core audit of a pracht app in a headless browser: alt text,
+  contrast, landmarks, focus order, and form labels, grouped by severity and
+  route.
+  Use for "audit a11y", "check accessibility", "axe my app", "WCAG compliance",
+  "screen reader test".
 allowed-tools:
   - Bash
   - Read
@@ -61,8 +60,8 @@ project tooling.
 
 ## Step 3: Enumerate routes
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 ```bash

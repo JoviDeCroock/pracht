@@ -1,16 +1,12 @@
 ---
 name: add-content
-version: 1.0.0
+version: 1.0.1
 description: |
-  Wire `@pracht/content` (and the official `@pracht/markdown` compiler) into a
-  pracht app: one collection registry that owns source discovery, routes,
-  locales, compilation, static artifacts (`llms.txt`, raw source), and the
-  server-only runtime snapshot loaders and capabilities read. Covers Markdown
-  and MDX route modules, relative-image handling, route reconciliation, and the
-  Cloudflare chunking requirements.
-  Use when asked to "add a blog", "set up docs", "render markdown pages",
-  "add MDX", "content collections", "publish llms.txt from my content", or
-  "why is my markdown route 404ing".
+  Wire `@pracht/content` and `@pracht/markdown`: a collection registry owning
+  source discovery, routes, locales, compilation, and static artifacts
+  (`llms.txt`, raw source), plus Markdown/MDX route modules and snapshot loaders.
+  Use for "add a blog", "set up docs", "render markdown pages", "add MDX",
+  "content collections", "why is my markdown route 404ing".
 allowed-tools:
   - Bash
   - Read

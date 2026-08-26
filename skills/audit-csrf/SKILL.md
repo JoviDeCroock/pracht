@@ -1,14 +1,13 @@
 ---
 name: audit-csrf
-version: 1.2.0
+version: 1.2.1
 description: |
-  Inventory every form submission and mutation API in the project, then verify
-  the CSRF posture. Pracht enforces same-origin on mutation API requests by
-  default (`api.requireSameOrigin`); this skill checks that the default is
-  intact and that cookie strategy, middleware, or tokens cover whatever the
-  built-in check does not.
-  Use when asked to "audit CSRF", "check CSRF protection", "are forms safe",
-  "review session security", or after enabling cross-origin form usage.
+  Check CSRF posture across every form and mutation API. Pracht enforces
+  same-origin on mutation API requests by default (`api.requireSameOrigin`); this
+  verifies the default is intact and that cookies, middleware, or tokens cover
+  what it does not.
+  Use for "audit CSRF", "check CSRF protection", "are forms safe", "review session
+  security".
 allowed-tools:
   - Bash
   - Read
@@ -71,8 +70,8 @@ Grep for `<Form ` across `src/`. For each occurrence:
 pracht inspect api --json
 ```
 
-If the pracht MCP server is registered (see `docs/MCP.md`), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 For each API route, read the exported `methods`. Mutation methods: `POST`,

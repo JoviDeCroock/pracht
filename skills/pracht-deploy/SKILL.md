@@ -1,14 +1,12 @@
 ---
 name: pracht-deploy
-version: 1.2.0
+version: 1.3.0
 description: |
-  Pracht deployment guide. Walks through adapter configuration, building, and
-  deploying to Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static
-  host. Handles platform config, Docker and production checklist.
-  Use when asked to "deploy", "set up deployment", "configure adapter",
-  "deploy to cloudflare", "deploy to netlify", "deploy to vercel", "static
-  export", or
-  "production build".
+  Configure a pracht adapter and deploy to Node, Cloudflare Workers, Netlify,
+  Vercel, or a pure static host: platform config, build, Docker, production
+  checklist.
+  Use for "deploy", "set up deployment", "configure adapter", "deploy to
+  cloudflare/netlify/vercel", "static export", "production build".
 allowed-tools:
   - Bash
   - Read
@@ -21,87 +19,64 @@ allowed-tools:
 
 # Pracht Deploy
 
-Guided adapter setup and deployment for pracht applications.
+Read `vite.config.ts` and `package.json` before giving any advice — never
+assume the current adapter — and ask the user for the target if their message
+does not name one. Then read only that adapter's section below. Install the
+adapter if it is missing (`pnpm add @pracht/adapter-*`), run `pracht build` to
+confirm the build succeeds, smoke-test the production runtime, and never push
+to production without explicit confirmation.
 
-## Step 1: Determine the target
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer
+`inspect_build`/`doctor`/`verify` over shelling out. `inspect_build` (like
+`pracht inspect build`) needs a prior `pracht build`; `pracht inspect` needs
+the pracht plugin in the vite config.
 
-Read `vite.config.ts` and `package.json` first — don't assume the current adapter.
-Ask the user where they want to deploy if not already clear from their message.
+| Target             | Adapter package              | Local smoke test                       |
+| ------------------ | ---------------------------- | -------------------------------------- |
+| Node.js            | `@pracht/adapter-node`       | `pracht preview`                       |
+| Cloudflare Workers | `@pracht/adapter-cloudflare` | `pracht preview` (delegates to `wrangler dev`) |
+| Netlify            | `@pracht/adapter-netlify`    | `pracht build && netlify dev`          |
+| Vercel             | `@pracht/adapter-vercel`     | `vercel build` / `vercel dev`          |
+| Static export      | `@pracht/adapter-static`     | `pracht preview`                       |
 
-If the pracht MCP server is registered (docs/MCP.md), prefer the `inspect_build`/`doctor`/`verify` MCP tools over shelling out. Note: `inspect_build` (like `pracht inspect build`) needs a prior `pracht build`, and `pracht inspect` requires the pracht plugin registered in the vite config.
-
-## Supported Adapters
-
-| Adapter            | Package                      | Status |
-| ------------------ | ---------------------------- | ------ |
-| Node.js            | `@pracht/adapter-node`       | Stable |
-| Cloudflare Workers | `@pracht/adapter-cloudflare` | Stable |
-| Netlify            | `@pracht/adapter-netlify`    | Stable |
-| Vercel             | `@pracht/adapter-vercel`     | Stable |
-| Static export      | `@pracht/adapter-static`     | Stable |
+Every adapter is wired the same way — `pracht({ adapter: <name>Adapter(…) })`
+in the `plugins` array of `vite.config.ts` — and every target builds with
+`pracht build`, which emits `dist/client/` (assets + prerendered HTML),
+`dist/server/` (server entry and build tooling),
+`dist/server/isg-manifest.json` when ISG routes exist, and
+`dist/client/.vite/manifest.json`.
 
 ---
 
-## Node.js Deployment
+## Node.js
 
-### Setup
-
-1. Ensure `@pracht/adapter-node` is installed.
-2. In `vite.config.ts`:
-   ```ts
-   import { pracht } from "@pracht/vite-plugin";
-   import { nodeAdapter } from "@pracht/adapter-node";
-   export default {
-     plugins: [
-       pracht({
-         adapter: nodeAdapter({ canonicalOrigin: "https://app.example.com" }),
-       }),
-     ],
-   };
-   ```
-
-Pin `canonicalOrigin` in production so `request.url` does not depend on the
-incoming `Host` header. `maxBodySize` is also available on `nodeAdapter()`.
-Only custom entries behind a trusted proxy that overwrites forwarded headers
-should use `createNodeRequestHandler({ trustProxy: true })`.
-If that proxy strips Vite's deploy base from the forwarded path, set
-`nodeAdapter({ basePathStripped: true })` (or the same option on a custom
-`createNodeRequestHandler`). Do not infer this from the first path segment: a
-route may legitimately begin with the same segment as the deploy base. The
-adapter restores the public base before `createContext()`, loaders, and API
-handlers receive the request.
-The proxy must also own the public bare-base redirect (`/app` to `/app/`) in
-this mode because the stripped origin cannot distinguish it from a legitimate
-base-free `/app` route.
-
-The Node adapter compresses responses by default (brotli/gzip negotiated via
-`Accept-Encoding`, streaming for dynamic bodies, an in-memory LRU for static
-assets). When the deployment sits behind a reverse proxy or CDN that already
-compresses responses, set `nodeAdapter({ compression: false })` so bodies are
-not compressed twice.
-
-### Build
-
-```bash
-pracht build
+```ts
+pracht({ adapter: nodeAdapter({ canonicalOrigin: "https://app.example.com" }) });
 ```
 
-Produces:
+Run with `node dist/server/server.js` (port 3000 by default). For production,
+put it behind a reverse proxy (nginx, Caddy) and a process manager (PM2,
+systemd) with `NODE_ENV=production`. `pracht preview` builds and runs it in one
+step (`--port <n>`, `--skip-build` to reuse a build).
 
-- `dist/client/` — static assets (JS, CSS, prerendered HTML)
-- `dist/server/server.js` — Node server entry
-- `dist/server/isg-manifest.json` — ISG revalidation config (if ISG routes exist)
-- `dist/client/.vite/manifest.json` — asset manifest for script/style injection
+- Pin `canonicalOrigin` in production so `request.url` does not depend on the
+  incoming `Host` header. `maxBodySize` is also available on `nodeAdapter()`.
+- `createNodeRequestHandler({ trustProxy: true })` is only for custom entries
+  behind a trusted proxy that overwrites forwarded headers.
+- If that proxy strips Vite's deploy base from the forwarded path, set
+  `nodeAdapter({ basePathStripped: true })` (same option on a custom
+  `createNodeRequestHandler`). Do not infer this from the first path segment —
+  a route may legitimately begin with the same segment as the deploy base. The
+  adapter restores the public base before `createContext()`, loaders, and API
+  handlers see the request, and the proxy must then own the public bare-base
+  redirect (`/app` → `/app/`), since the stripped origin cannot tell it from a
+  legitimate base-free `/app` route.
+- Responses are compressed by default (brotli/gzip negotiated via
+  `Accept-Encoding`, streaming for dynamic bodies, an in-memory LRU for static
+  assets). Behind a proxy or CDN that already compresses, set
+  `nodeAdapter({ compression: false })` to avoid doing it twice.
 
-### Run
-
-```bash
-node dist/server/server.js
-```
-
-Port 3000 by default. For a local production smoke test, `pracht preview` builds and runs the server in one step (`--port <n>`, `--skip-build` to reuse an existing build). For production: reverse proxy (nginx, Caddy), process manager (PM2, systemd), `NODE_ENV=production`.
-
-### Docker
+Docker:
 
 ```dockerfile
 FROM node:22-alpine
@@ -114,52 +89,18 @@ CMD ["node", "dist/server/server.js"]
 
 ---
 
-## Cloudflare Workers Deployment
+## Cloudflare Workers
 
-### Setup
-
-1. Ensure `@pracht/adapter-cloudflare` is installed.
-2. In `vite.config.ts`:
-   ```ts
-   import { pracht } from "@pracht/vite-plugin";
-   import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
-   export default { plugins: [pracht({ adapter: cloudflareAdapter() })] };
-   ```
-
-### Build & Deploy
-
-```bash
-pracht build
-npx wrangler deploy
+```ts
+pracht({ adapter: cloudflareAdapter() });
 ```
 
-To smoke-test the built worker locally first, run `pracht preview` — it builds and then delegates to `wrangler dev`, which serves the wrangler config's `main` entry, `dist/server/worker.js`. Keep `no_bundle: true` and the JavaScript `ESModule` rule: Pracht's Vite output is already bundled and can contain lazy server chunks that Wrangler must upload separately.
-
-Wrangler owns the Worker's binding environment. Put local-only secrets such as
-`PRACHT_CONFIRMATION_SECRET` and `PRACHT_REVALIDATE_TOKEN` in a gitignored
-`.dev.vars`; prefixing the host command with those variables does not
-automatically expose them inside the Worker. Keep production values in
-`wrangler secret`.
-
-If the config contains a custom-domain route, preview can listen on localhost
-while `request.url` inside the Worker uses the custom domain. Sign that
-effective `@authority` for Web Bot Auth or temporarily disable the route. To use
-a separate local config, build first, then run:
-
 ```bash
-pracht build
-npx wrangler dev --config wrangler.local.jsonc --port 3000
+pracht build && npx wrangler deploy
 ```
-
-The local config must keep `main: "dist/server/worker.js"`, keep
-`no_bundle: true`, include the JavaScript `ESModule` rule, and omit the
-production route. `pracht preview` does not forward Wrangler's `--config`
-flag.
-
-### Wrangler Configuration
 
 ```jsonc
-// wrangler.jsonc
+// wrangler.jsonc — canonical version at examples/cloudflare/wrangler.jsonc
 {
   "name": "my-pracht-app",
   "main": "dist/server/worker.js",
@@ -174,36 +115,37 @@ flag.
 }
 ```
 
-`"no_bundle": true`, the JavaScript `ESModule` rule, `"binding": "ASSETS"`, and `"run_worker_first": true` are required. Without the first two settings, Wrangler either re-bundles Pracht's Vite output and folds lazy server chunks into the entry or omits those chunks from the upload. Without the binding, the worker's `env.ASSETS` resolves to nothing and the runtime silently falls back to `null` — headers and ISG manifests load empty, so SSG serving, ISG revalidation, and per-route headers all silently no-op. The canonical config lives at `examples/cloudflare/wrangler.jsonc`. If you rename the binding with `assetsBinding` (below), the wrangler `binding` value must match.
+`no_bundle: true`, the `ESModule` rule, `"binding": "ASSETS"`, and
+`"run_worker_first": true` are all required. Without the first two, Wrangler
+re-bundles Pracht's already-bundled Vite output — folding lazy server chunks
+into the entry or dropping them from the upload. Without the binding,
+`env.ASSETS` silently resolves to `null`: headers and ISG manifests load empty,
+so SSG serving, ISG revalidation, and per-route headers all no-op. If you
+rename the binding via `cloudflareAdapter({ assetsBinding: "STATIC" })`, the
+wrangler `binding` value must match.
 
-### Bindings (KV, D1, R2)
+**Local preview.** `pracht preview` builds, then delegates to `wrangler dev`
+against the config's `main`. Wrangler owns the binding environment: put
+local-only secrets like `PRACHT_CONFIRMATION_SECRET` and
+`PRACHT_REVALIDATE_TOKEN` in a gitignored `.dev.vars` (prefixing the host
+command with them does not expose them inside the Worker) and keep production
+values in `wrangler secret`. With a custom-domain route in the config, preview
+listens on localhost while `request.url` inside the Worker uses the custom
+domain — sign that effective `@authority` for Web Bot Auth, or temporarily
+remove the route. `pracht preview` does not forward Wrangler's `--config`, so a
+separate local config means `pracht build && npx wrangler dev --config
+wrangler.local.jsonc --port 3000`, and that config must keep
+`main: "dist/server/worker.js"`, `no_bundle: true`, and the `ESModule` rule
+while omitting the production route.
 
-```ts
-export async function loader({ context }: LoaderArgs) {
-  const value = await context.env.MY_KV.get("key");
-  return { value };
-}
-```
-
-Keep Cloudflare binding reads inside the loader, API handler, capability
-`run()`, or another request-time function. Although Workers permits top-level
-`env.MY_KV`, Pracht graph inspection intentionally fails such module-initializer
-reads because it cannot supply an authoritative binding without risking false
-graph metadata.
-
-### Custom Assets Binding
-
-```ts
-pracht({ adapter: cloudflareAdapter({ assetsBinding: "STATIC" }) });
-```
-
-### Named bindings and default-export handlers
-
-Durable Object and Workflow classes are named Worker exports. Re-export them
-from the module configured with `workerExportsFrom`. Queue consumers, Cron
-Triggers, and Email Routing are instead methods on the default export; expose
-named `queue`, `scheduled`, or `email` functions from the module configured
-with `workerHandlersFrom`:
+**Bindings.** Read them inside a loader, API handler, capability `run()`, or
+another request-time function — `context.env.MY_KV.get("key")`. Workers permits
+top-level `env` reads, but graph inspection deliberately fails them rather than
+report binding metadata it cannot authoritatively resolve. Durable Object and
+Workflow classes are named Worker exports: re-export them from
+`workerExportsFrom`. Queue consumers, Cron Triggers, and Email Routing are
+methods on the default export: expose named `queue`, `scheduled`, or `email`
+functions from `workerHandlersFrom`.
 
 ```ts
 cloudflareAdapter({
@@ -212,220 +154,187 @@ cloudflareAdapter({
 });
 ```
 
-### ISG via Workers Caching
+**ISG.** Works with no cache option: the worker-managed path serves the
+build-time snapshot, detects staleness, regenerates in the background per colo
+via the Workers Cache API, and `POST /__pracht/revalidate` forces regeneration.
+`cloudflareAdapter({ cache: true })` plus `{ "cache": { "enabled": true } }` in
+wrangler.jsonc moves that to edge-tier Workers Caching: time-revalidated pages
+then render on demand, are cached for their `revalidate` window (stale served
+instantly while the Worker re-renders), and can be purged early with
+`purgeCache()` from `@pracht/adapter-cloudflare/cache`. Webhook-only ISG routes
+keep their build-time snapshots and the worker-managed path either way.
 
-ISG works out of the box: without any cache option, the default worker-managed path serves the build-time snapshot, detects staleness, and regenerates pages in the background via the Workers Cache API — per colo — and `POST /__pracht/revalidate` triggers on-demand regeneration. Enabling `cache: true` moves ISG from that per-colo worker-managed path to edge-tier Workers Caching, on both sides:
-
-```ts
-pracht({ adapter: cloudflareAdapter({ cache: true }) });
-```
-
-```jsonc
-// wrangler.jsonc
-{ "cache": { "enabled": true } }
-```
-
-Before enabling it, audit ISG URLs for unbounded query strings. Workers Caching
+Audit ISG URLs for unbounded query strings before enabling it — Workers Caching
 keys the exact path and query string, including parameter order and trailing
-slashes; use a bounded query allowlist/canonical redirect or an uncached gateway
-with a pathname-only `cf.cacheKey`, and normalize `Accept` there for routes that
-export markdown or declare `markdown: true` for middleware-owned negotiation.
-See `docs/ADAPTERS.md#cache-key-cardinality`.
-
-Time-revalidated ISG pages then render on demand, are cached at the edge for
-their `revalidate` window (stale pages served instantly while the Worker
-re-renders in the background), and can be purged early with `purgeCache()` from
-`@pracht/adapter-cloudflare/cache`. Webhook-only ISG routes keep their
-build-time snapshots and the worker-managed path either way.
+slashes. Use a bounded query allowlist or canonical redirect, or an uncached
+gateway with a pathname-only `cf.cacheKey`, and normalize `Accept` there for
+routes that export markdown or declare `markdown: true`. See
+`docs/ADAPTERS.md#cache-key-cardinality`.
 
 ---
 
-## Netlify Deployment
+## Netlify
 
-### Setup
+```ts
+pracht({ adapter: netlifyAdapter() });
+```
 
-1. Ensure `@pracht/adapter-netlify` and `netlify-cli` are installed.
-2. In `vite.config.ts`:
-   ```ts
-   import { pracht } from "@pracht/vite-plugin";
-   import { netlifyAdapter } from "@pracht/adapter-netlify";
-   export default { plugins: [pracht({ adapter: netlifyAdapter() })] };
-   ```
-3. Add `netlify.toml`:
-   ```toml
-   [build]
-     command = "pnpm build"
-     publish = "dist/client"
+```toml
+# netlify.toml
+[build]
+  command = "pnpm build"
+  publish = "dist/client"
 
-   [functions]
-     directory = "netlify/functions"
-   ```
-
-### Build, Preview, and Deploy
+[functions]
+  directory = "netlify/functions"
+```
 
 ```bash
 npx pracht build && npx netlify dev
 npx netlify deploy --build --prod
 ```
 
-The build emits `netlify/functions/pracht.mjs`. Page requests go through that
-function so Markdown negotiation and route-state requests remain correct;
-hashed assets bypass it and stay outside the function bundle at the origin
-root. With a Vite deploy base, the function instead bundles and serves the
-base-free asset and `/_pracht` trees so `/app/...` requests remain inside the
-mount. Custom `excludedPath` entries still bypass their literal origin-root
-URLs, but matching files remain bundled for base-prefixed requests. The
-generated config enumerates only client files the function can serve and roots
-applicable exclusions at the function file so Netlify's tracer cannot re-add
-bypassed trees. Netlify durable caching
-implements time-based ISG and per-path cache tags implement authenticated
-webhook revalidation. A trailing-slash ISG document request permanently
-redirects to the canonical slashless URL before rendering, and webhook
-revalidation normalizes either spelling before purging the cache tag.
-Only `Cache-Control`, `CDN-Cache-Control`, and `Netlify-CDN-Cache-Control`
-override the adapter's cache defaults; provider-specific headers for another
-CDN do not. Set a cache window to `0` to disable stale serving or freshness.
-`Netlify-Vary` owns route-state variants, while the standard `Vary: Accept`
-header owns Markdown negotiation. Cacheable negotiated SSG representations use
-the same `Netlify-Vary` instructions as their prerendered HTML. Shared ISG
-renders strip visitor-specific request data and Netlify context metadata before
-loaders or context factories run.
+`pracht preview` exits with guidance here — it cannot emulate Netlify's
+Functions and CDN. Build the generated function first, then use `netlify dev`.
+Set `PRACHT_REVALIDATE_TOKEN` in Netlify when webhook revalidation is enabled.
 
-`pracht preview` exits with guidance because it cannot emulate Netlify's
-Functions and CDN behavior. Build the generated function before using
-`netlify dev` for the platform-shaped local runtime. Configure
-`PRACHT_REVALIDATE_TOKEN` in Netlify when webhook revalidation is enabled.
+The build emits `netlify/functions/pracht.mjs`. Page requests go through it so
+Markdown negotiation and route-state requests stay correct; hashed assets
+bypass it and stay outside the function bundle at the origin root. With a Vite
+deploy base, the function instead bundles and serves the base-free asset and
+`/_pracht` trees so `/app/...` requests stay inside the mount; custom
+`excludedPath` entries still bypass their literal origin-root URLs, but their
+files remain bundled for base-prefixed requests. The generated config
+enumerates only client files the function can serve and roots exclusions at the
+function file, so Netlify's tracer cannot re-add bypassed trees.
+
+Caching: Netlify durable caching implements time-based ISG and per-path cache
+tags implement authenticated webhook revalidation. A trailing-slash ISG
+document request permanently redirects to the canonical slashless URL before
+rendering, and webhook revalidation normalizes either spelling before purging
+the tag. Only `Cache-Control`, `CDN-Cache-Control`, and
+`Netlify-CDN-Cache-Control` override the adapter's cache defaults —
+provider-specific headers for another CDN do not; a window of `0` disables
+stale serving or freshness. `Netlify-Vary` owns route-state variants while
+standard `Vary: Accept` owns Markdown negotiation, and cacheable negotiated SSG
+representations reuse their prerendered HTML's `Netlify-Vary` instructions.
+Shared ISG renders strip visitor-specific request data and Netlify context
+metadata before loaders or context factories run.
 
 ---
 
-## Vercel Deployment
+## Vercel
 
-### Setup
-
-1. Ensure `@pracht/adapter-vercel` is installed.
-2. In `vite.config.ts`:
-   ```ts
-   import { pracht } from "@pracht/vite-plugin";
-   import { vercelAdapter } from "@pracht/adapter-vercel";
-   export default { plugins: [pracht({ adapter: vercelAdapter() })] };
-   ```
-
-### Build & Deploy
-
-```bash
-pracht build
-npx vercel deploy --prebuilt
+```ts
+pracht({ adapter: vercelAdapter() });
 ```
 
-Produces: `.vercel/output/config.json`, `.vercel/output/static/`, `.vercel/output/functions/render.func/server.js`
+```bash
+pracht build && npx vercel deploy --prebuilt
+```
 
-There is no faithful local Vercel production runtime, so `pracht preview`
-exits with guidance. Use `vercel build` or `vercel dev`. Set
+Emits `.vercel/output/config.json`, `.vercel/output/static/`, and
+`.vercel/output/functions/render.func/server.js`.
+
+There is no faithful local Vercel production runtime, so `pracht preview` exits
+with guidance — use `vercel build` or `vercel dev`. Set
 `PRACHT_REVALIDATE_TOKEN` at build time when using webhook revalidation; its
 Vercel bypass token is embedded in `.prerender-config.json`. Rename the main
-Edge Function with `vercelAdapter({ functionName })` if its default `render`
-name would collide with an ISG route. Custom entries must export the
-`nodeListener` created by `createVercelNodeListener(handle)` for Node ISR
-functions.
+Edge Function with `vercelAdapter({ functionName })` if the default `render`
+would collide with an ISG route. Custom entries must export the `nodeListener`
+created by `createVercelNodeListener(handle)` for Node ISR functions.
 
 ---
 
-## Static Export Deployment
+## Static export
 
-For apps where every route is `render: "ssg"` (or loaderless, full-hydration
-`"spa"`), with no
-request middleware, API routes, or HTTP/MCP/WebMCP-exposed capabilities. SSG
-loaders run only at build time and must produce HTML plus valid JSON route
-state; dynamic SSG routes must export `getStaticPaths()`. Anything else fails the build with an error naming the
-offenders — that is the signal to pick a serverful adapter instead. Only
-manifest-registered capabilities participate; every registered capability
-module must load successfully so exposure validation can fail closed. The
-`notFound` page must use full hydration (the default), because the shared
-`404.html` needs the client router to adopt the visitor's actual URL. Sub-path
-deploys (GitHub Pages *project* sites, S3 key prefixes) set Vite `base` to that
-path; CDN and document-relative bases (`""` / `"./"`) are build errors,
-because they split assets from the deploy root or resolve them beneath nested
-page directories. Under a base,
-internal navigation must go through `<Link route>` / `href()` — a hand-written
-`<a href="/about">` still means the origin root.
-Pracht's preview and first-party serverful adapters redirect the bare base
-(`/app`) to its trailing-slash form (`/app/`) before serving the root document;
-custom adapters receive the same behavior through `handlePrachtRequest()`.
-Framework-owned browser URLs from the default image loader and OpenAPI
-companion artifacts pick up the same base automatically.
-
-### Setup
-
-1. Ensure `@pracht/adapter-static` is installed.
-2. In `vite.config.ts`:
-   ```ts
-   import { pracht } from "@pracht/vite-plugin";
-   import { staticAdapter } from "@pracht/adapter-static";
-   export default { plugins: [pracht({ adapter: staticAdapter() })] };
-   // With dynamic SPA routes, add { fallback: "200.html" } and configure the
-   // host to rewrite unmatched URLs to it. If the route or shell exports
-   // head(), also set generic fallbackHead metadata shared by every rewrite.
-   ```
-
-### Build & Deploy
+```ts
+pracht({ adapter: staticAdapter() });
+// Dynamic SPA routes: staticAdapter({ fallback: "200.html" }) plus a host
+// rewrite for unmatched URLs. If the route or shell exports head(), also set
+// generic fallbackHead metadata shared by every rewrite.
+```
 
 ```bash
 pracht build      # dist/client/ is the whole deployment
 pracht preview    # local static file server over dist/client/
 ```
 
-Upload `dist/client/` to any static host (GitHub Pages, S3, nginx, Netlify).
-`dist/server/` is build tooling only — never deploy it. The host must serve
-`<dir>/index.html` for clean URLs and should use `404.html` as its error
-document. A static `notFound` page must use full hydration so that shared
-document can adopt the visitor's real URL. Client navigation fetches collision-safe
-bounded opaque `.json` files under `_pracht/state/` for full-hydration SSG
-routes whose loader or route/shell `head()` metadata participates in navigation;
-equivalent raw-Unicode and percent-encoded URL segment spellings resolve to the
-same state file. Explicitly loaderless and headless routes fetch no Pracht
-state; loaderless routes with head metadata fetch static state for font-head
-fragments but still use browser-side requests to an external API for live
-data. Files under `public/_pracht/state/` may not occupy a generated
-route-state path; the build rejects the collision instead of overwriting the
-public file. Files copied from `public/` or emitted by Vite also may not occupy
-the generated `404.html` or configured fallback path, including a case- or
-Unicode-normalization-equivalent spelling; the build rejects the portable
-collision instead of overwriting existing output. Generic `fallbackHead` fonts
-remain registered while the fallback commits a loaderless dynamic SPA route.
-See docs/ADAPTERS.md § Static Adapter for host header
-configuration and limitations (markdown negotiation, base paths). Pages are
-written to the percent-decoded output path, matching how static hosts resolve
-requests; `pracht preview` decodes request segments the same way. The SPA fallback only client-renders matched SPA routes; dynamic
-SSG paths omitted by `getStaticPaths()` render the app's not-found page with
-the build-time loader data or handled error state carried over from `404.html`.
-The host rewrite that serves the fallback answers unknown URLs with status 200 (soft 404), and an app
-with no `notFound` page and no unshadowed client-routable SPA catch-all renders them blank — the build
-warns about that shape. A dynamic SPA route, its shell, or the not-found page
-with `head()` requires an explicit `fallbackHead`, because the shared static
-document cannot evaluate URL-specific server metadata. Prerendered pages must
-map to distinct portable filesystem paths; duplicate/case-folded or
-Unicode-normalization-equivalent outputs, Windows-invalid or overlong filename
-components, and file/directory conflicts such as `/` with `/index.html` fail
-before any page is written. Fallback names likewise reject Windows reserved
-device names and the portable 255-byte/code-unit component limit.
+Upload `dist/client/` to any static host. `dist/server/` is build tooling —
+never deploy it. The host must serve `<dir>/index.html` for clean URLs and
+should use `404.html` as its error document. See `docs/ADAPTERS.md` § Static
+Adapter for host header configuration and the markdown-negotiation and
+base-path limitations.
+
+**Eligibility.** Every route must be `render: "ssg"` (or a loaderless,
+full-hydration `"spa"`), with no request middleware, API routes, or
+HTTP/MCP/WebMCP-exposed capabilities. Anything else fails the build with an
+error naming the offenders — that is the signal to pick a serverful adapter.
+SSG loaders run only at build time and must produce HTML plus valid JSON route
+state; dynamic SSG routes must export `getStaticPaths()`. Only
+manifest-registered capabilities participate, and every registered capability
+module must load successfully so exposure validation fails closed. The
+`notFound` page must use full hydration (the default) because the shared
+`404.html` needs the client router to adopt the visitor's actual URL.
+
+**Deploy base.** Sub-path deploys (GitHub Pages *project* sites, S3 key
+prefixes) set Vite `base` to that path. CDN and document-relative bases (`""`,
+`"./"`) are build errors — they split assets from the deploy root or resolve
+them beneath nested page directories. Under a base, internal navigation must go
+through `<Link route>` / `href()`; a hand-written `<a href="/about">` still
+means the origin root. Preview and the first-party serverful adapters redirect
+the bare base (`/app` → `/app/`) before serving the root document, and custom
+adapters get the same behavior via `handlePrachtRequest()`. Framework-owned
+browser URLs from the default image loader and the OpenAPI companion artifacts
+pick up the base automatically.
+
+**Route state.** Client navigation fetches collision-safe bounded opaque
+`.json` files under `_pracht/state/`, for full-hydration SSG routes whose
+loader or route/shell `head()` metadata participates in navigation. Equivalent
+raw-Unicode and percent-encoded URL segment spellings resolve to the same state
+file. Explicitly loaderless and headless routes fetch no state; loaderless
+routes with head metadata fetch static state for font-head fragments but still
+hit an external API from the browser for live data.
+
+**Build-time collision guards** (all fail the build rather than overwrite):
+
+- A file under `public/_pracht/state/` occupying a generated route-state path.
+- A `public/` or Vite-emitted file occupying the generated `404.html` or the
+  configured fallback path, including case- or Unicode-normalization-equivalent
+  spellings.
+- Prerendered pages that do not map to distinct portable filesystem paths:
+  duplicate, case-folded, or Unicode-normalization-equivalent outputs;
+  Windows-invalid or overlong filename components; file/directory conflicts
+  such as `/` against `/index.html`. Fallback names additionally reject Windows
+  reserved device names and the portable 255-byte/code-unit component limit.
+
+Pages are written to the percent-decoded output path, matching how static hosts
+resolve requests; `pracht preview` decodes request segments the same way.
+
+**SPA fallback.** It only client-renders matched SPA routes. Dynamic SSG paths
+omitted by `getStaticPaths()` render the app's not-found page with the
+build-time loader data or handled error state carried over from `404.html`. The
+host rewrite answers unknown URLs with status 200 (a soft 404), and an app with
+no `notFound` page and no unshadowed client-routable SPA catch-all renders them
+blank — the build warns about that shape. A dynamic SPA route, its shell, or
+the not-found page exporting `head()` requires an explicit `fallbackHead`,
+because the shared static document cannot evaluate URL-specific server
+metadata; generic `fallbackHead` fonts stay registered while the fallback
+commits a loaderless dynamic SPA route.
 
 ---
 
-## Deployment Checklist
+## Pre-flight checklist
 
-1. **Build**: Run `pracht build` and verify `dist/` output.
-2. **Environment variables**: Ensure secrets/config needed by loaders are available at runtime.
-3. **Static assets**: Verify `dist/client/` contains prerendered HTML for SSG routes (and ISG routes — except time-revalidated ISG routes on Cloudflare with Workers Caching enabled, which render on demand; webhook-only ISG routes keep their build-time snapshots).
-4. **ISG routes**: Confirm the ISG manifest (`dist/server/isg-manifest.json`; on Cloudflare also `dist/client/_pracht/isg.json`) exists if using incremental static generation.
-5. **API routes**: Test API endpoints work in the production runtime. For Node.js, run `pracht preview` (or `node dist/server/server.js`).
-6. **Middleware**: Verify auth/redirect middleware behaves correctly in production.
-
-## Rules
-
-1. Read `vite.config.ts` and `package.json` before giving advice.
-2. Run `pracht build` to verify the build succeeds before deploying.
-3. Smoke-test the production runtime before pushing to production. For Node.js and Cloudflare, run `pracht preview`; for Netlify, run `pracht build && netlify dev`.
-4. If the user needs an adapter that isn't installed, help them add it (`pnpm add @pracht/adapter-*`).
-5. Don't push to production without the user's explicit confirmation.
+1. `pracht build` succeeds and `dist/` looks right.
+2. Every secret and config value the loaders need is present in the target
+   runtime.
+3. `dist/client/` holds prerendered HTML for SSG routes — and for ISG routes,
+   except time-revalidated ones on Cloudflare with Workers Caching enabled,
+   which render on demand. Webhook-only ISG routes keep build-time snapshots.
+4. The ISG manifest exists if ISG is in use: `dist/server/isg-manifest.json`,
+   plus `dist/client/_pracht/isg.json` on Cloudflare.
+5. API endpoints answer correctly in the production runtime.
+6. Auth and redirect middleware behave correctly in production.
 
 $ARGUMENTS

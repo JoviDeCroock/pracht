@@ -449,3 +449,42 @@ describe("audit-* tool policy", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Context budgets
+// ---------------------------------------------------------------------------
+
+// Every skill's `description` sits in the agent's system prompt for the whole
+// session, invoked or not, so the catalog total is a per-session tax on every
+// user who installs the pack. The body is paid once per invocation. Both are
+// ratchets set just above the current worst case: they exist to make a
+// regression an explicit decision (raise the number in the same commit) rather
+// than a silent drift back toward prose.
+const MAX_DESCRIPTION_CHARS = 500;
+const MAX_DESCRIPTION_TOTAL_CHARS = 12_000;
+const MAX_SKILL_BYTES = 20_000;
+
+describe("context budgets", () => {
+  it.each(skills)("$name keeps its description under the always-on budget", (skill) => {
+    const { description } = parsed(skill);
+    expect(
+      description.length,
+      `skills/${skill.name}/SKILL.md description is ${description.length} chars; the budget is ${MAX_DESCRIPTION_CHARS}. Descriptions are always in context — keep one sentence of what it does plus the trigger phrases, and move the detail into the body.`,
+    ).toBeLessThanOrEqual(MAX_DESCRIPTION_CHARS);
+  });
+
+  it("keeps the whole catalog's descriptions under the always-on budget", () => {
+    const total = skills.reduce((sum, skill) => sum + parsed(skill).description.length, 0);
+    expect(
+      total,
+      `the ${skills.length} skill descriptions total ${total} chars; the budget is ${MAX_DESCRIPTION_TOTAL_CHARS}. Every one of them is in context for every session.`,
+    ).toBeLessThanOrEqual(MAX_DESCRIPTION_TOTAL_CHARS);
+  });
+
+  it.each(skills)("$name keeps its body under the per-invocation budget", (skill) => {
+    expect(
+      skill.raw.length,
+      `skills/${skill.name}/SKILL.md is ${skill.raw.length} bytes; the budget is ${MAX_SKILL_BYTES}. A skill is loaded whole on invocation — prefer tables over prose, drop rationale that does not change what the agent does, and keep a trailing "Rules" section only for constraints the steps do not already state.`,
+    ).toBeLessThanOrEqual(MAX_SKILL_BYTES);
+  });
+});

@@ -1,12 +1,12 @@
 ---
 name: audit-secrets
-version: 1.1.0
+version: 1.1.1
 description: |
-  Detect environment variables and secrets that leak from the server into
-  the client bundle via loader return values, hydration state, or accidental
-  imports of server-only modules from client code paths.
-  Use when asked to "audit secrets", "find leaked env vars", "is my API key
-  exposed", "check client bundle for secrets", or "scan for credential leaks".
+  Detect environment variables and secrets reaching the client bundle via loader
+  return values, hydration state, or server-only modules imported from client code
+  paths.
+  Use for "audit secrets", "find leaked env vars", "is my API key exposed", "scan
+  for credential leaks".
 allowed-tools:
   - Bash
   - Read

@@ -1,13 +1,12 @@
 ---
 name: audit-shells
-version: 1.1.0
+version: 1.1.1
 description: |
-  Audit pracht shells for composition bugs: missing `Loading()` on SPA-using
-  shells, accidental `<html>`/`<head>`/`<body>` rendering, shells that swallow
-  children, unused shells, and redundant `ErrorBoundary` exports (shell-level
-  boundaries are valid fallbacks; routes win when both declare one).
-  Use when asked to "audit shells", "check shell composition", "find unused
-  shells", or "is my layout structured correctly".
+  Audit pracht shells: missing `Loading()` on SPA routes, `<html>`/`<head>`/
+  `<body>` rendered inside a shell, shells that never render `children`, unused
+  shells, and `ErrorBoundary` exports shadowed by every route under them.
+  Use for "audit shells", "check shell composition", "find unused shells", "is my
+  layout structured correctly".
 allowed-tools:
   - Bash
   - Read
@@ -24,8 +23,8 @@ component.
 
 ## Step 1: Enumerate
 
-If the pracht MCP server is registered (see docs/MCP.md), prefer its tools
-(`inspect_routes`, `inspect_api`, `inspect_build`, `doctor`, `verify`) over
+MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
 ```bash

@@ -1,16 +1,13 @@
 ---
 name: add-capabilities
-version: 1.0.0
+version: 1.0.1
 description: |
-  Expose an app operation as a typed pracht capability: one contract (JSON
-  Schema input/output, effect class, named middleware, server-only `run()`)
-  projected into direct server invocation, an HTTP endpoint, a WebMCP page
-  tool, and a remote MCP tool. Wires `@pracht/capabilities`, the manifest
-  registration, `defineApp({ agents })` (Web Bot Auth, confirmation,
-  remote MCP), typed clients, `<Form capability>`, and `pracht eval` scenarios.
-  Use when asked to "add a capability", "expose this to agents", "add an MCP
-  tool", "make my app agent-callable", "add WebMCP", "serve remote MCP", or
-  "let an agent create a note".
+  Expose an app operation as a typed pracht capability — one contract projected
+  into direct server calls, an HTTP endpoint, a WebMCP page tool, and a remote MCP
+  tool — plus `defineApp({ agents })` trust config, typed clients,
+  `<Form capability>`, and `pracht eval` scenarios.
+  Use for "add a capability", "expose this to agents", "add an MCP tool", "add
+  WebMCP", "serve remote MCP", "make my app agent-callable".
 allowed-tools:
   - Bash
   - Read
