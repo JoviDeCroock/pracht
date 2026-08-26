@@ -239,19 +239,23 @@ A capability that calls `invokeCapability()` produces a second event with `trans
 
 ### Registering More Than One Sink
 
-`setCapabilityAuditHook()` is a single slot — calling it twice replaces the hook. An app that wants both structured logs and metrics uses `addCapabilityAuditListener()`, which composes and returns an unsubscribe handle:
+`setCapabilityAuditHook()` is a single slot — calling it twice replaces the hook. An app that wants both structured logs and metrics uses `addCapabilityAuditListener(name, hook)`, which composes with the single slot and with every differently-named sink, and returns an unsubscribe handle:
 
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-const stop = addCapabilityAuditListener((event) => metrics.record(event));
+const stop = addCapabilityAuditListener("metrics", (event) => metrics.record(event));
 ```
+
+The name is required, and registering the same name again **replaces** that sink. That is what makes the call safe at a module's top level, which is where it belongs. In dev, `@pracht/core` is inlined into Vite's SSR graph and Vite re-executes importers on every save, so a module-scope registration runs again with a fresh closure each time you edit the file. Keyed by name the reload replaces; keyed by function identity it would accumulate one live sink per keystroke, each delivering the same event again and inflating every counter. Pick a stable name per sink (`"otel"`, `"audit-log"`), not a computed one.
+
+The returned unsubscribe removes only its own registration, so a reloaded module's cleanup running after the new registration cannot delete the live sink.
 
 Every registered sink receives the same frozen snapshot for every dispatch, on every transport. The contract for all of them:
 
 | Guarantee | What it means for your sink |
 | --- | --- |
-| Never throws into dispatch | A throwing sink is swallowed. The first failure is reported once via `console.warn` so it is not silent; later failures stay quiet rather than logging one line per capability call. |
+| Never throws into dispatch | A throwing sink is swallowed. Its first failure is reported via `console.warn`, naming the sink; later failures from that sink stay quiet rather than logging one line per capability call. Warn-once is per sink, so a broken log sink cannot silence a broken metrics sink. |
 | Never awaited | The hook returns `void`. Returning a promise is fine and the runtime does not wait for it, so an async exporter adds no latency — but an unhandled rejection is yours to catch. |
 | Runs everywhere | No Node-only APIs, so the same sink works on Node, Workers, Vercel, and Netlify. |
 
@@ -264,7 +268,7 @@ A plain structured log is the whole loop for most apps — one line per dispatch
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener((event) => {
+addCapabilityAuditListener("audit-log", (event) => {
   // Synchronous and allocation-light: safe on every runtime.
   console.log(
     JSON.stringify({
@@ -294,7 +298,7 @@ const dispatches = meter.createCounter("pracht.capability.dispatches");
 const duration = meter.createHistogram("pracht.capability.duration", { unit: "ms" });
 const tracer = trace.getTracer("pracht.capabilities");
 
-addCapabilityAuditListener((event) => {
+addCapabilityAuditListener("otel", (event) => {
   const attributes = {
     "pracht.capability": event.capability,
     "pracht.effect": event.effect,
@@ -351,7 +355,19 @@ The same data is available as machine-readable JSON at `/_pracht.json`:
 }
 ```
 
-`recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. It is also empty under adapter-owned dev servers such as Cloudflare `workerd`, which do not route through the dev SSR middleware.
+`recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. Under adapter-owned dev servers (Cloudflare `workerd`) that middleware is never registered, so `/_pracht` and `/_pracht.json` do not exist there at all — they 404 rather than answering with an empty log.
+
+The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page does not. `transport: "server"` is `invokeCapability()`, which any loader or API route can call, and on an app whose loaders compose capabilities it is the large majority of rows. The panel therefore defaults to dispatches that came from *outside* the app — every non-`server` transport, plus `server` dispatches whose `via` is `"mcp"` (trusted dispatch state, so the effect really was agent-caused) — and puts the rest behind a "show first-party" toggle with a count. `via: "http"` does not qualify: a capability host is installed for every served request, so an ordinary page loader's composition carries it too and cannot be told apart from an agent's. The agent's own HTTP dispatch still gets its own row, so no agent activity is hidden — only its internal composition is collapsed.
+
+### What Is Not Audited
+
+The audit trail covers *dispatch*. Several rejections happen before a capability is dispatched and emit no event at all:
+
+- **Cross-origin mutation requests** are refused with a `cross_origin_blocked` 403 before the capability pipeline is entered.
+- **Unknown capability paths** never match a capability route, so they fall through to ordinary route matching and answer 404.
+- **Unknown or unexposed MCP tool names** are answered as a JSON-RPC `invalid_params` protocol error before dispatch.
+
+An agent — or a scanner — enumerating tool names or probing capability URLs therefore leaves no trace in the audit trail. Absence of events is not evidence that nothing tried. Use the deployment's HTTP access log for reconnaissance detection, and treat the audit trail as the record of what actually ran.
 
 To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect).
 

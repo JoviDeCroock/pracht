@@ -256,6 +256,120 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).toContain("No capability dispatches recorded yet.");
   });
 
+  it("hides first-party invokeCapability() composition behind a toggle", () => {
+    // A composing app's loaders produce far more `server` dispatches than
+    // agents produce real ones; leaving them in the default view buries the
+    // rows that answer "is anything external calling this?".
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 3,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 14, 0),
+            capability: "notes.stats",
+            effect: "read",
+            transport: "server",
+            via: "http",
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: null,
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 13, 0),
+            capability: "notes.archive",
+            effect: "write",
+            transport: "server",
+            // Composed under a remote MCP request: trusted dispatch state, so
+            // this effect really was agent-caused and stays in the default view.
+            via: "mcp",
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(
+      "<h2>Agents — 2 agent dispatches (http 1 · server 1) · 1 first-party</h2>",
+    );
+    expect(html).toContain("Show 1 first-party");
+    // Only the ambiguous `via: "http"` composition is collapsed.
+    expect(html).toContain(`<tr class="composed">\n        <td class="file">09:30:14.000</td>`);
+    expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:13.000</td>`);
+    expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:15.000</td>`);
+    // The toggle is CSS-only — the page still ships no JavaScript of its own.
+    expect(html).toContain(`<input type="checkbox" id="pracht-show-composed"`);
+    expect(html).not.toContain("<script");
+  });
+
+  it("omits the toggle when nothing is first-party", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.search",
+            effect: "read",
+            transport: "mcp",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 1 agent dispatch (mcp 1)</h2>");
+    expect(html).not.toContain("first-party");
+    expect(html).not.toContain("<input");
+  });
+
+  it("says so when every recorded dispatch is the app calling itself", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.stats",
+            effect: "read",
+            transport: "server",
+            via: "http",
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 0 agent dispatches · 1 first-party</h2>");
+    expect(html).toContain("No external agent traffic yet");
+    // The rows are still reachable through the toggle.
+    expect(html).toContain("Show 1 first-party");
+  });
+
   it("renders one row per dispatch with transport, agent, outcome and duration", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: {
@@ -278,7 +392,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
             capability: "notes.purge",
             effect: "destructive",
             transport: "server",
-            via: "http",
+            via: "mcp",
             outcome: "confirmation_required",
             status: 409,
             durationMs: 11,
@@ -288,14 +402,14 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 2 dispatches</h2>");
+    expect(html).toContain("<h2>Agents — 2 agent dispatches (mcp 1 · server 1)</h2>");
     expect(html).toContain("09:30:15.250");
     expect(html).toContain("agent.example");
     expect(html).toContain(`<td class="ok">ok (200)</td>`);
     expect(html).toContain("4ms");
     expect(html).toContain("11ms");
     // Nested composition names the transport it was composed under.
-    expect(html).toContain("http → server");
+    expect(html).toContain("mcp → server");
     expect(html).toContain(`<td class="err">confirmation_required (409)</td>`);
     // No verified identity renders as the em dash the other tables use.
     expect(html).toContain("<td>destructive</td>\n        <td>—</td>");
@@ -322,7 +436,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 5 dispatches · 4 older dropped</h2>");
+    expect(html).toContain("<h2>Agents — 1 agent dispatch (http 1) · 4 older dropped</h2>");
     // Sub-millisecond in-process dispatch must not round to a misleading 0ms.
     expect(html).toContain("&lt;1ms");
   });

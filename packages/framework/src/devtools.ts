@@ -129,9 +129,13 @@ ${capabilityRows}
     </table>`
       : "";
 
-  const trafficRows = (options.agentTraffic?.events ?? [])
+  const trafficEvents = options.agentTraffic?.events ?? [];
+  const composedCount = trafficEvents.filter((event) => !isAgentTraffic(event)).length;
+  const agentCount = trafficEvents.length - composedCount;
+
+  const trafficRows = trafficEvents
     .map(
-      (event) => `<tr>
+      (event) => `<tr${isAgentTraffic(event) ? "" : ` class="composed"`}>
         <td class="file">${escapeHtml(formatEventTime(event.at))}</td>
         <td>${escapeHtml(event.capability)}</td>
         <td>${escapeHtml(formatTransport(event))}</td>
@@ -143,22 +147,38 @@ ${capabilityRows}
     )
     .join("\n");
 
+  // First-party composition is hidden behind a CSS-only toggle rather than
+  // dropped: on an app whose loaders compose capabilities it is the large
+  // majority of dispatches, and leaving it in the default view buries the
+  // handful of rows that answer "is anything external calling this?".
+  const composedToggle =
+    composedCount > 0
+      ? `<input type="checkbox" id="pracht-show-composed" class="toggle-input">
+    <label class="toggle" for="pracht-show-composed">Show ${composedCount} first-party <code>invokeCapability()</code> dispatch${composedCount === 1 ? "" : "es"}</label>
+    `
+      : "";
+
+  const trafficTable = `${composedToggle}<table>
+      <thead><tr><th>Time (UTC)</th><th>Capability</th><th>Transport</th><th>Effect</th><th>Agent</th><th>Outcome</th><th>Duration</th></tr></thead>
+      <tbody>
+${trafficRows}
+      </tbody>
+    </table>`;
+
   // Same rule as the capabilities table: an app with no capabilities has no
   // agent surface to observe, so its devtools page stays byte-for-byte
   // unchanged. Once capabilities exist the section is always present — an
   // empty traffic log is itself the answer to "are agents calling this?".
   const agentsSection =
     (graph.capabilities ?? []).length > 0
-      ? `<h2>Agents${agentTrafficCaption(options.agentTraffic)}</h2>
+      ? `<h2>Agents${agentTrafficCaption(options.agentTraffic, agentCount, composedCount)}</h2>
     ${
-      trafficRows === ""
+      trafficEvents.length === 0
         ? `<p class="empty">No capability dispatches recorded yet. Call a capability over HTTP, WebMCP, or MCP and reload.</p>`
-        : `<table>
-      <thead><tr><th>Time</th><th>Capability</th><th>Transport</th><th>Effect</th><th>Agent</th><th>Outcome</th><th>Duration</th></tr></thead>
-      <tbody>
-${trafficRows}
-      </tbody>
-    </table>`
+        : agentCount === 0
+          ? `<p class="empty">No external agent traffic yet — every recorded dispatch is this app calling itself.</p>
+    ${trafficTable}`
+          : trafficTable
     }`
       : "";
 
@@ -255,6 +275,30 @@ ${apiRows}
     .err {
       color: #ffa8a8;
     }
+    /* CSS-only disclosure: the page ships no JavaScript of its own. */
+    .toggle-input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .toggle {
+      display: inline-block;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: #a0c4ff;
+      cursor: pointer;
+      border-bottom: 1px dotted #4c6ef5;
+    }
+    .toggle-input:focus-visible + .toggle {
+      outline: 2px solid #4c6ef5;
+      outline-offset: 2px;
+    }
+    tr.composed {
+      display: none;
+    }
+    .toggle-input:checked ~ table tr.composed {
+      display: table-row;
+    }
     .empty {
       font-size: 13px;
       color: #888;
@@ -300,16 +344,54 @@ ${notFoundRow}
 }
 
 /**
- * `12 of 200 · 3 dropped` — the dropped count matters: a reader who only sees
- * the tail of a busy log should know the log is a tail.
+ * Whether a dispatch came from outside the app rather than from the app
+ * composing its own capabilities.
+ *
+ * `transport: "server"` is `invokeCapability()`, which every loader and API
+ * route can call — on a composing app it is the large majority of dispatches
+ * and is not agent traffic at all. The one exception is a nested call composed
+ * under a remote MCP request (`via: "mcp"`): that is trusted dispatch state, so
+ * the effect really was agent-caused and belongs in the default view.
+ *
+ * `via: "http"` is deliberately *not* treated as agent-caused: a capability
+ * host is installed for every served request, so an ordinary page loader's
+ * composition carries it too and cannot be told apart from an agent's. The
+ * agent's own HTTP dispatch is still listed on its own row, so none of its
+ * activity is hidden — only its internal composition is collapsed.
  */
-function agentTrafficCaption(traffic: DevtoolsAgentTraffic | undefined): string {
+function isAgentTraffic(event: AgentTrafficEvent): boolean {
+  return event.transport !== "server" || event.via === "mcp";
+}
+
+/**
+ * `— 6 agent dispatches (http 3 · mcp 3) · 8 first-party · 4 older dropped`.
+ * The per-transport breakdown is the activation metric in miniature, and the
+ * dropped count matters: a reader who only sees the tail of a busy log should
+ * know the log is a tail.
+ */
+function agentTrafficCaption(
+  traffic: DevtoolsAgentTraffic | undefined,
+  agentCount: number,
+  composedCount: number,
+): string {
   if (!traffic || traffic.recorded === 0) return "";
+
+  const byTransport = new Map<string, number>();
+  for (const event of traffic.events) {
+    if (!isAgentTraffic(event)) continue;
+    byTransport.set(event.transport, (byTransport.get(event.transport) ?? 0) + 1);
+  }
+  const breakdown = [...byTransport]
+    .map(([transport, count]) => `${transport} ${count}`)
+    .join(" · ");
+
+  const parts = [`${agentCount} agent dispatch${agentCount === 1 ? "" : "es"}`];
+  if (breakdown !== "") parts[0] += ` (${breakdown})`;
+  if (composedCount > 0) parts.push(`${composedCount} first-party`);
   const dropped = Math.max(0, traffic.recorded - traffic.events.length);
-  const suffix = dropped > 0 ? ` · ${dropped} older dropped` : "";
-  return escapeHtml(
-    ` — ${traffic.recorded} dispatch${traffic.recorded === 1 ? "" : "es"}${suffix}`,
-  );
+  if (dropped > 0) parts.push(`${dropped} older dropped`);
+
+  return escapeHtml(` — ${parts.join(" · ")}`);
 }
 
 /** `HH:MM:SS.mmm` in UTC — stable across locales and trivially testable. */

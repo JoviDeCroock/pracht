@@ -447,22 +447,22 @@ describe("agent policy and audit", () => {
     expect(response.status).toBe(200);
     expect(events).toHaveLength(1);
     expect(events[0].outcome).toBe("ok");
-    // A broken sink is swallowed but not silent.
+    // A broken sink is swallowed but not silent, and the report names it.
     expect(consoleWarn).toHaveBeenCalledWith(
-      expect.stringContaining("capability audit hook threw and was ignored"),
+      expect.stringContaining('audit sink "setCapabilityAuditHook" threw and was ignored'),
     );
     consoleWarn.mockRestore();
   });
 
-  it("fans out to every additive listener alongside the single-slot hook", async () => {
+  it("fans out to every additive sink alongside the single-slot hook", async () => {
     // A real app ships more than one sink (structured logs *and* metrics); the
     // single-slot setter alone would silently drop all but the last.
     const slot: CapabilityAuditEvent[] = [];
     const first: CapabilityAuditEvent[] = [];
     const second: CapabilityAuditEvent[] = [];
     setCapabilityAuditHook((event) => slot.push(event));
-    addCapabilityAuditListener((event) => first.push(event));
-    addCapabilityAuditListener((event) => second.push(event));
+    addCapabilityAuditListener("logs", (event) => first.push(event));
+    addCapabilityAuditListener("metrics", (event) => second.push(event));
 
     const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
     await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
@@ -473,9 +473,25 @@ describe("agent policy and audit", () => {
     expect(first[0]).toBe(slot[0]);
   });
 
+  it("replaces a same-named sink so dev HMR re-registration cannot duplicate delivery", async () => {
+    // In dev, `@pracht/core` is inlined into Vite's SSR graph and Vite
+    // re-executes importers on save, so a module-scope registration runs again
+    // with a *fresh closure*. Identity-based dedupe cannot catch that; the name
+    // must. Simulate three saves.
+    const events: CapabilityAuditEvent[] = [];
+    for (let reload = 0; reload < 3; reload += 1) {
+      addCapabilityAuditListener("otel", (event) => events.push(event));
+    }
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+
+    expect(events).toHaveLength(1);
+  });
+
   it("stops delivering after unsubscribe", async () => {
     const events: CapabilityAuditEvent[] = [];
-    const unsubscribe = addCapabilityAuditListener((event) => events.push(event));
+    const unsubscribe = addCapabilityAuditListener("logs", (event) => events.push(event));
 
     const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
     await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
@@ -487,13 +503,29 @@ describe("agent policy and audit", () => {
     expect(events).toHaveLength(1);
   });
 
-  it("keeps a throwing listener from breaking dispatch or the other sinks", async () => {
+  it("does not let a stale unsubscribe remove the sink that replaced it", async () => {
+    const stale: CapabilityAuditEvent[] = [];
+    const live: CapabilityAuditEvent[] = [];
+    const staleUnsubscribe = addCapabilityAuditListener("otel", (event) => stale.push(event));
+    addCapabilityAuditListener("otel", (event) => live.push(event));
+
+    // A reloaded module's cleanup runs *after* the new registration.
+    staleUnsubscribe();
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+
+    expect(stale).toHaveLength(0);
+    expect(live).toHaveLength(1);
+  });
+
+  it("keeps a throwing sink from breaking dispatch or the other sinks", async () => {
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const survivors: CapabilityAuditEvent[] = [];
-    addCapabilityAuditListener(() => {
+    addCapabilityAuditListener("broken", () => {
       throw new Error("sink exploded");
     });
-    addCapabilityAuditListener((event) => survivors.push(event));
+    addCapabilityAuditListener("healthy", (event) => survivors.push(event));
 
     const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
     const response = await handlePrachtRequest({
@@ -505,6 +537,34 @@ describe("agent policy and audit", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, data: { purged: 1 } });
     expect(survivors).toHaveLength(1);
+    consoleWarn.mockRestore();
+  });
+
+  it("reports every broken sink, not just the first one to fail", async () => {
+    // Warn-once is per sink. A global flag would let a broken log sink silence
+    // a broken metrics sink forever — the exact case multi-sink support exists
+    // for — and would be burned early by any earlier failure in the process.
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    addCapabilityAuditListener("logs", () => {
+      throw new Error("logs exploded");
+    });
+    addCapabilityAuditListener("metrics", () => {
+      throw new Error("metrics exploded");
+    });
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+
+    const warnings = consoleWarn.mock.calls.map(([message]) => String(message));
+    expect(warnings.filter((line) => line.includes('"logs"'))).toHaveLength(1);
+    expect(warnings.filter((line) => line.includes('"metrics"'))).toHaveLength(1);
+    expect(warnings[0]).toContain("logs exploded");
+
+    // …and each stays quiet on the next dispatch rather than logging per call.
+    consoleWarn.mockClear();
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "y" }) });
+    expect(consoleWarn).not.toHaveBeenCalled();
+
     consoleWarn.mockRestore();
   });
 });

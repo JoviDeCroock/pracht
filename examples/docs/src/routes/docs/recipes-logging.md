@@ -243,7 +243,7 @@ Request logging covers pages and API routes. Capability dispatches get their own
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener((event) => {
+addCapabilityAuditListener("audit-log", (event) => {
   console.log(
     JSON.stringify({
       msg: "capability",

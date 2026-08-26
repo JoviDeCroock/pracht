@@ -313,22 +313,48 @@ Secrets in loader code stay server-side. The client only receives serialized dat
 
 The Vite dev SSR middleware (`packages/vite-plugin/src/plugin-dev-ssr.ts`) adds two
 dev-only debugging surfaces. Neither exists in production builds, and adapters that
-own the dev server (`ownsDevServer: true`, e.g. Cloudflare's workerd-based dev) bypass
-this middleware and therefore don't expose them.
+own the dev server (`ownsDevServer: true`, e.g. Cloudflare's workerd-based dev) never
+register this middleware — under those adapters `/_pracht` and `/_pracht.json` do not
+exist at all (they 404), rather than existing and reporting nothing.
 
 ### `/_pracht` devtools page
 
-- `GET /_pracht` serves a self-contained HTML page (no Preact — same approach as the
-  error overlay in `packages/framework/src/error-overlay.ts`) listing every page route
-  (pattern, render mode, shell, middleware chain, source file) and API route
-  (path, methods, source file), with links to navigable routes.
-- `GET /_pracht.json` serves the same data as JSON.
-- Both are built from the shared app-graph helpers in
+- `GET /_pracht` serves a self-contained HTML page (no Preact and no JavaScript of
+  its own — same approach as the error overlay in
+  `packages/framework/src/error-overlay.ts`) listing every page route (pattern,
+  render mode, shell, middleware chain, source file) and API route (path, methods,
+  source file), with links to navigable routes. Apps that register capabilities
+  additionally get a Capabilities table and an Agents traffic log.
+- `GET /_pracht.json` serves the same data as JSON, plus the `agentTraffic` field
+  described below.
+- The static part of both is built from the shared app-graph helpers in
   `packages/framework/src/app-graph.ts` (`@pracht/core/devtools`) — the same
-  serialization `pracht inspect --json` uses, so the CLI and the page never drift.
+  serialization `pracht inspect --json` uses, so the CLI and the page never drift
+  on the app graph itself.
 - The path is reserved in dev only: a user route at `/_pracht` still wins in
   production, while in dev the middleware logs a collision warning and serves the
   devtools page.
+
+### Agents traffic log
+
+- The dev middleware passes `onCapabilityAudit` to `handlePrachtRequest()` and
+  records each `CapabilityAuditEvent` into a bounded ring buffer
+  (`packages/vite-plugin/src/agent-traffic.ts`, 200 events, newest first).
+  Deliberately *not* a module-level audit hook: that slot belongs to the app, and
+  a plugin-owned buffer cannot be reached from a production bundle or adapter.
+- The buffer is merged into the response in `serveDevtools()`, not into
+  `buildAppGraph()`. The graph is the static shape of the app and stays
+  byte-identical to `pracht inspect --json`; traffic is live dev-server state, so
+  `agentTraffic` exists only on the `/_pracht.json` response.
+- `agentTraffic` is `{ limit, recorded, events[] }`. `recorded` is the total since
+  the dev server started and survives eviction, so the page can report how many
+  older events were dropped. Events carry `transport`, so JSON consumers do their
+  own filtering; the HTML page defaults to non-`server` transports (plus `server`
+  dispatches whose `via` is `mcp`) and hides first-party `invokeCapability()`
+  composition behind a CSS-only toggle.
+- Not everything reaching the capability surface is audited: a cross-origin 403, an
+  unknown-capability 404, and an unknown or unexposed MCP tool name all return
+  before dispatch, so probes leave no trace. See `AGENT_TRUST.md`.
 
 ### `Server-Timing` header
 

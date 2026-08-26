@@ -426,36 +426,77 @@ let capabilityAuditHook: CapabilityAuditHook | null = null;
 
 // The single-slot setter below is the original API and stays single-slot:
 // calling it twice replaces the hook. Real apps ship more than one sink
-// (structured logs *and* metrics, plus whatever the framework's own dev
-// tooling attaches), and silently dropping one of them is the wrong default,
-// so additive subscribers get their own registry with an unsubscribe handle.
-const capabilityAuditListeners = new Set<CapabilityAuditHook>();
+// (structured logs *and* metrics), and silently dropping one of them is the
+// wrong default, so additive subscribers get their own registry.
+//
+// Keyed by name rather than by function identity, because the common
+// registration site is a server-only module's top level. In dev, `@pracht/core`
+// is inlined into Vite's SSR graph and Vite re-executes importers on every
+// save, so such a module registers again — with a *fresh closure* every time.
+// An identity-keyed Set would accumulate one live sink per keystroke, each
+// holding a stale closure for the life of the dev server, and every dispatch
+// would be delivered N times (inflating counters and duplicating log lines).
+// A name-keyed Map makes re-registration a replacement, which is what the
+// author meant, and is why `setCapabilityAuditHook` never had this problem.
+const capabilityAuditListeners = new Map<string, CapabilityAuditHook>();
 
 export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
   capabilityAuditHook = hook;
 }
 
 /**
- * Register an additional audit sink without displacing an existing one.
- * Returns an unsubscribe function; registering the same function twice is a
- * no-op (Set semantics), and unsubscribing twice is safe.
+ * Register an additional audit sink under a stable name, without displacing
+ * the single-slot hook or any differently-named sink. Registering the same
+ * name again replaces that sink — which is what makes the API safe to call
+ * from module scope under dev HMR.
+ *
+ * Returns an unsubscribe function. It is idempotent, and it deliberately only
+ * removes *its own* registration: after a reload replaced the name, a stale
+ * closure's unsubscribe must not delete the live sink.
  */
-export function addCapabilityAuditListener(hook: CapabilityAuditHook): () => void {
-  capabilityAuditListeners.add(hook);
+export function addCapabilityAuditListener(name: string, hook: CapabilityAuditHook): () => void {
+  capabilityAuditListeners.set(name, hook);
   return () => {
-    capabilityAuditListeners.delete(hook);
+    if (capabilityAuditListeners.get(name) === hook) capabilityAuditListeners.delete(name);
   };
 }
 
-/** Test/teardown helper — drops every additive listener. */
+/** Test/teardown helper — drops every additive sink. */
 export function clearCapabilityAuditListeners(): void {
   capabilityAuditListeners.clear();
 }
 
-// A sink that throws on every dispatch would otherwise flood the log with one
-// line per capability call. Report the first failure loudly and stay quiet
-// afterwards, matching `shouldExposeServerErrors`'s warn-once stance.
-let warnedAboutFailingAuditHook = false;
+// Tracked per sink, not globally: a working log sink alongside a broken metrics
+// sink is the whole point of supporting more than one, and a single global flag
+// would let the first failure silence every other sink's report forever. Keyed
+// on function identity, so a sink replaced under the same name is a new sink
+// and reports again.
+const warnedAuditSinks = new WeakSet<CapabilityAuditHook>();
+
+/**
+ * Deliver one event to one sink. Exceptions are swallowed — an observer must
+ * never fail a capability call — but the first failure *from that sink* is
+ * reported so a broken sink is not invisible. Later failures from the same
+ * sink stay quiet rather than emitting a line per capability call.
+ */
+function deliverCapabilityAudit(
+  label: string,
+  hook: CapabilityAuditHook | null | undefined,
+  snapshot: CapabilityAuditEvent,
+): void {
+  if (!hook) return;
+  try {
+    hook(snapshot);
+  } catch (error: unknown) {
+    if (warnedAuditSinks.has(hook)) return;
+    warnedAuditSinks.add(hook);
+    console.warn(
+      `[pracht] Capability audit sink ${JSON.stringify(label)} threw and was ignored: ${
+        error instanceof Error ? error.message : String(error)
+      }. Audit sinks must never throw; further failures from this sink are not reported.`,
+    );
+  }
+}
 
 /** Audit hooks observe; they must never break a request. */
 function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAuditHook): void {
@@ -463,23 +504,11 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
     ...event,
     agent: snapshotAgentIdentity(event.agent),
   });
-  for (const hook of [capabilityAuditHook, ...capabilityAuditListeners, extra]) {
-    if (!hook) continue;
-    try {
-      hook(snapshot);
-    } catch (error: unknown) {
-      // Swallowed on purpose: an observer must not fail a capability call.
-      // Surfaced once so a broken sink is not invisible.
-      if (!warnedAboutFailingAuditHook) {
-        warnedAboutFailingAuditHook = true;
-        console.warn(
-          `[pracht] A capability audit hook threw and was ignored: ${
-            error instanceof Error ? error.message : String(error)
-          }. Audit hooks must never throw; further failures are not reported.`,
-        );
-      }
-    }
+  deliverCapabilityAudit("setCapabilityAuditHook", capabilityAuditHook, snapshot);
+  for (const [name, hook] of capabilityAuditListeners) {
+    deliverCapabilityAudit(name, hook, snapshot);
   }
+  deliverCapabilityAudit("onCapabilityAudit", extra, snapshot);
 }
 
 export interface HandleCapabilityRequestOptions<TContext> {

@@ -130,14 +130,24 @@ For every exposed capability, ask whether the exposure is deliberate:
   `addCapabilityAuditListener()`, or `onCapabilityAudit`) — without one there
   is no record of who called what. Grep for all three; `setCapabilityAuditHook`
   is a single slot, so two calls to it mean one sink is silently dead — report
-  that as a `warn` and point at `addCapabilityAuditListener()`.
+  that as a `warn` and point at `addCapabilityAuditListener(name, hook)`. Also
+  flag a computed or non-constant sink name: same-name registration is what
+  makes the call idempotent under dev HMR.
+- Know what the trail does **not** cover before treating it as a security
+  record: a cross-origin 403, an unknown-capability 404, and an unknown or
+  unexposed MCP tool name all return *before* dispatch and emit no event. An
+  agent enumerating tool names leaves no trace, so never conclude "nothing
+  tried" from an empty trail — that question belongs to the HTTP access log.
 - To see the surface actually being exercised rather than merely declared, run
   the app with `pracht dev`, drive the capability, and read the **Agents**
   section of `/_pracht` (JSON under `agentTraffic` at `/_pracht.json`). It
   records transport, `via` for nested composition, verified identity, outcome
-  code, and duration for the last 200 dispatches — useful for proving a guard
-  actually fires. It is dev-only and empty under adapter-owned dev servers
-  (Cloudflare `workerd`).
+  code, and duration — useful for proving a guard actually fires. The page
+  defaults to externally-originated dispatches and hides first-party
+  `invokeCapability()` composition behind a toggle; the JSON keeps everything.
+  It is dev-only, and under adapter-owned dev servers (Cloudflare `workerd`)
+  `/_pracht` does not exist at all — a 404 there means the middleware never
+  ran, not that no agent traffic occurred.
 
 ## Step 5: The discovery surface
 

@@ -245,7 +245,7 @@ sink just has to be registered.
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener((event) => {
+addCapabilityAuditListener("audit-log", (event) => {
   console.log(
     JSON.stringify({
       msg: "capability",
@@ -273,22 +273,33 @@ custom server entry — anywhere that runs before the first request.
 
 Key properties to state when scaffolding this:
 
-- Sinks are never awaited and a throwing sink is swallowed (first failure
-  reported once via `console.warn`), so an exporter cannot fail or slow a
-  capability call.
+- Sinks are never awaited and a throwing sink is swallowed (first failure per
+  sink reported via `console.warn`, naming it), so an exporter cannot fail or
+  slow a capability call.
+- **Always pass a stable name** as the first argument. Registering the same
+  name again replaces that sink, which is what keeps a module-scope call safe
+  under dev HMR: Vite re-executes importers on every save, so an unkeyed
+  registration would add a fresh closure per keystroke and deliver every event
+  N times. Never compute the name.
 - `setCapabilityAuditHook()` is a **single slot** — a second call replaces the
   first. Use `addCapabilityAuditListener()` whenever more than one sink exists;
-  it returns an unsubscribe handle.
+  it returns an unsubscribe handle that removes only its own registration.
 - On Cloudflare Workers, a batching exporter must flush within the request or
   be handed the execution context by app code
   (`context.executionContext.waitUntil(exporter.flush())`). Pracht does not
   call `ctx.waitUntil()` for a sink.
+- Audit events cover *dispatch* only. A cross-origin 403, an unknown-capability
+  404, and an unknown MCP tool name all return before dispatch and emit
+  nothing, so do not build a reconnaissance alert on these events — use the
+  HTTP access log for that.
 
 In dev the same events are already collected: the **Agents** section of
-`/_pracht` shows the last 200 dispatches with transport, `via`, verified
-identity, outcome, and duration, and `/_pracht.json` exposes them under
-`agentTraffic`. Use it to confirm the sink is seeing what the panel sees before
-wiring a paid backend.
+`/_pracht` shows recent dispatches with transport, `via`, verified identity,
+outcome, and duration, and `/_pracht.json` exposes all of them under
+`agentTraffic`. The page defaults to externally-originated dispatches and hides
+first-party `invokeCapability()` composition behind a toggle, so the panel's
+visible count can be lower than the sink's. Use it to confirm the sink sees
+what the panel sees before wiring a paid backend.
 
 ## Step 7: Sampling and PII
 

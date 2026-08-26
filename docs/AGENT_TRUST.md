@@ -522,22 +522,37 @@ Custom server entries can also pass `onCapabilityAudit` directly to
 
 `setCapabilityAuditHook()` is a single slot: calling it twice replaces the
 hook. An app that wants both structured logs and metrics uses
-`addCapabilityAuditListener()`, which composes and returns an unsubscribe
-handle:
+`addCapabilityAuditListener(name, hook)`, which composes with the single slot
+and with every differently-named sink, and returns an unsubscribe handle:
 
 ```ts
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-const stop = addCapabilityAuditListener((event) => metrics.record(event));
+const stop = addCapabilityAuditListener("metrics", (event) => metrics.record(event));
 ```
+
+The name is required, and registering the same name again **replaces** that
+sink. That is what makes the call safe at a module's top level, which is where
+it belongs: in dev, `@pracht/core` is inlined into Vite's SSR graph and Vite
+re-executes importers on every save, so a module-scope registration runs again
+with a fresh closure each time you edit the file. Keyed by name, the reload
+replaces; keyed by function identity it would accumulate one live sink per
+keystroke, each delivering the same event again and inflating every counter.
+Pick a stable name per sink (`"otel"`, `"audit-log"`) rather than a computed
+one.
+
+The returned unsubscribe only removes its own registration, so a reloaded
+module's cleanup running after the new registration cannot delete the live
+sink.
 
 Every registered sink receives the same frozen snapshot for every dispatch, on
 every transport. The contract for all of them:
 
-- **Never throws into dispatch.** A sink that throws is swallowed; the first
-  failure is reported once via `console.warn` so a broken sink is not silent,
-  and later failures stay quiet rather than emitting one line per capability
-  call.
+- **Never throws into dispatch.** A sink that throws is swallowed; its first
+  failure is reported via `console.warn`, naming the sink, and later failures
+  from that sink stay quiet rather than emitting one line per capability call.
+  Warn-once is tracked per sink, so a broken log sink cannot silence a broken
+  metrics sink.
 - **Never awaited.** The hook signature returns `void`. Returning a promise is
   allowed and the runtime does not wait for it, so an async exporter cannot add
   latency to a capability call — but it also means an unhandled rejection is
@@ -562,7 +577,7 @@ queryable by capability, transport, and outcome:
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener((event) => {
+addCapabilityAuditListener("audit-log", (event) => {
   // Synchronous, no allocation beyond the line itself: safe on every runtime.
   console.log(
     JSON.stringify({
@@ -596,7 +611,7 @@ const duration = meter.createHistogram("pracht.capability.duration", {
 });
 const tracer = trace.getTracer("pracht.capabilities");
 
-addCapabilityAuditListener((event) => {
+addCapabilityAuditListener("otel", (event) => {
   const attributes = {
     "pracht.capability": event.capability,
     "pracht.effect": event.effect,
@@ -660,8 +675,40 @@ same data under `agentTraffic` in `/_pracht.json`:
 Events are newest first; `recorded` is the total since the dev server started,
 so the panel can say how many older events the ring buffer dropped. The buffer
 lives in the vite plugin's dev middleware, so no production adapter, bundle, or
-endpoint can reach it — and it is empty under adapter-owned dev servers
-(Cloudflare `workerd`), which do not route through the dev SSR middleware.
+endpoint can reach it. Under adapter-owned dev servers (`ownsDevServer: true`,
+e.g. Cloudflare `workerd`) the middleware is never registered at all, so
+`/_pracht` and `/_pracht.json` do not exist there — they 404 rather than
+answering with an empty log.
+
+The JSON keeps every recorded dispatch and carries `transport` on each, so
+consumers filter for themselves. The HTML page does not: `transport: "server"`
+is `invokeCapability()`, which any loader or API route can call, and on an app
+whose loaders compose capabilities it is the large majority of rows. The panel
+therefore defaults to dispatches that came from outside the app — every
+non-`server` transport, plus `server` dispatches whose `via` is `"mcp"`, since
+that is trusted dispatch state and the effect really was agent-caused — and
+puts the rest behind a "show first-party" toggle with a count. `via: "http"`
+does not qualify: a capability host is installed for every served request, so
+an ordinary page loader's composition carries it too and cannot be told apart
+from an agent's. The agent's own HTTP dispatch still gets its own row, so no
+agent activity is hidden — only its internal composition is collapsed.
+
+### What is not audited
+
+The audit trail covers *dispatch*. Several rejections happen before a
+capability is dispatched, and emit no event at all:
+
+- **Cross-origin mutation requests** are refused with a `cross_origin_blocked`
+  403 before the capability pipeline is entered.
+- **Unknown capability paths** never match a capability route, so they fall
+  through to ordinary route matching and answer 404.
+- **Unknown or unexposed MCP tool names** are answered as a JSON-RPC
+  `invalid_params` protocol error before dispatch.
+
+So an agent (or a scanner) enumerating tool names or probing capability URLs
+leaves no trace in the audit trail — absence of events is not evidence that
+nothing tried. Use the HTTP access log of the deployment for reconnaissance
+detection, and treat the audit trail as the record of what actually ran.
 
 ### Inspecting the configured surface
 
