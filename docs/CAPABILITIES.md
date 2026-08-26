@@ -649,7 +649,9 @@ The capability graph feeds every existing inspection surface:
   remote MCP endpoint, `llms.txt`, and per-transport exposure counts;
 - the `/_pracht` devtools page gains a Capabilities table and a live Agents
   traffic log in dev; retained traffic keeps the Agents panel visible after
-  HMR removes the final capability, until the dev server restarts;
+  HMR removes the final capability, until the dev server restarts; MCP
+  declarations are labeled `mcp(unserved)` until the endpoint serves them,
+  including destructive declarations without `agents.mcp.destructive`;
 - the `pracht mcp` server exposes `inspect_capabilities` and `inspect_agents`
   tools;
 - `pracht verify` runs the static contract checks described above.

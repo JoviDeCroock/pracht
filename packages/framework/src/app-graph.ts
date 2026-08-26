@@ -110,6 +110,8 @@ export interface AppGraph {
    * graph but nothing serves it.
    */
   mcpEndpoint?: string | null;
+  /** Present only when `agents.mcp.destructive` serves destructive MCP tools. */
+  mcpDestructive?: true;
   routes: AppGraphRoute[];
   /**
    * The app-level not-found page, serialized like a route. `null` when the app
@@ -338,6 +340,7 @@ export async function buildAppGraph(
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
     capabilities: await serializeCapabilities(options.app.capabilities, options),
     mcpEndpoint: resolveMcpEndpoint(options.app.agents),
+    ...(options.app.agents?.mcp?.destructive === true ? { mcpDestructive: true as const } : {}),
     notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };

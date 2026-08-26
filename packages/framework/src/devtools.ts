@@ -104,16 +104,23 @@ export function buildDevtoolsHtml(
     .join("\n");
 
   const capabilityRows = (graph.capabilities ?? [])
-    .map(
-      (capability) => `<tr>
+    .map((capability) => {
+      const transports = capability.transports.map((transport) =>
+        transport === "mcp" &&
+        (!graph.mcpEndpoint ||
+          (capability.effect === "destructive" && graph.mcpDestructive !== true))
+          ? "mcp(unserved)"
+          : transport,
+      );
+      return `<tr>
         <td>${escapeHtml(capability.name)}</td>
         <td>${escapeHtml(capability.effect ?? "—")}</td>
-        <td>${escapeHtml(capability.transports.length > 0 ? capability.transports.join(", ") : "private")}</td>
+        <td>${escapeHtml(transports.length > 0 ? transports.join(", ") : "private")}</td>
         <td>${escapeHtml(capability.httpPath ?? "—")}</td>
         <td>${escapeHtml(capability.middleware.length > 0 ? capability.middleware.join(" → ") : "—")}</td>
         <td class="file">${escapeHtml(capability.source)}</td>
-      </tr>`,
-    )
+      </tr>`;
+    })
     .join("\n");
 
   // Only rendered when the app registers capabilities — the devtools page is

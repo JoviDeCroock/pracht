@@ -212,6 +212,39 @@ describe("buildDevtoolsHtml", () => {
     // Unexposed capabilities are labeled private.
     expect(html).toContain("private");
   });
+
+  it("labels MCP declarations that the configured projection does not serve", () => {
+    const capability = {
+      agentPolicy: null,
+      description: "Permanently delete matching notes.",
+      effect: "destructive",
+      hasUi: false as const,
+      httpPath: null,
+      input: { type: "object" },
+      middleware: [],
+      name: "notes.purge",
+      output: { type: "object" },
+      source: "./capabilities/notes-purge.ts",
+      title: "Purge notes",
+      transports: ["mcp"],
+    };
+
+    const withoutOptIn = buildDevtoolsHtml({
+      ...graphFixture,
+      capabilities: [capability],
+      mcpEndpoint: "/mcp",
+    });
+    expect(withoutOptIn).toContain("mcp(unserved)");
+
+    const served = buildDevtoolsHtml({
+      ...graphFixture,
+      capabilities: [capability],
+      mcpDestructive: true,
+      mcpEndpoint: "/mcp",
+    });
+    expect(served).toContain(">mcp</td>");
+    expect(served).not.toContain("mcp(unserved)");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -700,7 +733,7 @@ describe("buildAppGraph", () => {
   it("produces the same payload shape as pracht inspect", async () => {
     const app = resolveApp(
       defineApp({
-        agents: { mcp: { path: "/agents/mcp" } },
+        agents: { mcp: { path: "/agents/mcp", destructive: true } },
         middleware: { auth: "./middleware/auth.ts" },
         routes: [
           route("/", "./routes/home.tsx", {
@@ -728,6 +761,7 @@ describe("buildAppGraph", () => {
 
     expect(graph).toEqual({
       capabilities: [],
+      mcpDestructive: true,
       mcpEndpoint: "/agents/mcp",
       notFound: null,
       api: [
@@ -785,6 +819,7 @@ describe("buildAppGraph", () => {
 
     expect(graph.api).toEqual([]);
     expect(graph.mcpEndpoint).toBeNull();
+    expect(graph).not.toHaveProperty("mcpDestructive");
     expect(graph.routes).toHaveLength(1);
   });
 });
