@@ -10,4 +10,4 @@ locations travel as framework-owned hydration metadata, and the client entry
 hydrates after streamed content and `beforeHydration` scripts without reserving
 any user data shape. Rejections after the first flush surface at the read site
 instead of failing the response. Off by default; rejected for prerendered and
-non-full hydration modes. Streaming requires `preact-render-to-string` 6.5 or newer.
+non-full hydration modes. Streaming requires `preact-render-to-string` 6.7 or newer.

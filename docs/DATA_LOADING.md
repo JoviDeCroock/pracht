@@ -236,6 +236,10 @@ Streaming is rejected at manifest-resolution time for any other combination:
 `ssg` and `isg` write files, and a `hydration` other than `"full"` ships no
 client runtime to resume a boundary with.
 
+Streaming requires `preact-render-to-string` 6.7 or newer. That release uses
+the marker protocol Preact 11 expects when hydrating streamed Suspense
+boundaries; `@pracht/core` declares the matching peer range.
+
 Development uses the same streaming path: Vite transforms the document prefix
 before it is committed, then forwards the remaining renderer and deferred-data
 chunks without buffering them.

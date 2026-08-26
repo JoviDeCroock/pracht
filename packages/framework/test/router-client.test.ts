@@ -62,9 +62,9 @@ describe("initClientRouter", () => {
     delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
   });
 
-  it("renders the exported route boundary when deferred data rejects on the client", async () => {
+  it("normalizes non-Error deferred rejections for the exported route boundary", async () => {
     history.replaceState(null, "", "/deferred");
-    let rejectDeferred!: (error: Error) => void;
+    let rejectDeferred!: (error: unknown) => void;
     const pending = new Promise<string>((_resolve, reject) => {
       rejectDeferred = reject;
     });
@@ -105,7 +105,7 @@ describe("initClientRouter", () => {
     });
 
     expect(root.textContent).toContain("loading");
-    rejectDeferred(new Error("deferred failure"));
+    rejectDeferred("deferred failure");
     await pending.catch(() => {});
     await flush();
 

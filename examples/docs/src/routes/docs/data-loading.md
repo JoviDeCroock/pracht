@@ -214,6 +214,10 @@ Streaming is rejected for any other combination: `ssg` and `isg` write files,
 and a `hydration` mode other than `"full"` ships no client runtime to resume a
 boundary with.
 
+Streaming requires `preact-render-to-string` 6.7 or newer. That is the first
+release with the streamed-boundary markers Preact 11 hydration expects;
+`@pracht/core` declares the matching peer range.
+
 `pracht dev` preserves the same behavior: Vite transforms the initial document
 prefix, then passes later renderer and deferred-data chunks through directly.
 

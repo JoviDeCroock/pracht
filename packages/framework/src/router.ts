@@ -16,6 +16,7 @@ import {
 } from "./fragment-navigation.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { markHydrating, onHydrationComplete } from "./hydration.ts";
+import { normalizeCaughtError } from "./error-boundary.ts";
 import {
   beginLoadingNavigation,
   createNavigationLocation,
@@ -108,7 +109,7 @@ class RouteErrorBoundary extends Component<RouteErrorBoundaryProps, { error: Err
 
   componentDidCatch(error: unknown): void {
     if (typeof (error as { then?: unknown } | null)?.then === "function") throw error;
-    this.setState({ error: error as Error });
+    this.setState({ error: normalizeCaughtError(error) });
   }
 
   render(props: RouteErrorBoundaryProps, state: { error: Error | null }): ComponentChildren {

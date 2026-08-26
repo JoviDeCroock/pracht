@@ -123,20 +123,53 @@ export async function streamingHtmlResponse(
   // and enqueuing on a closed controller throws.
   let closed = false;
 
+  let openDeferChannel: (() => void) | undefined;
+  const deferChannelReady =
+    pending.length === 0
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          openDeferChannel = resolve;
+        });
+  let releaseDemand: (() => void) | undefined;
+  const wakeWriter = () => {
+    const release = releaseDemand;
+    releaseDemand = undefined;
+    release?.();
+  };
+
   const body = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (text: string) => {
-        if (closed) return;
-        controller.enqueue(encoder.encode(text));
+    start(controller) {
+      // `start()` must return synchronously so the stream can call `pull()`.
+      // Every producer writes through this chain, which preserves chunk order
+      // while waiting for downstream demand before allocating the next chunk.
+      let writeTail = Promise.resolve();
+      const writeChunk = (createChunk: () => Uint8Array): Promise<void> => {
+        const write = writeTail.then(async () => {
+          if (closed) return;
+          if ((controller.desiredSize ?? 0) <= 0) {
+            await new Promise<void>((resolve) => {
+              releaseDemand = resolve;
+            });
+          }
+          if (closed) return;
+          controller.enqueue(createChunk());
+        });
+        writeTail = write.catch(() => {});
+        return write;
       };
+      const write = (text: string | (() => string)) =>
+        writeChunk(() => encoder.encode(typeof text === "function" ? text() : text));
       const abort = () => {
         if (closed) return;
         closed = true;
+        openDeferChannel?.();
+        wakeWriter();
         controller.error(signal?.reason ?? new DOMException("The streaming render was aborted."));
       };
       if (signal) {
         if (signal.aborted) {
           closed = true;
+          openDeferChannel?.();
           controller.error(signal.reason ?? new DOMException("The streaming render was aborted."));
         } else {
           signal.addEventListener("abort", abort, { once: true });
@@ -144,11 +177,9 @@ export async function streamingHtmlResponse(
       }
 
       const scriptOpen = `<script${nonce ? ` nonce="${escapeHtml(nonce)}"` : ""}>`;
-      const queuedDeferredScripts: string[] = [];
-      let deferChannelReady = pending.length === 0;
-      const writeDeferred = (script: string) => {
-        if (deferChannelReady) write(script);
-        else queuedDeferredScripts.push(script);
+      const writeDeferred = async (script: () => string) => {
+        await deferChannelReady;
+        await write(script);
       };
 
       // Each deferred value gets its own script as it settles. Writing them
@@ -156,95 +187,99 @@ export async function streamingHtmlResponse(
       // lets the client resume a boundary while later ones are still pending.
       const deferredWrites = pending.map(({ id, promise }) =>
         promise.then(
-          (value) => {
-            writeDeferred(
-              `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(value) ?? "null")})</script>`,
+          async (value) => {
+            await writeDeferred(
+              () =>
+                `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(value) ?? "null")})</script>`,
             );
           },
-          (error: unknown) => {
+          async (error: unknown) => {
             // A deferred value cannot redirect or set headers -- the response
             // is already committed -- so a rejection is delivered as data and
             // rendered by the nearest ErrorBoundary.
-            const serializedError = normalizeRouteError(error, {
-              exposeDetails: exposeErrorDetails,
+            await writeDeferred(() => {
+              const serializedError = normalizeRouteError(error, {
+                exposeDetails: exposeErrorDetails,
+              });
+              return `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(serializedError))})</script>`;
             });
-            writeDeferred(
-              `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(serializedError))})</script>`,
-            );
           },
         ),
       );
 
-      try {
-        write(prefix);
+      void (async () => {
+        try {
+          await write(prefix);
 
-        let takeFirstChunk = true;
-        if (!firstRead.done) {
-          controller.enqueue(firstRead.value);
-          takeFirstChunk = false;
-          // The shim has to exist before any deferred script runs, and the
-          // async client runtime may execute as soon as it is fetched. The
-          // document builder places the shim before that entry script.
-          write(afterShell);
-          deferChannelReady = true;
-          for (const script of queuedDeferredScripts) write(script);
-          queuedDeferredScripts.length = 0;
-        }
-
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          // A read already in flight when the consumer cancels still resolves
-          // once; enqueuing it would throw on the closed controller.
-          if (closed) break;
-          controller.enqueue(value);
-        }
-
-        if (closed) {
-          // The Web renderer exposes no abort hook. Keep consuming its stream
-          // after request-scoped work is aborted so its controller never queues
-          // unbounded chunks or writes into a canceled stream.
-          for (;;) {
-            const { done } = await reader.read();
-            if (done) break;
+          let takeFirstChunk = true;
+          if (!firstRead.done) {
+            await writeChunk(() => firstRead.value);
+            takeFirstChunk = false;
+            // The shim has to exist before any deferred script runs, and the
+            // async client runtime may execute as soon as it is fetched. The
+            // document builder places the shim before that entry script.
+            await write(afterShell);
+            openDeferChannel?.();
           }
-          return;
+
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            // A read already in flight when the consumer cancels still resolves
+            // once; enqueuing it would throw on the closed controller.
+            if (closed) break;
+            await writeChunk(() => value);
+          }
+
+          if (closed) {
+            // The Web renderer exposes no abort hook. Keep consuming its stream
+            // after request-scoped work is aborted so its controller never queues
+            // unbounded chunks or writes into a canceled stream.
+            for (;;) {
+              const { done } = await reader.read();
+              if (done) break;
+            }
+            return;
+          }
+
+          // A tree with no content at all never produces a chunk, so the shell
+          // close-out would otherwise be skipped entirely.
+          if (takeFirstChunk) {
+            await write(afterShell);
+            openDeferChannel?.();
+          }
+
+          // The renderer resolves once every boundary it saw has flushed, but a
+          // deferred value with no boundary reading it has no other join point.
+          await Promise.all(deferredWrites);
+
+          await write(suffix);
+          if (closed) return;
+          closed = true;
+          controller.close();
+        } catch (error) {
+          if (closed) return;
+          // Past the first flush the response is committed: the status is sent
+          // and no error document is possible. Error the stream so the client
+          // sees a truncated response rather than a silently short one.
+          closed = true;
+          onError?.(error);
+          controller.error(error);
+        } finally {
+          if (signal) signal.removeEventListener("abort", abort);
+          reader.releaseLock();
         }
-
-        // A tree with no content at all never produces a chunk, so the shell
-        // close-out would otherwise be skipped entirely.
-        if (takeFirstChunk) {
-          write(afterShell);
-          deferChannelReady = true;
-          for (const script of queuedDeferredScripts) write(script);
-          queuedDeferredScripts.length = 0;
-        }
-
-        // The renderer resolves once every boundary it saw has flushed, but a
-        // deferred value with no boundary reading it has no other join point.
-        await Promise.all(deferredWrites);
-
-        write(suffix);
-        if (closed) return;
-        closed = true;
-        controller.close();
-      } catch (error) {
-        if (closed) return;
-        // Past the first flush the response is committed: the status is sent
-        // and no error document is possible. Error the stream so the client
-        // sees a truncated response rather than a silently short one.
-        closed = true;
-        onError?.(error);
-        controller.error(error);
-      } finally {
-        if (signal) signal.removeEventListener("abort", abort);
-        reader.releaseLock();
-      }
+      })();
+    },
+    pull() {
+      wakeWriter();
     },
     cancel() {
       // Client hung up. Abort request-scoped work; start() drains the renderer
       // because preact-render-to-string's Web stream has no abort hook.
       closed = true;
+      openDeferChannel?.();
+      wakeWriter();
       onCancel?.();
     },
   });
@@ -252,6 +287,9 @@ export async function streamingHtmlResponse(
   const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
   if (options.headers) applyHeaders(headers, options.headers);
   applySecurityAndRouteHeaders(headers, { isRouteStateRequest: false });
+  // Route headers are prepared before the renderer runs, so a declared body
+  // length cannot describe the document after streamed chunks are appended.
+  headers.delete("content-length");
 
   streamingResponseBodies.add(body);
   return new Response(body, { status, headers });

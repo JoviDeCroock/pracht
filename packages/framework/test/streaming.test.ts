@@ -176,6 +176,53 @@ describe("streaming SSR documents", () => {
     expect(html.trimEnd().endsWith("</html>")).toBe(true);
   });
 
+  it("drops a route-declared content length from the streamed response", async () => {
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            headers: () => ({ "content-length": "1" }),
+            Component: () => h("main", null, "streamed body"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    expect(response.headers.get("content-length")).toBeNull();
+    await response.body!.cancel();
+  });
+
+  it("waits for body demand before serializing deferred payloads", async () => {
+    let serializationCount = 0;
+    const deferredValue = {
+      toJSON() {
+        serializationCount++;
+        return { id: 7 };
+      },
+    };
+    const response = await handlePrachtRequest({
+      app: streamingApp(),
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            loader: async () => ({ value: defer(Promise.resolve(deferredValue)) }),
+            Component: () => h("main", null, "shell"),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(serializationCount).toBe(0);
+
+    const html = (await readChunks(response)).join("");
+    expect(serializationCount).toBe(1);
+    expect(html).toContain('{"id":7}');
+  });
+
   it("writes the state and entry scripts before the deferred subtree", async () => {
     // Hydration has to be able to start while boundaries are still arriving.
     const response = await handlePrachtRequest({

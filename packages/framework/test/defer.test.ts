@@ -396,7 +396,7 @@ describe("use()", () => {
 });
 
 describe("streaming wire metadata", () => {
-  async function settle<T>(value: T): Promise<T> {
+  async function settle(value: unknown): Promise<unknown> {
     try {
       return use(value);
     } catch (promise) {
