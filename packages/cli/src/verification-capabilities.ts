@@ -349,6 +349,14 @@ function collectMcpAuthChecks(
           `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a query string or fragment.`,
         ),
       );
+    } else if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a trailing slash. ` +
+            "OAuth resource identifiers are matched exactly; use the MCP endpoint's canonical path.",
+        ),
+      );
     }
   }
 

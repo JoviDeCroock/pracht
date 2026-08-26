@@ -17,6 +17,7 @@
  */
 
 import { mcpResourceMetadataUrl } from "./mcp-config.ts";
+import { isolateRequestContext, isRequestContextOverlay } from "./runtime-agent-context.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import type {
   McpAuthConfig,
@@ -201,9 +202,10 @@ export async function authenticateMcpRequest(options: {
   let principal: McpTokenPrincipal | null;
   try {
     principal = normalizePrincipal(await verifier(token, { request }));
-  } catch {
+  } catch (error: unknown) {
     // A throwing verifier is a rejection, never an accept. Its message may
     // carry provider internals, so it does not reach the caller.
+    warnVerifierRejected(error);
     principal = null;
   }
 
@@ -303,57 +305,6 @@ function normalizePrincipal(value: unknown): McpTokenPrincipal | null {
 }
 
 /**
- * A stable string identity for a principal, so two structurally identical
- * principals from two requests compare equal.
- *
- * Reference equality is not usable here: `normalizePrincipal()` builds a fresh
- * frozen object per request, so the same user presenting the same token twice
- * would look like two different callers. Claims are part of the identity, not
- * just `subject` — returning the first request's context for a second token
- * with different claims would show a capability stale claim data.
- *
- * `null` means "cannot be compared" (a claim value that is not JSON-encodable,
- * or a cycle). Callers treat that as never-equal, which fails closed.
- * Recalculate on every comparison: nested `claims` deliberately remain
- * application-owned and mutable, so caching this key could let a reused context
- * retain claims that changed after an earlier comparison.
- */
-function principalIdentityKey(principal: McpTokenPrincipal): string | null {
-  try {
-    return stableJson([
-      principal.subject,
-      principal.clientId ?? null,
-      principal.scopes ? [...principal.scopes] : null,
-      principal.claims ?? null,
-    ]);
-  } catch {
-    return null;
-  }
-}
-
-/** JSON with object keys in a fixed order, so equal data yields equal text. */
-function stableJson(value: unknown): string {
-  return JSON.stringify(value, (_key, raw: unknown) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
-    const record = raw as Record<string, unknown>;
-    const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort()) sorted[key] = record[key];
-    return sorted;
-  });
-}
-
-/** Whether two principals are the same caller carrying the same claims. */
-function sameTokenPrincipal(
-  left: McpTokenPrincipal | null,
-  right: McpTokenPrincipal | null,
-): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  const leftKey = principalIdentityKey(left);
-  return leftKey !== null && leftKey === principalIdentityKey(right);
-}
-
-/**
  * Resolve the `verify` module from the registry. The verifier is server-only
  * code, so it is registered as a module reference (like middleware and
  * capabilities) and looked up across the buckets the Vite plugin globs —
@@ -398,29 +349,15 @@ export async function loadMcpTokenVerifier(
 // Principal surfacing
 // ---------------------------------------------------------------------------
 
-const boundTokenContexts = new WeakMap<object, McpTokenPrincipal | null>();
-
 /**
  * Bind the verified principal onto the request context as `context.tokenAuth`:
  * a frozen snapshot on a non-writable, non-configurable framework-owned field.
  * Middleware may derive its own authorization state elsewhere on `context`, but
  * cannot rewrite the identity a later capability or audit check sees.
  *
- * A context object that is bound twice — an adapter with a
- * `createContext: () => sharedObject` factory, which is legal — is fine as long
- * as both requests carry the *same* principal: the already-bound context is
- * returned unchanged, because the value is indistinguishable. A second, different
- * principal throws instead of silently serving the first caller's identity,
- * since the field is non-configurable and cannot be rebound.
- *
- * Deliberate difference from `bindAgentContext()`: a frozen or sealed *plain*
- * context throws here rather than getting an overlay proxy. `context.agent` is
- * bound on every request of every app, so it must tolerate any context shape;
- * this runs only on authenticated MCP dispatch, and an overlay stacked on top of
- * the agent overlay would nest two proxies with delicate receiver semantics for
- * no practical gain. Frozen contexts under `agents.webBotAuth` already carry the
- * agent overlay, which accepts the field, so the throw is narrow. The docs say
- * exactly this.
+ * The field lives on a fresh request-local overlay rather than the supplied
+ * object. An adapter may therefore reuse a base context without leaving the
+ * first MCP caller's principal visible to later page, API, or MCP requests.
  *
  * Callers turn a throw into a 500. Failing the request is the only safe answer:
  * a capability that reads `context.tokenAuth` would otherwise run with the
@@ -434,14 +371,10 @@ export function bindMcpTokenContext<TContext>(
     return Object.freeze({ tokenAuth: principal }) as TContext;
   }
 
-  const target = context as unknown as object;
-  if (boundTokenContexts.has(target)) {
-    if (sameTokenPrincipal(boundTokenContexts.get(target) ?? null, principal)) return context;
-    throw new TypeError(
-      "Pracht request contexts cannot be reused across different verified token principals. " +
-        "Create a fresh context for each request.",
-    );
-  }
+  const requestContext = isRequestContextOverlay(context)
+    ? context
+    : isolateRequestContext(context);
+  const target = requestContext as unknown as object;
 
   const existing = Reflect.getOwnPropertyDescriptor(target, "tokenAuth");
   if (existing || Reflect.has(target, "tokenAuth")) {
@@ -464,8 +397,7 @@ export function bindMcpTokenContext<TContext>(
         "Create a fresh mutable request context for each request.",
     );
   }
-  boundTokenContexts.set(target, principal);
-  return context;
+  return requestContext;
 }
 
 let warnedVerifierUnavailable = false;
@@ -474,6 +406,16 @@ function warnVerifierUnavailable(error: unknown): void {
   warnedVerifierUnavailable = true;
   console.error(
     "[pracht] agents.mcp.auth.verify could not be loaded; /mcp is answering 401 for every request.",
+    error,
+  );
+}
+
+let warnedVerifierRejected = false;
+function warnVerifierRejected(error: unknown): void {
+  if (warnedVerifierRejected) return;
+  warnedVerifierRejected = true;
+  console.error(
+    "[pracht] agents.mcp.auth.verify threw while checking a bearer token; the request was rejected.",
     error,
   );
 }

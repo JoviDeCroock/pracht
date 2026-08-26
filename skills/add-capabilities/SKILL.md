@@ -202,16 +202,20 @@ Rules to hold the user to:
   the right grant on the first authorization attempt.
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
-  and `run()` for per-user authorization; the framework only authenticates.
-  `claims` is frozen shallowly, but its structural identity is recomputed before
-  a shared context is reused so nested mutations cannot survive as stale auth
-  state. The capability audit event does not carry it yet, so read it in your
-  own audit hook if MCP calls must be attributable to an account.
+  and `run()` for per-user authorization; the framework only authenticates. It
+  lives on a fresh request-local overlay, leaving an adapter's reused base
+  context unchanged. Frozen and sealed ordinary contexts work; native built-ins
+  such as `Map` and `Date` must be wrapped in an ordinary context. `claims` is
+  frozen shallowly, but the complete principal is request-local so nested
+  mutations cannot become stale auth on a later request. The capability audit
+  event does not carry it yet, so read it in your own audit hook if MCP calls
+  must be attributable to an account.
 - `resource` must be the endpoint's **real deployed URL**: absolute, free of
-  query/fragment, and ending with the served endpoint path — deploy base
-  included, e.g. `https://app.example.com/app/mcp` for an app mounted at
-  `/app/`. `resolveApp()` and `pracht verify` reject otherwise. The metadata
-  document then lands at the origin root with the base inside the suffix
+  query/fragment, free of a non-root trailing slash, and ending with the served
+  endpoint path — deploy base included, e.g.
+  `https://app.example.com/app/mcp` for an app mounted at `/app/`.
+  `resolveApp()` and `pracht verify` reject otherwise. The metadata document
+  then lands at the origin root with the base inside the suffix
   (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it. Require
   HTTPS outside loopback development, and reject authorization-server issuers
   with query strings or fragments. For `mcp.path: "/"`, the resource is the

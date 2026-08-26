@@ -311,18 +311,28 @@ describe("WWW-Authenticate challenges", () => {
 
 describe("fail-closed verification", () => {
   it("rejects when the verify hook throws", async () => {
-    const { status, response } = await call(toolsCall, {
-      headers: { authorization: "Bearer good" },
-      verify: () => {
-        throw new Error("jwks unreachable");
-      },
-    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const { status, response } = await call(toolsCall, {
+          headers: { authorization: "Bearer good" },
+          verify: () => {
+            throw new Error("jwks unreachable");
+          },
+        });
 
-    expect(status).toBe(401);
-    expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"');
-    // The provider's failure text must not reach the caller.
-    expect(await response.text()).not.toContain("jwks");
-    expect(observedTokenAuth).toBeUndefined();
+        expect(status).toBe(401);
+        expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"');
+        // The provider's failure text must not reach the caller.
+        expect(await response.text()).not.toContain("jwks");
+        expect(observedTokenAuth).toBeUndefined();
+      }
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      expect(consoleError.mock.calls[0]?.[0]).toContain("verify threw");
+      expect(consoleError.mock.calls[0]?.[1]).toEqual(new Error("jwks unreachable"));
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("rejects when the verify hook rejects asynchronously", async () => {
@@ -427,7 +437,7 @@ describe("principal surfacing", () => {
     expect(principal.subject).toBe("user-1");
   });
 
-  it("binds onto the adapter-supplied context without replacing it", async () => {
+  it("surfaces the principal without mutating the adapter-supplied context", async () => {
     const context = { tenant: "acme" };
     const { status } = await call(toolsCall, {
       context,
@@ -435,10 +445,9 @@ describe("principal surfacing", () => {
     });
 
     expect(status).toBe(200);
-    expect((context as { tokenAuth?: { subject: string } }).tokenAuth?.subject).toBe("user-1");
-    const descriptor = Object.getOwnPropertyDescriptor(context, "tokenAuth")!;
-    expect(descriptor.writable).toBe(false);
-    expect(descriptor.configurable).toBe(false);
+    expect(observedTokenAuth).toEqual({ subject: "user-1", scopes: ["notes.read"] });
+    expect(context).toEqual({ tenant: "acme" });
+    expect(Object.hasOwn(context, "tokenAuth")).toBe(false);
   });
 
   it("fails closed when the context already owns a tokenAuth field", async () => {
@@ -450,7 +459,7 @@ describe("principal surfacing", () => {
     expect(observedTokenAuth).toBeUndefined();
   });
 
-  it("fails closed when a context is reused across principals", async () => {
+  it("isolates different principals when an adapter reuses one context", async () => {
     const context: Record<string, unknown> = {};
     const first = await call(toolsCall, { context, headers: { authorization: "Bearer good" } });
     expect(first.status).toBe(200);
@@ -460,12 +469,13 @@ describe("principal surfacing", () => {
       headers: { authorization: "Bearer good" },
       verify: () => ({ subject: "user-2" }),
     });
-    expect(second.status).toBe(500);
+    expect(second.status).toBe(200);
+    expect(observedTokenAuth).toEqual({ subject: "user-2" });
+    expect(Object.hasOwn(context, "tokenAuth")).toBe(false);
   });
 
-  // `createContext: () => sharedObject` is a legal adapter shape. Reference
-  // equality on the normalized principal would 500 every request after the
-  // first, because each request builds a fresh frozen snapshot.
+  // `createContext: () => sharedObject` is a legal adapter shape. The principal
+  // must live on the request overlay, never the shared base object.
   it("allows a reused context when the principal is structurally identical", async () => {
     const context: Record<string, unknown> = { tenant: "acme" };
     const verify: McpTokenVerifier = () => ({
@@ -483,10 +493,11 @@ describe("principal surfacing", () => {
       });
       expect(status).toBe(200);
       expect((observedTokenAuth as { subject: string }).subject).toBe("user-1");
+      expect(Object.hasOwn(context, "tokenAuth")).toBe(false);
     }
   });
 
-  it("still fails closed when a reused context sees the same subject with different claims", async () => {
+  it("isolates changed claims when an adapter reuses one context", async () => {
     const context: Record<string, unknown> = {};
     const first = await call(toolsCall, {
       context,
@@ -495,57 +506,50 @@ describe("principal surfacing", () => {
     });
     expect(first.status).toBe(200);
 
-    // Stale claims would otherwise be handed to the second request's capability.
     const second = await call(toolsCall, {
       context,
       headers: { authorization: "Bearer good" },
       verify: () => ({ subject: "user-1", claims: { jti: "b" } }),
     });
-    expect(second.status).toBe(500);
+    expect(second.status).toBe(200);
+    expect(observedTokenAuth).toEqual({ subject: "user-1", claims: { jti: "b" } });
+    expect(Object.hasOwn(context, "tokenAuth")).toBe(false);
   });
 
-  it("rechecks mutable nested claims before reusing a context again", async () => {
+  it("does not carry mutable nested claims into a later request", async () => {
     const context: Record<string, unknown> = {};
     const verify: McpTokenVerifier = () => ({
       subject: "user-1",
       claims: { roles: ["reader"] },
     });
 
-    // The second request proves the principal is structurally identical. This
-    // used to cache its identity key permanently.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const result = await call(toolsCall, {
-        context,
-        headers: { authorization: "Bearer good" },
-        verify,
-      });
-      expect(result.status).toBe(200);
-    }
-
-    const principal = (context as { tokenAuth: { claims: { roles: string[] } } }).tokenAuth;
-    principal.claims.roles[0] = "admin";
-
-    const third = await call(toolsCall, {
+    const first = await call(toolsCall, {
       context,
       headers: { authorization: "Bearer good" },
       verify,
     });
-    expect(third.status).toBe(500);
+    expect(first.status).toBe(200);
+    const principal = observedTokenAuth as { claims: { roles: string[] } };
+    principal.claims.roles[0] = "admin";
+
+    const second = await call(toolsCall, {
+      context,
+      headers: { authorization: "Bearer good" },
+      verify,
+    });
+    expect(second.status).toBe(200);
+    expect(observedTokenAuth).toEqual({ subject: "user-1", claims: { roles: ["reader"] } });
+    expect(Object.hasOwn(context, "tokenAuth")).toBe(false);
   });
 
-  it("accepts a frozen context carrying the Web Bot Auth overlay, and rejects a bare frozen one", async () => {
-    // Bare frozen object: no overlay exists to hold the field, so the request
-    // fails closed rather than dispatching with `tokenAuth` silently absent.
-    // This is the documented difference from `context.agent`.
+  it("accepts frozen contexts with and without Web Bot Auth", async () => {
     const bare = await call(toolsCall, {
       context: Object.freeze({ tenant: "acme" }),
       headers: { authorization: "Bearer good" },
     });
-    expect(bare.status).toBe(500);
-    expect(observedTokenAuth).toBeUndefined();
+    expect(bare.status).toBe(200);
+    expect((observedTokenAuth as { subject: string }).subject).toBe("user-1");
 
-    // With `agents.webBotAuth` configured, `bindAgentContext()` has already
-    // wrapped the frozen context in an extensible overlay, which accepts it.
     const { app, registry } = createHarness({ webBotAuth: true });
     const response = await handlePrachtRequest({
       app,
@@ -624,6 +628,13 @@ describe("manifest validation", () => {
     expect(
       build({ ...BASE_AUTH, resource: `${ORIGIN}/app/agent/mcp` }, "/agent/mcp"),
     ).not.toThrow();
+  });
+
+  it("rejects a trailing slash that changes the exact OAuth resource identifier", () => {
+    expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/mcp/` })).toThrow(/trailing slash/);
+    expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/app/agent/mcp/` }, "/agent/mcp")).toThrow(
+      /trailing slash/,
+    );
   });
 
   it("requires at least one authorization server", () => {

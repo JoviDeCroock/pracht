@@ -349,12 +349,15 @@ export const app = defineApp({
 capabilities and middleware are: the manifest is bundled into the client, and a
 token verifier — with its JWKS client and issuer configuration — must never be.
 `resolveApp()` and `pracht verify` reject a relative `resource`, a `resource`
-carrying a query or fragment, a `resource` whose path does not address the
-served endpoint, a non-loopback cleartext URL, an authorization-server issuer
-with a query or fragment, an empty `authorizationServers`, a scope token that
-would break the challenge header, and a missing `verify`. HTTP is accepted only
-for loopback development (`localhost`, `*.localhost`, `127.0.0.0/8`, or `::1`);
-deployed resource and issuer URLs must use HTTPS.
+carrying a query, fragment, or non-root trailing slash, a `resource` whose path
+does not exactly identify the served endpoint, a non-loopback cleartext URL, an
+authorization-server issuer with a query or fragment, an empty
+`authorizationServers`, a scope token that would break the challenge header,
+and a missing `verify`. HTTP is accepted only for loopback development
+(`localhost`, `*.localhost`, `127.0.0.0/8`, or `::1`); deployed resource and
+issuer URLs must use HTTPS. Use the endpoint's canonical URL: `/mcp/` is not an
+equivalent OAuth resource identifier for `/mcp`, even though routing accepts
+either spelling.
 
 The committed app-graph snapshot records whether the endpoint is OAuth
 protected. `pracht plan` reports enabling protection and marks removing it from
@@ -483,34 +486,34 @@ async run({ context }) {
 ```
 
 It is a frozen snapshot on a non-writable, non-configurable framework-owned
-field. Middleware may derive its own authorization state elsewhere on `context`,
-but cannot rewrite the identity a later capability or audit check sees.
-`tokenAuth` is absent on every other request path; an unauthenticated MCP
-request never reaches application code at all.
+field of a fresh request-local context overlay. Middleware may derive its own
+authorization state elsewhere on `context`, but cannot rewrite the identity a
+later capability or audit check sees. The adapter-supplied base context is left
+unchanged, so reusing it cannot carry one caller's principal into another
+request. `tokenAuth` is absent on every other request path; an unauthenticated
+MCP request never reaches application code at all.
 
 Precisely what happens to the context object:
 
 | Context | Result |
 | --- | --- |
-| Ordinary mutable object (the normal case) | Field defined on it |
-| Same object bound again with an **identical** principal | Accepted; adapters may share one context object |
-| Same object bound with a **different** principal — including the same `subject` carrying different `claims` | `500`, rather than showing the second caller the first one's identity |
+| Ordinary object, class instance, function, or array | Fresh overlay; reads and receiver-sensitive methods still reach the supplied context |
+| Same supplied context reused for another request or principal | Fresh overlay with only that request's principal; the supplied context remains unchanged |
 | Already owns a `tokenAuth` field | `500`; the field is framework-reserved |
-| Frozen or sealed, `agents.webBotAuth` **on** | Accepted — the agent overlay holds the field |
-| Frozen or sealed, `agents.webBotAuth` **off** | `500` with guidance to use a mutable context |
+| Frozen or sealed ordinary context | Accepted through the request-local overlay |
+| Native built-in requiring internal slots, such as `Map` or `Date` | `500` with guidance to wrap it in an ordinary request context |
 
-That last row is a deliberate difference from `context.agent`, which builds an
-overlay proxy for frozen contexts. `agent` binds on every request of every app,
-so it has to tolerate any context shape; `tokenAuth` binds only on authenticated
-MCP dispatch, and stacking a second overlay on the first would nest two proxies
-with delicate receiver semantics for no practical gain.
+The overlay preserves private-field and accessor receivers for class instances,
+keeps array behavior, and composes with the `context.agent` overlay. Native
+built-ins fail closed because a proxy cannot preserve their internal-slot
+identity; wrap one as a property of an ordinary context instead.
 
 `claims` is frozen **shallowly** — its own keys cannot be added, removed, or
 rewritten, but nested values are whatever your verifier returned and stay
 mutable. Deep-freezing would reach into objects your code still owns (a `jose`
-JWT payload, say). The framework never reads `claims`, but it does recompute
-their structural identity before reusing a shared context so a nested mutation
-cannot carry stale authorization state into a later request.
+JWT payload, say). The framework never reads `claims`, and the whole principal
+is request-local, so even a nested mutation cannot carry authorization state
+into a later request through a reused adapter context.
 
 The two identities compose: `context.agent` says *which agent software* signed
 the request, `context.tokenAuth` says *on whose behalf* it is acting.

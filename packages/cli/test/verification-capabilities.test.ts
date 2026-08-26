@@ -1031,6 +1031,24 @@ ${extra}        verify: () => import("${verifyPath}"),
     );
   });
 
+  it("errors on a resource identifier with a trailing slash", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp/",
+        authorizationServers: ["https://auth.example.com"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`);
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("must not carry a trailing slash"),
+        status: "error",
+      }),
+    );
+  });
+
   it("errors when auth is configured without a verify module", () => {
     const checks = runAuthChecks(`  agents: {
     mcp: {

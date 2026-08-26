@@ -86,7 +86,7 @@ export function bindAgentContext<TContext>(
     }
 
     assertOverlayableContext(context);
-    const overlay = immutableAgentContext(context, boundAgent);
+    const overlay = immutableFrameworkContext(context, { agent: boundAgent });
     const binding = { agent: boundAgent, context: overlay };
     boundAgentContexts.set(context, binding);
     boundAgentContexts.set(overlay, binding);
@@ -98,15 +98,44 @@ export function bindAgentContext<TContext>(
 
 type ContextMethod = (...args: unknown[]) => unknown;
 
+const requestContextOverlays = new WeakSet<object>();
+
+/**
+ * Create a fresh request-local view over an adapter-supplied context.
+ *
+ * Reads and receiver-sensitive methods still reach the supplied object, while
+ * framework-owned fields and otherwise-new writes stay on this request's
+ * overlay. This lets adapters reuse a base context without carrying identity
+ * from one request into the next.
+ */
+export function isolateRequestContext<TContext>(context: TContext): TContext {
+  if ((typeof context !== "object" || context === null) && typeof context !== "function") {
+    return context;
+  }
+
+  assertOverlayableContext(context as object | ContextMethod);
+  const overlay = immutableFrameworkContext(context as TContext & (object | ContextMethod), {});
+  requestContextOverlays.add(overlay as object);
+  return overlay as TContext;
+}
+
+/** @internal Whether this context is already a request-local overlay. */
+export function isRequestContextOverlay(context: unknown): boolean {
+  return (
+    ((typeof context === "object" && context !== null) || typeof context === "function") &&
+    requestContextOverlays.has(context as object)
+  );
+}
+
 /**
  * Add framework-owned fields without manufacturing a fake class instance.
  * Copying descriptors onto `Object.create(instancePrototype)` loses private
  * fields. This overlay keeps application writes local while forwarding reads
  * to the original receiver; prototype methods are bound for the same reason.
  */
-function immutableAgentContext<TContext>(
+function immutableFrameworkContext<TContext>(
   context: TContext & (object | ContextMethod),
-  agent: PrachtAgentIdentity | null,
+  frameworkFields: Readonly<Record<string, unknown>>,
 ): TContext & PrachtContextExtensions {
   const prototype = Object.getPrototypeOf(context);
   const materializedContextKeys = new Set<PropertyKey>();
@@ -135,12 +164,15 @@ function immutableAgentContext<TContext>(
     }
   }
   Object.setPrototypeOf(target, prototype);
-  Object.defineProperty(target, "agent", {
-    configurable: false,
-    enumerable: true,
-    value: agent,
-    writable: false,
-  });
+  const reservedFields = new Set(Reflect.ownKeys(frameworkFields));
+  for (const property of reservedFields) {
+    Object.defineProperty(target, property, {
+      configurable: false,
+      enumerable: true,
+      value: frameworkFields[property as string],
+      writable: false,
+    });
+  }
 
   const boundMethods = new WeakMap<ContextMethod, ContextMethod>();
   const contextBoundMethods = new WeakSet<ContextMethod>();
@@ -153,11 +185,11 @@ function immutableAgentContext<TContext>(
       let guarded: ContextMethod;
       guarded = new Proxy(method, {
         apply(target, _thisArg, args) {
-          assertNoInheritedAgentField();
+          assertNoInheritedFrameworkField();
           return Reflect.apply(target, context, args);
         },
         construct(_target, args, newTarget) {
-          assertNoInheritedAgentField();
+          assertNoInheritedFrameworkField();
           return Reflect.construct(method, args, newTarget === guarded ? method : newTarget);
         },
       });
@@ -173,7 +205,7 @@ function immutableAgentContext<TContext>(
     if (!bound) {
       const receiverBound = accessor.bind(context);
       bound = (...args: unknown[]) => {
-        assertNoInheritedAgentField();
+        assertNoInheritedFrameworkField();
         return Reflect.apply(receiverBound, undefined, args);
       };
       boundAccessors.set(accessor, bound);
@@ -285,12 +317,17 @@ function immutableAgentContext<TContext>(
       Reflect.setPrototypeOf(target, contextPrototype)
     );
   };
-  function assertNoInheritedAgentField(): void {
-    if (!Object.prototype.hasOwnProperty.call(context, "agent") && Reflect.has(context, "agent")) {
-      throw new TypeError(
-        "Pracht detected an inherited application-owned agent field after binding the request " +
-          "context. The agent field is reserved for the framework.",
-      );
+  function assertNoInheritedFrameworkField(): void {
+    for (const property of reservedFields) {
+      if (
+        !Object.prototype.hasOwnProperty.call(context, property) &&
+        Reflect.has(context, property)
+      ) {
+        throw new TypeError(
+          `Pracht detected an inherited application-owned ${String(property)} field after binding the request ` +
+            `context. The ${String(property)} field is reserved for the framework.`,
+        );
+      }
     }
   }
   let proxy: TContext & PrachtContextExtensions;
@@ -321,7 +358,7 @@ function immutableAgentContext<TContext>(
         return Reflect.get(target, property, receiver);
       }
 
-      if (property !== "agent") assertNoInheritedAgentField();
+      if (!reservedFields.has(property)) assertNoInheritedFrameworkField();
 
       const value = Reflect.get(context, property, context);
       if (typeof value !== "function" || property === "constructor") return value;
@@ -552,7 +589,7 @@ function assertOverlayableContext(context: object | ContextMethod): void {
   if (!nativeContext) return;
 
   throw new TypeError(
-    `Pracht cannot safely bind agent identity to an immutable [object ${nativeContext}] request context because ` +
+    `Pracht cannot safely create a request-local overlay for an [object ${nativeContext}] request context because ` +
       "an overlay cannot preserve its native internal slots. Wrap the value in a fresh mutable " +
       "request context object.",
   );

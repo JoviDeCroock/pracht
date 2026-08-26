@@ -575,7 +575,13 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
   // the metadata URL from it. Pointing it at a path the app does not serve
   // yields tokens no request can ever present.
   const endpoint = (mcp.path ?? "/mcp").replace(/\/$/, "") || "/";
-  const resourcePath = resource.pathname.replace(/\/$/, "") || "/";
+  const resourcePath = resource.pathname || "/";
+  if (resourcePath.length > 1 && resourcePath.endsWith("/")) {
+    throw new Error(
+      `${label}.resource must not carry a trailing slash. OAuth resource identifiers are ` +
+        `matched exactly; use the endpoint's canonical path ${JSON.stringify(endpoint)}.`,
+    );
+  }
   if (endpoint !== "/" && resourcePath !== endpoint && !resourcePath.endsWith(endpoint)) {
     throw new Error(
       `${label}.resource }) path ${JSON.stringify(resource.pathname)} does not address the MCP ` +

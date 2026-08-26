@@ -114,11 +114,11 @@ commonly misunderstood line of an app's agent surface.
   `warn`, and name which middleware is carrying the whole boundary.
 - `agents.mcp.auth` configured → check it end to end, because a half-configured
   one advertises authentication it does not perform:
-  - `resource` is absolute, has no query or fragment, uses HTTPS outside
-    loopback development, and its path addresses the served endpoint
-    (`resolveApp()` and `pracht verify` reject otherwise, so a failure here
-    means the app does not build). `mcp.path: "/"` legitimately identifies the
-    deployed app root, including its base.
+  - `resource` is absolute, has no query, fragment, or non-root trailing slash,
+    uses HTTPS outside loopback development, and its path exactly identifies
+    the served endpoint (`resolveApp()` and `pracht verify` reject otherwise,
+    so a failure here means the app does not build). `mcp.path: "/"`
+    legitimately identifies the deployed app root, including its base.
   - Every `authorizationServers` entry is an HTTPS issuer without a query or
     fragment (loopback HTTP is development-only). Anything else is an invalid
     RFC 8414 issuer and must be an `error`.

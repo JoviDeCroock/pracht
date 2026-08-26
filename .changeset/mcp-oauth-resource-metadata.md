@@ -7,5 +7,7 @@ Add `agents.mcp.auth`: OAuth 2.0 resource-server metadata and bearer-token
 challenges for the remote MCP endpoint.
 
 Configuring it publishes RFC 9728 metadata, challenges unauthenticated requests,
-and surfaces the principal from your server-only verifier as `context.tokenAuth`.
-Apps that omit `auth` are unchanged.
+and surfaces the principal from your server-only verifier as request-local
+`context.tokenAuth`. Resource URLs now reject non-root trailing slashes, and a
+throwing verifier is logged once while still failing closed. Apps that omit
+`auth` are unchanged.
