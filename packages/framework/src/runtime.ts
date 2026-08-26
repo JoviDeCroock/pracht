@@ -1174,7 +1174,13 @@ export async function handlePrachtRequest<TContext>(
                   }
                 : undefined,
             cssUrls,
-            modulePreloadUrls,
+            // Buffered documents expose the client entry through their script
+            // immediately, so the build manifest only lists its dependencies.
+            // This script lives at the end of a streamed document; preload the
+            // entry itself so deferred work does not also delay its download.
+            modulePreloadUrls: options.clientEntryUrl
+              ? [...new Set([options.clientEntryUrl, ...modulePreloadUrls])]
+              : modulePreloadUrls,
             speculationRules: getAppSpeculationRules(resolvedApp),
           });
 

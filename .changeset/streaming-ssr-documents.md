@@ -1,5 +1,6 @@
 ---
 "@pracht/core": minor
+"@pracht/cli": patch
 ---
 
 Add opt-in streaming SSR documents via `streaming: true`.
@@ -11,3 +12,4 @@ hydrates after streamed content and `beforeHydration` scripts without reserving
 any user data shape. Rejections after the first flush surface at the read site
 instead of failing the response. Off by default; rejected for prerendered and
 non-full hydration modes. Streaming requires `preact-render-to-string` 6.7 or newer.
+Inspection and MCP route graphs expose each route's effective streaming mode.

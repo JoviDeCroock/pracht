@@ -262,6 +262,8 @@ describe("streaming SSR documents", () => {
     expect(shimIndex).toBeGreaterThan(-1);
     expect(valueIndex).toBeGreaterThan(shimIndex);
     expect(valueIndex).toBeLessThan(html.indexOf('src="/assets/client.js"'));
+    expect(html).toContain('<link rel="modulepreload" href="/assets/client.js">');
+    expect(html.indexOf('rel="modulepreload" href="/assets/client.js"')).toBeLessThan(valueIndex);
     expect(html).toContain('<script type="module" src="/assets/client.js"></script>');
   });
 

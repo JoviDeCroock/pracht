@@ -86,7 +86,7 @@ when the client started it from the project directory.
 
 | Tool | Inputs | Returns |
 | --- | --- | --- |
-| `inspect_routes` | `cwd?` | Resolved page routes: path, id, render mode, hydration mode, prefetch strategy, speculation rules, shell, middleware, loader file, plus `notFound` (or `null`). Unset options serialize as `null` |
+| `inspect_routes` | `cwd?` | Resolved page routes: path, id, render mode, hydration mode, streaming mode, prefetch strategy, speculation rules, shell, middleware, loader file, plus `notFound` (or `null`). Unset options serialize as `null` |
 | `inspect_api` | `cwd?` | Resolved API routes: endpoint path, source file, exported HTTP methods, `hasDefaultHandler` |
 | `inspect_capabilities` | `cwd?` | Registered capabilities: name, effect class, exposure transports, HTTP path, middleware, source file, input/output JSON Schemas, plus `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons` |
 | `inspect_agents` | `cwd?` | Configured agent surface: Web Bot Auth policy/keys, confirmation mode, remote MCP endpoint, `llms.txt`, per-capability transports and exposure counts |
