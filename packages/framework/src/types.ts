@@ -822,7 +822,13 @@ export interface McpTokenPrincipal {
   scopes?: readonly string[];
   /** OAuth client the token was issued to, when the app can determine it. */
   clientId?: string | null;
-  /** Anything else the app wants downstream; must be JSON-serializable. */
+  /**
+   * Anything else the app wants downstream. Frozen **shallowly**: own keys are
+   * locked, nested values are whatever the verifier returned. Keep it
+   * JSON-serializable — a context object reused across requests compares
+   * principals by their serialized form, and an unserializable claim makes that
+   * comparison fail closed.
+   */
   claims?: Readonly<Record<string, unknown>>;
 }
 

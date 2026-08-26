@@ -243,20 +243,36 @@ export async function authenticateMcpRequest(options: {
  */
 export function readBearerToken(header: string | null): string | null {
   if (!header) return null;
-  const match = /^\s*Bearer\s*(.*)$/i.exec(header);
+  // RFC 7235: `credentials = auth-scheme [ 1*SP token68 ]`. At least one space
+  // is required, so `Bearerabc` is a different (unknown) scheme, not a token —
+  // matching it would let an unparseable header look like a rejected one.
+  const match = /^\s*Bearer(?:\s+(.*))?$/i.exec(header);
   if (!match) return null;
-  return match[1].trim();
+  return (match[1] ?? "").trim();
 }
 
 /**
  * A hook can return anything at runtime. Accept only a well-formed principal
  * and freeze it, so what reaches `context.tokenAuth` is a snapshot no later
  * code can mutate into a different identity.
+ *
+ * `claims` is frozen **shallowly**: its own keys cannot be added, removed, or
+ * rewritten, but nested values are whatever the verifier returned and stay
+ * mutable. Deep-freezing would reach into objects the application still owns
+ * (a `jose` JWT payload, say). The framework never reads `claims`, so this only
+ * affects application code, and the documentation says so.
  */
 function normalizePrincipal(value: unknown): McpTokenPrincipal | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<McpTokenPrincipal>;
   if (typeof candidate.subject !== "string" || candidate.subject === "") return null;
+  if (
+    candidate.clientId !== undefined &&
+    candidate.clientId !== null &&
+    typeof candidate.clientId !== "string"
+  ) {
+    return null;
+  }
 
   const scopes =
     candidate.scopes === undefined
@@ -269,7 +285,7 @@ function normalizePrincipal(value: unknown): McpTokenPrincipal | null {
   const claims =
     candidate.claims === undefined
       ? undefined
-      : candidate.claims && typeof candidate.claims === "object"
+      : candidate.claims && typeof candidate.claims === "object" && !Array.isArray(candidate.claims)
         ? Object.freeze({ ...candidate.claims })
         : null;
   if (claims === null) return null;
@@ -280,6 +296,62 @@ function normalizePrincipal(value: unknown): McpTokenPrincipal | null {
     ...(candidate.clientId === undefined ? {} : { clientId: candidate.clientId ?? null }),
     ...(claims ? { claims } : {}),
   }) as McpTokenPrincipal;
+}
+
+const principalIdentityKeys = new WeakMap<McpTokenPrincipal, string | null>();
+
+/**
+ * A stable string identity for a principal, so two structurally identical
+ * principals from two requests compare equal.
+ *
+ * Reference equality is not usable here: `normalizePrincipal()` builds a fresh
+ * frozen object per request, so the same user presenting the same token twice
+ * would look like two different callers. Claims are part of the identity, not
+ * just `subject` — returning the first request's context for a second token
+ * with different claims would show a capability stale claim data.
+ *
+ * `null` means "cannot be compared" (a claim value that is not JSON-encodable,
+ * or a cycle). Callers treat that as never-equal, which fails closed.
+ */
+function principalIdentityKey(principal: McpTokenPrincipal): string | null {
+  const cached = principalIdentityKeys.get(principal);
+  if (cached !== undefined) return cached;
+
+  let key: string | null;
+  try {
+    key = stableJson([
+      principal.subject,
+      principal.clientId ?? null,
+      principal.scopes ? [...principal.scopes] : null,
+      principal.claims ?? null,
+    ]);
+  } catch {
+    key = null;
+  }
+  principalIdentityKeys.set(principal, key);
+  return key;
+}
+
+/** JSON with object keys in a fixed order, so equal data yields equal text. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, raw: unknown) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return raw;
+    const record = raw as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) sorted[key] = record[key];
+    return sorted;
+  });
+}
+
+/** Whether two principals are the same caller carrying the same claims. */
+function sameTokenPrincipal(
+  left: McpTokenPrincipal | null,
+  right: McpTokenPrincipal | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  const leftKey = principalIdentityKey(left);
+  return leftKey !== null && leftKey === principalIdentityKey(right);
 }
 
 /**
@@ -330,14 +402,26 @@ export async function loadMcpTokenVerifier(
 const boundTokenContexts = new WeakMap<object, McpTokenPrincipal | null>();
 
 /**
- * Bind the verified principal onto the request context as `context.tokenAuth`.
+ * Bind the verified principal onto the request context as `context.tokenAuth`:
+ * a frozen snapshot on a non-writable, non-configurable framework-owned field.
+ * Middleware may derive its own authorization state elsewhere on `context`, but
+ * cannot rewrite the identity a later capability or audit check sees.
  *
- * Mirrors the `context.agent` contract: a frozen snapshot on a non-writable,
- * non-configurable framework-owned field, so middleware may derive its own
- * authorization state elsewhere on `context` but cannot rewrite the identity a
- * later capability or audit check sees. Rebinding one context object to a
- * different principal — which would mean an adapter reused a context across
- * requests — throws rather than leaking the previous caller's identity.
+ * A context object that is bound twice — an adapter with a
+ * `createContext: () => sharedObject` factory, which is legal — is fine as long
+ * as both requests carry the *same* principal: the already-bound context is
+ * returned unchanged, because the value is indistinguishable. A second, different
+ * principal throws instead of silently serving the first caller's identity,
+ * since the field is non-configurable and cannot be rebound.
+ *
+ * Deliberate difference from `bindAgentContext()`: a frozen or sealed *plain*
+ * context throws here rather than getting an overlay proxy. `context.agent` is
+ * bound on every request of every app, so it must tolerate any context shape;
+ * this runs only on authenticated MCP dispatch, and an overlay stacked on top of
+ * the agent overlay would nest two proxies with delicate receiver semantics for
+ * no practical gain. Frozen contexts under `agents.webBotAuth` already carry the
+ * agent overlay, which accepts the field, so the throw is narrow. The docs say
+ * exactly this.
  *
  * Callers turn a throw into a 500. Failing the request is the only safe answer:
  * a capability that reads `context.tokenAuth` would otherwise run with the
@@ -353,7 +437,7 @@ export function bindMcpTokenContext<TContext>(
 
   const target = context as unknown as object;
   if (boundTokenContexts.has(target)) {
-    if (boundTokenContexts.get(target) === principal) return context;
+    if (sameTokenPrincipal(boundTokenContexts.get(target) ?? null, principal)) return context;
     throw new TypeError(
       "Pracht request contexts cannot be reused across different verified token principals. " +
         "Create a fresh context for each request.",

@@ -186,7 +186,11 @@ Rules to hold the user to:
 
 - **`verify` is a module reference, never an inline function.** The manifest is
   bundled into the client; a JWKS client in it would ship to every visitor.
-  Put the module in `src/server/`, default-export the verifier.
+  Put the module in `src/server/`, default-export the verifier. It must live
+  under `src/server/`, `src/middleware/`, or `src/capabilities/` — those are the
+  only directories the build globs into the module registry, and a verifier
+  anywhere else is never loadable, so every `/mcp` request 401s forever.
+  `pracht verify` errors on that, but do not create the file elsewhere.
 - **Pracht is not an authorization server.** Do not offer to implement token
   issuance, refresh, or dynamic client registration — those belong to the
   user's identity provider. Write `verify` with their library (`jose` works on
@@ -197,8 +201,15 @@ Rules to hold the user to:
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
   and `run()` for per-user authorization; the framework only authenticates.
-- `resource` must be absolute, free of query/fragment, and its path must address
-  the served endpoint — `resolveApp()` and `pracht verify` reject otherwise.
+  `claims` is frozen shallowly. The capability audit event does not carry it
+  yet, so read it in your own audit hook if MCP calls must be attributable to
+  an account.
+- `resource` must be the endpoint's **real deployed URL**: absolute, free of
+  query/fragment, and ending with the served endpoint path — deploy base
+  included, e.g. `https://app.example.com/app/mcp` for an app mounted at
+  `/app/`. `resolveApp()` and `pracht verify` reject otherwise. The metadata
+  document then lands at the origin root with the base inside the suffix
+  (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it.
 
 See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
 

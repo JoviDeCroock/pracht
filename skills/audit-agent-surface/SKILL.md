@@ -119,6 +119,10 @@ commonly misunderstood line of an app's agent surface.
     failure here means the app does not build).
   - `verify` is a **module reference**, not an inline function. An inline
     function ships the token verifier to every browser visitor — `error`.
+  - The `verify` module lives under `src/server/`, `src/middleware/`, or
+    `src/capabilities/`. Those are the only directories globbed into the module
+    registry; a verifier anywhere else is never loadable and every `/mcp`
+    request 401s forever with a config that looks correct — `error`.
   - Open the `verify` module and confirm it binds the token **audience** to the
     `resource` value. Without that check, a token minted by the same issuer for
     a different service authenticates here — `error`.
@@ -127,9 +131,19 @@ commonly misunderstood line of an app's agent surface.
     a `warn`: every valid token reaches every tool.
   - Capabilities reading `context.tokenAuth` must tolerate its absence on other
     transports — it is only set on authenticated MCP dispatch.
+  - Under a deploy base, `resource` must carry the base
+    (`https://app.example.com/app/mcp`). Report the metadata URL the app
+    actually publishes — origin root, base inside the suffix
+    (`/.well-known/oauth-protected-resource/app/mcp`) — and fetch it to confirm
+    it answers, because a wrong `resource` yields a challenge nobody can follow.
 - `/.well-known/oauth-protected-resource` is intentionally public and CORS-open.
   It carries only the resource identifier, issuer URLs, and scope names; flag it
   only if a scope name leaks something (internal tenant or customer names).
+- Audit gap to record, not to fix: `CapabilityAuditEvent` carries the Web Bot
+  Auth `agent`, never `context.tokenAuth`, so audited MCP dispatches name the
+  calling software but not the account. `info` unless the app's compliance story
+  depends on per-account attribution, in which case `warn` and point at the
+  app's own audit hook.
 
 ## Step 3: The destructive gate
 

@@ -974,3 +974,160 @@ describe("collectCapabilityChecks", () => {
     );
   });
 });
+
+/**
+ * `agents.mcp.auth` is the OAuth resource-server config. These checks are
+ * static, so the rule is: never hard-error on a manifest that works at runtime,
+ * and never green-light one that cannot.
+ */
+describe("collectCapabilityChecks: agents.mcp.auth", () => {
+  function runAuthChecks(agentsBlock: string, verifyFile = "src/server/mcp-token.ts"): Check[] {
+    const project = createProject({
+      capability: capabilitySource(COMPLETE_FIELDS),
+      middlewareBlock: agentsBlock,
+    });
+    if (verifyFile) {
+      mkdirSync(join(project.root, verifyFile.replace(/\/[^/]*$/, "")), { recursive: true });
+      writeFileSync(join(project.root, verifyFile), "export default () => null;\n", "utf-8");
+    }
+    const checks: Check[] = [];
+    collectCapabilityChecks(project, checks);
+    return checks;
+  }
+
+  const authBlock = (extra = "", verifyPath = "./server/mcp-token.ts") => `  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+${extra}        verify: () => import("${verifyPath}"),
+      },
+    },
+  },`;
+
+  it("passes a complete auth config", () => {
+    const checks = runAuthChecks(authBlock());
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("OAuth 2.0 protected resource"),
+    );
+  });
+
+  it("errors on a relative resource identifier", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        resource: "/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`);
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("is not an absolute URL"),
+        status: "error",
+      }),
+    );
+  });
+
+  it("errors when auth is configured without a verify module", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+      },
+    },
+  },`);
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("without a `verify` module"),
+        status: "error",
+      }),
+    );
+  });
+
+  // A spread can carry `verify` in from a shared constant. Verification cannot
+  // follow it, and a hard error on a config that works at runtime is worse than
+  // no check at all.
+  it("stays silent when the auth literal spreads a value it cannot read", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        ...sharedAuth,
+        requiredScopes: ["notes.read"],
+      },
+    },
+  },`);
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+  });
+
+  it("still checks a verify path that survives a spread", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      auth: {
+        ...sharedAuth,
+        verify: () => import("./server/nope.ts"),
+      },
+    },
+  },`);
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('references missing file "./server/nope.ts"'),
+        status: "error",
+      }),
+    );
+  });
+
+  // The runtime resolves the verifier from registries globbed from three
+  // directories. A file that exists elsewhere is never registered, so every
+  // /mcp request would answer 401 with a config that looks correct.
+  it("errors when the verify module sits outside the registered directories", () => {
+    const checks = runAuthChecks(authBlock("", "./lib/mcp-token.ts"), "src/lib/mcp-token.ts");
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("outside the directories the build registers"),
+        status: "error",
+      }),
+    );
+  });
+
+  it("accepts a verify module in the middleware or capabilities directories", () => {
+    for (const [ref, file] of [
+      ["./middleware/mcp-token.ts", "src/middleware/mcp-token.ts"],
+      ["./capabilities/mcp-token.ts", "src/capabilities/mcp-token.ts"],
+    ] as const) {
+      const checks = runAuthChecks(authBlock("", ref), file);
+      expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    }
+  });
+
+  // Reads as protected, is read by nothing — the endpoint stays wide open.
+  it("errors on auth placed directly under agents, even alongside an mcp block", () => {
+    for (const agentsBlock of [
+      `  agents: {
+    auth: { resource: "https://app.example.com/mcp" },
+  },`,
+      `  agents: {
+    mcp: { path: "/mcp" },
+    auth: { resource: "https://app.example.com/mcp" },
+  },`,
+    ]) {
+      const checks = runAuthChecks(agentsBlock, "");
+      expect(checks).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("defineApp({ agents.auth }) is not a thing"),
+          status: "error",
+        }),
+      );
+    }
+  });
+
+  it("says nothing about auth when the app configures none", () => {
+    const checks = runAuthChecks("  agents: { mcp: {} },", "");
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("agents.mcp.auth"),
+    );
+  });
+});

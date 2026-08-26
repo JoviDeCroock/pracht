@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
 import { defineApp, handlePrachtRequest, resolveApp, route } from "../src/index.ts";
@@ -49,6 +49,8 @@ interface HarnessOptions {
   /** Register no verify module at all, to prove the endpoint fails closed. */
   omitVerifyModule?: boolean;
   mcpPath?: string;
+  /** Also configure Web Bot Auth, which wraps frozen contexts in an overlay. */
+  webBotAuth?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -61,7 +63,10 @@ function createHarness(options: HarnessOptions = {}) {
     });
 
   const app = defineApp({
-    agents: { mcp: { ...(options.mcpPath ? { path: options.mcpPath } : {}), auth } },
+    agents: {
+      ...(options.webBotAuth ? { webBotAuth: { policy: "observe" as const } } : {}),
+      mcp: { ...(options.mcpPath ? { path: options.mcpPath } : {}), auth },
+    },
     capabilities: { "token.probe": "./capabilities/token-probe.ts" },
     routes: [route("/", "./routes/home.tsx")],
   });
@@ -250,14 +255,20 @@ describe("WWW-Authenticate challenges", () => {
   });
 
   it("ignores a non-Bearer scheme and challenges for one", async () => {
-    const { status, response } = await call(toolsCall, {
-      headers: { authorization: "Basic dXNlcjpwYXNz" },
-    });
-    expect(status).toBe(401);
-    expect(response.headers.get("www-authenticate")).toBe(
-      `Bearer resource_metadata="${ORIGIN}${METADATA_PATH}"`,
-    );
-    expect(verifyCalls).toEqual([]);
+    for (const authorization of [
+      "Basic dXNlcjpwYXNz",
+      // RFC 7235 requires at least one space after the scheme; without it this
+      // is an unknown scheme, not a Bearer credential with a broken token.
+      "Bearergood",
+      "BearerToken abc",
+    ]) {
+      const { status, response } = await call(toolsCall, { headers: { authorization } });
+      expect(status).toBe(401);
+      expect(response.headers.get("www-authenticate")).toBe(
+        `Bearer resource_metadata="${ORIGIN}${METADATA_PATH}"`,
+      );
+      expect(verifyCalls).toEqual([]);
+    }
   });
 
   it("answers 403 insufficient_scope when the token lacks a required scope", async () => {
@@ -443,6 +454,83 @@ describe("principal surfacing", () => {
     expect(second.status).toBe(500);
   });
 
+  // `createContext: () => sharedObject` is a legal adapter shape. Reference
+  // equality on the normalized principal would 500 every request after the
+  // first, because each request builds a fresh frozen snapshot.
+  it("allows a reused context when the principal is structurally identical", async () => {
+    const context: Record<string, unknown> = { tenant: "acme" };
+    const verify: McpTokenVerifier = () => ({
+      subject: "user-1",
+      scopes: ["notes.read"],
+      clientId: "cli",
+      claims: { org: { id: 7 }, roles: ["admin"] },
+    });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const { status } = await call(toolsCall, {
+        context,
+        verify,
+        headers: { authorization: "Bearer good" },
+      });
+      expect(status).toBe(200);
+      expect((observedTokenAuth as { subject: string }).subject).toBe("user-1");
+    }
+  });
+
+  it("still fails closed when a reused context sees the same subject with different claims", async () => {
+    const context: Record<string, unknown> = {};
+    const first = await call(toolsCall, {
+      context,
+      headers: { authorization: "Bearer good" },
+      verify: () => ({ subject: "user-1", claims: { jti: "a" } }),
+    });
+    expect(first.status).toBe(200);
+
+    // Stale claims would otherwise be handed to the second request's capability.
+    const second = await call(toolsCall, {
+      context,
+      headers: { authorization: "Bearer good" },
+      verify: () => ({ subject: "user-1", claims: { jti: "b" } }),
+    });
+    expect(second.status).toBe(500);
+  });
+
+  it("accepts a frozen context carrying the Web Bot Auth overlay, and rejects a bare frozen one", async () => {
+    // Bare frozen object: no overlay exists to hold the field, so the request
+    // fails closed rather than dispatching with `tokenAuth` silently absent.
+    // This is the documented difference from `context.agent`.
+    const bare = await call(toolsCall, {
+      context: Object.freeze({ tenant: "acme" }),
+      headers: { authorization: "Bearer good" },
+    });
+    expect(bare.status).toBe(500);
+    expect(observedTokenAuth).toBeUndefined();
+
+    // With `agents.webBotAuth` configured, `bindAgentContext()` has already
+    // wrapped the frozen context in an extensible overlay, which accepts it.
+    const { app, registry } = createHarness({ webBotAuth: true });
+    const response = await handlePrachtRequest({
+      app,
+      context: Object.freeze({ tenant: "acme" }),
+      registry,
+      request: new Request(`${ORIGIN}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer good" },
+        body: JSON.stringify(toolsCall),
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect((observedTokenAuth as { subject: string }).subject).toBe("user-1");
+  });
+
+  it("rejects a principal whose clientId is not a string", async () => {
+    const { status } = await call(toolsCall, {
+      headers: { authorization: "Bearer good" },
+      verify: () => ({ subject: "user-1", clientId: 42 }) as never,
+    });
+    expect(status).toBe(401);
+  });
+
   it("passes the transport request to the verify hook", async () => {
     let seenUrl: string | undefined;
     await call(toolsCall, {
@@ -480,7 +568,9 @@ describe("manifest validation", () => {
     expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/mcp` }, "/agent/mcp")).toThrow(
       /does not address the MCP endpoint/,
     );
-    // A deploy base in front of the endpoint path is fine.
+    // A deploy base belongs in front of the endpoint path: the resource is the
+    // endpoint's real deployed URL, base included. RFC 9728 then puts the
+    // document at the origin root with the base inside the suffix.
     expect(
       build({ ...BASE_AUTH, resource: `${ORIGIN}/app/agent/mcp` }, "/agent/mcp"),
     ).not.toThrow();
@@ -514,5 +604,113 @@ describe("zero cost when unconfigured", () => {
     expect(status).toBe(200);
     expect(json?.result?.tools?.[0]?.name).toBe("token_probe");
     expect(response.headers.get("www-authenticate")).toBeNull();
+  });
+});
+
+/**
+ * RFC 9728 §3.1 inserts the well-known segment between the host and the
+ * resource's path, so an app deployed under `/app/` publishes at the **origin
+ * root** — `/.well-known/oauth-protected-resource/app/mcp` — with the base
+ * inside the suffix rather than in front of it. That URL is outside the deploy
+ * base by construction, so it has to be recognised before `stripBase()`, which
+ * answers `null` for it and would otherwise 404 the exact URL the challenge
+ * tells hosts to fetch.
+ */
+describe("under a deploy base", () => {
+  const BASE = "/app/";
+  const BASED_AUTH: McpAuthConfig = {
+    resource: `${ORIGIN}/app/mcp`,
+    authorizationServers: ["https://auth.example"],
+    verify: "./server/mcp-token.ts",
+  };
+
+  async function loadUnderBase() {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", BASE);
+    const core = await import("../src/index.ts");
+    const app = core.defineApp({
+      agents: { mcp: { auth: BASED_AUTH } },
+      capabilities: { "token.probe": "./capabilities/token-probe.ts" },
+      routes: [core.route("/", "./routes/home.tsx")],
+    });
+    const registry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./capabilities/token-probe.ts": async () => ({ default: tokenProbe }),
+      },
+      dataModules: {
+        "./server/mcp-token.ts": async () => ({
+          default: (token: string) => (token === "good" ? { subject: "user-1" } : null),
+        }),
+      },
+    } as unknown as ModuleRegistry;
+
+    const fetchPath = (path: string, init?: RequestInit) =>
+      core.handlePrachtRequest({
+        app,
+        registry,
+        request: new Request(`${ORIGIN}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(toolsCall),
+          ...init,
+        }),
+      });
+
+    return { fetchPath };
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("advertises a metadata URL that is actually fetchable", async () => {
+    const { fetchPath } = await loadUnderBase();
+
+    const challenged = await fetchPath("/app/mcp");
+    expect(challenged.status).toBe(401);
+    const challenge = challenged.headers.get("www-authenticate") ?? "";
+    const advertised = /resource_metadata="([^"]+)"/.exec(challenge)?.[1];
+    expect(advertised).toBe(`${ORIGIN}/.well-known/oauth-protected-resource/app/mcp`);
+
+    // The point of the fix: fetch exactly what the challenge advertised.
+    const metadata = await fetchPath(new URL(advertised!).pathname, {
+      method: "GET",
+      body: undefined,
+    });
+    expect(metadata.status).toBe(200);
+    expect(await metadata.json()).toEqual({
+      resource: `${ORIGIN}/app/mcp`,
+      authorization_servers: ["https://auth.example"],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
+  it("also answers the bare well-known root at the origin root", async () => {
+    const { fetchPath } = await loadUnderBase();
+    const response = await fetchPath("/.well-known/oauth-protected-resource", {
+      method: "GET",
+      body: undefined,
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("tolerates a proxy that re-prefixes the base onto the well-known path", async () => {
+    const { fetchPath } = await loadUnderBase();
+    const response = await fetchPath("/app/.well-known/oauth-protected-resource/app/mcp", {
+      method: "GET",
+      body: undefined,
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("still serves and guards the endpoint itself under the base", async () => {
+    const { fetchPath } = await loadUnderBase();
+    const authorized = await fetchPath("/app/mcp", {
+      headers: { "content-type": "application/json", authorization: "Bearer good" },
+    });
+    expect(authorized.status).toBe(200);
+    expect((await authorized.json()).result.structuredContent).toEqual({ subject: "user-1" });
   });
 });

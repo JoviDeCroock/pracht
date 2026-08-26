@@ -190,9 +190,18 @@ presented token to an application-supplied `verify` module.
 Pracht stays the resource server. It does not validate JWTs, fetch JWKS, or
 issue tokens — the design rule is *define the authentication hook first, ship
 deployment recipes before owning an authorization server*. The verified
-principal lands on `context.tokenAuth` under the same immutable-snapshot rules
-as `context.agent` above, and the two compose: `agent` is the caller's software
+principal lands on `context.tokenAuth` as a frozen snapshot on a non-writable,
+non-configurable framework-owned field, the same shape as `context.agent` above.
+It differs in one place: a frozen or sealed context that is *not* already
+carrying the Web Bot Auth overlay fails the request with a 500 instead of
+getting an overlay of its own — `agent` binds on every request of every app and
+must tolerate any context shape, while `tokenAuth` binds only on authenticated
+MCP dispatch. The two identities compose: `agent` is the caller's software
 identity, `tokenAuth` is the account it acts for.
+
+`CapabilityAuditEvent` does not yet carry `tokenAuth`, so an audited MCP
+dispatch names the calling software but not the account behind it. Read the
+principal in your own audit hook until the event gains a field for it.
 
 Full configuration, the metadata document, the challenge table, the JWKS recipe,
 and the fail-closed rules live in

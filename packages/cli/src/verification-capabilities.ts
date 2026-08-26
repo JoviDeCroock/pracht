@@ -1,4 +1,9 @@
-import { dirname, resolve } from "node:path";
+import {
+  dirname,
+  isAbsolute as isAbsolutePath,
+  relative as relativePath,
+  resolve,
+} from "node:path";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import {
@@ -16,8 +21,8 @@ import {
   extractCapabilityRegistrations,
   extractDefineAppObjectBody,
   extractDefineCapabilityArgs,
-  maskCommentsAndStrings,
   findTopLevelObjectProperty,
+  maskCommentsAndStrings,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 
@@ -293,24 +298,31 @@ function collectMcpAuthChecks(
   checks: Check[],
 ): void {
   const agentsBody = findTopLevelObjectProperty(manifestSource, "agents");
-  const mcpBody = agentsBody && findTopLevelObjectProperty(agentsBody, "mcp");
-  const authBody = mcpBody && findTopLevelObjectProperty(mcpBody, "auth");
-  if (!authBody) {
-    // An `auth` block outside a `mcp` block is the one shape that is definitely
-    // wrong: nothing reads it, so the endpoint stays open while the manifest
-    // reads as protected.
-    if (agentsBody && !mcpBody && findTopLevelObjectProperty(agentsBody, "auth")) {
-      checks.push(
-        createCheck(
-          "error",
-          "defineApp({ agents.auth }) is not a thing. OAuth resource-server config belongs to the " +
-            "remote MCP endpoint: move it to `agents: { mcp: { auth: { … } } }`, which is also " +
-            "what enables the endpoint in the first place.",
-        ),
-      );
-    }
-    return;
+  if (!agentsBody) return;
+
+  // `auth` as a direct key of `agents` reads as protected and is read by
+  // nothing — the endpoint stays wide open. Checked via a top-level property
+  // scan rather than `findTopLevelObjectProperty`, which searches the whole
+  // body and would also find the legitimate `mcp: { auth: … }` nested inside.
+  if (scanTopLevelProperties(agentsBody).has("auth")) {
+    checks.push(
+      createCheck(
+        "error",
+        "defineApp({ agents.auth }) is not a thing. OAuth resource-server config belongs to the " +
+          "remote MCP endpoint: move it to `agents: { mcp: { auth: { … } } }`, which is also " +
+          "what enables the endpoint in the first place.",
+      ),
+    );
   }
+
+  const mcpBody = findTopLevelObjectProperty(agentsBody, "mcp");
+  const authBody = mcpBody && findTopLevelObjectProperty(mcpBody, "auth");
+  if (!authBody) return;
+
+  // A spread can carry `verify` (or `resource`) in from a shared constant. This
+  // analyzer cannot follow it, and a verify *error* on a config that works at
+  // runtime is worse than no check at all — so anything unprovable stays quiet.
+  const authIsPartlyOpaque = /\.\.\./.test(maskCommentsAndStrings(authBody));
 
   const properties = scanTopLevelProperties(authBody);
   const resource = evaluateLiteral(properties.get("resource") ?? "");
@@ -345,14 +357,16 @@ function collectMcpAuthChecks(
       authBody,
     );
   if (!verifyMatch) {
-    checks.push(
-      createCheck(
-        "error",
-        "agents.mcp.auth is configured without a `verify` module. The endpoint would advertise " +
-          "authentication it never performs — add " +
-          '`verify: () => import("./server/mcp-token.ts")` whose default export verifies a bearer token.',
-      ),
-    );
+    if (!authIsPartlyOpaque) {
+      checks.push(
+        createCheck(
+          "error",
+          "agents.mcp.auth is configured without a `verify` module. The endpoint would advertise " +
+            "authentication it never performs — add " +
+            '`verify: () => import("./server/mcp-token.ts")` whose default export verifies a bearer token.',
+        ),
+      );
+    }
     return;
   }
 
@@ -370,9 +384,34 @@ function collectMcpAuthChecks(
     return;
   }
 
+  // The runtime resolves the verifier from the registry, and the Vite plugin
+  // only globs three directories into it. A module that exists but sits outside
+  // all three is never registered, so every /mcp request answers 401 forever —
+  // with a config that looks correct and a file that is right there.
+  const registryDirs = [project.serverDir, project.middlewareDir, project.capabilitiesDir];
+  const inRegistry = registryDirs.some((dir) => isInsideDirectory(project.root, dir, filePath));
+  if (!inRegistry) {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify module ${JSON.stringify(verifyPath)} is outside the directories ` +
+          `the build registers (${registryDirs.join(", ")}), so the runtime can never load it and ` +
+          `every /mcp request would answer 401. Move it to ${project.serverDir}/.`,
+      ),
+    );
+    return;
+  }
+
   checks.push(
     createCheck("ok", "Remote MCP endpoint is an OAuth 2.0 protected resource (RFC 9728)."),
   );
+}
+
+/** Whether an absolute file path sits inside a project-relative directory. */
+function isInsideDirectory(root: string, dir: string, filePath: string): boolean {
+  const absoluteDir = resolveProjectPath(root, dir);
+  const relative = relativePath(absoluteDir, filePath);
+  return relative !== "" && !relative.startsWith("..") && !isAbsolutePath(relative);
 }
 
 /**

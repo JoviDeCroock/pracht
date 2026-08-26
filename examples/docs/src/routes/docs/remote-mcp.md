@@ -231,7 +231,17 @@ curl -s https://app.example.com/.well-known/oauth-protected-resource/mcp
 }
 ```
 
-The body is byte-stable across requests. The bare `/.well-known/oauth-protected-resource` answers with the same document, because hosts in the wild probe either form. `bearer_methods_supported` is always `["header"]`: pracht reads the `Authorization` header and nothing else — never a form field or query parameter. An explicit API route file at the same path still wins, so an app that wants to serve its own document can.
+The body is byte-stable across requests. The bare `/.well-known/oauth-protected-resource` answers with the same document, because hosts in the wild probe either form. `bearer_methods_supported` is always `["header"]`: pracht reads the `Authorization` header and nothing else — never a form field or query parameter.
+
+**Under a deploy base, the document is still at the origin root.** RFC 9728 inserts the well-known segment between the host and the resource's path, so the base ends up *inside* the suffix rather than in front of it. An app mounted at `/app/` whose endpoint is `https://app.example.com/app/mcp` publishes at:
+
+```text
+https://app.example.com/.well-known/oauth-protected-resource/app/mcp
+```
+
+That is what the challenge advertises and what the runtime serves — the path is matched before base stripping, precisely so the advertised URL is fetchable. Set `resource` to the endpoint's real deployed URL, base included; pracht derives the rest. A reverse proxy that re-prefixes the base onto the well-known path is tolerated too.
+
+Because the match happens before routing, an application route cannot shadow the document.
 
 ### The Challenge
 
@@ -282,7 +292,7 @@ The hook **fails closed**. Returning `null`, throwing, or returning anything tha
 
 ### The Verified Principal
 
-The principal is bound to the request context as `context.tokenAuth`, mirroring how [`context.agent`](/docs/agent-trust) carries Web Bot Auth identity:
+The principal is bound to the request context as `context.tokenAuth`, alongside [`context.agent`](/docs/agent-trust):
 
 ```ts
 async run({ context }) {
@@ -290,9 +300,24 @@ async run({ context }) {
 }
 ```
 
-It is a frozen snapshot on a non-writable, non-configurable framework-owned field. Middleware may derive its own authorization state elsewhere on `context`, but cannot rewrite the identity a later capability or audit check sees. A context that already owns a `tokenAuth` field, is frozen, or is reused across two different principals fails the request with a 500 rather than silently dispatching unauthenticated. `tokenAuth` is absent on every other request path; an unauthenticated MCP request never reaches application code at all.
+It is a frozen snapshot on a non-writable, non-configurable framework-owned field. Middleware may derive its own authorization state elsewhere on `context`, but cannot rewrite the identity a later capability or audit check sees. `tokenAuth` is absent on every other request path; an unauthenticated MCP request never reaches application code at all.
 
-The two identities compose: `context.agent` says *which agent software* signed the request, `context.tokenAuth` says *on whose behalf* it is acting.
+Precisely what happens to the context object:
+
+| Context | Result |
+| --- | --- |
+| Ordinary mutable object (the normal case) | Field defined on it |
+| Same object bound again with an **identical** principal | Accepted; adapters may share one context object |
+| Same object bound with a **different** principal — including the same `subject` carrying different `claims` | `500`, rather than showing the second caller the first one's identity |
+| Already owns a `tokenAuth` field | `500`; the field is framework-reserved |
+| Frozen or sealed, `agents.webBotAuth` **on** | Accepted — the agent overlay holds the field |
+| Frozen or sealed, `agents.webBotAuth` **off** | `500` with guidance to use a mutable context |
+
+That last row is a deliberate difference from `context.agent`, which builds an overlay proxy for frozen contexts. `agent` binds on every request of every app, so it has to tolerate any context shape; `tokenAuth` binds only on authenticated MCP dispatch, and stacking a second overlay on the first would nest two proxies with delicate receiver semantics for no practical gain.
+
+`claims` is frozen **shallowly** — its own keys cannot be added, removed, or rewritten, but nested values are whatever your verifier returned and stay mutable. Deep-freezing would reach into objects your code still owns (a `jose` JWT payload, say). The framework never reads `claims`.
+
+The two identities compose: `context.agent` says *which agent software* signed the request, `context.tokenAuth` says *on whose behalf* it is acting. One gap worth knowing: the [capability audit event](/docs/agent-trust) carries `agent`, not `tokenAuth`, so an audited MCP dispatch names the calling software but not the account behind it. Read the principal in your own audit hook until the event gains a field for it.
 
 Apps that leave `auth` off pay nothing for it — no metadata route, no header, and no bundle bytes: the auth module sits behind its own dynamic import inside the MCP runtime, which is itself only loaded when `agents.mcp` is configured.
 

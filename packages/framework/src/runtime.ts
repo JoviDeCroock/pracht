@@ -4,7 +4,11 @@ import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import { resolveDeferredData } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
-import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
+import {
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+  ROUTE_STATE_REQUEST_HEADER,
+  SAFE_METHODS,
+} from "./runtime-constants.ts";
 import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
@@ -347,6 +351,28 @@ export async function handlePrachtRequest<TContext>(
   if (hasDataParam) {
     url.searchParams.delete("_data");
   }
+  // OAuth 2.0 protected-resource metadata (RFC 9728), served only when the app
+  // opted into `agents.mcp.auth`.
+  //
+  // Deliberately ahead of `stripBase()`: §3.1 inserts the well-known segment
+  // between the host and the resource's path, so the document lives at the
+  // ORIGIN ROOT and is outside any deploy base by construction. Matching a
+  // base-stripped route path would answer `null` and 404 the very URL the
+  // `WWW-Authenticate` challenge tells hosts to fetch. The literal prefix test
+  // keeps this to one string comparison for every other request, and no
+  // MCP module is loaded unless the path really is the well-known one.
+  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
+    const metadataAuth = options.app.agents?.mcp?.auth;
+    if (metadataAuth && url.pathname.includes(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN)) {
+      const mcpAuthRuntime = await import("./runtime-mcp.ts");
+      if (mcpAuthRuntime.isMcpResourceMetadataPath(url.pathname, metadataAuth)) {
+        return withDefaultSecurityHeaders(
+          await mcpAuthRuntime.handleMcpMetadataRequest(options.request, metadataAuth),
+        );
+      }
+    }
+  }
+
   const routePathname = stripBase(url.pathname);
   // Outside the configured base belongs to another app on the same origin.
   // A proxy-rewritten request must opt into the base-free interpretation
@@ -573,17 +599,6 @@ export async function handlePrachtRequest<TContext>(
         });
       }
     }
-  }
-
-  // OAuth 2.0 protected-resource metadata (RFC 9728), served only when the app
-  // opted into `agents.mcp.auth`. Placed after API-route matching so an
-  // application file at the same path still wins, and before capability
-  // dispatch because discovery must answer without credentials.
-  const mcpAuth = mcpConfig?.auth;
-  if (mcpAuth && mcpRuntime && mcpRuntime.isMcpResourceMetadataPath(routePathname, mcpAuth)) {
-    return withDefaultSecurityHeaders(
-      await mcpRuntime.handleMcpMetadataRequest(options.request, mcpAuth),
-    );
   }
 
   // Capability projections. Explicit API route files take precedence (they
