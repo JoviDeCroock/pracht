@@ -245,11 +245,15 @@ A capability that calls `invokeCapability()` produces a second event with `trans
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
 const stop = addCapabilityAuditListener("metrics", (event) => metrics.record(event));
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stop);
+}
 ```
 
 The name is required, and registering the same name again **replaces** that sink. That is what makes the call safe at a module's top level, which is where it belongs. In dev, `@pracht/core` is inlined into Vite's SSR graph and Vite re-executes importers on every save, so a module-scope registration runs again with a fresh closure each time you edit the file. Keyed by name the reload replaces; keyed by function identity it would accumulate one live sink per keystroke, each delivering the same event again and inflating every counter. Pick a stable name per sink (`"otel"`, `"audit-log"`), not a computed one.
 
-The returned unsubscribe removes only its own registration, so a reloaded module's cleanup running after the new registration cannot delete the live sink. Delivery snapshots the registered sinks before invoking any of them, so a sink added or replaced from inside a callback starts receiving events on the next dispatch rather than receiving the current event twice.
+Register the returned unsubscribe with Vite's HMR disposal hook, as above. The stable name prevents duplicate delivery when a reload replaces the sink, while disposal removes the old name when the module is deleted or the name changes. The unsubscribe only removes its own registration, so cleanup running after a new registration cannot delete the live sink. Delivery snapshots the registered sinks before invoking any of them, so a sink added or replaced from inside a callback starts receiving events on the next dispatch rather than receiving the current event twice.
 
 Every registered sink receives the same frozen snapshot for every dispatch, on every transport. The contract for all of them:
 
@@ -268,7 +272,7 @@ A plain structured log is the whole loop for most apps — one line per dispatch
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener("audit-log", (event) => {
+const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
   // Synchronous and allocation-light: safe on every runtime.
   console.log(
     JSON.stringify({
@@ -285,6 +289,10 @@ addCapabilityAuditListener("audit-log", (event) => {
     }),
   );
 });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAuditLog);
+}
 ```
 
 The OpenTelemetry version records the metrics that actually answer "is the agent surface working?" — dispatch count by transport (activation), and the schema and authorization failure rates:
@@ -298,7 +306,7 @@ const dispatches = meter.createCounter("pracht.capability.dispatches");
 const duration = meter.createHistogram("pracht.capability.duration", { unit: "ms" });
 const tracer = trace.getTracer("pracht.capabilities");
 
-addCapabilityAuditListener("otel", (event) => {
+const stopOtel = addCapabilityAuditListener("otel", (event) => {
   const attributes = {
     "pracht.capability": event.capability,
     "pracht.effect": event.effect,
@@ -323,6 +331,10 @@ addCapabilityAuditListener("otel", (event) => {
   }
   span.end(end);
 });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopOtel);
+}
 ```
 
 Both modules are server-only and imported for their side effect from a middleware, an API route, or a custom server entry — anywhere that runs before the first request is served. See [Logging and observability](/docs/recipes-logging) for the surrounding request-level tracing setup.
@@ -357,7 +369,7 @@ The same data is available as machine-readable JSON at `/_pracht.json`:
 
 `recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. Transport counts and empty-state conclusions only describe the retained events; once older events have been dropped, the panel does not claim whether those older dispatches were external or first-party. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. Under adapter-owned dev servers (Cloudflare `workerd`) that middleware is never registered, so `/_pracht` and `/_pracht.json` do not exist there at all — they 404 rather than answering with an empty log.
 
-The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page does not. `transport: "server"` is `invokeCapability()`, which any loader or API route can call, and on an app whose loaders compose capabilities it is the large majority of rows. The panel therefore defaults to dispatches that came from *outside* the app — every non-`server` transport, plus `server` dispatches whose `via` is `"mcp"` (trusted dispatch state, so the effect really was agent-caused) — and puts the rest behind a "show first-party" toggle with a count. `via: "http"` does not qualify: a capability host is installed for every served request, so an ordinary page loader's composition carries it too and cannot be told apart from an agent's. The agent's own HTTP dispatch still gets its own row, so no agent activity is hidden — only its internal composition is collapsed.
+The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page does not. `transport: "server"` is `invokeCapability()`, which any loader or API route can call, and on an app whose loaders compose capabilities it is the large majority of rows. The panel therefore defaults to dispatches that came from *outside* the app — every non-`server` transport, verified dispatches, plus `server` dispatches whose `via` is `"mcp"` (trusted dispatch state, so the effect really was agent-caused) — and puts the rest behind a "show first-party" toggle with a count. An unsigned `via: "http"` dispatch does not qualify because an ordinary page loader's composition carries the same provenance. A non-null verified agent identity does qualify, including when the agent enters through a page or ordinary API route and that composed dispatch is its only row.
 
 ### What Is Not Audited
 

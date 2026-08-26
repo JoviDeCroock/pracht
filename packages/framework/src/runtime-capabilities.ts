@@ -504,12 +504,13 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
     ...event,
     agent: snapshotAgentIdentity(event.agent),
   });
-  deliverCapabilityAudit("setCapabilityAuditHook", capabilityAuditHook, snapshot);
-  // Snapshot before invoking user code. A sink may unsubscribe or replace a
-  // registration while handling this event; iterating the live Map would then
-  // deliver the same event to the replacement as well (and a sink that keeps
-  // rotating itself could prevent dispatch from completing).
+  // Snapshot every process-wide registration before invoking user code. The
+  // single-slot hook can add, replace, or remove an additive sink too; those
+  // changes must follow the same next-event rule as changes made by an
+  // additive sink itself.
+  const singleSlotHook = capabilityAuditHook;
   const listeners = Array.from(capabilityAuditListeners);
+  deliverCapabilityAudit("setCapabilityAuditHook", singleSlotHook, snapshot);
   for (const [name, hook] of listeners) {
     deliverCapabilityAudit(name, hook, snapshot);
   }

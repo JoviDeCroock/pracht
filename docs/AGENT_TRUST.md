@@ -529,6 +529,10 @@ and with every differently-named sink, and returns an unsubscribe handle:
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
 const stop = addCapabilityAuditListener("metrics", (event) => metrics.record(event));
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stop);
+}
 ```
 
 The name is required, and registering the same name again **replaces** that
@@ -541,11 +545,14 @@ keystroke, each delivering the same event again and inflating every counter.
 Pick a stable name per sink (`"otel"`, `"audit-log"`) rather than a computed
 one.
 
-The returned unsubscribe only removes its own registration, so a reloaded
-module's cleanup running after the new registration cannot delete the live
-sink. Delivery snapshots the registered sinks before invoking any of them, so
-a sink added or replaced from inside a callback starts receiving events on the
-next dispatch rather than receiving the current event twice.
+Register the returned unsubscribe with Vite's HMR disposal hook, as above. The
+stable name prevents duplicate delivery when a reload replaces the sink, while
+disposal removes the old name when the module is deleted or the name changes.
+The unsubscribe only removes its own registration, so cleanup running after a
+new registration cannot delete the live sink. Delivery snapshots the registered
+sinks before invoking any of them, so a sink added or replaced from inside a
+callback starts receiving events on the next dispatch rather than receiving the
+current event twice.
 
 Every registered sink receives the same frozen snapshot for every dispatch, on
 every transport. The contract for all of them:
@@ -579,7 +586,7 @@ queryable by capability, transport, and outcome:
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener("audit-log", (event) => {
+const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
   // Synchronous, no allocation beyond the line itself: safe on every runtime.
   console.log(
     JSON.stringify({
@@ -596,6 +603,10 @@ addCapabilityAuditListener("audit-log", (event) => {
     }),
   );
 });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAuditLog);
+}
 ```
 
 The OpenTelemetry version records the framework's proof metrics — activation
@@ -613,7 +624,7 @@ const duration = meter.createHistogram("pracht.capability.duration", {
 });
 const tracer = trace.getTracer("pracht.capabilities");
 
-addCapabilityAuditListener("otel", (event) => {
+const stopOtel = addCapabilityAuditListener("otel", (event) => {
   const attributes = {
     "pracht.capability": event.capability,
     "pracht.effect": event.effect,
@@ -638,6 +649,10 @@ addCapabilityAuditListener("otel", (event) => {
   }
   span.end(end);
 });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopOtel);
+}
 ```
 
 Both modules are server-only and are imported for their side effect from a
@@ -689,13 +704,14 @@ consumers filter for themselves. The HTML page does not: `transport: "server"`
 is `invokeCapability()`, which any loader or API route can call, and on an app
 whose loaders compose capabilities it is the large majority of rows. The panel
 therefore defaults to dispatches that came from outside the app — every
-non-`server` transport, plus `server` dispatches whose `via` is `"mcp"`, since
-that is trusted dispatch state and the effect really was agent-caused — and
-puts the rest behind a "show first-party" toggle with a count. `via: "http"`
-does not qualify: a capability host is installed for every served request, so
-an ordinary page loader's composition carries it too and cannot be told apart
-from an agent's. The agent's own HTTP dispatch still gets its own row, so no
-agent activity is hidden — only its internal composition is collapsed.
+non-`server` transport, every verified dispatch, plus `server` dispatches whose
+`via` is `"mcp"`, since that is trusted dispatch state and the effect really was
+agent-caused — and puts the rest behind a "show first-party" toggle with a
+count. An unsigned
+`via: "http"` dispatch does not qualify: a capability host is installed for
+every served request, so an ordinary page loader's composition carries it too.
+A non-null verified agent identity does qualify, including when the agent enters
+through a page or ordinary API route and that composed dispatch is its only row.
 
 ### What is not audited
 

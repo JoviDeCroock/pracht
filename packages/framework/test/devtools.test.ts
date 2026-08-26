@@ -343,6 +343,35 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).not.toContain("<input");
   });
 
+  it("keeps verified HTTP-originated composition in the agent view", () => {
+    // A verified agent may call an ordinary API or page route whose loader
+    // composes a capability. That produces no top-level capability row, so the
+    // nested dispatch itself must stay visible.
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.search",
+            effect: "read",
+            transport: "server",
+            via: "http",
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: { agentDomain: "agent.example", keyId: "kid-1" },
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 1 agent dispatch (server 1)</h2>");
+    expect(html).not.toContain("first-party");
+    expect(html).not.toContain(`<tr class="composed">`);
+  });
+
   it("says so when every recorded dispatch is the app calling itself", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: {

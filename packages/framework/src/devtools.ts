@@ -361,14 +361,14 @@ ${notFoundRow}
  * under a remote MCP request (`via: "mcp"`): that is trusted dispatch state, so
  * the effect really was agent-caused and belongs in the default view.
  *
- * `via: "http"` is deliberately *not* treated as agent-caused: a capability
- * host is installed for every served request, so an ordinary page loader's
- * composition carries it too and cannot be told apart from an agent's. The
- * agent's own HTTP dispatch is still listed on its own row, so none of its
- * activity is hidden — only its internal composition is collapsed.
+ * An unsigned `via: "http"` dispatch is deliberately not treated as
+ * agent-caused: a capability host is installed for every served request, so an
+ * ordinary page loader's composition carries it too. A verified identity does
+ * distinguish the request, though, including when an agent enters through a
+ * page or ordinary API route and the composed dispatch is its only audit row.
  */
 function isAgentTraffic(event: AgentTrafficEvent): boolean {
-  return event.transport !== "server" || event.via === "mcp";
+  return event.transport !== "server" || event.via === "mcp" || event.agent !== null;
 }
 
 /**

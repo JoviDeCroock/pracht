@@ -349,9 +349,10 @@ exist at all (they 404), rather than existing and reporting nothing.
 - `agentTraffic` is `{ limit, recorded, events[] }`. `recorded` is the total since
   the dev server started and survives eviction, so the page can report how many
   older events were dropped. Events carry `transport`, so JSON consumers do their
-  own filtering; the HTML page defaults to non-`server` transports (plus `server`
-  dispatches whose `via` is `mcp`) and hides first-party `invokeCapability()`
-  composition behind a CSS-only toggle.
+  own filtering; the HTML page defaults to non-`server` transports, verified
+  dispatches, and `server` dispatches whose `via` is `mcp`, while hiding
+  ambiguous first-party `invokeCapability()` composition behind a CSS-only
+  toggle.
 - Not everything reaching the capability surface is audited: a cross-origin 403, an
   unknown-capability 404, and an unknown or unexposed MCP tool name all return
   before dispatch, so probes leave no trace. See `AGENT_TRUST.md`.

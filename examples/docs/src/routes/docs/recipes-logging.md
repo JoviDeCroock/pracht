@@ -243,7 +243,7 @@ Request logging covers pages and API routes. Capability dispatches get their own
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener("audit-log", (event) => {
+const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
   console.log(
     JSON.stringify({
       msg: "capability",
@@ -259,9 +259,13 @@ addCapabilityAuditListener("audit-log", (event) => {
     }),
   );
 });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAuditLog);
+}
 ```
 
-Import the module for its side effect from a middleware, an API route, or a custom server entry — anywhere that runs before the first request.
+Import the module for its side effect from a middleware, an API route, or a custom server entry — anywhere that runs before the first request. Keep the HMR disposal hook so removing the module or renaming the sink cannot leave a stale listener in the dev server.
 
 Sinks are strictly non-blocking: they are never awaited, and a sink that throws is swallowed (the first failure is reported once via `console.warn`). On Cloudflare Workers, a batching exporter must flush within the request or be handed the execution context by your own code — pracht does not call `ctx.waitUntil()` on a sink's behalf.
 

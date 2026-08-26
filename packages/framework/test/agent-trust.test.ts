@@ -506,6 +506,22 @@ describe("agent policy and audit", () => {
     expect(events).toEqual(["old", "new"]);
   });
 
+  it("snapshots additive sinks before the single-slot hook changes them", async () => {
+    const events: string[] = [];
+    const unsubscribe = addCapabilityAuditListener("logs", () => events.push("logs"));
+    setCapabilityAuditHook(() => {
+      events.push("slot");
+      unsubscribe();
+    });
+
+    const { app, registry } = createApp(createPurgeCapability({ effect: "read" }));
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "x" }) });
+    expect(events).toEqual(["slot", "logs"]);
+
+    await handlePrachtRequest({ app, registry, request: postPurge({ titlePrefix: "y" }) });
+    expect(events).toEqual(["slot", "logs", "slot"]);
+  });
+
   it("stops delivering after unsubscribe", async () => {
     const events: CapabilityAuditEvent[] = [];
     const unsubscribe = addCapabilityAuditListener("logs", (event) => events.push(event));

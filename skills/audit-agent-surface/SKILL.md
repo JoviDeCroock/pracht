@@ -131,7 +131,10 @@ For every exposed capability, ask whether the exposure is deliberate:
   is a single slot, so two calls to it mean one sink is silently dead — report
   that as a `warn` and point at `addCapabilityAuditListener(name, hook)`. Also
   flag a computed or non-constant sink name: same-name registration is what
-  makes the call idempotent under dev HMR.
+  makes the call idempotent under dev HMR. A module-scope listener must also
+  register its unsubscribe with `import.meta.hot.dispose()`; otherwise removing
+  the module or renaming the sink leaves the old registration active until the
+  dev server restarts.
 - Know what the trail does **not** cover before treating it as a security
   record: a cross-origin 403, an unknown-capability 404, and an unknown or
   unexposed MCP tool name all return *before* dispatch and emit no event. An
@@ -142,8 +145,9 @@ For every exposed capability, ask whether the exposure is deliberate:
   section of `/_pracht` (JSON under `agentTraffic` at `/_pracht.json`). It
   records transport, `via` for nested composition, verified identity, outcome
   code, and duration — useful for proving a guard actually fires. The page
-  defaults to externally-originated dispatches and hides first-party
-  `invokeCapability()` composition behind a toggle; the JSON keeps everything.
+  defaults to externally-originated and verified dispatches and hides ambiguous
+  first-party `invokeCapability()` composition behind a toggle; the JSON keeps
+  everything.
   It is dev-only, and under adapter-owned dev servers (Cloudflare `workerd`)
   `/_pracht` does not exist at all — a 404 there means the middleware never
   ran, not that no agent traffic occurred.
@@ -213,7 +217,8 @@ Severities:
 - `warn` — auth-gated route advertised in `llms.txt`; `expose.mcp` with no
   `agents.mcp`; exposed capability with no named middleware; unbounded output
   (no `limit`/`maximum`); no audit sink; a second `setCapabilityAuditHook()`
-  call silently replacing the first; `singleUse` treated as durable.
+  call silently replacing the first; a module-scope listener without HMR
+  disposal; `singleUse` treated as durable.
 - `info` — exposure that is intentional and guarded, recorded so the reviewer
   sees the whole surface in one place; framework gaps that are deployment
   responsibilities (rate limiting, write idempotency, result-size limits).

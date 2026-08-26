@@ -245,7 +245,7 @@ sink just has to be registered.
 ```ts [src/server/audit.ts]
 import { addCapabilityAuditListener } from "@pracht/core/server";
 
-addCapabilityAuditListener("audit-log", (event) => {
+const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
   console.log(
     JSON.stringify({
       msg: "capability",
@@ -261,6 +261,10 @@ addCapabilityAuditListener("audit-log", (event) => {
     }),
   );
 });
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAuditLog);
+}
 ```
 
 The OTel version records a counter and a histogram keyed on
@@ -280,7 +284,9 @@ Key properties to state when scaffolding this:
   name again replaces that sink, which is what keeps a module-scope call safe
   under dev HMR: Vite re-executes importers on every save, so an unkeyed
   registration would add a fresh closure per keystroke and deliver every event
-  N times. Never compute the name.
+  N times. Never compute the name. Register the returned unsubscribe with
+  `import.meta.hot.dispose()` too, so removing the module or renaming the sink
+  cannot leave the old name active until the dev server restarts.
 - `setCapabilityAuditHook()` is a **single slot** — a second call replaces the
   first. Use `addCapabilityAuditListener()` whenever more than one sink exists;
   it returns an unsubscribe handle that removes only its own registration.
@@ -299,11 +305,12 @@ Key properties to state when scaffolding this:
 In dev the same events are already collected: the **Agents** section of
 `/_pracht` shows recent dispatches with transport, `via`, verified identity,
 outcome, and duration, and `/_pracht.json` exposes all of them under
-`agentTraffic`. The page defaults to externally-originated dispatches and hides
-first-party `invokeCapability()` composition behind a toggle, so the panel's
-visible count can be lower than the sink's. Counts and empty-state conclusions
-only cover the retained window when older events have been dropped. Use it to
-confirm the sink sees what the panel sees before wiring a paid backend.
+`agentTraffic`. The page defaults to externally-originated and verified
+dispatches and hides ambiguous first-party `invokeCapability()` composition
+behind a toggle, so the panel's visible count can be lower than the sink's.
+Counts and empty-state conclusions only cover the retained window when older
+events have been dropped. Use it to confirm the sink sees what the panel sees
+before wiring a paid backend.
 
 ## Step 7: Sampling and PII
 
