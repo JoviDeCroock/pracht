@@ -108,6 +108,7 @@ export function buildDevtoolsHtml(
       const transports = capability.transports.map((transport) =>
         transport === "mcp" &&
         (!graph.mcpEndpoint ||
+          (graph.mcpUnavailableReasons?.length ?? 0) > 0 ||
           (capability.effect === "destructive" && graph.mcpDestructive !== true))
           ? "mcp(unserved)"
           : transport,
@@ -128,6 +129,11 @@ export function buildDevtoolsHtml(
   const capabilitiesSection =
     (graph.capabilities ?? []).length > 0
       ? `<h2>Capabilities</h2>
+    ${
+      graph.mcpUnavailableReasons?.length
+        ? `<p class="warning">MCP endpoint unavailable: ${escapeHtml(graph.mcpUnavailableReasons.join(" "))}</p>`
+        : ""
+    }
     <table>
       <thead><tr><th>Name</th><th>Effect</th><th>Transports</th><th>HTTP path</th><th>Middleware</th><th>Source</th></tr></thead>
       <tbody>

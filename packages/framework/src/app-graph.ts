@@ -14,6 +14,7 @@ import {
 } from "@pracht/capabilities/static";
 
 import { resolveMcpEndpoint } from "./mcp-config.ts";
+import { destructiveMcpPreconditionErrors } from "./runtime-mcp.ts";
 import type {
   HttpMethod,
   PrachtCapability,
@@ -112,6 +113,8 @@ export interface AppGraph {
   mcpEndpoint?: string | null;
   /** Present only when `agents.mcp.destructive` serves destructive MCP tools. */
   mcpDestructive?: true;
+  /** Runtime preconditions that currently block the configured MCP endpoint. */
+  mcpUnavailableReasons?: string[];
   routes: AppGraphRoute[];
   /**
    * The app-level not-found page, serialized like a route. `null` when the app
@@ -336,11 +339,21 @@ export async function buildAppGraph(
   } & AppGraphModuleAccess,
 ): Promise<AppGraph> {
   const notFound = options.app.notFound;
+  const capabilities = await serializeCapabilities(options.app.capabilities, options);
+  const mcpDestructive = options.app.agents?.mcp?.destructive === true;
+  const mcpUnavailableReasons =
+    mcpDestructive &&
+    capabilities.some(
+      (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
+    )
+      ? destructiveMcpPreconditionErrors(options.app.agents)
+      : [];
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
-    capabilities: await serializeCapabilities(options.app.capabilities, options),
+    capabilities,
     mcpEndpoint: resolveMcpEndpoint(options.app.agents),
-    ...(options.app.agents?.mcp?.destructive === true ? { mcpDestructive: true as const } : {}),
+    ...(mcpDestructive ? { mcpDestructive: true as const } : {}),
+    ...(mcpUnavailableReasons.length > 0 ? { mcpUnavailableReasons } : {}),
     notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };

@@ -110,6 +110,8 @@ For every exposed capability, ask whether the exposure is deliberate:
   hard-block). Two more preconditions fail the endpoint the same way — a
   missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither
   `agents.webBotAuth` nor a principal resolver — so check all three together.
+  `pracht dev` and `/_pracht` report the endpoint-wide failure by marking every
+  MCP exposure `mcp(unserved)` and printing the unmet preconditions.
   Destructive `expose.mcp` *without* the opt-in is dead exposure: the tool is
   invisible, and `pracht verify` warns.
 - `PRACHT_CONFIRMATION_SECRET` must be set in the server environment for each

@@ -130,6 +130,7 @@ export type {
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {
+  destructiveMcpPreconditionErrors,
   handleMcpRequest,
   MCP_CONFIRMATION_META_KEY,
   MCP_LATEST_PROTOCOL_VERSION,

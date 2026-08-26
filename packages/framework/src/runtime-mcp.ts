@@ -271,7 +271,7 @@ export interface HandleMcpRequestOptions<TContext> {
   // and anything its confirmation flow needs is missing, the whole endpoint
   // answers an explanatory error instead of half-working.
   if (exposedCapabilities.some((entry) => entry.capability.effect === "destructive")) {
-    const unmet = unmetDestructivePreconditions(options.agents);
+    const unmet = destructiveMcpPreconditionErrors(options.agents);
     if (unmet.length > 0) {
       return respond(200, {
         jsonrpc: "2.0",
@@ -378,7 +378,7 @@ export interface HandleMcpRequestOptions<TContext> {
  * these would otherwise produce the same broken shape: a tool listed in
  * `tools/list` that answers `confirmation_unavailable` on every call.
  */
-function unmetDestructivePreconditions(agents: PrachtAgentsConfig | undefined): string[] {
+export function destructiveMcpPreconditionErrors(agents: PrachtAgentsConfig | undefined): string[] {
   const unmet: string[] = [];
   if (!resolveCapabilityApprovalStore()) {
     unmet.push(
@@ -525,6 +525,7 @@ async function handleToolsCall<TContext>(
     "mcp",
     options.onAudit,
     options.agent ?? null,
+    options.request,
   );
   const capabilityUrl = new URL(capabilityRequest.url);
   const response = await handleCapabilityRequest({

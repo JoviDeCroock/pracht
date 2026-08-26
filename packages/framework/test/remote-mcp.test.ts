@@ -246,11 +246,13 @@ const notesPurgeCascade = defineCapability({
   effect: "destructive",
   expose: { mcp: true },
   async run({ request, context, signal }) {
+    const composedRequest =
+      (context as { originalRequest?: Request } | undefined)?.originalRequest ?? request;
     const result = await invokeCapability(
       "notes.destroy" as never,
       {},
       {
-        request,
+        request: composedRequest,
         context,
         signal,
       },
@@ -1591,6 +1593,21 @@ describe("destructive capabilities over MCP", () => {
       via: "mcp",
       outcome: "ok",
     });
+  });
+
+  it("shares confirmed composition with an adapter-retained MCP request", async () => {
+    const prepare = await callDestructive("notes_purge-cascade", {});
+    const commit = await callDestructive(
+      "notes_purge-cascade",
+      {},
+      {
+        confirm: errorMeta(prepare.json).confirmationToken as string,
+        contextFactory: (request) => ({ originalRequest: request }),
+      },
+    );
+
+    expect(commit.json?.result.structuredContent).toEqual({ code: "ok" });
+    expect(destroyed).toEqual(["notes"]);
   });
 
   it("does not leak the confirmed scope to a later request", async () => {

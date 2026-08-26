@@ -72,6 +72,7 @@ export default defineCommand({
           localUrls: urls.local,
           mcpEndpoint: graph.mcpEndpoint ?? null,
           mcpDestructive: graph.mcpDestructive === true,
+          mcpUnavailableReasons: graph.mcpUnavailableReasons,
           networkUrls: urls.network,
           notFound: graph.notFound,
           routes: graph.routes,

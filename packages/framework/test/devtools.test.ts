@@ -244,6 +244,16 @@ describe("buildDevtoolsHtml", () => {
     });
     expect(served).toContain(">mcp</td>");
     expect(served).not.toContain("mcp(unserved)");
+
+    const unavailable = buildDevtoolsHtml({
+      ...graphFixture,
+      capabilities: [capability, { ...capability, effect: "read", name: "notes.search" }],
+      mcpDestructive: true,
+      mcpEndpoint: "/mcp",
+      mcpUnavailableReasons: ["no approval store is registered."],
+    });
+    expect(unavailable.match(/mcp\(unserved\)/g)).toHaveLength(2);
+    expect(unavailable).toContain("MCP endpoint unavailable: no approval store is registered.");
   });
 });
 

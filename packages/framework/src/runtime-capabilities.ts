@@ -1268,14 +1268,20 @@ export function setActiveCapabilityHost(
   via: NonNullable<CapabilityAuditEvent["via"]> = "http",
   onAudit?: CapabilityAuditHook,
   agent?: PrachtAgentIdentity | null,
+  /** Another request identity that must share this request-scoped host. */
+  sharedRequest?: Request,
 ): void {
-  activeCapabilityHosts.set(request, {
-    app,
-    registry,
-    via,
-    onAudit,
-    agent: snapshotAgentIdentity(agent ?? null),
-  });
+  const sharedHost = sharedRequest ? activeCapabilityHosts.get(sharedRequest) : undefined;
+  activeCapabilityHosts.set(
+    request,
+    sharedHost ?? {
+      app,
+      registry,
+      via,
+      onAudit,
+      agent: snapshotAgentIdentity(agent ?? null),
+    },
+  );
 }
 
 export interface InvokeCapabilityContext<TContext = unknown> {

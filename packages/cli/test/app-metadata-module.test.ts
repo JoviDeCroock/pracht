@@ -71,6 +71,40 @@ describe("loadAppMetadataModule", () => {
 });
 
 describe("collectAppGraph", () => {
+  it("reports runtime preconditions that block the whole destructive MCP endpoint", async () => {
+    const capability = {
+      kind: "capability",
+      title: "Purge notes",
+      description: "Purge every note.",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "destructive",
+      expose: { mcp: true },
+      run: async () => ({}),
+    };
+    const server = fakeServer({
+      "virtual:pracht/dev-metadata": {
+        apiRoutes: [],
+        registry: {
+          capabilityModules: {
+            "/src/capabilities/notes-purge.ts": async () => ({ default: capability }),
+          },
+        },
+        resolvedApp: {
+          agents: { mcp: { destructive: true } },
+          capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+          routes: [],
+        },
+      },
+    });
+
+    const graph = await collectAppGraph(server, process.cwd());
+
+    expect(graph.mcpUnavailableReasons).toEqual(
+      expect.arrayContaining([expect.stringContaining("no approval store is registered")]),
+    );
+  });
+
   it("resolves API methods re-exported from another module", async () => {
     const root = mkdtempSync(join(tmpdir(), "pracht-static-api-graph-"));
     mkdirSync(join(root, "src/api-edge"), { recursive: true });

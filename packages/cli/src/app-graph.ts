@@ -2,6 +2,7 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
 import {
+  destructiveMcpPreconditionErrors,
   resolveMcpEndpoint,
   resolveRegistryModule,
   serializeApiRoutesStatic,
@@ -45,6 +46,8 @@ export interface AppGraph {
   mcpEndpoint: string | null;
   /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
   mcpDestructive: boolean;
+  /** Runtime preconditions that currently block the configured MCP endpoint. */
+  mcpUnavailableReasons: string[];
   routes: AppGraphRoute[];
   /** The app-level not-found page (never part of `routes`), or `null`. */
   notFound?: AppGraphRoute | null;
@@ -110,6 +113,18 @@ export async function collectAppGraph(
 ): Promise<AppGraph> {
   const serverModule = await loadAppMetadataModule(server);
   const notFound = serverModule.resolvedApp.notFound;
+  const capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
+    loadModule: capabilityModuleLoader(server, serverModule),
+    readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
+  });
+  const mcpDestructive = serverModule.resolvedApp.agents?.mcp?.destructive === true;
+  const mcpUnavailableReasons =
+    mcpDestructive &&
+    capabilities.some(
+      (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
+    )
+      ? destructiveMcpPreconditionErrors(serverModule.resolvedApp.agents)
+      : [];
   return {
     // The banner must not execute every API module at startup. Static export
     // analysis follows named and star re-exports without triggering unrelated
@@ -119,12 +134,10 @@ export async function collectAppGraph(
       resolveModule: (specifier, importer) =>
         resolveStaticModule(server, root, specifier, importer),
     }),
-    capabilities: await serializeCapabilities(serverModule.resolvedApp.capabilities, {
-      loadModule: capabilityModuleLoader(server, serverModule),
-      readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
-    }),
+    capabilities,
     mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
-    mcpDestructive: serverModule.resolvedApp.agents?.mcp?.destructive === true,
+    mcpDestructive,
+    mcpUnavailableReasons,
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };

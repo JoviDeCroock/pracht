@@ -203,7 +203,9 @@ resolvable principal is missing. `pracht verify` *warns* when it cannot find a
 warning rather than an error because a source scan cannot see a registration
 that lives in a workspace package. There is no silent downgrade in either
 direction: without the opt-in the tool is invisible; with it and an unmet
-precondition, nothing is served.
+precondition, nothing is served. `pracht dev` and `/_pracht` mark every MCP
+exposure as `mcp(unserved)` and show the unmet runtime preconditions when this
+endpoint-wide gate is closed.
 
 ### Prepare and commit over `tools/call`
 

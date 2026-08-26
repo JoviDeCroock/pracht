@@ -26,6 +26,8 @@ export interface DevBannerOptions {
   mcpEndpoint?: string | null;
   /** `agents.mcp.destructive` — without it the endpoint filters destructive tools out. */
   mcpDestructive?: boolean;
+  /** Runtime preconditions that currently block the configured MCP endpoint. */
+  mcpUnavailableReasons?: string[];
   networkUrls?: string[];
   notFound?: DevBannerRoute | null;
   routes: DevBannerRoute[];
@@ -66,6 +68,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
     localUrls,
     mcpDestructive = false,
     mcpEndpoint = null,
+    mcpUnavailableReasons = [],
     networkUrls = [],
     notFound,
     routes,
@@ -163,7 +166,9 @@ export function formatDevBanner(options: DevBannerOptions): string {
               // `agents.mcp.destructive` — don't let the banner imply either.
               .map((transport) =>
                 transport === "mcp" &&
-                (!mcpEndpoint || (capability.effect === "destructive" && !mcpDestructive))
+                (!mcpEndpoint ||
+                  mcpUnavailableReasons.length > 0 ||
+                  (capability.effect === "destructive" && !mcpDestructive))
                   ? "mcp(unserved)"
                   : transport,
               )
@@ -190,6 +195,11 @@ export function formatDevBanner(options: DevBannerOptions): string {
       for (const capability of unreadable) {
         lines.push(
           `    ${paint(`! ${capability.name} could not be loaded: ${capability.error}`, ANSI.red)}`,
+        );
+      }
+      if (mcpUnavailableReasons.length > 0) {
+        lines.push(
+          `    ${paint(`! MCP endpoint unavailable: ${mcpUnavailableReasons.join(" ")}`, ANSI.red)}`,
         );
       }
       if (unreadable.length > 0) {
