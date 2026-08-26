@@ -21,6 +21,14 @@ import {
   CONFIRMATION_HEADER,
   findMcpToolNameCollisions,
   isValidMcpToolName,
+  MCP_CAPABILITY_META_KEY,
+  MCP_CONFIRMATION_META_KEY,
+  MCP_EFFECT_META_KEY,
+  MCP_ERROR_META_KEY,
+  MCP_LATEST_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSIONS,
+  MCP_STATUS_META_KEY,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
 } from "@pracht/capabilities";
@@ -40,20 +48,16 @@ import type {
   PrachtAgentsConfig,
 } from "./types.ts";
 
-/** Newest first; `initialize` negotiates down to a version both sides know. */
-export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
-export const MCP_LATEST_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0];
-export const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
-
-/**
- * `_meta` key carrying a prepare/commit confirmation token on a `tools/call`.
- *
- * MCP has no per-call header channel, and the token cannot travel in
- * `arguments`: it is bound to a hash of the canonicalized input, so adding it
- * there would invalidate the very binding it carries. `_meta` is the
- * protocol's designated extension slot.
- */
-export const MCP_CONFIRMATION_META_KEY = "io.pracht/confirmation";
+// The wire names live in `@pracht/capabilities` alongside the HTTP path
+// formula and the confirmation header, so the transport the CLI's eval runner
+// speaks cannot drift from the one this projection serves. Re-exported here
+// because they have always been part of `@pracht/core`'s public surface.
+export {
+  MCP_CONFIRMATION_META_KEY,
+  MCP_LATEST_PROTOCOL_VERSION,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_PROTOCOL_VERSIONS,
+} from "@pracht/capabilities";
 
 const JSONRPC_PARSE_ERROR = -32700;
 const JSONRPC_INVALID_REQUEST = -32600;
@@ -341,7 +345,7 @@ function toolDescriptor(entry: ResolvedCapability) {
       ...(capability.effect === "read" ? { destructiveHint: false } : {}),
       idempotentHint: capability.effect === "read",
     },
-    _meta: { "io.pracht/capability": entry.name, "io.pracht/effect": capability.effect },
+    _meta: { [MCP_CAPABILITY_META_KEY]: entry.name, [MCP_EFFECT_META_KEY]: capability.effect },
   };
 }
 
@@ -509,7 +513,7 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
       content: [{ type: "text", text: JSON.stringify(envelope.data, null, 2) }],
       structuredContent: envelope.data,
       isError: false,
-      _meta: { "io.pracht/capability": match.name },
+      _meta: { [MCP_CAPABILITY_META_KEY]: match.name },
     };
   }
 
@@ -523,9 +527,9 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
     content: [{ type: "text", text: lines.join("\n") }],
     isError: true,
     _meta: {
-      "io.pracht/capability": match.name,
-      "io.pracht/status": status,
-      "io.pracht/error": {
+      [MCP_CAPABILITY_META_KEY]: match.name,
+      [MCP_STATUS_META_KEY]: status,
+      [MCP_ERROR_META_KEY]: {
         code: error.code,
         message: error.message,
         ...(error.issues ? { issues: error.issues } : {}),

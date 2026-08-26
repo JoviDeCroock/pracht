@@ -1,0 +1,27 @@
+{
+  "name": "verified agent identity over MCP",
+  "task": "The agentPolicy \"require\" capability answers a signed MCP caller and refuses an unsigned one — the same policy the HTTP scenario proves, over tools/call.",
+  "transport": "mcp",
+  "signAs": {
+    "agent": "https://test-agent.example",
+    "privateKeyJwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "d": "JZlLQqnxH-0O_1mfnuqDBB1U5XgqETE5eiRXxXRhZNM",
+      "x": "s5n91rPm5ymJjl--scT4WWq7HE9kUdj-6sVe5r__xgc"
+    }
+  },
+  "steps": [
+    {
+      "capability": "agent.ping",
+      "input": {},
+      "expect": { "ok": true, "status": 200, "output": { "pong": true } }
+    },
+    {
+      "capability": "agent.ping",
+      "input": {},
+      "sign": false,
+      "expect": { "ok": false, "status": 401, "errorCode": "agent_required" }
+    }
+  ]
+}

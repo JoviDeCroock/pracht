@@ -58,7 +58,7 @@ declare module "@pracht/core" {
         input: Record<string, never>;
         output: { "pong": boolean; [key: string]: unknown; };
         effect: "read";
-        exposed: { http: true; webmcp: false; mcp: false };
+        exposed: { http: true; webmcp: false; mcp: true };
       };
     };
     capabilityClient: {

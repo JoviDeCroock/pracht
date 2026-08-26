@@ -26,7 +26,7 @@ export default defineCapability({
   output: { /* JSON Schema */ },
   effect: "write",
   middleware: ["auth"],
-  expose: { http: true, webmcp: true },
+  expose: { http: true, webmcp: true, mcp: true },
   async run({ input, context }) { /* your business logic */ },
 });
 ```
@@ -35,13 +35,15 @@ One contract. pracht projects it everywhere.
 
 ---
 
-## One Contract, Four Callers
+## One Contract, Five Callers
 
 **Your own code calls it.** The loader behind the booking page runs `invokeCapability("appointments.book", …)` — same validation, same middleware, same pipeline. The human UI and the agent surface can't drift apart, because they are the same function.
 
 **The browser calls it.** Your form's submit handler uses `callCapability()` — or the generated `capabilities.notes.create({ title })` client — against the generated endpoint. The capability module itself never ships to the client: only its name, URL, and effect class cross, and importing the module from client code fails the build rather than bundling it.
 
 **An agent in the user's tab calls it.** With `expose.webmcp`, the page registers the operation as a [WebMCP](https://developer.chrome.com/docs/ai/webmcp) page tool. The agent stops guessing at your DOM and instead sees: *"book_appointment — reserve an open slot. Input: service, time."* It acts as the signed-in user, in their session — and every check still runs on your server.
+
+**An agent that never opens a browser calls it.** With `expose.mcp`, the same contract is served as a tool on your app's own [remote MCP endpoint](/docs/remote-mcp) — `initialize`, `tools/list`, `tools/call`, straight over HTTP. No SDK, no second server, no separate tool definitions to keep in sync: an MCP host points at `https://your-app/mcp` and gets the same validation, middleware, identity checks, and audit events every other caller gets. Destructive operations are never projected there, because a host cannot yet be trusted to carry the confirmation flow.
 
 **An agent that has never seen your site finds it.** The generated [`/llms.txt`](/docs/llms) lists every page (with `Accept: text/markdown` negotiation for clean source instead of scraped layout), every API route, and every capability with its endpoint, effect class, and description. An agent goes from "never heard of this site" to a validated, typed call in two requests. And when it gets the input wrong, the error comes back path-scoped — `/limit: must be <= 20` — so it self-corrects instead of flailing.
 
@@ -56,7 +58,7 @@ Turning schemas into tools is commodity work. What makes an agent surface deploy
 - **Who is calling?** Agents signing with Web Bot Auth ([RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures — the standard the major CDNs are rolling out) surface as `context.agent`, cryptographically verified. Start with `policy: "observe"` to watch who's calling; flip a capability to `agentPolicy: "require"` when it should answer verified agents only.
 - **May they do this?** Effect classes are load-bearing, not documentation. An incoming `destructive` HTTP call cannot run on first contact — the server answers `409 confirmation_required` with a token bound to this caller, operation, and exact input. Remote MCP cannot expose or compose destructive effects at all, and nested MCP calls re-apply the callee's `agentPolicy`.
 - **What happened?** Every dispatch, HTTP or internal, emits one structured audit event: capability, effect, transport, causal `via` transport for composed work, outcome, latency, and the verified identity. Your agent traffic is a queryable log, not a mystery in the access logs.
-- **Will it keep working?** `pracht eval` runs scripted agent tasks — search, fail validation, get the 409, carry the token, commit — against your live app in CI. When someone refactors the flow, the build tells you agents are broken before the agents do.
+- **Will it keep working?** `pracht eval` runs scripted agent tasks — search, fail validation, get the 409, carry the token, commit — against your live app in CI. It drives both surfaces: the HTTP projection by default, and the remote MCP endpoint with `"transport": "mcp"`, where each step becomes a real `tools/call` after a real `initialize` handshake. So the thing you advertise to MCP hosts is the thing you actually test. When someone refactors the flow, the build tells you agents are broken before the agents do.
 
 The full API lives in [Agent Trust](/docs/agent-trust).
 
@@ -108,7 +110,14 @@ pnpm pracht eval --url http://localhost:3000
 #   ✓ 3. notes.create → ok (200)
 #   ✓ 4. notes.purge → confirmation_required (409)
 #   ✓ 5. notes.purge → ok (200)
+#
+# PASS  notes agent flow over MCP  [mcp]  (evals/notes-mcp.eval.json)
+#   ✓ 1. notes.search → ok (200)
+#   ✓ 2. notes.search → invalid_input (400)
+#   ✓ 3. notes.create → ok (200)
 ```
+
+The second scenario is the same task run the way an MCP host runs it — one `initialize` handshake, then a `tools/call` per step. Nothing changes but one line in the scenario file: `"transport": "mcp"`. The statuses match the HTTP run because the runner reports the capability's dispatch status, not the JSON-RPC transport's blanket `200`.
 
 Visit [`/notes`](http://localhost:3000/notes) in the browser to see the human projection of the same contracts, and read the [Testing recipe](/docs/recipes/testing) for Vitest, Playwright, and CI patterns — including how to fake the WebMCP API and sign Web Bot Auth requests in tests.
 
@@ -116,6 +125,6 @@ Visit [`/notes`](http://localhost:3000/notes) in the browser to see the human pr
 
 ## Where This Goes Next
 
-The same contracts already serve a [remote MCP endpoint](/docs/remote-mcp) for agents that never open a browser, and they are one projection away from MCP Apps views (capabilities that return Preact UI into an agent's chat). Write the operation down once; every new agent surface is a build target.
+The [remote MCP endpoint](/docs/remote-mcp) shipped; the same contracts are one projection away from MCP Apps views (capabilities that return Preact UI into an agent's chat). Write the operation down once; every new agent surface is a build target.
 
 The one-liner: other frameworks render your app for humans and leave agents to scrape it. pracht projects one explicit app graph to both — components for people, typed and trust-gated tools for agents.

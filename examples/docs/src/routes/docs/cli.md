@@ -277,7 +277,7 @@ Use it as the factual half of a PR description — the author adds the "why".
 
 ## pracht eval
 
-Runs scripted agent-task scenarios against the capability HTTP projection and
+Runs scripted agent-task scenarios against a live app's agent surface and
 exits 1 when any scenario or expectation fails:
 
 ```sh
@@ -287,6 +287,11 @@ pracht eval --url http://localhost:3000
 pracht eval --start "pracht preview" --url http://localhost:3000
 pracht eval --json
 ```
+
+A scenario picks its transport: the capability HTTP projection by default, or
+the app's [remote MCP endpoint](/docs/remote-mcp) with `"transport": "mcp"`,
+where the runner performs an `initialize` handshake and issues each step as a
+`tools/call`. See [Agent Trust](/docs/agent-trust) for the scenario format.
 
 Each scenario may declare its own URL, or `--url` can override all of them.
 `--start` launches one server for the entire run, waits for it to answer, and

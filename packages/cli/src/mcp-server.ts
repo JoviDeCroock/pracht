@@ -181,7 +181,7 @@ export function createPrachtMcpServer(): McpServer {
     "eval",
     {
       description:
-        "Run scripted agent-task scenarios (evals/**/*.eval.json) against an already-running app's capability HTTP projection. Start the app yourself first and pass its base URL. Reports each step's outcome and whether the scenario passed.",
+        'Run scripted agent-task scenarios (evals/**/*.eval.json) against an already-running app\'s agent surface — the capability HTTP projection, or the remote MCP endpoint when the scenario sets "transport": "mcp". Start the app yourself first and pass its base URL. Reports each step\'s outcome and whether the scenario passed.',
       inputSchema: {
         ...cwdInput,
         url: z.string().describe("Base URL of the running app, e.g. http://localhost:3000."),
@@ -210,6 +210,7 @@ export function createPrachtMcpServer(): McpServer {
           results.push({
             file,
             name: file,
+            transport: "http" as const,
             ok: false,
             steps: [],
             error: `could not load scenario: ${error instanceof Error ? error.message : String(error)}`,

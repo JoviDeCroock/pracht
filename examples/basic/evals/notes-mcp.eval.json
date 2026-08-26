@@ -1,0 +1,29 @@
+{
+  "name": "notes agent flow over MCP",
+  "task": "The same notes task an MCP host would run: initialize, search, hit a validation failure as a tool error, then create a note — every step a tools/call against /mcp. The note it creates shares the \"Purge target\" prefix that notes.eval.json purges, which is how it cleans up: destructive capabilities are never projected as MCP tools, so a purge step cannot run on this transport.",
+  "transport": "mcp",
+  "steps": [
+    {
+      "capability": "notes.search",
+      "input": { "query": "capabilities" },
+      "expect": { "ok": true, "status": 200 }
+    },
+    {
+      "capability": "notes.search",
+      "input": { "query": "" },
+      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
+    },
+    {
+      "capability": "notes.create",
+      "input": {
+        "title": "Purge target (created over MCP)",
+        "body": "Created by pracht eval over tools/call."
+      },
+      "expect": {
+        "ok": true,
+        "status": 200,
+        "output": { "note": { "title": "Purge target (created over MCP)" } }
+      }
+    }
+  ]
+}

@@ -140,7 +140,9 @@ error, because it would bundle \`run()\` and its server dependencies.
 
 Inspect with \`pracht inspect capabilities --json\`; test scripted agent flows
 with \`pracht eval\` (scenario files in \`evals/*.eval.json\`, \`--start\` boots the
-app itself).
+app itself). A scenario runs against the HTTP projection by default, or against
+the app's remote MCP endpoint with scenario-level \`"transport": "mcp"\` — write
+one of those for anything with \`expose.mcp\`.
 
 ## Constraints (invariants reviewers rely on)
 
@@ -168,7 +170,7 @@ policy change a human must approve.
 - \`pracht report [--base ref]\` — PR-ready markdown: graph diff + verification + budgets. Use it as the factual half of a PR description.
 - \`pracht generate route|shell|middleware|api|capability\` — canonical scaffolding; \`generate route\` also emits a Playwright smoke test when the app has an e2e setup.
 - \`pracht typegen\` — typed route ids/params for \`<Link>\`, \`href()\`, \`useNavigate()\`.
-- \`pracht eval [files] [--url] [--start "<cmd>"]\` — run scripted agent-task scenarios against the capability HTTP projection; exits 1 on any failed expectation.
+- \`pracht eval [files] [--url] [--start "<cmd>"]\` — run scripted agent-task scenarios against the capability HTTP projection, or the remote MCP endpoint with \`"transport": "mcp"\`; exits 1 on any failed expectation.
 - \`pracht doctor\` — app wiring diagnostics.
 - \`pracht mcp\` — this CLI as an MCP server (inspect/verify/generate/docs tools).
 

@@ -247,7 +247,7 @@ Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agent
 
 ## pracht eval: Prove Agent Flows in CI
 
-Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against the HTTP projection and exits 1 on any failed expectation:
+Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against your live app's agent surface and exits 1 on any failed expectation:
 
 ```jsonc [evals/notes.eval.json]
 {
@@ -278,5 +278,30 @@ pracht eval --start "pracht preview"    # runs evals/**/*.eval.json
 pracht preview                          # in another terminal
 pracht eval --url http://localhost:3000
 ```
+
+### The Same Scenario Over Remote MCP
+
+An `expose.mcp` capability is only proven when an MCP host can actually call it. Add one line and the same scenario runs over the [remote MCP endpoint](/docs/remote-mcp) instead: the runner performs a real `initialize` handshake, then issues every step as a `tools/call` with the projected tool name (`notes.search` → `notes_search`).
+
+```jsonc [evals/notes-mcp.eval.json]
+{
+  "name": "notes agent flow over MCP",
+  "transport": "mcp",              // default is "http"
+  "mcpPath": "/mcp",               // optional; only if you moved the endpoint
+  "steps": [
+    { "capability": "notes.search", "input": { "query": "roadmap" } },
+    {
+      "capability": "notes.search",
+      "input": { "query": "" },
+      // The identical expectation the HTTP scenario writes.
+      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
+    }
+  ]
+}
+```
+
+Expectations mean the same thing on both transports — including `status`. `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, `errorCode` reads the error metadata the projection attaches to a failed call, and `status` is the **capability dispatch status**, which the projection reports alongside the result. It is deliberately not the JSON-RPC POST status: every answered `tools/call` is a transport-level `200`, so asserting that would let `"status": 200` pass on a call that failed. Scenarios stay portable between transports as a result. A `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests, so an `agentPolicy: "require"` capability is provable over MCP too.
+
+Two things do not carry over, and both fail loudly rather than quietly. A capability the endpoint does not project — anything without `expose.mcp` — fails the scenario with the tool name it looked for and what to do about it. And the destructive confirmation flow is not exercisable over MCP yet: destructive capabilities cannot declare `expose.mcp`, so no MCP tool can answer `confirmation_required`. The `confirm` field is wired for the transport (the token rides in the call's `_meta`, since MCP has no per-call header channel), but until destructive-over-MCP lands, run confirmation scenarios over HTTP. Step `headers` are similarly limited: the projection forwards only `authorization`, so any other header on an MCP step fails the scenario instead of silently never arriving.
 
 The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing the full dispatch pipeline with `createCapabilityTestHost()` — including this confirmation flow and simulated agent identities — plus Playwright patterns, faking the WebMCP API, and signing Web Bot Auth requests in tests.

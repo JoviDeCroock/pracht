@@ -44,6 +44,41 @@ export function isValidCapabilityHttpPath(path: unknown): path is string {
 /** Default path the remote MCP projection is served from. */
 export const DEFAULT_MCP_ENDPOINT = "/mcp";
 
+/** Newest first; `initialize` negotiates down to a version both sides know. */
+export const MCP_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18"] as const;
+
+export const MCP_LATEST_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0];
+
+/** Header carrying the negotiated protocol version on every request after `initialize`. */
+export const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
+
+/**
+ * `_meta` key carrying a prepare/commit confirmation token on a `tools/call`.
+ *
+ * MCP has no per-call header channel, and the token cannot travel in
+ * `arguments`: it is bound to a hash of the canonicalized input, so adding it
+ * there would invalidate the very binding it carries. `_meta` is the
+ * protocol's designated extension slot.
+ */
+export const MCP_CONFIRMATION_META_KEY = "io.pracht/confirmation";
+
+/** `_meta` key naming the capability behind a projected tool or tool result. */
+export const MCP_CAPABILITY_META_KEY = "io.pracht/capability";
+
+/** `_meta` key carrying a projected tool's effect class. */
+export const MCP_EFFECT_META_KEY = "io.pracht/effect";
+
+/** `_meta` key carrying the capability dispatch status on an `isError` tool result. */
+export const MCP_STATUS_META_KEY = "io.pracht/status";
+
+/**
+ * `_meta` key carrying the capability envelope's error payload (`code`,
+ * `message`, and any validation `issues`) on an `isError` tool result. MCP tool
+ * errors are prose by design; this is how a machine caller — `pracht eval`, a
+ * typed client — reads the same error code the HTTP projection returns.
+ */
+export const MCP_ERROR_META_KEY = "io.pracht/error";
+
 export const MCP_TOOL_NAME_ERROR =
   "projected MCP tool names must match ^[a-zA-Z0-9_-]{1,64}$ after dots become underscores";
 

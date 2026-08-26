@@ -216,6 +216,14 @@ is a 400.
 `examples/basic` serves this endpoint; `e2e/capabilities.test.ts` exercises
 it end to end.
 
+For a repeatable check rather than a curl, `pracht eval` drives this transport
+too: a scenario with `"transport": "mcp"` performs the real `initialize`
+handshake and issues each step as a `tools/call`, so the thing under test is
+what an MCP host would actually do — not the HTTP projection standing in for
+it. `examples/basic/evals/notes-mcp.eval.json` is a working scenario; the
+format is documented in
+[AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios).
+
 ## Not built yet
 
 - **OAuth resource-server metadata** (`/.well-known/oauth-protected-resource`,
