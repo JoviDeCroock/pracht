@@ -32,6 +32,64 @@ Preact, preact/hooks, and preact-suspense are extracted into a shared `vendor` c
 - Route chunks stay small — they only contain route-specific code.
 - Deploying a route change doesn't invalidate the vendor cache.
 
+### Composing with your own chunking
+
+The framework group is *contributed*, not imposed. Whatever you configure in
+`build.rollupOptions.output` stays, and pracht appends its Preact group in the
+same form you used — so grouping a feature into its own chunk does not cost you
+the vendor chunk:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [pracht()],
+  build: {
+    rollupOptions: {
+      output: {
+        codeSplitting: {
+          groups: [{ name: "editor", test: /src[\\/]features[\\/]editor/ }],
+        },
+      },
+    },
+  },
+});
+```
+
+Precedence is Rolldown's own: higher `priority` first, then declaration order.
+Your groups are declared first, so a group that would also capture Preact wins
+at equal priority and pracht's group takes only what nothing else claimed.
+
+Check the prerendered HTML after a grouping change, not only the sizes. A broad
+group — `entriesAware` over everything, for instance — can reshuffle entry
+chunks enough that the per-route `<link rel="stylesheet">` tags pracht injects
+disappear from `dist/client/**/index.html`. Targeted groups do not have this
+problem; measure the pages, not just the bundle report.
+
+To place the framework group yourself — at a different priority, or merged into
+one of your own — turn the automatic one off and use the exported definition:
+
+```ts [vite.config.ts]
+import { frameworkChunkGroups, pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [pracht({ vendorChunk: false })],
+  build: {
+    rollupOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            ...frameworkChunkGroups(),
+            { name: "editor", test: /src[\\/]features[\\/]editor/ },
+          ],
+        },
+      },
+    },
+  },
+});
+```
+
+`vendorChunk: false` on its own makes pracht contribute no chunking config at
+all, which is what you want if Preact belongs in your app chunks.
+
 ## Core Runtime Splitting
 
 The generated client entry imports a lean browser bootstrap from `@pracht/core/client`.

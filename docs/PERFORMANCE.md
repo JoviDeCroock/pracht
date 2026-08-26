@@ -86,6 +86,42 @@ fragment navigation by whether the entry carries a router-stamped scroll key, so
 the two are one mechanism rather than two features — removing it would change
 navigation semantics, not just bundle size.
 
+## Composing with the app's chunking
+
+Pracht has one chunking opinion — Preact belongs in a shared `vendor` chunk —
+and contributes it rather than imposing it. `frameworkChunkConfig()` reads what
+the app put in `build.rollupOptions.output` and answers in the same form:
+
+| App config | Pracht contributes |
+| --- | --- |
+| nothing | `codeSplitting: { groups: [vendor] }` |
+| `codeSplitting: { groups: [...] }` | the same, appended by Vite's array-concatenating merge |
+| `advancedChunks: { groups: [...] }` (deprecated) | `advancedChunks: { groups: [vendor] }` |
+| `manualChunks(id)` (deprecated) | a function that answers `"vendor"` for Preact and delegates the rest |
+| `codeSplitting: false` | nothing |
+| an array of outputs | nothing, plus a warning naming `frameworkChunkGroups()` |
+
+The form matters because Rolldown resolves the three against each other:
+`codeSplitting` makes `advancedChunks` *and* `manualChunks` no-ops. A plugin
+that hard-codes `manualChunks` therefore loses its own policy the moment an app
+sets `codeSplitting` to group feature modules or split a heavy dependency —
+which is exactly the kind of policy an app is likely to configure here.
+
+Precedence inside `groups` is Rolldown's: higher `priority` first, then
+declaration order. The plugin's group arrives last, so an app group at equal
+priority that also matches Preact wins, and pracht's takes only what nothing
+else claimed. `pracht({ vendorChunk: false })` suppresses the contribution
+entirely; `frameworkChunkGroups()` is exported for apps that want to place the
+same definition somewhere else in their own list.
+
+Grouping changes have to be judged against the prerendered documents rather
+than the bundle report. A broad group — `entriesAware` across everything —
+can score better on chunk counts and sizes while reshuffling entry chunks
+enough that the per-route stylesheet links disappear from the emitted HTML.
+Targeted groups compose cleanly; measured on preact-www, pracht kept its vendor
+chunk while the app's own `manualChunks` function ran for everything else, with
+critical CSS still linked.
+
 ## `pracht build --analyze`
 
 After a successful production build, `--analyze` prints a per-route report of

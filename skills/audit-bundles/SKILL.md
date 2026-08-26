@@ -145,6 +145,44 @@ prefetching first: the router silently stops honouring `route({ prefetch })` and
 `<Link prefetch>`, and the imperative `prefetch()` export becomes a no-op. See
 `docs/PERFORMANCE.md#switching-off-js-prefetching`.
 
+## Step 6b: Chunk-group composition
+
+App-level chunking and pracht's vendor chunk coexist — recommend it freely.
+Pracht reads `build.rollupOptions.output` and contributes its Preact group in
+whichever form the app used, so adding a group (to merge the long tail of small
+initial chunks, say) does not cost the framework chunk:
+
+```ts
+// vite.config.ts
+build: {
+  rollupOptions: {
+    output: {
+      codeSplitting: { groups: [{ name: "app", tags: ["$initial"], minSize: 20_000 }] },
+    },
+  },
+}
+```
+
+Two things to check when an app already configures chunking:
+
+- **Mixed forms.** Rolldown lets `codeSplitting` silence both `advancedChunks`
+  and `manualChunks`. An app that sets more than one is running only
+  `codeSplitting`; report the dead config as `warn`.
+- **A group that swallows Preact.** Precedence is higher `priority` first, then
+  declaration order, with pracht's group last — so an app group matching
+  `node_modules` at equal priority absorbs the framework runtime. If a separate,
+  long-cached framework chunk was the intent, recommend a `priority` bump or a
+  `test` that excludes Preact.
+
+Verify any grouping change against the prerendered HTML, not just the numbers:
+a group broad enough to reshuffle entry chunks can drop the stylesheet links
+pracht injects per route. Compare `<link rel="stylesheet">` tags in
+`dist/client/**/index.html` before and after.
+
+`pracht({ vendorChunk: false })` makes pracht contribute nothing, for an app
+that wants Preact inside its own chunks or places `frameworkChunkGroups()`
+itself.
+
 ## Step 7: Report
 
 Three sections:

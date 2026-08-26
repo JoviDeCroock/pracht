@@ -23,7 +23,11 @@ interface BuildConfig {
   build?: {
     rollupOptions?: {
       external?: unknown[];
-      output?: { manualChunks?: unknown };
+      output?: {
+        manualChunks?: unknown;
+        codeSplitting?: { groups?: Array<{ name: string; test?: unknown }> };
+        advancedChunks?: { groups?: Array<{ name: string; test?: unknown }> };
+      };
     };
   };
 }
@@ -32,6 +36,7 @@ function runConfigHook(
   adapter: PrachtAdapter,
   isSsrBuild: boolean,
   options: Partial<Parameters<typeof pracht>[0]> = {},
+  userConfig: Record<string, unknown> = {},
 ): BuildConfig {
   const plugin = pracht({ adapter, ...options }).find((candidate) => candidate.name === "pracht");
   if (!plugin) throw new Error("pracht plugin not found");
@@ -39,7 +44,15 @@ function runConfigHook(
     config: Record<string, unknown>,
     env: { command: string; mode: string; isSsrBuild: boolean },
   ) => BuildConfig;
-  return hook.call(plugin as never, {}, { command: "build", mode: "production", isSsrBuild });
+  return hook.call(plugin as never, userConfig, {
+    command: "build",
+    mode: "production",
+    isSsrBuild,
+  });
+}
+
+function withOutput(output: unknown): Record<string, unknown> {
+  return { build: { rollupOptions: { output } } };
 }
 
 function runConfigResolvedHook(base: string): void {
@@ -260,12 +273,88 @@ describe("pracht plugin build config", () => {
     expect(dev.define?.__PRACHT_CLIENT_PREFETCH__).toBe("false");
   });
 
-  it("keeps the vendor manualChunks split on client builds only", () => {
+  it("groups Preact into a vendor chunk on client builds only", () => {
     const clientConfig = runConfigHook(edgeAdapter, false);
     const ssrConfig = runConfigHook(edgeAdapter, true);
 
-    expect(typeof clientConfig.build?.rollupOptions?.output?.manualChunks).toBe("function");
-    expect(ssrConfig.build?.rollupOptions?.output?.manualChunks).toBeUndefined();
+    expect(clientConfig.build?.rollupOptions?.output?.codeSplitting?.groups).toEqual([
+      { name: "vendor", test: /node_modules[\\/]preact/ },
+    ]);
+    expect(ssrConfig.build?.rollupOptions?.output).toBeUndefined();
+  });
+
+  it("contributes only its own group, so Vite appends it to the app's", () => {
+    // Vite merges a plugin's config over the user's and concatenates arrays.
+    // Returning the whole merged list here would duplicate every app group.
+    const config = runConfigHook(
+      edgeAdapter,
+      false,
+      {},
+      withOutput({
+        codeSplitting: {
+          groups: [{ name: "editor", test: /src[\\/]features[\\/]editor/ }],
+        },
+      }),
+    );
+
+    expect(config.build?.rollupOptions?.output?.codeSplitting?.groups).toEqual([
+      { name: "vendor", test: /node_modules[\\/]preact/ },
+    ]);
+  });
+
+  it("contributes nothing when the app switches code splitting off", () => {
+    const config = runConfigHook(edgeAdapter, false, {}, withOutput({ codeSplitting: false }));
+
+    expect(config.build?.rollupOptions?.output).toBeUndefined();
+  });
+
+  it("contributes nothing when vendorChunk is disabled", () => {
+    const config = runConfigHook(edgeAdapter, false, { vendorChunk: false });
+
+    expect(config.build?.rollupOptions?.output).toBeUndefined();
+  });
+
+  it("matches the deprecated advancedChunks form so the app's groups survive", () => {
+    // Rolldown ignores advancedChunks as soon as codeSplitting is present.
+    const config = runConfigHook(
+      edgeAdapter,
+      false,
+      {},
+      withOutput({ advancedChunks: { groups: [{ name: "app" }] } }),
+    );
+
+    expect(config.build?.rollupOptions?.output?.advancedChunks?.groups).toEqual([
+      { name: "vendor", test: /node_modules[\\/]preact/ },
+    ]);
+    expect(config.build?.rollupOptions?.output?.codeSplitting).toBeUndefined();
+  });
+
+  it("composes with a manualChunks function instead of replacing it", () => {
+    const appManualChunks = vi.fn((id: string) => (id.includes("lodash") ? "utils" : undefined));
+    const config = runConfigHook(
+      edgeAdapter,
+      false,
+      {},
+      withOutput({ manualChunks: appManualChunks }),
+    );
+
+    const composed = config.build?.rollupOptions?.output?.manualChunks as (
+      id: string,
+      meta: unknown,
+    ) => unknown;
+    expect(typeof composed).toBe("function");
+    expect(composed("/app/node_modules/preact/dist/preact.mjs", {})).toBe("vendor");
+    expect(composed("/app/node_modules/lodash/index.js", {})).toBe("utils");
+    expect(appManualChunks).toHaveBeenCalledWith("/app/node_modules/lodash/index.js", {});
+  });
+
+  it("warns rather than clobbering an array of outputs", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const config = runConfigHook(edgeAdapter, false, {}, withOutput([{ format: "es" }]));
+
+    expect(config.build?.rollupOptions?.output).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("frameworkChunkGroups()"));
+    warn.mockRestore();
   });
 
   it("does not force edge-only SSR options on non-edge adapters", () => {

@@ -11,6 +11,7 @@ import {
 
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
+import { frameworkChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
@@ -73,6 +74,7 @@ export type {
   PrachtLlmsTxtOptions,
   PrachtPluginOptions,
 } from "./plugin-options.ts";
+export { FRAMEWORK_VENDOR_CHUNK, frameworkChunkGroups, type ChunkGroup } from "./chunk-groups.ts";
 export {
   createPrachtClientModuleSource,
   createPrachtIslandsClientModuleSource,
@@ -175,6 +177,21 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
       };
 
+      // Contributed rather than imposed: pracht adds its Preact group to the
+      // app's own chunking config in whichever form the app used, so an app
+      // that merges its small initial chunks keeps the framework chunk, and an
+      // app that wants Preact somewhere else can say so.
+      const clientChunkConfig =
+        isSSRBuild || !resolved.vendorChunk
+          ? {}
+          : frameworkChunkConfig(
+              (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
+                ?.output,
+            );
+      if (clientChunkConfig.warning) {
+        console.warn(`[pracht] ${clientChunkConfig.warning}`);
+      }
+
       return {
         appType: "custom" as const,
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
@@ -197,24 +214,15 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           ...clientFeatureDefines,
         },
         // The vendor split only makes sense for the client bundle; SSR builds
-        // that disable code splitting (e.g. webworker targets) reject
-        // `manualChunks` outright.
+        // that disable code splitting (e.g. webworker targets) reject chunk
+        // grouping outright.
         ...(isSSRBuild
           ? {}
           : {
               build: {
                 rollupOptions: {
                   ...(wantsIslandsEntry ? { input: [PRACHT_ISLANDS_CLIENT_MODULE_ID] } : {}),
-                  output: {
-                    manualChunks(id: string) {
-                      if (
-                        id.includes("node_modules/preact") ||
-                        id.includes("node_modules/preact-suspense")
-                      ) {
-                        return "vendor";
-                      }
-                    },
-                  },
+                  ...(clientChunkConfig.output ? { output: clientChunkConfig.output } : {}),
                 },
               },
             }),

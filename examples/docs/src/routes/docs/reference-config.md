@@ -71,6 +71,12 @@ route options and `<Link>` props.
 An unknown key here is an error rather than a silent no-op, so a typo cannot
 quietly ship the feature you meant to remove.
 
+### Chunking
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `vendorChunk` | `true` | Contribute the Preact [vendor chunk group](/docs/performance#composing-with-your-own-chunking) to whatever the app configured in `build.rollupOptions.output`. `false` contributes nothing |
+
 ### Agent surfaces
 
 | Option | Default | Description |
