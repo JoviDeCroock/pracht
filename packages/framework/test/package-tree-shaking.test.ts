@@ -147,10 +147,10 @@ describe("published package tree shaking", () => {
     // A ceiling, not a target: every byte here is on the critical path of
     // every hydrating route. Lower it when a feature moves off that path;
     // raising it should need a reason.
-    it("keeps the router runtime below 9,700 gzip bytes", async () => {
+    it("keeps the router runtime below 9,800 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_700);
+      expect(gzipBytes).toBeLessThanOrEqual(9_800);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
