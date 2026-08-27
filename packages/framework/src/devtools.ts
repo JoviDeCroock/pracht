@@ -132,7 +132,9 @@ ${capabilityRows}
   const trafficEvents = options.agentTraffic?.events ?? [];
   const trafficKinds = trafficEvents.map(classifyAgentTraffic);
   const agentCount = trafficKinds.filter((kind) => kind === "agent").length;
-  const unverifiedClientCount = trafficKinds.filter((kind) => kind === "unverified-client").length;
+  const unverifiedDispatchCount = trafficKinds.filter(
+    (kind) => kind === "unverified-client",
+  ).length;
   const composedCount = trafficKinds.filter((kind) => kind === "first-party").length;
   const droppedCount = Math.max(
     0,
@@ -153,10 +155,10 @@ ${capabilityRows}
     )
     .join("\n");
 
-  // First-party composition is hidden behind a CSS-only toggle rather than
-  // dropped: on an app whose loaders compose capabilities it is the large
-  // majority of dispatches, and leaving it in the default view buries the
-  // handful of rows that answer "is anything external calling this?".
+  // First-party composition with no served-request provenance is hidden behind
+  // a CSS-only toggle rather than dropped. HTTP-caused composition stays
+  // visible because an unsigned request may have come from an agent or another
+  // external client.
   const composedToggle =
     composedCount > 0
       ? `<input type="checkbox" id="pracht-show-composed" class="toggle-input">
@@ -180,13 +182,13 @@ ${trafficRows}
       ? `<h2>Agents${agentTrafficCaption(
           options.agentTraffic,
           agentCount,
-          unverifiedClientCount,
+          unverifiedDispatchCount,
           composedCount,
         )}</h2>
     ${
       trafficEvents.length === 0
         ? `<p class="empty">No capability dispatches recorded yet. Call a capability over HTTP, WebMCP, or MCP and reload.</p>`
-        : agentCount === 0 && unverifiedClientCount === 0
+        : agentCount === 0 && unverifiedDispatchCount === 0
           ? `<p class="empty">${
               droppedCount > 0
                 ? "No agent-attributed traffic in the retained window. Older dropped dispatches may include agent traffic."
@@ -194,7 +196,7 @@ ${trafficRows}
             }</p>
     ${trafficTable}`
           : agentCount === 0
-            ? `<p class="empty">No agent-attributed traffic in the retained window. Unverified HTTP and WebMCP dispatches may be people, agents, or other clients.</p>
+            ? `<p class="empty">No agent-attributed traffic in the retained window. Unverified HTTP-caused and WebMCP dispatches may be people, agents, or other clients.</p>
     ${trafficTable}`
             : trafficTable
     }`
@@ -365,11 +367,13 @@ ${notFoundRow}
  * Classify a dispatch as agent-attributed, ambiguous unverified client
  * traffic, or the app composing its own capabilities.
  *
- * `transport: "server"` is `invokeCapability()`, which every loader and API
- * route can call — on a composing app it is the large majority of dispatches
- * and is not agent traffic at all. The one exception is a nested call composed
- * under a remote MCP request (`via: "mcp"`): that is trusted dispatch state, so
- * the effect really was agent-caused and belongs in the default view.
+ * `transport: "server"` is `invokeCapability()`. A call with no `via` is
+ * first-party work outside a served request. Under a served HTTP request the
+ * same call has `via: "http"`, which is ambiguous: an ordinary page or API
+ * route can be driven by a person, an unsigned agent, or another client, and
+ * there may be no top-level capability row to preserve that provenance. Keep
+ * it visible with the other unverified client traffic. A nested call composed
+ * under remote MCP (`via: "mcp"`) is trusted agent attribution.
  *
  * Top-level unsigned HTTP is also ambiguous: Pracht's human `<Form capability>`
  * and browser client use the same endpoint as an HTTP agent. The WebMCP marker
@@ -383,23 +387,23 @@ function classifyAgentTraffic(event: AgentTrafficEvent): AgentTrafficKind {
   if (event.agent !== null || event.transport === "mcp" || event.via === "mcp") {
     return "agent";
   }
-  if (event.transport === "http" || event.transport === "webmcp") {
+  if (event.transport === "http" || event.transport === "webmcp" || event.via === "http") {
     return "unverified-client";
   }
   return "first-party";
 }
 
 /**
- * `— 3 agent-attributed dispatches (mcp 3) · 3 unverified clients · 8 first-party
- * · 4 older dropped`. The separate unverified count prevents human form,
- * browser-client, and spoofed WebMCP calls from masquerading as agent
- * activation, and the dropped count tells a reader that the visible log is only
- * a tail.
+ * `— 3 agent-attributed dispatches (mcp 3) · 3 unverified client dispatches ·
+ * 8 first-party · 4 older dropped`. The separate unverified count prevents
+ * human form, browser-client, and spoofed WebMCP calls from masquerading as
+ * agent activation, and the dropped count tells a reader that the visible log
+ * is only a tail.
  */
 function agentTrafficCaption(
   traffic: DevtoolsAgentTraffic | undefined,
   agentCount: number,
-  unverifiedClientCount: number,
+  unverifiedDispatchCount: number,
   composedCount: number,
 ): string {
   if (!traffic || traffic.recorded === 0) return "";
@@ -415,9 +419,9 @@ function agentTrafficCaption(
 
   const parts = [`${agentCount} agent-attributed dispatch${agentCount === 1 ? "" : "es"}`];
   if (breakdown !== "") parts[0] += ` (${breakdown})`;
-  if (unverifiedClientCount > 0) {
+  if (unverifiedDispatchCount > 0) {
     parts.push(
-      `${unverifiedClientCount} unverified client${unverifiedClientCount === 1 ? "" : "s"}`,
+      `${unverifiedDispatchCount} unverified client dispatch${unverifiedDispatchCount === 1 ? "" : "es"}`,
     );
   }
   if (composedCount > 0) parts.push(`${composedCount} first-party`);

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { readBuildLlmsTxtEnabled } from "../src/app-server.ts";
+import { readBuildLlmsTxtEnabled, resolveBuildLlmsTxtEnabled } from "../src/app-server.ts";
 
 import {
   cleanupTempDirs,
@@ -130,6 +130,33 @@ describe("@pracht/cli inspect agents", () => {
     const { agents } = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
 
     expect(agents.llmsTxt).toEqual({ enabled: true });
+  }, 30_000);
+
+  it("uses Vite's production NODE_ENV without leaking it into later inspection", async () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-agents-node-env-");
+    writeTypedManifestApp(appDir, { capabilities: true, agents: true });
+    const configPath = resolve(appDir, "vite.config.ts");
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      readFileSync(configPath, "utf-8").replace(
+        'pracht({ llmsTxt: { title: "Fixture app" } })',
+        'pracht({ llmsTxt: process.env.NODE_ENV === "production" ? { title: "Fixture app" } : false })',
+      ),
+    );
+
+    const previousNodeEnv = process.env.NODE_ENV;
+    delete process.env.NODE_ENV;
+    try {
+      expect(await resolveBuildLlmsTxtEnabled(appDir)).toBe(true);
+      expect(process.env.NODE_ENV).toBeUndefined();
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+    }
   }, 30_000);
 
   it("does not erase other agent surfaces when no capabilities are registered", () => {

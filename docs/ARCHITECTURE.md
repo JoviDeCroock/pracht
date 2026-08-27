@@ -350,10 +350,10 @@ exist at all (they 404), rather than existing and reporting nothing.
   the dev server started and survives eviction, so the page can report how many
   older events were dropped. Events carry `transport`, so JSON consumers do their
   own filtering. The HTML page counts verified identities, MCP, and MCP-caused
-  composition as agent-attributed; shows unsigned HTTP and client-declared
-  WebMCP markers separately because they may be people, agents, or other
-  clients; and hides ordinary
-  first-party `invokeCapability()` composition behind a CSS-only toggle.
+  composition as agent-attributed; shows top-level unsigned HTTP, HTTP-caused
+  composition, and client-declared WebMCP markers separately as unverified
+  client dispatches; and hides only `invokeCapability()` work with no
+  served-request provenance behind a CSS-only first-party toggle.
 - Not everything reaching the capability surface is audited: a cross-origin 403, an
   unknown-capability 404, and an unknown or unexposed MCP tool name all return
   before dispatch, so probes leave no trace. See `AGENT_TRUST.md`.

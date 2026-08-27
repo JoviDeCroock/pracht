@@ -38,6 +38,7 @@ export async function resolveBuildLlmsTxtEnabled(root: string): Promise<boolean 
   const releaseStartup = await acquireGraphStartup();
   try {
     enterGraphOnlyMode();
+    const previousNodeEnv = process.env.NODE_ENV;
     try {
       const config = await resolveConfig(
         {
@@ -51,9 +52,19 @@ export async function resolveBuildLlmsTxtEnabled(root: string): Promise<boolean 
         },
         "build",
         "production",
+        "production",
       );
       return readBuildLlmsTxtEnabled(config.plugins);
     } finally {
+      // Vite initializes NODE_ENV from its fourth argument and leaves it set.
+      // This production-only probe runs immediately before the ordinary dev
+      // graph server, so leaking "production" would make the two reads observe
+      // different app configurations for reasons the caller never requested.
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
       exitGraphOnlyMode();
     }
   } finally {

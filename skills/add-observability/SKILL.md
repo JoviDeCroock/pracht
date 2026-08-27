@@ -314,10 +314,11 @@ In dev the same events are already collected: the **Agents** section of
 `/_pracht` shows recent dispatches with transport, `via`, verified identity,
 outcome, and duration, and `/_pracht.json` exposes all of them under
 `agentTraffic`. The page counts verified identities, MCP, and MCP-caused
-composition as agent-attributed; shows unsigned HTTP and client-declared WebMCP
-markers separately because they may be people, agents, or other clients; and
-hides ordinary first-party `invokeCapability()` composition behind a toggle, so
-the panel's visible count can be lower than the sink's.
+composition as agent-attributed; shows top-level unsigned HTTP, HTTP-caused
+composition, and client-declared WebMCP markers separately as unverified client
+dispatches; and hides only `invokeCapability()` work with no served-request
+provenance behind a first-party toggle, so the panel's visible count can be
+lower than the sink's.
 Counts and empty-state conclusions only cover the retained window when older
 events have been dropped. Use it to confirm the sink sees what the panel sees
 before wiring a paid backend. Adapter-owned dev servers do not register this

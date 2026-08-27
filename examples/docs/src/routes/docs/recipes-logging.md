@@ -273,7 +273,7 @@ The three metrics worth deriving from these events:
 
 | Metric | Derivation | What it tells you |
 | --- | --- | --- |
-| Activation | Count verified identities, MCP, and MCP-caused composition; keep unsigned HTTP and client-declared WebMCP separate | Whether attributable agents are visiting, without trusting spoofable client markers or counting human forms as agents |
+| Activation | Count verified identities, MCP, and MCP-caused composition; keep top-level unsigned HTTP, HTTP-caused composition, and client-declared WebMCP separate | Whether attributable agents are visiting, without trusting spoofable client markers or counting human forms as agents |
 | Task completion | Ratio where `outcome === "ok"` or status is 2xx, per `capability` | Whether they can finish what they came for, including successful middleware short-circuits without counting middleware redirects |
 | Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
 

@@ -150,10 +150,10 @@ For every exposed capability, ask whether the exposure is deliberate:
   records transport, `via` for nested composition, verified identity, outcome
   code, and duration — useful for proving a guard actually fires. The page
   counts verified identities, MCP, and MCP-caused composition as
-  agent-attributed; shows unsigned HTTP and client-declared WebMCP markers
-  separately because they may be people, agents, or other clients; and hides
-  ordinary first-party `invokeCapability()` composition behind a toggle. The
-  JSON keeps everything.
+  agent-attributed; shows top-level unsigned HTTP, HTTP-caused composition, and
+  client-declared WebMCP markers separately as unverified client dispatches;
+  and hides only `invokeCapability()` work with no served-request provenance
+  behind a first-party toggle. The JSON keeps everything.
   It is dev-only, and under adapter-owned dev servers (Cloudflare `workerd`)
   `/_pracht` does not exist at all — a 404 there means the middleware never
   ran, not that no agent traffic occurred.

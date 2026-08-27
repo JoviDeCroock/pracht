@@ -256,14 +256,11 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).toContain("No capability dispatches recorded yet.");
   });
 
-  it("separates unverified clients from agent-attributed and first-party traffic", () => {
-    // A composing app's loaders produce far more `server` dispatches than
-    // agents produce real ones; leaving them in the default view buries the
-    // rows that answer "is anything external calling this?".
+  it("separates unverified dispatches from agent-attributed and first-party traffic", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: {
         limit: 200,
-        recorded: 3,
+        recorded: 4,
         events: [
           {
             at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
@@ -281,6 +278,8 @@ describe("buildDevtoolsHtml — agent traffic", () => {
             capability: "notes.stats",
             effect: "read",
             transport: "server",
+            // An unsigned request to a page or API route can produce this as
+            // its only row, so HTTP-caused composition remains ambiguous.
             via: "http",
             outcome: "ok",
             status: 200,
@@ -300,16 +299,29 @@ describe("buildDevtoolsHtml — agent traffic", () => {
             durationMs: 1,
             agent: null,
           },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 12, 0),
+            capability: "notes.internal",
+            effect: "read",
+            transport: "server",
+            // No served-request provenance: genuinely first-party work.
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: null,
+          },
         ],
       },
     });
 
     expect(html).toContain(
-      "<h2>Agents — 1 agent-attributed dispatch (server 1) · 1 unverified client · 1 first-party</h2>",
+      "<h2>Agents — 1 agent-attributed dispatch (server 1) · 2 unverified client dispatches · 1 first-party</h2>",
     );
     expect(html).toContain("Show 1 first-party");
-    // Only the ambiguous `via: "http"` composition is collapsed.
-    expect(html).toContain(`<tr class="composed">\n        <td class="file">09:30:14.000</td>`);
+    // Only the call without HTTP or MCP provenance is collapsed.
+    expect(html).toContain(`<tr class="composed">\n        <td class="file">09:30:12.000</td>`);
+    expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:14.000</td>`);
     expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:13.000</td>`);
     expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:15.000</td>`);
     // The toggle is CSS-only — the page still ships no JavaScript of its own.
@@ -338,9 +350,11 @@ describe("buildDevtoolsHtml — agent traffic", () => {
       },
     });
 
-    expect(html).toContain("<h2>Agents — 0 agent-attributed dispatches · 1 unverified client</h2>");
     expect(html).toContain(
-      "Unverified HTTP and WebMCP dispatches may be people, agents, or other clients.",
+      "<h2>Agents — 0 agent-attributed dispatches · 1 unverified client dispatch</h2>",
+    );
+    expect(html).toContain(
+      "Unverified HTTP-caused and WebMCP dispatches may be people, agents, or other clients.",
     );
   });
 
@@ -399,7 +413,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).not.toContain(`<tr class="composed">`);
   });
 
-  it("says so when every recorded dispatch is the app calling itself", () => {
+  it("says so when every recorded dispatch has no served-request provenance", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: {
         limit: 200,
@@ -410,7 +424,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
             capability: "notes.stats",
             effect: "read",
             transport: "server",
-            via: "http",
+            via: null,
             outcome: "ok",
             status: 200,
             durationMs: 2,
@@ -437,7 +451,7 @@ describe("buildDevtoolsHtml — agent traffic", () => {
             capability: "notes.stats",
             effect: "read",
             transport: "server",
-            via: "http",
+            via: null,
             outcome: "ok",
             status: 200,
             durationMs: 2,
@@ -580,10 +594,10 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     });
 
     expect(html).toContain(
-      "<h2>Agents — 0 agent-attributed dispatches · 1 unverified client · 4 older dropped</h2>",
+      "<h2>Agents — 0 agent-attributed dispatches · 1 unverified client dispatch · 4 older dropped</h2>",
     );
     expect(html).toContain(
-      "Unverified HTTP and WebMCP dispatches may be people, agents, or other clients.",
+      "Unverified HTTP-caused and WebMCP dispatches may be people, agents, or other clients.",
     );
     // Sub-millisecond in-process dispatch must not round to a misleading 0ms.
     expect(html).toContain("&lt;1ms");

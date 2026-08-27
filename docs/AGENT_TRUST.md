@@ -710,14 +710,14 @@ does not claim whether those older dispatches were external or first-party.
 The JSON keeps every recorded dispatch and carries `transport` on each, so
 consumers filter for themselves. The HTML page separates three categories:
 verified identities, MCP, and MCP-caused composition are **agent-attributed**;
-top-level unsigned HTTP and WebMCP stay visible but are counted as unverified
-client traffic because the HTTP endpoint also serves people and the WebMCP
-marker is caller-controlled; ordinary `invokeCapability()` composition is
-hidden behind a "show first-party" toggle. An unsigned `via: "http"` dispatch is
-first-party because a capability host is installed for every served request,
-so an ordinary page loader's composition carries it too. A non-null verified
-identity qualifies as agent-attributed, including when the agent enters through
-a page or ordinary API route and that composed dispatch is its only row.
+top-level unsigned HTTP, HTTP-caused composition (`transport: "server"`,
+`via: "http"`), and WebMCP stay visible but are counted as unverified client
+**dispatches** because the request may come from a person, an unsigned agent, or
+another client, while the WebMCP marker is caller-controlled; only
+`invokeCapability()` work with no served-request provenance is hidden behind a
+"show first-party" toggle. A non-null verified identity qualifies as
+agent-attributed, including when the agent enters through a page or ordinary API
+route and that composed dispatch is its only row.
 
 ### What is not audited
 
