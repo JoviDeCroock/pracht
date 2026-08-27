@@ -11,4 +11,4 @@
 
 - [ ] Docs updated if needed
 - [ ] Skills updated if needed
-- [ ] Changeset added if published packages changed
+- [ ] Concise, user-facing changeset added if published packages changed
