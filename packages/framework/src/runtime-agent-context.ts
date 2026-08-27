@@ -1,6 +1,6 @@
 import type { PrachtAgentIdentity } from "@pracht/capabilities";
 
-import type { PrachtContextExtensions } from "./types.ts";
+import type { McpTokenPrincipal, PrachtContextExtensions } from "./types.ts";
 
 const agentIdentitySnapshots = new WeakSet<object>();
 interface BoundAgentContext {
@@ -9,6 +9,13 @@ interface BoundAgentContext {
 }
 
 const boundAgentContexts = new WeakMap<object, BoundAgentContext>();
+
+interface BoundMcpTokenContext {
+  principal: McpTokenPrincipal | null;
+  context: object;
+}
+
+const boundMcpTokenContexts = new WeakMap<object, BoundMcpTokenContext>();
 
 /**
  * Bind framework-verified agent identity onto an application request context.
@@ -125,6 +132,93 @@ export function isRequestContextOverlay(context: unknown): boolean {
     ((typeof context === "object" && context !== null) || typeof context === "function") &&
     requestContextOverlays.has(context as object)
   );
+}
+
+/**
+ * Bind a framework-verified OAuth principal onto a request-local context.
+ * Rebinding the same framework-owned overlay is idempotent so an MCP tool can
+ * pass its context to a nested capability. Any application-owned or inherited
+ * `tokenAuth` field still fails closed.
+ */
+export function bindMcpTokenContext<TContext>(
+  context: TContext,
+  principal: McpTokenPrincipal | null,
+): TContext & PrachtContextExtensions {
+  if ((typeof context !== "object" || context === null) && typeof context !== "function") {
+    return Object.freeze({ tokenAuth: principal }) as TContext & PrachtContextExtensions;
+  }
+
+  const previous = boundMcpTokenContexts.get(context);
+  if (previous) {
+    if (previous.principal === principal) {
+      return previous.context as TContext & PrachtContextExtensions;
+    }
+    throw new TypeError(
+      "Pracht request contexts cannot be reused across different verified OAuth principals. " +
+        "Create a fresh context for each request.",
+    );
+  }
+
+  const requestContext = isRequestContextOverlay(context)
+    ? context
+    : isolateRequestContext(context);
+  const target = requestContext as unknown as object;
+
+  const existing = Reflect.getOwnPropertyDescriptor(target, "tokenAuth");
+  if (existing || Reflect.has(target, "tokenAuth")) {
+    throw new TypeError(
+      "Pracht cannot replace an application-owned `tokenAuth` field on the supplied request " +
+        "context. The field is reserved for the framework — rename yours.",
+    );
+  }
+
+  try {
+    Object.defineProperty(target, "tokenAuth", {
+      configurable: false,
+      enumerable: true,
+      value: principal,
+      writable: false,
+    });
+  } catch {
+    throw new TypeError(
+      "Pracht could not bind the verified token principal to a frozen or sealed request context. " +
+        "Create a fresh mutable request context for each request.",
+    );
+  }
+
+  const binding = { principal, context: target };
+  boundMcpTokenContexts.set(target, binding);
+  return requestContext as TContext & PrachtContextExtensions;
+}
+
+/** @internal Reassert the transport principal over nested caller-supplied context. */
+export function rebindMcpTokenContext<TContext>(
+  context: TContext,
+  principal: McpTokenPrincipal,
+): TContext & PrachtContextExtensions {
+  if ((typeof context !== "object" || context === null) && typeof context !== "function") {
+    return Object.freeze({ tokenAuth: principal }) as TContext & PrachtContextExtensions;
+  }
+
+  const previous = boundMcpTokenContexts.get(context);
+  if (previous?.principal === principal) {
+    return previous.context as TContext & PrachtContextExtensions;
+  }
+
+  // Always add a new overlay here. Unlike the request-boundary binder above,
+  // nested composition accepts arbitrary application context, then shadows
+  // any claimed OAuth identity with the one the MCP transport verified.
+  const requestContext = isolateRequestContext(context);
+  const target = requestContext as unknown as object;
+  Object.defineProperty(target, "tokenAuth", {
+    configurable: false,
+    enumerable: true,
+    value: principal,
+    writable: false,
+  });
+  const binding = { principal, context: target };
+  boundMcpTokenContexts.set(target, binding);
+  return requestContext as TContext & PrachtContextExtensions;
 }
 
 /**

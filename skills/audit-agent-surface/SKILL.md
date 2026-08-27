@@ -118,7 +118,8 @@ commonly misunderstood line of an app's agent surface.
     uses HTTPS outside loopback development, and its path exactly identifies
     the served endpoint (`resolveApp()` and `pracht verify` reject otherwise,
     so a failure here means the app does not build). `mcp.path: "/"`
-    legitimately identifies the deployed app root, including its base.
+    legitimately identifies the deployed app root, including its base; at the
+    origin root its canonical identifier is slashless (`https://app.example.com`).
     Confirm aliases, query-bearing URLs, and trailing-slash spellings redirect
     with `308` to this exact identifier before emitting an OAuth challenge.
   - Every `authorizationServers` entry is an HTTPS issuer without a query or
@@ -133,7 +134,9 @@ commonly misunderstood line of an app's agent surface.
   - The `verify` module lives under `src/server/`, `src/middleware/`, or
     `src/capabilities/`. Those are the only directories globbed into the module
     registry; a verifier anywhere else is never loadable and every `/mcp`
-    request 401s forever with a config that looks correct — `error`.
+    request 401s forever with a config that looks correct — `error`. Duplicate
+    suffixes across those registries are ambiguous and rejected; require a
+    root-relative reference that identifies exactly one module.
   - Open the `verify` module and confirm it binds the token **audience** to the
     `resource` value. Without that check, a token minted by the same issuer for
     a different service authenticates here — `error`.
@@ -144,7 +147,8 @@ commonly misunderstood line of an app's agent surface.
     not only the later `insufficient_scope` response. Scope values must be
     printable ASCII other than quotes and backslashes.
   - Capabilities reading `context.tokenAuth` must tolerate its absence on other
-    transports — it is only set on authenticated MCP dispatch.
+    transports — it is only set on authenticated MCP dispatch. Confirm nested
+    capability calls cannot replace it through caller-supplied context.
   - Under a deploy base, `resource` must carry the base
     (`https://app.example.com/app/mcp`). Report the metadata URL the app
     actually publishes — origin root, base inside the suffix

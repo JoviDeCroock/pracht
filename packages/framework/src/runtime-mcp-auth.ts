@@ -17,15 +17,17 @@
  */
 
 import { mcpResourceMetadataUrl } from "./mcp-config.ts";
-import { isolateRequestContext, isRequestContextOverlay } from "./runtime-agent-context.ts";
-import { resolveRegistryModule } from "./runtime-manifest.ts";
+import { normalizeModulePath } from "./runtime-manifest.ts";
 import type {
   McpAuthConfig,
   McpTokenPrincipal,
   McpTokenVerifier,
   McpTokenVerifierModule,
+  ModuleImporter,
   ModuleRegistry,
 } from "./types.ts";
+
+export { bindMcpTokenContext } from "./runtime-agent-context.ts";
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" } as const;
 
@@ -331,8 +333,9 @@ function normalizePrincipal(value: unknown): McpTokenPrincipal | null {
 /**
  * Resolve the `verify` module from the registry. The verifier is server-only
  * code, so it is registered as a module reference (like middleware and
- * capabilities) and looked up across the buckets the Vite plugin globs —
- * `src/server/` first, which is where the docs put it.
+ * capabilities) and looked up across every bucket the Vite plugin globs. A
+ * suffix that identifies more than one module is rejected instead of letting
+ * registry bucket order choose which security hook runs.
  *
  * Not memoized: the registry entry is an `import.meta.glob` thunk, so the ES
  * module cache already makes the second call free, and a framework-level cache
@@ -349,19 +352,47 @@ export async function loadMcpTokenVerifier(
         '`() => import("./server/mcp-token.ts")` refs in the app manifest.',
     );
   }
+  const importer = resolveMcpTokenVerifierImporter(file, registry);
+  const module = (await importer()) as McpTokenVerifierModule;
+  if (typeof module.default !== "function") {
+    throw new Error(
+      `agents.mcp.auth.verify module ${JSON.stringify(file)} has no default-exported function.`,
+    );
+  }
+  return module.default;
+}
+
+interface VerifierModuleCandidate {
+  key: string;
+  importer: ModuleImporter;
+}
+
+function resolveMcpTokenVerifierImporter(file: string, registry: ModuleRegistry): ModuleImporter {
+  const candidates: VerifierModuleCandidate[] = [];
   for (const modules of [
     registry.dataModules,
     registry.middlewareModules,
     registry.capabilityModules,
   ]) {
-    const module = await resolveRegistryModule<McpTokenVerifierModule>(modules, file);
-    if (!module) continue;
-    if (typeof module.default !== "function") {
-      throw new Error(
-        `agents.mcp.auth.verify module ${JSON.stringify(file)} has no default-exported function.`,
-      );
+    for (const [key, importer] of Object.entries(modules ?? {})) {
+      candidates.push({ key, importer });
     }
-    return module.default;
+  }
+
+  const target = normalizeModulePath(file);
+  const exact = candidates.filter(({ key }) => key === file || normalizeModulePath(key) === target);
+  const matches =
+    exact.length > 0
+      ? exact
+      : candidates.filter(({ key }) => normalizeModulePath(key).endsWith(`/${target}`));
+
+  if (matches.length === 1) return matches[0]!.importer;
+  if (matches.length > 1) {
+    throw new Error(
+      `agents.mcp.auth.verify module ${JSON.stringify(file)} is ambiguous; it matches ${matches
+        .map(({ key }) => JSON.stringify(key))
+        .join(", ")}. Use a root-relative module path such as "/src/server/mcp-token.ts".`,
+    );
   }
   throw new Error(
     `agents.mcp.auth.verify module ${JSON.stringify(file)} is not registered. Put it under ` +
@@ -387,43 +418,6 @@ export async function loadMcpTokenVerifier(
  * a capability that reads `context.tokenAuth` would otherwise run with the
  * field silently absent.
  */
-export function bindMcpTokenContext<TContext>(
-  context: TContext,
-  principal: McpTokenPrincipal | null,
-): TContext {
-  if ((typeof context !== "object" || context === null) && typeof context !== "function") {
-    return Object.freeze({ tokenAuth: principal }) as TContext;
-  }
-
-  const requestContext = isRequestContextOverlay(context)
-    ? context
-    : isolateRequestContext(context);
-  const target = requestContext as unknown as object;
-
-  const existing = Reflect.getOwnPropertyDescriptor(target, "tokenAuth");
-  if (existing || Reflect.has(target, "tokenAuth")) {
-    throw new TypeError(
-      "Pracht cannot replace an application-owned `tokenAuth` field on the supplied request " +
-        "context. The field is reserved for the framework — rename yours.",
-    );
-  }
-
-  try {
-    Object.defineProperty(target, "tokenAuth", {
-      configurable: false,
-      enumerable: true,
-      value: principal,
-      writable: false,
-    });
-  } catch {
-    throw new TypeError(
-      "Pracht could not bind the verified token principal to a frozen or sealed request context. " +
-        "Create a fresh mutable request context for each request.",
-    );
-  }
-  return requestContext;
-}
-
 let warnedVerifierUnavailable = false;
 function warnVerifierUnavailable(error: unknown): void {
   if (warnedVerifierUnavailable) return;

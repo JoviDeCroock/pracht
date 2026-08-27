@@ -605,7 +605,7 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
       `${label}.resource }) must not carry a query string or fragment, got ${JSON.stringify(auth.resource)}.`,
     );
   }
-  assertCanonicalOAuthUrl(auth.resource, resource, `${label}.resource })`, false);
+  assertCanonicalOAuthUrl(auth.resource, resource, `${label}.resource })`, true);
 
   // RFC 8707 makes the resource identifier the token audience, and hosts derive
   // the metadata URL from it. Pointing it at a path the app does not serve

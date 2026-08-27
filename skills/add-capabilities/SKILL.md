@@ -191,6 +191,9 @@ Rules to hold the user to:
   those are the only directories the build globs into the module registry, and
   a verifier anywhere else is never loadable, so every `/mcp` request 401s
   forever. `pracht verify` errors on that, but do not create the file elsewhere.
+  If the same suffix exists in more than one registry directory, lookup rejects
+  it as ambiguous; use a root-relative reference such as
+  `() => import("/src/server/mcp-token.ts")`.
 - **Security option names are exact.** Unknown keys under `agents.mcp` and
   `agents.mcp.auth` are rejected instead of ignored; do not work around the
   error with casts. The MCP path must also differ from every explicit API route
@@ -217,7 +220,8 @@ Rules to hold the user to:
   mutations cannot become stale auth on a later request. The capability audit
   event does not carry it yet, so capture it in named middleware or capability
   code and send it to the same audit sink if MCP calls must be attributable to
-  an account.
+  an account. Nested capability calls rebind this field to the transport-verified
+  principal, so caller-supplied composition context cannot replace it.
 - `resource` must be the endpoint's **real deployed URL**: absolute, free of
   query/fragment, free of a non-root trailing slash, and exactly matching the
   served endpoint's public path — deploy base included, e.g.
@@ -227,7 +231,8 @@ Rules to hold the user to:
   (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it. Require
   HTTPS outside loopback development, and reject authorization-server issuers
   with query strings or fragments. For `mcp.path: "/"`, the resource is the
-  deployed app root, including its base. Authenticated requests whose URL is not
+  deployed app root, including its base; at the origin root use slashless
+  `https://app.example.com`. Authenticated requests whose URL is not
   exactly this identifier are redirected to it with `308` before token
   verification. Scope values must use OAuth's printable ASCII grammar (no
   spaces, controls, non-ASCII, quotes, or backslashes).

@@ -401,7 +401,7 @@ function collectMcpAuthChecks(
           `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a query string or fragment.`,
         ),
       );
-    } else if (!oauthUrlHasCanonicalSpelling(resource, parsed, false)) {
+    } else if (!oauthUrlHasCanonicalSpelling(resource, parsed, true)) {
       authIsProvablyValid = false;
       checks.push(
         createCheck(

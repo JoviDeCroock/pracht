@@ -135,6 +135,8 @@ export interface HandleMcpRequestOptions<TContext> {
   mcp: McpProjectionConfig;
   agents?: PrachtAgentsConfig;
   agent?: PrachtAgentIdentity | null;
+  /** @internal OAuth identity already verified for this transport request. */
+  tokenPrincipal?: McpTokenPrincipal;
   apiMiddlewareFiles?: string[];
   onAudit?: CapabilityAuditHook;
   /** Registry resolution failure captured by the outer application runtime. */
@@ -189,7 +191,19 @@ export interface HandleMcpRequestOptions<TContext> {
   if (options.mcp.auth) {
     const authResult = await authenticateMcp(options.mcp.auth, options, request);
     if (!authResult.ok) return authResult.response;
-    options = { ...options, context: authResult.context };
+    options = { ...options, context: authResult.context, tokenPrincipal: authResult.principal };
+    // Adapter contexts may retain the incoming transport request. Refresh its
+    // host after authentication so composition through either request keeps
+    // the verifier-established OAuth identity.
+    setActiveCapabilityHost(
+      request,
+      options.app,
+      options.registry,
+      "mcp",
+      options.onAudit,
+      options.agent ?? null,
+      authResult.principal,
+    );
   }
 
   if (options.loadCapabilities) {
@@ -668,6 +682,7 @@ async function handleToolsCall<TContext>(
     "mcp",
     options.onAudit,
     options.agent ?? null,
+    options.tokenPrincipal,
     options.request,
   );
   const capabilityUrl = new URL(capabilityRequest.url);

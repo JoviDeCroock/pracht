@@ -220,9 +220,10 @@ the tool being served is itself a destructive capability that already cleared
 prepare/commit. Private non-destructive capabilities remain available as
 building blocks, and their named middleware still runs. See
 [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
-When composition runs under a served HTTP or MCP request, `context.agent` and
-the audit event remain bound to the identity verified by that transport; an
-alternate context object cannot substitute a caller-supplied identity.
+When composition runs under a served HTTP or MCP request, framework-owned
+identity fields and the audit event remain bound to what that transport
+verified; an alternate context object cannot substitute `context.agent` or,
+for authenticated MCP, `context.tokenAuth`.
 
 ### HTTP projection
 

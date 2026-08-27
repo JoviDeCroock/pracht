@@ -78,11 +78,12 @@ named middleware and capability bodies can compose registered operations with
 `invokeCapability()` exactly as they can during ordinary HTTP dispatch. Private
 non-destructive capabilities remain available as building blocks and run their
 own validation and named middleware. Because the host also carries trusted MCP
-provenance, nested calls re-apply the callee's `agentPolicy` and reject
-`destructive` effects before their middleware or body runs — unless the tool
-being served is itself a destructive capability that already cleared
-prepare/commit, which grants that request's server code the destructive scope a
-confirmed HTTP endpoint has. See
+provenance and OAuth principal, nested calls re-apply the callee's `agentPolicy`,
+reject `destructive` effects before their middleware or body runs unless the
+tool being served already cleared prepare/commit, and rebind
+`context.tokenAuth` to the identity the transport verified. A cleared
+destructive tool grants that request's server code the same destructive scope
+as a confirmed HTTP endpoint. See
 [Remote MCP composition is guarded](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 The incoming transport request carries the same provenance, so adapter context
 that retains that request cannot escape the nested-call guard.
@@ -352,6 +353,9 @@ export const app = defineApp({
 `verify` is a module reference, not an inline function, for the same reason
 capabilities and middleware are: the manifest is bundled into the client, and a
 token verifier — with its JWKS client and issuer configuration — must never be.
+Verifier lookup rejects ambiguous suffixes across `src/server/`,
+`src/middleware/`, and `src/capabilities/`; use a root-relative reference such
+as `() => import("/src/server/mcp-token.ts")` when duplicate suffixes exist.
 `resolveApp()` and `pracht verify` reject a relative `resource`, a `resource`
 carrying a query, fragment, or non-root trailing slash, a `resource` whose path
 does not exactly identify the served endpoint, a non-loopback cleartext URL, an
@@ -423,7 +427,8 @@ URL is fetchable. Set `resource` to the endpoint's real deployed URL, base
 included; the framework derives the rest. A reverse proxy that re-prefixes the
 base onto the well-known path is tolerated too. When `agents.mcp.path` is `/`,
 the resource is the deployed app root itself (`https://app.example.com/app` for
-that same base).
+that same base). At the origin root, use the canonical slashless identifier
+`https://app.example.com`; URL serialization still routes requests at `/`.
 
 Because the match happens before routing and production-adapter static lookup,
 neither an application route nor a copied static file can shadow the document
@@ -518,6 +523,8 @@ later capability or audit check sees. The adapter-supplied base context is left
 unchanged, so reusing it cannot carry one caller's principal into another
 request. `tokenAuth` is absent on every other request path; an unauthenticated
 MCP request never reaches route middleware, API handlers, or capability code.
+When an MCP tool composes another capability, a replacement `context.tokenAuth`
+passed to `invokeCapability()` is shadowed by this verified principal.
 An adapter's `createContext` hook may run before MCP authentication, so treat
 its request as untrusted and avoid privileged or expensive work based only on
 reachability.

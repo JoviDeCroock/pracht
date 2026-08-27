@@ -4,6 +4,7 @@ import { defineCapability } from "../../capabilities/src/index.ts";
 import {
   defineApp,
   handlePrachtRequest,
+  invokeCapability,
   resolveApp,
   resolveApiRoutes,
   route,
@@ -13,6 +14,7 @@ import {
   mcpResourceMetadataPath,
   mcpResourceMetadataUrl,
 } from "../src/mcp-config.ts";
+import { loadMcpTokenVerifier } from "../src/runtime-mcp-auth.ts";
 import type { McpAuthConfig, McpTokenVerifier, ModuleRegistry } from "../src/types.ts";
 
 const ORIGIN = "https://app.example";
@@ -42,6 +44,50 @@ const tokenProbe = defineCapability({
   },
 } as CapabilityDefinition);
 
+const nestedTokenProbe = defineCapability({
+  title: "Nested token probe",
+  description: "Reports the OAuth subject visible to a composed capability.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: {
+    type: "object",
+    properties: { subject: { type: "string" } },
+    required: ["subject"],
+  },
+  effect: "read",
+  async run({ context }) {
+    return {
+      subject: (context as { tokenAuth?: { subject?: string } }).tokenAuth?.subject ?? "(none)",
+    };
+  },
+} as CapabilityDefinition);
+
+const tokenComposer = defineCapability({
+  title: "Compose token probe",
+  description: "Attempts to replace OAuth identity during capability composition.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: {
+    type: "object",
+    properties: { subject: { type: "string" } },
+    required: ["subject"],
+  },
+  effect: "read",
+  expose: { mcp: true },
+  async run({ request, signal }) {
+    const result = await invokeCapability(
+      "token.nested" as never,
+      {},
+      {
+        request,
+        context: { tokenAuth: { subject: "spoofed" } },
+        signal,
+      },
+    );
+    return {
+      subject: result.ok ? (result.data as { subject: string }).subject : result.error.code,
+    };
+  },
+} as CapabilityDefinition);
+
 const BASE_AUTH: McpAuthConfig = {
   resource: `${ORIGIN}/mcp`,
   authorizationServers: ["https://auth.example"],
@@ -57,6 +103,8 @@ interface HarnessOptions {
   mcpPath?: string;
   /** Also configure Web Bot Auth, which wraps frozen contexts in an overlay. */
   webBotAuth?: boolean;
+  /** Register the two capabilities used to exercise nested OAuth identity. */
+  composition?: boolean;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -73,7 +121,15 @@ function createHarness(options: HarnessOptions = {}) {
       ...(options.webBotAuth ? { webBotAuth: { policy: "observe" as const } } : {}),
       mcp: { ...(options.mcpPath ? { path: options.mcpPath } : {}), auth },
     },
-    capabilities: { "token.probe": "./capabilities/token-probe.ts" },
+    capabilities: {
+      "token.probe": "./capabilities/token-probe.ts",
+      ...(options.composition
+        ? {
+            "token.compose": "./capabilities/token-compose.ts",
+            "token.nested": "./capabilities/token-nested.ts",
+          }
+        : {}),
+    },
     routes: [route("/", "./routes/home.tsx")],
   });
 
@@ -81,6 +137,12 @@ function createHarness(options: HarnessOptions = {}) {
     routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
     capabilityModules: {
       "./capabilities/token-probe.ts": async () => ({ default: tokenProbe }),
+      ...(options.composition
+        ? {
+            "./capabilities/token-compose.ts": async () => ({ default: tokenComposer }),
+            "./capabilities/token-nested.ts": async () => ({ default: nestedTokenProbe }),
+          }
+        : {}),
     } as NonNullable<ModuleRegistry["capabilityModules"]>,
     // `dataModules` is the untyped `src/server/**` glob at runtime; the
     // DataModule typing describes route loaders, not everything the bucket holds.
@@ -334,6 +396,45 @@ describe("WWW-Authenticate challenges", () => {
 });
 
 describe("fail-closed verification", () => {
+  it("rejects an ambiguous verifier suffix instead of choosing a registry bucket", async () => {
+    const shadow = vi.fn(() => ({ subject: "shadow" }));
+    const intended = vi.fn(() => ({ subject: "intended" }));
+    const shadowImporter = vi.fn(async () => ({ default: shadow }));
+    const intendedImporter = vi.fn(async () => ({ default: intended }));
+    const registry: ModuleRegistry = {
+      dataModules: { "/src/server/middleware/auth.ts": shadowImporter } as never,
+      middlewareModules: { "/src/middleware/auth.ts": intendedImporter } as never,
+    };
+
+    await expect(
+      loadMcpTokenVerifier({ ...BASE_AUTH, verify: "./middleware/auth.ts" }, registry),
+    ).rejects.toThrow(/ambiguous/);
+    expect(shadowImporter).not.toHaveBeenCalled();
+    expect(intendedImporter).not.toHaveBeenCalled();
+  });
+
+  it("lets a root-relative verifier path disambiguate registry suffixes", async () => {
+    const shadow = vi.fn(() => ({ subject: "shadow" }));
+    const intended = vi.fn(() => ({ subject: "intended" }));
+    const registry: ModuleRegistry = {
+      dataModules: {
+        "/src/server/middleware/auth.ts": async () => ({ default: shadow }),
+      } as never,
+      middlewareModules: {
+        "/src/middleware/auth.ts": async () => ({ default: intended }),
+      } as never,
+    };
+
+    const verifier = await loadMcpTokenVerifier(
+      { ...BASE_AUTH, verify: "/src/middleware/auth.ts" },
+      registry,
+    );
+    expect(verifier("token", { request: new Request(`${ORIGIN}/mcp`) })).toEqual({
+      subject: "intended",
+    });
+    expect(shadow).not.toHaveBeenCalled();
+  });
+
   it("authenticates before loading capability modules", async () => {
     const { app, registry } = createHarness();
     const loadCapability = vi.fn(async () => ({ default: tokenProbe }));
@@ -523,6 +624,21 @@ describe("principal surfacing", () => {
     expect(status).toBe(200);
     expect(json?.result?.structuredContent).toEqual({ subject: "user-1" });
     expect(observedTokenAuth).toEqual({ subject: "user-1", scopes: ["notes.read"] });
+  });
+
+  it("keeps nested capabilities bound to the transport-verified principal", async () => {
+    const { status, json } = await call(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "token_compose" },
+      },
+      { composition: true, headers: { authorization: "Bearer good" } },
+    );
+
+    expect(status).toBe(200);
+    expect(json?.result?.structuredContent).toEqual({ subject: "user-1" });
   });
 
   it("binds an immutable snapshot application code cannot rewrite", async () => {
@@ -728,6 +844,10 @@ describe("manifest validation", () => {
         authorizationServers: ["HTTPS://AUTH.EXAMPLE:443/issuer"],
       }),
     ).toThrow(/canonical URL spelling/);
+  });
+
+  it("accepts the slashless canonical resource for a root MCP endpoint", () => {
+    expect(build({ ...BASE_AUTH, resource: ORIGIN }, "/")).not.toThrow();
   });
 
   it("rejects a resource identifier that does not address the served endpoint", () => {

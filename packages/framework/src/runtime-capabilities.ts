@@ -33,7 +33,11 @@ import {
   resolveCapabilityApprovalPrincipal,
   resolveCapabilityApprovalStore,
 } from "./runtime-approval.ts";
-import { bindAgentContext, snapshotAgentIdentity } from "./runtime-agent-context.ts";
+import {
+  bindAgentContext,
+  rebindMcpTokenContext,
+  snapshotAgentIdentity,
+} from "./runtime-agent-context.ts";
 import {
   canonicalJson,
   CONFIRMATION_HEADER,
@@ -59,6 +63,7 @@ import type {
   CapabilityOutputFor,
   HasRegisteredCapabilities,
   ModuleRegistry,
+  McpTokenPrincipal,
   PrachtAgentIdentity,
   PrachtAgentsConfig,
   PrachtApp,
@@ -1226,6 +1231,8 @@ export interface CapabilityHost {
   onAudit?: CapabilityAuditHook;
   /** Verified identity bound by a trusted transport, never caller-supplied context. */
   agent?: PrachtAgentIdentity | null;
+  /** OAuth identity verified by the MCP transport, never caller-supplied context. */
+  tokenAuth?: McpTokenPrincipal;
   /**
    * Transport of the request this host was installed for. Carried onto the
    * audit event of every capability composed through `invokeCapability()`
@@ -1274,6 +1281,7 @@ export function setActiveCapabilityHost(
   via: NonNullable<CapabilityAuditEvent["via"]> = "http",
   onAudit?: CapabilityAuditHook,
   agent?: PrachtAgentIdentity | null,
+  tokenAuth?: McpTokenPrincipal,
   /** Another request identity that must share this request-scoped host. */
   sharedRequest?: Request,
 ): void {
@@ -1286,6 +1294,7 @@ export function setActiveCapabilityHost(
       via,
       onAudit,
       agent: snapshotAgentIdentity(agent ?? null),
+      tokenAuth,
     },
   );
 }
@@ -1514,11 +1523,16 @@ function capabilityPipelineContext<TContext>(
   host: CapabilityHost,
   supplied: TContext | undefined,
 ): TContext | PrachtContextExtensions {
-  const context = supplied ?? {};
+  let context: TContext | PrachtContextExtensions = supplied ?? ({} as TContext);
   const carriesTransportIdentity =
     !!host.app.agents?.webBotAuth && (host.via === "http" || host.via === "mcp");
-  if (!carriesTransportIdentity) return context;
-  return bindAgentContext(context, host.agent ?? null);
+  if (carriesTransportIdentity) {
+    context = bindAgentContext(context, host.agent ?? null);
+  }
+  if (host.via === "mcp" && host.tokenAuth !== undefined) {
+    context = rebindMcpTokenContext(context, host.tokenAuth);
+  }
+  return context;
 }
 
 function capabilityHostAgent<TContext>(

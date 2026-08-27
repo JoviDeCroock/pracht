@@ -1109,6 +1109,21 @@ ${extra}        verify: () => import("${verifyPath}"),
     );
   });
 
+  it("accepts the slashless canonical resource for a root MCP endpoint", () => {
+    const checks = runAuthChecks(`  agents: {
+    mcp: {
+      path: "/",
+      auth: {
+        resource: "https://app.example.com",
+        authorizationServers: ["https://auth.example.com"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },`);
+
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+  });
+
   it("errors on OAuth identifiers whose URL spelling is not canonical", () => {
     for (const extra of [
       '        resource: "HTTPS://APP.EXAMPLE.COM:443/a/../mcp",\n',

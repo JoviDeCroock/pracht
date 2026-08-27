@@ -18,5 +18,7 @@ Netlify exclusions that shadow metadata, and surfaces the principal from your
 server-only verifier as request-local `context.tokenAuth`. A throwing verifier
 is logged once while still failing closed. Metadata routes take precedence over
 copied static files, and `pracht plan` reports OAuth policy changes. Apps that
-omit `auth` are unchanged. Static exports now reject `agents.mcp`, which
-requires a request runtime.
+omit `auth` are unchanged. Nested calls retain the verified OAuth principal,
+ambiguous verifier suffixes fail closed, and root endpoints accept their
+canonical slashless resource identifier. Static exports now reject
+`agents.mcp`, which requires a request runtime.
