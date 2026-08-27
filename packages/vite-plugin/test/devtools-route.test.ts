@@ -12,8 +12,15 @@ import {
   DEVTOOLS_PATH,
 } from "../src/plugin-dev-ssr.ts";
 
-function createServerMod(overrides: { routes?: ReturnType<typeof route>[] } = {}) {
+function createServerMod(
+  overrides: {
+    agents?: Parameters<typeof defineApp>[0]["agents"];
+    dataModules?: Record<string, () => Promise<unknown>>;
+    routes?: ReturnType<typeof route>[];
+  } = {},
+) {
   const app = defineApp({
+    agents: overrides.agents,
     middleware: { auth: "./middleware/auth.ts" },
     routes: overrides.routes ?? [
       route("/", "./routes/home.tsx", { id: "home", render: "ssr", shell: "public" }),
@@ -25,6 +32,7 @@ function createServerMod(overrides: { routes?: ReturnType<typeof route>[] } = {}
   return {
     apiRoutes: resolveApiRoutes(["/src/api/health.ts"]),
     registry: {
+      dataModules: overrides.dataModules,
       middlewareModules: {
         "./middleware/auth.ts": async () => ({
           middleware: async (_args: unknown, next: () => Promise<Response>) => next(),
@@ -174,6 +182,33 @@ describe("dev middleware /_pracht devtools route", () => {
       recorded: 0,
       events: [],
     });
+  });
+
+  it("reports an unusable MCP OAuth verifier as blocked", async () => {
+    const serverMod = createServerMod({
+      agents: {
+        mcp: {
+          auth: {
+            resource: "https://app.example/mcp",
+            authorizationServers: ["https://auth.example"],
+            verify: "/src/server/mcp-token.ts",
+          },
+        },
+      },
+      dataModules: {
+        "/src/server/mcp-token.ts": async () => ({ default: "not a function" }),
+      },
+    });
+    const { server } = createStubServer(serverMod);
+
+    const { state } = await runMiddleware(server, DEVTOOLS_JSON_PATH);
+
+    const graph = JSON.parse(state.body) as devtoolsModule.AppGraph;
+    expect(graph.mcpAuthenticated).toBe(true);
+    expect(graph.mcpRuntimeStatus).toBe("blocked");
+    expect(graph.mcpUnavailableReasons).toEqual([
+      'MCP token verifier failed to load: agents.mcp.auth.verify module "/src/server/mcp-token.ts" has no default-exported function.',
+    ]);
   });
 
   it("warns once and lets devtools win when an app route collides in dev", async () => {

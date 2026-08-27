@@ -99,7 +99,7 @@ describe("@pracht/cli inspect", () => {
       agents: {
         webBotAuth: { enabled: false, policy: "observe", staticKeys: 0, directories: [] },
         confirmation: { mode: "token", ttlSeconds: null, singleUse: false },
-        mcp: { enabled: false, endpoint: null },
+        mcp: { enabled: false, endpoint: null, authenticated: false, auth: null },
         llmsTxt: { enabled: false },
         capabilities: [],
         exposure: { http: 0, webmcp: 0, mcp: 0, private: 0 },

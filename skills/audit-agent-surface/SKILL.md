@@ -1,6 +1,6 @@
 ---
 name: audit-agent-surface
-version: 1.0.3
+version: 1.0.4
 description: |
   Inventory what agents can reach in a pracht app — capability exposure (HTTP,
   WebMCP, remote MCP), `agents` trust config, the destructive-confirmation gate,
@@ -27,7 +27,9 @@ auditing the opt-outs:
   WebMCP page tools, and every dispatch is confirmation-gated.
 - Remote MCP rejects cookie-bearing and browser-originated requests, and serves
   destructive capabilities only with `agents.mcp.destructive` plus a registered
-  approval store — otherwise it filters them out at serve time.
+  approval store — otherwise it filters them out at serve time. `agents.mcp.auth`
+  additionally makes it an OAuth 2.0 protected resource; without it the endpoint
+  is open and authentication is the capability middleware's job.
 - An app that registers neither capabilities nor `agents` has the dispatch path
   and Web Bot Auth verifier dropped from its server bundle at build time.
 
@@ -47,26 +49,20 @@ pracht inspect api --json
 pracht verify --json                 # contract, exposure, and projection checks
 ```
 
-`inspect agents` is the fastest way in: it reports `webBotAuth`
-(policy/keys/directories), `confirmation` (mode/ttl/singleUse), `mcp`
-(enabled + endpoint), `llmsTxt`, a per-capability row (name, effect,
-`agentPolicy`, transports, HTTP path), and `exposure` counts per transport with
-unexposed capabilities counted as `private`. Use `inspect capabilities` when
-you also need the input/output schemas or the middleware chain.
+`inspect agents` reports `webBotAuth`, confirmation policy, MCP endpoint and
+OAuth policy, `llmsTxt`, each capability's effect/policy/transports/path, and
+exposure counts (`private` means unexposed). Use `inspect capabilities` for
+schemas and middleware.
 
 Build the inventory table: capability → effect → transports → HTTP path →
 middleware → `agentPolicy`. A capability reported as `unreadable` means
 `@pracht/capabilities` is not installed; treat it as an `error` and stop
 reasoning about its policy until it loads.
 
-Cross-check `inspect agents` against the manifest's `agents` block. The report
-reads both the resolved app and the Vite plugin's production server-build
-`llmsTxt` state, so configuration built in separate variables, computed
-expressions, or build/production branches is reported accurately rather than
-inferred from source text or development settings. If `llmsTxt.enabled` is
-`null`, the installed Vite plugin predates that metadata contract; report the
-state as unknown and recommend upgrading `@pracht/vite-plugin`, never as an
-opt-out.
+Cross-check `inspect agents` against the manifest's `agents` block. It reads
+resolved app and production `llmsTxt` config, including computed branches. A
+`null` `llmsTxt.enabled` means an older plugin: report unknown and recommend an
+upgrade. Use resolved `mcp.auth`; `null` means framework-level OAuth is open.
 
 ## Step 2: Exposure vs. intent
 
@@ -90,10 +86,48 @@ For every exposed capability, ask whether the exposure is deliberate:
 - Declared vs. actually served: `expose.mcp` in source is what the graph
   claims. A `pracht eval` scenario with `"transport": "mcp"` proves what the
   endpoint answers — it performs a real `initialize` handshake and issues each
-  step as a `tools/call`. Run it only against a local throwaway server, and
-  only with `read` steps. If the app ships MCP-exposed capabilities with no
+  step as a `tools/call`. When the endpoint has `mcp.auth`, set scenario-level
+  `mcpHeaders.authorization` so the token is sent on the handshake and every
+  later request; do not commit a production token. Run it only against a local
+  throwaway server, and only with `read` steps. If the app ships MCP-exposed capabilities with no
   such scenario, report the missing proof: an HTTP-only scenario says nothing
   about whether an MCP host can reach the tool.
+
+## Step 2b: The `/mcp` auth posture
+
+`agents: { mcp: {} }` without `auth` is open; authorization rests entirely on
+each tool's named middleware. Report an exposed tool with no middleware as
+`error`; otherwise `warn` and name the middleware carrying the boundary.
+
+With `agents.mcp.auth`, check:
+
+- `resource` is canonical HTTPS (loopback HTTP only), has no query, fragment,
+  or non-root trailing slash, and exactly identifies the endpoint. `/` may
+  identify the deployed root; the origin-root identifier is slashless. Aliases,
+  query variants, and trailing slashes must 308 to `resource` before challenge.
+- Every `authorizationServers` issuer is canonical HTTPS without query or
+  fragment. Reject unknown `agents.mcp`/`auth` keys and API-route collisions.
+- `verify` is a module reference under `src/server`, `src/middleware`, or
+  `src/capabilities`, resolves uniquely, and default-exports a function. Inline,
+  missing, ambiguous, or non-callable verifiers are `error`. Its request clone
+  may consume the body without consuming later JSON-RPC dispatch. Overlapping
+  source directories may register the same normalized file more than once;
+  that is one verifier, not ambiguity. A `blocked` inspection reason for an
+  unusable verifier is conclusive because the adapter server entry cannot
+  replace the configured module reference.
+- The verifier binds token audience to `resource`; otherwise tokens for another
+  service authenticate here (`error`). Require `requiredScopes` or per-tool
+  checks of `context.tokenAuth.scopes` (`warn` otherwise). The initial challenge
+  must advertise required scopes; scope tokens follow OAuth's printable-ASCII
+  grammar. `context.tokenAuth` is MCP-only and nested calls cannot replace it.
+- Under base `/app/`, resource includes `/app/mcp` while metadata stays at the
+  origin-root `/.well-known/oauth-protected-resource/app/mcp`; fetch it and its
+  bare alias, ensuring app/static routes cannot shadow either. The bare
+  well-known path is reserved and its CORS-open metadata is expected; flag only
+  sensitive scope names.
+- `CapabilityAuditEvent` records Web Bot Auth `agent`, not `tokenAuth`. Report
+  this as `info`, or `warn` when per-account attribution is required and no
+  middleware/capability forwards the principal to an audit sink.
 
 ## Step 3: The destructive gate
 
@@ -208,6 +242,10 @@ For every exposed capability, ask whether the exposure is deliberate:
 - `/.well-known/http-message-signatures-directory` and the MCP endpoint path
   should both be intentional; the MCP endpoint stays active with an empty
   capability graph.
+- `/.well-known/oauth-protected-resource` (and the RFC 9728 path-suffixed form,
+  e.g. `/.well-known/oauth-protected-resource/mcp`) is served only when
+  `agents.mcp.auth` is configured. Its presence is a *good* signal; its absence
+  next to a live `/mcp` means no MCP host can authenticate to the endpoint.
 
 ## Step 6: Did this change widen the surface?
 
@@ -219,10 +257,14 @@ pracht plan --json --base origin/main
 diff cannot: a new exposure, a destructive capability reclassified out of the
 gate, an `agentPolicy` downgraded from `require`, dropped middleware, a
 loosened input schema (dropped `required`, opened `additionalProperties`, raised
-bound), newly enabled `agents.mcp`, or newly enabled
-`agents.mcp.destructive` when a declared destructive MCP capability actually
-exists. Enabling the destructive switch in advance, with no such tool, is not a
-widening. Report every widening explicitly, with the before/after. A stale snapshot makes this useless — `pracht verify` fails on
+bound), newly enabled `agents.mcp`, newly enabled `agents.mcp.destructive` when
+a declared destructive MCP capability actually exists, OAuth protection
+removed from a still-live MCP endpoint, a removed required scope, or a newly
+trusted authorization server. Enabling the destructive switch in advance,
+with no such tool, is not a widening. The snapshot records the OAuth policy
+separately from the endpoint path, so an unchanged `/mcp` is not evidence that
+the guard stayed the same. Report every widening explicitly, with the
+before/after. A stale snapshot makes this useless — `pracht verify` fails on
 staleness, so trust it only when verify passes.
 
 ## Step 7: The no-agent-surface case
@@ -252,13 +294,17 @@ Severities:
   memory store on a multi-replica deployment; `agentPolicy: "require"` with no
   `webBotAuth`; capability module unreadable; MCP-exposed capability whose only
   authorization is a cookie session; approval store on a backend without
-  conditional writes.
+  conditional writes; unguarded `expose.mcp` tool on an endpoint with neither
+  `agents.mcp.auth` nor named middleware; `agents.mcp.auth.verify` that does not
+  bind the token audience to `resource`, or that is an inline function in the
+  manifest.
 - `warn` — auth-gated route advertised in `llms.txt`; `expose.mcp` with no
   `agents.mcp`; destructive `expose.mcp` with no `agents.mcp.destructive` (dead
   exposure); exposed capability with no named middleware; unbounded output
   (no `limit`/`maximum`); no audit sink; a second `setCapabilityAuditHook()`
   call silently replacing the first; a module-scope listener without HMR
-  disposal; `singleUse` treated as durable.
+  disposal; `singleUse` treated as durable;
+  `agents.mcp.auth` with no `requiredScopes` and no per-capability scope check.
 - `info` — exposure that is intentional and guarded, recorded so the reviewer
   sees the whole surface in one place; framework gaps that are deployment
   responsibilities (rate limiting, write idempotency, result-size limits).

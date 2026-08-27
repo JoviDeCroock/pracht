@@ -781,6 +781,7 @@ describe("buildAppGraph", () => {
       capabilities: [],
       mcpDestructive: false,
       mcpEndpoint: "/agents/mcp",
+      mcpAuthenticated: false,
       mcpRuntimeStatus: "ready",
       mcpUnavailableReasons: [],
       notFound: null,
@@ -951,6 +952,7 @@ describe("buildAppGraph", () => {
     expect(graph.api).toEqual([]);
     expect(graph.mcpEndpoint).toBeNull();
     expect(graph.mcpDestructive).toBe(false);
+    expect(graph.mcpAuthenticated).toBe(false);
     expect(graph.mcpRuntimeStatus).toBe("not-configured");
     expect(graph.mcpUnavailableReasons).toEqual([]);
     expect(graph.routes).toHaveLength(1);

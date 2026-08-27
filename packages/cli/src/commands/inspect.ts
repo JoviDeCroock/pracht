@@ -13,6 +13,7 @@ import { defineCommand } from "citty";
 
 import { collectCapabilityAppGraph } from "../app-graph.js";
 import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
+import { serializeMcpAuth, type McpAuthSnapshot } from "../graph-snapshot.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 
@@ -95,6 +96,10 @@ export interface InspectAgents {
     enabled: boolean;
     /** Endpoint pathname, or `null` when `agents.mcp` is unconfigured. */
     endpoint: string | null;
+    /** Whether the endpoint requires an OAuth bearer token. */
+    authenticated: boolean;
+    /** Security-relevant OAuth policy, or `null` when auth is disabled. */
+    auth: McpAuthSnapshot | null;
   };
   llmsTxt: {
     /** Whether the resolved vite plugin configuration enables `llmsTxt`. */
@@ -259,6 +264,8 @@ export function summarizeAgentSurface(
     mcp: {
       enabled: agents?.mcp !== undefined,
       endpoint: resolveMcpEndpoint(agents),
+      authenticated: agents?.mcp?.auth !== undefined,
+      auth: serializeMcpAuth(agents?.mcp?.auth),
     },
     llmsTxt: { enabled: llmsTxtEnabled },
     capabilities: capabilities.map((capability) => ({
@@ -384,8 +391,16 @@ function printInspectReport(report: InspectReport): void {
         `  singleUse=${agents.confirmation.singleUse}`,
     );
     console.log(
-      `  mcp=${agents.mcp.enabled ? "on" : "off"}  endpoint=${agents.mcp.endpoint ?? "n/a"}`,
+      `  mcp=${agents.mcp.enabled ? "on" : "off"}  endpoint=${agents.mcp.endpoint ?? "n/a"}` +
+        `  oauth=${agents.mcp.authenticated ? "on" : "off"}`,
     );
+    if (agents.mcp.auth) {
+      console.log(
+        `    resource=${agents.mcp.auth.resource}  authorizationServers=[${agents.mcp.auth.authorizationServers.join(", ")}]` +
+          `  requiredScopes=[${agents.mcp.auth.requiredScopes.join(", ")}]` +
+          `  scopesSupported=[${agents.mcp.auth.scopesSupported.join(", ")}]`,
+      );
+    }
     console.log(
       `  llmsTxt=${
         agents.llmsTxt.enabled === null

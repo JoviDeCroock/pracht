@@ -2,6 +2,12 @@ import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
+import {
+  mcpResourceMetadataPath,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+  resolveMcpEndpoint,
+  type PrachtAgentsConfig,
+} from "@pracht/core";
 import { getTimeRevalidateSeconds, type ISGManifestEntry } from "@pracht/core/server";
 import { VERSION } from "./constants.js";
 
@@ -43,8 +49,22 @@ interface VercelBuildOutputOptions {
   revalidateToken?: string;
   regions?: VercelRegions;
   root: string;
+  /** Exact runtime-owned paths that must win over Vercel's filesystem layer. */
+  runtimeRoutes?: string[];
   staticAssetRoutes?: string[];
   staticRoutes: string[];
+}
+
+/** Runtime-owned agent paths that must win over Vercel's method-agnostic static rewrites. */
+export function resolveVercelRuntimeRoutes(agents: PrachtAgentsConfig | undefined): string[] {
+  const endpoint = resolveMcpEndpoint(agents);
+  if (endpoint === null) return [];
+
+  const auth = agents?.mcp?.auth;
+  return [
+    endpoint,
+    ...(auth ? [OAUTH_PROTECTED_RESOURCE_WELL_KNOWN, mcpResourceMetadataPath(auth)] : []),
+  ];
 }
 
 export function writeVercelBuildOutput({
@@ -56,6 +76,7 @@ export function writeVercelBuildOutput({
   revalidateToken = process.env.PRACHT_REVALIDATE_TOKEN || randomBytes(32).toString("hex"),
   regions,
   root,
+  runtimeRoutes = [],
   staticAssetRoutes = [],
   staticRoutes,
 }: VercelBuildOutputOptions): string {
@@ -102,6 +123,7 @@ export function writeVercelBuildOutput({
         functionName,
         headersManifest,
         markdownRoutes,
+        runtimeRoutes,
         staticAssetRoutes,
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
@@ -268,6 +290,7 @@ function createVercelOutputConfig({
   functionName,
   headersManifest,
   markdownRoutes,
+  runtimeRoutes,
   staticAssetRoutes,
   staticRoutes,
   isgRoutes,
@@ -276,6 +299,7 @@ function createVercelOutputConfig({
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
   markdownRoutes: string[];
+  runtimeRoutes: string[];
   staticAssetRoutes: string[];
   isgRoutes: string[];
   staticRoutes: string[];
@@ -314,6 +338,24 @@ function createVercelOutputConfig({
       dest: target,
       methods: ["GET", "HEAD"],
       src: `^${escapeRegex(deployBase.slice(0, -1))}$`,
+    });
+  }
+
+  const publicRuntimeRoutes =
+    deployBase === "/"
+      ? runtimeRoutes
+      : [
+          ...runtimeRoutes,
+          ...runtimeRoutes.map((route) => withVercelDeployBase(route, deployBase)),
+        ];
+  for (const route of sortStaticRoutes(publicRuntimeRoutes)) {
+    routes.push({
+      dest: target,
+      // Runtime metadata matching accepts one trailing slash. Keep Vercel's
+      // pre-filesystem route in lockstep, including the deploy-base-prefixed
+      // spelling accepted after a proxy rewrite, so a prerendered page or
+      // copied `index.html` cannot claim either form first.
+      src: routeToRouteExpression(route),
     });
   }
 

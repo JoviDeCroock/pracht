@@ -4,7 +4,11 @@ import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import { resolveDeferredData } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
-import { ROUTE_STATE_REQUEST_HEADER, SAFE_METHODS } from "./runtime-constants.ts";
+import {
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+  ROUTE_STATE_REQUEST_HEADER,
+  SAFE_METHODS,
+} from "./runtime-constants.ts";
 import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
@@ -347,6 +351,35 @@ export async function handlePrachtRequest<TContext>(
   if (hasDataParam) {
     url.searchParams.delete("_data");
   }
+  // OAuth 2.0 protected-resource metadata (RFC 9728), served only when the app
+  // opted into `agents.mcp.auth`.
+  //
+  // Deliberately ahead of `stripBase()`: §3.1 inserts the well-known segment
+  // between the host and the resource's path, so the document lives at the
+  // ORIGIN ROOT and is outside any deploy base by construction. Matching a
+  // base-stripped route path would answer `null` and 404 the very URL the
+  // `WWW-Authenticate` challenge tells hosts to fetch. The literal prefix test
+  // keeps this to one string comparison for every other request, and no
+  // MCP module is loaded unless the path really is the well-known one.
+  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
+    const metadataAuth = options.app.agents?.mcp?.auth;
+    if (metadataAuth && url.pathname.includes(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN)) {
+      // This branch returns before normal route resolution below. Resolve the
+      // app explicitly so malformed security config cannot publish metadata
+      // that every other request rejects.
+      const resolvedMetadataAuth = getResolvedApp(options.app as PrachtApp).agents?.mcp?.auth;
+      if (!resolvedMetadataAuth) {
+        throw new Error("Resolved MCP OAuth configuration is missing.");
+      }
+      const mcpAuthRuntime = await import("./runtime-mcp.ts");
+      if (mcpAuthRuntime.isMcpResourceMetadataPath(url.pathname, resolvedMetadataAuth)) {
+        return withDefaultSecurityHeaders(
+          await mcpAuthRuntime.handleMcpMetadataRequest(options.request, resolvedMetadataAuth),
+        );
+      }
+    }
+  }
+
   const routePathname = stripBase(url.pathname);
   // Outside the configured base belongs to another app on the same origin.
   // A proxy-rewritten request must opt into the base-free interpretation
@@ -473,9 +506,34 @@ export async function handlePrachtRequest<TContext>(
     warnAgentSurfaceElided();
   }
 
+  const configuredMcpEndpoint = mcpConfig?.path ?? "/mcp";
+  const normalizedRoutePath =
+    routePathname.length > 1 && routePathname.endsWith("/")
+      ? routePathname.slice(0, -1)
+      : routePathname;
+  const normalizedMcpEndpoint =
+    configuredMcpEndpoint.length > 1 && configuredMcpEndpoint.endsWith("/")
+      ? configuredMcpEndpoint.slice(0, -1)
+      : configuredMcpEndpoint;
+  const targetsMcpEndpoint = !!mcpConfig && normalizedRoutePath === normalizedMcpEndpoint;
+  const isMcpRequest = targetsMcpEndpoint && !!mcpRuntime;
+
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, routePathname);
     if (apiMatch) {
+      // An explicit API route normally wins over generated capability routes,
+      // but it must never bypass an MCP endpoint's transport and OAuth gates.
+      // Treat the duplicate pathname as an invalid deployment and fail closed.
+      if (targetsMcpEndpoint) {
+        return withDefaultSecurityHeaders(
+          new Response(
+            exposeDiagnostics
+              ? `API route ${JSON.stringify(apiMatch.route.path)} collides with the configured remote MCP endpoint.`
+              : "Internal Server Error",
+            { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
+          ),
+        );
+      }
       const apiMiddlewareFiles = (options.app.api.middleware ?? []).flatMap((name) => {
         const middlewareFile = options.app.middleware[name];
         return middlewareFile ? [middlewareFile] : [];
@@ -579,11 +637,6 @@ export async function handlePrachtRequest<TContext>(
   // matched above). A configured MCP endpoint remains live with an empty or
   // broken graph so clients receive an empty list or a protocol error instead
   // of falling through to the application's page router.
-  const isMcpRequest =
-    !!mcpConfig &&
-    !!mcpRuntime &&
-    mcpRuntime.normalizeMcpRequestPath(routePathname) ===
-      mcpRuntime.resolveMcpEndpoint(options.app.agents);
   if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
     if (isMcpRequest) {
       // Adapter contexts may retain the incoming transport request. Bind the
@@ -609,7 +662,7 @@ export async function handlePrachtRequest<TContext>(
     let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
     let capabilityResolutionError: unknown;
     try {
-      if (hasCapabilities) {
+      if (hasCapabilities && !isMcpRequest) {
         capabilities = await resolveAppCapabilities(options.app, registry);
       }
     } catch (error: unknown) {
@@ -640,6 +693,16 @@ export async function handlePrachtRequest<TContext>(
       const mcpResponse = await mcpRuntime.handleMcpRequest({
         app: options.app,
         capabilities: capabilities ?? [],
+        loadCapabilities: hasCapabilities
+          ? async () => {
+              try {
+                return await resolveAppCapabilities(options.app, registry);
+              } catch (error: unknown) {
+                warnCapabilityResolutionFailure(error);
+                throw error;
+              }
+            }
+          : undefined,
         context: requestContext,
         registry,
         request: options.request,

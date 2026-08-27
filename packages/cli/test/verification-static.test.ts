@@ -127,6 +127,14 @@ describe("collectStaticExportChecks", () => {
     expect(messages).not.toContain("notes.private");
   });
 
+  it("flags a remote MCP endpoint even with no exposed capabilities", () => {
+    const checks = run(graph({ mcpEndpoint: "/mcp" }));
+    expect(errors(checks)).toEqual([
+      expect.stringContaining("the remote MCP endpoint /mcp needs a server"),
+    ]);
+    expect(checks.map((check) => check.status)).not.toContain("ok");
+  });
+
   it("reports every problem at once rather than stopping at the first", () => {
     const checks = run(
       graph({

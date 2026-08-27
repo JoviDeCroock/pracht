@@ -392,6 +392,71 @@ describe("runScenario over the MCP transport", () => {
     });
   });
 
+  it("authenticates the initialize handshake and every later MCP request", async () => {
+    const { requests, fetchImpl } = fakeMcpServer(() => ({
+      result: { structuredContent: {}, isError: false },
+    }));
+
+    const result = await runScenario(
+      {
+        name: "protected mcp",
+        transport: "mcp",
+        mcpHeaders: { authorization: "Bearer session-token" },
+        steps: [{ capability: "notes.search", headers: { authorization: "Bearer step-token" } }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.error).toBe(null);
+    expect(requests.map((request) => request.headers.authorization)).toEqual([
+      "Bearer session-token",
+      "Bearer session-token",
+      "Bearer step-token",
+    ]);
+  });
+
+  it("explains how to authorize a protected MCP handshake", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({ result: {} }), {
+      initializeStatus: 401,
+      initializeBody: "Unauthorized",
+    });
+
+    const result = await runScenario(
+      { name: "protected mcp", transport: "mcp", steps: [{ capability: "notes.search" }] },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.error).toContain("requires authorization");
+    expect(result.error).toContain('"mcpHeaders"');
+  });
+
+  it("explains how to replace an under-scoped MCP bearer token", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({ result: {} }), {
+      initializeStatus: 403,
+      initializeBody: JSON.stringify({
+        error: "insufficient_scope",
+        error_description: "The token is missing required scope(s): notes.write.",
+      }),
+    });
+
+    const result = await runScenario(
+      {
+        name: "under-scoped mcp",
+        transport: "mcp",
+        mcpHeaders: { authorization: "Bearer read-only-token" },
+        steps: [{ capability: "notes.search" }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.error).toContain("required OAuth scopes");
+    expect(result.error).toContain('update "mcpHeaders"');
+    expect(result.error).not.toContain("browser-originated");
+  });
+
   it("maps the capability status out of io.pracht/status, not the JSON-RPC 200", async () => {
     const { fetchImpl } = fakeMcpServer(() => ({
       result: {
@@ -698,6 +763,9 @@ describe("MCP scenario validation", () => {
     writeFileSync(file, JSON.stringify({ ...base, mcpPath: "/mcp" }));
     expect(() => parseScenario(file)).toThrow(/"mcpPath" only applies/);
 
+    writeFileSync(file, JSON.stringify({ ...base, mcpHeaders: { authorization: "Bearer t" } }));
+    expect(() => parseScenario(file)).toThrow(/"mcpHeaders" only applies/);
+
     writeFileSync(file, JSON.stringify({ ...base, transport: "mcp", mcpPath: "mcp" }));
     expect(() => parseScenario(file)).toThrow(/absolute path/);
 
@@ -710,6 +778,24 @@ describe("MCP scenario validation", () => {
       }),
     );
     expect(() => parseScenario(file)).toThrow(/addressed by its projected tool name/);
+
+    writeFileSync(
+      file,
+      JSON.stringify({ ...base, transport: "mcp", mcpHeaders: { "x-api-key": "secret" } }),
+    );
+    expect(() => parseScenario(file)).toThrow(/only "authorization" is supported/);
+
+    writeFileSync(
+      file,
+      JSON.stringify({ ...base, transport: "mcp", mcpHeaders: { authorization: 42 } }),
+    );
+    expect(() => parseScenario(file)).toThrow(/must be a string/);
+
+    writeFileSync(
+      file,
+      JSON.stringify({ ...base, transport: "mcp", mcpHeaders: { Authorization: "Bearer t" } }),
+    );
+    expect(parseScenario(file).mcpHeaders).toEqual({ authorization: "Bearer t" });
   });
 });
 

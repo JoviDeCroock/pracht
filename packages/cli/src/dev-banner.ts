@@ -30,6 +30,12 @@ export interface DevBannerOptions {
   mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
   /** Locally unmet preconditions; interpret them with `mcpRuntimeStatus`. */
   mcpUnavailableReasons?: string[];
+  /**
+   * Whether that endpoint requires an OAuth bearer token (`agents.mcp.auth`).
+   * Printed because "who can reach my tools" is the thing a developer most
+   * needs to be reminded of while the server is running.
+   */
+  mcpAuthenticated?: boolean;
   networkUrls?: string[];
   notFound?: DevBannerRoute | null;
   routes: DevBannerRoute[];
@@ -69,6 +75,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
     color = false,
     localUrls,
     mcpDestructive = false,
+    mcpAuthenticated = false,
     mcpEndpoint = null,
     mcpRuntimeStatus: configuredMcpRuntimeStatus,
     mcpUnavailableReasons = [],
@@ -159,7 +166,10 @@ export function formatDevBanner(options: DevBannerOptions): string {
     const heading = `Capabilities (${capabilities.length})`;
     lines.push(
       mcpEndpoint
-        ? `  ${paint(heading, ANSI.bold)}  ${paint(`MCP endpoint ${mcpEndpoint}`, ANSI.dim)}`
+        ? `  ${paint(heading, ANSI.bold)}  ${paint(
+            `MCP endpoint ${mcpEndpoint}${mcpAuthenticated ? " (oauth)" : ""}`,
+            ANSI.dim,
+          )}`
         : `  ${paint(heading, ANSI.bold)}`,
     );
     if (capabilities.length === 0) {

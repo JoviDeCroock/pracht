@@ -24,7 +24,7 @@ describe("@pracht/cli inspect agents", () => {
 
   it("summarizes the configured agent surface as JSON", () => {
     const appDir = createRepoTempDir("pracht-cli-inspect-agents-");
-    writeTypedManifestApp(appDir, { capabilities: true, agents: true });
+    writeTypedManifestApp(appDir, { capabilities: true, agents: true, mcpAuth: true });
 
     const report = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
     const { agents } = report;
@@ -43,7 +43,18 @@ describe("@pracht/cli inspect agents", () => {
       directories: ["https://signature-agent.example"],
     });
     expect(agents.confirmation).toEqual({ mode: "token", ttlSeconds: 300, singleUse: true });
-    expect(agents.mcp).toEqual({ enabled: true, endpoint: "/mcp" });
+    expect(agents.mcp).toEqual({
+      enabled: true,
+      endpoint: "/mcp",
+      authenticated: true,
+      auth: {
+        resource: "https://app.example/mcp",
+        authorizationServers: ["https://auth.example"],
+        scopesSupported: ["notes.read", "notes.write"],
+        requiredScopes: ["notes.read"],
+        verify: "./server/mcp-token.ts",
+      },
+    });
     expect(agents.llmsTxt).toEqual({ enabled: true });
 
     // One capability per manifest entry, with the transports it is exposed on.
@@ -84,14 +95,17 @@ describe("@pracht/cli inspect agents", () => {
 
   it("prints a readable agent surface summary", () => {
     const appDir = createRepoTempDir("pracht-cli-inspect-agents-text-");
-    writeTypedManifestApp(appDir, { capabilities: true, agents: true });
+    writeTypedManifestApp(appDir, { capabilities: true, agents: true, mcpAuth: true });
 
     const { stdout } = runCli(["inspect", "agents"], { cwd: appDir });
 
     expect(stdout).toContain("\nAgents");
     expect(stdout).toContain("webBotAuth=on  policy=require  keys=1");
     expect(stdout).toContain("confirmation=token  ttlSeconds=300  singleUse=true");
-    expect(stdout).toContain("mcp=on  endpoint=/mcp");
+    expect(stdout).toContain("mcp=on  endpoint=/mcp  oauth=on");
+    expect(stdout).toContain("resource=https://app.example/mcp");
+    expect(stdout).toContain("authorizationServers=[https://auth.example]");
+    expect(stdout).toContain("requiredScopes=[notes.read]");
     expect(stdout).toContain("llmsTxt=on");
     expect(stdout).toContain("exposure  http=3  webmcp=1  mcp=1  private=1");
     expect(stdout).toContain("notes.search  effect=read  transports=http,mcp,webmcp");
@@ -174,7 +188,7 @@ describe("@pracht/cli inspect agents", () => {
     const { stdout } = runCli(["inspect", "agents"], { cwd: appDir });
 
     expect(stdout).toContain("webBotAuth=on");
-    expect(stdout).toContain("mcp=on  endpoint=/mcp");
+    expect(stdout).toContain("mcp=on  endpoint=/mcp  oauth=off");
     expect(stdout).toContain("llmsTxt=on");
     expect(stdout).toContain("No capability operations registered.");
     expect(stdout).not.toContain("this app exposes no agent surface");

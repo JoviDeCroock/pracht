@@ -127,6 +127,43 @@ describe("createNodeServerEntryModule", () => {
 });
 
 describe("createNodeRequestHandler", () => {
+  it("serves OAuth metadata before a colliding static file", async () => {
+    const staticDir = makeTempDir();
+    const metadataDir = join(staticDir, ".well-known/oauth-protected-resource");
+    mkdirSync(metadataDir, { recursive: true });
+    writeFileSync(join(metadataDir, "mcp"), "stale metadata", "utf-8");
+    const handler = createNodeRequestHandler({
+      app: defineApp({
+        agents: {
+          mcp: {
+            auth: {
+              resource: "https://example.com/mcp",
+              authorizationServers: ["https://auth.example"],
+              verify: "./server/mcp-token.ts",
+            },
+          },
+        },
+        routes: [],
+      }),
+      canonicalOrigin: "https://example.com",
+      staticDir,
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP server address");
+
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/.well-known/oauth-protected-resource/mcp`,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ resource: "https://example.com/mcp" });
+  });
+
   it("applies generated headers to non-HTML static assets", async () => {
     const staticDir = makeTempDir();
     writeFileSync(join(staticDir, "llms.txt"), "# Docs\n", "utf-8");

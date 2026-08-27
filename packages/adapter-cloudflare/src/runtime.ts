@@ -8,6 +8,7 @@ import {
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   isCacheableISGResponse,
+  isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
   type ModuleRegistry,
@@ -119,6 +120,9 @@ export function createCloudflareFetchHandler<
 
     const publicUrl = new URL(request.url);
     const routePathname = stripBase(publicUrl.pathname);
+    const mcpAuth = options.app.agents?.mcp?.auth;
+    const isMcpMetadataRequest =
+      mcpAuth !== undefined && isMcpResourceMetadataPath(publicUrl.pathname, mcpAuth);
 
     const renderISGPage = async (pathname: string, originalRequest: Request): Promise<Response> => {
       const regenerationRequest = restoreBasePathInRequest(
@@ -160,7 +164,7 @@ export function createCloudflareFetchHandler<
     // with a body can otherwise disturb the stream before it reaches an API.
     const isStaticMethod = request.method === "GET" || request.method === "HEAD";
     const dispatchRequest =
-      routePathname === null || !isStaticMethod
+      routePathname === null || !isStaticMethod || isMcpMetadataRequest
         ? null
         : withRequestPathname(request, routePathname);
 

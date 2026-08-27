@@ -1,6 +1,8 @@
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import type { McpAuthConfig } from "@pracht/core";
 import type { PrachtAdapter } from "@pracht/vite-plugin";
+import { URLPattern } from "urlpattern-polyfill";
 import type { Plugin } from "vite";
 import {
   applyDefaultSecurityHeaders,
@@ -11,10 +13,13 @@ import {
   handlePrachtRequest,
   isCacheableISGResponse,
   isDangerousPrerenderHeader,
+  isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
+  mcpResourceMetadataPath,
   prefersMarkdown,
   preventHeuristicCaching,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
   PRACHT_REVALIDATE_ENDPOINT,
   readRevalidationRequest,
   RevalidationReport,
@@ -146,6 +151,9 @@ export function createNetlifyHandler<
     if (baseRedirect) return baseRedirect;
     const url = new URL(request.url);
     const routePathname = stripBase(url.pathname);
+    const mcpAuth = options.app.agents?.mcp?.auth;
+    const isMcpMetadataRequest =
+      mcpAuth !== undefined && isMcpResourceMetadataPath(url.pathname, mcpAuth);
 
     if (routePathname === PRACHT_REVALIDATE_ENDPOINT) {
       return handleNetlifyRevalidation(request, options, isgManifest);
@@ -184,6 +192,7 @@ export function createNetlifyHandler<
     if (
       options.staticDir &&
       staticMethod &&
+      !isMcpMetadataRequest &&
       !routeStateRequest &&
       !wantsMarkdown &&
       pathname !== null &&
@@ -198,6 +207,7 @@ export function createNetlifyHandler<
     const isgRoute =
       pathname !== null &&
       staticMethod &&
+      !isMcpMetadataRequest &&
       !routeStateRequest &&
       !wantsMarkdown &&
       pathname in isgManifest
@@ -323,7 +333,7 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "export default function handle(request, context) {",
     "  return handler(request, context);",
     "}",
-    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)}, buildBase);`,
+    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)}, buildBase, resolvedApp.agents?.mcp?.auth);`,
     "",
   ].join("\n");
 }
@@ -374,8 +384,11 @@ export async function finalizeNetlifyBuild(
   root: string,
   options: NetlifyAdapterOptions = {},
   base = "/",
+  mcpAuth?: McpAuthConfig,
 ): Promise<void> {
-  for (const pattern of options.excludedPath ?? []) assertSafeExcludedPath(pattern);
+  for (const pattern of options.excludedPath ?? []) {
+    assertSafeExcludedPath(pattern, mcpAuth);
+  }
   await writeNetlifyFunctionWrapper(root, options, true, base);
 }
 
@@ -721,11 +734,32 @@ function hasNetlifyRuleWhitespaceOrControl(value: string): boolean {
  * rules for other paths. They are also URL path patterns, so anything outside
  * printable-ASCII-without-spaces is a mistake anyway — fail the build loudly.
  */
-function assertSafeExcludedPath(pattern: string): void {
+function assertSafeExcludedPath(pattern: string, mcpAuth?: McpAuthConfig): void {
   if (!pattern.startsWith("/") || !/^[\x21-\x7e]+$/.test(pattern)) {
     throw new Error(
       `netlifyAdapter({ excludedPath }) entries must be URL path patterns starting with "/" ` +
         `and contain no whitespace or control characters; got ${JSON.stringify(pattern)}.`,
+    );
+  }
+  if (!mcpAuth) return;
+
+  let excludedPath: URLPattern;
+  try {
+    excludedPath = new URLPattern({ pathname: pattern });
+  } catch {
+    throw new Error(
+      `netlifyAdapter({ excludedPath }) entry ${JSON.stringify(pattern)} is not a valid URLPattern.`,
+    );
+  }
+
+  const protectedPaths = [
+    new URL(mcpAuth.resource).pathname,
+    OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+    mcpResourceMetadataPath(mcpAuth),
+  ];
+  if (protectedPaths.some((pathname) => excludedPath.test({ pathname }))) {
+    throw new Error(
+      `netlifyAdapter({ excludedPath }) entry ${JSON.stringify(pattern)} would bypass Pracht's OAuth-protected MCP endpoint or protected-resource metadata handler. Remove this exclusion; the MCP resource path and ${OAUTH_PROTECTED_RESOURCE_WELL_KNOWN} namespace are framework-reserved while MCP auth is enabled.`,
     );
   }
 }

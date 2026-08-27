@@ -12,6 +12,7 @@ import {
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   isCacheableISGResponse,
+  isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
   type ModuleRegistry,
@@ -172,6 +173,9 @@ export function createNodeRequestHandler<TContext = unknown>(
       return;
     }
     const url = new URL(request.url);
+    const mcpAuth = options.app.agents?.mcp?.auth;
+    const isMcpMetadataRequest =
+      mcpAuth !== undefined && isMcpResourceMetadataPath(url.pathname, mcpAuth);
     // Static files and manifests are keyed by base-free route paths. A trusted
     // proxy may already have removed the base; otherwise strip it here while
     // preserving the public URL on the Request passed to application code.
@@ -211,6 +215,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     if (
       staticDir &&
       isStaticAssetMethod(request.method) &&
+      !isMcpMetadataRequest &&
       !wantsMarkdown &&
       !isTransportRouteStateRequest &&
       routePathname !== null
@@ -232,6 +237,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     if (
       staticDir &&
       isStaticAssetMethod(request.method) &&
+      !isMcpMetadataRequest &&
       !isTransportRouteStateRequest &&
       !wantsMarkdown &&
       routePathname !== null &&

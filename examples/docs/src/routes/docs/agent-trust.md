@@ -31,7 +31,7 @@ next:
 
 Exposing [capabilities](/docs/capabilities) to agents raises questions a schema cannot answer. The agent trust layer answers all three, and everything is opt-in. When the build can prove that an app registers neither capabilities nor `defineApp({ agents })`, the capability dispatch and Web Bot Auth verifier are dropped from the server bundle entirely.
 
-- **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context.
+- **Who is calling?** — Web Bot Auth puts a cryptographically verified agent identity on the request context. On the remote MCP endpoint, [OAuth resource-server metadata](#oauth-on-the-remote-mcp-endpoint) additionally identifies *on whose behalf* the agent is acting.
 - **May they do this?** — policy modes per app and per capability, plus a server-verified confirmation flow for destructive effects, optionally backed by a durable approval store for exactly-once commits and, in human mode, real human approval.
 - **What happened?** — one structured audit event per capability dispatch.
 
@@ -102,6 +102,35 @@ export default defineCapability({
   agentPolicy: "require", // this endpoint answers only verified agents
 });
 ```
+
+---
+
+## OAuth on the Remote MCP Endpoint
+
+Web Bot Auth answers "which agent software is this?". It does not answer "which user is it acting for" — that is an OAuth question, and on the [remote MCP endpoint](/docs/remote-mcp) it has a standard answer.
+
+`defineApp({ agents: { mcp: { auth } } })` turns `/mcp` into an OAuth 2.0 protected resource: it publishes RFC 9728 metadata at `/.well-known/oauth-protected-resource`, answers unauthenticated calls with the `WWW-Authenticate` challenge MCP hosts follow, and hands the presented token to a `verify` module you supply.
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  agents: {
+    mcp: {
+      auth: {
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        scopesSupported: ["notes.read"],
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },
+});
+```
+
+pracht stays the resource server. It does not validate JWTs, fetch JWKS, or issue tokens — the rule is *define the authentication hook first, ship deployment recipes before owning an authorization server*. The verified principal lands on `context.tokenAuth` as a frozen snapshot on a non-writable, non-configurable framework-owned field on a fresh request-local overlay, the same shape as `context.agent`. The adapter-supplied base context remains unchanged even when it is reused, frozen, or sealed, so one request's OAuth principal cannot become another request's identity. Native built-ins such as `Map` and `Date` must be wrapped in an ordinary request context because an overlay cannot preserve their internal-slot identity. The two compose: `agent` is the caller's software identity, `tokenAuth` is the account it acts for.
+
+`CapabilityAuditEvent` does not yet carry `tokenAuth`, so audited MCP dispatches name the calling software but not the account behind it. Capture the principal in named middleware or capability code while request context is available and send it to the same audit sink until the event gains a field for it.
+
+The full setup — the metadata document, the challenge table, a JWKS `verify` recipe, and the fail-closed rules — is on the [Remote MCP page](/docs/remote-mcp#oauth-letting-a-real-host-connect).
 
 ---
 
@@ -474,15 +503,15 @@ The audit trail covers *dispatch*. Several rejections happen before a capability
 
 An agent — or a scanner — enumerating tool names or probing capability URLs therefore leaves no trace in the audit trail. Absence of events is not evidence that nothing tried. Use the deployment's HTTP access log for reconnaissance detection, and treat the audit trail as the record of what actually ran.
 
-To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its `llmsTxt` state comes from the Vite plugin's resolved production server-build configuration, including computed options, rather than a source-text guess or the development configuration. When the CLI is newer than an installed Vite plugin that does not expose that metadata yet, the state is `null` in JSON and `unknown` in text until the plugin is upgraded — never a false opt-out.
+To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its MCP section reports whether OAuth is enabled plus the configured resource, authorization servers, required scopes, advertised scopes, and verifier module, so an open and protected endpoint cannot look identical. Its `llmsTxt` state comes from the Vite plugin's resolved production server-build configuration, including computed options, rather than a source-text guess or the development configuration. When the CLI is newer than an installed Vite plugin that does not expose that metadata yet, the state is `null` in JSON and `unknown` in text until the plugin is upgraded — never a false opt-out.
 
 ### Remote MCP Composition Is Guarded
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.
 
-Remote MCP adds two fail-closed rules: nested calls re-apply the callee's `agentPolicy`, and refuse `destructive` effects before middleware or the body can run unless the tool being served is itself a destructive capability that already cleared prepare/commit.
+Remote MCP adds fail-closed rules: nested calls re-apply the callee's `agentPolicy`, refuse `destructive` effects before middleware or the body can run unless the tool being served already cleared prepare/commit, and keep the OAuth principal the transport verified.
 
-That is a **scope, not a per-callee check**, and the difference matters. One cleared confirmation opens the request's whole private destructive graph to that tool's own server code — any destructive callee, private ones included, any number of times, with inputs the tool chooses. It is the same deal HTTP has always offered a confirmed destructive endpoint, and the boundary is the same one: first-party `run()` code picks the callees, so the effect class you gave that tool is the promise you are making about them. What the rule buys is that the *agent* never picks them — it cannot reach a destructive effect except through a tool it confirmed by name and input, a `read` or `write` tool has no such scope, and the scope dies with the request. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent` passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
+That is a **scope, not a per-callee check**, and the difference matters. One cleared confirmation opens the request's whole private destructive graph to that tool's own server code — any destructive callee, private ones included, any number of times, with inputs the tool chooses. It is the same deal HTTP has always offered a confirmed destructive endpoint, and the boundary is the same one: first-party `run()` code picks the callees, so the effect class you gave that tool is the promise you are making about them. What the rule buys is that the *agent* never picks them — it cannot reach a destructive effect except through a tool it confirmed by name and input, a `read` or `write` tool has no such scope, and the scope dies with the request. Private non-destructive capabilities remain composable, with named middleware as their authorization seam. HTTP and WebMCP composition keep the ordinary server semantics and must own any transport-specific authorization they need. Under any served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than replacement `context.agent` or `context.tokenAuth` fields passed to `invokeCapability()`. Every nested attempt still audits with `transport: "server"` and trusted provenance in `via`.
 
 ---
 
@@ -529,6 +558,9 @@ An `expose.mcp` capability is only proven when an MCP host can actually call it.
   "name": "notes agent flow over MCP",
   "transport": "mcp",              // default is "http"
   "mcpPath": "/mcp",               // optional; only if you moved the endpoint
+  "mcpHeaders": {                    // when agents.mcp.auth protects the endpoint
+    "authorization": "Bearer test-token"
+  },
   "steps": [
     { "capability": "notes.search", "input": { "query": "roadmap" } },
     {
@@ -541,7 +573,7 @@ An `expose.mcp` capability is only proven when an MCP host can actually call it.
 }
 ```
 
-Expectations mean the same thing on both transports — including `status`. `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, `errorCode` reads the error metadata the projection attaches to a failed call, and `status` is the **capability dispatch status**, which the projection reports alongside the result. It is deliberately not the JSON-RPC POST status: every answered `tools/call` is a transport-level `200`, so asserting that would let `"status": 200` pass on a call that failed. Scenarios stay portable between transports as a result. A `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests, so an `agentPolicy: "require"` capability is provable over MCP too.
+Expectations mean the same thing on both transports — including `status`. `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, `errorCode` reads the error metadata the projection attaches to a failed call, and `status` is the **capability dispatch status**, which the projection reports alongside the result. It is deliberately not the JSON-RPC POST status: every answered `tools/call` is a transport-level `200`, so asserting that would let `"status": 200` pass on a call that failed. Scenarios stay portable between transports as a result. A `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests, so an `agentPolicy: "require"` capability is provable over MCP too. `mcpHeaders.authorization` is sent on `initialize`, the initialized notification, and every tool call; a step-level authorization header overrides it for that call. Keep production tokens out of committed scenarios and inject a test token when CI writes the file.
 
 Transport differences fail loudly rather than quietly. A capability the endpoint does not project — anything without `expose.mcp` — fails the scenario with the tool name it looked for and what to do about it. Destructive confirmation scenarios work when the app enables [`agents.mcp.destructive` and an approval store](/docs/remote-mcp#destructive-tools): the `confirm` token rides in the call's `_meta["io.pracht/confirmation"]` field, since MCP has no per-call header channel. Step `headers` remain limited: the projection forwards only `authorization`, so any other header on an MCP step fails the scenario instead of silently never arriving.
 

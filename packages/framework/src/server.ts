@@ -16,6 +16,12 @@ export {
 export { createHref } from "./href.ts";
 export { restoreBasePathInRequest, stripBase, withBase } from "./base.ts";
 export {
+  isMcpResourceMetadataPath,
+  mcpResourceMetadataPath,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+} from "./mcp-config.ts";
+export { loadMcpTokenVerifier } from "./runtime-mcp-auth.ts";
+export {
   apiValidationErrorResponse,
   defineApi,
   formDataToRecord,

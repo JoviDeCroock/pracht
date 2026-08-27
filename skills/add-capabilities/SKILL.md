@@ -156,6 +156,95 @@ Auth `policy: "require"` gates capability HTTP endpoints (not pages or API
 routes) with `401 agent_required`; `agentPolicy: "require"` on a capability
 fails closed even when `webBotAuth` is unconfigured.
 
+### Authenticating the MCP endpoint (`agents.mcp.auth`)
+
+`agents: { mcp: {} }` alone serves an **open** endpoint — anyone who can reach
+the URL can call every `expose.mcp` tool, and authentication is whatever the
+capability's named middleware does with the forwarded `Authorization` header.
+That is fine for a public read surface and wrong for anything scoped to a user.
+
+Add `auth` and `/mcp` becomes an OAuth 2.0 protected resource: pracht publishes
+RFC 9728 metadata at `/.well-known/oauth-protected-resource`, answers
+unauthenticated calls with the `WWW-Authenticate` challenge MCP hosts follow,
+and calls your `verify` module. This is what makes a real host (Claude, a
+ChatGPT connector) able to connect at all.
+
+```ts
+mcp: {
+  serverInfo: { name: "notes", version: "1.0.0" },
+  auth: {
+    resource: "https://app.example.com/mcp",       // absolute; token audience
+    authorizationServers: ["https://auth.example.com"],
+    scopesSupported: ["notes.read", "notes.write"],
+    requiredScopes: ["notes.read"],                // optional per-request gate
+    verify: () => import("./server/mcp-token.ts"), // server-only module
+  },
+},
+```
+
+Rules to hold the user to:
+
+- **`verify` is a module reference, never an inline function.** The manifest is
+  bundled into the client; a JWKS client in it would ship to every visitor.
+  Put the module in `src/server/` and default-export the verifier function. It
+  must live under `src/server/`, `src/middleware/`, or `src/capabilities/` —
+  those are the only directories the build globs into the module registry, and
+  a verifier anywhere else is never loadable, so every `/mcp` request 401s
+  forever. `pracht verify` errors on that, but do not create the file elsewhere.
+  If the same suffix exists in more than one registry directory, lookup rejects
+  it as ambiguous; use a root-relative reference such as
+  `() => import("/src/server/mcp-token.ts")`.
+- **Security option names are exact.** Unknown keys under `agents.mcp` and
+  `agents.mcp.auth` are rejected instead of ignored; do not work around the
+  error with casts. The MCP path must also differ from every explicit API route
+  path, or `pracht verify` rejects the graph and the runtime fails closed with
+  500 before the API handler can bypass MCP's gates.
+- **Pracht is not an authorization server.** Do not offer to implement token
+  issuance, refresh, or dynamic client registration — those belong to the
+  user's identity provider. Write `verify` with their library (`jose` works on
+  Workers and Vercel Edge) and **bind `audience` to the `resource` value**, or a
+  token minted for another service on the same issuer is accepted.
+- **It fails closed.** `null`, a throw, or a malformed principal all give
+  `401 invalid_token`; a missing required scope gives `403 insufficient_scope`.
+  When `requiredScopes` is set, every challenge advertises it so hosts request
+  the right grant on the first authorization attempt. The verifier receives an
+  independent request clone, so reading its JSON-RPC body does not consume the
+  body that MCP dispatch reads next.
+- **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
+  clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
+  and `run()` for per-user authorization; the framework only authenticates. It
+  lives on a fresh request-local overlay, leaving an adapter's reused base
+  context unchanged. Frozen and sealed ordinary contexts work; native built-ins
+  such as `Map` and `Date` must be wrapped in an ordinary context. `claims` is
+  frozen shallowly, but the complete principal is request-local so nested
+  mutations cannot become stale auth on a later request. The capability audit
+  event does not carry it yet, so capture it in named middleware or capability
+  code and send it to the same audit sink if MCP calls must be attributable to
+  an account. Nested capability calls rebind this field to the transport-verified
+  principal, so caller-supplied composition context cannot replace it.
+- `resource` must be the endpoint's **real deployed URL**: absolute, free of
+  query/fragment, free of a non-root trailing slash, and exactly matching the
+  served endpoint's public path — deploy base included, e.g.
+  `https://app.example.com/app/mcp` for an app mounted at `/app/`.
+  `resolveApp()` and `pracht verify` reject otherwise. The metadata document
+  then lands at the origin root with the base inside the suffix
+  (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it. Require
+  HTTPS outside loopback development, and reject authorization-server issuers
+  with query strings or fragments. For `mcp.path: "/"`, the resource is the
+  deployed app root, including its base; at the origin root use slashless
+  `https://app.example.com`. Authenticated requests whose URL is not
+  exactly this identifier are redirected to it with `308` before token
+  verification. Scope values must use OAuth's printable ASCII grammar (no
+  spaces, controls, non-ASCII, quotes, or backslashes).
+- The bare `/.well-known/oauth-protected-resource` path is reserved for
+  discovery and cannot be used as `mcp.path`. Production adapters route both
+  metadata forms ahead of copied static files.
+- `pracht plan` snapshots the OAuth policy separately from the endpoint path.
+  Removing `auth` or a required scope, or trusting another authorization server,
+  is a guard weakening even when `/mcp` itself did not move.
+
+See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
+
 ## Step 5: Destructive capabilities
 
 `destructive` (delete, publish, pay, send, change access) may be exposed over
@@ -262,6 +351,10 @@ A scenario targets the HTTP projection by default; set scenario-level
 (`initialize` handshake, then one `tools/call` per step, tool names mapped
 `notes.search` → `notes_search`). Write one of each for any capability with
 `expose.mcp` — passing over HTTP does not prove an MCP host can reach it.
+If `agents.mcp.auth` protects the endpoint, add scenario-level
+`"mcpHeaders": { "authorization": "Bearer …" }`; it applies to `initialize`
+and every later request. Inject test tokens in CI instead of committing real
+credentials. Step-level `headers.authorization` overrides it for one call.
 Expectations are portable: `expect.status` is the capability dispatch status on
 both transports, so the same `{ "ok": false, "status": 400, "errorCode":
 "invalid_input" }` holds either way.

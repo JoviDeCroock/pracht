@@ -9,7 +9,13 @@ import {
   serializeCapabilities,
   servesDestructiveMcpTools,
 } from "@pracht/core";
-import type { AppGraphCapability, PrachtAgentsConfig } from "@pracht/core";
+import type {
+  AppGraphCapability,
+  McpAuthConfig,
+  ModuleRegistry,
+  PrachtAgentsConfig,
+} from "@pracht/core";
+import { loadMcpTokenVerifier } from "@pracht/core/server";
 import type { ViteDevServer } from "vite";
 
 export interface AppGraphRoute {
@@ -46,6 +52,8 @@ export interface CapabilityAppGraph {
   mcpEndpoint: string | null;
   /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
   mcpDestructive: boolean;
+  /** Whether that endpoint is an OAuth protected resource (`agents.mcp.auth`). */
+  mcpAuthenticated: boolean;
   /**
    * Graph-only inspection cannot verify registrations performed exclusively
    * by the adapter server entry, so unmet runtime checks are `unverified`
@@ -168,6 +176,7 @@ export async function collectCapabilityAppGraph(
             : [],
         );
   const mcpDestructive = servesDestructiveMcpTools(serverModule.resolvedApp, capabilities);
+  const verifierFailure = await readMcpTokenVerifierFailure(serverModule);
   let setupFailure: string | null = null;
   if (mcpDestructive) {
     try {
@@ -180,6 +189,7 @@ export async function collectCapabilityAppGraph(
   }
   const mcpUnavailableReasons = [
     ...capabilityFailures,
+    ...(verifierFailure === null ? [] : [verifierFailure]),
     ...(setupFailure !== null
       ? [setupFailure]
       : mcpDestructive
@@ -190,14 +200,33 @@ export async function collectCapabilityAppGraph(
     capabilities,
     mcpEndpoint,
     mcpDestructive,
+    mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
     mcpRuntimeStatus:
       mcpEndpoint === null
         ? "not-configured"
-        : mcpUnavailableReasons.length > 0
-          ? "unverified"
-          : "ready",
+        : verifierFailure !== null
+          ? "blocked"
+          : mcpUnavailableReasons.length > 0
+            ? "unverified"
+            : "ready",
     mcpUnavailableReasons,
   };
+}
+
+async function readMcpTokenVerifierFailure(
+  serverModule: Record<string, any>,
+): Promise<string | null> {
+  const auth = serverModule.resolvedApp.agents?.mcp?.auth as McpAuthConfig | undefined;
+  if (!auth) return null;
+
+  try {
+    await loadMcpTokenVerifier(auth, (serverModule.registry ?? {}) as ModuleRegistry);
+    return null;
+  } catch (error: unknown) {
+    return `MCP token verifier failed to load: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+  }
 }
 
 async function loadDestructiveMcpSetupModules(

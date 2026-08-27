@@ -145,7 +145,8 @@ Inspect with \`pracht inspect capabilities --json\`; its top-level
 \`mcpEndpoint\`, \`mcpDestructive\`, \`mcpRuntimeStatus\`, and
 \`mcpUnavailableReasons\` fields distinguish declared exposure from a tool the configured
 endpoint can currently serve. A graph-only \`unverified\` status means setup may live in the
-adapter server entry, which inspection deliberately does not evaluate. Test scripted agent flows
+adapter server entry, which inspection deliberately does not evaluate; \`blocked\` means a
+configured runtime module such as the OAuth verifier is authoritatively unusable. Test scripted agent flows
 with \`pracht eval\` (scenario files in \`evals/*.eval.json\`, \`--start\` boots the
 app itself). A scenario runs against the HTTP projection by default, or against
 the app's remote MCP endpoint with scenario-level \`"transport": "mcp"\` — write

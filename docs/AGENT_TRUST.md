@@ -4,7 +4,9 @@ The agent trust layer answers three questions about the capability graph
 (see [CAPABILITIES.md](CAPABILITIES.md)):
 
 - **Who is calling?** — Web Bot Auth verification puts a cryptographically
-  verified agent identity on the request context.
+  verified agent identity on the request context; on the remote MCP endpoint,
+  OAuth resource-server metadata additionally identifies *on whose behalf* the
+  agent is acting.
 - **May they do this?** — policy modes per app and per capability, plus a
   server-verified prepare/commit confirmation flow for destructive
   capabilities, optionally backed by a durable approval store for
@@ -174,6 +176,39 @@ export default defineCapability({
 
 `agentPolicy: "require"` fails closed even when `webBotAuth` is not
 configured (every request would be 401 — a loud misconfiguration signal).
+
+## OAuth bearer identity on remote MCP
+
+Web Bot Auth answers "which agent software is this?". It does not answer "which
+user is it acting for" — that is an OAuth question, and on the remote MCP
+endpoint it has a standard answer. `defineApp({ agents: { mcp: { auth } } })`
+turns `/mcp` into an OAuth 2.0 protected resource: it publishes RFC 9728
+metadata at `/.well-known/oauth-protected-resource`, answers unauthenticated
+calls with the `WWW-Authenticate` challenge MCP hosts follow, and hands the
+presented token to an application-supplied `verify` module.
+
+Pracht stays the resource server. It does not validate JWTs, fetch JWKS, or
+issue tokens — the design rule is *define the authentication hook first, ship
+deployment recipes before owning an authorization server*. The verified
+principal lands on `context.tokenAuth` as a frozen snapshot on a non-writable,
+non-configurable framework-owned field on a fresh request-local overlay, the
+same shape as `context.agent` above. The adapter-supplied base context remains
+unchanged even when it is reused, frozen, or sealed, so one request's OAuth
+principal cannot become another request's identity. Native built-ins such as
+`Map` and `Date` must be wrapped in an ordinary request context because an
+overlay cannot preserve their internal-slot identity. The two identities
+compose: `agent` is the caller's software identity, `tokenAuth` is the account
+it acts for.
+
+`CapabilityAuditEvent` does not yet carry `tokenAuth`, so an audited MCP
+dispatch names the calling software but not the account behind it. Capture the
+principal in named middleware or capability code while request context is
+available and send it to the same audit sink until the event gains a field for
+it.
+
+Full configuration, the metadata document, the challenge table, the JWKS recipe,
+and the fail-closed rules live in
+[REMOTE_MCP.md](REMOTE_MCP.md#oauth-resource-server-metadata).
 
 ## Effect classes and the confirmation flow
 
@@ -676,8 +711,8 @@ the callee's named middleware must authorize it. Every nested attempt, allowed
 or denied, carries `transport: "server"` and the trusted causal transport in
 `via` for audit attribution. For any composition running under a served HTTP or
 MCP request, the nested context and audit event keep the identity verified by
-that transport; a replacement `context.agent` passed to `invokeCapability()` is
-never treated as verified identity.
+that transport; replacement `context.agent` or `context.tokenAuth` fields passed
+to `invokeCapability()` are never treated as verified identity.
 
 Subscribe from any server-only module. Audit hooks receive frozen event and
 agent snapshots; exceptions are swallowed, so an observer can neither rewrite
@@ -928,7 +963,8 @@ Pracht inspect (manifest mode)
 Agents
   webBotAuth=on  policy=require  keys=1  directories=[https://signature-agent.example]
   confirmation=token  ttlSeconds=300  singleUse=true
-  mcp=on  endpoint=/mcp
+  mcp=on  endpoint=/mcp  oauth=on
+    resource=https://app.example/mcp  authorizationServers=[https://auth.example]  requiredScopes=[notes.read]  scopesSupported=[notes.read, notes.write]
   llmsTxt=on
   exposure  http=3  webmcp=1  mcp=1  private=1
   notes.search  effect=read  transports=http,mcp,webmcp  policy=require (inherited)  http=/api/capabilities/notes/search
@@ -939,7 +975,9 @@ Agents
 `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`; the CLI's MCP
 server exposes it as the `inspect_agents` tool. Text output marks declared MCP
 tools as `mcp(unserved)` or `mcp(unverified)` when they are not confirmed
-reachable. The `llmsTxt` state comes from the Vite plugin's
+reachable. It also includes `mcp.authenticated` and the configured OAuth
+resource, authorization servers, required scopes, advertised scopes, and
+verifier module. The `llmsTxt` state comes from the Vite plugin's
 resolved production server-build configuration, including computed options,
 rather than a source-text guess or the development configuration. If the CLI is
 newer than the installed Vite plugin and that plugin does not expose the resolved
@@ -1056,6 +1094,13 @@ example):
   transport — `examples/basic/evals/agent-identity-mcp.eval.json` proves both
   halves of `agentPolicy: "require"` over `tools/call`.
 
+  When `agents.mcp.auth` protects the endpoint, set scenario-level
+  `"mcpHeaders": { "authorization": "Bearer …" }`. The runner sends it on the
+  initial handshake, the initialized notification, and every `tools/call`;
+  per-step `headers.authorization` can override it for a single call. Keep real
+  tokens out of committed scenarios: inject a test token when CI writes the
+  scenario file.
+
   **Expectations mean the same thing on both transports**, including `status`.
   `ok` is the tool result's `isError` inverted, `output` matches its
   `structuredContent`, `errorCode` reads the `io.pracht/error` metadata, and
@@ -1138,6 +1183,12 @@ not verify. Sign [the authority the Worker sees](#preview-authority-with-custom-
 - `nonce` uniqueness enforcement.
 - A Durable Objects approval store. SQL backends (Postgres, D1, SQLite/Turso)
   are covered by [`createSqlApprovalStore()`](#createsqlapprovalstore-the-first-party-durable-store).
+- An authorization server. `agents.mcp.auth` makes pracht an OAuth *resource
+  server*; token issuance, dynamic client registration, and consent UI stay
+  with your identity provider.
+- OAuth bearer auth on the HTTP and WebMCP projections — `agents.mcp.auth`
+  covers the remote MCP transport only; browser projections are
+  cookie-authenticated by design.
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
 - Destructive capabilities over **WebMCP**. Unlike remote MCP, this is not
   waiting on a mechanism: a page host's approval UX is not a security boundary,

@@ -14,6 +14,16 @@ import type { RouteParams } from "./types.ts";
 export const PRACHT_GRAPH_ONLY_ENV = "PRACHT_GRAPH_ONLY";
 
 export const SAFE_METHODS = new Set(["GET", "HEAD"]);
+
+/**
+ * RFC 9728 well-known prefix for OAuth 2.0 protected-resource metadata.
+ *
+ * Lives here, not in the MCP modules, because `handlePrachtRequest()` needs to
+ * recognise the path *before* it loads anything MCP-related — and before base
+ * stripping, since RFC 9728 §3.1 inserts this segment between the host and the
+ * resource's path, putting the document at the origin root by construction.
+ */
+export const OAUTH_PROTECTED_RESOURCE_WELL_KNOWN = "/.well-known/oauth-protected-resource";
 export const HYDRATION_STATE_ELEMENT_ID = "pracht-state";
 export const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 export const ROUTE_STATE_CACHE_CONTROL = "no-store";

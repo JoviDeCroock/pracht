@@ -137,6 +137,17 @@ export function collectStaticExportChecks(
     );
   }
 
+  if (graph.mcpEndpoint) {
+    problems += 1;
+    checks.push(
+      createCheck(
+        "error",
+        `Static export: the remote MCP endpoint ${graph.mcpEndpoint} needs a server to answer requests, but a static export has none. ` +
+          "Remove agents.mcp or use a serverful adapter.",
+      ),
+    );
+  }
+
   if (problems === 0) {
     checks.push(
       createCheck("ok", "Static export preconditions hold (no request-runtime features in use)."),

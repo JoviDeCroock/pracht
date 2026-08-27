@@ -195,6 +195,19 @@ describe("validateStaticExport", () => {
     expect((error as Error).message).not.toContain('change the route to render: "ssg"');
   });
 
+  it("fails closed on a remote MCP endpoint even with no exposed capabilities", async () => {
+    const error = await validateStaticExport({
+      resolvedApp: {
+        agents: { mcp: { path: "/agent/mcp" } },
+        capabilities: {},
+        routes: [{ path: "/", render: "ssg" }],
+      },
+    }).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("the remote MCP endpoint /agent/mcp needs a server");
+  });
+
   it("fails closed on capabilities exposed over http/mcp/webmcp", async () => {
     const error = await validateStaticExport({
       resolvedApp: {

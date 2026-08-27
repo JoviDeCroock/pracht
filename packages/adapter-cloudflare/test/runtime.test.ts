@@ -237,6 +237,35 @@ describe("createCloudflareFetchHandler under a deploy base", () => {
 });
 
 describe("createCloudflareFetchHandler ISG", () => {
+  it("serves OAuth metadata before a colliding asset", async () => {
+    const fetchAsset = vi.fn(async () => new Response("stale metadata"));
+    const handler = createCloudflareFetchHandler({
+      app: defineApp({
+        agents: {
+          mcp: {
+            auth: {
+              resource: "https://example.com/mcp",
+              authorizationServers: ["https://auth.example"],
+              verify: "./server/mcp-token.ts",
+            },
+          },
+        },
+        routes: [],
+      }),
+    });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/.well-known/oauth-protected-resource/mcp"),
+      { ASSETS: { fetch: fetchAsset } },
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ resource: "https://example.com/mcp" });
+    expect(fetchAsset).not.toHaveBeenCalled();
+  });
+
   it("serves fresh cached ISG HTML without scheduling regeneration", async () => {
     const { cache, store } = createMockCaches();
     vi.stubGlobal("caches", { default: cache });

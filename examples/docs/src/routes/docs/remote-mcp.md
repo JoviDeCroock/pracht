@@ -42,6 +42,8 @@ export default defineCapability({
 
 Custom paths must be exact same-origin pathnames beginning with `/`; invalid values fail manifest validation. The endpoint must not equal a capability's HTTP exposure path; capability resolution fails until one path moves. Once configured, the endpoint remains active with an empty capability graph (`tools/list` returns an empty list), and graph resolution failures stay on the endpoint as JSON-RPC errors. Endpoint matching accepts one trailing slash, so `/mcp` and `/mcp/` address the same projection.
 
+Remote MCP requires a request runtime. `@pracht/adapter-static` rejects any `agents.mcp` configuration during `pracht verify` and `pracht build`; remove the endpoint or deploy with a serverful adapter.
+
 `expose.mcp` does **not** require `expose.http`. A capability can be reachable by remote agents with no public browser endpoint at all.
 
 A `destructive` capability needs a third opt-in — see [Destructive Tools](#destructive-tools).
@@ -63,7 +65,7 @@ POST /mcp
 
 Input validation, named middleware, `agentPolicy`, output validation, and the audit event are identical across HTTP, WebMCP, and MCP *by construction* — there is no second copy of the rules that could drift from the first.
 
-The synthesized request carries the same request-bound capability host, so named middleware and capability bodies can compose private non-destructive operations with `invokeCapability()`. Trusted MCP provenance adds two fail-closed rules to ordinary server composition: the nested call re-applies the callee's `agentPolicy`, and refuses `destructive` effects before middleware or the body can run unless the tool being served is itself a destructive capability that already cleared prepare/commit. The incoming transport request carries that provenance too, so adapter context that retains it cannot escape the nested-call guard. Every nested attempt audits as `{ transport: "server", via: "mcp" }`, keeping indirect effects and denials attributable to the agent that caused them.
+The synthesized request carries the same request-bound capability host, so named middleware and capability bodies can compose private non-destructive operations with `invokeCapability()`. Trusted MCP provenance adds fail-closed rules to ordinary server composition: the nested call re-applies the callee's `agentPolicy`, refuses `destructive` effects before middleware or the body can run unless the tool being served already cleared prepare/commit, and rebinds `context.tokenAuth` to the OAuth principal the transport verified. The incoming transport request carries that provenance too, so adapter context that retains it cannot escape the nested-call guard. Every nested attempt audits as `{ transport: "server", via: "mcp" }`, keeping indirect effects and denials attributable to the agent that caused them.
 
 The endpoint is stateless: no session id, no server→client stream, no resumability. That is what the Node, Cloudflare, Netlify, and Vercel adapters already serve, so the same app runs unchanged on all four.
 
@@ -180,7 +182,157 @@ Every capability guarantee carries over. The projection adds three of its own:
 
 **Destructive capabilities are unreachable without the opt-in.** Without `agents.mcp.destructive` they are filtered out of `tools/list` and `tools/call`, and `invokeCapability()` refuses a destructive callee while serving an MCP tool, even when that callee is private. With the opt-in, a remote agent reaches a destructive effect only through the [prepare/commit flow](#destructive-tools): composition refuses destructive callees unless the tool being served is itself a destructive capability that already cleared its own gate. Note what that does *not* say — once a tool has cleared it, that tool's own `run()` may compose any destructive capability, private ones included, as often as it likes for the rest of the request, exactly as an HTTP endpoint can. The confirmation gates the agent's entry point, not the first-party code behind it; the scope dies with the request.
 
-Authentication is your app's, in the capability's named middleware; nested calls also re-apply the callee's `agentPolicy`. Every dispatch emits an audit event with `transport: "mcp"` — passed as internal dispatch state rather than read from the public transport-marker header, so unlike the client-declared `"webmcp"` marker it is trustworthy — and anything the tool composes emits its own event carrying `via: "mcp"`.
+Every dispatch emits an audit event with `transport: "mcp"` — passed as internal dispatch state rather than read from the public transport-marker header, so unlike the client-declared `"webmcp"` marker it is trustworthy — and anything the tool composes emits its own event carrying `via: "mcp"`.
+
+Authentication has two shapes. Leave `agents.mcp.auth` off and the endpoint is open: authentication is your app's, in the capability's named middleware, which sees the forwarded `Authorization` header. Turn it on and the transport itself becomes an OAuth 2.0 protected resource.
+
+---
+
+## OAuth: Letting a Real Host Connect
+
+An MCP host — Claude, a ChatGPT connector, Inspector — cannot connect to an authenticated server it has to be told about out of band. The [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization) answers that with two standards: [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected-resource metadata, and an [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750) `WWW-Authenticate` challenge that points at it. Pracht implements the **resource server** half of both.
+
+It is not, and will not become, an authorization server. Token issuance, refresh, consent screens, and client registration belong to the identity provider you already run. Pracht's job is to publish where that provider is, and to check what it issued.
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  agents: {
+    mcp: {
+      serverInfo: { name: "notes", version: "1.4.0" },
+      auth: {
+        // Absolute URL of this endpoint. It is the RFC 8707 audience tokens
+        // must be bound to, and the base for the metadata URL hosts discover.
+        resource: "https://app.example.com/mcp",
+        authorizationServers: ["https://auth.example.com"],
+        scopesSupported: ["notes.read", "notes.write"],
+        requiredScopes: ["notes.read"],          // optional gate on every call
+        // Server-only module; its default export verifies one bearer token.
+        verify: () => import("./server/mcp-token.ts"),
+      },
+    },
+  },
+});
+```
+
+`verify` is a module reference, not an inline function, for the same reason capabilities and middleware are: the manifest is bundled into the client, and a token verifier — with its JWKS client and issuer configuration — must never be. Its module must default-export a function. Verifier lookup rejects ambiguous suffixes across `src/server/`, `src/middleware/`, and `src/capabilities/`; use a root-relative reference such as `() => import("/src/server/mcp-token.ts")` when duplicate suffixes exist. Overlapping source directories are supported: duplicate registry entries for the same normalized file count as one verifier, not an ambiguous reference. `pracht verify` and manifest resolution reject a relative `resource`, a `resource` carrying a query, fragment, or non-root trailing slash, a `resource` whose path does not exactly identify the served endpoint, a non-loopback cleartext URL, a non-canonical resource or issuer spelling, an authorization-server issuer with a query or fragment, an empty `authorizationServers`, a scope token outside OAuth's printable-ASCII grammar, unknown keys under `agents.mcp` or `agents.mcp.auth`, and a missing or non-callable default `verify` export. HTTP is accepted only on loopback during local development; deployed resource and issuer URLs must use HTTPS. Use canonical URL spellings: uppercase hosts, default ports, and dot segments can serialize to a different OAuth identifier. `/mcp/` is not equivalent to `/mcp`, even though routing accepts either spelling. Authenticated endpoints redirect every non-canonical request spelling, alternate host, and query-bearing request to `resource` with `308` before challenging or verifying it.
+
+Graph-only inspection loads the configured verifier before calling a protected endpoint ready. A missing module or non-callable default export sets `mcpRuntimeStatus` to `blocked`, records the reason in `mcpUnavailableReasons`, and renders its MCP exposures as `mcp(unserved)` in `pracht dev` and `pracht inspect`.
+
+The MCP path must be distinct from every explicit API route. `pracht verify` rejects exact and dynamic collisions, such as `agents.mcp.path: "/api/mcp"` alongside either `src/api/mcp.ts` or an API pattern like `/api/:name`; the request runtime returns 500 rather than letting the API handler shadow MCP's transport and authentication gates.
+
+The endpoint also owns its pathname ahead of page rendering and deployment static rewrites. Do not assign a page route the same path; Vercel's generated route table sends the MCP endpoint to the runtime before any matching SSG rewrite, so a method-agnostic static rule cannot intercept `POST /mcp`.
+
+The committed app-graph snapshot records whether the endpoint is OAuth protected and its resource, authorization servers, required and advertised scopes, and verifier module. `pracht plan` reports those policy changes as well as enabling protection. Removing a required scope, trusting another authorization server, or removing auth from a still-live endpoint is a guard weakening, even when the `/mcp` path itself did not change.
+
+### The Metadata Document
+
+Served unauthenticated and CORS-open — discovery happens before a host has a token — at the RFC 9728 path, where the well-known segment goes *between* the host and the resource's path:
+
+```bash
+curl -s https://app.example.com/.well-known/oauth-protected-resource/mcp
+```
+
+```json
+{
+  "resource": "https://app.example.com/mcp",
+  "authorization_servers": ["https://auth.example.com"],
+  "scopes_supported": ["notes.read", "notes.write"],
+  "bearer_methods_supported": ["header"]
+}
+```
+
+The body is byte-stable across requests. The bare `/.well-known/oauth-protected-resource` answers with the same document, because hosts in the wild probe either form. `bearer_methods_supported` is always `["header"]`: pracht reads the `Authorization` header and nothing else — never a form field or query parameter.
+
+**Under a deploy base, the document is still at the origin root.** RFC 9728 inserts the well-known segment between the host and the resource's path, so the base ends up *inside* the suffix rather than in front of it. An app mounted at `/app/` whose endpoint is `https://app.example.com/app/mcp` publishes at:
+
+```text
+https://app.example.com/.well-known/oauth-protected-resource/app/mcp
+```
+
+That is what the challenge advertises and what the runtime serves — the path is matched before base stripping, precisely so the advertised URL is fetchable. Set `resource` to the endpoint's real deployed URL, base included; pracht derives the rest. A reverse proxy that re-prefixes the base onto the well-known path is tolerated too. If `agents.mcp.path` is `/`, the resource is the deployed app root itself (`https://app.example.com/app` in this example). At the origin root, use the canonical slashless identifier `https://app.example.com`; URL serialization still routes requests at `/`.
+
+Because the match happens before routing and production-adapter static lookup, neither an application route nor a copied static file can shadow the document on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and cannot be used as `agents.mcp.path`; choose another endpoint path instead. When MCP OAuth is enabled, Netlify `excludedPath` entries that would bypass either the protected MCP resource path or this reserved namespace are rejected; apps without `agents.mcp.auth` keep their existing exclusions because they serve no protected-resource metadata.
+
+### The Challenge
+
+| Situation | Answer |
+| --- | --- |
+| Request URL is not exactly `resource` | `308` to the configured canonical URL; no challenge or token verification |
+| No `Authorization: Bearer` | `401`, `WWW-Authenticate: Bearer resource_metadata="…"` and configured `scope="…"` |
+| Token present but rejected | `401`, plus `error="invalid_token"` and configured `scope="…"` |
+| Token valid, scope missing | `403`, plus `error="insufficient_scope"`, `scope="…"` |
+
+```text
+WWW-Authenticate: Bearer error="invalid_token",
+  error_description="The bearer token is invalid or expired.",
+  resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp",
+  scope="notes.read"
+```
+
+`resource_metadata` is the whole point: it is how a host that has never seen this server discovers which authorization server to talk to. Per RFC 6750 the no-credentials challenge carries no `error` code — "authenticate", not "your token is bad". When `requiredScopes` is configured, every challenge includes it so the host requests the right grant on its first authorization attempt.
+
+The check runs alongside the transport hardening above, before the JSON-RPC body is parsed and long before a tool is resolved, so an unauthenticated caller learns nothing about the graph — not even whether a tool name exists. Method, `Origin`, and cookie rejections still come first: a cookie-bearing request is 403 whether or not it also carries a token.
+
+### Writing `verify`
+
+```ts [src/server/mcp-token.ts]
+import { createRemoteJWKSet, jwtVerify } from "jose"; // your dependency, not pracht's
+import type { McpTokenVerifier } from "@pracht/core";
+
+const jwks = createRemoteJWKSet(new URL("https://auth.example.com/.well-known/jwks.json"));
+
+const verify: McpTokenVerifier = async (token) => {
+  const { payload } = await jwtVerify(token, jwks, {
+    issuer: "https://auth.example.com",
+    // Bind the audience to the resource identifier (RFC 8707). Without this a
+    // token minted for another service on the same issuer would be accepted.
+    audience: "https://app.example.com/mcp",
+  });
+  return {
+    subject: payload.sub!,
+    scopes: typeof payload.scope === "string" ? payload.scope.split(" ") : [],
+    clientId: typeof payload.client_id === "string" ? payload.client_id : null,
+  };
+};
+
+export default verify;
+```
+
+`jose` is a documentation choice, not a framework dependency — it runs on Workers and Vercel Edge, which is why the recipe uses it. Any library, or an introspection call to your provider, works the same way.
+
+The hook **fails closed**. Returning `null`, throwing, or returning anything that is not a principal with a non-empty string `subject` all produce the same `401 invalid_token`. A thrown error's message never reaches the caller — it may carry provider internals — and is logged once instead. A `verify` module that cannot be loaded at all answers 401 for every request rather than serving tools unguarded.
+
+The verifier's second argument contains an independent `request` clone. It may inspect headers, URL, or even read the JSON-RPC body without consuming the body the MCP dispatcher reads afterward.
+
+### The Verified Principal
+
+The principal is bound to the request context as `context.tokenAuth`, alongside [`context.agent`](/docs/agent-trust):
+
+```ts
+async run({ context }) {
+  context.tokenAuth; // { subject, scopes?, clientId?, claims? } — frozen
+}
+```
+
+It is a frozen snapshot on a non-writable, non-configurable framework-owned field of a fresh request-local context overlay. Middleware may derive its own authorization state elsewhere on `context`, but cannot rewrite the identity a later capability or audit check sees. The adapter-supplied base context is left unchanged, so reusing it cannot carry one caller's principal into another request. When an MCP tool composes another capability, a replacement `context.tokenAuth` passed to `invokeCapability()` is shadowed by this verified principal. `tokenAuth` is absent on every other request path; an unauthenticated MCP request never reaches route middleware, API handlers, or capability code. An adapter's `createContext` hook may run before MCP authentication, so treat its request as untrusted and avoid privileged or expensive work based only on reachability.
+
+Precisely what happens to the context object:
+
+| Context | Result |
+| --- | --- |
+| Ordinary object, class instance, function, or array | Fresh overlay; reads and receiver-sensitive methods still reach the supplied context |
+| Same supplied context reused for another request or principal | Fresh overlay with only that request's principal; the supplied context remains unchanged |
+| Already owns a `tokenAuth` field | `500`; the field is framework-reserved |
+| Frozen or sealed ordinary context | Accepted through the request-local overlay |
+| Native built-in requiring internal slots, such as `Map` or `Date` | `500` with guidance to wrap it in an ordinary request context |
+
+The overlay preserves private-field and accessor receivers for class instances, keeps array behavior, and composes with the `context.agent` overlay. Native built-ins fail closed because a proxy cannot preserve their internal-slot identity; wrap one as a property of an ordinary context instead.
+
+`claims` is frozen **shallowly** — its own keys cannot be added, removed, or rewritten, but nested values are whatever your verifier returned and stay mutable. Deep-freezing would reach into objects your code still owns (a `jose` JWT payload, say). The framework never reads `claims`, and the whole principal is request-local, so even a nested mutation cannot carry authorization state into a later request through a reused adapter context.
+
+The two identities compose: `context.agent` says *which agent software* signed the request, `context.tokenAuth` says *on whose behalf* it is acting. One gap worth knowing: the [capability audit event](/docs/agent-trust) carries `agent`, not `tokenAuth`, so an audited MCP dispatch names the calling software but not the account behind it. Capture the principal in named middleware or capability code while request context is available and send it to the same audit sink until the event gains a field for it.
+
+Apps that leave `auth` off pay nothing for it — no metadata route, no header, and no bundle bytes: the auth module sits behind its own dynamic import inside the MCP runtime, which is itself only loaded when `agents.mcp` is configured.
 
 ---
 
@@ -199,8 +351,17 @@ curl -sX POST http://localhost:3000/mcp \
 
 Protocol versions are negotiated on `initialize`, newest first: `2025-11-25`, `2025-06-18`. The `2026-07-28` profile is not advertised until its self-describing request headers and result codec are implemented together.
 
-For a repeatable check instead of a `curl`, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives this endpoint the way a host does: one `initialize` handshake, then a `tools/call` per step. That is the difference between a capability that declares `expose.mcp` and one you have proven an MCP host can call.
+For a repeatable check instead of a `curl`, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives this endpoint the way a host does: one `initialize` handshake, then a `tools/call` per step. For a protected endpoint, add `"mcpHeaders": { "authorization": "Bearer …" }`; the runner sends it on initialization and every later request. Keep real tokens out of committed scenario files. That is the difference between a capability that declares `expose.mcp` and one you have proven an MCP host can call.
 
-Not built yet: OAuth resource-server metadata (authentication lives in your middleware for now), `resources/*` and `prompts/*`, streaming and progress, and MCP Apps UI views.
+Once `agents.mcp.auth` is configured, add the token — and point the host at the endpoint, not at the metadata URL; it discovers that itself:
+
+```bash
+curl -sX POST https://app.example.com/mcp \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Not built yet: an authorization server (pracht is the resource server — issuance and consent stay with your identity provider), `resources/*` and `prompts/*`, streaming and progress, and MCP Apps UI views.
 
 > `pracht mcp` is a different thing entirely: a stdio server that gives *coding* agents access to your app graph while you build. This page is about your deployed app's own tools.

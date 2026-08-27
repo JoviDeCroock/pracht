@@ -39,6 +39,13 @@ export interface PrachtContextExtensions {
    * not configured.
    */
   readonly agent?: PrachtAgentIdentity | null;
+  /**
+   * Principal returned by the `agents.mcp.auth.verify` hook for an OAuth
+   * bearer token presented to the remote MCP endpoint. Absent on every other
+   * request path and when `agents.mcp.auth` is not configured — an
+   * unauthenticated MCP request never reaches application code.
+   */
+  readonly tokenAuth?: McpTokenPrincipal | null;
 }
 
 export type RegisteredContext = (Register extends { context: infer T } ? T : unknown) &
@@ -794,6 +801,99 @@ export interface McpProjectionConfig {
    * exactly-once commits and fails closed without one.
    */
   destructive?: boolean;
+  /**
+   * Turn the endpoint into an OAuth 2.0 protected resource. See
+   * {@link McpAuthConfig}. Omit it and nothing changes: no metadata route, no
+   * `WWW-Authenticate` header, and authentication stays your middleware's job.
+   */
+  auth?: McpAuthConfig;
+}
+
+/**
+ * The application-authenticated caller behind an OAuth bearer token, as
+ * returned by {@link McpTokenVerifier}. Surfaced as `context.tokenAuth`.
+ *
+ * Only `subject` is required; it must be a stable identifier (user id, tenant
+ * id, client id) and never a caller-controlled display value.
+ */
+export interface McpTokenPrincipal {
+  /** Stable subject identifier — the OAuth `sub` claim, typically. */
+  subject: string;
+  /** Scopes the token actually carries; used for the `insufficient_scope` gate. */
+  scopes?: readonly string[];
+  /** OAuth client the token was issued to, when the app can determine it. */
+  clientId?: string | null;
+  /**
+   * Anything else the app wants downstream. Frozen **shallowly**: own keys are
+   * locked, nested values are whatever the verifier returned. The principal is
+   * bound to a request-local context overlay and never written back to an
+   * adapter-supplied context object.
+   */
+  claims?: Readonly<Record<string, unknown>>;
+}
+
+export interface McpTokenVerifyArgs {
+  /**
+   * An independent clone of the MCP transport request, for issuer/audience or
+   * per-tenant checks. Reading its body does not consume the JSON-RPC body the
+   * framework dispatches afterward.
+   */
+  request: Request;
+}
+
+/**
+ * Verify one bearer token. Return the principal it authenticates, or `null` to
+ * reject. Pracht deliberately does not own JWT/JWKS validation: the hook is
+ * where your identity provider's library lives.
+ *
+ * Fails closed — a thrown error is treated exactly like `null`.
+ */
+export type McpTokenVerifier = (
+  token: string,
+  args: McpTokenVerifyArgs,
+) => McpTokenPrincipal | null | Promise<McpTokenPrincipal | null>;
+
+/** Module whose default export is a {@link McpTokenVerifier}. */
+export interface McpTokenVerifierModule {
+  default: McpTokenVerifier;
+}
+
+/**
+ * OAuth 2.0 protected-resource configuration for the remote MCP endpoint.
+ *
+ * Serves `/.well-known/oauth-protected-resource` per
+ * [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) and answers unauthenticated
+ * `/mcp` requests with the `WWW-Authenticate` challenge the MCP authorization
+ * spec (2025-06-18) tells hosts to follow. Pracht is the resource server only —
+ * it never becomes an authorization server.
+ */
+export interface McpAuthConfig {
+  /**
+   * Absolute URL identifying this MCP resource — the audience (RFC 8707) tokens
+   * must be bound to, and the identifier in the metadata document. No query or
+   * fragment; its path must exactly match the served MCP endpoint's public path,
+   * including any deploy base. Requests for any other URL are redirected here
+   * before authentication.
+   */
+  resource: string;
+  /** Absolute issuer URLs of the authorization servers that may mint tokens. At least one. */
+  authorizationServers: readonly string[];
+  /** OAuth scope tokens advertised in the metadata document so hosts know what to request. */
+  scopesSupported?: readonly string[];
+  /**
+   * OAuth scope tokens every `/mcp` call must carry. A verified token missing
+   * any of them gets `403 insufficient_scope` instead of running a tool.
+   */
+  requiredScopes?: readonly string[];
+  /** Human-facing documentation URL, advertised as `resource_documentation`. */
+  resourceDocumentation?: string;
+  /**
+   * Server-only module whose default export is a {@link McpTokenVerifier}.
+   * Registered like middleware and capabilities — a module reference, not an
+   * inline function, because the manifest is bundled into the client and a
+   * token verifier (and its JWKS client) must never be.
+   */
+  verify: ModuleRef;
 }
 
 export interface PrachtAgentsConfig {

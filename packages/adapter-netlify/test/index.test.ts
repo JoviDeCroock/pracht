@@ -9,6 +9,7 @@ import {
   resolveApiRoutes,
   route,
   timeRevalidate,
+  type McpAuthConfig,
   webhookRevalidate,
 } from "@pracht/core";
 
@@ -56,6 +57,7 @@ describe("createNetlifyServerEntryModule", () => {
     expect(source).toContain("finalizePrachtBuild");
     expect(source).toContain("finalizeNetlifyBuild(root,");
     expect(source).toContain("buildBase");
+    expect(source).toContain("resolvedApp.agents?.mcp?.auth");
   });
 });
 
@@ -347,6 +349,45 @@ describe("netlifyAdapter", () => {
     expect(() => netlifyAdapter({ excludedPath: ["images/*"] })).toThrow(/excludedPath/);
     expect(() => netlifyAdapter({ excludedPath: ["/images/*"] })).not.toThrow();
   });
+
+  it("allows OAuth metadata exclusions when the app does not enable MCP auth", () => {
+    expect(() => netlifyAdapter({ excludedPath: ["/.well-known/*"] })).not.toThrow();
+  });
+
+  it("rejects excludedPath patterns that shadow enabled OAuth metadata", async () => {
+    const root = await tempDir();
+    const mcpAuth = {
+      resource: "https://example.com/mcp",
+      authorizationServers: ["https://auth.example"],
+      verify: "./server/mcp-token.ts",
+    } satisfies McpAuthConfig;
+    for (const pattern of [
+      "/*",
+      "/mcp",
+      "/:endpoint",
+      "/.well-known/*",
+      "/.well-known/oauth-*",
+      "/.well-known/:document",
+      "/:directory/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+    ]) {
+      await expect(
+        finalizeNetlifyBuild(root, { excludedPath: [pattern] }, "/", mcpAuth),
+      ).rejects.toThrow(/OAuth-protected MCP endpoint or protected-resource metadata handler/);
+    }
+
+    await expect(
+      finalizeNetlifyBuild(root, { excludedPath: ["/*.css"] }, "/", mcpAuth),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      finalizeNetlifyBuild(root, { excludedPath: ["/app/*"] }, "/", {
+        ...mcpAuth,
+        resource: "https://example.com/app/mcp",
+      }),
+    ).rejects.toThrow(/OAuth-protected MCP endpoint/);
+  });
 });
 
 describe("createNetlifyHandler", () => {
@@ -393,6 +434,35 @@ describe("createNetlifyHandler", () => {
     await writeFile(join(dir, "robots.txt"), "User-agent: *");
     return dir;
   }
+
+  it("serves OAuth metadata before a colliding static file", async () => {
+    const staticDir = await createStaticBuild();
+    const metadataDir = join(staticDir, ".well-known/oauth-protected-resource");
+    await mkdir(metadataDir, { recursive: true });
+    await writeFile(join(metadataDir, "mcp"), "stale metadata");
+    const handler = createNetlifyHandler({
+      app: defineApp({
+        agents: {
+          mcp: {
+            auth: {
+              resource: "https://example.com/mcp",
+              authorizationServers: ["https://auth.example"],
+              verify: "./server/mcp-token.ts",
+            },
+          },
+        },
+        routes: [],
+      }),
+      staticDir,
+    });
+
+    const response = await handler(
+      new Request("https://example.com/.well-known/oauth-protected-resource/mcp"),
+      {},
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ resource: "https://example.com/mcp" });
+  });
 
   it("serves static and regenerated ISG routes beneath the deploy base", async () => {
     vi.stubEnv("BASE_URL", "/app/");

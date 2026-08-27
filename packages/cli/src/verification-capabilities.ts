@@ -1,5 +1,10 @@
-import { dirname, resolve } from "node:path";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  dirname,
+  isAbsolute as isAbsolutePath,
+  relative as relativePath,
+  resolve,
+} from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 
 import {
   collectInvalidSchemaKeywordValues,
@@ -16,9 +21,11 @@ import {
   extractCapabilityRegistrations,
   extractDefineAppObjectBody,
   extractDefineCapabilityArgs,
+  findTopLevelObjectProperty,
   maskCommentsAndStrings,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
+import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
 
 import { extractRegistryEntries } from "./manifest.js";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
@@ -26,6 +33,15 @@ import { createCheck, type Check } from "./verification-helpers.js";
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
 const AGENT_POLICIES = new Set(["observe", "require"]);
+const MCP_CONFIG_KEYS = new Set(["path", "serverInfo", "instructions", "destructive", "auth"]);
+const MCP_AUTH_CONFIG_KEYS = new Set([
+  "resource",
+  "authorizationServers",
+  "scopesSupported",
+  "requiredScopes",
+  "resourceDocumentation",
+  "verify",
+]);
 
 /**
  * Static verification of registered capabilities (manifest mode only). These
@@ -48,6 +64,9 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     name,
     path: file,
   }));
+  // Runs before the early return: an app can protect its MCP endpoint while
+  // its capabilities live behind a manifest shape this analyzer cannot read.
+  collectMcpAuthChecks(project, manifestPath, manifestSource, checks);
   if (entries.length === 0) return;
   const registeredMiddleware = new Set(
     extractRegistryEntries(manifestSource, "middleware").map((entry) => entry.name),
@@ -272,6 +291,502 @@ function collectMcpProjectionChecks(
       ),
     );
   }
+}
+
+/**
+ * Static checks for `agents.mcp.auth` — the OAuth resource-server config.
+ *
+ * `resolveApp()` validates the same config at build time and throws, but that
+ * requires running the app. These checks read the manifest source, so `pracht
+ * verify` reports a broken `/mcp` auth setup without a Vite server. Everything
+ * this analyzer cannot read stays silent rather than guessing.
+ */
+function collectMcpAuthChecks(
+  project: ProjectConfig,
+  manifestPath: string,
+  manifestSource: string,
+  checks: Check[],
+): void {
+  const agentsBody = findTopLevelObjectProperty(manifestSource, "agents");
+  if (!agentsBody) return;
+
+  // `auth` as a direct key of `agents` reads as protected and is read by
+  // nothing — the endpoint stays wide open. Checked via a top-level property
+  // scan rather than `findTopLevelObjectProperty`, which searches the whole
+  // body and would also find the legitimate `mcp: { auth: … }` nested inside.
+  if (scanTopLevelProperties(agentsBody).has("auth")) {
+    checks.push(
+      createCheck(
+        "error",
+        "defineApp({ agents.auth }) is not a thing. OAuth resource-server config belongs to the " +
+          "remote MCP endpoint: move it to `agents: { mcp: { auth: { … } } }`, which is also " +
+          "what enables the endpoint in the first place.",
+      ),
+    );
+  }
+
+  const mcpBody = findTopLevelObjectProperty(agentsBody, "mcp");
+  if (!mcpBody) return;
+  const unknownMcpKeys = collectUnknownKeys(mcpBody, MCP_CONFIG_KEYS);
+  for (const key of unknownMcpKeys) {
+    checks.push(
+      createCheck(
+        "error",
+        `Unknown agents.mcp option ${JSON.stringify(key)}. Allowed options: ${[...MCP_CONFIG_KEYS].join(", ")}.`,
+      ),
+    );
+  }
+  const authBody = findTopLevelObjectProperty(mcpBody, "auth");
+  if (!authBody) return;
+
+  // A spread can carry `verify` (or `resource`) in from a shared constant. This
+  // analyzer cannot follow it, and a verify *error* on a config that works at
+  // runtime is worse than no check at all — so anything unprovable stays quiet.
+  const authIsPartlyOpaque = /\.\.\./.test(maskCommentsAndStrings(authBody));
+  let authIsProvablyValid = !authIsPartlyOpaque && unknownMcpKeys.length === 0;
+
+  const properties = scanTopLevelProperties(authBody);
+  for (const key of collectUnknownKeys(authBody, MCP_AUTH_CONFIG_KEYS)) {
+    authIsProvablyValid = false;
+    checks.push(
+      createCheck(
+        "error",
+        `Unknown agents.mcp.auth option ${JSON.stringify(key)}. Allowed options: ${[...MCP_AUTH_CONFIG_KEYS].join(", ")}.`,
+      ),
+    );
+  }
+  const resourceExpression = properties.get("resource");
+  const resource = evaluateLiteral(resourceExpression ?? "");
+  if (resourceExpression === undefined && !authIsPartlyOpaque) {
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.auth is configured without a `resource` URL. It must identify the remote MCP endpoint's absolute deployed URL.",
+      ),
+    );
+    authIsProvablyValid = false;
+  } else if (resourceExpression !== undefined && typeof resource !== "string") {
+    authIsProvablyValid = false;
+  }
+  if (typeof resource === "string") {
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(resource);
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} is not an absolute URL. It is the ` +
+            "token audience and the base for the metadata URL hosts discover, so it must be the " +
+            "endpoint's absolute https URL.",
+        ),
+      );
+    } else if (!oauthUrlUsesSafeTransport(parsed)) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must use https (http is allowed for loopback development only).`,
+        ),
+      );
+    } else if (parsed.search || parsed.hash) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a query string or fragment.`,
+        ),
+      );
+    } else if (!oauthUrlHasCanonicalSpelling(resource, parsed, true)) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must use its canonical URL spelling ${JSON.stringify(parsed.href)} because OAuth identifiers are matched exactly.`,
+        ),
+      );
+    } else if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a trailing slash. ` +
+            "OAuth resource identifiers are matched exactly; use the MCP endpoint's canonical path.",
+        ),
+      );
+    } else {
+      const mcpProperties = scanTopLevelProperties(mcpBody);
+      const configuredPath = evaluateLiteral(mcpProperties.get("path") ?? "");
+      if (mcpProperties.has("path") && typeof configuredPath !== "string") {
+        authIsProvablyValid = false;
+      } else if (typeof configuredPath === "string" && !isValidCapabilityHttpPath(configuredPath)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            'agents.mcp.path must be an exact same-origin pathname starting with "/".',
+          ),
+        );
+      } else {
+        const endpoint =
+          ((configuredPath as string | undefined) ?? "/mcp").replace(/\/$/, "") || "/";
+        if (endpoint === OAUTH_PROTECTED_RESOURCE_WELL_KNOWN) {
+          authIsProvablyValid = false;
+          checks.push(
+            createCheck(
+              "error",
+              `agents.mcp.path must not use the reserved OAuth protected-resource metadata path ${JSON.stringify(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN)}.`,
+            ),
+          );
+        } else if (endpoint !== "/" && parsed.pathname !== endpoint) {
+          authIsProvablyValid = false;
+          if (!parsed.pathname.endsWith(endpoint)) {
+            checks.push(
+              createCheck(
+                "error",
+                `agents.mcp.auth.resource path ${JSON.stringify(parsed.pathname)} does not address the configured MCP endpoint ${JSON.stringify(endpoint)}.`,
+              ),
+            );
+          }
+        }
+      }
+    }
+  }
+
+  const authorizationServersExpression = properties.get("authorizationServers");
+  const authorizationServers = evaluateLiteral(authorizationServersExpression ?? "");
+  if (authorizationServersExpression === undefined) {
+    authIsProvablyValid = false;
+    if (!authIsPartlyOpaque) {
+      checks.push(
+        createCheck(
+          "error",
+          "agents.mcp.auth.authorizationServers must list at least one absolute authorization server issuer URL.",
+        ),
+      );
+    }
+  } else if (authorizationServersExpression !== undefined && authorizationServers === undefined) {
+    authIsProvablyValid = false;
+  } else if (!Array.isArray(authorizationServers) || authorizationServers.length === 0) {
+    authIsProvablyValid = false;
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.auth.authorizationServers must list at least one absolute authorization server issuer URL.",
+      ),
+    );
+  } else {
+    for (const issuer of authorizationServers) {
+      let parsed: URL | null = null;
+      if (typeof issuer === "string") {
+        try {
+          parsed = new URL(issuer);
+        } catch {
+          parsed = null;
+        }
+      }
+      if (!parsed) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers contains a non-absolute issuer URL: ${JSON.stringify(issuer)}.`,
+          ),
+        );
+      } else if (!oauthUrlUsesSafeTransport(parsed)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers issuer ${JSON.stringify(issuer)} must use https (http is allowed for loopback development only).`,
+          ),
+        );
+      } else if (parsed.search || parsed.hash) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers issuer ${JSON.stringify(issuer)} must not carry a query string or fragment.`,
+          ),
+        );
+      } else if (!oauthUrlHasCanonicalSpelling(issuer, parsed, true)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers issuer ${JSON.stringify(issuer)} must use its canonical URL spelling ${JSON.stringify(parsed.href)} because OAuth identifiers are matched exactly.`,
+          ),
+        );
+      }
+    }
+  }
+
+  const resourceDocumentationExpression = properties.get("resourceDocumentation");
+  if (resourceDocumentationExpression !== undefined) {
+    const resourceDocumentation = evaluateLiteral(resourceDocumentationExpression);
+    if (typeof resourceDocumentation !== "string") {
+      authIsProvablyValid = false;
+    } else {
+      let parsed: URL | null = null;
+      try {
+        parsed = new URL(resourceDocumentation);
+      } catch {
+        parsed = null;
+      }
+      if (!parsed) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.resourceDocumentation ${JSON.stringify(resourceDocumentation)} is not an absolute URL.`,
+          ),
+        );
+      } else if (!oauthUrlUsesSafeTransport(parsed)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.resourceDocumentation ${JSON.stringify(resourceDocumentation)} must use https (http is allowed for loopback development only).`,
+          ),
+        );
+      }
+    }
+  }
+
+  for (const field of ["scopesSupported", "requiredScopes"] as const) {
+    const expression = properties.get(field);
+    if (expression === undefined) continue;
+    const scopes = evaluateLiteral(expression);
+    if (scopes === undefined) {
+      authIsProvablyValid = false;
+    } else if (!Array.isArray(scopes) || scopes.some((scope) => !isValidOAuthScopeToken(scope))) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.${field} must be an array of OAuth scope tokens using printable ASCII except quotes and backslashes.`,
+        ),
+      );
+    }
+  }
+
+  const verifyExpression = findProvableTopLevelProperty(authBody, "verify");
+  if (verifyExpression === undefined) {
+    if (!authIsPartlyOpaque) {
+      checks.push(
+        createCheck(
+          "error",
+          "agents.mcp.auth is configured without a `verify` module. The endpoint would advertise " +
+            "authentication it never performs — add " +
+            '`verify: () => import("./server/mcp-token.ts")` whose default export verifies a bearer token.',
+        ),
+      );
+    }
+    return;
+  }
+
+  const verifyPath = extractMcpVerifyModulePath(verifyExpression);
+  if (!verifyPath) {
+    checks.push(
+      createCheck(
+        "error",
+        "agents.mcp.auth.verify must be a module reference such as " +
+          '`verify: () => import("./server/mcp-token.ts")`.',
+      ),
+    );
+    return;
+  }
+
+  const filePath = verifyPath.startsWith("/")
+    ? resolveProjectPath(project.root, verifyPath)
+    : resolve(dirname(manifestPath), verifyPath);
+  if (!existsSync(filePath)) {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify references missing file ${JSON.stringify(verifyPath)}.`,
+      ),
+    );
+    return;
+  }
+  if (!statSync(filePath).isFile()) {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify references ${JSON.stringify(verifyPath)}, which is not a file.`,
+      ),
+    );
+    return;
+  }
+
+  // The runtime resolves the verifier from the registry, and the Vite plugin
+  // only globs three directories into it. A module that exists but sits outside
+  // all three is never registered, so every /mcp request answers 401 forever —
+  // with a config that looks correct and a file that is right there.
+  const registryDirs = [project.serverDir, project.middlewareDir, project.capabilitiesDir];
+  const inRegistry = registryDirs.some((dir) => isInsideDirectory(project.root, dir, filePath));
+  if (!inRegistry) {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify module ${JSON.stringify(verifyPath)} is outside the directories ` +
+          `the build registers (${registryDirs.join(", ")}), so the runtime can never load it and ` +
+          `every /mcp request would answer 401. Move it to ${project.serverDir}/.`,
+      ),
+    );
+    return;
+  }
+
+  const verifierExport = inspectDefaultFunctionExport(readFileSync(filePath, "utf-8"));
+  if (verifierExport === "invalid") {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify module ${JSON.stringify(verifyPath)} must default-export a token verifier function.`,
+      ),
+    );
+    return;
+  }
+  if (verifierExport === "unknown") {
+    authIsProvablyValid = false;
+    checks.push(
+      createCheck(
+        "warning",
+        `Could not prove that agents.mcp.auth.verify module ${JSON.stringify(verifyPath)} default-exports a function. ` +
+          "Use a direct `export default function` or `export default (...) => ...` declaration so verification can confirm the endpoint will load it.",
+      ),
+    );
+  }
+
+  if (authIsProvablyValid) {
+    checks.push(
+      createCheck("ok", "Remote MCP endpoint is an OAuth 2.0 protected resource (RFC 9728)."),
+    );
+  }
+}
+
+function collectUnknownKeys(body: string, allowed: ReadonlySet<string>): string[] {
+  return [...scanTopLevelProperties(body).keys()].filter((key) => !allowed.has(key));
+}
+
+/** Prove the runtime's `module.default` callable contract without executing user code. */
+function inspectDefaultFunctionExport(source: string): "valid" | "invalid" | "unknown" {
+  const masked = maskCommentsAndStrings(source);
+  if (/\bexport\s+default\s+(?:async\s+)?function\b/.test(masked)) return "valid";
+  if (/\bexport\s+default\s+(?:async\s+)?(?:\([^;{}]*\)|[A-Za-z_$][\w$]*)\s*=>/.test(masked)) {
+    return "valid";
+  }
+
+  const identifier = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\s*;?/.exec(masked)?.[1];
+  if (identifier) {
+    const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b(?:async\\s+)?function\\s+${escaped}\\b`).test(masked)) return "valid";
+    if (
+      new RegExp(
+        `\\b(?:const|let|var)\\s+${escaped}(?:\\s*:[^=;]+)?\\s*=\\s*(?:async\\s+)?(?:function\\b|(?:\\([^;{}]*\\)|[A-Za-z_$][\\w$]*)\\s*=>)`,
+      ).test(masked)
+    ) {
+      return "valid";
+    }
+    const initializer = new RegExp(
+      `\\b(?:const|let|var)\\s+${escaped}(?:\\s*:[^=;]+)?\\s*=\\s*([^;]+)`,
+    ).exec(masked)?.[1];
+    if (initializer !== undefined && isProvablyNonFunctionInitializer(initializer)) {
+      return "invalid";
+    }
+    return "unknown";
+  }
+
+  if (/\bexport\s*\{[^}]*\bdefault\b[^}]*\}/.test(masked)) return "unknown";
+  return "invalid";
+}
+
+function isProvablyNonFunctionInitializer(initializer: string): boolean {
+  const value = initializer.trim();
+  return (
+    value.startsWith("{") ||
+    value.startsWith("[") ||
+    /^(?:null|true|false|[-+]?\d|["'`])/.test(value)
+  );
+}
+
+/** A statically provable ModuleRef shape that the manifest transform supports. */
+function extractMcpVerifyModulePath(expression: string): string | null {
+  const literal = evaluateLiteral(expression);
+  if (typeof literal === "string" && literal !== "") return literal;
+
+  const importRef = /^\s*\(\)\s*=>\s*import\(\s*(["'])([^"']+)\1\s*\)\s*$/.exec(expression);
+  return importRef?.[2] ?? null;
+}
+
+/**
+ * Read an explicit top-level property even when an earlier spread truncated the
+ * shared scanner. A later spread resets the proof because it may override the
+ * value; a later explicit property makes the value knowable again.
+ */
+function findProvableTopLevelProperty(objectBody: string, key: string): string | undefined {
+  const searchable = maskCommentsAndStrings(objectBody);
+  const entries: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index <= searchable.length; index += 1) {
+    const character = searchable[index];
+    if (character === "{" || character === "[" || character === "(") depth += 1;
+    else if (character === "}" || character === "]" || character === ")") depth -= 1;
+    if ((character === "," && depth === 0) || index === searchable.length) {
+      entries.push(objectBody.slice(start, index));
+      start = index + 1;
+    }
+  }
+
+  let expression: string | undefined;
+  for (const entry of entries) {
+    if (maskCommentsAndStrings(entry).trimStart().startsWith("...")) {
+      expression = undefined;
+      continue;
+    }
+    const candidate = scanTopLevelProperties(entry).get(key);
+    if (candidate !== undefined) expression = candidate;
+  }
+  return expression;
+}
+
+function oauthUrlUsesSafeTransport(url: URL): boolean {
+  return url.protocol === "https:" || (url.protocol === "http:" && isLoopbackHost(url.hostname));
+}
+
+function oauthUrlHasCanonicalSpelling(
+  value: string,
+  url: URL,
+  allowRootWithoutSlash: boolean,
+): boolean {
+  return (
+    url.href === value ||
+    (allowRootWithoutSlash &&
+      url.pathname === "/" &&
+      url.search === "" &&
+      url.hash === "" &&
+      url.href === `${value}/`)
+  );
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "[::1]") {
+    return true;
+  }
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  return !!ipv4 && Number(ipv4[1]) === 127 && ipv4.slice(1).every((part) => Number(part) <= 255);
+}
+
+/** Whether an absolute file path sits inside a project-relative directory. */
+function isInsideDirectory(root: string, dir: string, filePath: string): boolean {
+  const absoluteDir = resolveProjectPath(root, dir);
+  const relative = relativePath(absoluteDir, filePath);
+  return relative !== "" && !relative.startsWith("..") && !isAbsolutePath(relative);
 }
 
 /**

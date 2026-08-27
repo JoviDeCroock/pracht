@@ -2,10 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import {
+  extractDefineAppObjectBody,
   extractCapabilityRegistrations,
   maskCommentsAndStrings,
+  scanTopLevelProperties,
 } from "@pracht/capabilities/static";
-import { evaluateConstraints } from "@pracht/core";
+import { evaluateConstraints, matchRoutePath } from "@pracht/core";
 import type { AppGraphRoute } from "@pracht/core";
 
 import {
@@ -32,6 +34,7 @@ const HEAD_EXPORT_RE =
 export async function collectGraphChecks(project: ProjectConfig, checks: Check[]): Promise<void> {
   const wantsConstraints = manifestDeclaresConstraints(project);
   const wantsCapabilityLoad = manifestDeclaresCapabilities(project);
+  const wantsAgentValidation = manifestDeclaresAgents(project);
   const wantsApiLoad = projectDeclaresApiRoutes(project);
   const snapshotExists = existsSync(resolve(project.root, GRAPH_SNAPSHOT_PATH));
   // Raw config inspection is only a gate for the comparatively expensive Vite
@@ -41,6 +44,7 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   if (
     !wantsConstraints &&
     !wantsCapabilityLoad &&
+    !wantsAgentValidation &&
     !wantsApiLoad &&
     !snapshotExists &&
     !mightUseStaticExport
@@ -72,6 +76,7 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   if (
     !wantsConstraints &&
     !wantsCapabilityLoad &&
+    !wantsAgentValidation &&
     !wantsApiLoad &&
     !snapshotExists &&
     !staticTarget
@@ -95,9 +100,32 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
       ),
     );
   }
+  collectMcpRouteCollisionChecks(live, checks);
   collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
   collectConstraintChecks(project, live, checks);
   collectSnapshotChecks(project, live, checks, snapshotExists);
+}
+
+/** Explicit API dispatch must not shadow the remote MCP security boundary. */
+export function collectMcpRouteCollisionChecks(live: GraphSnapshot, checks: Check[]): void {
+  if (live.mcpEndpoint === null) return;
+  const endpoint = normalizeEndpointPath(live.mcpEndpoint);
+  const collisions = live.api.filter(
+    (route) => matchRoutePath(normalizeEndpointPath(route.path), endpoint) !== null,
+  );
+  for (const route of collisions) {
+    checks.push(
+      createCheck(
+        "error",
+        `API route ${JSON.stringify(route.path)} collides with agents.mcp.path. Move one of them; ` +
+          "an API route must not shadow the remote MCP endpoint's transport and authentication gates.",
+      ),
+    );
+  }
+}
+
+function normalizeEndpointPath(path: string): string {
+  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 function projectMightUseStaticExport(project: ProjectConfig): boolean {
@@ -272,6 +300,18 @@ function manifestDeclaresCapabilities(project: ProjectConfig): boolean {
   if (!existsSync(manifestPath)) return false;
   const source = readFileSync(manifestPath, "utf-8");
   return extractCapabilityRegistrations(source).length > 0 || /\bcapabilities\s*:/.test(source);
+}
+
+function manifestDeclaresAgents(project: ProjectConfig): boolean {
+  if (project.mode !== "manifest") return false;
+  const manifestPath = resolveProjectPath(project.root, project.appFile);
+  if (!existsSync(manifestPath)) return false;
+  const appBody = extractDefineAppObjectBody(readFileSync(manifestPath, "utf-8"));
+  return (
+    appBody !== null &&
+    (scanTopLevelProperties(appBody).has("agents") ||
+      /\bagents\b/.test(maskCommentsAndStrings(appBody)))
+  );
 }
 
 /**

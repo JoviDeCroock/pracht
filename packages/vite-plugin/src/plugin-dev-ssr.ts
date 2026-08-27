@@ -725,6 +725,7 @@ async function serveDevtools(
   const serverModule = (await server.ssrLoadModule(PRACHT_SERVER_MODULE_ID)) as {
     registry?: {
       capabilityModules?: Record<string, () => Promise<unknown>>;
+      dataModules?: Record<string, () => Promise<unknown>>;
       middlewareModules?: Record<string, () => Promise<unknown>>;
     };
   };
@@ -746,6 +747,12 @@ async function serveDevtools(
         file,
       );
       return viaRegistry ?? server.ssrLoadModule(file);
+    },
+    verifyMcpTokenVerifier: async () => {
+      const auth = options.app.agents?.mcp?.auth;
+      if (!auth) return;
+      const frameworkServer = await server.ssrLoadModule("@pracht/core/server");
+      await frameworkServer.loadMcpTokenVerifier(auth, serverModule.registry ?? {});
     },
     readSource: (file: string) => readFileSync(resolve(server.config.root, `.${file}`), "utf-8"),
   });

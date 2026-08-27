@@ -13,9 +13,12 @@ import type {
   AppGraphApiRoute,
   AppGraphCapability,
   AppGraphRoute,
+  McpAuthConfig,
+  ModuleRegistry,
   ResolvedRoute,
   RouteConstraint,
 } from "@pracht/core";
+import { loadMcpTokenVerifier } from "@pracht/core/server";
 
 import { capabilityModuleLoader, createSourceReader } from "./app-graph.js";
 import { withAppServer } from "./app-server.js";
@@ -30,7 +33,15 @@ import { formatBytes } from "./bundle-report.js";
  */
 
 export const GRAPH_SNAPSHOT_PATH = ".pracht/app-graph.json";
-export const GRAPH_SNAPSHOT_VERSION = 1;
+export const GRAPH_SNAPSHOT_VERSION = 2;
+
+export interface McpAuthSnapshot {
+  authorizationServers: string[];
+  requiredScopes: string[];
+  resource: string;
+  scopesSupported: string[];
+  verify: string;
+}
 
 export interface GraphSnapshot {
   prachtGraphVersion: number;
@@ -48,6 +59,10 @@ export interface GraphSnapshot {
   mcpEndpoint: string | null;
   /** Present only when `agents.mcp.destructive` serves destructive MCP tools. */
   mcpDestructive?: true;
+  /** Whether the served remote MCP endpoint requires an OAuth bearer token. */
+  mcpAuthenticated: boolean;
+  /** Security-relevant OAuth policy; `null` when auth is disabled or from a legacy snapshot. */
+  mcpAuth?: McpAuthSnapshot | null;
   constraints: RouteConstraint[];
 }
 
@@ -62,6 +77,7 @@ export interface LiveGraphMetadata {
 export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphMetadata> {
   return withAppServer(root, async ({ project, server, serverModule }) => {
     const resolvedRoutes = serverModule.resolvedApp.routes as ResolvedRoute[];
+    await assertMcpTokenVerifierModule(serverModule);
     const routes = serializeAppRoutes(resolvedRoutes);
     const api = await serializeApiRoutes(
       serverModule.apiRoutes,
@@ -91,6 +107,8 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
         ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
           ? { mcpDestructive: true as const }
           : {}),
+        mcpAuthenticated: !!serverModule.resolvedApp.agents?.mcp?.auth,
+        mcpAuth: serializeMcpAuth(serverModule.resolvedApp.agents?.mcp?.auth),
         constraints: serverModule.resolvedApp.constraints ?? [],
       }),
       loaderRoutePaths: new Set(
@@ -101,6 +119,12 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
       staticTarget: serverModule.staticTarget === true,
     };
   });
+}
+
+async function assertMcpTokenVerifierModule(serverModule: Record<string, any>): Promise<void> {
+  const auth = serverModule.resolvedApp.agents?.mcp?.auth as McpAuthConfig | undefined;
+  if (!auth) return;
+  await loadMcpTokenVerifier(auth, serverModule.registry as ModuleRegistry);
 }
 
 export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
@@ -140,9 +164,22 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
     ),
     mcpEndpoint: snapshot.mcpEndpoint ?? null,
     ...(snapshot.mcpDestructive === true ? { mcpDestructive: true } : {}),
+    mcpAuthenticated: snapshot.mcpAuthenticated ?? false,
+    mcpAuth: snapshot.mcpAuth ?? null,
     constraints: snapshot.constraints ?? [],
   };
   return JSON.parse(JSON.stringify(normalized));
+}
+
+export function serializeMcpAuth(auth: McpAuthConfig | undefined): McpAuthSnapshot | null {
+  if (!auth || typeof auth.verify !== "string") return null;
+  return {
+    authorizationServers: [...auth.authorizationServers],
+    requiredScopes: [...(auth.requiredScopes ?? [])],
+    resource: auth.resource,
+    scopesSupported: [...(auth.scopesSupported ?? [])],
+    verify: auth.verify,
+  };
 }
 
 export function serializeGraphSnapshot(snapshot: GraphSnapshot): string {
@@ -239,11 +276,38 @@ function parseSnapshot(contents: string): GraphSnapshot | null {
       // Omit the false/default form so snapshots from before the destructive
       // MCP opt-in remain byte-identical until an app actually enables it.
       ...(parsed.mcpDestructive === true ? { mcpDestructive: true } : {}),
+      // Older snapshots predate OAuth protection and therefore describe an
+      // endpoint whose authentication remained application middleware's job.
+      mcpAuthenticated: parsed.mcpAuthenticated === true,
+      mcpAuth: parseMcpAuthSnapshot(parsed.mcpAuth),
       constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
     };
   } catch {
     return null;
   }
+}
+
+function parseMcpAuthSnapshot(value: unknown): McpAuthSnapshot | null {
+  const record = asRecord(value);
+  if (
+    typeof record.resource !== "string" ||
+    typeof record.verify !== "string" ||
+    !Array.isArray(record.authorizationServers) ||
+    !record.authorizationServers.every((entry) => typeof entry === "string") ||
+    !Array.isArray(record.requiredScopes) ||
+    !record.requiredScopes.every((entry) => typeof entry === "string") ||
+    !Array.isArray(record.scopesSupported) ||
+    !record.scopesSupported.every((entry) => typeof entry === "string")
+  ) {
+    return null;
+  }
+  return {
+    authorizationServers: record.authorizationServers as string[],
+    requiredScopes: record.requiredScopes as string[],
+    resource: record.resource,
+    scopesSupported: record.scopesSupported as string[],
+    verify: record.verify,
+  };
 }
 
 export interface FieldChange {
@@ -292,6 +356,8 @@ export interface GraphDiff {
   changedRoutes: ChangedEntry[];
   identical: boolean;
   mcpDestructiveChange: FieldChange | null;
+  mcpAuthenticationChange: FieldChange | null;
+  mcpAuthChanges: FieldChange[];
   mcpEndpointChange: FieldChange | null;
   removedApi: AppGraphApiRoute[];
   removedConstraints: RouteConstraint[];
@@ -347,6 +413,33 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
           from: baseMcpDestructive,
           to: headMcpDestructive,
         };
+  const baseMcpAuthenticated = base.mcpAuthenticated ?? false;
+  const headMcpAuthenticated = head.mcpAuthenticated ?? false;
+  // Disabling the endpoint already describes the complete contraction; its
+  // now-irrelevant auth flag does not need a second line in the plan.
+  const mcpAuthenticationChange =
+    headMcpEndpoint !== null && baseMcpAuthenticated !== headMcpAuthenticated
+      ? {
+          field: "mcpAuthenticated",
+          from: baseMcpAuthenticated,
+          to: headMcpAuthenticated,
+        }
+      : null;
+  const mcpAuthChanges =
+    baseMcpAuthenticated &&
+    headMcpAuthenticated &&
+    base.mcpAuth !== null &&
+    base.mcpAuth !== undefined &&
+    head.mcpAuth !== null &&
+    head.mcpAuth !== undefined
+      ? collectFieldChanges(base.mcpAuth, head.mcpAuth, [
+          "resource",
+          "authorizationServers",
+          "requiredScopes",
+          "scopesSupported",
+          "verify",
+        ] as const)
+      : [];
 
   const identical =
     routeDiff.added.length === 0 &&
@@ -359,6 +452,8 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     removedConstraints.length === 0 &&
     mcpEndpointChange === null &&
     mcpDestructiveChange === null &&
+    mcpAuthenticationChange === null &&
+    mcpAuthChanges.length === 0 &&
     capabilityChanges.length === 0;
 
   return {
@@ -370,6 +465,8 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     changedRoutes: routeDiff.changed,
     identical,
     mcpDestructiveChange,
+    mcpAuthenticationChange,
+    mcpAuthChanges,
     mcpEndpointChange,
     removedApi: apiDiff.removed,
     removedConstraints,
@@ -377,7 +474,9 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     widensAgentSurface:
       capabilityChanges.some((change) => change.severity === "warn") ||
       (baseMcpEndpoint === null && headMcpEndpoint !== null) ||
-      (!baseMcpDestructive && headMcpDestructive),
+      (!baseMcpDestructive && headMcpDestructive) ||
+      (baseMcpAuthenticated && !headMcpAuthenticated && headMcpEndpoint !== null) ||
+      mcpAuthChanges.some(mcpAuthChangeWeakensGuard),
   };
 }
 
@@ -621,6 +720,18 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
 }
 
+function mcpAuthChangeWeakensGuard(change: FieldChange): boolean {
+  const before = stringArray(change.from);
+  const after = stringArray(change.to);
+  if (change.field === "requiredScopes") {
+    return before.some((scope) => !after.includes(scope));
+  }
+  if (change.field === "authorizationServers") {
+    return after.some((issuer) => !before.includes(issuer));
+  }
+  return false;
+}
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -731,6 +842,14 @@ export function formatPlanLines(diff: GraphDiff, options: FormatPlanOptions): st
   if (diff.mcpDestructiveChange) {
     lines.push(formatMcpDestructiveChange(diff.mcpDestructiveChange));
   }
+  if (diff.mcpAuthenticationChange) {
+    lines.push(formatMcpAuthenticationChange(diff.mcpAuthenticationChange));
+  }
+  for (const change of diff.mcpAuthChanges) {
+    lines.push(
+      `${mcpAuthChangeWeakensGuard(change) ? "!" : "~"} mcp oauth ${formatFieldChange(change)}`,
+    );
+  }
   for (const change of diff.capabilityChanges) {
     lines.push(
       `${capabilityChangeMarker(change)} capability ${change.capability}  ${change.detail}`,
@@ -773,6 +892,12 @@ function formatMcpDestructiveChange(change: FieldChange): string {
     : "- mcp destructive tools disabled";
 }
 
+function formatMcpAuthenticationChange(change: FieldChange): string {
+  return change.to === true
+    ? "+ mcp oauth protection enabled"
+    : "! mcp oauth protection disabled — remote MCP endpoint no longer requires bearer tokens";
+}
+
 export function formatPlanText(diff: GraphDiff, options: FormatPlanOptions): string {
   const header = options.base
     ? `Pracht plan (base: ${options.base})`
@@ -804,6 +929,8 @@ export function formatPlanMarkdown(diff: GraphDiff, options: FormatPlanOptions):
     countLabel(diff.removedRoutes.length + diff.removedApi.length, "removed"),
     countLabel(diff.mcpEndpointChange ? 1 : 0, "MCP endpoint change"),
     countLabel(diff.mcpDestructiveChange ? 1 : 0, "MCP destructive-mode change"),
+    countLabel(diff.mcpAuthenticationChange ? 1 : 0, "MCP authentication change"),
+    countLabel(diff.mcpAuthChanges.length, "MCP OAuth policy change"),
     countLabel(diff.capabilityChanges.length, "capability change"),
   ]
     .filter(Boolean)

@@ -47,6 +47,106 @@ export default defineConfig({
 }
 
 describe("@pracht/cli doctor and verify", () => {
+  it("accepts an OAuth verifier when auth is supplied through a local constant", () => {
+    const appDir = createRepoTempDir("pracht-cli-verify-mcp-auth-constant-valid-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+
+const mcpAuth = {
+  resource: "https://app.example.com/mcp",
+  authorizationServers: ["https://auth.example.com"],
+  verify: "./server/mcp-token.ts",
+};
+
+export const app = defineApp({
+  agents: { mcp: { auth: mcpAuth } },
+  routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "src/server/mcp-token.ts",
+      "export default async function verify() { return null; }\n",
+    );
+    writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }");
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(report.checks).not.toContainEqual(expect.objectContaining({ status: "error" }));
+  });
+
+  it("loads an OAuth verifier when auth is supplied through a local constant", () => {
+    const appDir = createRepoTempDir("pracht-cli-verify-mcp-auth-constant-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+
+const mcpAuth = {
+  resource: "https://app.example.com/mcp",
+  authorizationServers: ["https://auth.example.com"],
+  verify: "./server/mcp-token.ts",
+};
+
+export const app = defineApp({
+  agents: { mcp: { auth: mcpAuth } },
+  routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "src/server/mcp-token.ts",
+      "const verifier = {};\nexport default verifier;\n",
+    );
+    writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }");
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("has no default-exported function"),
+        status: "error",
+      }),
+    );
+  });
+
+  it("loads an OAuth verifier when the agents manifest key is quoted", () => {
+    const appDir = createRepoTempDir("pracht-cli-verify-mcp-auth-quoted-agents-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+
+const mcpAuth = {
+  resource: "https://app.example.com/mcp",
+  authorizationServers: ["https://auth.example.com"],
+  verify: "./server/mcp-token.ts",
+};
+
+export const app = defineApp({
+  "agents": { mcp: { auth: mcpAuth } },
+  routes: [route("/", "./routes/home.tsx", { render: "ssr" })],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "src/server/mcp-token.ts",
+      "const verifier = {};\nexport default verifier;\n",
+    );
+    writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }");
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("has no default-exported function"),
+        status: "error",
+      }),
+    );
+  });
+
   it("reports a healthy manifest app in doctor json output", () => {
     const appDir = createTempDir("pracht-cli-doctor-ok-");
     writeManifestApp(appDir, {

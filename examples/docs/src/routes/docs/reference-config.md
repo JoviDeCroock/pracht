@@ -120,7 +120,7 @@ export const app = defineApp({
 | `capabilities` | Record\<string, ModuleRef\> | Named [capabilities](/docs/capabilities), e.g. `{ "notes.search": () => import("./capabilities/notes-search.ts") }`. Server-only and private unless they declare `expose` |
 | `notFound` | ModuleRef \| NotFoundConfig | The [404 page](/docs/data-loading#custom-404-page). Deliberately not a route |
 | `api` | ApiConfig | App-wide API policy — see below |
-| `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, and the destructive-capability confirmation flow. Serializable data only |
+| `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/remote-mcp) with its optional OAuth resource-server config. Serializable data and module references only |
 | `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Agent Workflow](/docs/agent-workflow) |
 | `viewTransitions` | boolean | Enable the View Transitions API for every client navigation by default. See [View Transitions](/docs/recipes/view-transitions) |
 

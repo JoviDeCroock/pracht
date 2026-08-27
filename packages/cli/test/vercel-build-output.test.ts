@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { timeRevalidate } from "@pracht/core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { writeVercelBuildOutput } from "../src/build-shared.ts";
+import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../src/build-shared.ts";
 
 describe("writeVercelBuildOutput", () => {
   const roots: string[] = [];
@@ -94,6 +94,93 @@ describe("writeVercelBuildOutput", () => {
     // Paired: the negative assertion alone would pass with the feature deleted.
     expect(routesJson(withMarkdown)).toContain("mM][aA][rR][kK]");
     expect(routesJson(withoutMarkdown)).not.toContain("mM][aA][rR][kK]");
+  });
+
+  it("routes the OAuth-protected MCP surface before method-agnostic static rewrites", () => {
+    const root = createBuildRoot();
+    const agents = {
+      mcp: {
+        auth: {
+          resource: "https://app.example/mcp",
+          authorizationServers: ["https://auth.example"],
+          verify: "/src/server/mcp-token.ts",
+        },
+      },
+    } as const;
+    writeVercelBuildOutput({
+      isgManifest: {},
+      root,
+      runtimeRoutes: resolveVercelRuntimeRoutes(agents),
+      // A prerendered route with any runtime-owned name must lose for both the
+      // canonical request and the one-trailing-slash spelling the runtime accepts.
+      staticRoutes: [
+        "/mcp",
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+      ],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: { dest?: string; handle?: string; src?: string }[];
+    };
+    const filesystemIndex = config.routes.findIndex((route) => route.handle === "filesystem");
+    const runtimeRoutes = config.routes.filter(
+      (route) =>
+        route.dest === "/render" && (route.src?.includes("oauth") || route.src === "^/mcp/?$"),
+    );
+    expect(runtimeRoutes.map((route) => route.src)).toEqual([
+      "^/\\.well\\-known/oauth\\-protected\\-resource/mcp/?$",
+      "^/\\.well\\-known/oauth\\-protected\\-resource/?$",
+      "^/mcp/?$",
+    ]);
+    for (const route of runtimeRoutes) {
+      const runtimeIndex = config.routes.indexOf(route);
+      const shadowingStaticIndex = config.routes.findIndex(
+        (candidate, index) => index > runtimeIndex && candidate.src === route.src,
+      );
+      expect(runtimeIndex).toBeLessThan(shadowingStaticIndex);
+      expect(runtimeIndex).toBeLessThan(filesystemIndex);
+    }
+  });
+
+  it("routes deploy-base-prefixed OAuth metadata aliases before static output", () => {
+    const root = createBuildRoot();
+    writeVercelBuildOutput({
+      base: "/app/",
+      isgManifest: {},
+      root,
+      runtimeRoutes: [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/app/mcp",
+      ],
+      // These become the proxy-prefixed aliases after the deploy base is
+      // applied to prerendered routes.
+      staticRoutes: [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/app/mcp",
+      ],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: { dest?: string; handle?: string; src?: string }[];
+    };
+    const filesystemIndex = config.routes.findIndex((route) => route.handle === "filesystem");
+    const aliasSources = [
+      "^/app/\\.well\\-known/oauth\\-protected\\-resource/app/mcp/?$",
+      "^/app/\\.well\\-known/oauth\\-protected\\-resource/?$",
+    ];
+    const aliasRoutes = config.routes.filter(
+      (route) => route.dest === "/render" && aliasSources.includes(route.src ?? ""),
+    );
+    expect(aliasRoutes.map((route) => route.src)).toEqual(aliasSources);
+    for (const route of aliasRoutes) {
+      const runtimeIndex = config.routes.indexOf(route);
+      const shadowingStaticIndex = config.routes.findIndex(
+        (candidate, index) => index > runtimeIndex && candidate.src === route.src,
+      );
+      expect(runtimeIndex).toBeLessThan(shadowingStaticIndex);
+      expect(runtimeIndex).toBeLessThan(filesystemIndex);
+    }
   });
 
   it("emits configured headers for non-HTML static assets without adding page rewrites", () => {
