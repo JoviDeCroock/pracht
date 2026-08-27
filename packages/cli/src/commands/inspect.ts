@@ -1,11 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import {
-  resolveMcpEndpoint,
-  serializeApiRoutes,
-  serializeAppRoutes,
-} from "@pracht/core";
+import { resolveMcpEndpoint, serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
 import type {
   AppGraphApiRoute,
   AppGraphCapability,
