@@ -945,11 +945,20 @@ function describeMcpEndpointStatus(endpoint: string, response: McpHttpResponse):
         `${endpoint} returned 404 — the app does not serve remote MCP there. Enable it with ` +
         '`defineApp({ agents: { mcp: {} } })`, or point the scenario at the right path with "mcpPath".'
       );
-    case 403:
+    case 403: {
+      const error = asRecord(response.body)?.error;
+      if (error === "insufficient_scope") {
+        return (
+          `${endpoint} returned 403 insufficient_scope — the bearer token lacks one or more ` +
+          `required OAuth scopes. Obtain a token with the scopes named by the challenge and ` +
+          `update "mcpHeaders". ${detail}`
+        );
+      }
       return (
         `${endpoint} returned 403 — the MCP projection refuses browser-originated and ` +
         `cookie-authenticated requests. Remove any "cookie"/"origin" step headers. ${detail}`
       );
+    }
     case 405:
       return `${endpoint} returned 405 — that path does not accept the JSON-RPC POST an MCP client makes. ${detail}`;
     default:

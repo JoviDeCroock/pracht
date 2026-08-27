@@ -432,6 +432,31 @@ describe("runScenario over the MCP transport", () => {
     expect(result.error).toContain('"mcpHeaders"');
   });
 
+  it("explains how to replace an under-scoped MCP bearer token", async () => {
+    const { fetchImpl } = fakeMcpServer(() => ({ result: {} }), {
+      initializeStatus: 403,
+      initializeBody: JSON.stringify({
+        error: "insufficient_scope",
+        error_description: "The token is missing required scope(s): notes.write.",
+      }),
+    });
+
+    const result = await runScenario(
+      {
+        name: "under-scoped mcp",
+        transport: "mcp",
+        mcpHeaders: { authorization: "Bearer read-only-token" },
+        steps: [{ capability: "notes.search" }],
+      },
+      "mcp.eval.json",
+      { baseUrl: "http://localhost:3103", fetchImpl },
+    );
+
+    expect(result.error).toContain("required OAuth scopes");
+    expect(result.error).toContain('update "mcpHeaders"');
+    expect(result.error).not.toContain("browser-originated");
+  });
+
   it("maps the capability status out of io.pracht/status, not the JSON-RPC 200", async () => {
     const { fetchImpl } = fakeMcpServer(() => ({
       result: {

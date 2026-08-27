@@ -323,12 +323,20 @@ function createVercelOutputConfig({
     });
   }
 
-  for (const route of sortStaticRoutes(runtimeRoutes)) {
+  const publicRuntimeRoutes =
+    deployBase === "/"
+      ? runtimeRoutes
+      : [
+          ...runtimeRoutes,
+          ...runtimeRoutes.map((route) => withVercelDeployBase(route, deployBase)),
+        ];
+  for (const route of sortStaticRoutes(publicRuntimeRoutes)) {
     routes.push({
       dest: target,
       // Runtime metadata matching accepts one trailing slash. Keep Vercel's
-      // pre-filesystem route in lockstep so a prerendered page or copied
-      // `index.html` cannot claim the alternate spelling first.
+      // pre-filesystem route in lockstep, including the deploy-base-prefixed
+      // spelling accepted after a proxy rewrite, so a prerendered page or
+      // copied `index.html` cannot claim either form first.
       src: routeToRouteExpression(route),
     });
   }
