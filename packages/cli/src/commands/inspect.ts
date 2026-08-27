@@ -103,7 +103,7 @@ export interface InspectAgents {
   };
   llmsTxt: {
     /** Whether the resolved vite plugin configuration enables `llmsTxt`. */
-    enabled: boolean;
+    enabled: boolean | null;
   };
   /** One row per capability, in manifest order. */
   capabilities: {
@@ -199,7 +199,7 @@ export async function runInspect(
       report.agents = summarizeAgentSurface(
         serverModule.resolvedApp.agents,
         capabilities,
-        serverModule.llmsTxtEnabled === true,
+        resolveInspectedLlmsTxtEnabled(serverModule),
       );
     }
 
@@ -224,7 +224,7 @@ export async function runInspect(
 export function summarizeAgentSurface(
   agents: PrachtAgentsConfig | undefined,
   capabilities: AppGraphCapability[],
-  llmsTxtEnabled: boolean,
+  llmsTxtEnabled: boolean | null,
 ): InspectAgents {
   const exposure = { http: 0, webmcp: 0, mcp: 0, private: 0 };
   for (const capability of capabilities) {
@@ -267,6 +267,24 @@ export function summarizeAgentSurface(
     })),
     exposure,
   };
+}
+
+/**
+ * Read the resolved plugin flag when the installed vite plugin exposes it.
+ * Older plugins either expose only the generated server function or provide no
+ * authoritative signal at all; never turn that missing metadata into a false
+ * "disabled" audit result.
+ */
+export function resolveInspectedLlmsTxtEnabled(
+  serverModule: Record<string, unknown>,
+): boolean | null {
+  if (typeof serverModule.llmsTxtEnabled === "boolean") {
+    return serverModule.llmsTxtEnabled;
+  }
+  if (typeof serverModule.generateLlmsTxt === "function") {
+    return true;
+  }
+  return null;
 }
 
 function printInspectReport(report: InspectReport): void {
@@ -347,7 +365,15 @@ function printInspectReport(report: InspectReport): void {
     console.log(
       `  mcp=${agents.mcp.enabled ? "on" : "off"}  endpoint=${agents.mcp.endpoint ?? "n/a"}`,
     );
-    console.log(`  llmsTxt=${agents.llmsTxt.enabled ? "on" : "off"}`);
+    console.log(
+      `  llmsTxt=${
+        agents.llmsTxt.enabled === null
+          ? "unknown (upgrade @pracht/vite-plugin)"
+          : agents.llmsTxt.enabled
+            ? "on"
+            : "off"
+      }`,
+    );
     console.log(
       `  exposure  http=${agents.exposure.http}  webmcp=${agents.exposure.webmcp}` +
         `  mcp=${agents.exposure.mcp}  private=${agents.exposure.private}`,

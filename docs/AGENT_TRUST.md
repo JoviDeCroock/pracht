@@ -755,7 +755,10 @@ Agents
 `--json` emits the same data for CI checks, and the CLI's MCP server exposes it
 as the `inspect_agents` tool. The `llmsTxt` state comes from the Vite plugin's
 resolved configuration, including computed options, rather than a source-text
-guess. Capabilities with no `expose` config count as `private`: reachable only
+guess. If the CLI is newer than the installed Vite plugin and that plugin does
+not expose the resolved flag yet, the state is `null` in JSON and `unknown` in
+text instead of being misreported as disabled; upgrade `@pracht/vite-plugin` to
+resolve it. Capabilities with no `expose` config count as `private`: reachable only
 through `invokeCapability()`. When capabilities set `expose.mcp` but the
 manifest never configures `agents.mcp`, the report calls out that the exposure
 is recorded and unserved — the same condition `pracht verify` warns about. An

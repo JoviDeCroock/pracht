@@ -61,7 +61,10 @@ reasoning about its policy until it loads.
 Cross-check `inspect agents` against the manifest's `agents` block. The report
 reads both the resolved app and the Vite plugin's resolved `llmsTxt` state, so
 configuration built in separate variables or computed expressions is reported
-accurately rather than inferred from source text.
+accurately rather than inferred from source text. If `llmsTxt.enabled` is
+`null`, the installed Vite plugin predates that metadata contract; report the
+state as unknown and recommend upgrading `@pracht/vite-plugin`, never as an
+opt-out.
 
 ## Step 2: Exposure vs. intent
 

@@ -277,4 +277,4 @@ The three metrics worth deriving from these events:
 | Task completion | Ratio of `status < 400` per `capability` | Whether they can finish what they came for, including successful middleware short-circuits |
 | Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
 
-In development, the same events are already collected for you: the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.
+In development, the same events are already collected for you: the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. Adapter-owned dev servers do not register that middleware, so Cloudflare `workerd` returns 404 for both paths; validate the sink from its own output there. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.

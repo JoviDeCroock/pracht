@@ -179,7 +179,9 @@ pracht inspect build --json
 `pracht inspect agents` summarizes the configured agent surface: Web Bot Auth
 policy and keys, the destructive-confirmation mode, the remote MCP endpoint,
 whether `llms.txt` is generated, and which capabilities are exposed on which
-transports.
+transports. If an older installed `@pracht/vite-plugin` cannot expose the
+resolved `llms.txt` state, JSON reports `null` and text reports `unknown` rather
+than treating missing metadata as disabled.
 
 ### `pracht typegen`
 

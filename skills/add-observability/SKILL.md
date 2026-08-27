@@ -316,7 +316,10 @@ hides ordinary first-party `invokeCapability()` composition behind a toggle, so
 the panel's visible count can be lower than the sink's.
 Counts and empty-state conclusions only cover the retained window when older
 events have been dropped. Use it to confirm the sink sees what the panel sees
-before wiring a paid backend.
+before wiring a paid backend. Adapter-owned dev servers do not register this
+middleware: on Cloudflare `workerd`, `/_pracht` and `/_pracht.json` return 404.
+Validate the sink from its own output there; a missing panel is not a failed
+audit hook.
 
 ## Step 7: Sampling and PII
 
@@ -333,7 +336,9 @@ before wiring a paid backend.
 - Trigger a deliberate error in dev and confirm it lands in Sentry/OTel.
 - Open a route, check the Web Vitals beacon fires (Network tab).
 - If an audit sink was added: call a capability in dev and confirm the event
-  reaches both the sink and the Agents panel at `/_pracht`.
+  reaches both the sink and, when the adapter exposes it, the Agents panel at
+  `/_pracht`. On Cloudflare's adapter-owned dev server, validate the sink output
+  directly because the panel does not exist.
 - Confirm `pnpm test` and `pnpm e2e` still pass.
 - Run `pracht typegen` if any routes were added (the beacon API route does
   not affect page-route types, but re-run when in doubt).

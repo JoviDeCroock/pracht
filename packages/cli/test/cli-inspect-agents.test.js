@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { resolveInspectedLlmsTxtEnabled } from "../src/commands/inspect.ts";
+
 import {
   cleanupTempDirs,
   createRepoTempDir,
@@ -15,6 +17,13 @@ import {
 afterEach(cleanupTempDirs);
 
 describe("@pracht/cli inspect agents", () => {
+  it("does not report llms.txt as disabled when an older plugin omits the metadata flag", () => {
+    expect(resolveInspectedLlmsTxtEnabled({ llmsTxtEnabled: true })).toBe(true);
+    expect(resolveInspectedLlmsTxtEnabled({ llmsTxtEnabled: false })).toBe(false);
+    expect(resolveInspectedLlmsTxtEnabled({ generateLlmsTxt() {} })).toBe(true);
+    expect(resolveInspectedLlmsTxtEnabled({})).toBeNull();
+  });
+
   it("summarizes the configured agent surface as JSON", () => {
     const appDir = createRepoTempDir("pracht-cli-inspect-agents-");
     writeTypedManifestApp(appDir, { capabilities: true, agents: true });
