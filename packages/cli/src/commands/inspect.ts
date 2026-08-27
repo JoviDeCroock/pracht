@@ -5,7 +5,6 @@ import {
   resolveMcpEndpoint,
   serializeApiRoutes,
   serializeAppRoutes,
-  serializeCapabilities,
 } from "@pracht/core";
 import type {
   AppGraphApiRoute,
@@ -16,7 +15,7 @@ import type {
 } from "@pracht/core";
 import { defineCommand } from "citty";
 
-import { capabilityModuleLoader, createSourceReader } from "../app-graph.js";
+import { collectCapabilityAppGraph } from "../app-graph.js";
 import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
@@ -129,6 +128,9 @@ export interface InspectReport {
     jsManifest: Record<string, string[]>;
   };
   mode: string;
+  mcpDestructive?: boolean;
+  mcpEndpoint?: string | null;
+  mcpUnavailableReasons?: string[];
   notFound?: InspectRoute | null;
   routes?: InspectRoute[];
 }
@@ -179,27 +181,23 @@ export async function runInspect(
           }));
     }
 
-    // `agents` is a rollup of the same serialization, so resolve it once.
-    const capabilities =
+    // `agents` is a rollup of the same capability graph, so resolve it once.
+    const capabilityGraph =
       wants("capabilities") || wants("agents")
-        ? await serializeCapabilities(
-            serverModule.resolvedApp.capabilities,
-            {
-              loadModule: capabilityModuleLoader(server, serverModule),
-              readSource: createSourceReader(root, project.appFile),
-            },
-            { strict: true },
-          )
+        ? await collectCapabilityAppGraph(server, root, serverModule, {
+            appFile: project.appFile,
+            strict: true,
+          })
         : null;
 
-    if (wants("capabilities") && capabilities) {
-      report.capabilities = capabilities;
+    if (wants("capabilities") && capabilityGraph) {
+      Object.assign(report, capabilityGraph);
     }
 
-    if (wants("agents") && capabilities) {
+    if (wants("agents") && capabilityGraph) {
       report.agents = summarizeAgentSurface(
         serverModule.resolvedApp.agents,
-        capabilities,
+        capabilityGraph.capabilities,
         llmsTxtEnabled,
       );
     }
@@ -317,7 +315,18 @@ function printInspectReport(report: InspectReport): void {
     } else {
       for (const capability of report.capabilities) {
         const transports =
-          capability.transports.length > 0 ? capability.transports.join(",") : "private";
+          capability.transports.length > 0
+            ? capability.transports
+                .map((transport) =>
+                  transport === "mcp" &&
+                  (report.mcpEndpoint === null ||
+                    (report.mcpUnavailableReasons?.length ?? 0) > 0 ||
+                    (capability.effect === "destructive" && report.mcpDestructive !== true))
+                    ? "mcp(unserved)"
+                    : transport,
+                )
+                .join(",")
+            : "private";
         console.log(
           `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
             `http=${capability.httpPath ?? "n/a"}  file=${capability.source}`,
@@ -331,6 +340,12 @@ function printInspectReport(report: InspectReport): void {
           );
         }
       }
+    }
+    if (report.mcpEndpoint !== null) {
+      console.log(`  MCP endpoint: ${report.mcpEndpoint}`);
+    }
+    if ((report.mcpUnavailableReasons?.length ?? 0) > 0) {
+      console.log(`  ! MCP endpoint unavailable: ${report.mcpUnavailableReasons!.join(" ")}`);
     }
   }
 

@@ -222,6 +222,11 @@ in `pracht verify`. Capability type generation also loads capability contracts
 strictly; API type generation deliberately reads route paths without executing
 API modules.
 
+The capabilities target also reports effective remote MCP status. Its JSON
+object includes `mcpEndpoint`, `mcpDestructive`, and `mcpUnavailableReasons`;
+text output labels affected declarations `mcp(unserved)` and prints endpoint
+preconditions such as a missing durable approval store or confirmation secret.
+
 For Cloudflare apps, graph inspection provides fail-closed placeholders rather
 than a fake Worker runtime. Importing `env`/`exports` and importing or subclassing
 runtime classes is safe, but reading any binding property or constructing a

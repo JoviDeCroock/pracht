@@ -36,8 +36,7 @@ export interface AppGraphApiRoute {
   path: string;
 }
 
-export interface AppGraph {
-  api: AppGraphApiRoute[];
+export interface CapabilityAppGraph {
   capabilities: AppGraphCapability[];
   /**
    * Path the remote MCP projection is served from, or `null` when the app does
@@ -49,6 +48,10 @@ export interface AppGraph {
   mcpDestructive: boolean;
   /** Runtime preconditions that currently block the configured MCP endpoint. */
   mcpUnavailableReasons: string[];
+}
+
+export interface AppGraph extends CapabilityAppGraph {
+  api: AppGraphApiRoute[];
   routes: AppGraphRoute[];
   /** The app-level not-found page (never part of `routes`), or `null`. */
   notFound?: AppGraphRoute | null;
@@ -114,10 +117,41 @@ export async function collectAppGraph(
 ): Promise<AppGraph> {
   const serverModule = await loadAppMetadataModule(server);
   const notFound = serverModule.resolvedApp.notFound;
-  const capabilities = await serializeCapabilities(serverModule.resolvedApp.capabilities, {
-    loadModule: capabilityModuleLoader(server, serverModule),
-    readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
-  });
+  const capabilityGraph = await collectCapabilityAppGraph(server, root, serverModule, options);
+  return {
+    // The banner must not execute every API module at startup. Static export
+    // analysis follows named and star re-exports without triggering unrelated
+    // top-level application work.
+    api: await serializeApiRoutesStatic(serverModule.apiRoutes, {
+      readSource: (file) => readStaticAppModule(root, file),
+      resolveModule: (specifier, importer) =>
+        resolveStaticModule(server, root, specifier, importer),
+    }),
+    ...capabilityGraph,
+    notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
+    routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
+  };
+}
+
+/**
+ * Resolve capability contracts together with the effective remote MCP runtime
+ * status. Callers that already loaded the app metadata module can share that
+ * exact Vite module graph, including process-local approval registrations.
+ */
+export async function collectCapabilityAppGraph(
+  server: ViteDevServer,
+  root: string,
+  serverModule: Record<string, any>,
+  options: { appFile?: string; strict?: boolean } = {},
+): Promise<CapabilityAppGraph> {
+  const capabilities = await serializeCapabilities(
+    serverModule.resolvedApp.capabilities,
+    {
+      loadModule: capabilityModuleLoader(server, serverModule),
+      readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
+    },
+    { strict: options.strict ?? false },
+  );
   const mcpDestructive = servesDestructiveMcpTools(serverModule.resolvedApp, capabilities);
   let setupFailure: string | null = null;
   if (mcpDestructive) {
@@ -136,20 +170,10 @@ export async function collectAppGraph(
         ? await readDestructiveMcpPreconditionErrors(server, serverModule.resolvedApp.agents)
         : [];
   return {
-    // The banner must not execute every API module at startup. Static export
-    // analysis follows named and star re-exports without triggering unrelated
-    // top-level application work.
-    api: await serializeApiRoutesStatic(serverModule.apiRoutes, {
-      readSource: (file) => readStaticAppModule(root, file),
-      resolveModule: (specifier, importer) =>
-        resolveStaticModule(server, root, specifier, importer),
-    }),
     capabilities,
     mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
     mcpDestructive,
     mcpUnavailableReasons,
-    notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
-    routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };
 }
 

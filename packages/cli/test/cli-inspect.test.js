@@ -83,7 +83,13 @@ describe("@pracht/cli inspect", () => {
     const capabilities = JSON.parse(
       runCli(["inspect", "capabilities", "--json"], { cwd: appDir }).stdout,
     );
-    expect(capabilities).toEqual({ capabilities: [], mode: "manifest" });
+    expect(capabilities).toEqual({
+      capabilities: [],
+      mcpDestructive: false,
+      mcpEndpoint: null,
+      mcpUnavailableReasons: [],
+      mode: "manifest",
+    });
 
     const agents = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
     // An app that configures nothing agent-facing must read as an app with no
@@ -107,6 +113,35 @@ describe("@pracht/cli inspect", () => {
       ...agents,
       ...build,
     });
+  }, 30_000);
+
+  it("reports destructive MCP runtime availability in JSON and text output", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-mcp-");
+    writeInspectableManifestApp(appDir, { destructiveMcp: true });
+
+    const result = JSON.parse(
+      runCli(["inspect", "capabilities", "--json"], { cwd: appDir }).stdout,
+    );
+
+    expect(result).toMatchObject({
+      mcpDestructive: true,
+      mcpEndpoint: "/mcp",
+      mcpUnavailableReasons: expect.arrayContaining([
+        expect.stringContaining("no approval store is registered"),
+      ]),
+    });
+    expect(result.capabilities).toEqual([
+      expect.objectContaining({
+        effect: "destructive",
+        name: "notes.purge",
+        transports: ["mcp"],
+      }),
+    ]);
+
+    const text = runCli(["inspect", "capabilities"], { cwd: appDir }).stdout;
+    expect(text).toContain("transports=mcp(unserved)");
+    expect(text).toContain("MCP endpoint: /mcp");
+    expect(text).toContain("MCP endpoint unavailable: no approval store is registered");
   }, 30_000);
 
   it("reports build asset URLs under the configured Vite base", () => {

@@ -63,7 +63,7 @@ export function createPrachtMcpServer(): McpServer {
     "inspect_capabilities",
     {
       description:
-        "Inspect the registered capabilities of a pracht app: name, effect class, exposure transports (http/mcp/webmcp), HTTP path, middleware, source file. Same payload as `pracht inspect capabilities --json`.",
+        "Inspect the registered capabilities of a pracht app: name, effect class, exposure transports (http/mcp/webmcp), HTTP path, middleware, source file, plus the configured MCP endpoint, destructive opt-in, and runtime unavailability reasons. Same payload as `pracht inspect capabilities --json`.",
       inputSchema: { ...cwdInput },
     },
     guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "capabilities" })),

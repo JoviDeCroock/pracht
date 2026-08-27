@@ -195,10 +195,12 @@ setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 The setup may instead be imported by app-level capability/API middleware or
 named middleware on the destructive capability. The endpoint imports those
 applied middleware modules before checking its preconditions, without running
-the middleware functions during `tools/list`. `pracht dev`, `pracht inspect`,
-and `/_pracht` import the same applied setup modules before reporting those
-runtime preconditions, so inspection agrees with the endpoint before the first
-tool call.
+the middleware functions during `tools/list`. `pracht dev`, `pracht inspect
+capabilities`, and `/_pracht` import the same applied setup modules before
+reporting those runtime preconditions, so inspection agrees with the endpoint
+before the first tool call. JSON inspection reports `mcpEndpoint`,
+`mcpDestructive`, and `mcpUnavailableReasons`; text inspection labels affected
+declarations `mcp(unserved)` and prints the unmet preconditions.
 
 The store is not optional. Over MCP the confirmation token is handed to the
 very agent that will commit with it, and a stateless HMAC token replays until
@@ -211,7 +213,7 @@ resolvable principal is missing. `pracht verify` *warns* when it cannot find a
 warning rather than an error because a source scan cannot see a registration
 that lives in a workspace package. There is no silent downgrade in either
 direction: without the opt-in the tool is invisible; with it and an unmet
-precondition, nothing is served. `pracht dev` and `/_pracht` mark every MCP
+precondition, nothing is served. `pracht dev`, `pracht inspect capabilities`, and `/_pracht` mark every MCP
 exposure as `mcp(unserved)` and show the unmet runtime preconditions when this
 endpoint-wide gate is closed.
 
