@@ -209,7 +209,7 @@ Runtime validation is unchanged either way, and it is the runtime — not the co
 
 ## WebMCP: Tools for In-Browser Agents
 
-With `expose.webmcp: true`, the client runtime registers the capability as a [WebMCP](https://developer.chrome.com/docs/ai/webmcp) page tool via `document.modelContext.registerTool()` (Chrome origin trial, with the deprecated `navigator.modelContext` fallback). The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side.
+With `expose.webmcp: true`, the client runtime registers the capability as a [WebMCP](https://developer.chrome.com/docs/ai/webmcp) page tool via `document.modelContext.registerTool()` (Chrome origin trial, with the deprecated `navigator.modelContext` fallback). The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side. If the WebMCP host cancels execution, its `AbortSignal` aborts the capability's HTTP request too.
 
 The shim ships as its own chunk behind feature detection: browsers without the API never download it, apps without webmcp-exposed capabilities never reference it, and it works in both full-hydration and islands modes.
 
