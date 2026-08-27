@@ -1013,6 +1013,16 @@ ${extra}        verify: () => import("${verifyPath}"),
     );
   });
 
+  it("does not green-light a resource prefix that may or may not be the deploy base", () => {
+    const checks = runAuthChecks(
+      authBlock('        resource: "https://app.example.com/tenant/mcp",\n'),
+    );
+    expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("OAuth 2.0 protected resource"),
+    );
+  });
+
   it("rejects the reserved protected-resource metadata path", () => {
     const checks = runAuthChecks(`  agents: {
     mcp: {

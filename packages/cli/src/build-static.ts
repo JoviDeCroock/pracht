@@ -32,6 +32,7 @@ interface StaticServerModuleView {
     routes?: StaticRouteView[];
     notFound?: StaticRouteView;
     capabilities?: Record<string, string>;
+    agents?: { mcp?: { path?: string } };
   };
   apiRoutes?: Array<{ path: string }>;
   registry?: {
@@ -400,6 +401,14 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
       `these capabilities are exposed over the network (HTTP/MCP/WebMCP), which needs a server:\n` +
         exposedCapabilities.join("\n") +
         `\n  Drop their \`expose\` config (server-side invokeCapability from build-time loaders still works), or ${SERVERFUL_ADAPTER_HINT}`,
+    );
+  }
+  const mcp = serverMod.resolvedApp?.agents?.mcp;
+  if (mcp) {
+    const endpoint = mcp.path ?? "/mcp";
+    problems.push(
+      `the remote MCP endpoint ${endpoint} needs a server to answer requests, but a static export has none:\n` +
+        `  Remove agents.mcp or ${SERVERFUL_ADAPTER_HINT}`,
     );
   }
 

@@ -326,7 +326,10 @@ function createVercelOutputConfig({
   for (const route of sortStaticRoutes(runtimeRoutes)) {
     routes.push({
       dest: target,
-      src: routeToStaticAssetExpression(route),
+      // Runtime metadata matching accepts one trailing slash. Keep Vercel's
+      // pre-filesystem route in lockstep so a prerendered page or copied
+      // `index.html` cannot claim the alternate spelling first.
+      src: routeToRouteExpression(route),
     });
   }
 

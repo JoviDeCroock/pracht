@@ -201,8 +201,10 @@ compose: `agent` is the caller's software identity, `tokenAuth` is the account
 it acts for.
 
 `CapabilityAuditEvent` does not yet carry `tokenAuth`, so an audited MCP
-dispatch names the calling software but not the account behind it. Read the
-principal in your own audit hook until the event gains a field for it.
+dispatch names the calling software but not the account behind it. Capture the
+principal in named middleware or capability code while request context is
+available and send it to the same audit sink until the event gains a field for
+it.
 
 Full configuration, the metadata document, the challenge table, the JWKS recipe,
 and the fail-closed rules live in

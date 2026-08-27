@@ -210,8 +210,9 @@ Rules to hold the user to:
   such as `Map` and `Date` must be wrapped in an ordinary context. `claims` is
   frozen shallowly, but the complete principal is request-local so nested
   mutations cannot become stale auth on a later request. The capability audit
-  event does not carry it yet, so read it in your own audit hook if MCP calls
-  must be attributable to an account.
+  event does not carry it yet, so capture it in named middleware or capability
+  code and send it to the same audit sink if MCP calls must be attributable to
+  an account.
 - `resource` must be the endpoint's **real deployed URL**: absolute, free of
   query/fragment, free of a non-root trailing slash, and exactly matching the
   served endpoint's public path — deploy base included, e.g.

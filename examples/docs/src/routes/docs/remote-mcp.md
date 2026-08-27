@@ -42,6 +42,8 @@ export default defineCapability({
 
 Custom paths must be exact same-origin pathnames beginning with `/`; invalid values fail manifest validation. The endpoint must not equal a capability's HTTP exposure path; capability resolution fails until one path moves. Once configured, the endpoint remains active with an empty capability graph (`tools/list` returns an empty list), and graph resolution failures stay on the endpoint as JSON-RPC errors. Endpoint matching accepts one trailing slash, so `/mcp` and `/mcp/` address the same projection.
 
+Remote MCP requires a request runtime. `@pracht/adapter-static` rejects any `agents.mcp` configuration during `pracht verify` and `pracht build`; remove the endpoint or deploy with a serverful adapter.
+
 `expose.mcp` does **not** require `expose.http`. A capability can be reachable by remote agents with no public browser endpoint at all.
 
 A `destructive` capability needs a third opt-in — see [Destructive Tools](#destructive-tools).
@@ -322,7 +324,7 @@ The overlay preserves private-field and accessor receivers for class instances, 
 
 `claims` is frozen **shallowly** — its own keys cannot be added, removed, or rewritten, but nested values are whatever your verifier returned and stay mutable. Deep-freezing would reach into objects your code still owns (a `jose` JWT payload, say). The framework never reads `claims`, and the whole principal is request-local, so even a nested mutation cannot carry authorization state into a later request through a reused adapter context.
 
-The two identities compose: `context.agent` says *which agent software* signed the request, `context.tokenAuth` says *on whose behalf* it is acting. One gap worth knowing: the [capability audit event](/docs/agent-trust) carries `agent`, not `tokenAuth`, so an audited MCP dispatch names the calling software but not the account behind it. Read the principal in your own audit hook until the event gains a field for it.
+The two identities compose: `context.agent` says *which agent software* signed the request, `context.tokenAuth` says *on whose behalf* it is acting. One gap worth knowing: the [capability audit event](/docs/agent-trust) carries `agent`, not `tokenAuth`, so an audited MCP dispatch names the calling software but not the account behind it. Capture the principal in named middleware or capability code while request context is available and send it to the same audit sink until the event gains a field for it.
 
 Apps that leave `auth` off pay nothing for it — no metadata route, no header, and no bundle bytes: the auth module sits behind its own dynamic import inside the MCP runtime, which is itself only loaded when `agents.mcp` is configured.
 

@@ -406,18 +406,16 @@ function collectMcpAuthChecks(
               `agents.mcp.path must not use the reserved OAuth protected-resource metadata path ${JSON.stringify(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN)}.`,
             ),
           );
-        } else if (
-          endpoint !== "/" &&
-          parsed.pathname !== endpoint &&
-          !parsed.pathname.endsWith(endpoint)
-        ) {
+        } else if (endpoint !== "/" && parsed.pathname !== endpoint) {
           authIsProvablyValid = false;
-          checks.push(
-            createCheck(
-              "error",
-              `agents.mcp.auth.resource path ${JSON.stringify(parsed.pathname)} does not address the configured MCP endpoint ${JSON.stringify(endpoint)}.`,
-            ),
-          );
+          if (!parsed.pathname.endsWith(endpoint)) {
+            checks.push(
+              createCheck(
+                "error",
+                `agents.mcp.auth.resource path ${JSON.stringify(parsed.pathname)} does not address the configured MCP endpoint ${JSON.stringify(endpoint)}.`,
+              ),
+            );
+          }
         }
       }
     }

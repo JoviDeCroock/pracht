@@ -157,8 +157,9 @@ commonly misunderstood line of an app's agent surface.
 - Audit gap to record, not to fix: `CapabilityAuditEvent` carries the Web Bot
   Auth `agent`, never `context.tokenAuth`, so audited MCP dispatches name the
   calling software but not the account. `info` unless the app's compliance story
-  depends on per-account attribution, in which case `warn` and point at the
-  app's own audit hook.
+  depends on per-account attribution, in which case `warn` and point at named
+  middleware or capability code that can send `context.tokenAuth` to the same
+  audit sink.
 
 ## Step 3: The destructive gate
 

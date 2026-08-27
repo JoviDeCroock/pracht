@@ -105,7 +105,12 @@ describe("writeVercelBuildOutput", () => {
         "/.well-known/oauth-protected-resource",
         "/.well-known/oauth-protected-resource/mcp",
       ],
-      staticRoutes: [],
+      // A prerendered route with either name must lose for both the canonical
+      // request and the one-trailing-slash spelling the runtime accepts.
+      staticRoutes: [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+      ],
     });
 
     const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
@@ -116,8 +121,17 @@ describe("writeVercelBuildOutput", () => {
       (route) => route.dest === "/render" && route.src?.includes("oauth"),
     );
     expect(metadataRoutes).toHaveLength(2);
+    expect(metadataRoutes.map((route) => route.src)).toEqual([
+      "^/\\.well\\-known/oauth\\-protected\\-resource/mcp/?$",
+      "^/\\.well\\-known/oauth\\-protected\\-resource/?$",
+    ]);
     for (const route of metadataRoutes) {
-      expect(config.routes.indexOf(route)).toBeLessThan(filesystemIndex);
+      const runtimeIndex = config.routes.indexOf(route);
+      const shadowingStaticIndex = config.routes.findIndex(
+        (candidate, index) => index > runtimeIndex && candidate.src === route.src,
+      );
+      expect(runtimeIndex).toBeLessThan(shadowingStaticIndex);
+      expect(runtimeIndex).toBeLessThan(filesystemIndex);
     }
   });
 
