@@ -267,15 +267,27 @@ describe("resolveAppCapabilities", () => {
     );
   });
 
-  it("rejects hand-rolled destructive capability objects exposed to agent projections", async () => {
+  it("rejects hand-rolled destructive capability objects exposed as WebMCP page tools", async () => {
     const capability = {
       ...createSearchCapability({ expose: { http: true, webmcp: true } }),
       effect: "destructive" as const,
     };
     const { app, registry } = createApp(capability);
     await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
-      /destructive capabilities cannot be exposed to agent projections/,
+      /destructive capabilities cannot be exposed as WebMCP page tools/,
     );
+  });
+
+  it("resolves destructive capabilities that declare expose.mcp", async () => {
+    const capability = {
+      ...createSearchCapability({ expose: { mcp: true } }),
+      effect: "destructive" as const,
+    };
+    const { app, registry } = createApp(capability);
+    // Serving them is the `agents.mcp.destructive` opt-in's decision, not the
+    // registry's: the graph records the exposure either way.
+    const resolved = await resolveAppCapabilities(app, registry);
+    expect(resolved[0].capability.effect).toBe("destructive");
   });
 
   it("rejects hand-rolled MCP capabilities with non-object schema roots", async () => {

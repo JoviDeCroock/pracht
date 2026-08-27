@@ -115,9 +115,12 @@ Rules that are enforced, not advisory:
 
 - **Private by default.** No \`expose\` means no network surface at all.
 - **\`effect\` is a security classification.** \`destructive\` (delete, publish,
-  pay, send, change access) may only use \`expose.http\`, is gated by a
-  prepare/commit confirmation flow, and needs \`PRACHT_CONFIRMATION_SECRET\` in
-  the deployed environment. Exposing it over \`webmcp\`/\`mcp\` is an error.
+  pay, send, change access) may use \`expose.http\` and \`expose.mcp\`, is gated
+  by a prepare/commit confirmation flow, and needs
+  \`PRACHT_CONFIRMATION_SECRET\` in the deployed environment. \`expose.webmcp\`
+  is an error. Serving it over remote MCP additionally needs
+  \`agents: { mcp: { destructive: true } }\` and a registered approval store
+  (\`setCapabilityApprovalStore()\`), or the endpoint fails closed.
   Never downgrade an effect class to make a call easier — that is a policy
   change a human must approve.
 - **\`expose\`, \`effect\`, and \`input\` must be inline literals.** The browser
@@ -138,7 +141,11 @@ for the human path (it revalidates route data after a successful non-read
 call). Never import a capability module from client code — that is a build
 error, because it would bundle \`run()\` and its server dependencies.
 
-Inspect with \`pracht inspect capabilities --json\`; test scripted agent flows
+Inspect with \`pracht inspect capabilities --json\`; its top-level
+\`mcpEndpoint\`, \`mcpDestructive\`, \`mcpRuntimeStatus\`, and
+\`mcpUnavailableReasons\` fields distinguish declared exposure from a tool the configured
+endpoint can currently serve. A graph-only \`unverified\` status means setup may live in the
+adapter server entry, which inspection deliberately does not evaluate. Test scripted agent flows
 with \`pracht eval\` (scenario files in \`evals/*.eval.json\`, \`--start\` boots the
 app itself). A scenario runs against the HTTP projection by default, or against
 the app's remote MCP endpoint with scenario-level \`"transport": "mcp"\` — write
@@ -177,7 +184,7 @@ policy change a human must approve.
 ## Finishing a change
 
 1. \`pracht verify\` passes (and \`pracht build\` if budgets or prerendering are affected).
-2. \`pracht plan --write\` if routes/API/capabilities/constraints changed; commit the snapshot.
+2. \`pracht plan --write\` if routes/API/capabilities/constraints or agent projection settings changed; commit the snapshot.
 3. Run the app's tests (Playwright e2e if present).
 4. Base the PR description on \`pracht report\` output; add the human "why" yourself.
 `;

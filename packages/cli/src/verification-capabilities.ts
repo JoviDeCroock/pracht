@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 
 import {
   collectInvalidSchemaKeywordValues,
@@ -14,7 +14,9 @@ import {
 import {
   evaluateLiteral,
   extractCapabilityRegistrations,
+  extractDefineAppObjectBody,
   extractDefineCapabilityArgs,
+  maskCommentsAndStrings,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 
@@ -31,9 +33,11 @@ const AGENT_POLICIES = new Set(["observe", "require"]);
  * but run without executing application code so `pracht verify` stays fast
  * and safe. Spec security rule 1: exposed capabilities without a full
  * contract (description, input, output, effect) fail verification. Spec rule
- * 3: destructive capabilities may only be exposed over HTTP, and only when
- * the prepare/commit confirmation secret (PRACHT_CONFIRMATION_SECRET) is
- * configured in the environment `pracht verify` runs in.
+ * 3: destructive capabilities may only be exposed over HTTP and remote MCP,
+ * and only when the prepare/commit confirmation secret
+ * (PRACHT_CONFIRMATION_SECRET) is configured in the environment `pracht verify`
+ * runs in — MCP additionally needs the `agents.mcp.destructive` opt-in and a
+ * registered approval store.
  */
 export function collectCapabilityChecks(project: ProjectConfig, checks: Check[]): void {
   const manifestPath = resolveProjectPath(project.root, project.appFile);
@@ -59,6 +63,8 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   const manifestDir = dirname(manifestPath);
   const httpExposedNames: string[] = [];
   const mcpExposed: string[] = [];
+  const destructiveMcpExposed: string[] = [];
+  const projection = readMcpProjectionConfig(manifestSource);
   for (const entry of entries) {
     // Root-relative refs ("/src/capabilities/x.ts") resolve against the project
     // root, matching the runtime registry and the Vite plugin; everything else
@@ -86,18 +92,150 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     if (hasValidStaticHttpExposure(source)) {
       httpExposedNames.push(entry.name);
     }
-    collectSingleCapabilityChecks(
-      entry.name,
-      entry.path,
-      source,
-      registeredMiddleware,
-      checks,
+    collectSingleCapabilityChecks(entry.name, entry.path, source, registeredMiddleware, checks, {
       mcpExposed,
-    );
+      destructiveMcpExposed,
+      projection,
+    });
   }
 
   collectShadowedNameChecks(httpExposedNames, checks);
-  collectMcpProjectionChecks(mcpExposed, manifestSource, checks);
+  collectMcpProjectionChecks(mcpExposed, projection, checks);
+  collectDestructiveMcpChecks(destructiveMcpExposed, projection, project, checks);
+}
+
+/**
+ * What the manifest source says about `agents.mcp`. Static, so a manifest that
+ * assembles its `agents` config elsewhere reads as unconfigured — which is why
+ * an unseen projection downgrades to the existing warning instead of failing
+ * the build.
+ */
+interface McpProjectionConfigScan {
+  /** `agents: { … mcp: … }` is visible in the manifest source. */
+  configured: boolean;
+  /** `destructive: true` appears inside the visible `agents.mcp` config. */
+  destructive: boolean;
+}
+
+function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigScan {
+  const appBody = extractDefineAppObjectBody(manifestSource);
+  const agentsBody = readInlineObjectBody(
+    appBody ? scanTopLevelProperties(appBody).get("agents") : undefined,
+  );
+  if (agentsBody === null) return { configured: false, destructive: false };
+
+  const mcp = scanTopLevelProperties(agentsBody).get("mcp");
+  if (mcp === undefined) return { configured: false, destructive: false };
+
+  const mcpBody = readInlineObjectBody(mcp);
+  const destructive =
+    mcpBody !== null &&
+    evaluateLiteral(scanTopLevelProperties(mcpBody).get("destructive") ?? "") === true;
+  return { configured: true, destructive };
+}
+
+function readInlineObjectBody(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed.startsWith("{") && trimmed.endsWith("}") ? trimmed.slice(1, -1) : null;
+}
+
+/**
+ * Destructive tools on the MCP surface are the one exposure that needs state:
+ * the confirmation token travels to the same agent that will commit with it, so
+ * only a durable approval store makes the commit exactly-once.
+ *
+ * Both checks here are warnings, deliberately. Neither fact is decidable from
+ * source: the manifest may assemble `agents` elsewhere, and the store may be
+ * registered by a workspace package this scan never reads. The gate that
+ * actually holds is the runtime's — the MCP endpoint refuses to serve a
+ * destructive tool when the store, the confirmation secret, or a resolvable
+ * principal is missing — so a static grep must report, not hard-block.
+ */
+function collectDestructiveMcpChecks(
+  destructiveMcpExposed: string[],
+  projection: McpProjectionConfigScan,
+  project: ProjectConfig,
+  checks: Check[],
+): void {
+  if (destructiveMcpExposed.length === 0) return;
+  const names = destructiveMcpExposed.map((name) => JSON.stringify(name)).join(", ");
+
+  if (!projection.destructive) {
+    // An unseen `agents.mcp` already produced the "nothing serves it" warning.
+    if (projection.configured) {
+      checks.push(
+        createCheck(
+          "warning",
+          `Capabilities ${names} are destructive and set expose.mcp, but the manifest does not ` +
+            "set agents.mcp.destructive — the projection filters them out at serve time. Add " +
+            "`agents: { mcp: { destructive: true } }` (with an approval store) or drop expose.mcp.",
+        ),
+      );
+    }
+    return;
+  }
+
+  const scan = scanForApprovalStore(project);
+  if (!scan.found) {
+    checks.push(
+      createCheck(
+        "warning",
+        "agents.mcp.destructive is enabled, but no `setCapabilityApprovalStore(` call was found " +
+          `in ${scan.searched.join(", ")}. Destructive MCP commits must be exactly-once: ` +
+          "register a durable approval store (createSqlApprovalStore from @pracht/core/server) " +
+          "from a server-only module, imported by a server entry or a capability module. The " +
+          "MCP endpoint refuses to serve destructive tools without one. Ignore this if the " +
+          "registration lives outside those directories (a workspace package, say).",
+      ),
+    );
+    return;
+  }
+
+  checks.push(
+    createCheck(
+      "ok",
+      `Destructive MCP tools (${names}) are opted in and a setCapabilityApprovalStore() call ` +
+        "exists in the scanned source. The runtime still verifies that the module loaded and a " +
+        "store is registered before serving them.",
+    ),
+  );
+}
+
+/**
+ * Conservative source scan for a store registration, over the directories the
+ * project actually configures. It ignores comments and literals, but cannot
+ * prove the module is imported — only that source contains a call-shaped
+ * registration — which is why its absence is a warning and the runtime fails
+ * closed regardless.
+ */
+function scanForApprovalStore(project: ProjectConfig): { found: boolean; searched: string[] } {
+  // Deduplicated because the defaults nest (`/src/server` under `/src`) and a
+  // project may point several of these at one directory.
+  const configured = [project.serverDir, project.capabilitiesDir, dirname(project.appFile)];
+  const searched = [...new Set(configured)];
+  for (const dir of searched) {
+    const root = resolveProjectPath(project.root, dir);
+    if (!existsSync(root)) continue;
+    let entries: string[];
+    try {
+      entries = readdirSync(root, { recursive: true }) as string[];
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!/\.(ts|tsx|js|jsx|mts|mjs)$/.test(entry)) continue;
+      try {
+        const source = maskCommentsAndStrings(readFileSync(resolve(root, entry), "utf-8"));
+        if (/\bsetCapabilityApprovalStore\s*\(/.test(source)) {
+          return { found: true, searched };
+        }
+      } catch {
+        // Directories and unreadable files are not registrations.
+      }
+    }
+  }
+  return { found: false, searched };
 }
 
 /**
@@ -107,7 +245,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
  */
 function collectMcpProjectionChecks(
   mcpExposed: string[],
-  manifestSource: string,
+  projection: McpProjectionConfigScan,
   checks: Check[],
 ): void {
   if (mcpExposed.length === 0) return;
@@ -123,7 +261,7 @@ function collectMcpProjectionChecks(
     );
   }
 
-  if (!manifestConfiguresMcpProjection(manifestSource)) {
+  if (!projection.configured) {
     checks.push(
       createCheck(
         "warning",
@@ -134,20 +272,6 @@ function collectMcpProjectionChecks(
       ),
     );
   }
-}
-
-/**
- * Conservative source scan for `agents: { … mcp: … }` in the manifest.
- *
- * Verification is static (no Vite server), so a manifest that builds its
- * `agents` config in a separate variable reads as unconfigured. That only
- * costs one spurious warning, never a failed build — which is why this stays
- * a warning.
- */
-function manifestConfiguresMcpProjection(manifestSource: string): boolean {
-  const agentsIndex = manifestSource.search(/\bagents\s*:\s*\{/);
-  if (agentsIndex === -1) return false;
-  return /\bmcp\s*:/.test(manifestSource.slice(agentsIndex));
 }
 
 /**
@@ -193,8 +317,13 @@ function collectSingleCapabilityChecks(
   source: string,
   registeredMiddleware: Set<string>,
   checks: Check[],
-  mcpExposed: string[],
+  graph: {
+    mcpExposed: string[];
+    destructiveMcpExposed: string[];
+    projection: McpProjectionConfigScan;
+  },
 ): void {
+  const { mcpExposed, destructiveMcpExposed, projection } = graph;
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
   const args = extractDefineCapabilityArgs(source);
   if (!args) {
@@ -324,14 +453,19 @@ function collectSingleCapabilityChecks(
     }
 
     if (effectValue === "destructive") {
-      if (hasWebmcp || hasMcp) {
+      if (hasMcp) destructiveMcpExposed.push(name);
+      if (hasWebmcp) {
         problems.push(
-          "is destructive and exposed to agent projections (webmcp/mcp) — only expose.http " +
-            "is allowed, gated by the prepare/commit confirmation flow",
+          "is destructive and exposed as a WebMCP page tool — a browser host's approval UX is " +
+            "not a security boundary. Use expose.http, or expose.mcp with agents.mcp.destructive, " +
+            "both gated by the prepare/commit confirmation flow",
         );
-      } else if (hasHttp && !process.env.PRACHT_CONFIRMATION_SECRET) {
+      } else if (
+        (hasHttp || (hasMcp && projection.destructive)) &&
+        !process.env.PRACHT_CONFIRMATION_SECRET
+      ) {
         problems.push(
-          "is destructive and exposed over HTTP without PRACHT_CONFIRMATION_SECRET in the " +
+          "is destructive and exposed without PRACHT_CONFIRMATION_SECRET in the " +
             "environment — the prepare/commit confirmation flow needs the secret and the " +
             "runtime fails closed without it. Verification reads the real environment, not " +
             "`.env`: `pracht dev` loads that file, but a deployed server takes its " +

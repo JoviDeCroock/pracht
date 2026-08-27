@@ -1,15 +1,25 @@
 import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
 import { purgeNotes } from "../server/notes-store.ts";
+// Registers the approval store. Destructive tools over remote MCP need one, and
+// importing it from a capability module means it is registered before the graph
+// is ever served.
+import "../server/approvals.ts";
 
 interface PurgeInput {
   titlePrefix: string;
+  /** Distinguishes intentional repeat operations for confirmation replay protection. */
+  idempotencyKey?: string;
 }
 
-// Destructive demo capability: exposed over HTTP, which means every dispatch
-// goes through the server-verified prepare/commit confirmation flow — the
-// first call answers 409 confirmation_required with a token, and only a
-// second call with identical input plus the x-pracht-confirm header runs.
-// Requires PRACHT_CONFIRMATION_SECRET in the environment.
+// Destructive demo capability, exposed over HTTP *and* remote MCP — which means
+// every dispatch goes through the server-verified prepare/commit confirmation
+// flow. The first call answers 409 confirmation_required with a token, and only
+// a second call with identical input plus the token runs: over HTTP the token
+// travels in the x-pracht-confirm header, over MCP in
+// `_meta["io.pracht/confirmation"]` on `tools/call`.
+//
+// Requires PRACHT_CONFIRMATION_SECRET in the environment, plus
+// `agents.mcp.destructive` and a registered approval store for the MCP half.
 export default defineCapability({
   title: "Purge notes",
   description: "Permanently delete every note whose title starts with the prefix.",
@@ -17,6 +27,12 @@ export default defineCapability({
     type: "object",
     properties: {
       titlePrefix: { type: "string", minLength: 3 },
+      idempotencyKey: {
+        type: "string",
+        minLength: 1,
+        description:
+          "Stable operation identity. Change it only when intentionally repeating the purge.",
+      },
     },
     required: ["titlePrefix"],
     additionalProperties: false,
@@ -31,6 +47,7 @@ export default defineCapability({
   effect: "destructive",
   expose: {
     http: true,
+    mcp: true,
   },
   async run({ input }: CapabilityRunArgs<PurgeInput>) {
     return { purged: purgeNotes(input.titlePrefix) };

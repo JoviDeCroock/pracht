@@ -33,16 +33,29 @@ import {
   mcpToolName,
 } from "@pracht/capabilities";
 import {
+  clearDestructiveConfirmed,
   handleCapabilityRequest,
   setActiveCapabilityHost,
   type CapabilityHostApp,
   type ResolvedCapability,
 } from "./runtime-capabilities.ts";
+import { hasWebBotAuthIdentitySource } from "./runtime-agent-auth.ts";
+import {
+  hasCapabilityApprovalPrincipalResolver,
+  resolveCapabilityApprovalStore,
+} from "./runtime-approval.ts";
+import {
+  CONFIRMATION_SECRET_ENV,
+  isWellFormedConfirmationToken,
+  resolveConfirmationSecret,
+} from "./runtime-confirmation.ts";
+import { resolveRegistryModule } from "./runtime-manifest.ts";
 export { resolveMcpEndpoint } from "./mcp-config.ts";
 import type {
   CapabilityAuditHook,
   CapabilityEnvelope,
   McpProjectionConfig,
+  MiddlewareModule,
   ModuleRegistry,
   PrachtAgentIdentity,
   PrachtAgentsConfig,
@@ -59,6 +72,13 @@ export {
   MCP_PROTOCOL_VERSIONS,
 } from "@pracht/capabilities";
 
+/**
+ * Stand-in for a `_meta` confirmation value that is not even shaped like a
+ * token. It has no `.` separators, so `verifyConfirmationToken()` rejects it as
+ * `malformed` before any secret is consulted.
+ */
+const MALFORMED_CONFIRMATION_TOKEN = "malformed";
+
 const JSONRPC_PARSE_ERROR = -32700;
 const JSONRPC_INVALID_REQUEST = -32600;
 const JSONRPC_METHOD_NOT_FOUND = -32601;
@@ -70,16 +90,26 @@ export function normalizeMcpRequestPath(path: string): string {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
-/** Capabilities the MCP projection serves, in graph order. */
+/**
+ * Capabilities the MCP projection serves, in graph order.
+ *
+ * `destructive` effects are filtered out unless the app opted in with
+ * `agents.mcp.destructive`. The default is the conservative one: a capability
+ * that declares `expose.mcp` and is destructive is simply invisible to the
+ * transport, exactly as it was before the opt-in existed.
+ */
 export function mcpExposedCapabilities(
   capabilities: readonly ResolvedCapability[],
+  mcp?: McpProjectionConfig,
 ): ResolvedCapability[] {
+  // Compared with `=== true` so an absent, undefined, or non-boolean config
+  // reads as "off". Manifest validation rejects non-booleans; this is the
+  // second line of defense for a hand-rolled app object.
+  const allowDestructive = mcp?.destructive === true;
   return capabilities.filter(
-    // Destructive capabilities cannot declare `expose.mcp` today (the registry
-    // rejects it). The second check is defense in depth: a hand-rolled
-    // capability object must not be able to reach agents without the
-    // prepare/commit flow a host cannot be trusted to carry.
-    (entry) => entry.capability.expose?.mcp === true && entry.capability.effect !== "destructive",
+    (entry) =>
+      entry.capability.expose?.mcp === true &&
+      (allowDestructive || entry.capability.effect !== "destructive"),
   );
 }
 
@@ -237,7 +267,45 @@ export interface HandleMcpRequestOptions<TContext> {
     });
   }
 
-  const exposedCapabilities = mcpExposedCapabilities(options.capabilities);
+  const exposedCapabilities = mcpExposedCapabilities(options.capabilities, options.mcp);
+
+  // Fail closed, loudly, rather than advertising destructive tools that every
+  // call would refuse — or worse, serving commits that could be replayed. One
+  // rule for all of the preconditions: if a destructive tool would be served
+  // and anything its confirmation flow needs is missing, the whole endpoint
+  // answers an explanatory error instead of half-working.
+  const destructiveCapabilities = exposedCapabilities.filter(
+    (entry) => entry.capability.effect === "destructive",
+  );
+  if (destructiveCapabilities.length > 0) {
+    try {
+      await loadDestructiveMcpRegistrationModules(options, destructiveCapabilities);
+    } catch (error: unknown) {
+      const detail = options.exposeErrors && error instanceof Error ? `: ${error.message}` : ".";
+      return respond(200, {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: JSONRPC_INTERNAL_ERROR,
+          message: `Destructive MCP setup modules failed to load${detail}`,
+        },
+      });
+    }
+    const unmet = destructiveMcpPreconditionErrors(options.agents);
+    if (unmet.length > 0) {
+      return respond(200, {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: JSONRPC_INTERNAL_ERROR,
+          message:
+            "agents.mcp.destructive serves destructive capabilities, but this server cannot " +
+            `run their confirmation flow: ${unmet.join(" ")}`,
+        },
+      });
+    }
+  }
+
   const invalidToolNames = exposedCapabilities.filter(
     (entry) => !isValidMcpToolName(mcpToolName(entry.name)),
   );
@@ -306,7 +374,7 @@ export interface HandleMcpRequestOptions<TContext> {
       return respond(200, {
         jsonrpc: "2.0",
         id,
-        result: { tools: mcpExposedCapabilities(options.capabilities).map(toolDescriptor) },
+        result: { tools: exposedCapabilities.map(toolDescriptor) },
       });
 
     case "tools/call":
@@ -324,15 +392,84 @@ export interface HandleMcpRequestOptions<TContext> {
   }
 }
 
+/**
+ * Import the middleware modules that would run before a destructive
+ * capability's confirmation gate. Their top-level server setup may register
+ * the approval store, confirmation secret, or application-principal resolver;
+ * checking process-local registrations before these imports made the endpoint
+ * depend on an unrelated request warming the middleware graph first.
+ *
+ * Importing is enough here. The middleware functions still execute only for a
+ * real `tools/call`, through the ordinary capability pipeline.
+ */
+async function loadDestructiveMcpRegistrationModules<TContext>(
+  options: HandleMcpRequestOptions<TContext>,
+  capabilities: readonly ResolvedCapability[],
+): Promise<void> {
+  const files = new Set(options.apiMiddlewareFiles ?? []);
+  for (const capability of capabilities) {
+    for (const file of capability.middlewareFiles) files.add(file);
+  }
+  await Promise.all(
+    [...files].map((file) =>
+      resolveRegistryModule<MiddlewareModule>(options.registry.middlewareModules, file),
+    ),
+  );
+}
+
+/**
+ * Everything the prepare/commit flow needs before a destructive tool may be
+ * advertised, checked in one place so all three answer the same way. Each of
+ * these would otherwise produce the same broken shape: a tool listed in
+ * `tools/list` that answers `confirmation_unavailable` on every call.
+ */
+export function destructiveMcpPreconditionErrors(agents: PrachtAgentsConfig | undefined): string[] {
+  const unmet: string[] = [];
+  if (!resolveCapabilityApprovalStore()) {
+    unmet.push(
+      "no approval store is registered, so commits could not be made exactly-once " +
+        "(call setCapabilityApprovalStore() from a server-only module).",
+    );
+  }
+  if (!resolveConfirmationSecret()) {
+    unmet.push(
+      `no confirmation secret is configured (set ${CONFIRMATION_SECRET_ENV}, or call ` +
+        "setCapabilityConfirmationSecret()).",
+    );
+  }
+  // Human mode needs an identity to attach a decision to. Web Bot Auth does not
+  // guarantee one per request, but without it *and* without a resolver there is
+  // no way any request could ever produce one.
+  if (
+    agents?.confirmation?.mode === "human" &&
+    !hasWebBotAuthIdentitySource(agents.webBotAuth) &&
+    !hasCapabilityApprovalPrincipalResolver()
+  ) {
+    unmet.push(
+      'agents.confirmation.mode is "human" but no principal can ever be resolved ' +
+        "(configure agents.webBotAuth with a valid 32-byte base64url Ed25519 static key or " +
+        "HTTPS directory, or call " +
+        "setCapabilityApprovalPrincipalResolver() from a server-only module).",
+    );
+  }
+  return unmet;
+}
+
 // ---------------------------------------------------------------------------
 // tools/list
 // ---------------------------------------------------------------------------
 function toolDescriptor(entry: ResolvedCapability) {
   const { capability } = entry;
+  const destructive = capability.effect === "destructive";
   return {
     name: mcpToolName(entry.name),
     title: capability.title,
-    description: capability.description,
+    description: destructive
+      ? `${capability.description}\n\nDestructive: the first call returns ` +
+        `"confirmation_required" with a confirmation token and changes nothing. To commit, ` +
+        `repeat the call with identical arguments and the token in ` +
+        `_meta[${JSON.stringify(MCP_CONFIRMATION_META_KEY)}]. A token works once.`
+      : capability.description,
     inputSchema: capability.input,
     outputSchema: capability.output,
     // Client UX hints, never enforcement — the effect class that produced
@@ -343,9 +480,18 @@ function toolDescriptor(entry: ResolvedCapability) {
       // operation is additive. Omit the hint so MCP's conservative default
       // applies unless Pracht grows a more precise effect classification.
       ...(capability.effect === "read" ? { destructiveHint: false } : {}),
+      ...(destructive ? { destructiveHint: true } : {}),
       idempotentHint: capability.effect === "read",
     },
-    _meta: { [MCP_CAPABILITY_META_KEY]: entry.name, [MCP_EFFECT_META_KEY]: capability.effect },
+    _meta: {
+      [MCP_CAPABILITY_META_KEY]: entry.name,
+      [MCP_EFFECT_META_KEY]: capability.effect,
+      // Machine-readable counterpart of the description note above, so a host
+      // can drive prepare/commit without parsing prose.
+      ...(destructive
+        ? { [MCP_CONFIRMATION_META_KEY]: { required: true, metaKey: MCP_CONFIRMATION_META_KEY } }
+        : {}),
+    },
   };
 }
 
@@ -389,7 +535,7 @@ async function handleToolsCall<TContext>(
     });
   }
 
-  const exposed = mcpExposedCapabilities(options.capabilities);
+  const exposed = mcpExposedCapabilities(options.capabilities, options.mcp);
   const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
   if (!match) {
     // An unknown tool is a protocol-level error, not a tool execution failure.
@@ -425,22 +571,31 @@ async function handleToolsCall<TContext>(
     "mcp",
     options.onAudit,
     options.agent ?? null,
+    options.request,
   );
   const capabilityUrl = new URL(capabilityRequest.url);
-  const response = await handleCapabilityRequest({
-    match,
-    context: options.context,
-    registry: options.registry,
-    request: capabilityRequest,
-    url: capabilityUrl,
-    pathname: capabilityUrl.pathname,
-    exposeErrors: options.exposeErrors,
-    apiMiddlewareFiles: options.apiMiddlewareFiles,
-    agents: options.agents,
-    agent: options.agent ?? null,
-    transport: "mcp",
-    onAudit: options.onAudit,
-  });
+  let response: Response;
+  try {
+    response = await handleCapabilityRequest({
+      match,
+      context: options.context,
+      registry: options.registry,
+      request: capabilityRequest,
+      url: capabilityUrl,
+      pathname: capabilityUrl.pathname,
+      exposeErrors: options.exposeErrors,
+      apiMiddlewareFiles: options.apiMiddlewareFiles,
+      agents: options.agents,
+      agent: options.agent ?? null,
+      transport: "mcp",
+      onAudit: options.onAudit,
+    });
+  } finally {
+    // The synthesized and incoming transport requests share one host object.
+    // Clear its confirmation grant as soon as the dispatch settles so code
+    // retaining either Request cannot compose destructive work later.
+    clearDestructiveConfirmed(capabilityRequest);
+  }
 
   let envelope: CapabilityEnvelope;
   try {
@@ -487,7 +642,16 @@ function synthesizeCapabilityRequest<TContext>(
   if (authorization) headers.set("authorization", authorization);
   const confirmation = meta?.[MCP_CONFIRMATION_META_KEY];
   if (typeof confirmation === "string" && confirmation !== "") {
-    headers.set(CONFIRMATION_HEADER, confirmation);
+    // `_meta` is JSON, so an unauthenticated caller can put a newline or a NUL
+    // in here — values `Headers.set()` rejects by throwing. Screen the shape
+    // first and substitute a token that cannot verify under any secret, so a
+    // malformed token takes the identical path a forged one does (middleware
+    // runs, the gate answers `confirmation_invalid`, the dispatch is audited)
+    // instead of escaping this function as an unhandled TypeError.
+    headers.set(
+      CONFIRMATION_HEADER,
+      isWellFormedConfirmationToken(confirmation) ? confirmation : MALFORMED_CONFIRMATION_TOKEN,
+    );
   }
   // Capabilities exposed only over MCP have no HTTP path; a stable internal
   // URL keeps `request.url` meaningful for middleware without opening an
@@ -522,6 +686,15 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
   if (error.issues?.length) {
     lines.push(...error.issues.map((issue) => `- ${issue.path || "(root)"}: ${issue.message}`));
   }
+  // The confirmation token is the whole point of a `confirmation_required`
+  // answer, and MCP hosts that only read text still have to be able to complete
+  // the flow — so it goes in both renderings, not just the structured one.
+  if (error.confirmationToken) {
+    lines.push(
+      `Confirmation token (pass as _meta[${JSON.stringify(MCP_CONFIRMATION_META_KEY)}] on an ` +
+        `identical call): ${error.confirmationToken}`,
+    );
+  }
 
   return {
     content: [{ type: "text", text: lines.join("\n") }],
@@ -533,6 +706,12 @@ function toolResult(match: ResolvedCapability, envelope: CapabilityEnvelope, sta
         code: error.code,
         message: error.message,
         ...(error.issues ? { issues: error.issues } : {}),
+        ...(error.confirmationToken ? { confirmationToken: error.confirmationToken } : {}),
+        ...(error.expiresAt !== undefined ? { expiresAt: error.expiresAt } : {}),
+        ...(error.approvalId ? { approvalId: error.approvalId } : {}),
+        ...(error.retryAfterSeconds !== undefined
+          ? { retryAfterSeconds: error.retryAfterSeconds }
+          : {}),
       },
     },
   };

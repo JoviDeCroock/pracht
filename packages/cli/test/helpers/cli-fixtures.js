@@ -16,6 +16,7 @@ export const cliPath = fileURLToPath(new URL("../../bin/pracht.js", import.meta.
 export const repoRoot = resolve(dirname(cliPath), "../../..");
 const repoTempRoot = resolve(dirname(cliPath), "../test/.tmp");
 export const coreImportPath = resolve(repoRoot, "packages/framework/src/index.ts");
+export const coreServerImportPath = resolve(repoRoot, "packages/framework/src/server.ts");
 export const capabilitiesImportPath = resolve(repoRoot, "packages/capabilities/src/index.ts");
 export const nodeAdapterImportPath = resolve(repoRoot, "packages/adapter-node/src/index.ts");
 export const vitePluginImportPath = resolve(repoRoot, "packages/vite-plugin/src/index.ts");
@@ -575,6 +576,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@pracht/adapter-node": ${JSON.stringify(nodeAdapterImportPath)},
+      "@pracht/capabilities": ${JSON.stringify(capabilitiesImportPath)},
+      "@pracht/core/server": ${JSON.stringify(coreServerImportPath)},
       "@pracht/core": ${JSON.stringify(coreImportPath)},
     },
   },
@@ -587,6 +590,12 @@ export default defineConfig({
     `import { defineApp, group, route, timeRevalidate } from "@pracht/core";
 
 export const app = defineApp({
+  ${
+    options.destructiveMcp
+      ? `agents: { mcp: {${options.destructiveMcpOptIn === false ? "" : " destructive: true "}} },
+  capabilities: { "notes.purge": () => import("./capabilities/notes-purge.ts") },`
+      : ""
+  }
   shells: {
     app: () => import("./shells/app.tsx"),
   },
@@ -609,6 +618,24 @@ export const app = defineApp({
 });
 `,
   );
+  if (options.destructiveMcp) {
+    writeProjectFile(
+      appDir,
+      "src/capabilities/notes-purge.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  title: "Purge notes",
+  description: "Purge every note.",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: { purged: { type: "number" } }, required: ["purged"] },
+  effect: "destructive",
+  expose: { mcp: true },
+  async run() { return { purged: 0 }; },
+});
+`,
+    );
+  }
   writeProjectFile(
     appDir,
     "src/routes/dashboard.tsx",

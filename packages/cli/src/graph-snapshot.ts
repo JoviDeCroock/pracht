@@ -7,6 +7,7 @@ import {
   serializeApiRoutes,
   serializeAppRoutes,
   serializeCapabilities,
+  servesDestructiveMcpTools,
 } from "@pracht/core";
 import type {
   AppGraphApiRoute,
@@ -45,6 +46,8 @@ export interface GraphSnapshot {
   capabilities: AppGraphCapability[];
   /** Served remote MCP endpoint, or `null` when the projection is disabled. */
   mcpEndpoint: string | null;
+  /** Present only when `agents.mcp.destructive` serves destructive MCP tools. */
+  mcpDestructive?: true;
   constraints: RouteConstraint[];
 }
 
@@ -85,6 +88,9 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
         api,
         capabilities,
         mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
+        ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
+          ? { mcpDestructive: true as const }
+          : {}),
         constraints: serverModule.resolvedApp.constraints ?? [],
       }),
       loaderRoutePaths: new Set(
@@ -133,6 +139,7 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
       left.name.localeCompare(right.name),
     ),
     mcpEndpoint: snapshot.mcpEndpoint ?? null,
+    ...(snapshot.mcpDestructive === true ? { mcpDestructive: true } : {}),
     constraints: snapshot.constraints ?? [],
   };
   return JSON.parse(JSON.stringify(normalized));
@@ -229,6 +236,9 @@ function parseSnapshot(contents: string): GraphSnapshot | null {
       // Snapshots committed before the remote MCP projection was served have
       // no endpoint field and therefore represent an unserved projection.
       mcpEndpoint: typeof parsed.mcpEndpoint === "string" ? parsed.mcpEndpoint : null,
+      // Omit the false/default form so snapshots from before the destructive
+      // MCP opt-in remain byte-identical until an app actually enables it.
+      ...(parsed.mcpDestructive === true ? { mcpDestructive: true } : {}),
       constraints: Array.isArray(parsed.constraints) ? parsed.constraints : [],
     };
   } catch {
@@ -281,6 +291,7 @@ export interface GraphDiff {
   changedApi: ChangedEntry[];
   changedRoutes: ChangedEntry[];
   identical: boolean;
+  mcpDestructiveChange: FieldChange | null;
   mcpEndpointChange: FieldChange | null;
   removedApi: AppGraphApiRoute[];
   removedConstraints: RouteConstraint[];
@@ -326,6 +337,16 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     baseMcpEndpoint === headMcpEndpoint
       ? null
       : { field: "mcpEndpoint", from: baseMcpEndpoint, to: headMcpEndpoint };
+  const baseMcpDestructive = base.mcpDestructive === true;
+  const headMcpDestructive = head.mcpDestructive === true;
+  const mcpDestructiveChange =
+    baseMcpDestructive === headMcpDestructive
+      ? null
+      : {
+          field: "mcpDestructive",
+          from: baseMcpDestructive,
+          to: headMcpDestructive,
+        };
 
   const identical =
     routeDiff.added.length === 0 &&
@@ -337,6 +358,7 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     addedConstraints.length === 0 &&
     removedConstraints.length === 0 &&
     mcpEndpointChange === null &&
+    mcpDestructiveChange === null &&
     capabilityChanges.length === 0;
 
   return {
@@ -347,13 +369,15 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     changedApi: apiDiff.changed,
     changedRoutes: routeDiff.changed,
     identical,
+    mcpDestructiveChange,
     mcpEndpointChange,
     removedApi: apiDiff.removed,
     removedConstraints,
     removedRoutes: routeDiff.removed,
     widensAgentSurface:
       capabilityChanges.some((change) => change.severity === "warn") ||
-      (baseMcpEndpoint === null && headMcpEndpoint !== null),
+      (baseMcpEndpoint === null && headMcpEndpoint !== null) ||
+      (!baseMcpDestructive && headMcpDestructive),
   };
 }
 
@@ -704,6 +728,9 @@ export function formatPlanLines(diff: GraphDiff, options: FormatPlanOptions): st
   if (diff.mcpEndpointChange) {
     lines.push(formatMcpEndpointChange(diff.mcpEndpointChange));
   }
+  if (diff.mcpDestructiveChange) {
+    lines.push(formatMcpDestructiveChange(diff.mcpDestructiveChange));
+  }
   for (const change of diff.capabilityChanges) {
     lines.push(
       `${capabilityChangeMarker(change)} capability ${change.capability}  ${change.detail}`,
@@ -740,6 +767,12 @@ function formatMcpEndpointChange(change: FieldChange): string {
   return `~ mcp endpoint ${from} → ${to}`;
 }
 
+function formatMcpDestructiveChange(change: FieldChange): string {
+  return change.to === true
+    ? "! mcp destructive tools enabled — declared destructive MCP capabilities are now reachable by agents"
+    : "- mcp destructive tools disabled";
+}
+
 export function formatPlanText(diff: GraphDiff, options: FormatPlanOptions): string {
   const header = options.base
     ? `Pracht plan (base: ${options.base})`
@@ -770,6 +803,7 @@ export function formatPlanMarkdown(diff: GraphDiff, options: FormatPlanOptions):
     countLabel(diff.changedRoutes.length + diff.changedApi.length, "changed"),
     countLabel(diff.removedRoutes.length + diff.removedApi.length, "removed"),
     countLabel(diff.mcpEndpointChange ? 1 : 0, "MCP endpoint change"),
+    countLabel(diff.mcpDestructiveChange ? 1 : 0, "MCP destructive-mode change"),
     countLabel(diff.capabilityChanges.length, "capability change"),
   ]
     .filter(Boolean)

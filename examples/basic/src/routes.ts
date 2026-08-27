@@ -48,7 +48,11 @@ export const app = defineApp({
     // that never open a browser.
     mcp: {
       serverInfo: { name: "pracht-basic-example", version: "0.0.0" },
-      instructions: "Search and create notes in the pracht basic example app.",
+      instructions: "Search, create, and purge notes in the pracht basic example app.",
+      // Opt in to serving `destructive` tools (notes.purge). Every call still
+      // goes through prepare/commit, and the endpoint refuses to serve at all
+      // unless an approval store is registered — src/server/approvals.ts.
+      destructive: true,
     },
   },
   routes: [

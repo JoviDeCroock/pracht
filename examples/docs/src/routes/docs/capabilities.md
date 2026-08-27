@@ -104,7 +104,7 @@ export async function loader({ request, context, signal }) {
 }
 ```
 
-`invokeCapability()` is trusted server composition. It runs the callee's input validation, named middleware, body, and output validation, but not app-level API middleware. Remote MCP is the safety exception: nested calls re-apply the callee's `agentPolicy` and refuse destructive effects, while private non-destructive capabilities remain composable. HTTP and WebMCP composing capabilities must still own any transport-specific authorization they need. Under a served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent`. Every nested audit event uses `transport: "server"` and `via` to retain the trusted request transport that caused it.
+`invokeCapability()` is trusted server composition. It runs the callee's input validation, named middleware, body, and output validation, but not app-level API middleware. Remote MCP is the safety exception: nested calls re-apply the callee's `agentPolicy` and refuse destructive effects unless the tool being served is itself a destructive capability that already cleared prepare/commit — a request-scoped grant covering every destructive callee, just like a confirmed HTTP endpoint, rather than a per-callee check. Private non-destructive capabilities remain composable. HTTP and WebMCP composing capabilities must still own any transport-specific authorization they need. Under a served HTTP or MCP request, nested context and audit identity remain bound to what the transport verified rather than a replacement `context.agent`. Every nested audit event uses `transport: "server"` and `via` to retain the trusted request transport that caused it.
 
 From the browser — `virtual:pracht/capabilities` contains only http-exposed names, endpoints, and effect classes; capability modules never enter the client bundle:
 
@@ -219,7 +219,7 @@ The shim ships as its own chunk behind feature detection: browsers without the A
 
 - A capability without `expose` is never reachable over the network.
 - Exposure requires a complete contract — `pracht verify` fails for exposed capabilities missing a description, schema, or effect class.
-- `destructive` capabilities are gated by a server-verified confirmation flow and cannot be exposed to agent projections — see [Agent Trust](/docs/agent-trust).
+- `destructive` capabilities are gated by a server-verified confirmation flow. They may be exposed over HTTP and over [remote MCP](/docs/remote-mcp#destructive-tools) — the latter only with the `agents.mcp.destructive` opt-in and a registered approval store — never as a WebMCP page tool. See [Agent Trust](/docs/agent-trust).
 - Output is validated too: a handler returning data outside its output schema produces a redacted 500, never the raw value.
 - HTTP-exposed capabilities are listed in the generated [`/llms.txt`](/docs/llms) with their endpoint, effect class, and description, so agents can discover them without scraping.
 
@@ -237,7 +237,7 @@ The client stays opt-in too. Capability metadata only reaches the browser throug
 
 ## Inspect the Graph
 
-The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the `pracht mcp` server, and the static checks in `pracht verify`.
+The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the `pracht mcp` server, and the static checks in `pracht verify`. Runtime-backed devtools label a blocked declaration `mcp(unserved)`. Graph-only CLI inspection labels it `mcp(unverified)` when the unmet precondition may instead be registered by the skipped adapter server entry. Destructive declarations without `agents.mcp.destructive` remain `mcp(unserved)`. JSON inspection always includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`, so automation can distinguish declared exposure, verified runtime failure, and incomplete inspection.
 
 ```sh
 pracht inspect capabilities
@@ -245,7 +245,7 @@ pracht inspect capabilities
 # notes.create   write  http,mcp          /api/capabilities/notes/create
 ```
 
-`pracht inspect agents` rolls the same graph up against `defineApp({ agents })` — the Web Bot Auth policy and keys, the destructive-confirmation mode, the remote MCP endpoint, whether `llms.txt` is generated, and how many capabilities each transport exposes.
+`pracht inspect agents` rolls the same graph up against `defineApp({ agents })` — the Web Bot Auth policy and keys, the destructive-confirmation mode, the remote MCP endpoint, whether `llms.txt` is generated, and how many capabilities each transport exposes. Its JSON payload preserves the same MCP runtime-status fields, while text output marks affected declarations `mcp(unserved)` or `mcp(unverified)` instead of presenting a declared transport as proof that the tool is reachable.
 
 The CLI, MCP, startup-banner, and Capabilities-table views describe the static configured surface. To see whether agents actually are calling it, read the live audit events in the **Agents** panel on `/_pracht` in dev, or register a production sink with `addCapabilityAuditListener()`. Retained traffic keeps the panel visible after HMR removes the final capability, until the dev server restarts. See [Agent trust](/docs/agent-trust#audit-trail).
 

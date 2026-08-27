@@ -148,6 +148,62 @@ describe("formatDevBanner", () => {
     expect(banner).toMatch(/notes\.internal\s+read\s+private\s+-/);
   });
 
+  it("marks a destructive mcp exposure unserved without agents.mcp.destructive", () => {
+    const capabilities = [
+      {
+        effect: "destructive" as const,
+        httpPath: "/api/capabilities/notes/purge",
+        name: "notes.purge",
+        transports: ["http", "mcp"],
+      },
+      { effect: "read" as const, httpPath: null, name: "notes.search", transports: ["mcp"] },
+    ];
+    const options = { apiRoutes: [], color: false, localUrls: [], routes: [] };
+
+    // Endpoint configured, opt-in off: the read tool is served, the destructive
+    // one is filtered out at serve time, so the banner must not imply parity.
+    const withoutOptIn = formatDevBanner({ ...options, capabilities, mcpEndpoint: "/mcp" });
+    expect(withoutOptIn).toMatch(/notes\.purge\s+destructive\s+http,mcp\(unserved\)/);
+    expect(withoutOptIn).toMatch(/notes\.search\s+read\s+mcp\s/);
+
+    const withOptIn = formatDevBanner({
+      ...options,
+      capabilities,
+      mcpEndpoint: "/mcp",
+      mcpDestructive: true,
+    });
+    expect(withOptIn).toMatch(/notes\.purge\s+destructive\s+http,mcp\s/);
+
+    const unavailable = formatDevBanner({
+      ...options,
+      capabilities,
+      mcpEndpoint: "/mcp",
+      mcpDestructive: true,
+      mcpUnavailableReasons: ["no approval store is registered."],
+    });
+    expect(unavailable).toMatch(/notes\.purge\s+destructive\s+http,mcp\(unserved\)/);
+    expect(unavailable).toMatch(/notes\.search\s+read\s+mcp\(unserved\)/);
+    expect(unavailable).toContain("MCP endpoint unavailable: no approval store is registered.");
+
+    const unverified = formatDevBanner({
+      ...options,
+      capabilities,
+      mcpEndpoint: "/mcp",
+      mcpDestructive: true,
+      mcpRuntimeStatus: "unverified",
+      mcpUnavailableReasons: ["no approval store is registered."],
+    });
+    expect(unverified).toMatch(/notes\.purge\s+destructive\s+http,mcp\(unverified\)/);
+    expect(unverified).toMatch(/notes\.search\s+read\s+mcp\(unverified\)/);
+    expect(unverified).toContain("MCP endpoint unverified: no approval store is registered.");
+    expect(unverified).toContain("Registrations in the adapter server entry are not evaluated");
+
+    // No endpoint at all still trumps the opt-in.
+    const withoutEndpoint = formatDevBanner({ ...options, capabilities, mcpDestructive: true });
+    expect(withoutEndpoint).toMatch(/notes\.purge\s+destructive\s+http,mcp\(unserved\)/);
+    expect(withoutEndpoint).toMatch(/notes\.search\s+read\s+mcp\(unserved\)/);
+  });
+
   it("omits the capabilities section when none are registered", () => {
     const banner = formatDevBanner({
       apiRoutes,

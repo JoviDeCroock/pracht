@@ -52,6 +52,9 @@ accepts one trailing slash, so `/mcp` and `/mcp/` address the same projection.
 `expose.mcp` does **not** require `expose.http`: a capability can be reachable
 by remote agents without any public browser endpoint.
 
+A `destructive` capability needs a third opt-in — see [Destructive
+tools](#destructive-tools).
+
 The currently supported MCP protocol versions require tool input and output
 schemas rooted at `{ type: "object" }`. `defineCapability()`, the runtime
 registry, and `pracht verify` reject `expose.mcp` when either schema has a
@@ -72,7 +75,10 @@ named middleware and capability bodies can compose registered operations with
 non-destructive capabilities remain available as building blocks and run their
 own validation and named middleware. Because the host also carries trusted MCP
 provenance, nested calls re-apply the callee's `agentPolicy` and reject
-`destructive` effects before their middleware or body runs. See
+`destructive` effects before their middleware or body runs — unless the tool
+being served is itself a destructive capability that already cleared
+prepare/commit, which grants that request's server code the destructive scope a
+confirmed HTTP endpoint has. See
 [Remote MCP composition is guarded](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 The incoming transport request carries the same provenance, so adapter context
 that retains that request cannot escape the nested-call guard.
@@ -131,7 +137,9 @@ produced them is what the server enforces. Pracht does not claim that a tool is
 closed-world, so it leaves `openWorldHint` unset and preserves MCP's default.
 For the same reason, `write` capabilities omit `destructiveHint`: `write` says
 that an operation mutates state, but does not prove that it is purely additive,
-so MCP's conservative default applies.
+so MCP's conservative default applies. A `destructive` capability sets
+`destructiveHint: true` and carries the confirmation contract in both its
+description and `_meta` — see [Destructive tools](#destructive-tools).
 
 Results carry both `structuredContent` (the validated output) and a text
 rendering, so hosts that only read text still get something useful:
@@ -165,6 +173,99 @@ so standard Streamable HTTP clients parse the error payload. Non-2xx statuses
 are reserved for transport failures such as invalid HTTP methods, origins, or
 protocol versions.
 
+## Destructive tools
+
+Off by default. A `destructive` capability that sets `expose.mcp` is filtered
+out of `tools/list` and `tools/call`, and nested `invokeCapability()` refuses
+it. Two things turn it on, both explicit:
+
+```ts
+export const app = defineApp({
+  agents: { mcp: { destructive: true } },
+  // ...
+});
+```
+
+```ts
+// src/server/approvals.ts — imported by a server entry or a capability module
+import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core/server";
+setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
+```
+
+The setup may instead be imported by app-level capability/API middleware or
+named middleware on the destructive capability. The endpoint imports those
+applied middleware modules before checking its preconditions, without running
+the middleware functions during `tools/list`. `/_pracht` evaluates the real
+server entry and those applied setup modules, so a failed runtime gate is
+reported as `mcp(unserved)`. Graph-only commands (`pracht dev`, `pracht inspect
+capabilities`, and MCP inspection) deliberately skip the adapter server entry;
+when their local runtime still lacks a precondition, they report
+`mcp(unverified)` rather than falsely claiming that a server-entry registration
+is absent. JSON inspection always reports `mcpEndpoint`, `mcpDestructive`,
+`mcpRuntimeStatus`, and `mcpUnavailableReasons`. The status is
+`not-configured`, `ready`, `blocked` for a runtime-verified failure, or
+`unverified` for an inconclusive graph-only check.
+
+The store is not optional. Over MCP the confirmation token is handed to the
+very agent that will commit with it, and a stateless HMAC token replays until
+it expires — so exactly-once consumption is the whole reason the transport may
+carry a destructive effect at all. The runtime is the gate: the endpoint
+answers an explanatory JSON-RPC error instead of serving destructive tools
+whenever the store, the confirmation secret, or (in `mode: "human"`) any
+resolvable principal is missing. A policy-only `webBotAuth: {}` block is not an
+identity source: configure at least one valid 32-byte base64url Ed25519 static
+key or HTTPS directory, or register an application principal resolver. `pracht verify` *warns* when it
+cannot find a `setCapabilityApprovalStore()` call in the configured source
+directories — a warning rather than an error because a source scan cannot see a
+registration that lives in a workspace package. There is no silent downgrade
+in either direction: without the opt-in the tool is invisible; with it and an
+unmet precondition, nothing is served. The runtime-backed `/_pracht` graph marks
+every MCP exposure as `mcp(unserved)` when this endpoint-wide gate is closed. The
+graph-only CLI surfaces use `mcp(unverified)` for the same locally observed
+missing preconditions because setup may still run from the skipped adapter
+server entry.
+
+### Prepare and commit over `tools/call`
+
+The flow is [the same one HTTP uses](AGENT_TRUST.md#preparecommit) — a
+transport detail changes, nothing else. MCP has no per-call header channel and
+the token cannot travel in `arguments` (it is bound to a hash of the
+canonicalized input), so it uses `_meta`, the protocol's extension slot.
+
+```jsonc
+// 1. Prepare — nothing runs.
+{"jsonrpc":"2.0","id":1,"method":"tools/call",
+ "params":{"name":"notes_purge","arguments":{"titlePrefix":"Old"}}}
+
+// → isError result; the token is in _meta and in the text, so text-only
+//   hosts can complete the flow too.
+{
+  "content": [{ "type": "text", "text": "confirmation_required: …\nConfirmation token …: v1.…" }],
+  "isError": true,
+  "_meta": {
+    "io.pracht/status": 409,
+    "io.pracht/error": {
+      "code": "confirmation_required",
+      "confirmationToken": "v2.<claims>.<hmac>",
+      "expiresAt": 1735689720,
+      "approvalId": "…"
+    }
+  }
+}
+
+// 2. Commit — identical arguments plus the token.
+{"jsonrpc":"2.0","id":2,"method":"tools/call",
+ "params":{"name":"notes_purge","arguments":{"titlePrefix":"Old"},
+           "_meta":{"io.pracht/confirmation":"v2.<claims>.<hmac>"}}}
+```
+
+Everything the HTTP flow guarantees holds here: the token is bound to the
+principal, the capability, and the exact input; a tampered, expired, or
+replayed token answers `confirmation_invalid`; and in `mode: "human"` the commit
+answers `confirmation_pending` until a person decides. Each `tools/list`
+descriptor advertises the contract as
+`_meta["io.pracht/confirmation"] = { required: true, metaKey: "io.pracht/confirmation" }`.
+
 ## Security
 
 The projection inherits every capability guarantee and adds three of its own:
@@ -180,13 +281,19 @@ The projection inherits every capability guarantee and adds three of its own:
   avoids trusting a Host-derived request URL during Origin validation, closing
   the DNS-rebinding path. Non-browser MCP clients send neither header and are
   unaffected.
-- **Destructive capabilities are not reachable.** `expose.mcp` on a
-  `destructive` capability is rejected by `defineCapability()`, the registry,
-  and `pracht verify`, and the projection filters them again at serve time.
-  Agent hosts cannot yet be trusted to carry the prepare/commit flow
-  faithfully. See [AGENT_TRUST.md](AGENT_TRUST.md). The same boundary is
-  enforced transitively: `invokeCapability()` refuses a destructive callee
-  while serving an MCP tool, even when that callee is private.
+- **Destructive capabilities are unreachable without the opt-in.** Without
+  `agents.mcp.destructive` the projection filters them out of `tools/list` and
+  `tools/call`, and `invokeCapability()` refuses a destructive callee while
+  serving an MCP tool, even when that callee is private. With the opt-in, a
+  remote agent reaches a destructive effect only through the
+  [prepare/commit flow](#destructive-tools): composition refuses destructive
+  callees unless the tool being served is a destructive capability that already
+  cleared its own gate. Note what that *does not* say — once a tool has cleared
+  it, that tool's own `run()` may compose any destructive capability, private
+  ones included, as often as it likes for the rest of the request, exactly as an
+  HTTP endpoint can. The confirmation gates the agent's entry point, not the
+  first-party code behind it. See
+  [AGENT_TRUST.md](AGENT_TRUST.md#remote-mcp-composition-is-guarded).
 
 Authentication is your app's: put it in the capability's named middleware,
 which sees the forwarded `Authorization` header and `context.agent`; nested
@@ -233,10 +340,6 @@ format is documented in
 - **The `2026-07-28` wire profile.** It replaces the initialization exchange
   with self-describing requests and requires its own header/result codec; the
   endpoint does not advertise that version until the complete profile ships.
-- **Destructive capabilities over MCP.** The prepare/commit flow itself
-  transfers to the transport unchanged; what it needs first is exactly-once
-  commit, which is what the [approval store](AGENT_TRUST.md#durable-approvals)
-  provides. Unblocking this is a follow-up.
 - **Streaming, progress, cancellation, and elicitation** — all require the
   server→client stream a stateless endpoint does not open.
 - **MCP Apps UI views** — capability-graph Stage 3.

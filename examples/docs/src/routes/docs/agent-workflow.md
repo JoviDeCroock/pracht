@@ -105,6 +105,8 @@ A `!` marks a change that widened what agents can reach or weakened one of their
 
 These are precisely the edits a line diff hides. Moving `mcp: true` into an `expose` object is one word; loosening a schema bound is one number. When anything widened, `--markdown` puts a callout above the diff so a reviewer meets it before the fence, and `pracht report` carries it into the PR body.
 
+Projection switches are part of that graph too. Enabling `agents.mcp` turns declared MCP exposures into remotely served tools; enabling `agents.mcp.destructive` makes the declared destructive subset reachable as well. `pracht plan` records both as `!` widenings, while disabling either stays an ordinary narrowing. The destructive switch is only recorded when at least one declared destructive MCP capability can actually be served, so enabling it in advance does not claim the agent surface widened before a tool exists.
+
 `pracht verify` fails when the committed snapshot no longer matches the live graph, with the fix in the message: run `pracht plan --write`. So route changes can't land without the snapshot — and therefore the reviewable diff — updating alongside them.
 
 ---

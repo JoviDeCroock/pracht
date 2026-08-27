@@ -182,10 +182,15 @@ Every capability declares `read`, `write`, or `destructive`
 
 - **may set `expose.http`** — every dispatch is gated by the prepare/commit
   flow below, and only when a confirmation secret is configured;
-- **may not set `expose.webmcp` or `expose.mcp`** — host-side approval UX is
-  not a security boundary, and agent hosts cannot yet be trusted to carry the
-  two-step flow faithfully; `defineCapability()`, the registry, `pracht verify`,
-  and the [remote MCP projection](REMOTE_MCP.md) all reject it.
+- **may set `expose.mcp`** — same flow, over the [remote MCP
+  projection](REMOTE_MCP.md#destructive-tools), and only when the app opts in
+  with `agents.mcp.destructive` *and* registers a durable approval store. The
+  opt-in is what turns the exposure into a served tool; without it the
+  projection filters the capability out;
+- **may not set `expose.webmcp`** — a browser host's approval UX is not a
+  security boundary and the page cannot be trusted to carry the two-step flow
+  faithfully; `defineCapability()`, the registry, and `pracht verify` all
+  reject it.
 
 ### Prepare/commit
 
@@ -220,6 +225,13 @@ variable set even for apps that use the escape hatch.
      }
    }
    ```
+
+   Over remote MCP the same exchange happens on `tools/call`: the prepare
+   answers `isError: true` with the token in
+   `_meta["io.pracht/error"].confirmationToken` (and in the text content, for
+   hosts that only read text), and the commit repeats the call with identical
+   `arguments` plus `_meta["io.pracht/confirmation"]`. See
+   [REMOTE_MCP.md](REMOTE_MCP.md#destructive-tools).
 
    The token is an HMAC-SHA256 (WebCrypto) over the caller's principal
    (verified agent `keyid`, or `"anonymous"`), the capability name, a hash of
@@ -290,13 +302,17 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 );
 ```
 
-Import this setup module from a server entry or a registered server-only
-middleware/capability module so it actually runs. The resolver executes after
-API and capability middleware, and must return a stable authenticated user or
-tenant id — never a display name or caller-controlled value. When Web Bot Auth
-is also present, the proposal binds both identities. The raw application
-identity stays in the server-side approval record; caller-visible confirmation
-tokens bind a secret-keyed digest instead of exposing that identity.
+Import this setup module from a server entry, the destructive capability
+module, or middleware applied to the app's capability API chain or that
+capability. Remote MCP imports those applied middleware modules before checking
+its destructive-tool preconditions; their middleware functions still run only
+on `tools/call`. Merely registering unrelated middleware is not a startup hook.
+The resolver executes after API and capability middleware, and must return a
+stable authenticated user or tenant id — never a display name or
+caller-controlled value. When Web Bot Auth is also present, the proposal binds
+both identities. The raw application identity stays in the server-side approval
+record; caller-visible confirmation tokens bind a secret-keyed digest instead
+of exposing that identity.
 
 A proposal's id is a secret-keyed digest derived server-side from the
 principal, capability name, canonicalized input, and approval mode — never
@@ -355,12 +371,135 @@ as trusting host-reported approval.
 confirmation_unavailable` rather than silently degrading to self-approval or
 sharing one approval across unrelated application users.
 
-### Writing a store
+### `createSqlApprovalStore()`: the first-party durable store
 
-The reference `createMemoryApprovalStore()` is correct for one instance, and
-it is what tests and development should use — but it is lost on restart and
-not shared across replicas. For a real deployment, implement
-`CapabilityApprovalStore` over a backend with **conditional writes**:
+The reference `createMemoryApprovalStore()` is correct for one instance, and it
+is what tests and development should use — but it is lost on restart and not
+shared across replicas. For a real deployment, use the SQL store. It ships in
+`@pracht/core/server` with **no driver dependency**: you pass a parameterized
+query function, so the same store works on Postgres, Cloudflare D1, and
+SQLite/Turso.
+
+```ts
+// src/server/approvals.ts — any server-only module
+import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core/server";
+
+export const approvalStore = createSqlApprovalStore({
+  dialect: "postgres",                 // "sqlite" (default, `?`) | "postgres" ($1, $2, …)
+  // table: "pracht_approvals",        // default; plain identifier or schema.identifier
+  async execute(sql, params) {
+    return pool.query(sql, params);    // must report rows *and* affected rows
+  },
+});
+
+setCapabilityApprovalStore(approvalStore);
+```
+
+Import this module from a server entry or a capability module so the
+registration runs before the capability graph is served.
+
+#### Schema
+
+One migration works everywhere. Timestamps are unix seconds, `input` is JSON
+text, and `requires_approval` is an **integer** 0/1 rather than a boolean, so
+one DDL and one set of statements are valid on Postgres and SQLite alike:
+
+```sql
+CREATE TABLE IF NOT EXISTS pracht_approvals (
+  id                TEXT    PRIMARY KEY,
+  principal         TEXT    NOT NULL,
+  capability        TEXT    NOT NULL,
+  input_hash        TEXT    NOT NULL,
+  input             TEXT    NOT NULL,
+  requires_approval INTEGER NOT NULL,
+  created_at        BIGINT  NOT NULL,
+  expires_at        BIGINT  NOT NULL,
+  state             TEXT    NOT NULL,
+  decided_by        TEXT,
+  decided_at        BIGINT
+);
+CREATE INDEX IF NOT EXISTS pracht_approvals_pending ON pracht_approvals (state, expires_at);
+CREATE INDEX IF NOT EXISTS pracht_approvals_expires_at ON pracht_approvals (expires_at);
+```
+
+The `PRIMARY KEY` is load-bearing: `create()` is an
+`INSERT … ON CONFLICT (id) DO UPDATE … WHERE expires_at < ?now`, so a live
+proposal is never overwritten by a concurrent re-prepare, and an expired one is
+replaced atomically. `consume()` is a single conditional `UPDATE` carrying the
+whole eligibility rule, so two concurrent commits produce exactly one winner —
+the database decides, not the process. Nothing uses `RETURNING`: D1 and SQLite
+before 3.35 cannot be relied on for it, so the store reads the affected-row
+count every driver reports. Expired rows are swept opportunistically (at most
+once per `sweepIntervalSeconds`, default 60), and a failed consume deletes the
+dead row it found.
+
+#### `execute` per backend
+
+`execute(sql, params)` must return the driver's result so the store can read
+both rows and the affected-row count. Every mainstream shape is accepted
+(`rows`/`results`, `rowCount`/`rowsAffected`/`changes`/`meta.changes`), so it is
+usually a one-liner. If a write's result carries no affected-row count the store
+throws rather than assuming success, and the gate closes.
+
+```ts
+// Postgres (pg / Neon / Supabase) — placeholders are $1, $2, …
+import { Pool } from "pg";
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+createSqlApprovalStore({
+  dialect: "postgres",
+  execute: (sql, params) => pool.query(sql, params),
+});
+```
+
+```ts
+// Cloudflare D1 — bind it in wrangler.jsonc as `DB`
+import { env } from "cloudflare:workers";
+
+createSqlApprovalStore({
+  execute: (sql, params) => env.DB.prepare(sql).bind(...params).all(),
+});
+```
+
+```ts
+// better-sqlite3 / node:sqlite — reads and writes take different calls
+import Database from "better-sqlite3";
+const db = new Database("approvals.db");
+
+createSqlApprovalStore({
+  async execute(sql, params) {
+    const statement = db.prepare(sql);
+    return /^\s*SELECT/i.test(sql)
+      ? { rows: statement.all(...params) }
+      : { changes: statement.run(...params).changes };
+  },
+});
+```
+
+```ts
+// Turso / @libsql/client — ResultSet carries both rows and rowsAffected
+import { createClient } from "@libsql/client";
+const turso = createClient({
+  url: process.env.TURSO_DATABASE_URL!,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+createSqlApprovalStore({
+  execute: (sql, params) =>
+    turso.execute({ sql, args: params as (string | number | null)[] }),
+});
+```
+
+The `table` option cannot be a bound parameter, so it is validated at
+construction as a plain identifier or `schema.identifier`, then every segment
+is quoted before interpolation. SQL keywords and case-sensitive names therefore
+work without broadening the accepted syntax. Everything else travels as a bound
+parameter.
+
+### Writing your own store
+
+If your backend is not SQL, implement `CapabilityApprovalStore` over anything
+with **conditional writes**:
 
 ```sql
 -- create(): insert if absent, or replace only an expired row.
@@ -383,11 +522,11 @@ ON CONFLICT (id) DO UPDATE
 
 -- consume(): compare-and-set.
 UPDATE pracht_approvals
-   SET state = 'consumed', consumed_at = ?now
+   SET state = 'consumed'
  WHERE id = ?id
    AND expires_at >= ?now
    AND state IN ('pending', 'approved')
-   AND (requires_approval = FALSE OR state = 'approved');
+   AND (requires_approval = 0 OR state = 'approved');
 -- ok = (rows_affected == 1)
 ```
 
@@ -413,7 +552,23 @@ Two operational consequences worth knowing before you turn this on:
 - **Consumed and rejected proposals stay closed until expiry.** Re-preparing
   the identical operation during that window is refused, which prevents an
   old still-valid token from becoming reusable. After expiry, the operation
-  can create a fresh proposal.
+  can create a fresh proposal. The refusal carries `retryAfterSeconds` and
+  names the window in its message, so an agent backs off instead of reading
+  `already_used` as a broken token and retrying in a loop.
+
+  Plan for that window. A proposal is identified by `(principal, capability,
+  canonical input, mode)`, so `ttlSeconds` is both how long a token is valid
+  and how long a *completed* operation stays closed — and without Web Bot Auth
+  or a principal resolver every caller is `"anonymous"`, which makes the
+  lockout shared across all unauthenticated agents. Bind a real principal
+  before serving destructive tools to more than one caller, and give genuinely
+  repeatable operations an input that differs per call (an id, an idempotency
+  key) rather than fighting the window.
+
+  The bundled notes evals demonstrate that pattern by carrying the freshly
+  created note id as the purge's `idempotencyKey`, so rerunning `pracht eval`
+  against one long-lived server proposes a new operation without weakening
+  replay protection.
 
 `singleUse` is ignored while a store is registered — the store enforces single
 use durably.
@@ -488,12 +643,31 @@ Private capabilities therefore remain useful as server-side building blocks.
 
 Remote MCP adds two fail-closed rules to that model. When an MCP-exposed tool
 calls `invokeCapability()`, the nested call re-applies the callee's
-`agentPolicy` and refuses any `destructive` capability before its middleware or
-body can run. A non-destructive tool therefore cannot lend remote agents access
-that the nested capability's MCP projection would deny, and cannot bypass the
-rule that destructive effects stay off MCP until the transport supports their
-confirmation flow. Private `read` and `write` capabilities remain composable;
-their named middleware is still the authorization seam.
+`agentPolicy`, and refuses any `destructive` capability before its middleware or
+body can run **unless the tool being served is itself a destructive capability
+that already cleared prepare/commit**. Nested calls have no confirmation channel
+of their own, so that is exactly the condition under which a destructive effect
+on this transport has been confirmed by somebody: a `read` or `write` tool can
+never lend a remote agent an unconfirmed destructive effect, while a destructive
+tool the agent confirmed composes its own helpers exactly as it would under
+HTTP. The rule is the same with and without `agents.mcp.destructive` — the
+opt-in only decides whether a destructive tool is served at all, and therefore
+whether the confirmed case can ever arise.
+
+Be precise about what clearing the gate buys, because it is a **scope, not a
+per-callee check**. One cleared confirmation opens the request's whole private
+destructive graph to that tool's own server code: any destructive callee,
+private ones included, any number of times, with whatever input the tool
+chooses. That is the same deal HTTP has always offered a confirmed destructive
+endpoint, and the boundary is the same one — first-party `run()` code picks the
+callees, and the effect class you gave that tool is the promise you are making
+about them. What the rule does buy is that the *agent* never picks them: it
+cannot reach a destructive effect except through a tool it confirmed by name and
+input.
+
+Private `read` and `write` capabilities remain composable; their named
+middleware is still the authorization seam. The confirmed scope belongs to one
+request: a later `tools/call` starts closed again.
 
 These extra rules use trusted MCP dispatch state, not the public WebMCP marker.
 HTTP and WebMCP composition therefore keep the ordinary server-composition
@@ -761,8 +935,11 @@ Agents
   notes.purge  effect=destructive  transports=http  policy=require (inherited)  http=/api/capabilities/notes/purge
 ```
 
-`--json` emits the same data for CI checks, and the CLI's MCP server exposes it
-as the `inspect_agents` tool. The `llmsTxt` state comes from the Vite plugin's
+`--json` emits the same data for CI checks, including `mcpEndpoint`,
+`mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`; the CLI's MCP
+server exposes it as the `inspect_agents` tool. Text output marks declared MCP
+tools as `mcp(unserved)` or `mcp(unverified)` when they are not confirmed
+reachable. The `llmsTxt` state comes from the Vite plugin's
 resolved production server-build configuration, including computed options,
 rather than a source-text guess or the development configuration. If the CLI is
 newer than the installed Vite plugin and that plugin does not expose the resolved
@@ -892,15 +1069,14 @@ example):
   status metadata (a non-Pracht server) reports 500 rather than borrowing the
   transport's 200.
 
-  What genuinely does not carry over is the destructive confirmation flow.
-  Destructive capabilities cannot declare `expose.mcp` today, so no MCP tool
-  can answer `confirmation_required` — `confirm` on an MCP step travels in the
-  `tools/call` `_meta` (the slot the projection reads, since MCP has no
-  per-call header channel), but the round trip only becomes exercisable when
-  destructive-over-MCP lands. Until then, run confirmation scenarios over HTTP.
-  A step for any capability the endpoint does not project fails the scenario
-  with the tool name it looked for and what to do about it, rather than passing
-  quietly. `examples/basic/evals/notes-mcp.eval.json` is a working example.
+  Destructive confirmation scenarios carry over too when the app explicitly
+  enables `agents.mcp.destructive`, exposes the capability over MCP, and
+  registers an approval store. `confirm` on an MCP step travels in the
+  `tools/call` `_meta["io.pracht/confirmation"]` field, since MCP has no
+  per-call header channel. A step for any capability the endpoint does not
+  project fails the scenario with the tool name it looked for and what to do
+  about it, rather than passing quietly.
+  `examples/basic/evals/notes-mcp.eval.json` exercises the complete round trip.
 - Output: a human transcript (step, capability, outcome, status, latency,
   denial reasons; MCP scenarios are marked `[mcp]`) or `--json` for CI, where
   each step also carries its `transport`.
@@ -960,13 +1136,12 @@ not verify. Sign [the authority the Worker sees](#preview-authority-with-custom-
 
 - Directory fetching without an allowlist (needs an SSRF story).
 - `nonce` uniqueness enforcement.
-- A first-party approval store for D1/Postgres/Durable Objects — the SPI ships,
-  the adapters do not.
+- A Durable Objects approval store. SQL backends (Postgres, D1, SQLite/Turso)
+  are covered by [`createSqlApprovalStore()`](#createsqlapprovalstore-the-first-party-durable-store).
 - RSA-PSS agent keys (the Web Bot Auth ecosystem is Ed25519-first).
-- Destructive capabilities over WebMCP/MCP. The prepare/commit flow itself
-  transfers to the MCP transport unchanged; what it needs first is
-  exactly-once commit, which the [approval store](#durable-approvals) now
-  provides — unblocking this is a follow-up.
+- Destructive capabilities over **WebMCP**. Unlike remote MCP, this is not
+  waiting on a mechanism: a page host's approval UX is not a security boundary,
+  so the flow would have nothing server-verified to bind to.
 - RSA-PSS signing (the signer is Ed25519-only, matching the verifier).
 - Framework-level rate limiting, write-idempotency helpers, and result-size
   limits — see [operational

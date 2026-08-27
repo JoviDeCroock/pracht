@@ -723,15 +723,26 @@ async function serveDevtools(
   // server module's registry first (matching `pracht inspect`), falling back
   // to a direct load for absolute/root-relative paths.
   const serverModule = (await server.ssrLoadModule(PRACHT_SERVER_MODULE_ID)) as {
-    registry?: { capabilityModules?: Record<string, () => Promise<unknown>> };
+    registry?: {
+      capabilityModules?: Record<string, () => Promise<unknown>>;
+      middlewareModules?: Record<string, () => Promise<unknown>>;
+    };
   };
   const capabilityModules = serverModule.registry?.capabilityModules;
+  const middlewareModules = serverModule.registry?.middlewareModules;
   const graph = await devtools.buildAppGraph({
     apiRoutes: options.apiRoutes,
     app: options.app,
     loadModule: async (file: string) => {
       const viaRegistry = await resolveRegistryModule<Record<string, unknown>>(
         capabilityModules,
+        file,
+      );
+      return viaRegistry ?? server.ssrLoadModule(file);
+    },
+    loadSetupModule: async (file: string) => {
+      const viaRegistry = await resolveRegistryModule<Record<string, unknown>>(
+        middlewareModules,
         file,
       );
       return viaRegistry ?? server.ssrLoadModule(file);

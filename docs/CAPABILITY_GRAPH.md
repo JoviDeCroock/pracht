@@ -892,6 +892,47 @@ verified identity, so composing application code cannot satisfy the nested
 policy by replacing `context.agent`. `CapabilityAuditEvent.via` records every
 allowed or denied nested attempt as a `"server"` dispatch caused by MCP.
 
+### Addendum (2026-08-26 — destructive capabilities over MCP)
+
+The policy choice above has been reversed, on the terms it set for itself. What
+the ban waited on was exactly-once commit; that now exists as a shipped
+implementation rather than an SPI, so the transport carries destructive tools
+behind an explicit third opt-in.
+
+- **`createSqlApprovalStore({ execute })` is the first-party store.** One
+  dependency-free implementation covers every SQL backend — the application
+  supplies a parameterized-query function, the store supplies the portable SQL.
+  `create()` is `INSERT … ON CONFLICT DO UPDATE … WHERE expires_at < now` and
+  `consume()` is one conditional `UPDATE`, so the *database* enforces
+  exactly-once. `RETURNING` is avoided because D1 and older SQLite cannot be
+  relied on for it; the affected-row count every driver reports is used instead.
+- **`agents.mcp.destructive` is the opt-in, and it fails closed.** Absent, the
+  projection filters destructive effects exactly as before. Present without a
+  registered approval store, `pracht verify` warns and the endpoint answers a
+  JSON-RPC error rather than serving anything — the source scan cannot prove a
+  workspace package did not register the store, so the runtime remains the
+  fail-closed gate. The graph snapshot records this opt-in separately from the
+  endpoint, so `pracht plan` marks enabling destructive tools as a widening.
+- **The confirmation flow moved transports without changing.** MCP has no
+  per-call header channel and the token cannot ride in `arguments` (it binds a
+  hash of them), so it travels in `_meta["io.pracht/confirmation"]`. The gate,
+  the binding, the store, and the audit events are the HTTP ones.
+- **The nested rule is a scope, not a per-callee check.** "Refuse destructive
+  effects" became "refuse destructive effects unless the tool being served is a
+  destructive capability that already cleared prepare/commit". Be precise about
+  what that buys: one cleared confirmation opens the *whole* private destructive
+  graph to that tool's own server code, for the rest of the request — any
+  destructive callee, private or not, any number of times, with inputs the tool
+  chooses. It is deliberately the same deal HTTP has always offered a confirmed
+  destructive endpoint, and the boundary is the same one: first-party `run()`
+  code picks the callees. What it does buy is that the *agent* cannot pick them:
+  a `read`/`write` tool has no such scope, so no remote caller can reach a
+  destructive effect that nobody confirmed, and the scope dies with the request.
+
+WebMCP is not covered by the reversal and is no longer waiting on a mechanism:
+a page host's approval UX is not a security boundary, so there is nothing
+server-verified for the flow to bind to.
+
 ## Final Recommendation
 
 > **Status note (2026-08-26).** This document is the original bet, kept as

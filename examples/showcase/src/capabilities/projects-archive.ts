@@ -10,9 +10,10 @@ interface ArchiveInput {
 /**
  * The destructive one — and the reason the trust layer exists.
  *
- * `destructive` cannot be exposed to WebMCP or MCP at all: `defineCapability()`
- * rejects it, the registry rejects it, and `pracht verify` rejects it. HTTP
- * exposure is allowed only behind the server-verified prepare/commit flow.
+ * This showcase exposes `destructive` over HTTP only. WebMCP is forbidden;
+ * remote MCP is available to apps that explicitly enable
+ * `agents.mcp.destructive` and register an approval store. Every served
+ * transport uses the same server-verified prepare/commit flow.
  *
  * This app runs `confirmation: { mode: "human" }` with an approval store, so
  * the flow is:

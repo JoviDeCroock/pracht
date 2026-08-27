@@ -1,12 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import {
-  resolveMcpEndpoint,
-  serializeApiRoutes,
-  serializeAppRoutes,
-  serializeCapabilities,
-} from "@pracht/core";
+import { resolveMcpEndpoint, serializeApiRoutes, serializeAppRoutes } from "@pracht/core";
 import type {
   AppGraphApiRoute,
   AppGraphCapability,
@@ -16,7 +11,7 @@ import type {
 } from "@pracht/core";
 import { defineCommand } from "citty";
 
-import { capabilityModuleLoader, createSourceReader } from "../app-graph.js";
+import { collectCapabilityAppGraph } from "../app-graph.js";
 import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
@@ -129,6 +124,10 @@ export interface InspectReport {
     jsManifest: Record<string, string[]>;
   };
   mode: string;
+  mcpDestructive?: boolean;
+  mcpEndpoint?: string | null;
+  mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
+  mcpUnavailableReasons?: string[];
   notFound?: InspectRoute | null;
   routes?: InspectRoute[];
 }
@@ -179,27 +178,30 @@ export async function runInspect(
           }));
     }
 
-    // `agents` is a rollup of the same serialization, so resolve it once.
-    const capabilities =
+    // `agents` is a rollup of the same capability graph, so resolve it once.
+    const capabilityGraph =
       wants("capabilities") || wants("agents")
-        ? await serializeCapabilities(
-            serverModule.resolvedApp.capabilities,
-            {
-              loadModule: capabilityModuleLoader(server, serverModule),
-              readSource: createSourceReader(root, project.appFile),
-            },
-            { strict: true },
-          )
+        ? await collectCapabilityAppGraph(server, root, serverModule, {
+            appFile: project.appFile,
+            strict: true,
+          })
         : null;
 
-    if (wants("capabilities") && capabilities) {
-      report.capabilities = capabilities;
+    if (capabilityGraph) {
+      report.mcpDestructive = capabilityGraph.mcpDestructive;
+      report.mcpEndpoint = capabilityGraph.mcpEndpoint;
+      report.mcpRuntimeStatus = capabilityGraph.mcpRuntimeStatus;
+      report.mcpUnavailableReasons = capabilityGraph.mcpUnavailableReasons;
     }
 
-    if (wants("agents") && capabilities) {
+    if (wants("capabilities") && capabilityGraph) {
+      report.capabilities = capabilityGraph.capabilities;
+    }
+
+    if (wants("agents") && capabilityGraph) {
       report.agents = summarizeAgentSurface(
         serverModule.resolvedApp.agents,
-        capabilities,
+        capabilityGraph.capabilities,
         llmsTxtEnabled,
       );
     }
@@ -270,6 +272,40 @@ export function summarizeAgentSurface(
   };
 }
 
+function formatCapabilityTransports(
+  capability: Pick<AppGraphCapability, "effect" | "transports">,
+  report: InspectReport,
+): string {
+  return capability.transports.length > 0
+    ? capability.transports
+        .map((transport) =>
+          transport !== "mcp"
+            ? transport
+            : report.mcpEndpoint === null ||
+                (capability.effect === "destructive" && report.mcpDestructive !== true) ||
+                report.mcpRuntimeStatus === "blocked"
+              ? "mcp(unserved)"
+              : report.mcpRuntimeStatus === "unverified"
+                ? "mcp(unverified)"
+                : transport,
+        )
+        .join(",")
+    : "private";
+}
+
+function printMcpInspectionStatus(report: InspectReport): void {
+  if (report.mcpEndpoint !== null) {
+    console.log(`  MCP endpoint: ${report.mcpEndpoint}`);
+  }
+  if ((report.mcpUnavailableReasons?.length ?? 0) > 0) {
+    console.log(
+      report.mcpRuntimeStatus === "unverified"
+        ? `  ! MCP endpoint unverified: ${report.mcpUnavailableReasons!.join(" ")} Registrations in the adapter server entry are not evaluated by graph-only inspection.`
+        : `  ! MCP endpoint unavailable: ${report.mcpUnavailableReasons!.join(" ")}`,
+    );
+  }
+}
+
 function printInspectReport(report: InspectReport): void {
   console.log(`Pracht inspect (${report.mode} mode)`);
 
@@ -316,8 +352,7 @@ function printInspectReport(report: InspectReport): void {
       console.log("  No capabilities registered.");
     } else {
       for (const capability of report.capabilities) {
-        const transports =
-          capability.transports.length > 0 ? capability.transports.join(",") : "private";
+        const transports = formatCapabilityTransports(capability, report);
         console.log(
           `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
             `http=${capability.httpPath ?? "n/a"}  file=${capability.source}`,
@@ -331,6 +366,9 @@ function printInspectReport(report: InspectReport): void {
           );
         }
       }
+    }
+    if (!report.agents) {
+      printMcpInspectionStatus(report);
     }
   }
 
@@ -366,8 +404,7 @@ function printInspectReport(report: InspectReport): void {
       console.log("  No capability operations registered.");
     } else {
       for (const capability of agents.capabilities) {
-        const transports =
-          capability.transports.length > 0 ? capability.transports.join(",") : "private";
+        const transports = formatCapabilityTransports(capability, report);
         console.log(
           `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
             `policy=${capability.agentPolicy ?? `${agents.webBotAuth.policy} (inherited)`}  ` +
@@ -375,6 +412,8 @@ function printInspectReport(report: InspectReport): void {
         );
       }
     }
+
+    printMcpInspectionStatus(report);
 
     // The one silent hole in the surface: exposure recorded in the graph that
     // nothing serves. `pracht verify` warns about it too; say it here as well,

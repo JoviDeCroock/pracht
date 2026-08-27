@@ -102,9 +102,10 @@ curl -sX POST /mcp -H 'content-type: application/json' \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 \`\`\`
 
-\`projects.archive\` is **not** in that list. It is destructive, so the
-projection filters it out regardless of what it declares — the prepare/commit
-flow stays on the HTTP endpoint where a human can be in the loop. The endpoint
+\`projects.archive\` is **not** in that list because this showcase keeps it
+HTTP-only and leaves \`agents.mcp.destructive\` off. Apps may serve a destructive
+remote tool only by declaring \`expose.mcp\`, enabling that opt-in, and registering
+an approval store; the prepare/commit gate remains server-verified. The endpoint
 also rejects any request carrying a cookie or an \`Origin\`: a browser session
 can never authenticate remote MCP. \`Authorization\` is forwarded, and Web Bot
 Auth signatures verify on \`POST /mcp\` exactly as they do on the HTTP
@@ -275,10 +276,11 @@ export function Component() {
         <p class="footnote">
           <code>mcp</code> tools are served at <code>POST /mcp</code> — stateless Streamable HTTP,
           with <code>tools/list</code> projected from this same graph and dots replaced by
-          underscores (<code>projects_search</code>). <code>projects.archive</code> is absent from
-          that list by construction: the projection filters <code>destructive</code> capabilities
-          out however they are declared. Drop <code>agents.mcp</code> from the manifest and the
-          exposures stay in the graph but the dev banner prints <code>mcp(unserved)</code>, so a
+          underscores (<code>projects_search</code>). <code>projects.archive</code> is absent
+          because this showcase keeps it HTTP-only and leaves <code>agents.mcp.destructive</code>{" "}
+          off. Apps can serve destructive remote tools only with explicit MCP exposure, that opt-in,
+          and an approval store. Drop <code>agents.mcp</code> from the manifest and the exposures
+          stay in the graph but the dev banner prints <code>mcp(unserved)</code>, so a
           declared-but-dead transport is never mistaken for a live one.
         </p>
       </section>
@@ -304,7 +306,9 @@ export function Component() {
               {"# → projects_search, projects_create, projects_deploy, agent_whoami, agent_brief"}
             </span>
             {"\n"}
-            <span class="cmt">{"#   (no projects_archive — destructive is filtered out)"}</span>
+            <span class="cmt">
+              {"#   (no projects_archive — this app keeps archive HTTP-only)"}
+            </span>
             {"\n\n"}
             <span class="cmt"># A cookie, or an Origin header, is a 403 — not a login</span>
             {"\n"}

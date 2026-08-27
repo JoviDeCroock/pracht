@@ -207,8 +207,8 @@ if (listed.ok) {
   console.log(c.dim(`   tools: ${names.join(", ") || "(none)"}`));
   console.log(
     names.includes("projects_archive")
-      ? c.red("   projects_archive is listed — the destructive filter did not hold")
-      : c.dim("   projects_archive absent: destructive capabilities are filtered out"),
+      ? c.red("   projects_archive is listed — this showcase should keep archive HTTP-only")
+      : c.dim("   projects_archive absent: this showcase keeps archive HTTP-only"),
   );
 }
 report(

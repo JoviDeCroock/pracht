@@ -24,6 +24,12 @@ export interface DevBannerOptions {
   localUrls: string[];
   /** Path the remote MCP projection is served from, `null` when unconfigured. */
   mcpEndpoint?: string | null;
+  /** `agents.mcp.destructive` — without it the endpoint filters destructive tools out. */
+  mcpDestructive?: boolean;
+  /** Whether runtime availability was verified by the inspected module graph. */
+  mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
+  /** Locally unmet preconditions; interpret them with `mcpRuntimeStatus`. */
+  mcpUnavailableReasons?: string[];
   networkUrls?: string[];
   notFound?: DevBannerRoute | null;
   routes: DevBannerRoute[];
@@ -62,11 +68,21 @@ export function formatDevBanner(options: DevBannerOptions): string {
     capabilities = [],
     color = false,
     localUrls,
+    mcpDestructive = false,
     mcpEndpoint = null,
+    mcpRuntimeStatus: configuredMcpRuntimeStatus,
+    mcpUnavailableReasons = [],
     networkUrls = [],
     notFound,
     routes,
   } = options;
+  const mcpRuntimeStatus =
+    configuredMcpRuntimeStatus ??
+    (mcpEndpoint === null
+      ? "not-configured"
+      : mcpUnavailableReasons.length > 0
+        ? "blocked"
+        : "ready");
   const paint = (text: string, code: string): string =>
     color ? `\u001b[${code}m${text}\u001b[0m` : text;
 
@@ -156,9 +172,18 @@ export function formatDevBanner(options: DevBannerOptions): string {
         capability.transports.length > 0
           ? capability.transports
               // `expose.mcp` is only served when the app configures
-              // `agents.mcp` — don't let the banner imply it otherwise.
+              // `agents.mcp`, and a destructive capability additionally needs
+              // `agents.mcp.destructive` — don't let the banner imply either.
               .map((transport) =>
-                transport === "mcp" && !mcpEndpoint ? "mcp(unserved)" : transport,
+                transport !== "mcp"
+                  ? transport
+                  : !mcpEndpoint ||
+                      (capability.effect === "destructive" && !mcpDestructive) ||
+                      mcpRuntimeStatus === "blocked"
+                    ? "mcp(unserved)"
+                    : mcpRuntimeStatus === "unverified"
+                      ? "mcp(unverified)"
+                      : transport,
               )
               .join(",")
           : "private",
@@ -183,6 +208,16 @@ export function formatDevBanner(options: DevBannerOptions): string {
       for (const capability of unreadable) {
         lines.push(
           `    ${paint(`! ${capability.name} could not be loaded: ${capability.error}`, ANSI.red)}`,
+        );
+      }
+      if (mcpUnavailableReasons.length > 0) {
+        lines.push(
+          `    ${paint(
+            mcpRuntimeStatus === "unverified"
+              ? `! MCP endpoint unverified: ${mcpUnavailableReasons.join(" ")} Registrations in the adapter server entry are not evaluated by graph-only inspection.`
+              : `! MCP endpoint unavailable: ${mcpUnavailableReasons.join(" ")}`,
+            mcpRuntimeStatus === "unverified" ? ANSI.yellow : ANSI.red,
+          )}`,
         );
       }
       if (unreadable.length > 0) {

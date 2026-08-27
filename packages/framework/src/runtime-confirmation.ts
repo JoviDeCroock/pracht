@@ -117,6 +117,24 @@ export async function createConfirmationToken(
   return { token: `${version}.${payload}.${signature}`, expiresAt: claims.exp };
 }
 
+/**
+ * Confirmation tokens are `<version>.<base64url claims>.<base64url hmac>`, so
+ * every character is in the unpadded base64url alphabet plus `.`. 4 KB is far
+ * above any real token and well under a header-size limit.
+ */
+const CONFIRMATION_TOKEN_SHAPE = /^[A-Za-z0-9._-]{1,4096}$/;
+
+/**
+ * Cheap shape check for a token arriving through a channel that is not an HTTP
+ * header — remote MCP carries it in a JSON `_meta` member, where a caller can
+ * put a newline or a NUL that `Headers.set()` would throw on. Callers must
+ * screen the value before it reaches a `Headers` object; the real decision is
+ * still {@link verifyConfirmationToken}.
+ */
+export function isWellFormedConfirmationToken(token: string): boolean {
+  return CONFIRMATION_TOKEN_SHAPE.test(token);
+}
+
 export type ConfirmationFailure =
   | "malformed"
   | "bad_signature"

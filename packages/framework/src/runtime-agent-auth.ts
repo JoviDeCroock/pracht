@@ -36,6 +36,38 @@ const DEFAULT_DIRECTORY_CACHE_TTL_SECONDS = 300;
 /** Cap on directory response bodies — a JWKS is tiny; anything bigger is hostile. */
 const DIRECTORY_MAX_BYTES = 65_536;
 const DIRECTORY_FETCH_TIMEOUT_MS = 5_000;
+const ED25519_PUBLIC_KEY_BYTES = 32;
+const ED25519_JWK_X_RE = /^[A-Za-z0-9_-]{43}$/;
+
+/**
+ * Whether Web Bot Auth has any configured trust source that could resolve an
+ * identity. A policy-only block enables verification plumbing but cannot
+ * authenticate anyone: static keys need valid Ed25519 JWK material, and
+ * directory discovery only ever fetches from HTTPS origins.
+ */
+export function hasWebBotAuthIdentitySource(config: WebBotAuthConfig | undefined): boolean {
+  if (config?.keys?.some(hasUsableStaticAgentKey)) {
+    return true;
+  }
+  return (
+    config?.directories?.some((directory) => {
+      try {
+        return new URL(directory).protocol === "https:";
+      } catch {
+        return false;
+      }
+    }) ?? false
+  );
+}
+
+function hasUsableStaticAgentKey(key: WebBotAuthStaticKey): boolean {
+  if (typeof key.x !== "string" || !ED25519_JWK_X_RE.test(key.x)) return false;
+  try {
+    return base64UrlDecode(key.x).byteLength === ED25519_PUBLIC_KEY_BYTES;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Minimal RFC 8941 structured-field parsing (dictionaries only)

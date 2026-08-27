@@ -71,6 +71,180 @@ describe("loadAppMetadataModule", () => {
 });
 
 describe("collectAppGraph", () => {
+  it("does not report skipped server-entry registrations as a proven outage", async () => {
+    const destructiveMcpPreconditionErrors = vi.fn(() => ["no approval store is registered."]);
+    const capability = {
+      kind: "capability",
+      title: "Purge notes",
+      description: "Purge every note.",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "destructive",
+      expose: { mcp: true },
+      run: async () => ({}),
+    };
+    const server = fakeServer({
+      "@pracht/core/server": { destructiveMcpPreconditionErrors },
+      "virtual:pracht/server": { registrationWouldRunHere: true },
+      "virtual:pracht/dev-metadata": {
+        apiRoutes: [],
+        registry: {
+          capabilityModules: {
+            "/src/capabilities/notes-purge.ts": async () => ({ default: capability }),
+          },
+        },
+        resolvedApp: {
+          agents: { mcp: { destructive: true } },
+          capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+          routes: [],
+        },
+      },
+    });
+
+    const graph = await collectAppGraph(server, process.cwd());
+
+    expect(graph.mcpUnavailableReasons).toEqual(
+      expect.arrayContaining([expect.stringContaining("no approval store is registered")]),
+    );
+    expect(graph.mcpRuntimeStatus).toBe("unverified");
+    expect(server.ssrLoadModule).not.toHaveBeenCalledWith("virtual:pracht/server");
+    expect(destructiveMcpPreconditionErrors).toHaveBeenCalledWith({
+      mcp: { destructive: true },
+    });
+  });
+
+  it("reads destructive MCP preconditions from the Vite SSR runtime instance", async () => {
+    const destructiveMcpPreconditionErrors = vi.fn(() => []);
+    const capability = {
+      kind: "capability",
+      title: "Purge notes",
+      description: "Purge every note.",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "destructive",
+      expose: { mcp: true },
+      run: async () => ({}),
+    };
+    const server = fakeServer({
+      "@pracht/core/server": { destructiveMcpPreconditionErrors },
+      "virtual:pracht/dev-metadata": {
+        apiRoutes: [],
+        registry: {
+          capabilityModules: {
+            "/src/capabilities/notes-purge.ts": async () => ({ default: capability }),
+          },
+        },
+        resolvedApp: {
+          agents: { mcp: { destructive: true } },
+          capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+          routes: [],
+        },
+      },
+    });
+
+    const graph = await collectAppGraph(server, process.cwd());
+
+    // The CLI's directly imported @pracht/core singleton has no store, but the
+    // app registered one in Vite's SSR graph. Only the latter is authoritative.
+    expect(graph.mcpUnavailableReasons).toEqual([]);
+    expect(graph.mcpRuntimeStatus).toBe("ready");
+    expect(destructiveMcpPreconditionErrors).toHaveBeenCalledOnce();
+  });
+
+  it("does not report an endpoint as ready when an MCP capability cannot load", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-mcp-capability-graph-"));
+    mkdirSync(join(root, "src/capabilities"), { recursive: true });
+    writeFileSync(
+      join(root, "src/capabilities/notes-search.ts"),
+      `export default defineCapability({
+        title: "Search notes",
+        description: "Find matching notes.",
+        input: { type: "object", properties: {} },
+        output: { type: "object", properties: {} },
+        effect: "read",
+        expose: { mcp: true },
+      });`,
+    );
+
+    try {
+      const server = fakeServer({
+        "virtual:pracht/dev-metadata": {
+          apiRoutes: [],
+          registry: {
+            capabilityModules: {
+              "/src/capabilities/notes-search.ts": async () => {
+                throw new Error("search backend failed to initialize");
+              },
+            },
+          },
+          resolvedApp: {
+            agents: { mcp: {} },
+            capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+            routes: [],
+          },
+        },
+      });
+
+      const graph = await collectAppGraph(server, root);
+
+      expect(graph.mcpRuntimeStatus).toBe("unverified");
+      expect(graph.mcpUnavailableReasons).toEqual([
+        'Capability "notes.search" failed to load: search backend failed to initialize',
+      ]);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  it("loads applied setup middleware before reading destructive MCP preconditions", async () => {
+    let setupLoaded = false;
+    const destructiveMcpPreconditionErrors = vi.fn(() =>
+      setupLoaded ? [] : ["no approval store is registered."],
+    );
+    const capability = {
+      kind: "capability",
+      title: "Purge notes",
+      description: "Purge every note.",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "destructive",
+      expose: { mcp: true },
+      middleware: ["approvalSetup"],
+      run: async () => ({}),
+    };
+    const middlewareModule = vi.fn(async () => {
+      setupLoaded = true;
+      return { middleware: async () => new Response() };
+    });
+    const server = fakeServer({
+      "@pracht/core/server": { destructiveMcpPreconditionErrors },
+      "virtual:pracht/dev-metadata": {
+        apiRoutes: [],
+        registry: {
+          capabilityModules: {
+            "/src/capabilities/notes-purge.ts": async () => ({ default: capability }),
+          },
+          middlewareModules: {
+            "/src/middleware/approval-setup.ts": middlewareModule,
+          },
+        },
+        resolvedApp: {
+          agents: { mcp: { destructive: true } },
+          capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+          middleware: { approvalSetup: "./middleware/approval-setup.ts" },
+          routes: [],
+        },
+      },
+    });
+
+    const graph = await collectAppGraph(server, process.cwd());
+
+    expect(middlewareModule).toHaveBeenCalledOnce();
+    expect(destructiveMcpPreconditionErrors).toHaveBeenCalledOnce();
+    expect(graph.mcpUnavailableReasons).toEqual([]);
+    expect(graph.mcpRuntimeStatus).toBe("ready");
+  });
+
   it("resolves API methods re-exported from another module", async () => {
     const root = mkdtempSync(join(tmpdir(), "pracht-static-api-graph-"));
     mkdirSync(join(root, "src/api-edge"), { recursive: true });

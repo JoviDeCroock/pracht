@@ -118,8 +118,9 @@ test("server-only route exports and their imports are stripped from client bundl
     // `capabilities` object) carries only names, endpoints, and effects.
     // Contract prose and input schemas are server-side detail, and reach the
     // browser for WebMCP-exposed capabilities only — an in-page agent needs
-    // the tool schema. notes.purge is destructive and never webmcp-exposed, so
-    // neither its description nor its schema may appear in any client asset.
+    // the tool schema. notes.purge is remote-MCP-exposed but never
+    // webmcp-exposed — remote MCP is projected server-side — so neither its
+    // description nor its schema may appear in any client asset.
     expect(clientJs).not.toContain("Permanently delete every note whose title");
     expect(clientJs).not.toContain("titlePrefix");
     expect(serverJs).toContain("titlePrefix");

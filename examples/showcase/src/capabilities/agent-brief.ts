@@ -48,7 +48,7 @@ export default defineCapability({
       ],
       rules: [
         "Prefer the MCP endpoint at POST /mcp; tools/list is generated from the same graph. Dots become underscores: projects_search.",
-        "projects.archive is absent from the tool list on purpose. It is destructive, so it lives only on the HTTP projection.",
+        "projects.archive is absent from this app's tool list on purpose: the showcase keeps it HTTP-only and leaves agents.mcp.destructive off.",
         "Archiving is two-phase: call once without a token to receive one, then repeat the identical input with the x-pracht-confirm header.",
         "A commit answered with 409 confirmation_pending is waiting on a reviewer at /app/approvals. Poll, do not re-prepare.",
         "Retry deploys with the same idempotencyKey; the server dedupes rather than shipping twice.",

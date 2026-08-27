@@ -23,10 +23,11 @@ auditing the opt-outs:
 
 - No loader or API route is ever inferred as a capability; a capability without
   `expose` is unreachable over the network.
-- `destructive` capabilities may only be exposed over HTTP, and every dispatch
-  is confirmation-gated.
-- Remote MCP rejects cookie-bearing and browser-originated requests, and
-  filters destructive capabilities again at serve time.
+- `destructive` capabilities may be exposed over HTTP and remote MCP, never as
+  WebMCP page tools, and every dispatch is confirmation-gated.
+- Remote MCP rejects cookie-bearing and browser-originated requests, and serves
+  destructive capabilities only with `agents.mcp.destructive` plus a registered
+  approval store — otherwise it filters them out at serve time.
 - An app that registers neither capabilities nor `agents` has the dispatch path
   and Web Bot Auth verifier dropped from its server bundle at build time.
 
@@ -96,8 +97,32 @@ For every exposed capability, ask whether the exposure is deliberate:
 
 ## Step 3: The destructive gate
 
-- Every `destructive` capability must be HTTP-only. `webmcp`/`mcp` on one is
-  rejected by the framework — if you find it in source, the build is failing.
+- `webmcp` on a `destructive` capability is rejected by the framework — if you
+  find it in source, the build is failing.
+- `mcp` on a `destructive` capability is a **served remote tool** only when the
+  manifest sets `agents: { mcp: { destructive: true } }`. Report it as a
+  deliberate widening and check both halves: the opt-in, and a
+  `setCapabilityApprovalStore()` call the running server actually executes
+  (imported by a server entry, a capability module, or applied API/capability
+  middleware — a module nothing imports registers nothing). Opt-in without a store is an `error` in your report: the
+  endpoint refuses to serve at all, and `pracht verify` only warns (its source
+  scan cannot see a registration in a workspace package, so it must not
+  hard-block). Two more preconditions fail the endpoint the same way — a
+  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither
+  `agents.webBotAuth` with a valid 32-byte base64url Ed25519 static key or HTTPS
+  directory nor a principal resolver — so check all three together.
+  Runtime-backed `/_pracht` reports a verified endpoint-wide failure by marking
+  every MCP exposure `mcp(unserved)`. Graph-only `pracht dev`, `pracht inspect
+  capabilities`, `pracht inspect agents`, and MCP inspection use
+  `mcp(unverified)` when the same missing
+  preconditions may be registered by the adapter server entry they deliberately
+  skip. JSON inspection exposes `mcpEndpoint`, `mcpDestructive`,
+  `mcpRuntimeStatus`, and `mcpUnavailableReasons`; use those fields instead of
+  treating a declared `mcp` transport as proof of reachability. These surfaces
+  load applied setup middleware modules without executing the middleware
+  functions.
+  Destructive `expose.mcp` *without* the opt-in is dead exposure: the tool is
+  invisible, and `pracht verify` warns.
 - `PRACHT_CONFIRMATION_SECRET` must be set in the server environment for each
   deployment target (build environment too on Vercel, since it becomes the
   bypass token there). Missing → every destructive call answers
@@ -109,9 +134,11 @@ For every exposed capability, ask whether the exposure is deliberate:
   Flag `confirmation: { singleUse: true }` used as if it were durable — it is a
   per-instance in-memory cache, lost on restart.
 - If an approval store is registered, confirm its backend supports atomic
-  conditional writes (D1, Durable Objects, Postgres, Redis — **not** Cloudflare
-  KV) and that all replicas share it: with a store registered, a token whose
-  proposal is unknown is refused, so a per-instance store breaks commits.
+  conditional writes and that all replicas share it: with a store registered, a
+  token whose proposal is unknown is refused, so a per-instance store breaks
+  commits. `createSqlApprovalStore()` over D1/Postgres/Turso qualifies;
+  `createMemoryApprovalStore()` in a deployed multi-replica app does not, and
+  neither does a hand-rolled store over Cloudflare KV.
 - `confirmation: { mode: "human" }` without both a store and an authenticated
   principal fails closed — check both exist.
 
@@ -192,9 +219,11 @@ pracht plan --json --base origin/main
 diff cannot: a new exposure, a destructive capability reclassified out of the
 gate, an `agentPolicy` downgraded from `require`, dropped middleware, a
 loosened input schema (dropped `required`, opened `additionalProperties`, raised
-bound), or newly enabled `agents.mcp`. Report every widening explicitly, with
-the before/after. A stale snapshot makes this useless — `pracht verify` fails
-on staleness, so trust it only when verify passes.
+bound), newly enabled `agents.mcp`, or newly enabled
+`agents.mcp.destructive` when a declared destructive MCP capability actually
+exists. Enabling the destructive switch in advance, with no such tool, is not a
+widening. Report every widening explicitly, with the before/after. A stale snapshot makes this useless — `pracht verify` fails on
+staleness, so trust it only when verify passes.
 
 ## Step 7: The no-agent-surface case
 
@@ -219,11 +248,14 @@ When the app is supposed to have none:
 Severities:
 
 - `error` — destructive capability reachable without a configured confirmation
-  secret; `agentPolicy: "require"` with no `webBotAuth`; capability module
-  unreadable; MCP-exposed capability whose only authorization is a cookie
-  session; approval store on a backend without conditional writes.
+  secret; `agents.mcp.destructive` with no registered approval store, or with a
+  memory store on a multi-replica deployment; `agentPolicy: "require"` with no
+  `webBotAuth`; capability module unreadable; MCP-exposed capability whose only
+  authorization is a cookie session; approval store on a backend without
+  conditional writes.
 - `warn` — auth-gated route advertised in `llms.txt`; `expose.mcp` with no
-  `agents.mcp`; exposed capability with no named middleware; unbounded output
+  `agents.mcp`; destructive `expose.mcp` with no `agents.mcp.destructive` (dead
+  exposure); exposed capability with no named middleware; unbounded output
   (no `limit`/`maximum`); no audit sink; a second `setCapabilityAuditHook()`
   call silently replacing the first; a module-scope listener without HMR
   disposal; `singleUse` treated as durable.

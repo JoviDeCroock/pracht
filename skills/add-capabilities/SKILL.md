@@ -52,7 +52,7 @@ enforce:
 | Effect | `http` | `webmcp` | `mcp` |
 | ------ | ------ | -------- | ----- |
 | `read` / `write` | yes | yes (needs `http`) | yes (needs `agents.mcp`) |
-| `destructive` | yes — always confirmation-gated | rejected | rejected |
+| `destructive` | yes — always confirmation-gated | rejected | yes — needs `agents.mcp.destructive` **and** a registered approval store |
 
 ## Step 2: Install and scaffold
 
@@ -158,8 +158,8 @@ fails closed even when `webBotAuth` is unconfigured.
 
 ## Step 5: Destructive capabilities
 
-`destructive` (delete, publish, pay, send, change access) is HTTP-only and
-every dispatch is gated:
+`destructive` (delete, publish, pay, send, change access) may be exposed over
+`http` and `mcp`, never `webmcp`, and every dispatch is gated:
 
 1. Set `PRACHT_CONFIRMATION_SECRET` in the server environment (or call
    `setCapabilityConfirmationSecret()` from `@pracht/core/server`). Without it,
@@ -177,9 +177,35 @@ the calling agent can hand the token straight back to itself, and without Web
 Bot Auth or `setCapabilityApprovalPrincipalResolver()` both phases run as
 `"anonymous"`. Register a `CapabilityApprovalStore` for exactly-once commits,
 and `confirmation: { mode: "human" }` for a real human decision — that mode
-fails closed without both a store and an authenticated principal. Any store
-backing it needs atomic conditional writes (D1, Durable Objects, Postgres,
+fails closed without both a store and an authenticated principal.
+
+`createSqlApprovalStore({ execute })` from `@pracht/core/server` is the
+first-party durable store — no driver dependency, one implementation for
+Postgres, Cloudflare D1, and SQLite/Turso. Pass a parameterized-query function
+and run the migration from `docs/AGENT_TRUST.md`; use `dialect: "postgres"` for
+`$1` placeholders. `createMemoryApprovalStore()` is for tests and development
+only. A non-SQL backend needs atomic conditional writes (Durable Objects,
 Redis — not Cloudflare KV).
+
+### Destructive over remote MCP
+
+Off by default. To serve one:
+
+1. `agents: { mcp: { destructive: true } }` in `defineApp()`.
+2. Register an approval store from a server entry or a capability module, so it
+   exists before the graph is served. This is not optional — a token handed to
+   the committing agent must be consumable exactly once. The endpoint refuses
+   to serve at all when the store, `PRACHT_CONFIRMATION_SECRET`, or (in human
+   mode) any resolvable principal is missing; `pracht verify` warns when it
+   cannot find the registration in the configured source directories.
+3. The flow is unchanged; only the channel differs. Prepare answers
+   `isError: true` with the token in `_meta["io.pracht/error"]`, and the commit
+   repeats `tools/call` with identical `arguments` plus
+   `_meta["io.pracht/confirmation"]`.
+
+Nested `invokeCapability()` under an MCP tool still refuses destructive callees
+unless the tool being served is a destructive capability that already cleared
+prepare/commit.
 
 ## Step 6: Call it
 
@@ -241,11 +267,11 @@ both transports, so the same `{ "ok": false, "status": 400, "errorCode":
 "invalid_input" }` holds either way.
 
 Three MCP limits fail loudly rather than silently: a step for a capability
-without `expose.mcp` (always including destructive ones), a step header other
-than `authorization` (the projection forwards nothing else), and a `confirm`
-round trip — destructive capabilities cannot be served over MCP today, so no
-MCP tool can answer `confirmation_required`. Keep confirmation scenarios on the
-HTTP transport.
+without `expose.mcp`, a step header other than `authorization` (the projection
+forwards nothing else), and a destructive step whose app has not enabled
+`agents.mcp.destructive` with an approval store. For an exposed destructive MCP
+tool, `confirm` completes the same prepare/commit round trip as HTTP; the token
+travels in the call's `_meta["io.pracht/confirmation"]` field.
 
 `createCapabilityTestHost()` from `@pracht/core` covers the same pipeline in
 unit tests without a server.
@@ -255,9 +281,10 @@ For an audit of what the whole agent surface currently exposes, run
 
 ## Rules
 
-1. Never expose a `destructive` capability over `webmcp` or `mcp`, and never
-   reclassify a destructive operation as `write` to escape the confirmation
-   gate.
+1. Never expose a `destructive` capability over `webmcp`; expose it over `mcp`
+   only with `agents.mcp.destructive` and a durable approval store, and say so
+   to the user. Never reclassify a destructive operation as `write` to escape
+   the confirmation gate.
 2. Never widen a schema (drop `required`, open `additionalProperties`, raise a
    `maximum`) without saying so — `pracht plan` reports it as a widening of the
    agent-reachable surface for a reason.

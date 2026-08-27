@@ -38,13 +38,11 @@
  * signs the JSON-RPC POSTs, so an agent-identity policy is exercisable on
  * either transport.
  *
- * What MCP cannot do yet: the destructive prepare/commit flow. Destructive
- * capabilities are refused `expose.mcp` at registration and filtered at serve
- * time, so no MCP tool can answer `confirmation_required`. `confirm` is still
- * carried in the `tools/call` `_meta` — the slot the projection reads — so the
- * client half is ready for the destructive-over-MCP opt-in; until then those
- * scenarios belong on the HTTP transport. Step `headers` are likewise limited
- * to `authorization` over MCP, the only header the projection forwards.
+ * Destructive prepare/commit works over MCP when the app opts in, exposes the
+ * capability, and registers an approval store. `confirm` is carried in the
+ * `tools/call` `_meta["io.pracht/confirmation"]` field — the slot the
+ * projection reads. Step `headers` are still limited to `authorization` over
+ * MCP, the only header the projection forwards.
  *
  * Reference syntax: a string value that is exactly `$steps[<index>].<path>`
  * is replaced with that value from an earlier step's result. The root object
@@ -108,10 +106,8 @@ export interface EvalStep {
    * `$steps[n].error.confirmationToken` reference. Sets the confirmation
    * header without spelling out the header name.
    *
-   * HTTP-only in practice: destructive capabilities cannot declare
-   * `expose.mcp` today, so no MCP tool can answer `confirmation_required`. The
-   * MCP side is wired (the token travels in the `tools/call` `_meta`) for when
-   * that opt-in lands.
+   * Over MCP the token travels in the
+   * `tools/call` `_meta["io.pracht/confirmation"]` field.
    */
   confirm?: string;
   /**
@@ -928,9 +924,10 @@ function describeToolCallRejection(capability: string, toolName: string, error: 
   if (/unknown tool/i.test(described)) {
     return (
       `the app's MCP endpoint does not serve a tool for capability "${capability}" ` +
-      `(expected "${toolName}"). Give the capability \`expose: { mcp: true }\`, or run this ` +
-      'step over the default "http" transport — destructive capabilities are never projected ' +
-      `as MCP tools. Server said: ${described}`
+      `(expected "${toolName}"). Give the capability \`expose: { mcp: true }\`. If it is ` +
+      "destructive, also configure `agents.mcp.destructive`, a confirmation secret, and a " +
+      'registered approval store; otherwise run this step over the default "http" transport. ' +
+      `Server said: ${described}`
     );
   }
   return `tools/call for "${toolName}" was rejected: ${described}`;

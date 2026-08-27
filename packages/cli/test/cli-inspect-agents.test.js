@@ -26,7 +26,15 @@ describe("@pracht/cli inspect agents", () => {
     const appDir = createRepoTempDir("pracht-cli-inspect-agents-");
     writeTypedManifestApp(appDir, { capabilities: true, agents: true });
 
-    const { agents } = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
+    const report = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
+    const { agents } = report;
+
+    expect(report).toMatchObject({
+      mcpDestructive: false,
+      mcpEndpoint: "/mcp",
+      mcpRuntimeStatus: "ready",
+      mcpUnavailableReasons: [],
+    });
 
     expect(agents.webBotAuth).toEqual({
       enabled: true,

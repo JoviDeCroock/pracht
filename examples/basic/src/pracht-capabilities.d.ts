@@ -33,10 +33,10 @@ declare module "@pracht/core" {
        * Permanently delete every note whose title starts with the prefix.
        */
       "notes.purge": {
-        input: { "titlePrefix": string; };
+        input: { "titlePrefix": string; "idempotencyKey"?: string; };
         output: { "purged": number; [key: string]: unknown; };
         effect: "destructive";
-        exposed: { http: true; webmcp: false; mcp: false };
+        exposed: { http: true; webmcp: false; mcp: true };
       };
       /**
        * Agent whoami

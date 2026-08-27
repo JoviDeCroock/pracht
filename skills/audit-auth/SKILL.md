@@ -116,8 +116,12 @@ target. From `pracht inspect api --json`:
 - Inspect every HTTP-, WebMCP-, or MCP-exposed capability body for
   `invokeCapability()`. Direct composition never re-applies app-level API
   middleware. Remote MCP additionally re-applies the callee's `agentPolicy`
-  and refuses destructive callees, but private non-destructive capabilities
-  stay composable and rely on their named middleware for authorization. For
+  and refuses destructive callees unless the tool being served is itself a
+  destructive capability that already cleared prepare/commit — a request-scoped
+  grant over every destructive callee, private ones included, so audit a
+  confirmed destructive tool's body the way you would a confirmed HTTP
+  endpoint's. Private non-destructive capabilities stay composable and rely on
+  their named middleware for authorization. For
   HTTP/WebMCP composition, flag sensitive callees whose required transport
   authorization or approval is absent from the composing capability and the
   callee's named middleware.
@@ -168,7 +172,8 @@ Severity is the primary scale; the verdict is a secondary domain label:
    listed but not flagged.
 5. Do not auto-add middleware. Auth wiring is policy.
 6. Treat allowed composed capability reachability as transitive. MCP blocks
-   destructive callees and re-applies `agentPolicy`; named middleware remains
+   destructive callees unless the served tool already cleared its own
+   confirmation gate, and re-applies `agentPolicy`; named middleware remains
    the authorization seam for private non-destructive composition. Audit events
    identify every nested attempt with `transport: "server"` and trusted request
    provenance in `via`, but observability is not an authorization gate.

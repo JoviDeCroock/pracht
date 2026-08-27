@@ -14,6 +14,7 @@ import {
 } from "@pracht/capabilities/static";
 
 import { resolveMcpEndpoint } from "./mcp-config.ts";
+import { destructiveMcpPreconditionErrors } from "./runtime-mcp.ts";
 import type {
   HttpMethod,
   PrachtCapability,
@@ -110,6 +111,15 @@ export interface AppGraph {
    * graph but nothing serves it.
    */
   mcpEndpoint?: string | null;
+  /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
+  mcpDestructive?: boolean;
+  /**
+   * Whether the inspected MCP runtime is ready, blocked by a verified runtime
+   * precondition, unverified, or not configured.
+   */
+  mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
+  /** Locally unmet preconditions; interpret them with `mcpRuntimeStatus`. */
+  mcpUnavailableReasons?: string[];
   routes: AppGraphRoute[];
   /**
    * The app-level not-found page, serialized like a route. `null` when the app
@@ -122,6 +132,12 @@ export interface AppGraph {
 export interface AppGraphModuleAccess {
   /** Import an app module by its app-relative file path (e.g. Vite's `ssrLoadModule`). */
   loadModule: (file: string) => Promise<Record<string, unknown>>;
+  /**
+   * Import setup middleware before runtime preconditions are inspected. Kept
+   * separate because generated registries split capability and middleware
+   * modules into distinct glob maps.
+   */
+  loadSetupModule?: (file: string) => Promise<Record<string, unknown>>;
   /** Read an app module's source text — fallback method detection when importing fails. */
   readSource: (file: string) => string;
 }
@@ -327,6 +343,42 @@ export function serializeCapabilities(
   );
 }
 
+/** Whether the configured projection actually has a destructive MCP tool to serve. */
+export function servesDestructiveMcpTools(
+  app: Pick<ResolvedPrachtApp, "agents">,
+  capabilities: readonly AppGraphCapability[],
+): boolean {
+  return (
+    app.agents?.mcp?.destructive === true &&
+    capabilities.some(
+      (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
+    )
+  );
+}
+
+/**
+ * Server-only middleware modules whose top-level setup may satisfy destructive
+ * MCP preconditions. This mirrors the runtime endpoint: app API middleware and
+ * named middleware applied to a served destructive capability are startup
+ * inputs; unrelated registered middleware remains lazy.
+ */
+export function destructiveMcpSetupMiddlewareFiles(
+  app: Pick<ResolvedPrachtApp, "agents"> & Partial<Pick<ResolvedPrachtApp, "api" | "middleware">>,
+  capabilities: readonly AppGraphCapability[],
+): string[] {
+  if (!servesDestructiveMcpTools(app, capabilities)) return [];
+
+  const names = new Set(app.api?.middleware ?? []);
+  for (const capability of capabilities) {
+    if (capability.effect !== "destructive" || !capability.transports.includes("mcp")) continue;
+    for (const name of capability.middleware) names.add(name);
+  }
+  return [...names].flatMap((name) => {
+    const file = app.middleware?.[name];
+    return file ? [file] : [];
+  });
+}
+
 export async function buildAppGraph(
   options: {
     apiRoutes?: readonly ResolvedApiRoute[];
@@ -334,10 +386,49 @@ export async function buildAppGraph(
   } & AppGraphModuleAccess,
 ): Promise<AppGraph> {
   const notFound = options.app.notFound;
+  const capabilities = await serializeCapabilities(options.app.capabilities, options);
+  const mcpEndpoint = resolveMcpEndpoint(options.app.agents);
+  const capabilityFailures =
+    mcpEndpoint === null
+      ? []
+      : capabilities.flatMap((capability) =>
+          capability.error
+            ? [`Capability ${JSON.stringify(capability.name)} failed to load: ${capability.error}`]
+            : [],
+        );
+  const mcpDestructive = servesDestructiveMcpTools(options.app, capabilities);
+  let setupFailure: string | null = null;
+  if (mcpDestructive && options.loadSetupModule) {
+    try {
+      await Promise.all(
+        destructiveMcpSetupMiddlewareFiles(options.app, capabilities).map(options.loadSetupModule),
+      );
+    } catch (error: unknown) {
+      setupFailure = `destructive MCP setup modules failed to load: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
+  const mcpUnavailableReasons = [
+    ...capabilityFailures,
+    ...(setupFailure !== null
+      ? [setupFailure]
+      : mcpDestructive
+        ? destructiveMcpPreconditionErrors(options.app.agents)
+        : []),
+  ];
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
-    capabilities: await serializeCapabilities(options.app.capabilities, options),
-    mcpEndpoint: resolveMcpEndpoint(options.app.agents),
+    capabilities,
+    mcpEndpoint,
+    mcpDestructive,
+    mcpRuntimeStatus:
+      mcpEndpoint === null
+        ? "not-configured"
+        : mcpUnavailableReasons.length > 0
+          ? "blocked"
+          : "ready",
+    mcpUnavailableReasons,
     notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };

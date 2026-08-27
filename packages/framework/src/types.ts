@@ -780,6 +780,20 @@ export interface McpProjectionConfig {
   serverInfo?: { name: string; version: string };
   /** Optional free-text guidance returned by `initialize`. */
   instructions?: string;
+  /**
+   * Serve `destructive` capabilities that set `expose.mcp` as MCP tools. Off
+   * by default: the projection filters destructive effects out of `tools/list`
+   * and `tools/call`, and nested `invokeCapability()` refuses them.
+   *
+   * Turning it on keeps the server-verified prepare/commit flow — the first
+   * `tools/call` answers `confirmation_required` with a token, and the commit
+   * repeats the call with identical arguments plus
+   * `_meta["io.pracht/confirmation"]`. Because a token can be replayed until it
+   * expires, the endpoint requires a registered
+   * {@link CapabilityApprovalStore} (`setCapabilityApprovalStore()`) for
+   * exactly-once commits and fails closed without one.
+   */
+  destructive?: boolean;
 }
 
 export interface PrachtAgentsConfig {

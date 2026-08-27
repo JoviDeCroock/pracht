@@ -182,7 +182,10 @@ whether `llms.txt` is generated, and which capabilities are exposed on which
 transports. The `llms.txt` state comes from the resolved production server-build
 configuration, including build- or production-only options. If an older
 installed `@pracht/vite-plugin` cannot expose that state, JSON reports `null` and
-text reports `unknown` rather than treating missing metadata as disabled.
+text reports `unknown` rather than treating missing metadata as disabled. The
+JSON report also includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`,
+and `mcpUnavailableReasons`; text marks declarations `mcp(unserved)` or
+`mcp(unverified)` when inspection cannot confirm that the tool is reachable.
 
 ### `pracht typegen`
 

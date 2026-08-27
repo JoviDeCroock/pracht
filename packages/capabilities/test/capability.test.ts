@@ -119,21 +119,25 @@ describe("defineCapability", () => {
     ).toThrow(/\/required:<expected string array>/);
   });
 
-  it("rejects exposing destructive capabilities to agent projections", () => {
+  it("rejects exposing destructive capabilities as WebMCP page tools", () => {
     expect(() =>
       defineCapability({
         ...baseDefinition,
         effect: "destructive",
         expose: { http: true, webmcp: true },
       }),
-    ).toThrow(/destructive capabilities cannot be exposed to agent projections/);
-    expect(() =>
-      defineCapability({
-        ...baseDefinition,
-        effect: "destructive",
-        expose: { http: true, mcp: true },
-      }),
-    ).toThrow(/destructive capabilities cannot be exposed to agent projections/);
+    ).toThrow(/destructive capabilities cannot be exposed to WebMCP page tools/);
+  });
+
+  it("allows destructive capabilities over remote MCP (confirmation-gated at runtime)", () => {
+    // Whether the projection actually serves it is the app's
+    // `agents.mcp.destructive` decision, not this function's.
+    const capability = defineCapability({
+      ...baseDefinition,
+      effect: "destructive",
+      expose: { http: true, mcp: true },
+    });
+    expect(capability.expose?.mcp).toBe(true);
   });
 
   it("allows destructive capabilities over HTTP (confirmation-gated at runtime)", () => {

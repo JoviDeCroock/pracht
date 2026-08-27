@@ -63,7 +63,7 @@ export function createPrachtMcpServer(): McpServer {
     "inspect_capabilities",
     {
       description:
-        "Inspect the registered capabilities of a pracht app: name, effect class, exposure transports (http/mcp/webmcp), HTTP path, middleware, source file. Same payload as `pracht inspect capabilities --json`.",
+        "Inspect the registered capabilities of a pracht app: name, effect class, exposure transports (http/mcp/webmcp), HTTP path, middleware, source file, plus the configured MCP endpoint, destructive opt-in, and runtime unavailability reasons. Same payload as `pracht inspect capabilities --json`.",
       inputSchema: { ...cwdInput },
     },
     guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "capabilities" })),
@@ -344,7 +344,7 @@ export function createPrachtMcpServer(): McpServer {
           .enum(["read", "write", "destructive"])
           .optional()
           .describe(
-            "Effect class (defaults to read). `destructive` may only be exposed over http and is confirmation-gated.",
+            "Effect class (defaults to read). `destructive` is confirmation-gated and may be exposed over http and mcp, never webmcp.",
           ),
         expose: z
           .array(z.enum(["http", "webmcp", "mcp"]))

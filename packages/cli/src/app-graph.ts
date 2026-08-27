@@ -2,12 +2,14 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
 import {
+  destructiveMcpSetupMiddlewareFiles,
   resolveMcpEndpoint,
   resolveRegistryModule,
   serializeApiRoutesStatic,
   serializeCapabilities,
+  servesDestructiveMcpTools,
 } from "@pracht/core";
-import type { AppGraphCapability } from "@pracht/core";
+import type { AppGraphCapability, PrachtAgentsConfig } from "@pracht/core";
 import type { ViteDevServer } from "vite";
 
 export interface AppGraphRoute {
@@ -34,8 +36,7 @@ export interface AppGraphApiRoute {
   path: string;
 }
 
-export interface AppGraph {
-  api: AppGraphApiRoute[];
+export interface CapabilityAppGraph {
   capabilities: AppGraphCapability[];
   /**
    * Path the remote MCP projection is served from, or `null` when the app does
@@ -43,6 +44,20 @@ export interface AppGraph {
    * graph but nothing serves it).
    */
   mcpEndpoint: string | null;
+  /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
+  mcpDestructive: boolean;
+  /**
+   * Graph-only inspection cannot verify registrations performed exclusively
+   * by the adapter server entry, so unmet runtime checks are `unverified`
+   * rather than a proven `blocked` endpoint.
+   */
+  mcpRuntimeStatus: "blocked" | "not-configured" | "ready" | "unverified";
+  /** Locally unmet preconditions; interpret them with `mcpRuntimeStatus`. */
+  mcpUnavailableReasons: string[];
+}
+
+export interface AppGraph extends CapabilityAppGraph {
+  api: AppGraphApiRoute[];
   routes: AppGraphRoute[];
   /** The app-level not-found page (never part of `routes`), or `null`. */
   notFound?: AppGraphRoute | null;
@@ -108,6 +123,7 @@ export async function collectAppGraph(
 ): Promise<AppGraph> {
   const serverModule = await loadAppMetadataModule(server);
   const notFound = serverModule.resolvedApp.notFound;
+  const capabilityGraph = await collectCapabilityAppGraph(server, root, serverModule, options);
   return {
     // The banner must not execute every API module at startup. Static export
     // analysis follows named and star re-exports without triggering unrelated
@@ -117,14 +133,112 @@ export async function collectAppGraph(
       resolveModule: (specifier, importer) =>
         resolveStaticModule(server, root, specifier, importer),
     }),
-    capabilities: await serializeCapabilities(serverModule.resolvedApp.capabilities, {
-      loadModule: capabilityModuleLoader(server, serverModule),
-      readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
-    }),
-    mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
+    ...capabilityGraph,
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };
+}
+
+/**
+ * Resolve capability contracts together with the effective remote MCP runtime
+ * status. Callers that already loaded the app metadata module can share that
+ * exact Vite module graph, including process-local approval registrations.
+ */
+export async function collectCapabilityAppGraph(
+  server: ViteDevServer,
+  root: string,
+  serverModule: Record<string, any>,
+  options: { appFile?: string; strict?: boolean } = {},
+): Promise<CapabilityAppGraph> {
+  const capabilities = await serializeCapabilities(
+    serverModule.resolvedApp.capabilities,
+    {
+      loadModule: capabilityModuleLoader(server, serverModule),
+      readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
+    },
+    { strict: options.strict ?? false },
+  );
+  const mcpEndpoint = resolveMcpEndpoint(serverModule.resolvedApp.agents);
+  const capabilityFailures =
+    mcpEndpoint === null
+      ? []
+      : capabilities.flatMap((capability) =>
+          capability.error
+            ? [`Capability ${JSON.stringify(capability.name)} failed to load: ${capability.error}`]
+            : [],
+        );
+  const mcpDestructive = servesDestructiveMcpTools(serverModule.resolvedApp, capabilities);
+  let setupFailure: string | null = null;
+  if (mcpDestructive) {
+    try {
+      await loadDestructiveMcpSetupModules(server, serverModule, capabilities);
+    } catch (error: unknown) {
+      setupFailure = `destructive MCP setup modules failed to load: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
+  const mcpUnavailableReasons = [
+    ...capabilityFailures,
+    ...(setupFailure !== null
+      ? [setupFailure]
+      : mcpDestructive
+        ? await readDestructiveMcpPreconditionErrors(server, serverModule.resolvedApp.agents)
+        : []),
+  ];
+  return {
+    capabilities,
+    mcpEndpoint,
+    mcpDestructive,
+    mcpRuntimeStatus:
+      mcpEndpoint === null
+        ? "not-configured"
+        : mcpUnavailableReasons.length > 0
+          ? "unverified"
+          : "ready",
+    mcpUnavailableReasons,
+  };
+}
+
+async function loadDestructiveMcpSetupModules(
+  server: ViteDevServer,
+  serverModule: Record<string, any>,
+  capabilities: readonly AppGraphCapability[],
+): Promise<void> {
+  const files = destructiveMcpSetupMiddlewareFiles(serverModule.resolvedApp, capabilities);
+  const middlewareModules = serverModule.registry?.middlewareModules as
+    | Record<string, () => Promise<unknown>>
+    | undefined;
+  await Promise.all(
+    files.map(async (file) => {
+      const viaRegistry = await resolveRegistryModule<Record<string, unknown>>(
+        middlewareModules,
+        file,
+      );
+      if (!viaRegistry) await server.ssrLoadModule(file);
+    }),
+  );
+}
+
+async function readDestructiveMcpPreconditionErrors(
+  server: ViteDevServer,
+  agents: PrachtAgentsConfig | undefined,
+): Promise<string[]> {
+  // Capability modules are evaluated inside Vite's SSR graph, so their
+  // process-local approval-store and principal-resolver registrations live in
+  // that graph's @pracht/core instance. Query the same instance instead of the
+  // CLI process's package import, which is a separate module singleton.
+  const runtime = await server.ssrLoadModule("@pracht/core/server");
+  const check = runtime.destructiveMcpPreconditionErrors as
+    | ((config: PrachtAgentsConfig | undefined) => string[])
+    | undefined;
+  if (typeof check !== "function") {
+    throw new Error(
+      "@pracht/core/server does not export destructiveMcpPreconditionErrors(). " +
+        "Update @pracht/core and @pracht/cli together.",
+    );
+  }
+  return check(agents);
 }
 
 function readStaticAppModule(root: string, file: string): string {

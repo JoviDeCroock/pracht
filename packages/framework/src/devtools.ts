@@ -71,6 +71,13 @@ export function buildDevtoolsHtml(
   options: { base?: string; agentTraffic?: DevtoolsAgentTraffic } = {},
 ): string {
   const base = options.base ?? "/";
+  const mcpRuntimeStatus =
+    graph.mcpRuntimeStatus ??
+    (!graph.mcpEndpoint
+      ? "not-configured"
+      : (graph.mcpUnavailableReasons?.length ?? 0) > 0
+        ? "blocked"
+        : "ready");
   const routeRows = graph.routes
     .map(
       (route) => `<tr>
@@ -104,16 +111,27 @@ export function buildDevtoolsHtml(
     .join("\n");
 
   const capabilityRows = (graph.capabilities ?? [])
-    .map(
-      (capability) => `<tr>
+    .map((capability) => {
+      const transports = capability.transports.map((transport) =>
+        transport !== "mcp"
+          ? transport
+          : !graph.mcpEndpoint ||
+              (capability.effect === "destructive" && graph.mcpDestructive !== true) ||
+              mcpRuntimeStatus === "blocked"
+            ? "mcp(unserved)"
+            : mcpRuntimeStatus === "unverified"
+              ? "mcp(unverified)"
+              : transport,
+      );
+      return `<tr>
         <td>${escapeHtml(capability.name)}</td>
         <td>${escapeHtml(capability.effect ?? "—")}</td>
-        <td>${escapeHtml(capability.transports.length > 0 ? capability.transports.join(", ") : "private")}</td>
+        <td>${escapeHtml(transports.length > 0 ? transports.join(", ") : "private")}</td>
         <td>${escapeHtml(capability.httpPath ?? "—")}</td>
         <td>${escapeHtml(capability.middleware.length > 0 ? capability.middleware.join(" → ") : "—")}</td>
         <td class="file">${escapeHtml(capability.source)}</td>
-      </tr>`,
-    )
+      </tr>`;
+    })
     .join("\n");
 
   // Only rendered when the app registers capabilities — the devtools page is
@@ -121,6 +139,13 @@ export function buildDevtoolsHtml(
   const capabilitiesSection =
     (graph.capabilities ?? []).length > 0
       ? `<h2>Capabilities</h2>
+    ${
+      graph.mcpUnavailableReasons?.length
+        ? `<p class="warning">MCP endpoint ${
+            mcpRuntimeStatus === "unverified" ? "unverified" : "unavailable"
+          }: ${escapeHtml(graph.mcpUnavailableReasons.join(" "))}</p>`
+        : ""
+    }
     <table>
       <thead><tr><th>Name</th><th>Effect</th><th>Transports</th><th>HTTP path</th><th>Middleware</th><th>Source</th></tr></thead>
       <tbody>

@@ -88,6 +88,7 @@ export type {
 } from "./types.ts";
 export {
   buildAppGraph,
+  destructiveMcpSetupMiddlewareFiles,
   detectApiExports,
   detectApiExportsStatic,
   detectApiMethods,
@@ -95,6 +96,7 @@ export {
   serializeApiRoutesStatic,
   serializeAppRoutes,
   serializeCapabilities,
+  servesDestructiveMcpTools,
 } from "./app-graph.ts";
 export type {
   ApiRouteExports,
@@ -130,6 +132,7 @@ export type {
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {
+  destructiveMcpPreconditionErrors,
   handleMcpRequest,
   MCP_CONFIRMATION_META_KEY,
   MCP_LATEST_PROTOCOL_VERSION,
@@ -151,10 +154,17 @@ export { createUseCapability, type CapabilityHookResult } from "./capability-hoo
 export { ensureCapabilityRevalidation } from "./runtime-capability-revalidate.ts";
 export {
   createMemoryApprovalStore,
+  createSqlApprovalStore,
   setCapabilityApprovalStore,
   setCapabilityApprovalPrincipalResolver,
 } from "./runtime-approval.ts";
-export type { MemoryApprovalStoreOptions } from "./runtime-approval.ts";
+export type {
+  MemoryApprovalStoreOptions,
+  SqlApprovalStoreDialect,
+  SqlApprovalStoreExecute,
+  SqlApprovalStoreOptions,
+  SqlApprovalStoreResult,
+} from "./runtime-approval.ts";
 export {
   createEventStream,
   serializeEventStreamMessage,

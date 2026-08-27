@@ -524,9 +524,9 @@ export function generateCapability(args: CapabilityArgs, project: ProjectConfig)
 
   // The runtime, `defineCapability()`, and `pracht verify` all reject this;
   // refusing here means the scaffold never writes a module that cannot build.
-  if (effect === "destructive" && expose.some((transport) => transport !== "http")) {
+  if (effect === "destructive" && expose.includes("webmcp")) {
     throw new Error(
-      "A destructive capability may only be exposed over http — agent hosts cannot be trusted to carry the prepare/commit confirmation flow. Drop webmcp/mcp from --expose.",
+      "A destructive capability cannot be a WebMCP page tool — a browser host's approval UX is not a security boundary. Use http, or mcp with agents.mcp.destructive.",
     );
   }
   if (expose.includes("webmcp") && !expose.includes("http")) {
