@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveInspectedLlmsTxtEnabled } from "../src/commands/inspect.ts";
+import { readBuildLlmsTxtEnabled } from "../src/app-server.ts";
 
 import {
   cleanupTempDirs,
@@ -18,10 +18,8 @@ afterEach(cleanupTempDirs);
 
 describe("@pracht/cli inspect agents", () => {
   it("does not report llms.txt as disabled when an older plugin omits the metadata flag", () => {
-    expect(resolveInspectedLlmsTxtEnabled({ llmsTxtEnabled: true })).toBe(true);
-    expect(resolveInspectedLlmsTxtEnabled({ llmsTxtEnabled: false })).toBe(false);
-    expect(resolveInspectedLlmsTxtEnabled({ generateLlmsTxt() {} })).toBe(true);
-    expect(resolveInspectedLlmsTxtEnabled({})).toBeNull();
+    expect(readBuildLlmsTxtEnabled([{ name: "pracht" }])).toBeNull();
+    expect(readBuildLlmsTxtEnabled([{ name: "pracht", api: { llmsTxtEnabled: true } }])).toBe(true);
   });
 
   it("summarizes the configured agent surface as JSON", () => {
@@ -111,6 +109,27 @@ describe("@pracht/cli inspect agents", () => {
     const { agents } = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
 
     expect(agents.llmsTxt).toEqual({ enabled: false });
+  }, 30_000);
+
+  it("reads llms.txt state from the production server-build configuration", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-agents-build-llms-");
+    writeTypedManifestApp(appDir, { capabilities: true, agents: true });
+    const configPath = resolve(appDir, "vite.config.ts");
+    const source = readFileSync(configPath, "utf-8")
+      .replace(
+        "export default defineConfig({",
+        "export default defineConfig(({ command, isSsrBuild, mode }) => ({",
+      )
+      .replace(
+        'pracht({ llmsTxt: { title: "Fixture app" } })',
+        'pracht({ llmsTxt: command === "build" && isSsrBuild && mode === "production" ? { title: "Fixture app" } : false })',
+      )
+      .replace("\n});\n", "\n}));\n");
+    writeProjectFile(appDir, "vite.config.ts", source);
+
+    const { agents } = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
+
+    expect(agents.llmsTxt).toEqual({ enabled: true });
   }, 30_000);
 
   it("does not erase other agent surfaces when no capabilities are registered", () => {

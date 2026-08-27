@@ -181,15 +181,6 @@ describe("createPrachtDevModuleSource API graph", () => {
     );
   });
 
-  it("exports the resolved llms.txt state for graph readers", () => {
-    expect(createPrachtDevModuleSource({ llmsTxt: { title: "Docs" } })).toContain(
-      "export const llmsTxtEnabled = true;",
-    );
-    expect(createPrachtDevModuleSource({ llmsTxt: undefined })).toContain(
-      "export const llmsTxtEnabled = false;",
-    );
-  });
-
   it("exports adapter-neutral resolved API routes for companion tooling", () => {
     const source = createPrachtDevModuleSource({ apiDir: "/src/http" });
     expect(source).toContain('import { resolveApp, resolveApiRoutes } from "@pracht/core/server";');

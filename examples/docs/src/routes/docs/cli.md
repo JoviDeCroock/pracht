@@ -201,9 +201,10 @@ slice: the Web Bot Auth policy and trusted keys, the destructive-confirmation
 mode, whether remote MCP and `llms.txt` are enabled, and which capabilities are
 exposed on which transports (with capabilities that have no `expose` config
 counted as `private`). The `llms.txt` state comes from the Vite plugin's resolved
-configuration, so computed options are reported accurately. If the CLI is newer
-than the installed Vite plugin and that plugin does not expose the resolved flag,
-JSON reports `null` and text reports `unknown` instead of incorrectly saying the
+production server-build configuration, so computed, build-only, and
+production-only options are reported accurately. If the CLI is newer than the
+installed Vite plugin and that plugin does not expose the resolved flag, JSON
+reports `null` and text reports `unknown` instead of incorrectly saying the
 feature is off; upgrade `@pracht/vite-plugin` to resolve it. It also flags
 capabilities that set `expose.mcp` while the manifest leaves `agents.mcp`
 unconfigured — exposure recorded in the graph that nothing serves. An empty

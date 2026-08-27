@@ -378,12 +378,12 @@ The JSON keeps every recorded dispatch and carries `transport` on each, so consu
 The audit trail covers *dispatch*. Several rejections happen before a capability is dispatched and emit no event at all:
 
 - **Cross-origin mutation requests** are refused with a `cross_origin_blocked` 403 before the capability pipeline is entered.
-- **Unknown capability paths** never match a capability route, so they fall through to ordinary route matching and answer 404.
+- **Unknown paths under the default `/api/capabilities/*` prefix** answer the typed `unknown_capability` 404 before ordinary route matching. An unmatched custom capability path can instead fall through to an application route.
 - **Unknown or unexposed MCP tool names** are answered as a JSON-RPC `invalid_params` protocol error before dispatch.
 
 An agent — or a scanner — enumerating tool names or probing capability URLs therefore leaves no trace in the audit trail. Absence of events is not evidence that nothing tried. Use the deployment's HTTP access log for reconnaissance detection, and treat the audit trail as the record of what actually ran.
 
-To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its `llmsTxt` state comes from the Vite plugin's resolved configuration, including computed options, rather than a source-text guess. When the CLI is newer than an installed Vite plugin that does not expose that metadata yet, the state is `null` in JSON and `unknown` in text until the plugin is upgraded — never a false opt-out.
+To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its `llmsTxt` state comes from the Vite plugin's resolved production server-build configuration, including computed options, rather than a source-text guess or the development configuration. When the CLI is newer than an installed Vite plugin that does not expose that metadata yet, the state is `null` in JSON and `unknown` in text until the plugin is upgraded — never a false opt-out.
 
 ### Remote MCP Composition Is Guarded
 

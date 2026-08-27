@@ -17,7 +17,7 @@ import type {
 import { defineCommand } from "citty";
 
 import { capabilityModuleLoader, createSourceReader } from "../app-graph.js";
-import { withAppServer } from "../app-server.js";
+import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 
@@ -146,6 +146,7 @@ export async function runInspect(
 ): Promise<InspectReport> {
   const targets = new Set(Array.isArray(target) ? target : [target]);
   const wants = (name: string) => targets.has(name) || targets.has("all");
+  const llmsTxtEnabled = wants("agents") ? await resolveBuildLlmsTxtEnabled(root) : null;
 
   return withAppServer(root, async ({ project, server, serverModule }) => {
     const report: InspectReport = {
@@ -199,7 +200,7 @@ export async function runInspect(
       report.agents = summarizeAgentSurface(
         serverModule.resolvedApp.agents,
         capabilities,
-        resolveInspectedLlmsTxtEnabled(serverModule),
+        llmsTxtEnabled,
       );
     }
 
@@ -267,24 +268,6 @@ export function summarizeAgentSurface(
     })),
     exposure,
   };
-}
-
-/**
- * Read the resolved plugin flag when the installed vite plugin exposes it.
- * Older plugins either expose only the generated server function or provide no
- * authoritative signal at all; never turn that missing metadata into a false
- * "disabled" audit result.
- */
-export function resolveInspectedLlmsTxtEnabled(
-  serverModule: Record<string, unknown>,
-): boolean | null {
-  if (typeof serverModule.llmsTxtEnabled === "boolean") {
-    return serverModule.llmsTxtEnabled;
-  }
-  if (typeof serverModule.generateLlmsTxt === "function") {
-    return true;
-  }
-  return null;
 }
 
 function printInspectReport(report: InspectReport): void {
