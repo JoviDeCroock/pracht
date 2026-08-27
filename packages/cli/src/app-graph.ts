@@ -2,10 +2,12 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
 import {
+  destructiveMcpSetupMiddlewareFiles,
   resolveMcpEndpoint,
   resolveRegistryModule,
   serializeApiRoutesStatic,
   serializeCapabilities,
+  servesDestructiveMcpTools,
 } from "@pracht/core";
 import type { AppGraphCapability, PrachtAgentsConfig } from "@pracht/core";
 import type { ViteDevServer } from "vite";
@@ -116,14 +118,23 @@ export async function collectAppGraph(
     loadModule: capabilityModuleLoader(server, serverModule),
     readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
   });
-  const mcpDestructive = serverModule.resolvedApp.agents?.mcp?.destructive === true;
+  const mcpDestructive = servesDestructiveMcpTools(serverModule.resolvedApp, capabilities);
+  let setupFailure: string | null = null;
+  if (mcpDestructive) {
+    try {
+      await loadDestructiveMcpSetupModules(server, serverModule, capabilities);
+    } catch (error: unknown) {
+      setupFailure = `destructive MCP setup modules failed to load: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
   const mcpUnavailableReasons =
-    mcpDestructive &&
-    capabilities.some(
-      (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
-    )
-      ? await readDestructiveMcpPreconditionErrors(server, serverModule.resolvedApp.agents)
-      : [];
+    setupFailure !== null
+      ? [setupFailure]
+      : mcpDestructive
+        ? await readDestructiveMcpPreconditionErrors(server, serverModule.resolvedApp.agents)
+        : [];
   return {
     // The banner must not execute every API module at startup. Static export
     // analysis follows named and star re-exports without triggering unrelated
@@ -140,6 +151,26 @@ export async function collectAppGraph(
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };
+}
+
+async function loadDestructiveMcpSetupModules(
+  server: ViteDevServer,
+  serverModule: Record<string, any>,
+  capabilities: readonly AppGraphCapability[],
+): Promise<void> {
+  const files = destructiveMcpSetupMiddlewareFiles(serverModule.resolvedApp, capabilities);
+  const middlewareModules = serverModule.registry?.middlewareModules as
+    | Record<string, () => Promise<unknown>>
+    | undefined;
+  await Promise.all(
+    files.map(async (file) => {
+      const viaRegistry = await resolveRegistryModule<Record<string, unknown>>(
+        middlewareModules,
+        file,
+      );
+      if (!viaRegistry) await server.ssrLoadModule(file);
+    }),
+  );
 }
 
 async function readDestructiveMcpPreconditionErrors(

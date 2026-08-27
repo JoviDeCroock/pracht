@@ -127,6 +127,12 @@ export interface AppGraph {
 export interface AppGraphModuleAccess {
   /** Import an app module by its app-relative file path (e.g. Vite's `ssrLoadModule`). */
   loadModule: (file: string) => Promise<Record<string, unknown>>;
+  /**
+   * Import setup middleware before runtime preconditions are inspected. Kept
+   * separate because generated registries split capability and middleware
+   * modules into distinct glob maps.
+   */
+  loadSetupModule?: (file: string) => Promise<Record<string, unknown>>;
   /** Read an app module's source text — fallback method detection when importing fails. */
   readSource: (file: string) => string;
 }
@@ -332,6 +338,42 @@ export function serializeCapabilities(
   );
 }
 
+/** Whether the configured projection actually has a destructive MCP tool to serve. */
+export function servesDestructiveMcpTools(
+  app: Pick<ResolvedPrachtApp, "agents">,
+  capabilities: readonly AppGraphCapability[],
+): boolean {
+  return (
+    app.agents?.mcp?.destructive === true &&
+    capabilities.some(
+      (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
+    )
+  );
+}
+
+/**
+ * Server-only middleware modules whose top-level setup may satisfy destructive
+ * MCP preconditions. This mirrors the runtime endpoint: app API middleware and
+ * named middleware applied to a served destructive capability are startup
+ * inputs; unrelated registered middleware remains lazy.
+ */
+export function destructiveMcpSetupMiddlewareFiles(
+  app: Pick<ResolvedPrachtApp, "agents"> & Partial<Pick<ResolvedPrachtApp, "api" | "middleware">>,
+  capabilities: readonly AppGraphCapability[],
+): string[] {
+  if (!servesDestructiveMcpTools(app, capabilities)) return [];
+
+  const names = new Set(app.api?.middleware ?? []);
+  for (const capability of capabilities) {
+    if (capability.effect !== "destructive" || !capability.transports.includes("mcp")) continue;
+    for (const name of capability.middleware) names.add(name);
+  }
+  return [...names].flatMap((name) => {
+    const file = app.middleware?.[name];
+    return file ? [file] : [];
+  });
+}
+
 export async function buildAppGraph(
   options: {
     apiRoutes?: readonly ResolvedApiRoute[];
@@ -340,14 +382,25 @@ export async function buildAppGraph(
 ): Promise<AppGraph> {
   const notFound = options.app.notFound;
   const capabilities = await serializeCapabilities(options.app.capabilities, options);
-  const mcpDestructive = options.app.agents?.mcp?.destructive === true;
+  const mcpDestructive = servesDestructiveMcpTools(options.app, capabilities);
+  let setupFailure: string | null = null;
+  if (mcpDestructive && options.loadSetupModule) {
+    try {
+      await Promise.all(
+        destructiveMcpSetupMiddlewareFiles(options.app, capabilities).map(options.loadSetupModule),
+      );
+    } catch (error: unknown) {
+      setupFailure = `destructive MCP setup modules failed to load: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
   const mcpUnavailableReasons =
-    mcpDestructive &&
-    capabilities.some(
-      (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
-    )
-      ? destructiveMcpPreconditionErrors(options.app.agents)
-      : [];
+    setupFailure !== null
+      ? [setupFailure]
+      : mcpDestructive
+        ? destructiveMcpPreconditionErrors(options.app.agents)
+        : [];
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
     capabilities,

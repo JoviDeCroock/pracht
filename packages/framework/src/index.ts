@@ -88,6 +88,7 @@ export type {
 } from "./types.ts";
 export {
   buildAppGraph,
+  destructiveMcpSetupMiddlewareFiles,
   detectApiExports,
   detectApiExportsStatic,
   detectApiMethods,
@@ -95,6 +96,7 @@ export {
   serializeApiRoutesStatic,
   serializeAppRoutes,
   serializeCapabilities,
+  servesDestructiveMcpTools,
 } from "./app-graph.ts";
 export type {
   ApiRouteExports,

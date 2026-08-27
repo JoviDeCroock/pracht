@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import { defineCapability } from "../../capabilities/src/index.ts";
 import type { AppGraph } from "../src/app-graph.ts";
 import {
   buildAppGraph,
@@ -12,6 +13,13 @@ import {
 } from "../src/app-graph.ts";
 import { defineApp, resolveApiRoutes, resolveApp, route } from "../src/app.ts";
 import { buildDevtoolsHtml, DEVTOOLS_JSON_PATH } from "../src/devtools.ts";
+import { createMemoryApprovalStore, setCapabilityApprovalStore } from "../src/runtime-approval.ts";
+import { setCapabilityConfirmationSecret } from "../src/runtime-confirmation.ts";
+
+afterEach(() => {
+  setCapabilityApprovalStore(null);
+  setCapabilityConfirmationSecret(null);
+});
 
 const graphFixture: AppGraph = {
   capabilities: [],
@@ -771,7 +779,6 @@ describe("buildAppGraph", () => {
 
     expect(graph).toEqual({
       capabilities: [],
-      mcpDestructive: true,
       mcpEndpoint: "/agents/mcp",
       notFound: null,
       api: [
@@ -816,6 +823,82 @@ describe("buildAppGraph", () => {
         },
       ],
     });
+  });
+
+  it("loads applied setup middleware before inspecting destructive MCP preconditions", async () => {
+    const capability = defineCapability({
+      title: "Purge notes",
+      description: "Delete matching notes.",
+      input: { type: "object", properties: {}, additionalProperties: false },
+      output: { type: "object", properties: {}, additionalProperties: false },
+      effect: "destructive",
+      expose: { mcp: true },
+      middleware: ["approvalSetup"],
+      async run() {
+        return {};
+      },
+    });
+    const app = resolveApp(
+      defineApp({
+        agents: { mcp: { destructive: true } },
+        capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+        middleware: { approvalSetup: "./middleware/approval-setup.ts" },
+        routes: [],
+      }),
+    );
+    const loaded: string[] = [];
+
+    const graph = await buildAppGraph({
+      app,
+      loadModule: async () => ({ default: capability }),
+      loadSetupModule: async (file) => {
+        loaded.push(file);
+        setCapabilityApprovalStore(createMemoryApprovalStore());
+        setCapabilityConfirmationSecret("devtools-test-secret");
+        return {};
+      },
+      readSource: () => "",
+    });
+
+    expect(loaded).toEqual(["./middleware/approval-setup.ts"]);
+    expect(graph.mcpDestructive).toBe(true);
+    expect(graph.mcpUnavailableReasons).toBeUndefined();
+  });
+
+  it("reports a setup middleware load failure without breaking graph inspection", async () => {
+    const capability = defineCapability({
+      title: "Purge notes",
+      description: "Delete matching notes.",
+      input: { type: "object", properties: {}, additionalProperties: false },
+      output: { type: "object", properties: {}, additionalProperties: false },
+      effect: "destructive",
+      expose: { mcp: true },
+      middleware: ["approvalSetup"],
+      async run() {
+        return {};
+      },
+    });
+    const app = resolveApp(
+      defineApp({
+        agents: { mcp: { destructive: true } },
+        capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+        middleware: { approvalSetup: "./middleware/approval-setup.ts" },
+        routes: [],
+      }),
+    );
+
+    const graph = await buildAppGraph({
+      app,
+      loadModule: async () => ({ default: capability }),
+      loadSetupModule: async () => {
+        throw new Error("database adapter is unavailable");
+      },
+      readSource: () => "",
+    });
+
+    expect(graph.mcpUnavailableReasons).toEqual([
+      "destructive MCP setup modules failed to load: database adapter is unavailable",
+    ]);
   });
 
   it("defaults to an empty API list when no API routes are passed", async () => {

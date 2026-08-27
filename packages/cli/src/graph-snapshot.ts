@@ -7,6 +7,7 @@ import {
   serializeApiRoutes,
   serializeAppRoutes,
   serializeCapabilities,
+  servesDestructiveMcpTools,
 } from "@pracht/core";
 import type {
   AppGraphApiRoute,
@@ -87,7 +88,7 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
         api,
         capabilities,
         mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
-        ...(serverModule.resolvedApp.agents?.mcp?.destructive === true
+        ...(servesDestructiveMcpTools(serverModule.resolvedApp, capabilities)
           ? { mcpDestructive: true as const }
           : {}),
         constraints: serverModule.resolvedApp.constraints ?? [],

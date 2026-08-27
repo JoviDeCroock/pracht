@@ -147,6 +147,54 @@ describe("collectAppGraph", () => {
     expect(destructiveMcpPreconditionErrors).toHaveBeenCalledOnce();
   });
 
+  it("loads applied setup middleware before reading destructive MCP preconditions", async () => {
+    let setupLoaded = false;
+    const destructiveMcpPreconditionErrors = vi.fn(() =>
+      setupLoaded ? [] : ["no approval store is registered."],
+    );
+    const capability = {
+      kind: "capability",
+      title: "Purge notes",
+      description: "Purge every note.",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "destructive",
+      expose: { mcp: true },
+      middleware: ["approvalSetup"],
+      run: async () => ({}),
+    };
+    const middlewareModule = vi.fn(async () => {
+      setupLoaded = true;
+      return { middleware: async () => new Response() };
+    });
+    const server = fakeServer({
+      "@pracht/core/server": { destructiveMcpPreconditionErrors },
+      "virtual:pracht/dev-metadata": {
+        apiRoutes: [],
+        registry: {
+          capabilityModules: {
+            "/src/capabilities/notes-purge.ts": async () => ({ default: capability }),
+          },
+          middlewareModules: {
+            "/src/middleware/approval-setup.ts": middlewareModule,
+          },
+        },
+        resolvedApp: {
+          agents: { mcp: { destructive: true } },
+          capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+          middleware: { approvalSetup: "./middleware/approval-setup.ts" },
+          routes: [],
+        },
+      },
+    });
+
+    const graph = await collectAppGraph(server, process.cwd());
+
+    expect(middlewareModule).toHaveBeenCalledOnce();
+    expect(destructiveMcpPreconditionErrors).toHaveBeenCalledOnce();
+    expect(graph.mcpUnavailableReasons).toEqual([]);
+  });
+
   it("resolves API methods re-exported from another module", async () => {
     const root = mkdtempSync(join(tmpdir(), "pracht-static-api-graph-"));
     mkdirSync(join(root, "src/api-edge"), { recursive: true });

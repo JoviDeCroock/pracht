@@ -48,7 +48,8 @@ do" has a canonical answer that is not the raw code diff.
   `expose.mcp` capability from graph metadata into a remotely served tool.
   Enabling `agents.mcp.destructive` is a second widening because it makes the
   declared destructive subset reachable too. The plan records endpoint and
-  destructive-mode changes explicitly.
+  destructive-mode changes explicitly, but only records the destructive switch
+  when at least one declared destructive MCP capability can actually be served.
   When anything widened, `--markdown` puts a callout above the diff instead of
   leaving it to be spotted in the fence.
 

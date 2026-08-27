@@ -103,15 +103,17 @@ For every exposed capability, ask whether the exposure is deliberate:
   manifest sets `agents: { mcp: { destructive: true } }`. Report it as a
   deliberate widening and check both halves: the opt-in, and a
   `setCapabilityApprovalStore()` call the running server actually executes
-  (imported by a server entry or a capability module — a module nothing imports
-  registers nothing). Opt-in without a store is an `error` in your report: the
+  (imported by a server entry, a capability module, or applied API/capability
+  middleware — a module nothing imports registers nothing). Opt-in without a store is an `error` in your report: the
   endpoint refuses to serve at all, and `pracht verify` only warns (its source
   scan cannot see a registration in a workspace package, so it must not
   hard-block). Two more preconditions fail the endpoint the same way — a
   missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither
   `agents.webBotAuth` nor a principal resolver — so check all three together.
   `pracht dev` and `/_pracht` report the endpoint-wide failure by marking every
-  MCP exposure `mcp(unserved)` and printing the unmet preconditions.
+  MCP exposure `mcp(unserved)` and printing the unmet preconditions. They load
+  those applied setup middleware modules before checking, matching the runtime
+  endpoint without executing the middleware functions.
   Destructive `expose.mcp` *without* the opt-in is dead exposure: the tool is
   invisible, and `pracht verify` warns.
 - `PRACHT_CONFIRMATION_SECRET` must be set in the server environment for each
@@ -211,8 +213,9 @@ diff cannot: a new exposure, a destructive capability reclassified out of the
 gate, an `agentPolicy` downgraded from `require`, dropped middleware, a
 loosened input schema (dropped `required`, opened `additionalProperties`, raised
 bound), newly enabled `agents.mcp`, or newly enabled
-`agents.mcp.destructive`. Report every widening explicitly, with the
-before/after. A stale snapshot makes this useless — `pracht verify` fails on
+`agents.mcp.destructive` when a declared destructive MCP capability actually
+exists. Enabling the destructive switch in advance, with no such tool, is not a
+widening. Report every widening explicitly, with the before/after. A stale snapshot makes this useless — `pracht verify` fails on
 staleness, so trust it only when verify passes.
 
 ## Step 7: The no-agent-surface case
