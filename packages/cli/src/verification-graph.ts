@@ -5,6 +5,7 @@ import {
   extractDefineAppObjectBody,
   extractCapabilityRegistrations,
   maskCommentsAndStrings,
+  scanTopLevelProperties,
 } from "@pracht/capabilities/static";
 import { evaluateConstraints, matchRoutePath } from "@pracht/core";
 import type { AppGraphRoute } from "@pracht/core";
@@ -306,7 +307,11 @@ function manifestDeclaresAgents(project: ProjectConfig): boolean {
   const manifestPath = resolveProjectPath(project.root, project.appFile);
   if (!existsSync(manifestPath)) return false;
   const appBody = extractDefineAppObjectBody(readFileSync(manifestPath, "utf-8"));
-  return appBody !== null && /\bagents\b/.test(maskCommentsAndStrings(appBody));
+  return (
+    appBody !== null &&
+    (scanTopLevelProperties(appBody).has("agents") ||
+      /\bagents\b/.test(maskCommentsAndStrings(appBody)))
+  );
 }
 
 /**

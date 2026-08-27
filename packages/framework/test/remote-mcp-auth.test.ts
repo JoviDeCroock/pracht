@@ -24,6 +24,7 @@ type CapabilityDefinition = Parameters<typeof defineCapability>[0];
 
 /** Records what the capability actually saw, so "surfaced" is observed, not assumed. */
 let observedTokenAuth: unknown;
+let nestedReplacementContext: { tokenAuth: { subject: string } } | undefined;
 let verifyCalls: string[] = [];
 
 const tokenProbe = defineCapability({
@@ -73,12 +74,13 @@ const tokenComposer = defineCapability({
   effect: "read",
   expose: { mcp: true },
   async run({ request, signal }) {
+    nestedReplacementContext = { tokenAuth: { subject: "spoofed" } };
     const result = await invokeCapability(
       "token.nested" as never,
       {},
       {
         request,
-        context: { tokenAuth: { subject: "spoofed" } },
+        context: nestedReplacementContext,
         signal,
       },
     );
@@ -639,6 +641,11 @@ describe("principal surfacing", () => {
 
     expect(status).toBe(200);
     expect(json?.result?.structuredContent).toEqual({ subject: "user-1" });
+    expect(nestedReplacementContext).toEqual({ tokenAuth: { subject: "spoofed" } });
+    expect(Object.getOwnPropertyDescriptor(nestedReplacementContext!, "tokenAuth")).toMatchObject({
+      configurable: true,
+      writable: true,
+    });
   });
 
   it("binds an immutable snapshot application code cannot rewrite", async () => {

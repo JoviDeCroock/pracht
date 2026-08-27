@@ -120,10 +120,22 @@ export function isolateRequestContext<TContext>(context: TContext): TContext {
     return context;
   }
 
+  return isolateRequestContextWithFields(context, {});
+}
+
+function isolateRequestContextWithFields<TContext>(
+  context: TContext & (object | ContextMethod),
+  frameworkFields: Readonly<Record<string, unknown>>,
+  allowShadowedFrameworkFields = false,
+): TContext & PrachtContextExtensions {
   assertOverlayableContext(context as object | ContextMethod);
-  const overlay = immutableFrameworkContext(context as TContext & (object | ContextMethod), {});
+  const overlay = immutableFrameworkContext(
+    context as TContext & (object | ContextMethod),
+    frameworkFields,
+    allowShadowedFrameworkFields,
+  );
   requestContextOverlays.add(overlay as object);
-  return overlay as TContext;
+  return overlay;
 }
 
 /** @internal Whether this context is already a request-local overlay. */
@@ -208,16 +220,9 @@ export function rebindMcpTokenContext<TContext>(
   // Always add a new overlay here. Unlike the request-boundary binder above,
   // nested composition accepts arbitrary application context, then shadows
   // any claimed OAuth identity with the one the MCP transport verified.
-  const requestContext = isolateRequestContext(context);
-  const target = requestContext as unknown as object;
-  Object.defineProperty(target, "tokenAuth", {
-    configurable: false,
-    enumerable: true,
-    value: principal,
-    writable: false,
-  });
-  const binding = { principal, context: target };
-  boundMcpTokenContexts.set(target, binding);
+  const requestContext = isolateRequestContextWithFields(context, { tokenAuth: principal }, true);
+  const binding = { principal, context: requestContext };
+  boundMcpTokenContexts.set(requestContext, binding);
   return requestContext as TContext & PrachtContextExtensions;
 }
 
@@ -230,6 +235,7 @@ export function rebindMcpTokenContext<TContext>(
 function immutableFrameworkContext<TContext>(
   context: TContext & (object | ContextMethod),
   frameworkFields: Readonly<Record<string, unknown>>,
+  allowShadowedFrameworkFields = false,
 ): TContext & PrachtContextExtensions {
   const prototype = Object.getPrototypeOf(context);
   const materializedContextKeys = new Set<PropertyKey>();
@@ -412,6 +418,7 @@ function immutableFrameworkContext<TContext>(
     );
   };
   function assertNoInheritedFrameworkField(): void {
+    if (allowShadowedFrameworkFields) return;
     for (const property of reservedFields) {
       if (
         !Object.prototype.hasOwnProperty.call(context, property) &&

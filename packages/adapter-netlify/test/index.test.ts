@@ -56,6 +56,7 @@ describe("createNetlifyServerEntryModule", () => {
     expect(source).toContain("finalizePrachtBuild");
     expect(source).toContain("finalizeNetlifyBuild(root,");
     expect(source).toContain("buildBase");
+    expect(source).toContain("Boolean(resolvedApp.agents?.mcp?.auth)");
   });
 });
 
@@ -348,16 +349,21 @@ describe("netlifyAdapter", () => {
     expect(() => netlifyAdapter({ excludedPath: ["/images/*"] })).not.toThrow();
   });
 
-  it("rejects excludedPath patterns that shadow OAuth metadata", () => {
+  it("allows OAuth metadata exclusions when the app does not enable MCP auth", () => {
+    expect(() => netlifyAdapter({ excludedPath: ["/.well-known/*"] })).not.toThrow();
+  });
+
+  it("rejects excludedPath patterns that shadow enabled OAuth metadata", async () => {
+    const root = await tempDir();
     for (const pattern of [
       "/*",
       "/.well-known/*",
       "/.well-known/oauth-protected-resource",
       "/.well-known/oauth-protected-resource/mcp",
     ]) {
-      expect(() => netlifyAdapter({ excludedPath: [pattern] })).toThrow(
-        /OAuth protected-resource metadata handler/,
-      );
+      await expect(
+        finalizeNetlifyBuild(root, { excludedPath: [pattern] }, "/", true),
+      ).rejects.toThrow(/OAuth protected-resource metadata handler/);
     }
   });
 });

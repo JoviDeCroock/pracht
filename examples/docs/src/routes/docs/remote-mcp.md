@@ -247,7 +247,7 @@ https://app.example.com/.well-known/oauth-protected-resource/app/mcp
 
 That is what the challenge advertises and what the runtime serves — the path is matched before base stripping, precisely so the advertised URL is fetchable. Set `resource` to the endpoint's real deployed URL, base included; pracht derives the rest. A reverse proxy that re-prefixes the base onto the well-known path is tolerated too. If `agents.mcp.path` is `/`, the resource is the deployed app root itself (`https://app.example.com/app` in this example). At the origin root, use the canonical slashless identifier `https://app.example.com`; URL serialization still routes requests at `/`.
 
-Because the match happens before routing and production-adapter static lookup, neither an application route nor a copied static file can shadow the document on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and cannot be used as `agents.mcp.path`; choose another endpoint path instead. Netlify `excludedPath` entries that would bypass this reserved namespace are rejected too.
+Because the match happens before routing and production-adapter static lookup, neither an application route nor a copied static file can shadow the document on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and cannot be used as `agents.mcp.path`; choose another endpoint path instead. When MCP OAuth is enabled, Netlify `excludedPath` entries that would bypass this reserved namespace are rejected; apps without `agents.mcp.auth` keep their existing exclusions because they serve no protected-resource metadata.
 
 ### The Challenge
 

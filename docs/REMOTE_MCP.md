@@ -435,7 +435,8 @@ neither an application route nor a copied static file can shadow the document
 on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and
 cannot be used as `agents.mcp.path`; choose another endpoint path instead.
 Netlify `excludedPath` entries that would bypass this reserved namespace are
-rejected too.
+rejected too when MCP OAuth is enabled; apps without `agents.mcp.auth` keep
+their existing exclusions because they serve no protected-resource metadata.
 
 ### The challenge
 
