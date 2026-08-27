@@ -246,6 +246,9 @@ Vercel bypass token is embedded in `.prerender-config.json`. Rename the main
 Edge Function with `vercelAdapter({ functionName })` if the default `render`
 would collide with an ISG route. Custom entries must export the `nodeListener`
 created by `createVercelNodeListener(handle)` for Node ISR functions.
+When remote MCP is configured, the generated route table sends its endpoint
+and OAuth metadata paths to the runtime before method-agnostic SSG rewrites;
+keep page routes off the MCP pathname even though the runtime wins that collision.
 
 ---
 

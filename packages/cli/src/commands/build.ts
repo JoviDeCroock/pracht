@@ -15,15 +15,10 @@ import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild, type Plugin } from "vite";
-import {
-  matchRoutePath,
-  mcpResourceMetadataPath,
-  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
-  routePathIsDynamic,
-} from "@pracht/core";
+import { matchRoutePath, routePathIsDynamic } from "@pracht/core";
 
 import { readClientBuildAssets } from "../build-metadata.js";
-import { writeVercelBuildOutput } from "../build-shared.js";
+import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
 import {
   isStaticExportBuild,
   resolvePrerenderOutputPath,
@@ -907,12 +902,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         markdownRoutes: Object.keys(markdownManifest),
         regions: serverMod.vercelRegions,
         root,
-        runtimeRoutes: serverMod.resolvedApp?.agents?.mcp?.auth
-          ? [
-              OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
-              mcpResourceMetadataPath(serverMod.resolvedApp.agents.mcp.auth),
-            ]
-          : [],
+        runtimeRoutes: resolveVercelRuntimeRoutes(serverMod.resolvedApp?.agents),
         staticAssetRoutes: Object.keys(contentArtifactHeaders),
         staticRoutes: [
           ...pages

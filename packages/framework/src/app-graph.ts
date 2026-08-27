@@ -140,6 +140,8 @@ export interface AppGraphModuleAccess {
    * modules into distinct glob maps.
    */
   loadSetupModule?: (file: string) => Promise<Record<string, unknown>>;
+  /** Load and validate the configured MCP OAuth verifier with production registry semantics. */
+  verifyMcpTokenVerifier?: () => Promise<void>;
   /** Read an app module's source text — fallback method detection when importing fails. */
   readSource: (file: string) => string;
 }
@@ -399,6 +401,16 @@ export async function buildAppGraph(
             : [],
         );
   const mcpDestructive = servesDestructiveMcpTools(options.app, capabilities);
+  let verifierFailure: string | null = null;
+  if (options.app.agents?.mcp?.auth && options.verifyMcpTokenVerifier) {
+    try {
+      await options.verifyMcpTokenVerifier();
+    } catch (error: unknown) {
+      verifierFailure = `MCP token verifier failed to load: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
+    }
+  }
   let setupFailure: string | null = null;
   if (mcpDestructive && options.loadSetupModule) {
     try {
@@ -413,6 +425,7 @@ export async function buildAppGraph(
   }
   const mcpUnavailableReasons = [
     ...capabilityFailures,
+    ...(verifierFailure === null ? [] : [verifierFailure]),
     ...(setupFailure !== null
       ? [setupFailure]
       : mcpDestructive

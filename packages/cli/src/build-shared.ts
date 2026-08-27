@@ -2,6 +2,12 @@ import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 
+import {
+  mcpResourceMetadataPath,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+  resolveMcpEndpoint,
+  type PrachtAgentsConfig,
+} from "@pracht/core";
 import { getTimeRevalidateSeconds, type ISGManifestEntry } from "@pracht/core/server";
 import { VERSION } from "./constants.js";
 
@@ -47,6 +53,18 @@ interface VercelBuildOutputOptions {
   runtimeRoutes?: string[];
   staticAssetRoutes?: string[];
   staticRoutes: string[];
+}
+
+/** Runtime-owned agent paths that must win over Vercel's method-agnostic static rewrites. */
+export function resolveVercelRuntimeRoutes(agents: PrachtAgentsConfig | undefined): string[] {
+  const endpoint = resolveMcpEndpoint(agents);
+  if (endpoint === null) return [];
+
+  const auth = agents?.mcp?.auth;
+  return [
+    endpoint,
+    ...(auth ? [OAUTH_PROTECTED_RESOURCE_WELL_KNOWN, mcpResourceMetadataPath(auth)] : []),
+  ];
 }
 
 export function writeVercelBuildOutput({

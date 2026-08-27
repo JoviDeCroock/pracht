@@ -220,6 +220,8 @@ Graph-only inspection loads the configured verifier before calling a protected e
 
 The MCP path must be distinct from every explicit API route. `pracht verify` rejects exact and dynamic collisions, such as `agents.mcp.path: "/api/mcp"` alongside either `src/api/mcp.ts` or an API pattern like `/api/:name`; the request runtime returns 500 rather than letting the API handler shadow MCP's transport and authentication gates.
 
+The endpoint also owns its pathname ahead of page rendering and deployment static rewrites. Do not assign a page route the same path; Vercel's generated route table sends the MCP endpoint to the runtime before any matching SSG rewrite, so a method-agnostic static rule cannot intercept `POST /mcp`.
+
 The committed app-graph snapshot records whether the endpoint is OAuth protected and its resource, authorization servers, required and advertised scopes, and verifier module. `pracht plan` reports those policy changes as well as enabling protection. Removing a required scope, trusting another authorization server, or removing auth from a still-live endpoint is a guard weakening, even when the `/mcp` path itself did not change.
 
 ### The Metadata Document

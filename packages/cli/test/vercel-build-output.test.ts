@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { timeRevalidate } from "@pracht/core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { writeVercelBuildOutput } from "../src/build-shared.ts";
+import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../src/build-shared.ts";
 
 describe("writeVercelBuildOutput", () => {
   const roots: string[] = [];
@@ -96,18 +96,25 @@ describe("writeVercelBuildOutput", () => {
     expect(routesJson(withoutMarkdown)).not.toContain("mM][aA][rR][kK]");
   });
 
-  it("routes OAuth metadata to the runtime before static filesystem lookup", () => {
+  it("routes the OAuth-protected MCP surface before method-agnostic static rewrites", () => {
     const root = createBuildRoot();
+    const agents = {
+      mcp: {
+        auth: {
+          resource: "https://app.example/mcp",
+          authorizationServers: ["https://auth.example"],
+          verify: "/src/server/mcp-token.ts",
+        },
+      },
+    } as const;
     writeVercelBuildOutput({
       isgManifest: {},
       root,
-      runtimeRoutes: [
-        "/.well-known/oauth-protected-resource",
-        "/.well-known/oauth-protected-resource/mcp",
-      ],
-      // A prerendered route with either name must lose for both the canonical
-      // request and the one-trailing-slash spelling the runtime accepts.
+      runtimeRoutes: resolveVercelRuntimeRoutes(agents),
+      // A prerendered route with any runtime-owned name must lose for both the
+      // canonical request and the one-trailing-slash spelling the runtime accepts.
       staticRoutes: [
+        "/mcp",
         "/.well-known/oauth-protected-resource",
         "/.well-known/oauth-protected-resource/mcp",
       ],
@@ -117,15 +124,16 @@ describe("writeVercelBuildOutput", () => {
       routes: { dest?: string; handle?: string; src?: string }[];
     };
     const filesystemIndex = config.routes.findIndex((route) => route.handle === "filesystem");
-    const metadataRoutes = config.routes.filter(
-      (route) => route.dest === "/render" && route.src?.includes("oauth"),
+    const runtimeRoutes = config.routes.filter(
+      (route) =>
+        route.dest === "/render" && (route.src?.includes("oauth") || route.src === "^/mcp/?$"),
     );
-    expect(metadataRoutes).toHaveLength(2);
-    expect(metadataRoutes.map((route) => route.src)).toEqual([
+    expect(runtimeRoutes.map((route) => route.src)).toEqual([
       "^/\\.well\\-known/oauth\\-protected\\-resource/mcp/?$",
       "^/\\.well\\-known/oauth\\-protected\\-resource/?$",
+      "^/mcp/?$",
     ]);
-    for (const route of metadataRoutes) {
+    for (const route of runtimeRoutes) {
       const runtimeIndex = config.routes.indexOf(route);
       const shadowingStaticIndex = config.routes.findIndex(
         (candidate, index) => index > runtimeIndex && candidate.src === route.src,
