@@ -533,7 +533,8 @@ describe("runScenario over the MCP transport", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('capability "notes.purge"');
     expect(result.error).toContain("expose: { mcp: true }");
-    expect(result.error).toContain("destructive capabilities are never projected");
+    expect(result.error).toContain("agents.mcp.destructive");
+    expect(result.error).toContain("registered approval store");
   });
 
   it("fails with an actionable message when the app serves no MCP endpoint", async () => {

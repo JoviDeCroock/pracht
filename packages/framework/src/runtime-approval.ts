@@ -352,9 +352,14 @@ export function createSqlApprovalStore(options: SqlApprovalStoreOptions): Capabi
         `got ${JSON.stringify(table)}.`,
     );
   }
+  // Identifiers cannot be parameters, but they can still collide with SQL
+  // keywords (for example `group`) or rely on case preservation. Validate the
+  // narrow shape above, then quote every segment for both supported dialects.
+  const quoteIdentifier = (identifier: string): string => `"${identifier}"`;
+  const tableSql = segments.map(quoteIdentifier).join(".");
   // Postgres refers to the conflict target by its unqualified name inside
   // `ON CONFLICT … DO UPDATE`, even when the table is schema-qualified.
-  const tableRef = segments[segments.length - 1];
+  const tableRef = quoteIdentifier(segments[segments.length - 1]);
   const dialect: SqlApprovalStoreDialect = options.dialect ?? "sqlite";
   if (dialect !== "sqlite" && dialect !== "postgres") {
     throw new Error(
@@ -386,27 +391,27 @@ export function createSqlApprovalStore(options: SqlApprovalStoreOptions): Capabi
     .join(", ");
 
   const CREATE_SQL =
-    `INSERT INTO ${table} (${APPROVAL_COLUMNS}) VALUES (${list(11)}) ` +
+    `INSERT INTO ${tableSql} (${APPROVAL_COLUMNS}) VALUES (${list(11)}) ` +
     `ON CONFLICT (id) DO UPDATE SET ${updatedColumns} ` +
     `WHERE ${tableRef}.expires_at < ${p(12)}`;
-  const SELECT_SQL = `SELECT ${APPROVAL_COLUMNS} FROM ${table} WHERE id = ${p(1)}`;
+  const SELECT_SQL = `SELECT ${APPROVAL_COLUMNS} FROM ${tableSql} WHERE id = ${p(1)}`;
   const LIST_PENDING_SQL =
-    `SELECT ${APPROVAL_COLUMNS} FROM ${table} ` +
+    `SELECT ${APPROVAL_COLUMNS} FROM ${tableSql} ` +
     `WHERE state = 'pending' AND expires_at >= ${p(1)} ORDER BY created_at ASC, id ASC`;
   const DECIDE_SQL =
-    `UPDATE ${table} SET state = ${p(1)}, decided_by = ${p(2)}, decided_at = ${p(3)} ` +
+    `UPDATE ${tableSql} SET state = ${p(1)}, decided_by = ${p(2)}, decided_at = ${p(3)} ` +
     `WHERE id = ${p(4)} AND state = 'pending' AND expires_at >= ${p(5)}`;
   // The whole eligibility rule lives in the WHERE clause, so the database — not
   // this process — decides which of two racing commits wins. `requires_approval`
   // is read from the stored row so a replica configured for token mode cannot
   // consume a proposal that was recorded as needing human approval.
   const CONSUME_SQL =
-    `UPDATE ${table} SET state = 'consumed' ` +
+    `UPDATE ${tableSql} SET state = 'consumed' ` +
     `WHERE id = ${p(1)} AND expires_at >= ${p(2)} ` +
     `AND ((requires_approval = 0 AND state IN ('pending', 'approved')) ` +
     `OR (requires_approval = 1 AND state = 'approved'))`;
-  const DELETE_SQL = `DELETE FROM ${table} WHERE id = ${p(1)}`;
-  const SWEEP_SQL = `DELETE FROM ${table} WHERE expires_at < ${p(1)}`;
+  const DELETE_SQL = `DELETE FROM ${tableSql} WHERE id = ${p(1)}`;
+  const SWEEP_SQL = `DELETE FROM ${tableSql} WHERE expires_at < ${p(1)}`;
 
   const run = async (sql: string, params: unknown[]): Promise<SqlApprovalStoreResult> => {
     const result = await execute(sql, params);

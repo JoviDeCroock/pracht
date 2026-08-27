@@ -488,9 +488,10 @@ createSqlApprovalStore({
 });
 ```
 
-The `table` option is interpolated into SQL (identifiers cannot be
-parameters), so it is validated at construction: a plain identifier or
-`schema.identifier`, nothing else. Everything else travels as a bound
+The `table` option cannot be a bound parameter, so it is validated at
+construction as a plain identifier or `schema.identifier`, then every segment
+is quoted before interpolation. SQL keywords and case-sensitive names therefore
+work without broadening the accepted syntax. Everything else travels as a bound
 parameter.
 
 ### Writing your own store

@@ -29,7 +29,7 @@ const SURFACES = [
     tag: "mcp",
     title: "The tool list",
     detail:
-      "POST /mcp serves the same capabilities as MCP tools over stateless Streamable HTTP — minus the destructive one.",
+      "POST /mcp serves the same capabilities as MCP tools over stateless Streamable HTTP — this showcase keeps the destructive one HTTP-only.",
   },
 ];
 
@@ -161,7 +161,9 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
                 {": "}
                 <span class="str">"destructive"</span>
                 {",   "}
-                <span class="cmt">// → webmcp/mcp exposure is a build error</span>
+                <span class="cmt">
+                  // → WebMCP is forbidden; remote MCP needs explicit approval setup
+                </span>
                 {"\n  "}
                 <span class="prop">expose</span>
                 {": { http: true }, "}

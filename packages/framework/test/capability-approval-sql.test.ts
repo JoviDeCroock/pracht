@@ -256,6 +256,24 @@ describe.skipIf(!sqlite)("createSqlApprovalStore over SQLite", () => {
     sqliteExecute.close();
   });
 
+  it("quotes a custom table name that is an SQL keyword", async () => {
+    const sqliteExecute = createSqliteExecute();
+    await sqliteExecute.execute(
+      MIGRATION.replaceAll("pracht_approvals", '"group"').split(";")[0],
+      [],
+    );
+    const custom = createSqlApprovalStore({
+      execute: sqliteExecute.execute,
+      table: "group",
+      now,
+    });
+
+    await custom.create(record());
+    expect(await custom.get("approval-1")).not.toBeNull();
+    expect(sqliteExecute.statements.some((sql) => sql.includes('INSERT INTO "group"'))).toBe(true);
+    sqliteExecute.close();
+  });
+
   it("drives the destructive prepare/commit gate end to end", async () => {
     setCapabilityConfirmationSecret("sql-approval-store-secret");
     setCapabilityApprovalStore(store);
@@ -335,7 +353,7 @@ describe("createSqlApprovalStore driver portability", () => {
 
     const insert = calls.find((call) => call.sql.startsWith("INSERT"))!;
     expect(insert.sql).toContain("VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)");
-    expect(insert.sql).toContain("WHERE pracht_approvals.expires_at < $12");
+    expect(insert.sql).toContain('WHERE "pracht_approvals".expires_at < $12');
     expect(insert.params).toHaveLength(12);
     // Booleans travel as 0/1 so one DDL works on Postgres and SQLite alike.
     expect(insert.params[5]).toBe(0);
@@ -351,8 +369,8 @@ describe("createSqlApprovalStore driver portability", () => {
     });
     await store.create(record());
 
-    expect(calls[calls.length - 1].sql).toContain("INSERT INTO app.pracht_approvals");
-    expect(calls[calls.length - 1].sql).toContain("WHERE pracht_approvals.expires_at <");
+    expect(calls[calls.length - 1].sql).toContain('INSERT INTO "app"."pracht_approvals"');
+    expect(calls[calls.length - 1].sql).toContain('WHERE "pracht_approvals".expires_at <');
   });
 
   it("uses `?` placeholders by default", async () => {

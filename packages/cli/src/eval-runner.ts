@@ -924,9 +924,10 @@ function describeToolCallRejection(capability: string, toolName: string, error: 
   if (/unknown tool/i.test(described)) {
     return (
       `the app's MCP endpoint does not serve a tool for capability "${capability}" ` +
-      `(expected "${toolName}"). Give the capability \`expose: { mcp: true }\`, or run this ` +
-      'step over the default "http" transport — destructive capabilities are never projected ' +
-      `as MCP tools. Server said: ${described}`
+      `(expected "${toolName}"). Give the capability \`expose: { mcp: true }\`. If it is ` +
+      "destructive, also configure `agents.mcp.destructive`, a confirmation secret, and a " +
+      'registered approval store; otherwise run this step over the default "http" transport. ' +
+      `Server said: ${described}`
     );
   }
   return `tools/call for "${toolName}" was rejected: ${described}`;

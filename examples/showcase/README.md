@@ -37,9 +37,10 @@ pnpm inspect                        # the capability graph, with schemas
 5. **`/app/audit`** — every dispatch above, with its transport, outcome, latency
    and verified agent identity.
 6. **`POST /mcp`** — `tools/list` projects the same graph, minus
-   `projects_archive`: `destructive` capabilities are filtered out of the MCP
-   tool list however they are declared. A cookie or an `Origin` header on that
-   endpoint is a 403.
+   `projects_archive`: this showcase keeps archive HTTP-only and leaves the
+   destructive MCP opt-in off. Apps can serve it remotely only with explicit
+   MCP exposure, `agents.mcp.destructive`, and an approval store. A cookie or an
+   `Origin` header on that endpoint is a 403.
 7. **`node scripts/agent.mjs`** — the same journey as a cryptographically
    verified agent, over the HTTP projection *and* `/mcp`, stopping dead at the
    human approval just like you did.

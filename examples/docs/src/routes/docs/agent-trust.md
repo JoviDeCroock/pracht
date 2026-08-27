@@ -263,7 +263,7 @@ execute: (sql, params) =>
   turso.execute({ sql, args: params as (string | number | null)[] }),
 ```
 
-If a write's result carries no affected-row count the store throws rather than assuming success, and the gate closes. The `table` option is interpolated into SQL (identifiers cannot be parameters), so it is validated at construction: a plain identifier or `schema.identifier`, nothing else.
+If a write's result carries no affected-row count the store throws rather than assuming success, and the gate closes. The `table` option cannot be a bound parameter, so it is validated at construction as a plain identifier or `schema.identifier`, then every segment is quoted before interpolation. SQL keywords and case-sensitive names therefore work without broadening the accepted syntax.
 
 ### Writing Your Own
 
