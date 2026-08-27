@@ -37,6 +37,27 @@ const DEFAULT_DIRECTORY_CACHE_TTL_SECONDS = 300;
 const DIRECTORY_MAX_BYTES = 65_536;
 const DIRECTORY_FETCH_TIMEOUT_MS = 5_000;
 
+/**
+ * Whether Web Bot Auth has any configured trust source that could resolve an
+ * identity. A policy-only block enables verification plumbing but cannot
+ * authenticate anyone: static keys need a non-empty public key, and directory
+ * discovery only ever fetches from HTTPS origins.
+ */
+export function hasWebBotAuthIdentitySource(config: WebBotAuthConfig | undefined): boolean {
+  if (config?.keys?.some((key) => typeof key.x === "string" && key.x.trim() !== "")) {
+    return true;
+  }
+  return (
+    config?.directories?.some((directory) => {
+      try {
+        return new URL(directory).protocol === "https:";
+      } catch {
+        return false;
+      }
+    }) ?? false
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Minimal RFC 8941 structured-field parsing (dictionaries only)
 // ---------------------------------------------------------------------------

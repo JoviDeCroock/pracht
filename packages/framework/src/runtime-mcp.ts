@@ -38,6 +38,7 @@ import {
   type CapabilityHostApp,
   type ResolvedCapability,
 } from "./runtime-capabilities.ts";
+import { hasWebBotAuthIdentitySource } from "./runtime-agent-auth.ts";
 import {
   hasCapabilityApprovalPrincipalResolver,
   resolveCapabilityApprovalStore,
@@ -440,12 +441,12 @@ export function destructiveMcpPreconditionErrors(agents: PrachtAgentsConfig | un
   // no way any request could ever produce one.
   if (
     agents?.confirmation?.mode === "human" &&
-    !agents.webBotAuth &&
+    !hasWebBotAuthIdentitySource(agents.webBotAuth) &&
     !hasCapabilityApprovalPrincipalResolver()
   ) {
     unmet.push(
       'agents.confirmation.mode is "human" but no principal can ever be resolved ' +
-        "(configure agents.webBotAuth, or call " +
+        "(configure agents.webBotAuth with a static key or HTTPS directory, or call " +
         "setCapabilityApprovalPrincipalResolver() from a server-only module).",
     );
   }

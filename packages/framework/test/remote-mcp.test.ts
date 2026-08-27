@@ -1494,10 +1494,28 @@ describe("destructive capabilities over MCP", () => {
     expect(list.json?.error.message).toContain("human");
     expect(list.json?.error.message).toContain("principal");
 
-    // Web Bot Auth makes a principal possible, so the endpoint serves again.
-    const withIdentity = await mcp(
+    // A policy-only Web Bot Auth block has no key or directory that could
+    // authenticate a request, so it must not make a dead tool look available.
+    const withoutTrustSource = await mcp(
       { jsonrpc: "2.0", id: 1, method: "tools/list" },
       { agents: { ...agents, webBotAuth: { policy: "observe" } } },
+    );
+    expect(withoutTrustSource.json?.error.code).toBe(-32603);
+    expect(withoutTrustSource.json?.error.message).toContain("static key or HTTPS directory");
+
+    // A real Web Bot Auth trust source makes a principal possible, so the
+    // endpoint can advertise the tool (individual unsigned calls still fail).
+    const withIdentity = await mcp(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      {
+        agents: {
+          ...agents,
+          webBotAuth: {
+            policy: "observe",
+            keys: [{ x: "s5n91rPm5ymJjl--scT4WWq7HE9kUdj-6sVe5r__xgc" }],
+          },
+        },
+      },
     );
     expect(withIdentity.json?.error).toBeUndefined();
     expect(withIdentity.json?.result.tools.map((tool: { name: string }) => tool.name)).toContain(

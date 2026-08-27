@@ -212,13 +212,15 @@ it expires — so exactly-once consumption is the whole reason the transport may
 carry a destructive effect at all. The runtime is the gate: the endpoint
 answers an explanatory JSON-RPC error instead of serving destructive tools
 whenever the store, the confirmation secret, or (in `mode: "human"`) any
-resolvable principal is missing. `pracht verify` *warns* when it cannot find a
-`setCapabilityApprovalStore()` call in the configured source directories — a
-warning rather than an error because a source scan cannot see a registration
-that lives in a workspace package. There is no silent downgrade in either
-direction: without the opt-in the tool is invisible; with it and an unmet
-precondition, nothing is served. The runtime-backed `/_pracht` graph marks every
-MCP exposure as `mcp(unserved)` when this endpoint-wide gate is closed. The
+resolvable principal is missing. A policy-only `webBotAuth: {}` block is not an
+identity source: configure at least one non-empty static key or HTTPS directory,
+or register an application principal resolver. `pracht verify` *warns* when it
+cannot find a `setCapabilityApprovalStore()` call in the configured source
+directories — a warning rather than an error because a source scan cannot see a
+registration that lives in a workspace package. There is no silent downgrade
+in either direction: without the opt-in the tool is invisible; with it and an
+unmet precondition, nothing is served. The runtime-backed `/_pracht` graph marks
+every MCP exposure as `mcp(unserved)` when this endpoint-wide gate is closed. The
 graph-only CLI surfaces use `mcp(unverified)` for the same locally observed
 missing preconditions because setup may still run from the skipped adapter
 server entry.
