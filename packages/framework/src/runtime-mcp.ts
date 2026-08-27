@@ -33,6 +33,7 @@ import {
   mcpToolName,
 } from "@pracht/capabilities";
 import {
+  clearDestructiveConfirmed,
   handleCapabilityRequest,
   setActiveCapabilityHost,
   type CapabilityHostApp,
@@ -573,20 +574,28 @@ async function handleToolsCall<TContext>(
     options.request,
   );
   const capabilityUrl = new URL(capabilityRequest.url);
-  const response = await handleCapabilityRequest({
-    match,
-    context: options.context,
-    registry: options.registry,
-    request: capabilityRequest,
-    url: capabilityUrl,
-    pathname: capabilityUrl.pathname,
-    exposeErrors: options.exposeErrors,
-    apiMiddlewareFiles: options.apiMiddlewareFiles,
-    agents: options.agents,
-    agent: options.agent ?? null,
-    transport: "mcp",
-    onAudit: options.onAudit,
-  });
+  let response: Response;
+  try {
+    response = await handleCapabilityRequest({
+      match,
+      context: options.context,
+      registry: options.registry,
+      request: capabilityRequest,
+      url: capabilityUrl,
+      pathname: capabilityUrl.pathname,
+      exposeErrors: options.exposeErrors,
+      apiMiddlewareFiles: options.apiMiddlewareFiles,
+      agents: options.agents,
+      agent: options.agent ?? null,
+      transport: "mcp",
+      onAudit: options.onAudit,
+    });
+  } finally {
+    // The synthesized and incoming transport requests share one host object.
+    // Clear its confirmation grant as soon as the dispatch settles so code
+    // retaining either Request cannot compose destructive work later.
+    clearDestructiveConfirmed(capabilityRequest);
+  }
 
   let envelope: CapabilityEnvelope;
   try {

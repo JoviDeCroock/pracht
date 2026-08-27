@@ -1260,6 +1260,12 @@ function markDestructiveConfirmed(request: Request): void {
   if (host) host.destructiveConfirmed = true;
 }
 
+/** End the destructive-composition grant when the confirmed dispatch settles. */
+export function clearDestructiveConfirmed(request: Request): void {
+  const host = activeCapabilityHosts.get(request);
+  if (host) host.destructiveConfirmed = false;
+}
+
 export function setActiveCapabilityHost(
   request: Request,
   app: CapabilityHostApp,

@@ -158,6 +158,15 @@ export async function collectCapabilityAppGraph(
     },
     { strict: options.strict ?? false },
   );
+  const mcpEndpoint = resolveMcpEndpoint(serverModule.resolvedApp.agents);
+  const capabilityFailures =
+    mcpEndpoint === null
+      ? []
+      : capabilities.flatMap((capability) =>
+          capability.error
+            ? [`Capability ${JSON.stringify(capability.name)} failed to load: ${capability.error}`]
+            : [],
+        );
   const mcpDestructive = servesDestructiveMcpTools(serverModule.resolvedApp, capabilities);
   let setupFailure: string | null = null;
   if (mcpDestructive) {
@@ -169,13 +178,14 @@ export async function collectCapabilityAppGraph(
       }`;
     }
   }
-  const mcpUnavailableReasons =
-    setupFailure !== null
+  const mcpUnavailableReasons = [
+    ...capabilityFailures,
+    ...(setupFailure !== null
       ? [setupFailure]
       : mcpDestructive
         ? await readDestructiveMcpPreconditionErrors(server, serverModule.resolvedApp.agents)
-        : [];
-  const mcpEndpoint = resolveMcpEndpoint(serverModule.resolvedApp.agents);
+        : []),
+  ];
   return {
     capabilities,
     mcpEndpoint,

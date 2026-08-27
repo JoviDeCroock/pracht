@@ -387,6 +387,15 @@ export async function buildAppGraph(
 ): Promise<AppGraph> {
   const notFound = options.app.notFound;
   const capabilities = await serializeCapabilities(options.app.capabilities, options);
+  const mcpEndpoint = resolveMcpEndpoint(options.app.agents);
+  const capabilityFailures =
+    mcpEndpoint === null
+      ? []
+      : capabilities.flatMap((capability) =>
+          capability.error
+            ? [`Capability ${JSON.stringify(capability.name)} failed to load: ${capability.error}`]
+            : [],
+        );
   const mcpDestructive = servesDestructiveMcpTools(options.app, capabilities);
   let setupFailure: string | null = null;
   if (mcpDestructive && options.loadSetupModule) {
@@ -400,13 +409,14 @@ export async function buildAppGraph(
       }`;
     }
   }
-  const mcpUnavailableReasons =
-    setupFailure !== null
+  const mcpUnavailableReasons = [
+    ...capabilityFailures,
+    ...(setupFailure !== null
       ? [setupFailure]
       : mcpDestructive
         ? destructiveMcpPreconditionErrors(options.app.agents)
-        : [];
-  const mcpEndpoint = resolveMcpEndpoint(options.app.agents);
+        : []),
+  ];
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
     capabilities,

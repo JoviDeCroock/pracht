@@ -522,11 +522,11 @@ ON CONFLICT (id) DO UPDATE
 
 -- consume(): compare-and-set.
 UPDATE pracht_approvals
-   SET state = 'consumed', consumed_at = ?now
+   SET state = 'consumed'
  WHERE id = ?id
    AND expires_at >= ?now
    AND state IN ('pending', 'approved')
-   AND (requires_approval = FALSE OR state = 'approved');
+   AND (requires_approval = 0 OR state = 'approved');
 -- ok = (rows_affected == 1)
 ```
 

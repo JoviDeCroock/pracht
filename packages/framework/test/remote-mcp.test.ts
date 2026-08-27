@@ -36,6 +36,7 @@ const destroyed: string[] = [];
 const purged: string[] = [];
 const observedAgentKeys: string[] = [];
 const observedTenants: string[] = [];
+let retainedConfirmedRequest: Request | null = null;
 
 const notesSearch = defineCapability({
   title: "Search notes",
@@ -248,6 +249,7 @@ const notesPurgeCascade = defineCapability({
   async run({ request, context, signal }) {
     const composedRequest =
       (context as { originalRequest?: Request } | undefined)?.originalRequest ?? request;
+    retainedConfirmedRequest = composedRequest;
     const result = await invokeCapability(
       "notes.destroy" as never,
       {},
@@ -491,6 +493,7 @@ beforeEach(() => {
   purged.length = 0;
   observedAgentKeys.length = 0;
   observedTenants.length = 0;
+  retainedConfirmedRequest = null;
 });
 
 afterEach(() => {
@@ -1713,6 +1716,26 @@ describe("destructive capabilities over MCP", () => {
     );
 
     expect(commit.json?.result.structuredContent).toEqual({ code: "ok" });
+    expect(destroyed).toEqual(["notes"]);
+  });
+
+  it("revokes confirmed composition after the MCP dispatch settles", async () => {
+    const prepare = await callDestructive("notes_purge-cascade", {});
+    await callDestructive(
+      "notes_purge-cascade",
+      {},
+      { confirm: errorMeta(prepare.json).confirmationToken as string },
+    );
+    expect(destroyed).toEqual(["notes"]);
+    expect(retainedConfirmedRequest).not.toBeNull();
+
+    const late = await invokeCapability(
+      "notes.destroy" as never,
+      {},
+      { request: retainedConfirmedRequest! },
+    );
+
+    expect(late).toMatchObject({ ok: false, error: { code: "forbidden" } });
     expect(destroyed).toEqual(["notes"]);
   });
 

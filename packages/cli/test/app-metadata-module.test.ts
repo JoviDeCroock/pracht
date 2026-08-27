@@ -151,6 +151,51 @@ describe("collectAppGraph", () => {
     expect(destructiveMcpPreconditionErrors).toHaveBeenCalledOnce();
   });
 
+  it("does not report an endpoint as ready when an MCP capability cannot load", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-mcp-capability-graph-"));
+    mkdirSync(join(root, "src/capabilities"), { recursive: true });
+    writeFileSync(
+      join(root, "src/capabilities/notes-search.ts"),
+      `export default defineCapability({
+        title: "Search notes",
+        description: "Find matching notes.",
+        input: { type: "object", properties: {} },
+        output: { type: "object", properties: {} },
+        effect: "read",
+        expose: { mcp: true },
+      });`,
+    );
+
+    try {
+      const server = fakeServer({
+        "virtual:pracht/dev-metadata": {
+          apiRoutes: [],
+          registry: {
+            capabilityModules: {
+              "/src/capabilities/notes-search.ts": async () => {
+                throw new Error("search backend failed to initialize");
+              },
+            },
+          },
+          resolvedApp: {
+            agents: { mcp: {} },
+            capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+            routes: [],
+          },
+        },
+      });
+
+      const graph = await collectAppGraph(server, root);
+
+      expect(graph.mcpRuntimeStatus).toBe("unverified");
+      expect(graph.mcpUnavailableReasons).toEqual([
+        'Capability "notes.search" failed to load: search backend failed to initialize',
+      ]);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it("loads applied setup middleware before reading destructive MCP preconditions", async () => {
     let setupLoaded = false;
     const destructiveMcpPreconditionErrors = vi.fn(() =>

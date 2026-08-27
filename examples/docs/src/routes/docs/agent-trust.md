@@ -239,6 +239,11 @@ CREATE INDEX IF NOT EXISTS pracht_approvals_pending ON pracht_approvals (state, 
 CREATE INDEX IF NOT EXISTS pracht_approvals_expires_at ON pracht_approvals (expires_at);
 ```
 
+Custom stores should consume with one conditional update that sets only
+`state = 'consumed'` and tests `requires_approval = 0 OR state = 'approved'`.
+The portable schema intentionally uses an integer policy flag and has no
+`consumed_at` column.
+
 The `PRIMARY KEY` is load-bearing. `create()` is an `INSERT … ON CONFLICT (id) DO UPDATE … WHERE expires_at < now`, so a live proposal is never overwritten by a concurrent re-prepare and an expired one is replaced atomically. `consume()` is a single conditional `UPDATE` carrying the whole eligibility rule, so two concurrent commits produce exactly one winner — the database decides, not the process. Nothing uses `RETURNING`, which D1 and SQLite before 3.35 cannot be relied on for; the store reads the affected-row count every driver reports. Expired rows are swept opportunistically (at most once per `sweepIntervalSeconds`, default 60).
 
 `execute(sql, params)` must return the driver's result so the store can read both rows and the affected-row count. Every mainstream shape is accepted (`rows`/`results`, `rowCount`/`rowsAffected`/`changes`/`meta.changes`), so it is usually a one-liner:

@@ -906,6 +906,39 @@ describe("buildAppGraph", () => {
     expect(graph.mcpRuntimeStatus).toBe("blocked");
   });
 
+  it("reports an MCP capability load failure as a blocked endpoint", async () => {
+    const app = resolveApp(
+      defineApp({
+        agents: { mcp: {} },
+        capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+        routes: [],
+      }),
+    );
+
+    const graph = await buildAppGraph({
+      app,
+      loadModule: async () => {
+        throw new Error("search backend failed to initialize");
+      },
+      readSource: () => `
+        export default defineCapability({
+          title: "Search notes",
+          description: "Find matching notes.",
+          input: { type: "object", properties: {} },
+          output: { type: "object", properties: {} },
+          effect: "read",
+          expose: { mcp: true },
+        });
+      `,
+    });
+
+    expect(graph.capabilities[0].error).toBe("search backend failed to initialize");
+    expect(graph.mcpRuntimeStatus).toBe("blocked");
+    expect(graph.mcpUnavailableReasons).toEqual([
+      'Capability "notes.search" failed to load: search backend failed to initialize',
+    ]);
+  });
+
   it("defaults to an empty API list when no API routes are passed", async () => {
     const app = resolveApp(defineApp({ routes: [route("/", "./routes/home.tsx")] }));
 
