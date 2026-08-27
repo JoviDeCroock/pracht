@@ -247,7 +247,7 @@ pracht inspect capabilities
 
 `pracht inspect agents` rolls the same graph up against `defineApp({ agents })` — the Web Bot Auth policy and keys, the destructive-confirmation mode, the remote MCP endpoint, whether `llms.txt` is generated, and how many capabilities each transport exposes.
 
-Those are all *static* views of what agents could call. To see whether they actually are calling it, read the audit events: the **Agents** panel on `/_pracht` in dev, or a production sink registered with `addCapabilityAuditListener()`. See [Agent trust](/docs/agent-trust#audit-trail).
+The CLI, MCP, startup-banner, and Capabilities-table views describe the static configured surface. To see whether agents actually are calling it, read the live audit events in the **Agents** panel on `/_pracht` in dev, or register a production sink with `addCapabilityAuditListener()`. Retained traffic keeps the panel visible after HMR removes the final capability, until the dev server restarts. See [Agent trust](/docs/agent-trust#audit-trail).
 
 Coming next: MCP Apps UI views rendered with Preact, so a capability can return an interactive result into an agent's chat.
 
