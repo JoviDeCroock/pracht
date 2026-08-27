@@ -334,6 +334,40 @@ describe("WWW-Authenticate challenges", () => {
 });
 
 describe("fail-closed verification", () => {
+  it("authenticates before loading capability modules", async () => {
+    const { app, registry } = createHarness();
+    const loadCapability = vi.fn(async () => ({ default: tokenProbe }));
+    registry.capabilityModules = {
+      "./capabilities/token-probe.ts": loadCapability,
+    } as NonNullable<ModuleRegistry["capabilityModules"]>;
+
+    const request = (authorization?: string) =>
+      new Request(`${ORIGIN}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(authorization ? { authorization } : {}),
+        },
+        body: JSON.stringify(toolsCall),
+      });
+
+    const challenged = await handlePrachtRequest({
+      app,
+      registry,
+      request: request(),
+    });
+    expect(challenged.status).toBe(401);
+    expect(loadCapability).not.toHaveBeenCalled();
+
+    const authorized = await handlePrachtRequest({
+      app,
+      registry,
+      request: request("Bearer good"),
+    });
+    expect(authorized.status).toBe(200);
+    expect(loadCapability).toHaveBeenCalledOnce();
+  });
+
   it("does not let an API route shadow the protected MCP endpoint", async () => {
     const { app, registry } = createHarness({
       auth: { ...BASE_AUTH, resource: `${ORIGIN}/api/mcp` },

@@ -662,7 +662,7 @@ export async function handlePrachtRequest<TContext>(
     let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
     let capabilityResolutionError: unknown;
     try {
-      if (hasCapabilities) {
+      if (hasCapabilities && !isMcpRequest) {
         capabilities = await resolveAppCapabilities(options.app, registry);
       }
     } catch (error: unknown) {
@@ -693,6 +693,16 @@ export async function handlePrachtRequest<TContext>(
       const mcpResponse = await mcpRuntime.handleMcpRequest({
         app: options.app,
         capabilities: capabilities ?? [],
+        loadCapabilities: hasCapabilities
+          ? async () => {
+              try {
+                return await resolveAppCapabilities(options.app, registry);
+              } catch (error: unknown) {
+                warnCapabilityResolutionFailure(error);
+                throw error;
+              }
+            }
+          : undefined,
         context: requestContext,
         registry,
         request: options.request,

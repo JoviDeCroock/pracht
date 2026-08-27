@@ -125,6 +125,8 @@ export function mcpExposedCapabilities(
 export interface HandleMcpRequestOptions<TContext> {
   app: CapabilityHostApp;
   capabilities: readonly ResolvedCapability[];
+  /** @internal Deferred so transport authentication runs before capability modules load. */
+  loadCapabilities?: () => Promise<readonly ResolvedCapability[]>;
   context: TContext;
   registry: ModuleRegistry;
   request: Request;
@@ -188,6 +190,22 @@ export interface HandleMcpRequestOptions<TContext> {
     const authResult = await authenticateMcp(options.mcp.auth, options, request);
     if (!authResult.ok) return authResult.response;
     options = { ...options, context: authResult.context };
+  }
+
+  if (options.loadCapabilities) {
+    try {
+      options = {
+        ...options,
+        capabilities: await options.loadCapabilities(),
+        loadCapabilities: undefined,
+      };
+    } catch (error: unknown) {
+      options = {
+        ...options,
+        loadCapabilities: undefined,
+        resolutionError: error,
+      };
+    }
   }
 
   const declaredVersion = request.headers.get(MCP_PROTOCOL_VERSION_HEADER);
