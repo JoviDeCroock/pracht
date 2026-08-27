@@ -581,6 +581,8 @@ describe("createPrachtWebmcpModuleSource", () => {
     expect(source).toContain("document.modelContext");
     expect(source).toContain("navigator.modelContext");
     expect(source).toContain("registerTool");
+    expect(source).toContain("async execute(input, { signal } = {})");
+    expect(source).toContain("signal,");
   });
 });
 

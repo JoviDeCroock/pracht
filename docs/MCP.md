@@ -78,6 +78,7 @@ the server from the project directory.
 | `generate_shell`      | `cwd?`, `name`                                                                                                      | Files created and updated. Manifest apps only.                                       |
 | `generate_middleware` | `cwd?`, `name`                                                                                                      | Files created and updated. Manifest apps only.                                       |
 | `generate_api`        | `cwd?`, `path`, `methods?` (string[], defaults to `["GET"]`)                                                        | Files created and updated.                                                           |
+| `generate_capability` | `cwd?`, `name`, `effect?`, `expose?`, `title?`, `description?`                                                      | Files created and updated. Manifest apps only.                                       |
 
 ## Error handling
 

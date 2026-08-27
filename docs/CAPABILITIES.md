@@ -531,7 +531,9 @@ shim targets the Chrome origin-trial API — `document.modelContext.registerTool
   capability's JSON Schema), `annotations.readOnlyHint` from the effect;
 - `execute()` calls the HTTP projection via `callCapability`, so the user's
   session authenticates the call and validation, middleware, and policy all
-  stay server-side — the agent acts as the signed-in user, in their tab;
+  stay server-side — the agent acts as the signed-in user, in their tab. When
+  the WebMCP host cancels execution, its `AbortSignal` aborts the capability's
+  HTTP request too;
 - the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
   detection: browsers without the API never download it, and pages without
   webmcp-exposed capabilities never reference it;

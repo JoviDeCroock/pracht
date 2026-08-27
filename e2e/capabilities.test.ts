@@ -287,6 +287,44 @@ test("webmcp shim registers page tools and execute() round-trips over HTTP", asy
   expect(envelope.data.notes[0].title).toBe("Capabilities");
 });
 
+test("webmcp execute() aborts its capability request when the host cancels", async ({ page }) => {
+  await page.addInitScript(() => {
+    const registered: unknown[] = [];
+    (window as unknown as { __webmcpTools: unknown[] }).__webmcpTools = registered;
+    (document as unknown as { modelContext: unknown }).modelContext = {
+      registerTool(tool: unknown) {
+        registered.push(tool);
+        return Promise.resolve();
+      },
+    };
+  });
+
+  await page.goto("/notes");
+  await page.waitForFunction(
+    () => (window as unknown as { __webmcpTools?: unknown[] }).__webmcpTools?.length,
+  );
+
+  const result = await page.evaluate(async () => {
+    const tool = (
+      window as unknown as {
+        __webmcpTools: {
+          name: string;
+          execute: (input: unknown, context: { signal: AbortSignal }) => Promise<unknown>;
+        }[];
+      }
+    ).__webmcpTools.find((candidate) => candidate.name === "notes.search");
+    const controller = new AbortController();
+    const pending = tool!.execute({ query: "capabilities" }, { signal: controller.signal });
+    controller.abort();
+    return pending;
+  });
+
+  const content = (result as { content: { text: string }[] }).content;
+  const envelope = JSON.parse(content[0].text);
+  expect(envelope.ok).toBe(false);
+  expect(envelope.error.code).toBe("network_error");
+});
+
 test("zero-island responses keep the WebMCP projection executable", async ({ page }) => {
   const scriptRequests: string[] = [];
   page.on("request", (request) => {
