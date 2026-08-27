@@ -26,7 +26,7 @@ export interface CapabilityProjection {
   effect: string | null;
   httpPath: string | null;
   webmcp: boolean;
-  /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is. */
+  /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is `false`. */
   webmcpUntrustedContent: boolean;
   inputSchema: Record<string, unknown> | null;
   /**
@@ -133,7 +133,7 @@ export function extractCapabilityProjection(
   } else if (isPlainObject(expose.webmcp)) {
     webmcp = true;
     webmcpUntrustedContent = expose.webmcp.untrustedContent === true;
-  } else if (expose.webmcp !== undefined && expose.webmcp !== false) {
+  } else if (expose.webmcp !== undefined && expose.webmcp !== false && expose.webmcp !== null) {
     throw new Error(describe('"expose.webmcp" must be a boolean or an options object.'));
   }
   if (webmcp && !httpPath) {

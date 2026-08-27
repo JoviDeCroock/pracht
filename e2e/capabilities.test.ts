@@ -266,7 +266,12 @@ test("webmcp shim registers page tools and execute() round-trips over HTTP", asy
   expect(tools[0].name).toBe("notes.search");
   expect(tools[0].title).toBe("Search notes");
   expect(tools[0].description).toBe("Find notes whose title or body matches the query.");
-  expect(tools[0].annotations).toEqual({ readOnlyHint: true, untrustedContentHint: true });
+  expect(tools[0].annotations).toEqual({
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    untrustedContentHint: true,
+  });
   expect(tools[0].inputSchema).toMatchObject({
     type: "object",
     properties: {

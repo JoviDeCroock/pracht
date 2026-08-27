@@ -211,7 +211,7 @@ Runtime validation is unchanged either way, and it is the runtime — not the co
 
 With `expose.webmcp: true`, the client runtime registers the capability as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool via `document.modelContext.registerTool()`. The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side. If the WebMCP host cancels execution, its `AbortSignal` aborts the capability's HTTP request too, and the returned value is the capability envelope itself (`{ ok, data }` or `{ ok: false, error }`) — the host serializes it per the spec, so there is no extra wrapping for an agent to unpick.
 
-The registered descriptor carries the capability's `title` (hosts show it in their tool UI), its `description`, the input JSON Schema, and a `readOnlyHint` annotation derived from the effect class. Capabilities whose results include user-generated or third-party content can advertise the spec's `untrustedContentHint` with the options form:
+The registered descriptor carries the capability's `title` (hosts show it in their tool UI; statically extracted, so keep it an inline literal), its `description`, the input JSON Schema, and effect-derived annotations — the same `readOnlyHint`/`destructiveHint`/`idempotentHint` set the remote MCP projection advertises, so one capability presents one contract on both agent transports. Capabilities whose results include user-generated or third-party content can advertise the spec's `untrustedContentHint` with the options form:
 
 ```ts
 expose: {
@@ -220,11 +220,13 @@ expose: {
 },
 ```
 
+(The options form opts into WebMCP exactly like `webmcp: true` — an empty object or `untrustedContent: false` still registers the tool.)
+
 The shim ships as its own chunk behind feature detection: browsers without the API never download it, apps without webmcp-exposed capabilities never reference it, and it works in both full-hydration and islands modes.
 
 ### Hosts and the origin trial
 
-WebMCP hosts include the ChatGPT desktop app's built-in browser (its "Site tools" surface discovers page tools automatically — no SDK, manifest, or registration) and Chromium browsers running the origin trial (Chrome/Edge 149–156). Chromium removed the deprecated `navigator.modelContext` alias in version 152, so pracht targets `document.modelContext` only; pre-152 polyfills such as `@mcp-b/webmcp-polyfill` also install the `document` shape.
+WebMCP hosts include the ChatGPT desktop app's built-in browser (its "Site tools" surface discovers page tools automatically — no SDK, manifest, or registration) and Chromium browsers running the origin trial (149–156). Within that trial window, the `document.modelContext` getter landed in Chromium 150 and the deprecated `navigator.modelContext` alias was removed in 152, so pracht targets `document.modelContext` only — trial builds older than 150 register no tools, and pre-150 polyfills such as `@mcp-b/webmcp-polyfill` install the `document` shape too.
 
 Agent-embedded browsers enable the API themselves, but for *stable* Chrome and Edge visitors the page must carry an [origin-trial token](https://developer.chrome.com/origintrials/) during the trial window or `document.modelContext` never exists and the tools silently stay off. Register your origin, then emit the token from your shell's `head()`:
 
@@ -240,7 +242,7 @@ export function head() {
 
 The token is origin-bound and public by design, so the [`PRACHT_PUBLIC_` prefix](/docs/env) is the right home for it.
 
-For local testing without a token, enable `chrome://flags/#enable-webmcp-testing` (plus `#devtools-webmcp-support` for the DevTools Application-panel WebMCP pane), or fake the API in Playwright — see [Testing](/docs/recipes-testing#faking-webmcp-in-the-browser).
+For local testing without a token, enable `chrome://flags/#enable-webmcp-testing` (plus `#devtools-webmcp-support` for the DevTools Application-panel WebMCP pane), or fake the API in Playwright — see [Testing](/docs/recipes/testing#faking-webmcp-in-the-browser).
 
 `pracht verify` guards the projection: it errors on tool names the browser would reject and warns when a page tool can never work (a `"require"` agent policy 401s the page's unsigned fetches) or when tool metadata exceeds the published agent-legibility budgets (~500 characters per tool description, ~150 per parameter description).
 

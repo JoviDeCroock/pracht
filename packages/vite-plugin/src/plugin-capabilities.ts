@@ -429,10 +429,11 @@ export function createPrachtCapabilitiesClientModuleSource(
  * transport marker header so audit events can attribute it to WebMCP.
  *
  * Targets the WebMCP CG draft API: `document.modelContext.registerTool()`
- * (Chrome/Edge origin trial 149–156; ChatGPT desktop's built-in browser).
- * `navigator.modelContext` was removed from Chromium in 152, so no fallback is
- * kept — a pre-152 polyfill that still installs the old alias also installs
- * the `document` one. No-ops silently when the API is absent.
+ * (ChatGPT desktop's built-in browser; Chromium 150+ within the 149–156
+ * origin trial — the `document` getter landed in 150 and the deprecated
+ * `navigator.modelContext` alias was removed in 152, so trial builds before
+ * 150 are not targeted and no fallback is kept; current polyfills install the
+ * `document` shape). No-ops silently when the API is absent.
  *
  * `execute()` returns the capability envelope (`{ ok, data }` /
  * `{ ok: false, error }`) as a plain object: per the spec the host serializes
@@ -454,8 +455,15 @@ export function createPrachtWebmcpModuleSource(
     ...(capability.title ? { title: capability.title } : {}),
     description: capability.description,
     inputSchema: capability.inputSchema,
+    // Same hint set as the remote MCP projection (runtime-mcp.ts), so one
+    // capability advertises one contract on both agent transports. `write`
+    // deliberately omits destructiveHint: the effect class does not prove the
+    // operation is additive, so the host's conservative default applies.
+    // (destructive never reaches WebMCP.)
     annotations: {
       readOnlyHint: capability.effect === "read",
+      ...(capability.effect === "read" ? { destructiveHint: false } : {}),
+      idempotentHint: capability.effect === "read",
       ...(capability.webmcpUntrustedContent ? { untrustedContentHint: true } : {}),
     },
   }));

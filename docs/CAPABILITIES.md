@@ -526,16 +526,18 @@ at all: `callCapability("notes.stats")`.
 With `expose.webmcp: true` (which requires `expose.http`), the client runtime
 registers the capability as a WebMCP page tool for in-browser agents. The
 shim targets the CG draft API — `document.modelContext.registerTool()` — with
-no `navigator.modelContext` fallback: Chromium removed that alias in 152, and
-current polyfills install the `document` shape. Hosts include the ChatGPT
-desktop app's built-in browser and the Chrome/Edge origin trial (149–156;
-stable-channel visitors need an origin-trial token in the page head — see the
-site docs for the `head()` recipe):
+no `navigator.modelContext` fallback: within the 149–156 origin trial the
+`document` getter landed in Chromium 150 and the deprecated alias was removed
+in 152, so pre-150 trial builds are not targeted and current polyfills install
+the `document` shape. Hosts include the ChatGPT desktop app's built-in browser
+and the Chrome/Edge origin trial (stable-channel visitors need an origin-trial
+token in the page head — see the site docs for the `head()` recipe):
 
 - one tool per capability: `name`, `title`, `description`, `inputSchema` (the
-  capability's JSON Schema), `annotations.readOnlyHint` from the effect, and
-  `annotations.untrustedContentHint` when the capability opts in via
-  `expose.webmcp: { untrustedContent: true }`;
+  capability's JSON Schema), the same effect-derived
+  `readOnlyHint`/`destructiveHint`/`idempotentHint` annotation set as the
+  remote MCP projection, and `annotations.untrustedContentHint` when the
+  capability opts in via `expose.webmcp: { untrustedContent: true }`;
 - `execute()` calls the HTTP projection via `callCapability`, so the user's
   session authenticates the call and validation, middleware, and policy all
   stay server-side — the agent acts as the signed-in user, in their tab. When

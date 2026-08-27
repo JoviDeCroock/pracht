@@ -967,7 +967,7 @@ Agents
     resource=https://app.example/mcp  authorizationServers=[https://auth.example]  requiredScopes=[notes.read]  scopesSupported=[notes.read, notes.write]
   llmsTxt=on
   exposure  http=3  webmcp=1  mcp=1  private=1
-  notes.search  effect=read  transports=http,mcp,webmcp  policy=require (inherited)  http=/api/capabilities/notes/search
+  notes.search  effect=read  transports=http,mcp,webmcp  policy=observe  http=/api/capabilities/notes/search
   notes.purge  effect=destructive  transports=http  policy=require (inherited)  http=/api/capabilities/notes/purge
 ```
 

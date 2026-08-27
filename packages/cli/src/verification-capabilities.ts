@@ -26,6 +26,7 @@ import {
   findTopLevelObjectProperty,
   maskCommentsAndStrings,
   scanTopLevelProperties,
+  scanTopLevelPropertyEntries,
 } from "@pracht/capabilities/static";
 import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
 
@@ -856,7 +857,7 @@ function collectSingleCapabilityChecks(
     return;
   }
 
-  const properties = scanTopLevelProperties(args);
+  const { properties, truncated } = scanTopLevelPropertyEntries(args);
   const title = readStaticString(properties.get("title"));
   const description = readStaticString(properties.get("description"));
   const effect = readStaticString(properties.get("effect"));
@@ -978,11 +979,13 @@ function collectSingleCapabilityChecks(
       // WebMCP dispatches are ordinary same-origin browser fetches with no
       // HTTP message signature, so a "require" Web Bot Auth policy —
       // capability-level or inherited from the app default — 401s every call
-      // the page tool can ever make.
+      // the page tool can ever make. A truncated scan cannot distinguish
+      // "no agentPolicy" from "agentPolicy after the spread", so it must not
+      // report an inherited default the capability may in fact override.
       const effectivePolicy =
         agentPolicy.kind === "valid"
           ? agentPolicy.value
-          : agentPolicy.kind === "absent"
+          : agentPolicy.kind === "absent" && !truncated
             ? appAgentPolicy
             : undefined;
       if (effectivePolicy === "require") {
@@ -1167,22 +1170,39 @@ type AppAgentPolicyDefault = string | null | undefined;
 function readAppAgentPolicyDefault(manifestSource: string): AppAgentPolicyDefault {
   // Scoped to the defineApp() body like readMcpProjectionConfig — a nested
   // `agents:` object elsewhere in the file must not be mistaken for the app
-  // config. An unreadable manifest or a non-literal `agents` value answers
-  // `undefined` so the caller skips the warning rather than guessing.
+  // config. An unreadable manifest, a non-literal `agents` value, or a
+  // truncated scan (a spread could hide the key) answers `undefined` so the
+  // caller skips the warning rather than guessing — "absent" after a spread
+  // means "not seen", not "not declared".
   const appBody = extractDefineAppObjectBody(manifestSource);
   if (appBody === null) return undefined;
-  const agentsText = scanTopLevelProperties(appBody).get("agents");
-  if (agentsText === undefined) return null;
+  const agentsText = readScannedProperty(appBody, "agents");
+  if (agentsText === null) return null;
+  if (agentsText === undefined) return undefined;
   const agentsBody = readInlineObjectBody(agentsText);
   if (agentsBody === null) return undefined;
-  const webBotAuthText = scanTopLevelProperties(agentsBody).get("webBotAuth");
-  if (webBotAuthText === undefined) return null;
+  const webBotAuthText = readScannedProperty(agentsBody, "webBotAuth");
+  if (webBotAuthText === null) return null;
+  if (webBotAuthText === undefined) return undefined;
   const webBotAuthBody = readInlineObjectBody(webBotAuthText);
   if (webBotAuthBody === null) return undefined;
-  const policyText = scanTopLevelProperties(webBotAuthBody).get("policy");
-  if (policyText === undefined) return null;
+  const policyText = readScannedProperty(webBotAuthBody, "policy");
+  if (policyText === null) return null;
+  if (policyText === undefined) return undefined;
   const value = evaluateLiteral(policyText);
   return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * One property from a scanned object body: its text when present, `null` when
+ * provably absent, `undefined` when the scan was truncated before it could
+ * decide (a spread or computed key hides everything after it).
+ */
+function readScannedProperty(objectBody: string, key: string): string | null | undefined {
+  const { properties, truncated } = scanTopLevelPropertyEntries(objectBody);
+  const text = properties.get(key);
+  if (text !== undefined) return text;
+  return truncated ? undefined : null;
 }
 
 type StaticString =
@@ -1266,7 +1286,7 @@ function readExposeFlags(text: string | undefined): {
     if (webmcp.untrustedContent !== undefined && typeof webmcp.untrustedContent !== "boolean") {
       problems.push('WebMCP exposure "untrustedContent" must be a boolean');
     }
-  } else if (expose.webmcp !== undefined && expose.webmcp !== false) {
+  } else if (expose.webmcp !== undefined && expose.webmcp !== false && expose.webmcp !== null) {
     problems.push('"expose.webmcp" must be true or an options object');
   }
 

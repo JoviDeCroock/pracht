@@ -576,7 +576,10 @@ describe("createPrachtWebmcpModuleSource", () => {
     expect(source).toContain('"title":"Search notes"');
     expect(source).toContain('"description":"Find notes whose title matches the query."');
     expect(source).toContain('"inputSchema":{"type":"object"');
-    expect(source).toContain('"annotations":{"readOnlyHint":true}');
+    // The same effect-derived hint set as the remote MCP projection.
+    expect(source).toContain(
+      '"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true}',
+    );
     // notes.create is http-only — it must not become a page tool.
     expect(source).not.toContain('"name":"notes.create"');
     // Targets the standardized API only — Chromium removed the deprecated
@@ -602,7 +605,9 @@ describe("createPrachtWebmcpModuleSource", () => {
     });
 
     const source = createPrachtWebmcpModuleSource({}, { root });
-    expect(source).toContain('"annotations":{"readOnlyHint":true,"untrustedContentHint":true}');
+    expect(source).toContain(
+      '"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"untrustedContentHint":true}',
+    );
   });
 });
 

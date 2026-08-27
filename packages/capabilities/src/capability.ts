@@ -66,7 +66,7 @@ export interface CapabilityExposure {
   http: CapabilityHttpExposure | null;
   mcp: boolean;
   webmcp: boolean;
-  /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is. */
+  /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is `false`. */
   webmcpUntrustedContent: boolean;
 }
 
@@ -333,7 +333,7 @@ function normalizeExposure(expose: CapabilityExposeConfig | undefined): Capabili
     }
     webmcp = true;
     webmcpUntrustedContent = expose.webmcp.untrustedContent === true;
-  } else if (expose.webmcp !== undefined && expose.webmcp !== false) {
+  } else if (expose.webmcp !== undefined && expose.webmcp !== false && expose.webmcp !== null) {
     throw new Error('Capability "expose.webmcp" must be a boolean or an options object.');
   }
 

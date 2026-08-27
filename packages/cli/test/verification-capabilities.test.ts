@@ -843,6 +843,24 @@ describe("collectCapabilityChecks", () => {
     ).toEqual([]);
   });
 
+  it("does not report an inherited policy when a spread hides the capability's own agentPolicy", () => {
+    // The scan truncates at the spread, so "no agentPolicy seen" does not mean
+    // "not declared" — the observe override below is invisible, and warning on
+    // the app default would be a false positive.
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(`${COMPLETE_FIELDS}\n  ...gated,\n  agentPolicy: "observe",`),
+        appBlock: '  agents: { webBotAuth: { policy: "require" } },',
+      }),
+      checks,
+    );
+
+    expect(checks.filter((check) => check.message.includes("unsigned browser fetches"))).toEqual(
+      [],
+    );
+  });
+
   it("warns when webmcp tool metadata exceeds the agent-legibility budgets", () => {
     const longDescription = "x".repeat(501);
     const longParam = "y".repeat(151);

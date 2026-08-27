@@ -68,7 +68,9 @@ export default defineCapability({
   effect: "read",
   expose: {
     http: true,
-    webmcp: true,
+    // Project names and summaries are user-authored, so the page tool
+    // advertises untrustedContentHint to WebMCP hosts.
+    webmcp: { untrustedContent: true },
     // Served at /mcp as the `projects_search` tool because the manifest also
     // configures `agents.mcp`. Without that block this would be recorded in
     // the graph and reported as `mcp(unserved)` rather than looking live.
