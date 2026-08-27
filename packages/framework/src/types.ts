@@ -801,6 +801,7 @@ export interface McpProjectionConfig {
    * exactly-once commits and fails closed without one.
    */
   destructive?: boolean;
+  /**
    * Turn the endpoint into an OAuth 2.0 protected resource. See
    * {@link McpAuthConfig}. Omit it and nothing changes: no metadata route, no
    * `WWW-Authenticate` header, and authentication stays your middleware's job.

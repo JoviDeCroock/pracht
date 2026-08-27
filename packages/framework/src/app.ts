@@ -507,7 +507,7 @@ function assertKnownMetaKeys(meta: object, allowed: string[], context: string): 
 
 const AGENT_POLICY_MODES = ["observe", "require"];
 const CONFIRMATION_MODES = ["token", "human"];
-const MCP_CONFIG_KEYS = ["path", "serverInfo", "instructions", "auth"];
+const MCP_CONFIG_KEYS = ["path", "serverInfo", "instructions", "destructive", "auth"];
 const MCP_AUTH_CONFIG_KEYS = [
   "resource",
   "authorizationServers",

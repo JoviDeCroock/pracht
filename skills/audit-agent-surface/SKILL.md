@@ -95,76 +95,35 @@ For every exposed capability, ask whether the exposure is deliberate:
 
 ## Step 2b: The `/mcp` auth posture
 
-`agents: { mcp: {} }` without `auth` serves an **open** endpoint: anyone who can
-reach the URL calls every `expose.mcp` tool, and the only authorization is
-whatever each capability's named middleware does with the forwarded
-`Authorization` header. State that plainly in the report — it is the single most
-commonly misunderstood line of an app's agent surface.
+`agents: { mcp: {} }` without `auth` is open; authorization rests entirely on
+each tool's named middleware. Report an exposed tool with no middleware as
+`error`; otherwise `warn` and name the middleware carrying the boundary.
 
-- Endpoint configured, no `agents.mcp.auth`, and at least one `expose.mcp`
-  capability whose `middleware` list is empty → `error`: unauthenticated tools
-  reachable by anyone on the internet.
-- Endpoint configured, no `auth`, tools guarded only by named middleware →
-  `warn`, and name which middleware is carrying the whole boundary.
-- `agents.mcp.auth` configured → check it end to end, because a half-configured
-  one advertises authentication it does not perform:
-  - `resource` is absolute, has no query, fragment, or non-root trailing slash,
-    uses HTTPS outside loopback development, and its path exactly identifies
-    the served endpoint (`resolveApp()` and `pracht verify` reject otherwise,
-    so a failure here means the app does not build). `mcp.path: "/"`
-    legitimately identifies the deployed app root, including its base; at the
-    origin root its canonical identifier is slashless (`https://app.example.com`).
-    Confirm aliases, query-bearing URLs, and trailing-slash spellings redirect
-    with `308` to this exact identifier before emitting an OAuth challenge.
-  - Every `authorizationServers` entry is an HTTPS issuer without a query or
-    fragment (loopback HTTP is development-only). Anything else is an invalid
-    RFC 8414 issuer and must be an `error`.
-  - `verify` is a **module reference**, not an inline function. An inline
-    function ships the token verifier to every browser visitor — `error`.
-    Confirm its module default-exports a function; a named-only or non-callable
-    default export leaves every request at 401 and is an `error`.
-    Its `request` argument is an independent clone; reading its body must not
-    consume the JSON-RPC body dispatched afterward.
-  - The `verify` module lives under `src/server/`, `src/middleware/`, or
-    `src/capabilities/`. Those are the only directories globbed into the module
-    registry; a verifier anywhere else is never loadable and every `/mcp`
-    request 401s forever with a config that looks correct — `error`. Duplicate
-    suffixes across those registries are ambiguous and rejected; require a
-    root-relative reference that identifies exactly one module.
-  - Open the `verify` module and confirm it binds the token **audience** to the
-    `resource` value. Without that check, a token minted by the same issuer for
-    a different service authenticates here — `error`.
-  - `requiredScopes` present, or per-capability middleware doing scope checks
-    against `context.tokenAuth.scopes`. Authentication without authorization is
-    a `warn`: every valid token reaches every tool. When `requiredScopes` is
-    present, confirm the initial 401 challenge advertises the same `scope` list,
-    not only the later `insufficient_scope` response. Scope values must be
-    printable ASCII other than quotes and backslashes.
-  - Capabilities reading `context.tokenAuth` must tolerate its absence on other
-    transports — it is only set on authenticated MCP dispatch. Confirm nested
-    capability calls cannot replace it through caller-supplied context.
-  - Under a deploy base, `resource` must carry the base
-    (`https://app.example.com/app/mcp`). Report the metadata URL the app
-    actually publishes — origin root, base inside the suffix
-    (`/.well-known/oauth-protected-resource/app/mcp`) — and fetch it to confirm
-    it answers, because a wrong `resource` yields a challenge nobody can follow.
-  - `mcp.path` must not be the reserved bare
-    `/.well-known/oauth-protected-resource` discovery path. Confirm copied
-    static files at either metadata form do not shadow the runtime response.
-  - Reject unknown keys under `agents.mcp` and `agents.mcp.auth`; misspellings
-    such as `authentication` or `requiredScope` otherwise read as guarded while
-    disabling the intended check. Confirm no explicit API route has the same
-    path as `mcp.path`, because API dispatch must never shadow MCP's transport
-    or OAuth gates.
-- `/.well-known/oauth-protected-resource` is intentionally public and CORS-open.
-  It carries only the resource identifier, issuer URLs, and scope names; flag it
-  only if a scope name leaks something (internal tenant or customer names).
-- Audit gap to record, not to fix: `CapabilityAuditEvent` carries the Web Bot
-  Auth `agent`, never `context.tokenAuth`, so audited MCP dispatches name the
-  calling software but not the account. `info` unless the app's compliance story
-  depends on per-account attribution, in which case `warn` and point at named
-  middleware or capability code that can send `context.tokenAuth` to the same
-  audit sink.
+With `agents.mcp.auth`, check:
+
+- `resource` is canonical HTTPS (loopback HTTP only), has no query, fragment,
+  or non-root trailing slash, and exactly identifies the endpoint. `/` may
+  identify the deployed root; the origin-root identifier is slashless. Aliases,
+  query variants, and trailing slashes must 308 to `resource` before challenge.
+- Every `authorizationServers` issuer is canonical HTTPS without query or
+  fragment. Reject unknown `agents.mcp`/`auth` keys and API-route collisions.
+- `verify` is a module reference under `src/server`, `src/middleware`, or
+  `src/capabilities`, resolves uniquely, and default-exports a function. Inline,
+  missing, ambiguous, or non-callable verifiers are `error`. Its request clone
+  may consume the body without consuming later JSON-RPC dispatch.
+- The verifier binds token audience to `resource`; otherwise tokens for another
+  service authenticate here (`error`). Require `requiredScopes` or per-tool
+  checks of `context.tokenAuth.scopes` (`warn` otherwise). The initial challenge
+  must advertise required scopes; scope tokens follow OAuth's printable-ASCII
+  grammar. `context.tokenAuth` is MCP-only and nested calls cannot replace it.
+- Under base `/app/`, resource includes `/app/mcp` while metadata stays at the
+  origin-root `/.well-known/oauth-protected-resource/app/mcp`; fetch it and its
+  bare alias, ensuring app/static routes cannot shadow either. The bare
+  well-known path is reserved and its CORS-open metadata is expected; flag only
+  sensitive scope names.
+- `CapabilityAuditEvent` records Web Bot Auth `agent`, not `tokenAuth`. Report
+  this as `info`, or `warn` when per-account attribution is required and no
+  middleware/capability forwards the principal to an audit sink.
 
 ## Step 3: The destructive gate
 

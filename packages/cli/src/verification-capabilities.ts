@@ -33,7 +33,7 @@ import { createCheck, type Check } from "./verification-helpers.js";
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
 const AGENT_POLICIES = new Set(["observe", "require"]);
-const MCP_CONFIG_KEYS = new Set(["path", "serverInfo", "instructions", "auth"]);
+const MCP_CONFIG_KEYS = new Set(["path", "serverInfo", "instructions", "destructive", "auth"]);
 const MCP_AUTH_CONFIG_KEYS = new Set([
   "resource",
   "authorizationServers",
@@ -787,20 +787,6 @@ function isInsideDirectory(root: string, dir: string, filePath: string): boolean
   const absoluteDir = resolveProjectPath(root, dir);
   const relative = relativePath(absoluteDir, filePath);
   return relative !== "" && !relative.startsWith("..") && !isAbsolutePath(relative);
-}
-
-/**
- * Conservative source scan for `agents: { … mcp: … }` in the manifest.
- *
- * Verification is static (no Vite server), so a manifest that builds its
- * `agents` config in a separate variable reads as unconfigured. That only
- * costs one spurious warning, never a failed build — which is why this stays
- * a warning.
- */
-function manifestConfiguresMcpProjection(manifestSource: string): boolean {
-  const agentsIndex = manifestSource.search(/\bagents\s*:\s*\{/);
-  if (agentsIndex === -1) return false;
-  return /\bmcp\s*:/.test(manifestSource.slice(agentsIndex));
 }
 
 /**
