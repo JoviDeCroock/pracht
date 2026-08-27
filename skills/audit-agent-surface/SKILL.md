@@ -49,28 +49,20 @@ pracht inspect api --json
 pracht verify --json                 # contract, exposure, and projection checks
 ```
 
-`inspect agents` is the fastest way in: it reports `webBotAuth`
-(policy/keys/directories), `confirmation` (mode/ttl/singleUse), `mcp`
-(enabled + endpoint), `llmsTxt`, a per-capability row (name, effect,
-`agentPolicy`, transports, HTTP path), and `exposure` counts per transport with
-unexposed capabilities counted as `private`. Use `inspect capabilities` when
-you also need the input/output schemas or the middleware chain.
+`inspect agents` reports `webBotAuth`, confirmation policy, MCP endpoint and
+OAuth policy, `llmsTxt`, each capability's effect/policy/transports/path, and
+exposure counts (`private` means unexposed). Use `inspect capabilities` for
+schemas and middleware.
 
 Build the inventory table: capability → effect → transports → HTTP path →
 middleware → `agentPolicy`. A capability reported as `unreadable` means
 `@pracht/capabilities` is not installed; treat it as an `error` and stop
 reasoning about its policy until it loads.
 
-Cross-check `inspect agents` against the manifest's `agents` block. The report
-reads both the resolved app and the Vite plugin's production server-build
-`llmsTxt` state, so configuration built in separate variables, computed
-expressions, or build/production branches is reported accurately rather than
-inferred from source text or development settings. If `llmsTxt.enabled` is
-`null`, the installed Vite plugin predates that metadata contract; report the
-state as unknown and recommend upgrading `@pracht/vite-plugin`, never as an
-opt-out.
-Also record whether `mcp.auth` is present (`pracht dev` prints `(oauth)` next
-to the endpoint when it is).
+Cross-check `inspect agents` against the manifest's `agents` block. It reads
+resolved app and production `llmsTxt` config, including computed branches. A
+`null` `llmsTxt.enabled` means an older plugin: report unknown and recommend an
+upgrade. Use resolved `mcp.auth`; `null` means framework-level OAuth is open.
 
 ## Step 2: Exposure vs. intent
 
@@ -94,8 +86,10 @@ For every exposed capability, ask whether the exposure is deliberate:
 - Declared vs. actually served: `expose.mcp` in source is what the graph
   claims. A `pracht eval` scenario with `"transport": "mcp"` proves what the
   endpoint answers — it performs a real `initialize` handshake and issues each
-  step as a `tools/call`. Run it only against a local throwaway server, and
-  only with `read` steps. If the app ships MCP-exposed capabilities with no
+  step as a `tools/call`. When the endpoint has `mcp.auth`, set scenario-level
+  `mcpHeaders.authorization` so the token is sent on the handshake and every
+  later request; do not commit a production token. Run it only against a local
+  throwaway server, and only with `read` steps. If the app ships MCP-exposed capabilities with no
   such scenario, report the missing proof: an HTTP-only scenario says nothing
   about whether an MCP host can reach the tool.
 

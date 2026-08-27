@@ -351,6 +351,10 @@ A scenario targets the HTTP projection by default; set scenario-level
 (`initialize` handshake, then one `tools/call` per step, tool names mapped
 `notes.search` → `notes_search`). Write one of each for any capability with
 `expose.mcp` — passing over HTTP does not prove an MCP host can reach it.
+If `agents.mcp.auth` protects the endpoint, add scenario-level
+`"mcpHeaders": { "authorization": "Bearer …" }`; it applies to `initialize`
+and every later request. Inject test tokens in CI instead of committing real
+credentials. Step-level `headers.authorization` overrides it for one call.
 Expectations are portable: `expect.status` is the capability dispatch status on
 both transports, so the same `{ "ok": false, "status": 400, "errorCode":
 "invalid_input" }` holds either way.

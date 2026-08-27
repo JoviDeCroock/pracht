@@ -207,6 +207,9 @@ deploy base, the function instead bundles and serves the base-free asset and
 files remain bundled for base-prefixed requests. The generated config
 enumerates only client files the function can serve and roots exclusions at the
 function file, so Netlify's tracer cannot re-add bypassed trees.
+When MCP OAuth is enabled, an exclusion matching either the protected MCP
+resource path or its reserved metadata paths is a build error because it would
+bypass the framework's authentication handler.
 
 Caching: Netlify durable caching implements time-based ISG and per-path cache
 tags implement authenticated webhook revalidation. A trailing-slash ISG

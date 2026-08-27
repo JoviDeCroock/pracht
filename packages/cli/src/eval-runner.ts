@@ -16,6 +16,7 @@
  *     "url": "http://localhost:3000",        // optional; --url overrides
  *     "transport": "http",                   // or "mcp"; default "http"
  *     "mcpPath": "/mcp",                     // MCP endpoint, when it is not the default
+ *     "mcpHeaders": { "authorization": "Bearer ..." }, // every MCP request
  *     "steps": [
  *       {
  *         "capability": "notes.search",       // or "path": "/api/custom"
@@ -140,6 +141,8 @@ export interface EvalScenario {
   transport?: EvalTransport;
   /** MCP endpoint path when the app serves MCP somewhere other than `/mcp`. */
   mcpPath?: string;
+  /** Headers applied to every MCP transport request, including `initialize`. */
+  mcpHeaders?: Record<string, string>;
   /** Sign every step (unless the step sets `"sign": false`) as this agent. */
   signAs?: EvalSignAs;
   steps: EvalStep[];
@@ -256,6 +259,31 @@ export function parseScenario(file: string): EvalScenario {
     if (scenario.transport !== "mcp") {
       throw new Error('"mcpPath" only applies to a scenario with "transport": "mcp"');
     }
+  }
+  if (scenario.mcpHeaders !== undefined) {
+    if (scenario.transport !== "mcp") {
+      throw new Error('"mcpHeaders" only applies to a scenario with "transport": "mcp"');
+    }
+    if (
+      !scenario.mcpHeaders ||
+      typeof scenario.mcpHeaders !== "object" ||
+      Array.isArray(scenario.mcpHeaders)
+    ) {
+      throw new Error('"mcpHeaders" must be an object of string header values');
+    }
+    const normalizedHeaders: Record<string, string> = {};
+    for (const [name, value] of Object.entries(scenario.mcpHeaders)) {
+      if (name.toLowerCase() !== MCP_FORWARDED_HEADER) {
+        throw new Error(
+          `"mcpHeaders" sets ${JSON.stringify(name)}, but only ${JSON.stringify(MCP_FORWARDED_HEADER)} is supported`,
+        );
+      }
+      if (typeof value !== "string") {
+        throw new Error(`"mcpHeaders.${name}" must be a string`);
+      }
+      normalizedHeaders[MCP_FORWARDED_HEADER] = value;
+    }
+    scenario.mcpHeaders = normalizedHeaders;
   }
   // `path` addresses an HTTP endpoint; over MCP a step is addressed by tool
   // name. Rejecting the combination here beats posting a scenario's custom
@@ -592,6 +620,8 @@ const MCP_REFUSED_HEADERS = ["cookie", "origin", "sec-fetch-site"];
 
 interface McpSession {
   endpoint: string;
+  /** Headers applied to every transport request in the session. */
+  headers: Record<string, string>;
   /** Version agreed in `initialize`, declared on every later request. */
   protocolVersion: string;
   nextId: number;
@@ -612,6 +642,7 @@ async function openMcpSession(
 ): Promise<{ session: McpSession } | { error: string }> {
   const session: McpSession = {
     endpoint,
+    headers: { ...scenario.mcpHeaders },
     protocolVersion: MCP_LATEST_PROTOCOL_VERSION,
     nextId: 1,
     signAs: scenario.signAs,
@@ -765,6 +796,7 @@ async function mcpRequest(
     // Both media types, as the Streamable HTTP transport requires: Pracht's
     // endpoint is lenient, but a conformant server answers 406 without them.
     accept: "application/json, text/event-stream",
+    ...session.headers,
     ...options.headers,
   };
   if (options.declareProtocolVersion !== false) {
@@ -902,6 +934,12 @@ function toolResultText(result: Record<string, unknown>): string {
 function describeMcpEndpointStatus(endpoint: string, response: McpHttpResponse): string {
   const detail = snippet(response.bodyText);
   switch (response.status) {
+    case 401:
+      return (
+        `${endpoint} returned 401 — the MCP endpoint requires authorization. Set ` +
+        '`"mcpHeaders": { "authorization": "Bearer ..." }` on the scenario so the token is sent during initialization and every later request. ' +
+        detail
+      );
     case 404:
       return (
         `${endpoint} returned 404 — the app does not serve remote MCP there. Enable it with ` +

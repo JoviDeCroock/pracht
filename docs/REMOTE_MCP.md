@@ -434,9 +434,10 @@ Because the match happens before routing and production-adapter static lookup,
 neither an application route nor a copied static file can shadow the document
 on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and
 cannot be used as `agents.mcp.path`; choose another endpoint path instead.
-Netlify `excludedPath` entries that would bypass this reserved namespace are
-rejected too when MCP OAuth is enabled; apps without `agents.mcp.auth` keep
-their existing exclusions because they serve no protected-resource metadata.
+Netlify `excludedPath` entries that would bypass either the protected MCP
+resource path or this reserved metadata namespace are rejected when MCP OAuth
+is enabled; apps without `agents.mcp.auth` keep their existing exclusions
+because they serve no protected-resource metadata.
 
 ### The challenge
 
@@ -587,7 +588,10 @@ For a repeatable check rather than a curl, `pracht eval` drives this transport
 too: a scenario with `"transport": "mcp"` performs the real `initialize`
 handshake and issues each step as a `tools/call`, so the thing under test is
 what an MCP host would actually do — not the HTTP projection standing in for
-it. `examples/basic/evals/notes-mcp.eval.json` is a working scenario; the
+it. For a protected endpoint, set
+`"mcpHeaders": { "authorization": "Bearer …" }` so the token is present during
+initialization and every later request; keep real tokens out of committed
+scenarios. `examples/basic/evals/notes-mcp.eval.json` is a working scenario; the
 format is documented in
 [AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios).
 

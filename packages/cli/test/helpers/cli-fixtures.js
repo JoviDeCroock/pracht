@@ -208,7 +208,10 @@ export const app = defineApp({
  * every transport. Off by default so the typegen fixtures it is shared with
  * keep producing byte-identical output.
  */
-export function writeTypedManifestApp(appDir, { capabilities = false, agents = false } = {}) {
+export function writeTypedManifestApp(
+  appDir,
+  { capabilities = false, agents = false, mcpAuth = false } = {},
+) {
   const vitePluginImport = pathToFileURL(vitePluginImportPath).href;
 
   writeProjectFile(
@@ -257,7 +260,17 @@ ${
       directories: ["https://signature-agent.example"],
     },
     confirmation: { mode: "token", ttlSeconds: 300, singleUse: true },
-    mcp: { path: "/mcp" },
+    mcp: { path: "/mcp"${
+      mcpAuth
+        ? `, auth: {
+      resource: "https://app.example/mcp",
+      authorizationServers: ["https://auth.example"],
+      scopesSupported: ["notes.read", "notes.write"],
+      requiredScopes: ["notes.read"],
+      verify: "./server/mcp-token.ts",
+    }`
+        : ""
+    } },
   },
 `
     : ""
@@ -394,6 +407,16 @@ export default defineCapability({
     return { total: 0 };
   },
 });
+`,
+    );
+  }
+  if (mcpAuth) {
+    writeProjectFile(
+      appDir,
+      "src/server/mcp-token.ts",
+      `export default async function verifyToken() {
+  return null;
+}
 `,
     );
   }

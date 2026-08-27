@@ -963,7 +963,8 @@ Pracht inspect (manifest mode)
 Agents
   webBotAuth=on  policy=require  keys=1  directories=[https://signature-agent.example]
   confirmation=token  ttlSeconds=300  singleUse=true
-  mcp=on  endpoint=/mcp
+  mcp=on  endpoint=/mcp  oauth=on
+    resource=https://app.example/mcp  authorizationServers=[https://auth.example]  requiredScopes=[notes.read]  scopesSupported=[notes.read, notes.write]
   llmsTxt=on
   exposure  http=3  webmcp=1  mcp=1  private=1
   notes.search  effect=read  transports=http,mcp,webmcp  policy=require (inherited)  http=/api/capabilities/notes/search
@@ -974,7 +975,9 @@ Agents
 `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`; the CLI's MCP
 server exposes it as the `inspect_agents` tool. Text output marks declared MCP
 tools as `mcp(unserved)` or `mcp(unverified)` when they are not confirmed
-reachable. The `llmsTxt` state comes from the Vite plugin's
+reachable. It also includes `mcp.authenticated` and the configured OAuth
+resource, authorization servers, required scopes, advertised scopes, and
+verifier module. The `llmsTxt` state comes from the Vite plugin's
 resolved production server-build configuration, including computed options,
 rather than a source-text guess or the development configuration. If the CLI is
 newer than the installed Vite plugin and that plugin does not expose the resolved
@@ -1090,6 +1093,13 @@ example):
   HTTP-projection requests, so an agent-identity policy is provable on either
   transport — `examples/basic/evals/agent-identity-mcp.eval.json` proves both
   halves of `agentPolicy: "require"` over `tools/call`.
+
+  When `agents.mcp.auth` protects the endpoint, set scenario-level
+  `"mcpHeaders": { "authorization": "Bearer …" }`. The runner sends it on the
+  initial handshake, the initialized notification, and every `tools/call`;
+  per-step `headers.authorization` can override it for a single call. Keep real
+  tokens out of committed scenarios: inject a test token when CI writes the
+  scenario file.
 
   **Expectations mean the same thing on both transports**, including `status`.
   `ok` is the tool result's `isError` inverted, `output` matches its

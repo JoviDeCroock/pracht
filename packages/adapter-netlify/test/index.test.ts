@@ -363,6 +363,8 @@ describe("netlifyAdapter", () => {
     } satisfies McpAuthConfig;
     for (const pattern of [
       "/*",
+      "/mcp",
+      "/:endpoint",
       "/.well-known/*",
       "/.well-known/oauth-*",
       "/.well-known/:document",
@@ -372,12 +374,19 @@ describe("netlifyAdapter", () => {
     ]) {
       await expect(
         finalizeNetlifyBuild(root, { excludedPath: [pattern] }, "/", mcpAuth),
-      ).rejects.toThrow(/OAuth protected-resource metadata handler/);
+      ).rejects.toThrow(/OAuth-protected MCP endpoint or protected-resource metadata handler/);
     }
 
     await expect(
       finalizeNetlifyBuild(root, { excludedPath: ["/*.css"] }, "/", mcpAuth),
     ).resolves.toBeUndefined();
+
+    await expect(
+      finalizeNetlifyBuild(root, { excludedPath: ["/app/*"] }, "/", {
+        ...mcpAuth,
+        resource: "https://example.com/app/mcp",
+      }),
+    ).rejects.toThrow(/OAuth-protected MCP endpoint/);
   });
 });
 

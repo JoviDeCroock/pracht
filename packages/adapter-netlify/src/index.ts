@@ -752,10 +752,14 @@ function assertSafeExcludedPath(pattern: string, mcpAuth?: McpAuthConfig): void 
     );
   }
 
-  const metadataPaths = [OAUTH_PROTECTED_RESOURCE_WELL_KNOWN, mcpResourceMetadataPath(mcpAuth)];
-  if (metadataPaths.some((pathname) => excludedPath.test({ pathname }))) {
+  const protectedPaths = [
+    new URL(mcpAuth.resource).pathname,
+    OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
+    mcpResourceMetadataPath(mcpAuth),
+  ];
+  if (protectedPaths.some((pathname) => excludedPath.test({ pathname }))) {
     throw new Error(
-      `netlifyAdapter({ excludedPath }) entry ${JSON.stringify(pattern)} would bypass Pracht's OAuth protected-resource metadata handler. Remove this exclusion; the ${OAUTH_PROTECTED_RESOURCE_WELL_KNOWN} namespace is framework-reserved.`,
+      `netlifyAdapter({ excludedPath }) entry ${JSON.stringify(pattern)} would bypass Pracht's OAuth-protected MCP endpoint or protected-resource metadata handler. Remove this exclusion; the MCP resource path and ${OAUTH_PROTECTED_RESOURCE_WELL_KNOWN} namespace are framework-reserved while MCP auth is enabled.`,
     );
   }
 }

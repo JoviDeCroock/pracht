@@ -650,10 +650,11 @@ The capability graph feeds every existing inspection surface:
   entry, instead of claiming the configured endpoint is unavailable;
 - `pracht inspect agents [--json]` rolls the same graph up against
   `defineApp({ agents })` — Web Bot Auth policy and keys, confirmation mode,
-  remote MCP endpoint, `llms.txt`, and per-transport exposure counts. Its JSON
-  output preserves the same MCP runtime-status fields, and text labels affected
-  declarations `mcp(unserved)` or `mcp(unverified)` instead of presenting a
-  declared transport as proof that the tool is reachable;
+  remote MCP endpoint and OAuth policy, `llms.txt`, and per-transport exposure
+  counts. Its JSON output preserves the same MCP runtime-status fields, and
+  text labels affected declarations `mcp(unserved)` or `mcp(unverified)`
+  instead of presenting a declared transport as proof that the tool is
+  reachable;
 - the `/_pracht` devtools page gains a Capabilities table and a live Agents
   traffic log in dev; retained traffic keeps the Agents panel visible after
   HMR removes the final capability, until the dev server restarts; MCP

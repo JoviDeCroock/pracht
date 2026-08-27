@@ -503,7 +503,7 @@ The audit trail covers *dispatch*. Several rejections happen before a capability
 
 An agent — or a scanner — enumerating tool names or probing capability URLs therefore leaves no trace in the audit trail. Absence of events is not evidence that nothing tried. Use the deployment's HTTP access log for reconnaissance detection, and treat the audit trail as the record of what actually ran.
 
-To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its `llmsTxt` state comes from the Vite plugin's resolved production server-build configuration, including computed options, rather than a source-text guess or the development configuration. When the CLI is newer than an installed Vite plugin that does not expose that metadata yet, the state is `null` in JSON and `unknown` in text until the plugin is upgraded — never a false opt-out.
+To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its MCP section reports whether OAuth is enabled plus the configured resource, authorization servers, required scopes, advertised scopes, and verifier module, so an open and protected endpoint cannot look identical. Its `llmsTxt` state comes from the Vite plugin's resolved production server-build configuration, including computed options, rather than a source-text guess or the development configuration. When the CLI is newer than an installed Vite plugin that does not expose that metadata yet, the state is `null` in JSON and `unknown` in text until the plugin is upgraded — never a false opt-out.
 
 ### Remote MCP Composition Is Guarded
 
@@ -558,6 +558,9 @@ An `expose.mcp` capability is only proven when an MCP host can actually call it.
   "name": "notes agent flow over MCP",
   "transport": "mcp",              // default is "http"
   "mcpPath": "/mcp",               // optional; only if you moved the endpoint
+  "mcpHeaders": {                    // when agents.mcp.auth protects the endpoint
+    "authorization": "Bearer test-token"
+  },
   "steps": [
     { "capability": "notes.search", "input": { "query": "roadmap" } },
     {
@@ -570,7 +573,7 @@ An `expose.mcp` capability is only proven when an MCP host can actually call it.
 }
 ```
 
-Expectations mean the same thing on both transports — including `status`. `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, `errorCode` reads the error metadata the projection attaches to a failed call, and `status` is the **capability dispatch status**, which the projection reports alongside the result. It is deliberately not the JSON-RPC POST status: every answered `tools/call` is a transport-level `200`, so asserting that would let `"status": 200` pass on a call that failed. Scenarios stay portable between transports as a result. A `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests, so an `agentPolicy: "require"` capability is provable over MCP too.
+Expectations mean the same thing on both transports — including `status`. `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, `errorCode` reads the error metadata the projection attaches to a failed call, and `status` is the **capability dispatch status**, which the projection reports alongside the result. It is deliberately not the JSON-RPC POST status: every answered `tools/call` is a transport-level `200`, so asserting that would let `"status": 200` pass on a call that failed. Scenarios stay portable between transports as a result. A `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests, so an `agentPolicy: "require"` capability is provable over MCP too. `mcpHeaders.authorization` is sent on `initialize`, the initialized notification, and every tool call; a step-level authorization header overrides it for that call. Keep production tokens out of committed scenarios and inject a test token when CI writes the file.
 
 Transport differences fail loudly rather than quietly. A capability the endpoint does not project — anything without `expose.mcp` — fails the scenario with the tool name it looked for and what to do about it. Destructive confirmation scenarios work when the app enables [`agents.mcp.destructive` and an approval store](/docs/remote-mcp#destructive-tools): the `confirm` token rides in the call's `_meta["io.pracht/confirmation"]` field, since MCP has no per-call header channel. Step `headers` remain limited: the projection forwards only `authorization`, so any other header on an MCP step fails the scenario instead of silently never arriving.
 

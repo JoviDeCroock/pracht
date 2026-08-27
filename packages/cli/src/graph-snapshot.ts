@@ -171,7 +171,7 @@ export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
   return JSON.parse(JSON.stringify(normalized));
 }
 
-function serializeMcpAuth(auth: McpAuthConfig | undefined): McpAuthSnapshot | null {
+export function serializeMcpAuth(auth: McpAuthConfig | undefined): McpAuthSnapshot | null {
   if (!auth || typeof auth.verify !== "string") return null;
   return {
     authorizationServers: [...auth.authorizationServers],

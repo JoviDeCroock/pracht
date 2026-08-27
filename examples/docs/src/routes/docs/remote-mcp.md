@@ -247,7 +247,7 @@ https://app.example.com/.well-known/oauth-protected-resource/app/mcp
 
 That is what the challenge advertises and what the runtime serves — the path is matched before base stripping, precisely so the advertised URL is fetchable. Set `resource` to the endpoint's real deployed URL, base included; pracht derives the rest. A reverse proxy that re-prefixes the base onto the well-known path is tolerated too. If `agents.mcp.path` is `/`, the resource is the deployed app root itself (`https://app.example.com/app` in this example). At the origin root, use the canonical slashless identifier `https://app.example.com`; URL serialization still routes requests at `/`.
 
-Because the match happens before routing and production-adapter static lookup, neither an application route nor a copied static file can shadow the document on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and cannot be used as `agents.mcp.path`; choose another endpoint path instead. When MCP OAuth is enabled, Netlify `excludedPath` entries that would bypass this reserved namespace are rejected; apps without `agents.mcp.auth` keep their existing exclusions because they serve no protected-resource metadata.
+Because the match happens before routing and production-adapter static lookup, neither an application route nor a copied static file can shadow the document on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and cannot be used as `agents.mcp.path`; choose another endpoint path instead. When MCP OAuth is enabled, Netlify `excludedPath` entries that would bypass either the protected MCP resource path or this reserved namespace are rejected; apps without `agents.mcp.auth` keep their existing exclusions because they serve no protected-resource metadata.
 
 ### The Challenge
 
@@ -347,7 +347,7 @@ curl -sX POST http://localhost:3000/mcp \
 
 Protocol versions are negotiated on `initialize`, newest first: `2025-11-25`, `2025-06-18`. The `2026-07-28` profile is not advertised until its self-describing request headers and result codec are implemented together.
 
-For a repeatable check instead of a `curl`, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives this endpoint the way a host does: one `initialize` handshake, then a `tools/call` per step. That is the difference between a capability that declares `expose.mcp` and one you have proven an MCP host can call.
+For a repeatable check instead of a `curl`, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives this endpoint the way a host does: one `initialize` handshake, then a `tools/call` per step. For a protected endpoint, add `"mcpHeaders": { "authorization": "Bearer …" }`; the runner sends it on initialization and every later request. Keep real tokens out of committed scenario files. That is the difference between a capability that declares `expose.mcp` and one you have proven an MCP host can call.
 
 Once `agents.mcp.auth` is configured, add the token — and point the host at the endpoint, not at the metadata URL; it discovers that itself:
 
