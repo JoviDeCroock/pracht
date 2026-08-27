@@ -39,7 +39,9 @@ export default defineCapability({
   effect: "read",
   expose: {
     http: true,
-    webmcp: true,
+    // Note bodies are user-authored content, so the page tool advertises the
+    // spec's untrustedContentHint annotation to WebMCP hosts.
+    webmcp: { untrustedContent: true },
     mcp: true,
   },
   async run({ input }: CapabilityRunArgs<SearchInput>) {

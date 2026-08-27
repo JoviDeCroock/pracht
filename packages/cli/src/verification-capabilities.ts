@@ -12,9 +12,11 @@ import {
   findMcpToolNameCollisions,
   isValidCapabilityHttpPath,
   isValidMcpToolName,
+  isValidWebmcpToolName,
   MCP_SCHEMA_ROOT_ERROR,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
+  WEBMCP_TOOL_NAME_ERROR,
 } from "@pracht/capabilities";
 import {
   evaluateLiteral,
@@ -84,6 +86,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   const mcpExposed: string[] = [];
   const destructiveMcpExposed: string[] = [];
   const projection = readMcpProjectionConfig(manifestSource);
+  const appAgentPolicy = readAppAgentPolicyDefault(manifestSource);
   for (const entry of entries) {
     // Root-relative refs ("/src/capabilities/x.ts") resolve against the project
     // root, matching the runtime registry and the Vite plugin; everything else
@@ -115,6 +118,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
       mcpExposed,
       destructiveMcpExposed,
       projection,
+      appAgentPolicy,
     });
   }
 
@@ -836,9 +840,10 @@ function collectSingleCapabilityChecks(
     mcpExposed: string[];
     destructiveMcpExposed: string[];
     projection: McpProjectionConfigScan;
+    appAgentPolicy: AppAgentPolicyDefault;
   },
 ): void {
-  const { mcpExposed, destructiveMcpExposed, projection } = graph;
+  const { mcpExposed, destructiveMcpExposed, projection, appAgentPolicy } = graph;
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
   const args = extractDefineCapabilityArgs(source);
   if (!args) {
@@ -966,6 +971,34 @@ function collectSingleCapabilityChecks(
         "sets expose.webmcp without expose.http — WebMCP tools dispatch through the HTTP projection",
       );
     }
+    if (hasWebmcp) {
+      if (!isValidWebmcpToolName(name)) {
+        problems.push(WEBMCP_TOOL_NAME_ERROR);
+      }
+      // WebMCP dispatches are ordinary same-origin browser fetches with no
+      // HTTP message signature, so a "require" Web Bot Auth policy —
+      // capability-level or inherited from the app default — 401s every call
+      // the page tool can ever make.
+      const effectivePolicy =
+        agentPolicy.kind === "valid"
+          ? agentPolicy.value
+          : agentPolicy.kind === "absent"
+            ? appAgentPolicy
+            : undefined;
+      if (effectivePolicy === "require") {
+        checks.push(
+          createCheck(
+            "warning",
+            `${label} is exposed as a WebMCP page tool under agentPolicy "require"` +
+              `${agentPolicy.kind === "absent" ? " (inherited from agents.webBotAuth.policy)" : ""}. ` +
+              "WebMCP calls are unsigned browser fetches, so every call from the page tool " +
+              'will be rejected with a 401. Override with agentPolicy: "observe" on the ' +
+              "capability, or drop expose.webmcp.",
+          ),
+        );
+      }
+      collectWebmcpBudgetChecks(label, description, properties.get("input"), checks);
+    }
 
     if (effectValue === "destructive") {
       if (hasMcp) destructiveMcpExposed.push(name);
@@ -1050,6 +1083,108 @@ function collectSingleCapabilityChecks(
   );
 }
 
+/**
+ * Chrome's published WebMCP authoring budgets: agents read tool metadata on
+ * every page, so oversized prose degrades tool selection long before any hard
+ * limit. Advisory — warnings, not errors.
+ */
+const WEBMCP_DESCRIPTION_BUDGET = 500;
+const WEBMCP_PARAM_DESCRIPTION_BUDGET = 150;
+
+function collectWebmcpBudgetChecks(
+  label: string,
+  description: StaticString,
+  inputText: string | undefined,
+  checks: Check[],
+): void {
+  if (description.kind === "valid" && description.value.length > WEBMCP_DESCRIPTION_BUDGET) {
+    checks.push(
+      createCheck(
+        "warning",
+        `${label} is exposed as a WebMCP page tool with a ${description.value.length}-character ` +
+          `description — in-browser agents work best under ~${WEBMCP_DESCRIPTION_BUDGET} characters.`,
+      ),
+    );
+  }
+  const schema = inputText ? evaluateLiteral(inputText) : undefined;
+  if (!schema || typeof schema !== "object") return;
+  for (const [path, text] of collectSchemaDescriptions(schema as Record<string, unknown>, "")) {
+    if (text.length > WEBMCP_PARAM_DESCRIPTION_BUDGET) {
+      checks.push(
+        createCheck(
+          "warning",
+          `${label} is exposed as a WebMCP page tool and its input schema description at ` +
+            `${JSON.stringify(path)} is ${text.length} characters — in-browser agents work best ` +
+            `under ~${WEBMCP_PARAM_DESCRIPTION_BUDGET} characters per parameter.`,
+        ),
+      );
+    }
+  }
+}
+
+/** Every `description` string in a JSON Schema subtree, except the root's (that is the tool description's job). */
+function collectSchemaDescriptions(
+  schema: Record<string, unknown>,
+  path: string,
+): [string, string][] {
+  const found: [string, string][] = [];
+  if (path !== "" && typeof schema.description === "string") {
+    found.push([path, schema.description]);
+  }
+  const properties = schema.properties;
+  if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+    for (const [key, value] of Object.entries(properties)) {
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        found.push(
+          ...collectSchemaDescriptions(
+            value as Record<string, unknown>,
+            path === "" ? key : `${path}.${key}`,
+          ),
+        );
+      }
+    }
+  }
+  const items = schema.items;
+  if (items && typeof items === "object" && !Array.isArray(items)) {
+    found.push(
+      ...collectSchemaDescriptions(
+        items as Record<string, unknown>,
+        path === "" ? "[]" : `${path}[]`,
+      ),
+    );
+  }
+  return found;
+}
+
+/**
+ * The app-wide `agents.webBotAuth.policy` default, read statically:
+ * a policy string when declared as a literal, `null` when not configured
+ * (the runtime default is `"observe"`), `undefined` when the manifest
+ * declares it in a shape this analyzer cannot read.
+ */
+type AppAgentPolicyDefault = string | null | undefined;
+
+function readAppAgentPolicyDefault(manifestSource: string): AppAgentPolicyDefault {
+  // Scoped to the defineApp() body like readMcpProjectionConfig — a nested
+  // `agents:` object elsewhere in the file must not be mistaken for the app
+  // config. An unreadable manifest or a non-literal `agents` value answers
+  // `undefined` so the caller skips the warning rather than guessing.
+  const appBody = extractDefineAppObjectBody(manifestSource);
+  if (appBody === null) return undefined;
+  const agentsText = scanTopLevelProperties(appBody).get("agents");
+  if (agentsText === undefined) return null;
+  const agentsBody = readInlineObjectBody(agentsText);
+  if (agentsBody === null) return undefined;
+  const webBotAuthText = scanTopLevelProperties(agentsBody).get("webBotAuth");
+  if (webBotAuthText === undefined) return null;
+  const webBotAuthBody = readInlineObjectBody(webBotAuthText);
+  if (webBotAuthBody === null) return undefined;
+  const policyText = scanTopLevelProperties(webBotAuthBody).get("policy");
+  if (policyText === undefined) return null;
+  const value = evaluateLiteral(policyText);
+  return typeof value === "string" ? value : undefined;
+}
+
 type StaticString =
   | { kind: "absent" }
   | { kind: "invalid" }
@@ -1122,10 +1257,23 @@ function readExposeFlags(text: string | undefined): {
     problems.push('"expose.http" must be true or an object');
   }
 
+  let hasWebmcp = false;
+  if (expose.webmcp === true) {
+    hasWebmcp = true;
+  } else if (expose.webmcp && typeof expose.webmcp === "object" && !Array.isArray(expose.webmcp)) {
+    hasWebmcp = true;
+    const webmcp = expose.webmcp as Record<string, unknown>;
+    if (webmcp.untrustedContent !== undefined && typeof webmcp.untrustedContent !== "boolean") {
+      problems.push('WebMCP exposure "untrustedContent" must be a boolean');
+    }
+  } else if (expose.webmcp !== undefined && expose.webmcp !== false) {
+    problems.push('"expose.webmcp" must be true or an options object');
+  }
+
   return {
     hasHttp,
     hasMcp: expose.mcp === true,
-    hasWebmcp: expose.webmcp === true,
+    hasWebmcp,
     unknown: false,
     problems,
   };

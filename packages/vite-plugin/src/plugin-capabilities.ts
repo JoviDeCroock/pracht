@@ -40,10 +40,12 @@ export interface ExtractedCapability {
   name: string;
   /** Manifest-relative module path, e.g. "./capabilities/notes-search.ts". */
   file: string;
+  title: string;
   description: string;
   effect: string | null;
   httpPath: string | null;
   webmcp: boolean;
+  webmcpUntrustedContent: boolean;
   inputSchema: Record<string, unknown> | null;
 }
 
@@ -426,9 +428,16 @@ export function createPrachtCapabilitiesClientModuleSource(
  * validation/middleware/policy stays server-side. Each dispatch carries the
  * transport marker header so audit events can attribute it to WebMCP.
  *
- * Targets the Chrome origin-trial API: `document.modelContext.registerTool()`
- * (Chrome 150+; `navigator.modelContext` is the deprecated pre-150 location
- * and is kept as a fallback). No-ops silently when the API is absent.
+ * Targets the WebMCP CG draft API: `document.modelContext.registerTool()`
+ * (Chrome/Edge origin trial 149–156; ChatGPT desktop's built-in browser).
+ * `navigator.modelContext` was removed from Chromium in 152, so no fallback is
+ * kept — a pre-152 polyfill that still installs the old alias also installs
+ * the `document` one. No-ops silently when the API is absent.
+ *
+ * `execute()` returns the capability envelope (`{ ok, data }` /
+ * `{ ok: false, error }`) as a plain object: per the spec the host serializes
+ * the returned value itself, so wrapping it in MCP-style content blocks would
+ * reach the agent double-encoded.
  */
 export function createPrachtWebmcpModuleSource(
   options: PrachtPluginOptions = {},
@@ -440,9 +449,15 @@ export function createPrachtWebmcpModuleSource(
 
   const tools = capabilities.map((capability) => ({
     name: capability.name,
+    // The spec's optional `title` feeds host UI (e.g. ChatGPT's "Site tools"
+    // list). Omitted when not statically extractable rather than guessed.
+    ...(capability.title ? { title: capability.title } : {}),
     description: capability.description,
-    effect: capability.effect,
     inputSchema: capability.inputSchema,
+    annotations: {
+      readOnlyHint: capability.effect === "read",
+      ...(capability.webmcpUntrustedContent ? { untrustedContentHint: true } : {}),
+    },
   }));
 
   return [
@@ -454,33 +469,27 @@ export function createPrachtWebmcpModuleSource(
     "",
     "export function registerPrachtWebmcpTools() {",
     "  const modelContext =",
-    '    (typeof document !== "undefined" && document.modelContext) ||',
-    '    (typeof navigator !== "undefined" && navigator.modelContext) ||',
-    "    null;",
+    '    (typeof document !== "undefined" && document.modelContext) || null;',
     '  if (!modelContext || typeof modelContext.registerTool !== "function") {',
     "    return false;",
     "  }",
     "  for (const tool of tools) {",
     "    try {",
     "      const registration = modelContext.registerTool({",
-    "        name: tool.name,",
-    "        description: tool.description,",
-    "        inputSchema: tool.inputSchema,",
-    '        annotations: { readOnlyHint: tool.effect === "read" },',
+    "        ...tool,",
     "        async execute(input, { signal } = {}) {",
-    "          const result = await callCapability(tool.name, input, {",
+    "          return callCapability(tool.name, input, {",
     "            headers: transportHeaders,",
     "            signal,",
     "          });",
-    '          return { content: [{ type: "text", text: JSON.stringify(result) }] };',
     "        },",
     "      });",
     '      if (registration && typeof registration.catch === "function") {',
     "        registration.catch(() => {});",
     "      }",
     "    } catch {",
-    "      // Origin-trial API surface may shift; a failed registration must",
-    "      // never break the page.",
+    "      // The API is still an origin-trial surface; a failed registration",
+    "      // must never break the page.",
     "    }",
     "  }",
     "  return true;",
@@ -499,10 +508,7 @@ export function createPrachtWebmcpModuleSource(
 export function createWebmcpBootstrapSource(): string[] {
   return [
     "// WebMCP page tools — loaded only when the browser exposes the API.",
-    "if (",
-    '  typeof document !== "undefined" &&',
-    '  (document.modelContext || (typeof navigator !== "undefined" && navigator.modelContext))',
-    ") {",
+    'if (typeof document !== "undefined" && document.modelContext) {',
     '  import("virtual:pracht/webmcp").catch(() => {});',
     "}",
     "",

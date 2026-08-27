@@ -107,7 +107,11 @@ export default defineCapability({
   effect: "read",
   middleware: ["auth"],            // names from the app manifest
   expose: { http: true, webmcp: true },
-  // agentPolicy: "require",       // verified Web Bot Auth agents only
+  // webmcp: { untrustedContent: true } advertises untrustedContentHint for
+  // page tools whose results carry user-generated content.
+  // agentPolicy: "require",       // verified Web Bot Auth agents only —
+  //                               // never combine with webmcp: page-tool
+  //                               // calls are unsigned and would always 401
   async run({ input, context, request, signal }: CapabilityRunArgs<SearchInput>) {
     return { notes: searchNotes(input.query, input.limit) };
   },
@@ -368,6 +372,15 @@ travels in the call's `_meta["io.pracht/confirmation"]` field.
 
 `createCapabilityTestHost()` from `@pracht/core` covers the same pipeline in
 unit tests without a server.
+
+WebMCP specifics `pracht verify` checks for you: tool names must fit the
+spec's grammar (1–128 ASCII `[a-zA-Z0-9_.-]`); an effective
+`agentPolicy: "require"` makes a page tool dead (unsigned browser fetches
+always 401 — warned); descriptions have advisory budgets (~500 chars per
+tool, ~150 per schema parameter). Hosts: the ChatGPT desktop browser enables
+the API itself, but stable Chrome/Edge visitors only get
+`document.modelContext` if the page head carries an origin-trial token — the
+capabilities page on the docs site shows the shell `head()` recipe.
 
 For an audit of what the whole agent surface currently exposes, run
 `/audit-agent-surface`.

@@ -20,10 +20,14 @@ import { capabilityHttpPath, isValidCapabilityHttpPath } from "./protocol.ts";
  * registers a WebMCP page tool, and the input schema that tool advertises.
  */
 export interface CapabilityProjection {
+  /** Empty when `title` is not an inline string literal — the WebMCP descriptor omits it then. */
+  title: string;
   description: string;
   effect: string | null;
   httpPath: string | null;
   webmcp: boolean;
+  /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is. */
+  webmcpUntrustedContent: boolean;
   inputSchema: Record<string, unknown> | null;
   /**
    * Remote MCP exposure. Not part of the browser projection — the client
@@ -88,10 +92,12 @@ export function extractCapabilityProjection(
   if (!exposeText) {
     // Private capability: server-only, nothing to project to the client.
     return {
+      title: "",
       description: "",
       effect: null,
       httpPath: null,
       webmcp: false,
+      webmcpUntrustedContent: false,
       inputSchema: null,
       mcp: false,
       ...readGuardProperties(properties, truncated),
@@ -120,9 +126,25 @@ export function extractCapabilityProjection(
     );
   }
 
-  const webmcp = expose.webmcp === true;
+  let webmcp = false;
+  let webmcpUntrustedContent = false;
+  if (expose.webmcp === true) {
+    webmcp = true;
+  } else if (isPlainObject(expose.webmcp)) {
+    webmcp = true;
+    webmcpUntrustedContent = expose.webmcp.untrustedContent === true;
+  } else if (expose.webmcp !== undefined && expose.webmcp !== false) {
+    throw new Error(describe('"expose.webmcp" must be a boolean or an options object.'));
+  }
   if (webmcp && !httpPath) {
     throw new Error(describe("expose.webmcp requires expose.http."));
+  }
+
+  let title = "";
+  const titleText = properties.get("title");
+  if (titleText) {
+    const value = evaluateLiteral(titleText);
+    if (typeof value === "string") title = value;
   }
 
   let description = "";
@@ -164,10 +186,12 @@ export function extractCapabilityProjection(
   }
 
   return {
+    title,
     description,
     effect,
     httpPath,
     webmcp,
+    webmcpUntrustedContent,
     inputSchema,
     mcp: expose.mcp === true,
     ...readGuardProperties(properties, truncated),

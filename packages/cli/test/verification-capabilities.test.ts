@@ -756,6 +756,119 @@ describe("collectCapabilityChecks", () => {
     ).toContainEqual(expect.stringContaining("sets expose.webmcp without expose.http"));
   });
 
+  it("accepts the webmcp options object and rejects invalid shapes", () => {
+    const withOptions = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          "expose: { http: true, webmcp: true },",
+          "expose: { http: true, webmcp: { untrustedContent: true } },",
+        ),
+      ),
+    );
+    expect(withOptions.some((check) => check.status === "error")).toBe(false);
+    expect(withOptions.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("declares a complete exposed contract"),
+    );
+
+    const badShape = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          "expose: { http: true, webmcp: true },",
+          'expose: { http: true, webmcp: "yes" },',
+        ),
+      ),
+    );
+    expect(
+      badShape.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining('"expose.webmcp" must be true or an options object'));
+
+    const badOption = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          "expose: { http: true, webmcp: true },",
+          'expose: { http: true, webmcp: { untrustedContent: "yes" } },',
+        ),
+      ),
+    );
+    expect(
+      badOption.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining('"untrustedContent" must be a boolean'));
+  });
+
+  it("fails names the WebMCP registration would reject", () => {
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(COMPLETE_FIELDS),
+        registration: '    "notes search": () => import("./capabilities/notes-search.ts"),',
+      }),
+      checks,
+    );
+
+    expect(
+      checks.filter((check) => check.status === "error").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining("not a valid WebMCP tool name"));
+  });
+
+  it('warns when a webmcp page tool sits behind agentPolicy "require"', () => {
+    const direct = runChecks(capabilitySource(`${COMPLETE_FIELDS}\n  agentPolicy: "require",`));
+    expect(direct.filter((check) => check.status === "error")).toEqual([]);
+    expect(
+      direct.filter((check) => check.status === "warning").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining("unsigned browser fetches"));
+
+    const inherited: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(COMPLETE_FIELDS),
+        appBlock: '  agents: { webBotAuth: { policy: "require" } },',
+      }),
+      inherited,
+    );
+    expect(
+      inherited.filter((check) => check.status === "warning").map((check) => check.message),
+    ).toContainEqual(expect.stringContaining("inherited from agents.webBotAuth.policy"));
+
+    // A capability-level "observe" override silences the inherited warning.
+    const overridden: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(`${COMPLETE_FIELDS}\n  agentPolicy: "observe",`),
+        appBlock: '  agents: { webBotAuth: { policy: "require" } },',
+      }),
+      overridden,
+    );
+    expect(
+      overridden.filter((check) => check.message.includes("unsigned browser fetches")),
+    ).toEqual([]);
+  });
+
+  it("warns when webmcp tool metadata exceeds the agent-legibility budgets", () => {
+    const longDescription = "x".repeat(501);
+    const longParam = "y".repeat(151);
+    const checks = runChecks(
+      capabilitySource(
+        COMPLETE_FIELDS.replace(
+          'description: "Find notes.",',
+          `description: ${JSON.stringify(longDescription)},`,
+        ).replace(
+          'query: { type: "string" }',
+          `query: { type: "string", description: ${JSON.stringify(longParam)} }`,
+        ),
+      ),
+    );
+
+    const warnings = checks
+      .filter((check) => check.status === "warning")
+      .map((check) => check.message);
+    expect(warnings).toContainEqual(expect.stringContaining("501-character description"));
+    expect(warnings).toContainEqual(
+      expect.stringContaining('input schema description at "query" is 151 characters'),
+    );
+    // Budgets are advisory: the contract itself still verifies.
+    expect(checks.some((check) => check.status === "error")).toBe(false);
+  });
+
   it("fails schemas using unsupported JSON Schema keywords", () => {
     const checks = runChecks(
       capabilitySource(

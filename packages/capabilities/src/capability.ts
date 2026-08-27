@@ -46,8 +46,19 @@ export interface CapabilityExposeConfig {
    * `agents.mcp.destructive`; otherwise the projection filters it out.
    */
   mcp?: boolean;
-  /** Register the capability as a WebMCP page tool. Requires `http` — calls dispatch through the HTTP projection. */
-  webmcp?: boolean;
+  /**
+   * Register the capability as a WebMCP page tool. Requires `http` — calls
+   * dispatch through the HTTP projection. The object form sets
+   * `untrustedContent: true` to advertise the spec's `untrustedContentHint`
+   * annotation for tools whose results carry user-generated or third-party
+   * content the host should treat as untrusted.
+   */
+  webmcp?: boolean | CapabilityWebmcpOptions;
+}
+
+export interface CapabilityWebmcpOptions {
+  /** Advertise `untrustedContentHint` — results may carry user-generated or third-party content. */
+  untrustedContent?: boolean;
 }
 
 /** Normalized exposure — what the framework and graph consume. */
@@ -55,6 +66,8 @@ export interface CapabilityExposure {
   http: CapabilityHttpExposure | null;
   mcp: boolean;
   webmcp: boolean;
+  /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is. */
+  webmcpUntrustedContent: boolean;
 }
 
 /**
@@ -307,10 +320,28 @@ function normalizeExposure(expose: CapabilityExposeConfig | undefined): Capabili
     }
   }
 
+  let webmcp = false;
+  let webmcpUntrustedContent = false;
+  if (expose.webmcp === true) {
+    webmcp = true;
+  } else if (expose.webmcp && typeof expose.webmcp === "object" && !Array.isArray(expose.webmcp)) {
+    if (
+      expose.webmcp.untrustedContent !== undefined &&
+      typeof expose.webmcp.untrustedContent !== "boolean"
+    ) {
+      throw new Error('Capability WebMCP exposure "untrustedContent" must be a boolean.');
+    }
+    webmcp = true;
+    webmcpUntrustedContent = expose.webmcp.untrustedContent === true;
+  } else if (expose.webmcp !== undefined && expose.webmcp !== false) {
+    throw new Error('Capability "expose.webmcp" must be a boolean or an options object.');
+  }
+
   const normalized: CapabilityExposure = {
     http,
     mcp: expose.mcp === true,
-    webmcp: expose.webmcp === true,
+    webmcp,
+    webmcpUntrustedContent,
   };
 
   if (!normalized.http && !normalized.mcp && !normalized.webmcp) return null;

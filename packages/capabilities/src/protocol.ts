@@ -101,6 +101,22 @@ export function isValidMcpToolName(toolName: unknown): toolName is string {
   return typeof toolName === "string" && MCP_TOOL_NAME_RE.test(toolName);
 }
 
+/**
+ * The WebMCP CG draft's tool-name constraint: 1–128 ASCII letters, digits,
+ * `_`, `-`, or `.` — registration rejects anything else. Capability names are
+ * projected verbatim (dots included), so `pracht verify` checks them against
+ * this rather than letting registration fail silently in the page.
+ */
+const WEBMCP_TOOL_NAME_RE = /^[a-zA-Z0-9_.-]{1,128}$/;
+
+export const WEBMCP_TOOL_NAME_ERROR =
+  "is exposed via WebMCP, but its name is not a valid WebMCP tool name " +
+  "(1-128 ASCII letters, digits, '_', '-', or '.') — the browser would reject the registration";
+
+export function isValidWebmcpToolName(toolName: unknown): toolName is string {
+  return typeof toolName === "string" && WEBMCP_TOOL_NAME_RE.test(toolName);
+}
+
 export interface McpToolNameCollision {
   toolName: string;
   capabilities: string[];

@@ -9,7 +9,7 @@ Today those surfaces are:
   routes, and middleware;
 - **an HTTP endpoint** — generated `POST` dispatch when `expose.http` is set;
 - **a WebMCP page tool** — registered in the browser for in-page agents when
-  `expose.webmcp` is set (Chrome origin trial);
+  `expose.webmcp` is set (ChatGPT desktop browser; Chrome/Edge origin trial);
 - **a remote MCP tool** — served at one Streamable HTTP endpoint when
   `expose.mcp` is set and the app configures `agents.mcp`, for agents that
   never open a browser (see [REMOTE_MCP.md](REMOTE_MCP.md)).
@@ -525,16 +525,29 @@ at all: `callCapability("notes.stats")`.
 
 With `expose.webmcp: true` (which requires `expose.http`), the client runtime
 registers the capability as a WebMCP page tool for in-browser agents. The
-shim targets the Chrome origin-trial API — `document.modelContext.registerTool()`
-(Chrome 150+, with the deprecated `navigator.modelContext` as a fallback):
+shim targets the CG draft API — `document.modelContext.registerTool()` — with
+no `navigator.modelContext` fallback: Chromium removed that alias in 152, and
+current polyfills install the `document` shape. Hosts include the ChatGPT
+desktop app's built-in browser and the Chrome/Edge origin trial (149–156;
+stable-channel visitors need an origin-trial token in the page head — see the
+site docs for the `head()` recipe):
 
-- one tool per capability: `name`, `description`, `inputSchema` (the
-  capability's JSON Schema), `annotations.readOnlyHint` from the effect;
+- one tool per capability: `name`, `title`, `description`, `inputSchema` (the
+  capability's JSON Schema), `annotations.readOnlyHint` from the effect, and
+  `annotations.untrustedContentHint` when the capability opts in via
+  `expose.webmcp: { untrustedContent: true }`;
 - `execute()` calls the HTTP projection via `callCapability`, so the user's
   session authenticates the call and validation, middleware, and policy all
   stay server-side — the agent acts as the signed-in user, in their tab. When
   the WebMCP host cancels execution, its `AbortSignal` aborts the capability's
-  HTTP request too;
+  HTTP request too. The resolved value is the capability envelope as a plain
+  object — per the spec the host serializes it, so MCP-style content blocks
+  would reach the agent double-encoded;
+- `pracht verify` errors on names outside the spec's tool-name grammar
+  (1–128 ASCII `[a-zA-Z0-9_.-]`), warns when a page tool sits behind an
+  effective `agentPolicy: "require"` (WebMCP calls are unsigned browser
+  fetches, so every call would 401), and warns when descriptions exceed the
+  published agent-legibility budgets (~500 chars/tool, ~150 chars/parameter);
 - the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
   detection: browsers without the API never download it, and pages without
   webmcp-exposed capabilities never reference it;

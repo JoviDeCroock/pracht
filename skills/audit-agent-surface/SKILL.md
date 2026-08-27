@@ -76,7 +76,13 @@ For every exposed capability, ask whether the exposure is deliberate:
   reads a session cookie authorizes nobody there.
 - `expose.webmcp` — the in-page agent acts as the signed-in user in their tab.
   Confirm that is intended for every one, and that the route's hydration is not
-  `"none"` (which registers no tools).
+  `"none"` (which registers no tools). Flag a webmcp capability whose effective
+  agent policy is `"require"` (capability-level, or inherited from
+  `agents.webBotAuth.policy`): page-tool calls are unsigned browser fetches, so
+  the tool is dead — every call 401s. Also check that capabilities returning
+  user-generated or third-party content set
+  `expose.webmcp: { untrustedContent: true }` so hosts treat the output as
+  untrusted.
 - Private capabilities used as building blocks: `invokeCapability()` runs their
   named middleware but **not** app-level `api.middleware`. Their named
   middleware is the only authorization seam — flag private capabilities with an

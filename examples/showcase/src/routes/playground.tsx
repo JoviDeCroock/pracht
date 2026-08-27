@@ -230,11 +230,8 @@ function WebMcpStatus() {
   const [available, setAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const global = window as unknown as {
-      document?: { modelContext?: unknown };
-      navigator?: { modelContext?: unknown };
-    };
-    setAvailable(Boolean(global.document?.modelContext) || Boolean(global.navigator?.modelContext));
+    const global = window as unknown as { document?: { modelContext?: unknown } };
+    setAvailable(Boolean(global.document?.modelContext));
   }, []);
 
   return (
