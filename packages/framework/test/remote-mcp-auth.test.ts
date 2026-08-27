@@ -718,6 +718,18 @@ describe("manifest validation", () => {
     expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/mcp#f` })).toThrow(/fragment/);
   });
 
+  it("rejects OAuth identifiers whose URL spelling is not canonical", () => {
+    expect(build({ ...BASE_AUTH, resource: "HTTPS://APP.EXAMPLE:443/a/../mcp" })).toThrow(
+      /canonical URL spelling/,
+    );
+    expect(
+      build({
+        ...BASE_AUTH,
+        authorizationServers: ["HTTPS://AUTH.EXAMPLE:443/issuer"],
+      }),
+    ).toThrow(/canonical URL spelling/);
+  });
+
   it("rejects a resource identifier that does not address the served endpoint", () => {
     expect(build({ ...BASE_AUTH, resource: `${ORIGIN}/mcp` }, "/agent/mcp")).toThrow(
       /does not address the MCP endpoint/,

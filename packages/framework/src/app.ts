@@ -605,6 +605,7 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
       `${label}.resource }) must not carry a query string or fragment, got ${JSON.stringify(auth.resource)}.`,
     );
   }
+  assertCanonicalOAuthUrl(auth.resource, resource, `${label}.resource })`, false);
 
   // RFC 8707 makes the resource identifier the token audience, and hosts derive
   // the metadata URL from it. Pointing it at a path the app does not serve
@@ -643,6 +644,7 @@ function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): voi
         `${label}.authorizationServers }) issuer URLs must not carry a query string or fragment, got ${JSON.stringify(issuer)}.`,
       );
     }
+    assertCanonicalOAuthUrl(issuer, issuerUrl, `${label}.authorizationServers })`, true);
   }
   if (auth.resourceDocumentation !== undefined) {
     assertAbsoluteUrl(auth.resourceDocumentation, `${label}.resourceDocumentation })`);
@@ -673,6 +675,30 @@ function assertAbsoluteUrl(value: unknown, label: string): URL {
     throw new Error(`${label} must use https (http is allowed for loopback development only).`);
   }
   return url;
+}
+
+/**
+ * OAuth identifiers are compared as exact strings. Reject spellings whose URL
+ * serialization changes their host, port, or path instead of publishing one
+ * value while requests and challenges use another. A root issuer without the
+ * URL serializer's implicit trailing slash remains valid (and conventional).
+ */
+function assertCanonicalOAuthUrl(
+  value: string,
+  url: URL,
+  label: string,
+  allowRootWithoutSlash: boolean,
+): void {
+  const rootWithoutSlash =
+    allowRootWithoutSlash &&
+    url.pathname === "/" &&
+    url.search === "" &&
+    url.hash === "" &&
+    url.href === `${value}/`;
+  if (url.href === value || rootWithoutSlash) return;
+  throw new Error(
+    `${label} must use its canonical URL spelling ${JSON.stringify(url.href)} because OAuth identifiers are matched exactly; got ${JSON.stringify(value)}.`,
+  );
 }
 
 function isLoopbackHost(hostname: string): boolean {

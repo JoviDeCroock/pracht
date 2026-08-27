@@ -16,6 +16,7 @@ import {
   matchAppRoute,
   prefersMarkdown,
   preventHeuristicCaching,
+  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
   PRACHT_REVALIDATE_ENDPOINT,
   readRevalidationRequest,
   RevalidationReport,
@@ -732,6 +733,15 @@ function assertSafeExcludedPath(pattern: string): void {
     throw new Error(
       `netlifyAdapter({ excludedPath }) entries must be URL path patterns starting with "/" ` +
         `and contain no whitespace or control characters; got ${JSON.stringify(pattern)}.`,
+    );
+  }
+  if (
+    pattern === OAUTH_PROTECTED_RESOURCE_WELL_KNOWN ||
+    pattern.startsWith(`${OAUTH_PROTECTED_RESOURCE_WELL_KNOWN}/`) ||
+    isExcludedNetlifyBundlePath(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN, [pattern], false)
+  ) {
+    throw new Error(
+      `netlifyAdapter({ excludedPath }) entry ${JSON.stringify(pattern)} would bypass Pracht's OAuth protected-resource metadata handler. Remove this exclusion; the ${OAUTH_PROTECTED_RESOURCE_WELL_KNOWN} namespace is framework-reserved.`,
     );
   }
 }

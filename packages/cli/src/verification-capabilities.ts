@@ -401,6 +401,14 @@ function collectMcpAuthChecks(
           `agents.mcp.auth.resource ${JSON.stringify(resource)} must not carry a query string or fragment.`,
         ),
       );
+    } else if (!oauthUrlHasCanonicalSpelling(resource, parsed, false)) {
+      authIsProvablyValid = false;
+      checks.push(
+        createCheck(
+          "error",
+          `agents.mcp.auth.resource ${JSON.stringify(resource)} must use its canonical URL spelling ${JSON.stringify(parsed.href)} because OAuth identifiers are matched exactly.`,
+        ),
+      );
     } else if (parsed.pathname.length > 1 && parsed.pathname.endsWith("/")) {
       authIsProvablyValid = false;
       checks.push(
@@ -503,6 +511,14 @@ function collectMcpAuthChecks(
           createCheck(
             "error",
             `agents.mcp.auth.authorizationServers issuer ${JSON.stringify(issuer)} must not carry a query string or fragment.`,
+          ),
+        );
+      } else if (!oauthUrlHasCanonicalSpelling(issuer, parsed, true)) {
+        authIsProvablyValid = false;
+        checks.push(
+          createCheck(
+            "error",
+            `agents.mcp.auth.authorizationServers issuer ${JSON.stringify(issuer)} must use its canonical URL spelling ${JSON.stringify(parsed.href)} because OAuth identifiers are matched exactly.`,
           ),
         );
       }
@@ -726,6 +742,21 @@ function findProvableTopLevelProperty(objectBody: string, key: string): string |
 
 function oauthUrlUsesSafeTransport(url: URL): boolean {
   return url.protocol === "https:" || (url.protocol === "http:" && isLoopbackHost(url.hostname));
+}
+
+function oauthUrlHasCanonicalSpelling(
+  value: string,
+  url: URL,
+  allowRootWithoutSlash: boolean,
+): boolean {
+  return (
+    url.href === value ||
+    (allowRootWithoutSlash &&
+      url.pathname === "/" &&
+      url.search === "" &&
+      url.hash === "" &&
+      url.href === `${value}/`)
+  );
 }
 
 function isLoopbackHost(hostname: string): boolean {

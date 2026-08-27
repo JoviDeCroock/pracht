@@ -355,21 +355,24 @@ token verifier — with its JWKS client and issuer configuration — must never 
 `resolveApp()` and `pracht verify` reject a relative `resource`, a `resource`
 carrying a query, fragment, or non-root trailing slash, a `resource` whose path
 does not exactly identify the served endpoint, a non-loopback cleartext URL, an
-authorization-server issuer with a query or fragment, an empty
+non-canonical resource or issuer spelling, an authorization-server issuer with
+a query or fragment, an empty
 `authorizationServers`, a scope token outside OAuth's printable-ASCII grammar,
 unknown keys under `agents.mcp` or `agents.mcp.auth`, and a missing or
 non-callable default `verify` export. HTTP is accepted only for loopback
 development (`localhost`, `*.localhost`, `127.0.0.0/8`, or `::1`); deployed
-resource and issuer URLs must use HTTPS. Use the endpoint's canonical URL:
-`/mcp/` is not an equivalent OAuth resource identifier for `/mcp`, even though
-routing accepts either spelling. Authenticated endpoints redirect every
-non-canonical spelling, alternate host, and query-bearing request to `resource`
-with `308` before challenging or verifying it.
+resource and issuer URLs must use HTTPS. Use canonical URL spellings: uppercase
+hosts, default ports, and dot segments can serialize to a different OAuth
+identifier. `/mcp/` is not equivalent to `/mcp`, even though routing accepts
+either spelling. Authenticated endpoints redirect every non-canonical request
+spelling, alternate host, and query-bearing request to `resource` with `308`
+before challenging or verifying it.
 
 The MCP path must also be distinct from every explicit API route. `pracht
-verify` rejects a collision such as `agents.mcp.path: "/api/mcp"` alongside
-`src/api/mcp.ts`; the request runtime returns 500 rather than letting the API
-handler shadow MCP's transport and authentication gates.
+verify` rejects exact and dynamic collisions. For example,
+`agents.mcp.path: "/api/mcp"` collides with either `src/api/mcp.ts` or an API
+pattern like `/api/:name`; the request runtime returns 500 rather than letting
+the API handler shadow MCP's transport and authentication gates.
 
 The committed app-graph snapshot records whether the endpoint is OAuth
 protected and its resource, authorization servers, required and advertised
@@ -426,6 +429,8 @@ Because the match happens before routing and production-adapter static lookup,
 neither an application route nor a copied static file can shadow the document
 on Node, Cloudflare, Netlify, or Vercel. The bare metadata path is reserved and
 cannot be used as `agents.mcp.path`; choose another endpoint path instead.
+Netlify `excludedPath` entries that would bypass this reserved namespace are
+rejected too.
 
 ### The challenge
 
@@ -512,7 +517,10 @@ authorization state elsewhere on `context`, but cannot rewrite the identity a
 later capability or audit check sees. The adapter-supplied base context is left
 unchanged, so reusing it cannot carry one caller's principal into another
 request. `tokenAuth` is absent on every other request path; an unauthenticated
-MCP request never reaches application code at all.
+MCP request never reaches route middleware, API handlers, or capability code.
+An adapter's `createContext` hook may run before MCP authentication, so treat
+its request as untrusted and avoid privileged or expensive work based only on
+reachability.
 
 Precisely what happens to the context object:
 

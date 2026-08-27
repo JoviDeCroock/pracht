@@ -5,7 +5,7 @@ import {
   extractCapabilityRegistrations,
   maskCommentsAndStrings,
 } from "@pracht/capabilities/static";
-import { evaluateConstraints } from "@pracht/core";
+import { evaluateConstraints, matchRoutePath } from "@pracht/core";
 import type { AppGraphRoute } from "@pracht/core";
 
 import {
@@ -105,7 +105,9 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
 export function collectMcpRouteCollisionChecks(live: GraphSnapshot, checks: Check[]): void {
   if (live.mcpEndpoint === null) return;
   const endpoint = normalizeEndpointPath(live.mcpEndpoint);
-  const collisions = live.api.filter((route) => normalizeEndpointPath(route.path) === endpoint);
+  const collisions = live.api.filter(
+    (route) => matchRoutePath(normalizeEndpointPath(route.path), endpoint) !== null,
+  );
   for (const route of collisions) {
     checks.push(
       createCheck(

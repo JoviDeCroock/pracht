@@ -59,4 +59,29 @@ describe("collectMcpRouteCollisionChecks", () => {
     );
     expect(checks).toEqual([]);
   });
+
+  it.each(["/api/:name", "/api/*"])(
+    "rejects a dynamic API route %s that matches the MCP endpoint",
+    (path) => {
+      const checks: Check[] = [];
+      collectMcpRouteCollisionChecks(
+        graph({
+          api: [
+            {
+              file: "/src/api/[name].ts",
+              hasDefaultHandler: false,
+              methods: ["POST"],
+              path,
+            },
+          ],
+          mcpEndpoint: "/api/mcp",
+        }),
+        checks,
+      );
+
+      expect(checks).toEqual([
+        expect.objectContaining({ message: expect.stringContaining("collides"), status: "error" }),
+      ]);
+    },
+  );
 });

@@ -1109,6 +1109,21 @@ ${extra}        verify: () => import("${verifyPath}"),
     );
   });
 
+  it("errors on OAuth identifiers whose URL spelling is not canonical", () => {
+    for (const extra of [
+      '        resource: "HTTPS://APP.EXAMPLE.COM:443/a/../mcp",\n',
+      '        authorizationServers: ["HTTPS://AUTH.EXAMPLE.COM:443/issuer"],\n',
+    ]) {
+      const checks = runAuthChecks(authBlock(extra));
+      expect(checks).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("canonical URL spelling"),
+          status: "error",
+        }),
+      );
+    }
+  });
+
   it("errors on resource-server fields that runtime validation rejects", () => {
     for (const [agentsBlock, message] of [
       [

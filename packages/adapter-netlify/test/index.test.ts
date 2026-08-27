@@ -347,6 +347,19 @@ describe("netlifyAdapter", () => {
     expect(() => netlifyAdapter({ excludedPath: ["images/*"] })).toThrow(/excludedPath/);
     expect(() => netlifyAdapter({ excludedPath: ["/images/*"] })).not.toThrow();
   });
+
+  it("rejects excludedPath patterns that shadow OAuth metadata", () => {
+    for (const pattern of [
+      "/*",
+      "/.well-known/*",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/mcp",
+    ]) {
+      expect(() => netlifyAdapter({ excludedPath: [pattern] })).toThrow(
+        /OAuth protected-resource metadata handler/,
+      );
+    }
+  });
 });
 
 describe("createNetlifyHandler", () => {
