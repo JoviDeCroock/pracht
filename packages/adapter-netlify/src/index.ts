@@ -1,6 +1,8 @@
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
+import type { McpAuthConfig } from "@pracht/core";
 import type { PrachtAdapter } from "@pracht/vite-plugin";
+import { URLPattern } from "urlpattern-polyfill";
 import type { Plugin } from "vite";
 import {
   applyDefaultSecurityHeaders,
@@ -14,6 +16,7 @@ import {
   isMcpResourceMetadataPath,
   jsonResponse,
   matchAppRoute,
+  mcpResourceMetadataPath,
   prefersMarkdown,
   preventHeuristicCaching,
   OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
@@ -330,7 +333,7 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "export default function handle(request, context) {",
     "  return handler(request, context);",
     "}",
-    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)}, buildBase, Boolean(resolvedApp.agents?.mcp?.auth));`,
+    `export const finalizePrachtBuild = ({ root }) => finalizeNetlifyBuild(root, ${JSON.stringify(options)}, buildBase, resolvedApp.agents?.mcp?.auth);`,
     "",
   ].join("\n");
 }
@@ -343,7 +346,7 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
  * exclusions. Set Netlify's publish directory to `dist/client`.
  */
 export function netlifyAdapter(options: NetlifyAdapterOptions = {}): PrachtAdapter {
-  for (const pattern of options.excludedPath ?? []) assertSafeExcludedPath(pattern, false);
+  for (const pattern of options.excludedPath ?? []) assertSafeExcludedPath(pattern);
   return {
     id: "netlify",
     serverImports: 'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";',
@@ -381,10 +384,10 @@ export async function finalizeNetlifyBuild(
   root: string,
   options: NetlifyAdapterOptions = {},
   base = "/",
-  protectsMcpOAuthMetadata = false,
+  mcpAuth?: McpAuthConfig,
 ): Promise<void> {
   for (const pattern of options.excludedPath ?? []) {
-    assertSafeExcludedPath(pattern, protectsMcpOAuthMetadata);
+    assertSafeExcludedPath(pattern, mcpAuth);
   }
   await writeNetlifyFunctionWrapper(root, options, true, base);
 }
@@ -731,19 +734,26 @@ function hasNetlifyRuleWhitespaceOrControl(value: string): boolean {
  * rules for other paths. They are also URL path patterns, so anything outside
  * printable-ASCII-without-spaces is a mistake anyway — fail the build loudly.
  */
-function assertSafeExcludedPath(pattern: string, protectsMcpOAuthMetadata: boolean): void {
+function assertSafeExcludedPath(pattern: string, mcpAuth?: McpAuthConfig): void {
   if (!pattern.startsWith("/") || !/^[\x21-\x7e]+$/.test(pattern)) {
     throw new Error(
       `netlifyAdapter({ excludedPath }) entries must be URL path patterns starting with "/" ` +
         `and contain no whitespace or control characters; got ${JSON.stringify(pattern)}.`,
     );
   }
-  if (
-    protectsMcpOAuthMetadata &&
-    (pattern === OAUTH_PROTECTED_RESOURCE_WELL_KNOWN ||
-      pattern.startsWith(`${OAUTH_PROTECTED_RESOURCE_WELL_KNOWN}/`) ||
-      isExcludedNetlifyBundlePath(OAUTH_PROTECTED_RESOURCE_WELL_KNOWN, [pattern], false))
-  ) {
+  if (!mcpAuth) return;
+
+  let excludedPath: URLPattern;
+  try {
+    excludedPath = new URLPattern({ pathname: pattern });
+  } catch {
+    throw new Error(
+      `netlifyAdapter({ excludedPath }) entry ${JSON.stringify(pattern)} is not a valid URLPattern.`,
+    );
+  }
+
+  const metadataPaths = [OAUTH_PROTECTED_RESOURCE_WELL_KNOWN, mcpResourceMetadataPath(mcpAuth)];
+  if (metadataPaths.some((pathname) => excludedPath.test({ pathname }))) {
     throw new Error(
       `netlifyAdapter({ excludedPath }) entry ${JSON.stringify(pattern)} would bypass Pracht's OAuth protected-resource metadata handler. Remove this exclusion; the ${OAUTH_PROTECTED_RESOURCE_WELL_KNOWN} namespace is framework-reserved.`,
     );

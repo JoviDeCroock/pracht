@@ -9,6 +9,7 @@ import {
   resolveApiRoutes,
   route,
   timeRevalidate,
+  type McpAuthConfig,
   webhookRevalidate,
 } from "@pracht/core";
 
@@ -56,7 +57,7 @@ describe("createNetlifyServerEntryModule", () => {
     expect(source).toContain("finalizePrachtBuild");
     expect(source).toContain("finalizeNetlifyBuild(root,");
     expect(source).toContain("buildBase");
-    expect(source).toContain("Boolean(resolvedApp.agents?.mcp?.auth)");
+    expect(source).toContain("resolvedApp.agents?.mcp?.auth");
   });
 });
 
@@ -355,16 +356,28 @@ describe("netlifyAdapter", () => {
 
   it("rejects excludedPath patterns that shadow enabled OAuth metadata", async () => {
     const root = await tempDir();
+    const mcpAuth = {
+      resource: "https://example.com/mcp",
+      authorizationServers: ["https://auth.example"],
+      verify: "./server/mcp-token.ts",
+    } satisfies McpAuthConfig;
     for (const pattern of [
       "/*",
       "/.well-known/*",
+      "/.well-known/oauth-*",
+      "/.well-known/:document",
+      "/:directory/oauth-protected-resource/mcp",
       "/.well-known/oauth-protected-resource",
       "/.well-known/oauth-protected-resource/mcp",
     ]) {
       await expect(
-        finalizeNetlifyBuild(root, { excludedPath: [pattern] }, "/", true),
+        finalizeNetlifyBuild(root, { excludedPath: [pattern] }, "/", mcpAuth),
       ).rejects.toThrow(/OAuth protected-resource metadata handler/);
     }
+
+    await expect(
+      finalizeNetlifyBuild(root, { excludedPath: ["/*.css"] }, "/", mcpAuth),
+    ).resolves.toBeUndefined();
   });
 });
 

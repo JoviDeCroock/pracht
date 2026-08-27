@@ -43,7 +43,8 @@
   },
   "dependencies": {
     "@netlify/functions": "^5.3.0",
-    "@pracht/core": "workspace:*"
+    "@pracht/core": "workspace:*",
+    "urlpattern-polyfill": "^10.1.0"
   },
   "peerDependencies": {
     "vite": "^8.0.0"
