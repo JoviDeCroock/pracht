@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import {
+  extractDefineAppObjectBody,
   extractCapabilityRegistrations,
   maskCommentsAndStrings,
 } from "@pracht/capabilities/static";
@@ -32,6 +33,7 @@ const HEAD_EXPORT_RE =
 export async function collectGraphChecks(project: ProjectConfig, checks: Check[]): Promise<void> {
   const wantsConstraints = manifestDeclaresConstraints(project);
   const wantsCapabilityLoad = manifestDeclaresCapabilities(project);
+  const wantsAgentValidation = manifestDeclaresAgents(project);
   const wantsApiLoad = projectDeclaresApiRoutes(project);
   const snapshotExists = existsSync(resolve(project.root, GRAPH_SNAPSHOT_PATH));
   // Raw config inspection is only a gate for the comparatively expensive Vite
@@ -41,6 +43,7 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   if (
     !wantsConstraints &&
     !wantsCapabilityLoad &&
+    !wantsAgentValidation &&
     !wantsApiLoad &&
     !snapshotExists &&
     !mightUseStaticExport
@@ -72,6 +75,7 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   if (
     !wantsConstraints &&
     !wantsCapabilityLoad &&
+    !wantsAgentValidation &&
     !wantsApiLoad &&
     !snapshotExists &&
     !staticTarget
@@ -295,6 +299,14 @@ function manifestDeclaresCapabilities(project: ProjectConfig): boolean {
   if (!existsSync(manifestPath)) return false;
   const source = readFileSync(manifestPath, "utf-8");
   return extractCapabilityRegistrations(source).length > 0 || /\bcapabilities\s*:/.test(source);
+}
+
+function manifestDeclaresAgents(project: ProjectConfig): boolean {
+  if (project.mode !== "manifest") return false;
+  const manifestPath = resolveProjectPath(project.root, project.appFile);
+  if (!existsSync(manifestPath)) return false;
+  const appBody = extractDefineAppObjectBody(readFileSync(manifestPath, "utf-8"));
+  return appBody !== null && /\bagents\b/.test(maskCommentsAndStrings(appBody));
 }
 
 /**

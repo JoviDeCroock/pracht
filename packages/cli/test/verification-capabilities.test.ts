@@ -1334,7 +1334,11 @@ ${extra}        verify: () => import("${verifyPath}"),
   });
 
   it("rejects a verifier module without a default-exported function", () => {
-    for (const source of ["export const verify = () => null;\n", "export default {};\n"]) {
+    for (const source of [
+      "export const verify = () => null;\n",
+      "export default {};\n",
+      "const verify = {};\nexport default verify;\n",
+    ]) {
       const checks = runAuthChecks(authBlock(), "src/server/mcp-token.ts", source);
       expect(checks).toContainEqual(
         expect.objectContaining({

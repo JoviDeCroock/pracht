@@ -20,6 +20,7 @@ export {
   mcpResourceMetadataPath,
   OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
 } from "./mcp-config.ts";
+export { loadMcpTokenVerifier } from "./runtime-mcp-auth.ts";
 export {
   apiValidationErrorResponse,
   defineApi,

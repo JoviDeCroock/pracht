@@ -692,11 +692,26 @@ function inspectDefaultFunctionExport(source: string): "valid" | "invalid" | "un
     ) {
       return "valid";
     }
+    const initializer = new RegExp(
+      `\\b(?:const|let|var)\\s+${escaped}(?:\\s*:[^=;]+)?\\s*=\\s*([^;]+)`,
+    ).exec(masked)?.[1];
+    if (initializer !== undefined && isProvablyNonFunctionInitializer(initializer)) {
+      return "invalid";
+    }
     return "unknown";
   }
 
   if (/\bexport\s*\{[^}]*\bdefault\b[^}]*\}/.test(masked)) return "unknown";
   return "invalid";
+}
+
+function isProvablyNonFunctionInitializer(initializer: string): boolean {
+  const value = initializer.trim();
+  return (
+    value.startsWith("{") ||
+    value.startsWith("[") ||
+    /^(?:null|true|false|[-+]?\d|["'`])/.test(value)
+  );
 }
 
 /** A statically provable ModuleRef shape that the manifest transform supports. */

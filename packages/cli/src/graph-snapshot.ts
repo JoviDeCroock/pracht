@@ -14,9 +14,11 @@ import type {
   AppGraphCapability,
   AppGraphRoute,
   McpAuthConfig,
+  ModuleRegistry,
   ResolvedRoute,
   RouteConstraint,
 } from "@pracht/core";
+import { loadMcpTokenVerifier } from "@pracht/core/server";
 
 import { capabilityModuleLoader, createSourceReader } from "./app-graph.js";
 import { withAppServer } from "./app-server.js";
@@ -75,6 +77,7 @@ export interface LiveGraphMetadata {
 export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphMetadata> {
   return withAppServer(root, async ({ project, server, serverModule }) => {
     const resolvedRoutes = serverModule.resolvedApp.routes as ResolvedRoute[];
+    await assertMcpTokenVerifierModule(serverModule);
     const routes = serializeAppRoutes(resolvedRoutes);
     const api = await serializeApiRoutes(
       serverModule.apiRoutes,
@@ -116,6 +119,12 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
       staticTarget: serverModule.staticTarget === true,
     };
   });
+}
+
+async function assertMcpTokenVerifierModule(serverModule: Record<string, any>): Promise<void> {
+  const auth = serverModule.resolvedApp.agents?.mcp?.auth as McpAuthConfig | undefined;
+  if (!auth) return;
+  await loadMcpTokenVerifier(auth, serverModule.registry as ModuleRegistry);
 }
 
 export async function resolveLiveGraph(root: string): Promise<GraphSnapshot> {
