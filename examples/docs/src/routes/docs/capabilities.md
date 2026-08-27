@@ -245,7 +245,7 @@ pracht inspect capabilities
 # notes.create   write  http,mcp          /api/capabilities/notes/create
 ```
 
-`pracht inspect agents` rolls the same graph up against `defineApp({ agents })` — the Web Bot Auth policy and keys, the destructive-confirmation mode, the remote MCP endpoint, whether `llms.txt` is generated, and how many capabilities each transport exposes.
+`pracht inspect agents` rolls the same graph up against `defineApp({ agents })` — the Web Bot Auth policy and keys, the destructive-confirmation mode, the remote MCP endpoint, whether `llms.txt` is generated, and how many capabilities each transport exposes. Its JSON payload preserves the same MCP runtime-status fields, while text output marks affected declarations `mcp(unserved)` or `mcp(unverified)` instead of presenting a declared transport as proof that the tool is reachable.
 
 The CLI, MCP, startup-banner, and Capabilities-table views describe the static configured surface. To see whether agents actually are calling it, read the live audit events in the **Agents** panel on `/_pracht` in dev, or register a production sink with `addCapabilityAuditListener()`. Retained traffic keeps the panel visible after HMR removes the final capability, until the dev server restarts. See [Agent trust](/docs/agent-trust#audit-trail).
 

@@ -935,8 +935,11 @@ Agents
   notes.purge  effect=destructive  transports=http  policy=require (inherited)  http=/api/capabilities/notes/purge
 ```
 
-`--json` emits the same data for CI checks, and the CLI's MCP server exposes it
-as the `inspect_agents` tool. The `llmsTxt` state comes from the Vite plugin's
+`--json` emits the same data for CI checks, including `mcpEndpoint`,
+`mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`; the CLI's MCP
+server exposes it as the `inspect_agents` tool. Text output marks declared MCP
+tools as `mcp(unserved)` or `mcp(unverified)` when they are not confirmed
+reachable. The `llmsTxt` state comes from the Vite plugin's
 resolved production server-build configuration, including computed options,
 rather than a source-text guess or the development configuration. If the CLI is
 newer than the installed Vite plugin and that plugin does not expose the resolved

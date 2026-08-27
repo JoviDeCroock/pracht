@@ -590,7 +590,12 @@ export default defineConfig({
     `import { defineApp, group, route, timeRevalidate } from "@pracht/core";
 
 export const app = defineApp({
-  ${options.destructiveMcp ? 'agents: { mcp: { destructive: true } },\n  capabilities: { "notes.purge": () => import("./capabilities/notes-purge.ts") },' : ""}
+  ${
+    options.destructiveMcp
+      ? `agents: { mcp: {${options.destructiveMcpOptIn === false ? "" : " destructive: true "}} },
+  capabilities: { "notes.purge": () => import("./capabilities/notes-purge.ts") },`
+      : ""
+  }
   shells: {
     app: () => import("./shells/app.tsx"),
   },

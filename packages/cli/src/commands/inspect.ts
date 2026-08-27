@@ -187,8 +187,15 @@ export async function runInspect(
           })
         : null;
 
+    if (capabilityGraph) {
+      report.mcpDestructive = capabilityGraph.mcpDestructive;
+      report.mcpEndpoint = capabilityGraph.mcpEndpoint;
+      report.mcpRuntimeStatus = capabilityGraph.mcpRuntimeStatus;
+      report.mcpUnavailableReasons = capabilityGraph.mcpUnavailableReasons;
+    }
+
     if (wants("capabilities") && capabilityGraph) {
-      Object.assign(report, capabilityGraph);
+      report.capabilities = capabilityGraph.capabilities;
     }
 
     if (wants("agents") && capabilityGraph) {
@@ -265,6 +272,40 @@ export function summarizeAgentSurface(
   };
 }
 
+function formatCapabilityTransports(
+  capability: Pick<AppGraphCapability, "effect" | "transports">,
+  report: InspectReport,
+): string {
+  return capability.transports.length > 0
+    ? capability.transports
+        .map((transport) =>
+          transport !== "mcp"
+            ? transport
+            : report.mcpEndpoint === null ||
+                (capability.effect === "destructive" && report.mcpDestructive !== true) ||
+                report.mcpRuntimeStatus === "blocked"
+              ? "mcp(unserved)"
+              : report.mcpRuntimeStatus === "unverified"
+                ? "mcp(unverified)"
+                : transport,
+        )
+        .join(",")
+    : "private";
+}
+
+function printMcpInspectionStatus(report: InspectReport): void {
+  if (report.mcpEndpoint !== null) {
+    console.log(`  MCP endpoint: ${report.mcpEndpoint}`);
+  }
+  if ((report.mcpUnavailableReasons?.length ?? 0) > 0) {
+    console.log(
+      report.mcpRuntimeStatus === "unverified"
+        ? `  ! MCP endpoint unverified: ${report.mcpUnavailableReasons!.join(" ")} Registrations in the adapter server entry are not evaluated by graph-only inspection.`
+        : `  ! MCP endpoint unavailable: ${report.mcpUnavailableReasons!.join(" ")}`,
+    );
+  }
+}
+
 function printInspectReport(report: InspectReport): void {
   console.log(`Pracht inspect (${report.mode} mode)`);
 
@@ -311,22 +352,7 @@ function printInspectReport(report: InspectReport): void {
       console.log("  No capabilities registered.");
     } else {
       for (const capability of report.capabilities) {
-        const transports =
-          capability.transports.length > 0
-            ? capability.transports
-                .map((transport) =>
-                  transport !== "mcp"
-                    ? transport
-                    : report.mcpEndpoint === null ||
-                        (capability.effect === "destructive" && report.mcpDestructive !== true) ||
-                        report.mcpRuntimeStatus === "blocked"
-                      ? "mcp(unserved)"
-                      : report.mcpRuntimeStatus === "unverified"
-                        ? "mcp(unverified)"
-                        : transport,
-                )
-                .join(",")
-            : "private";
+        const transports = formatCapabilityTransports(capability, report);
         console.log(
           `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
             `http=${capability.httpPath ?? "n/a"}  file=${capability.source}`,
@@ -341,15 +367,8 @@ function printInspectReport(report: InspectReport): void {
         }
       }
     }
-    if (report.mcpEndpoint !== null) {
-      console.log(`  MCP endpoint: ${report.mcpEndpoint}`);
-    }
-    if ((report.mcpUnavailableReasons?.length ?? 0) > 0) {
-      console.log(
-        report.mcpRuntimeStatus === "unverified"
-          ? `  ! MCP endpoint unverified: ${report.mcpUnavailableReasons!.join(" ")} Registrations in the adapter server entry are not evaluated by graph-only inspection.`
-          : `  ! MCP endpoint unavailable: ${report.mcpUnavailableReasons!.join(" ")}`,
-      );
+    if (!report.agents) {
+      printMcpInspectionStatus(report);
     }
   }
 
@@ -385,8 +404,7 @@ function printInspectReport(report: InspectReport): void {
       console.log("  No capability operations registered.");
     } else {
       for (const capability of agents.capabilities) {
-        const transports =
-          capability.transports.length > 0 ? capability.transports.join(",") : "private";
+        const transports = formatCapabilityTransports(capability, report);
         console.log(
           `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
             `policy=${capability.agentPolicy ?? `${agents.webBotAuth.policy} (inherited)`}  ` +
@@ -394,6 +412,8 @@ function printInspectReport(report: InspectReport): void {
         );
       }
     }
+
+    printMcpInspectionStatus(report);
 
     // The one silent hole in the surface: exposure recorded in the graph that
     // nothing serves. `pracht verify` warns about it too; say it here as well,

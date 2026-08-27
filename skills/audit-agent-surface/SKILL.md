@@ -113,7 +113,8 @@ For every exposed capability, ask whether the exposure is deliberate:
   directory nor a principal resolver — so check all three together.
   Runtime-backed `/_pracht` reports a verified endpoint-wide failure by marking
   every MCP exposure `mcp(unserved)`. Graph-only `pracht dev`, `pracht inspect
-  capabilities`, and MCP inspection use `mcp(unverified)` when the same missing
+  capabilities`, `pracht inspect agents`, and MCP inspection use
+  `mcp(unverified)` when the same missing
   preconditions may be registered by the adapter server entry they deliberately
   skip. JSON inspection exposes `mcpEndpoint`, `mcpDestructive`,
   `mcpRuntimeStatus`, and `mcpUnavailableReasons`; use those fields instead of
