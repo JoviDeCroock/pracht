@@ -173,12 +173,12 @@ ${trafficRows}
       </tbody>
     </table>`;
 
-  // Same rule as the capabilities table: an app with no capabilities has no
-  // agent surface to observe, so its devtools page stays byte-for-byte
-  // unchanged. Once capabilities exist the section is always present — an
-  // empty traffic log is itself the answer to "are agents calling this?".
+  // An app with no capabilities and no retained traffic has no agent surface
+  // to observe, so its devtools page stays byte-for-byte unchanged. The buffer
+  // outlives app-graph HMR, though: after the final capability is removed, keep
+  // its recorded history visible for the rest of the dev-server session.
   const agentsSection =
-    (graph.capabilities ?? []).length > 0
+    (graph.capabilities ?? []).length > 0 || (options.agentTraffic?.recorded ?? 0) > 0
       ? `<h2>Agents${agentTrafficCaption(
           options.agentTraffic,
           agentCount,

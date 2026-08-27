@@ -247,6 +247,31 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).not.toContain("<h2>Agents");
   });
 
+  it("keeps retained traffic visible after the final capability is removed", () => {
+    const html = buildDevtoolsHtml(graphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.removed",
+            effect: "read",
+            transport: "mcp",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 1 agent-attributed dispatch (mcp 1)</h2>");
+    expect(html).toContain("notes.removed");
+  });
+
   it("shows an empty state once capabilities exist but nothing has been called", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: { limit: 200, recorded: 0, events: [] },

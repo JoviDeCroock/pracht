@@ -1,6 +1,6 @@
 ---
 name: audit-agent-surface
-version: 1.0.2
+version: 1.0.3
 description: |
   Inventory what agents can reach in a pracht app — capability exposure (HTTP,
   WebMCP, remote MCP), `agents` trust config, the destructive-confirmation gate,
@@ -154,6 +154,8 @@ For every exposed capability, ask whether the exposure is deliberate:
   client-declared WebMCP markers separately as unverified client dispatches;
   and hides only `invokeCapability()` work with no served-request provenance
   behind a first-party toggle. The JSON keeps everything.
+  The traffic buffer outlives app-graph HMR, so retained calls stay visible
+  after the final capability is removed, until the dev server restarts.
   It is dev-only, and under adapter-owned dev servers (Cloudflare `workerd`)
   `/_pracht` does not exist at all — a 404 there means the middleware never
   ran, not that no agent traffic occurred.

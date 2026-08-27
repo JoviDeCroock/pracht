@@ -705,7 +705,10 @@ e.g. Cloudflare `workerd`) the middleware is never registered at all, so
 `/_pracht` and `/_pracht.json` do not exist there — they 404 rather than
 answering with an empty log. Transport counts and empty-state conclusions only
 describe the retained events; once older events have been dropped, the panel
-does not claim whether those older dispatches were external or first-party.
+does not claim whether those older dispatches were external or first-party. The
+buffer also outlives app-graph HMR, so removing the final capability keeps its
+retained traffic visible until the dev server restarts; an app that has never
+registered a capability or recorded a dispatch still omits the Agents section.
 
 The JSON keeps every recorded dispatch and carries `transport` on each, so
 consumers filter for themselves. The HTML page separates three categories:
