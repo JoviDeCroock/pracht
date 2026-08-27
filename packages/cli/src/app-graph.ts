@@ -2,13 +2,12 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 
 import {
-  destructiveMcpPreconditionErrors,
   resolveMcpEndpoint,
   resolveRegistryModule,
   serializeApiRoutesStatic,
   serializeCapabilities,
 } from "@pracht/core";
-import type { AppGraphCapability } from "@pracht/core";
+import type { AppGraphCapability, PrachtAgentsConfig } from "@pracht/core";
 import type { ViteDevServer } from "vite";
 
 export interface AppGraphRoute {
@@ -123,7 +122,7 @@ export async function collectAppGraph(
     capabilities.some(
       (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
     )
-      ? destructiveMcpPreconditionErrors(serverModule.resolvedApp.agents)
+      ? await readDestructiveMcpPreconditionErrors(server, serverModule.resolvedApp.agents)
       : [];
   return {
     // The banner must not execute every API module at startup. Static export
@@ -141,6 +140,27 @@ export async function collectAppGraph(
     notFound: notFound ? serializeResolvedRoutes([notFound])[0] : null,
     routes: serializeResolvedRoutes(serverModule.resolvedApp.routes),
   };
+}
+
+async function readDestructiveMcpPreconditionErrors(
+  server: ViteDevServer,
+  agents: PrachtAgentsConfig | undefined,
+): Promise<string[]> {
+  // Capability modules are evaluated inside Vite's SSR graph, so their
+  // process-local approval-store and principal-resolver registrations live in
+  // that graph's @pracht/core instance. Query the same instance instead of the
+  // CLI process's package import, which is a separate module singleton.
+  const runtime = await server.ssrLoadModule("@pracht/core/server");
+  const check = runtime.destructiveMcpPreconditionErrors as
+    | ((config: PrachtAgentsConfig | undefined) => string[])
+    | undefined;
+  if (typeof check !== "function") {
+    throw new Error(
+      "@pracht/core/server does not export destructiveMcpPreconditionErrors(). " +
+        "Update @pracht/core and @pracht/cli together.",
+    );
+  }
+  return check(agents);
 }
 
 function readStaticAppModule(root: string, file: string): string {

@@ -72,6 +72,7 @@ describe("loadAppMetadataModule", () => {
 
 describe("collectAppGraph", () => {
   it("reports runtime preconditions that block the whole destructive MCP endpoint", async () => {
+    const destructiveMcpPreconditionErrors = vi.fn(() => ["no approval store is registered."]);
     const capability = {
       kind: "capability",
       title: "Purge notes",
@@ -83,6 +84,7 @@ describe("collectAppGraph", () => {
       run: async () => ({}),
     };
     const server = fakeServer({
+      "@pracht/core/server": { destructiveMcpPreconditionErrors },
       "virtual:pracht/dev-metadata": {
         apiRoutes: [],
         registry: {
@@ -103,6 +105,46 @@ describe("collectAppGraph", () => {
     expect(graph.mcpUnavailableReasons).toEqual(
       expect.arrayContaining([expect.stringContaining("no approval store is registered")]),
     );
+    expect(destructiveMcpPreconditionErrors).toHaveBeenCalledWith({
+      mcp: { destructive: true },
+    });
+  });
+
+  it("reads destructive MCP preconditions from the Vite SSR runtime instance", async () => {
+    const destructiveMcpPreconditionErrors = vi.fn(() => []);
+    const capability = {
+      kind: "capability",
+      title: "Purge notes",
+      description: "Purge every note.",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "destructive",
+      expose: { mcp: true },
+      run: async () => ({}),
+    };
+    const server = fakeServer({
+      "@pracht/core/server": { destructiveMcpPreconditionErrors },
+      "virtual:pracht/dev-metadata": {
+        apiRoutes: [],
+        registry: {
+          capabilityModules: {
+            "/src/capabilities/notes-purge.ts": async () => ({ default: capability }),
+          },
+        },
+        resolvedApp: {
+          agents: { mcp: { destructive: true } },
+          capabilities: { "notes.purge": "./capabilities/notes-purge.ts" },
+          routes: [],
+        },
+      },
+    });
+
+    const graph = await collectAppGraph(server, process.cwd());
+
+    // The CLI's directly imported @pracht/core singleton has no store, but the
+    // app registered one in Vite's SSR graph. Only the latter is authoritative.
+    expect(graph.mcpUnavailableReasons).toEqual([]);
+    expect(destructiveMcpPreconditionErrors).toHaveBeenCalledOnce();
   });
 
   it("resolves API methods re-exported from another module", async () => {

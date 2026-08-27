@@ -83,6 +83,7 @@ export {
   setCapabilityAuditHook,
 } from "./runtime-capabilities.ts";
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { destructiveMcpPreconditionErrors } from "./runtime-mcp.ts";
 /**
  * The agent-trust registration SPIs are server-only, and a bundled app reaches
  * `@pracht/core` through the `browser` condition even in its SSR build — so
