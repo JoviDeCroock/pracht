@@ -4,7 +4,7 @@ import {
   relative as relativePath,
   resolve,
 } from "node:path";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 
 import {
   collectInvalidSchemaKeywordValues,
@@ -33,6 +33,15 @@ import { createCheck, type Check } from "./verification-helpers.js";
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
 const AGENT_POLICIES = new Set(["observe", "require"]);
+const MCP_CONFIG_KEYS = new Set(["path", "serverInfo", "instructions", "auth"]);
+const MCP_AUTH_CONFIG_KEYS = new Set([
+  "resource",
+  "authorizationServers",
+  "scopesSupported",
+  "requiredScopes",
+  "resourceDocumentation",
+  "verify",
+]);
 
 /**
  * Static verification of registered capabilities (manifest mode only). These
@@ -317,16 +326,35 @@ function collectMcpAuthChecks(
   }
 
   const mcpBody = findTopLevelObjectProperty(agentsBody, "mcp");
-  const authBody = mcpBody && findTopLevelObjectProperty(mcpBody, "auth");
+  if (!mcpBody) return;
+  const unknownMcpKeys = collectUnknownKeys(mcpBody, MCP_CONFIG_KEYS);
+  for (const key of unknownMcpKeys) {
+    checks.push(
+      createCheck(
+        "error",
+        `Unknown agents.mcp option ${JSON.stringify(key)}. Allowed options: ${[...MCP_CONFIG_KEYS].join(", ")}.`,
+      ),
+    );
+  }
+  const authBody = findTopLevelObjectProperty(mcpBody, "auth");
   if (!authBody) return;
 
   // A spread can carry `verify` (or `resource`) in from a shared constant. This
   // analyzer cannot follow it, and a verify *error* on a config that works at
   // runtime is worse than no check at all — so anything unprovable stays quiet.
   const authIsPartlyOpaque = /\.\.\./.test(maskCommentsAndStrings(authBody));
-  let authIsProvablyValid = !authIsPartlyOpaque;
+  let authIsProvablyValid = !authIsPartlyOpaque && unknownMcpKeys.length === 0;
 
   const properties = scanTopLevelProperties(authBody);
+  for (const key of collectUnknownKeys(authBody, MCP_AUTH_CONFIG_KEYS)) {
+    authIsProvablyValid = false;
+    checks.push(
+      createCheck(
+        "error",
+        `Unknown agents.mcp.auth option ${JSON.stringify(key)}. Allowed options: ${[...MCP_AUTH_CONFIG_KEYS].join(", ")}.`,
+      ),
+    );
+  }
   const resourceExpression = properties.get("resource");
   const resource = evaluateLiteral(resourceExpression ?? "");
   if (resourceExpression === undefined && !authIsPartlyOpaque) {
@@ -569,6 +597,15 @@ function collectMcpAuthChecks(
     );
     return;
   }
+  if (!statSync(filePath).isFile()) {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify references ${JSON.stringify(verifyPath)}, which is not a file.`,
+      ),
+    );
+    return;
+  }
 
   // The runtime resolves the verifier from the registry, and the Vite plugin
   // only globs three directories into it. A module that exists but sits outside
@@ -588,11 +625,62 @@ function collectMcpAuthChecks(
     return;
   }
 
+  const verifierExport = inspectDefaultFunctionExport(readFileSync(filePath, "utf-8"));
+  if (verifierExport === "invalid") {
+    checks.push(
+      createCheck(
+        "error",
+        `agents.mcp.auth.verify module ${JSON.stringify(verifyPath)} must default-export a token verifier function.`,
+      ),
+    );
+    return;
+  }
+  if (verifierExport === "unknown") {
+    authIsProvablyValid = false;
+    checks.push(
+      createCheck(
+        "warning",
+        `Could not prove that agents.mcp.auth.verify module ${JSON.stringify(verifyPath)} default-exports a function. ` +
+          "Use a direct `export default function` or `export default (...) => ...` declaration so verification can confirm the endpoint will load it.",
+      ),
+    );
+  }
+
   if (authIsProvablyValid) {
     checks.push(
       createCheck("ok", "Remote MCP endpoint is an OAuth 2.0 protected resource (RFC 9728)."),
     );
   }
+}
+
+function collectUnknownKeys(body: string, allowed: ReadonlySet<string>): string[] {
+  return [...scanTopLevelProperties(body).keys()].filter((key) => !allowed.has(key));
+}
+
+/** Prove the runtime's `module.default` callable contract without executing user code. */
+function inspectDefaultFunctionExport(source: string): "valid" | "invalid" | "unknown" {
+  const masked = maskCommentsAndStrings(source);
+  if (/\bexport\s+default\s+(?:async\s+)?function\b/.test(masked)) return "valid";
+  if (/\bexport\s+default\s+(?:async\s+)?(?:\([^;{}]*\)|[A-Za-z_$][\w$]*)\s*=>/.test(masked)) {
+    return "valid";
+  }
+
+  const identifier = /\bexport\s+default\s+([A-Za-z_$][\w$]*)\s*;?/.exec(masked)?.[1];
+  if (identifier) {
+    const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b(?:async\\s+)?function\\s+${escaped}\\b`).test(masked)) return "valid";
+    if (
+      new RegExp(
+        `\\b(?:const|let|var)\\s+${escaped}(?:\\s*:[^=;]+)?\\s*=\\s*(?:async\\s+)?(?:function\\b|(?:\\([^;{}]*\\)|[A-Za-z_$][\\w$]*)\\s*=>)`,
+      ).test(masked)
+    ) {
+      return "valid";
+    }
+    return "unknown";
+  }
+
+  if (/\bexport\s*\{[^}]*\bdefault\b[^}]*\}/.test(masked)) return "unknown";
+  return "invalid";
 }
 
 /** A statically provable ModuleRef shape that the manifest transform supports. */

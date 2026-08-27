@@ -126,6 +126,8 @@ commonly misunderstood line of an app's agent surface.
     RFC 8414 issuer and must be an `error`.
   - `verify` is a **module reference**, not an inline function. An inline
     function ships the token verifier to every browser visitor — `error`.
+    Confirm its module default-exports a function; a named-only or non-callable
+    default export leaves every request at 401 and is an `error`.
     Its `request` argument is an independent clone; reading its body must not
     consume the JSON-RPC body dispatched afterward.
   - The `verify` module lives under `src/server/`, `src/middleware/`, or
@@ -151,6 +153,11 @@ commonly misunderstood line of an app's agent surface.
   - `mcp.path` must not be the reserved bare
     `/.well-known/oauth-protected-resource` discovery path. Confirm copied
     static files at either metadata form do not shadow the runtime response.
+  - Reject unknown keys under `agents.mcp` and `agents.mcp.auth`; misspellings
+    such as `authentication` or `requiredScope` otherwise read as guarded while
+    disabling the intended check. Confirm no explicit API route has the same
+    path as `mcp.path`, because API dispatch must never shadow MCP's transport
+    or OAuth gates.
 - `/.well-known/oauth-protected-resource` is intentionally public and CORS-open.
   It carries only the resource identifier, issuer URLs, and scope names; flag it
   only if a scope name leaks something (internal tenant or customer names).

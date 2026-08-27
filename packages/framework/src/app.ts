@@ -507,6 +507,31 @@ function assertKnownMetaKeys(meta: object, allowed: string[], context: string): 
 
 const AGENT_POLICY_MODES = ["observe", "require"];
 const CONFIRMATION_MODES = ["token", "human"];
+const MCP_CONFIG_KEYS = ["path", "serverInfo", "instructions", "auth"];
+const MCP_AUTH_CONFIG_KEYS = [
+  "resource",
+  "authorizationServers",
+  "scopesSupported",
+  "requiredScopes",
+  "resourceDocumentation",
+  "verify",
+];
+
+/** Security configuration must reject misspelled fields in every server build. */
+function assertKnownSecurityKeys(config: object, allowed: string[], context: string): void {
+  for (const key of Object.keys(config)) {
+    if (allowed.includes(key)) continue;
+    throw new Error(
+      formatUnknownNameError({
+        kind: "option",
+        kindPlural: "options",
+        name: key,
+        registered: allowed,
+        context,
+      }),
+    );
+  }
+}
 
 /**
  * Validate `defineApp({ agents })`. The security-relevant setting — the Web
@@ -539,10 +564,13 @@ function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
     }
     assertPositiveNumber(confirmation.ttlSeconds, "agents.confirmation.ttlSeconds");
   }
-  if (mcp?.path !== undefined && !isValidCapabilityHttpPath(mcp.path)) {
-    throw new Error(
-      'defineApp({ agents.mcp.path }) must be an exact same-origin pathname starting with "/".',
-    );
+  if (mcp) {
+    assertKnownSecurityKeys(mcp, MCP_CONFIG_KEYS, "defineApp({ agents.mcp })");
+    if (mcp.path !== undefined && !isValidCapabilityHttpPath(mcp.path)) {
+      throw new Error(
+        'defineApp({ agents.mcp.path }) must be an exact same-origin pathname starting with "/".',
+      );
+    }
   }
   // Compared with `=== true` at serve time, so a truthy typo would otherwise
   // read as "off" while looking enabled in the manifest. Reject anything that
@@ -569,6 +597,7 @@ function validateAgentsConfig(agents: PrachtAgentsConfig | undefined): void {
  */
 function validateMcpAuthConfig(mcp: NonNullable<PrachtAgentsConfig["mcp"]>): void {
   const auth = mcp.auth!;
+  assertKnownSecurityKeys(auth, MCP_AUTH_CONFIG_KEYS, "defineApp({ agents.mcp.auth })");
   const label = "defineApp({ agents.mcp.auth";
   const resource = assertAbsoluteUrl(auth.resource, `${label}.resource })`);
   if (resource.search || resource.hash) {

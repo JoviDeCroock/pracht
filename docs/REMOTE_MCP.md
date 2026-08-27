@@ -357,13 +357,19 @@ carrying a query, fragment, or non-root trailing slash, a `resource` whose path
 does not exactly identify the served endpoint, a non-loopback cleartext URL, an
 authorization-server issuer with a query or fragment, an empty
 `authorizationServers`, a scope token outside OAuth's printable-ASCII grammar,
-and a missing `verify`. HTTP is accepted only for loopback development
-(`localhost`, `*.localhost`, `127.0.0.0/8`, or `::1`); deployed resource and
-issuer URLs must use HTTPS. Use the endpoint's canonical URL: `/mcp/` is not an
-equivalent OAuth resource identifier for `/mcp`, even though routing accepts
-either spelling. Authenticated endpoints redirect every non-canonical spelling,
-alternate host, and query-bearing request to `resource` with `308` before
-challenging or verifying it.
+unknown keys under `agents.mcp` or `agents.mcp.auth`, and a missing or
+non-callable default `verify` export. HTTP is accepted only for loopback
+development (`localhost`, `*.localhost`, `127.0.0.0/8`, or `::1`); deployed
+resource and issuer URLs must use HTTPS. Use the endpoint's canonical URL:
+`/mcp/` is not an equivalent OAuth resource identifier for `/mcp`, even though
+routing accepts either spelling. Authenticated endpoints redirect every
+non-canonical spelling, alternate host, and query-bearing request to `resource`
+with `308` before challenging or verifying it.
+
+The MCP path must also be distinct from every explicit API route. `pracht
+verify` rejects a collision such as `agents.mcp.path: "/api/mcp"` alongside
+`src/api/mcp.ts`; the request runtime returns 500 rather than letting the API
+handler shadow MCP's transport and authentication gates.
 
 The committed app-graph snapshot records whether the endpoint is OAuth
 protected and its resource, authorization servers, required and advertised

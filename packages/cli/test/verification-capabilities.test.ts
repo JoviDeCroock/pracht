@@ -981,14 +981,18 @@ describe("collectCapabilityChecks", () => {
  * and never green-light one that cannot.
  */
 describe("collectCapabilityChecks: agents.mcp.auth", () => {
-  function runAuthChecks(agentsBlock: string, verifyFile = "src/server/mcp-token.ts"): Check[] {
+  function runAuthChecks(
+    agentsBlock: string,
+    verifyFile = "src/server/mcp-token.ts",
+    verifySource = "export default () => null;\n",
+  ): Check[] {
     const project = createProject({
       capability: capabilitySource(COMPLETE_FIELDS),
       middlewareBlock: agentsBlock,
     });
     if (verifyFile) {
       mkdirSync(join(project.root, verifyFile.replace(/\/[^/]*$/, "")), { recursive: true });
-      writeFileSync(join(project.root, verifyFile), "export default () => null;\n", "utf-8");
+      writeFileSync(join(project.root, verifyFile), verifySource, "utf-8");
     }
     const checks: Check[] = [];
     collectCapabilityChecks(project, checks);
@@ -1009,6 +1013,33 @@ ${extra}        verify: () => import("${verifyPath}"),
     const checks = runAuthChecks(authBlock());
     expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
     expect(checks.map((check) => check.message)).toContainEqual(
+      expect.stringContaining("OAuth 2.0 protected resource"),
+    );
+  });
+
+  it("rejects unknown MCP and OAuth security options", () => {
+    const wrongNesting = runAuthChecks(`  agents: {
+    mcp: {
+      authentication: {
+        resource: "https://app.example.com/mcp",
+      },
+    },
+  },`);
+    expect(wrongNesting).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("authentication"),
+        status: "error",
+      }),
+    );
+
+    const misspelledScope = runAuthChecks(authBlock('        requiredScope: ["notes.write"],\n'));
+    expect(misspelledScope).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("requiredScope"),
+        status: "error",
+      }),
+    );
+    expect(misspelledScope.map((check) => check.message)).not.toContainEqual(
       expect.stringContaining("OAuth 2.0 protected resource"),
     );
   });
@@ -1285,6 +1316,38 @@ ${extra}        verify: () => import("${verifyPath}"),
       const checks = runAuthChecks(authBlock("", ref), file);
       expect(checks.filter((check) => check.status === "error")).toHaveLength(0);
     }
+  });
+
+  it("rejects a verifier module without a default-exported function", () => {
+    for (const source of ["export const verify = () => null;\n", "export default {};\n"]) {
+      const checks = runAuthChecks(authBlock(), "src/server/mcp-token.ts", source);
+      expect(checks).toContainEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("must default-export a token verifier function"),
+          status: "error",
+        }),
+      );
+      expect(checks.map((check) => check.message)).not.toContainEqual(
+        expect.stringContaining("OAuth 2.0 protected resource"),
+      );
+    }
+  });
+
+  it("does not green-light an indirect verifier export it cannot prove callable", () => {
+    const checks = runAuthChecks(
+      authBlock(),
+      "src/server/mcp-token.ts",
+      'export { verify as default } from "./shared.ts";\n',
+    );
+    expect(checks).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("Could not prove"),
+        status: "warning",
+      }),
+    );
+    expect(checks.map((check) => check.message)).not.toContainEqual(
+      expect.stringContaining("OAuth 2.0 protected resource"),
+    );
   });
 
   // Reads as protected, is read by nothing — the endpoint stays wide open.

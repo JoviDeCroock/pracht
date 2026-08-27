@@ -186,11 +186,16 @@ Rules to hold the user to:
 
 - **`verify` is a module reference, never an inline function.** The manifest is
   bundled into the client; a JWKS client in it would ship to every visitor.
-  Put the module in `src/server/`, default-export the verifier. It must live
-  under `src/server/`, `src/middleware/`, or `src/capabilities/` — those are the
-  only directories the build globs into the module registry, and a verifier
-  anywhere else is never loadable, so every `/mcp` request 401s forever.
-  `pracht verify` errors on that, but do not create the file elsewhere.
+  Put the module in `src/server/` and default-export the verifier function. It
+  must live under `src/server/`, `src/middleware/`, or `src/capabilities/` —
+  those are the only directories the build globs into the module registry, and
+  a verifier anywhere else is never loadable, so every `/mcp` request 401s
+  forever. `pracht verify` errors on that, but do not create the file elsewhere.
+- **Security option names are exact.** Unknown keys under `agents.mcp` and
+  `agents.mcp.auth` are rejected instead of ignored; do not work around the
+  error with casts. The MCP path must also differ from every explicit API route
+  path, or `pracht verify` rejects the graph and the runtime fails closed with
+  500 before the API handler can bypass MCP's gates.
 - **Pracht is not an authorization server.** Do not offer to implement token
   issuance, refresh, or dynamic client registration — those belong to the
   user's identity provider. Write `verify` with their library (`jose` works on

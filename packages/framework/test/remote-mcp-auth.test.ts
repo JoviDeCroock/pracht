@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
-import { defineApp, handlePrachtRequest, resolveApp, route } from "../src/index.ts";
+import {
+  defineApp,
+  handlePrachtRequest,
+  resolveApp,
+  resolveApiRoutes,
+  route,
+} from "../src/index.ts";
 import {
   isMcpResourceMetadataPath,
   mcpResourceMetadataPath,
@@ -328,6 +334,33 @@ describe("WWW-Authenticate challenges", () => {
 });
 
 describe("fail-closed verification", () => {
+  it("does not let an API route shadow the protected MCP endpoint", async () => {
+    const { app, registry } = createHarness({
+      auth: { ...BASE_AUTH, resource: `${ORIGIN}/api/mcp` },
+      mcpPath: "/api/mcp",
+    });
+    registry.apiModules = {
+      "/src/api/mcp.ts": async () => ({
+        POST: () => new Response("unprotected API"),
+      }),
+    };
+
+    const response = await handlePrachtRequest({
+      apiRoutes: resolveApiRoutes(["/src/api/mcp.ts"]),
+      app,
+      registry,
+      request: new Request(`${ORIGIN}/api/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(toolsCall),
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("unprotected API");
+    expect(verifyCalls).toEqual([]);
+  });
+
   it("rejects when the verify hook throws", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -698,6 +731,28 @@ describe("manifest validation", () => {
 
   it("requires a verify module reference", () => {
     expect(build({ ...BASE_AUTH, verify: undefined })).toThrow(/server-only module/);
+  });
+
+  it("rejects unknown MCP and OAuth security options", () => {
+    expect(() =>
+      resolveApp(
+        defineApp({
+          agents: {
+            mcp: {
+              authentication: BASE_AUTH,
+            } as never,
+          },
+          routes: [route("/", "./routes/home.tsx")],
+        }),
+      ),
+    ).toThrow(/authentication/);
+
+    expect(
+      build({
+        ...BASE_AUTH,
+        requiredScope: ["notes.write"],
+      }),
+    ).toThrow(/requiredScope/);
   });
 
   it("accepts a well-formed config", () => {

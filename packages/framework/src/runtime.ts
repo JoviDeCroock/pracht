@@ -506,9 +506,34 @@ export async function handlePrachtRequest<TContext>(
     warnAgentSurfaceElided();
   }
 
+  const configuredMcpEndpoint = mcpConfig?.path ?? "/mcp";
+  const normalizedRoutePath =
+    routePathname.length > 1 && routePathname.endsWith("/")
+      ? routePathname.slice(0, -1)
+      : routePathname;
+  const normalizedMcpEndpoint =
+    configuredMcpEndpoint.length > 1 && configuredMcpEndpoint.endsWith("/")
+      ? configuredMcpEndpoint.slice(0, -1)
+      : configuredMcpEndpoint;
+  const targetsMcpEndpoint = !!mcpConfig && normalizedRoutePath === normalizedMcpEndpoint;
+  const isMcpRequest = targetsMcpEndpoint && !!mcpRuntime;
+
   if (options.apiRoutes?.length) {
     const apiMatch = matchApiRoute(options.apiRoutes, routePathname);
     if (apiMatch) {
+      // An explicit API route normally wins over generated capability routes,
+      // but it must never bypass an MCP endpoint's transport and OAuth gates.
+      // Treat the duplicate pathname as an invalid deployment and fail closed.
+      if (targetsMcpEndpoint) {
+        return withDefaultSecurityHeaders(
+          new Response(
+            exposeDiagnostics
+              ? `API route ${JSON.stringify(apiMatch.route.path)} collides with the configured remote MCP endpoint.`
+              : "Internal Server Error",
+            { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
+          ),
+        );
+      }
       const apiMiddlewareFiles = (options.app.api.middleware ?? []).flatMap((name) => {
         const middlewareFile = options.app.middleware[name];
         return middlewareFile ? [middlewareFile] : [];
@@ -612,11 +637,6 @@ export async function handlePrachtRequest<TContext>(
   // matched above). A configured MCP endpoint remains live with an empty or
   // broken graph so clients receive an empty list or a protocol error instead
   // of falling through to the application's page router.
-  const isMcpRequest =
-    !!mcpConfig &&
-    !!mcpRuntime &&
-    mcpRuntime.normalizeMcpRequestPath(routePathname) ===
-      mcpRuntime.resolveMcpEndpoint(options.app.agents);
   if (capabilityRuntime && (hasCapabilities || isMcpRequest)) {
     if (isMcpRequest) {
       // Adapter contexts may retain the incoming transport request. Bind the

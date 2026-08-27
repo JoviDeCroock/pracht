@@ -95,9 +95,30 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
       ),
     );
   }
+  collectMcpRouteCollisionChecks(live, checks);
   collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
   collectConstraintChecks(project, live, checks);
   collectSnapshotChecks(project, live, checks, snapshotExists);
+}
+
+/** Explicit API dispatch must not shadow the remote MCP security boundary. */
+export function collectMcpRouteCollisionChecks(live: GraphSnapshot, checks: Check[]): void {
+  if (live.mcpEndpoint === null) return;
+  const endpoint = normalizeEndpointPath(live.mcpEndpoint);
+  const collisions = live.api.filter((route) => normalizeEndpointPath(route.path) === endpoint);
+  for (const route of collisions) {
+    checks.push(
+      createCheck(
+        "error",
+        `API route ${JSON.stringify(route.path)} collides with agents.mcp.path. Move one of them; ` +
+          "an API route must not shadow the remote MCP endpoint's transport and authentication gates.",
+      ),
+    );
+  }
+}
+
+function normalizeEndpointPath(path: string): string {
+  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 function projectMightUseStaticExport(project: ProjectConfig): boolean {

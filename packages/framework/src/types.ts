@@ -824,10 +824,9 @@ export interface McpTokenPrincipal {
   clientId?: string | null;
   /**
    * Anything else the app wants downstream. Frozen **shallowly**: own keys are
-   * locked, nested values are whatever the verifier returned. Keep it
-   * JSON-serializable — a context object reused across requests compares
-   * principals by their serialized form, and an unserializable claim makes that
-   * comparison fail closed.
+   * locked, nested values are whatever the verifier returned. The principal is
+   * bound to a request-local context overlay and never written back to an
+   * adapter-supplied context object.
    */
   claims?: Readonly<Record<string, unknown>>;
 }
