@@ -237,7 +237,7 @@ The client stays opt-in too. Capability metadata only reaches the browser throug
 
 ## Inspect the Graph
 
-The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the `pracht mcp` server, and the static checks in `pracht verify`. The banner, text inspection, and devtools label MCP declarations as `mcp(unserved)` until an endpoint serves them, including destructive declarations without `agents.mcp.destructive`. JSON inspection includes `mcpEndpoint`, `mcpDestructive`, and `mcpUnavailableReasons`, so automation can distinguish declared exposure from effective availability.
+The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the `pracht mcp` server, and the static checks in `pracht verify`. Runtime-backed devtools label a blocked declaration `mcp(unserved)`. Graph-only CLI inspection labels it `mcp(unverified)` when the unmet precondition may instead be registered by the skipped adapter server entry. Destructive declarations without `agents.mcp.destructive` remain `mcp(unserved)`. JSON inspection always includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`, so automation can distinguish declared exposure, verified runtime failure, and incomplete inspection.
 
 ```sh
 pracht inspect capabilities

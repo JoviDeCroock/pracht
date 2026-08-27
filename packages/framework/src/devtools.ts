@@ -71,6 +71,13 @@ export function buildDevtoolsHtml(
   options: { base?: string; agentTraffic?: DevtoolsAgentTraffic } = {},
 ): string {
   const base = options.base ?? "/";
+  const mcpRuntimeStatus =
+    graph.mcpRuntimeStatus ??
+    (!graph.mcpEndpoint
+      ? "not-configured"
+      : (graph.mcpUnavailableReasons?.length ?? 0) > 0
+        ? "blocked"
+        : "ready");
   const routeRows = graph.routes
     .map(
       (route) => `<tr>
@@ -106,12 +113,15 @@ export function buildDevtoolsHtml(
   const capabilityRows = (graph.capabilities ?? [])
     .map((capability) => {
       const transports = capability.transports.map((transport) =>
-        transport === "mcp" &&
-        (!graph.mcpEndpoint ||
-          (graph.mcpUnavailableReasons?.length ?? 0) > 0 ||
-          (capability.effect === "destructive" && graph.mcpDestructive !== true))
-          ? "mcp(unserved)"
-          : transport,
+        transport !== "mcp"
+          ? transport
+          : !graph.mcpEndpoint ||
+              (capability.effect === "destructive" && graph.mcpDestructive !== true) ||
+              mcpRuntimeStatus === "blocked"
+            ? "mcp(unserved)"
+            : mcpRuntimeStatus === "unverified"
+              ? "mcp(unverified)"
+              : transport,
       );
       return `<tr>
         <td>${escapeHtml(capability.name)}</td>
@@ -131,7 +141,9 @@ export function buildDevtoolsHtml(
       ? `<h2>Capabilities</h2>
     ${
       graph.mcpUnavailableReasons?.length
-        ? `<p class="warning">MCP endpoint unavailable: ${escapeHtml(graph.mcpUnavailableReasons.join(" "))}</p>`
+        ? `<p class="warning">MCP endpoint ${
+            mcpRuntimeStatus === "unverified" ? "unverified" : "unavailable"
+          }: ${escapeHtml(graph.mcpUnavailableReasons.join(" "))}</p>`
         : ""
     }
     <table>

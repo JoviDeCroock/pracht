@@ -643,9 +643,10 @@ The capability graph feeds every existing inspection surface:
   exposure, dispatch path) whenever the app registers any;
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
   path, middleware, source, plus the input/output JSON Schemas in `--json`
-  output. It also reports `mcpEndpoint`, `mcpDestructive`, and
-  `mcpUnavailableReasons`; text output labels declarations `mcp(unserved)` when
-  the configured endpoint cannot currently serve them;
+  output. It also reports `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`,
+  and `mcpUnavailableReasons`. Graph-only text output uses `mcp(unverified)`
+  when a missing precondition may be registered by the skipped adapter server
+  entry, instead of claiming the configured endpoint is unavailable;
 - `pracht inspect agents [--json]` rolls the same graph up against
   `defineApp({ agents })` — Web Bot Auth policy and keys, confirmation mode,
   remote MCP endpoint, `llms.txt`, and per-transport exposure counts;

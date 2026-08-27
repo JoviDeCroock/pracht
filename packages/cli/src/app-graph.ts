@@ -46,7 +46,13 @@ export interface CapabilityAppGraph {
   mcpEndpoint: string | null;
   /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
   mcpDestructive: boolean;
-  /** Runtime preconditions that currently block the configured MCP endpoint. */
+  /**
+   * Graph-only inspection cannot verify registrations performed exclusively
+   * by the adapter server entry, so unmet runtime checks are `unverified`
+   * rather than a proven `blocked` endpoint.
+   */
+  mcpRuntimeStatus: "blocked" | "not-configured" | "ready" | "unverified";
+  /** Locally unmet preconditions; interpret them with `mcpRuntimeStatus`. */
   mcpUnavailableReasons: string[];
 }
 
@@ -169,10 +175,17 @@ export async function collectCapabilityAppGraph(
       : mcpDestructive
         ? await readDestructiveMcpPreconditionErrors(server, serverModule.resolvedApp.agents)
         : [];
+  const mcpEndpoint = resolveMcpEndpoint(serverModule.resolvedApp.agents);
   return {
     capabilities,
-    mcpEndpoint: resolveMcpEndpoint(serverModule.resolvedApp.agents),
+    mcpEndpoint,
     mcpDestructive,
+    mcpRuntimeStatus:
+      mcpEndpoint === null
+        ? "not-configured"
+        : mcpUnavailableReasons.length > 0
+          ? "unverified"
+          : "ready",
     mcpUnavailableReasons,
   };
 }

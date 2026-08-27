@@ -110,13 +110,15 @@ For every exposed capability, ask whether the exposure is deliberate:
   hard-block). Two more preconditions fail the endpoint the same way — a
   missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither
   `agents.webBotAuth` nor a principal resolver — so check all three together.
-  `pracht dev`, `pracht inspect capabilities`, and `/_pracht` report the
-  endpoint-wide failure by marking every MCP exposure `mcp(unserved)` and
-  printing the unmet preconditions. JSON inspection exposes `mcpEndpoint`,
-  `mcpDestructive`, and `mcpUnavailableReasons`; use those fields instead of
+  Runtime-backed `/_pracht` reports a verified endpoint-wide failure by marking
+  every MCP exposure `mcp(unserved)`. Graph-only `pracht dev`, `pracht inspect
+  capabilities`, and MCP inspection use `mcp(unverified)` when the same missing
+  preconditions may be registered by the adapter server entry they deliberately
+  skip. JSON inspection exposes `mcpEndpoint`, `mcpDestructive`,
+  `mcpRuntimeStatus`, and `mcpUnavailableReasons`; use those fields instead of
   treating a declared `mcp` transport as proof of reachability. These surfaces
-  load applied setup middleware modules before checking, matching the runtime
-  endpoint without executing the middleware functions.
+  load applied setup middleware modules without executing the middleware
+  functions.
   Destructive `expose.mcp` *without* the opt-in is dead exposure: the tool is
   invisible, and `pracht verify` warns.
 - `PRACHT_CONFIRMATION_SECRET` must be set in the server environment for each

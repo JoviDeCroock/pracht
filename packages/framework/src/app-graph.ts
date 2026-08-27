@@ -111,9 +111,14 @@ export interface AppGraph {
    * graph but nothing serves it.
    */
   mcpEndpoint?: string | null;
-  /** Present only when `agents.mcp.destructive` serves destructive MCP tools. */
-  mcpDestructive?: true;
-  /** Runtime preconditions that currently block the configured MCP endpoint. */
+  /** `agents.mcp.destructive` — whether the endpoint serves destructive tools. */
+  mcpDestructive?: boolean;
+  /**
+   * Whether the inspected MCP runtime is ready, blocked by a verified runtime
+   * precondition, unverified, or not configured.
+   */
+  mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
+  /** Locally unmet preconditions; interpret them with `mcpRuntimeStatus`. */
   mcpUnavailableReasons?: string[];
   routes: AppGraphRoute[];
   /**
@@ -401,12 +406,19 @@ export async function buildAppGraph(
       : mcpDestructive
         ? destructiveMcpPreconditionErrors(options.app.agents)
         : [];
+  const mcpEndpoint = resolveMcpEndpoint(options.app.agents);
   return {
     api: await serializeApiRoutes(options.apiRoutes ?? [], options),
     capabilities,
-    mcpEndpoint: resolveMcpEndpoint(options.app.agents),
-    ...(mcpDestructive ? { mcpDestructive: true as const } : {}),
-    ...(mcpUnavailableReasons.length > 0 ? { mcpUnavailableReasons } : {}),
+    mcpEndpoint,
+    mcpDestructive,
+    mcpRuntimeStatus:
+      mcpEndpoint === null
+        ? "not-configured"
+        : mcpUnavailableReasons.length > 0
+          ? "blocked"
+          : "ready",
+    mcpUnavailableReasons,
     notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };

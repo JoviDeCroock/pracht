@@ -130,6 +130,7 @@ export interface InspectReport {
   mode: string;
   mcpDestructive?: boolean;
   mcpEndpoint?: string | null;
+  mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
   mcpUnavailableReasons?: string[];
   notFound?: InspectRoute | null;
   routes?: InspectRoute[];
@@ -318,12 +319,15 @@ function printInspectReport(report: InspectReport): void {
           capability.transports.length > 0
             ? capability.transports
                 .map((transport) =>
-                  transport === "mcp" &&
-                  (report.mcpEndpoint === null ||
-                    (report.mcpUnavailableReasons?.length ?? 0) > 0 ||
-                    (capability.effect === "destructive" && report.mcpDestructive !== true))
-                    ? "mcp(unserved)"
-                    : transport,
+                  transport !== "mcp"
+                    ? transport
+                    : report.mcpEndpoint === null ||
+                        (capability.effect === "destructive" && report.mcpDestructive !== true) ||
+                        report.mcpRuntimeStatus === "blocked"
+                      ? "mcp(unserved)"
+                      : report.mcpRuntimeStatus === "unverified"
+                        ? "mcp(unverified)"
+                        : transport,
                 )
                 .join(",")
             : "private";
@@ -345,7 +349,11 @@ function printInspectReport(report: InspectReport): void {
       console.log(`  MCP endpoint: ${report.mcpEndpoint}`);
     }
     if ((report.mcpUnavailableReasons?.length ?? 0) > 0) {
-      console.log(`  ! MCP endpoint unavailable: ${report.mcpUnavailableReasons!.join(" ")}`);
+      console.log(
+        report.mcpRuntimeStatus === "unverified"
+          ? `  ! MCP endpoint unverified: ${report.mcpUnavailableReasons!.join(" ")} Registrations in the adapter server entry are not evaluated by graph-only inspection.`
+          : `  ! MCP endpoint unavailable: ${report.mcpUnavailableReasons!.join(" ")}`,
+      );
     }
   }
 

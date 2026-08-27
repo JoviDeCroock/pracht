@@ -87,6 +87,7 @@ describe("@pracht/cli inspect", () => {
       capabilities: [],
       mcpDestructive: false,
       mcpEndpoint: null,
+      mcpRuntimeStatus: "not-configured",
       mcpUnavailableReasons: [],
       mode: "manifest",
     });
@@ -126,6 +127,7 @@ describe("@pracht/cli inspect", () => {
     expect(result).toMatchObject({
       mcpDestructive: true,
       mcpEndpoint: "/mcp",
+      mcpRuntimeStatus: "unverified",
       mcpUnavailableReasons: expect.arrayContaining([
         expect.stringContaining("no approval store is registered"),
       ]),
@@ -139,9 +141,10 @@ describe("@pracht/cli inspect", () => {
     ]);
 
     const text = runCli(["inspect", "capabilities"], { cwd: appDir }).stdout;
-    expect(text).toContain("transports=mcp(unserved)");
+    expect(text).toContain("transports=mcp(unverified)");
     expect(text).toContain("MCP endpoint: /mcp");
-    expect(text).toContain("MCP endpoint unavailable: no approval store is registered");
+    expect(text).toContain("MCP endpoint unverified: no approval store is registered");
+    expect(text).toContain("Registrations in the adapter server entry are not evaluated");
   }, 30_000);
 
   it("reports build asset URLs under the configured Vite base", () => {

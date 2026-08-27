@@ -185,6 +185,19 @@ describe("formatDevBanner", () => {
     expect(unavailable).toMatch(/notes\.search\s+read\s+mcp\(unserved\)/);
     expect(unavailable).toContain("MCP endpoint unavailable: no approval store is registered.");
 
+    const unverified = formatDevBanner({
+      ...options,
+      capabilities,
+      mcpEndpoint: "/mcp",
+      mcpDestructive: true,
+      mcpRuntimeStatus: "unverified",
+      mcpUnavailableReasons: ["no approval store is registered."],
+    });
+    expect(unverified).toMatch(/notes\.purge\s+destructive\s+http,mcp\(unverified\)/);
+    expect(unverified).toMatch(/notes\.search\s+read\s+mcp\(unverified\)/);
+    expect(unverified).toContain("MCP endpoint unverified: no approval store is registered.");
+    expect(unverified).toContain("Registrations in the adapter server entry are not evaluated");
+
     // No endpoint at all still trumps the opt-in.
     const withoutEndpoint = formatDevBanner({ ...options, capabilities, mcpDestructive: true });
     expect(withoutEndpoint).toMatch(/notes\.purge\s+destructive\s+http,mcp\(unserved\)/);

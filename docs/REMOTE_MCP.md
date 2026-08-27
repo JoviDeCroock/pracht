@@ -195,12 +195,16 @@ setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 The setup may instead be imported by app-level capability/API middleware or
 named middleware on the destructive capability. The endpoint imports those
 applied middleware modules before checking its preconditions, without running
-the middleware functions during `tools/list`. `pracht dev`, `pracht inspect
-capabilities`, and `/_pracht` import the same applied setup modules before
-reporting those runtime preconditions, so inspection agrees with the endpoint
-before the first tool call. JSON inspection reports `mcpEndpoint`,
-`mcpDestructive`, and `mcpUnavailableReasons`; text inspection labels affected
-declarations `mcp(unserved)` and prints the unmet preconditions.
+the middleware functions during `tools/list`. `/_pracht` evaluates the real
+server entry and those applied setup modules, so a failed runtime gate is
+reported as `mcp(unserved)`. Graph-only commands (`pracht dev`, `pracht inspect
+capabilities`, and MCP inspection) deliberately skip the adapter server entry;
+when their local runtime still lacks a precondition, they report
+`mcp(unverified)` rather than falsely claiming that a server-entry registration
+is absent. JSON inspection always reports `mcpEndpoint`, `mcpDestructive`,
+`mcpRuntimeStatus`, and `mcpUnavailableReasons`. The status is
+`not-configured`, `ready`, `blocked` for a runtime-verified failure, or
+`unverified` for an inconclusive graph-only check.
 
 The store is not optional. Over MCP the confirmation token is handed to the
 very agent that will commit with it, and a stateless HMAC token replays until
@@ -213,9 +217,11 @@ resolvable principal is missing. `pracht verify` *warns* when it cannot find a
 warning rather than an error because a source scan cannot see a registration
 that lives in a workspace package. There is no silent downgrade in either
 direction: without the opt-in the tool is invisible; with it and an unmet
-precondition, nothing is served. `pracht dev`, `pracht inspect capabilities`, and `/_pracht` mark every MCP
-exposure as `mcp(unserved)` and show the unmet runtime preconditions when this
-endpoint-wide gate is closed.
+precondition, nothing is served. The runtime-backed `/_pracht` graph marks every
+MCP exposure as `mcp(unserved)` when this endpoint-wide gate is closed. The
+graph-only CLI surfaces use `mcp(unverified)` for the same locally observed
+missing preconditions because setup may still run from the skipped adapter
+server entry.
 
 ### Prepare and commit over `tools/call`
 

@@ -247,9 +247,6 @@ The `PRIMARY KEY` is load-bearing. `create()` is an `INSERT … ON CONFLICT (id)
 // Postgres (pg / Neon / Supabase) — dialect: "postgres"
 execute: (sql, params) => pool.query(sql, params),
 
-// Cloudflare D1 — bind the database as `DB` in wrangler.jsonc
-execute: (sql, params) => env.DB.prepare(sql).bind(...params).all(),
-
 // better-sqlite3 / node:sqlite — reads and writes take different calls
 async execute(sql, params) {
   const statement = db.prepare(sql);
@@ -261,6 +258,16 @@ async execute(sql, params) {
 // Turso / @libsql/client — ResultSet carries both rows and rowsAffected
 execute: (sql, params) =>
   turso.execute({ sql, args: params as (string | number | null)[] }),
+```
+
+For Cloudflare D1, bind the database as `DB` in `wrangler.jsonc` and import the request-time binding:
+
+```ts
+import { env } from "cloudflare:workers";
+
+createSqlApprovalStore({
+  execute: (sql, params) => env.DB.prepare(sql).bind(...params).all(),
+});
 ```
 
 If a write's result carries no affected-row count the store throws rather than assuming success, and the gate closes. The `table` option cannot be a bound parameter, so it is validated at construction as a plain identifier or `schema.identifier`, then every segment is quoted before interpolation. SQL keywords and case-sensitive names therefore work without broadening the accepted syntax.

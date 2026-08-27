@@ -779,7 +779,10 @@ describe("buildAppGraph", () => {
 
     expect(graph).toEqual({
       capabilities: [],
+      mcpDestructive: false,
       mcpEndpoint: "/agents/mcp",
+      mcpRuntimeStatus: "ready",
+      mcpUnavailableReasons: [],
       notFound: null,
       api: [
         {
@@ -862,7 +865,8 @@ describe("buildAppGraph", () => {
 
     expect(loaded).toEqual(["./middleware/approval-setup.ts"]);
     expect(graph.mcpDestructive).toBe(true);
-    expect(graph.mcpUnavailableReasons).toBeUndefined();
+    expect(graph.mcpRuntimeStatus).toBe("ready");
+    expect(graph.mcpUnavailableReasons).toEqual([]);
   });
 
   it("reports a setup middleware load failure without breaking graph inspection", async () => {
@@ -899,6 +903,7 @@ describe("buildAppGraph", () => {
     expect(graph.mcpUnavailableReasons).toEqual([
       "destructive MCP setup modules failed to load: database adapter is unavailable",
     ]);
+    expect(graph.mcpRuntimeStatus).toBe("blocked");
   });
 
   it("defaults to an empty API list when no API routes are passed", async () => {
@@ -912,7 +917,9 @@ describe("buildAppGraph", () => {
 
     expect(graph.api).toEqual([]);
     expect(graph.mcpEndpoint).toBeNull();
-    expect(graph).not.toHaveProperty("mcpDestructive");
+    expect(graph.mcpDestructive).toBe(false);
+    expect(graph.mcpRuntimeStatus).toBe("not-configured");
+    expect(graph.mcpUnavailableReasons).toEqual([]);
     expect(graph.routes).toHaveLength(1);
   });
 });

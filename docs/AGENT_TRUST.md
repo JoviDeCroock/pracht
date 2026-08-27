@@ -454,6 +454,8 @@ createSqlApprovalStore({
 
 ```ts
 // Cloudflare D1 — bind it in wrangler.jsonc as `DB`
+import { env } from "cloudflare:workers";
+
 createSqlApprovalStore({
   execute: (sql, params) => env.DB.prepare(sql).bind(...params).all(),
 });
