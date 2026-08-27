@@ -302,13 +302,17 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 );
 ```
 
-Import this setup module from a server entry or a registered server-only
-middleware/capability module so it actually runs. The resolver executes after
-API and capability middleware, and must return a stable authenticated user or
-tenant id — never a display name or caller-controlled value. When Web Bot Auth
-is also present, the proposal binds both identities. The raw application
-identity stays in the server-side approval record; caller-visible confirmation
-tokens bind a secret-keyed digest instead of exposing that identity.
+Import this setup module from a server entry, the destructive capability
+module, or middleware applied to the app's capability API chain or that
+capability. Remote MCP imports those applied middleware modules before checking
+its destructive-tool preconditions; their middleware functions still run only
+on `tools/call`. Merely registering unrelated middleware is not a startup hook.
+The resolver executes after API and capability middleware, and must return a
+stable authenticated user or tenant id — never a display name or
+caller-controlled value. When Web Bot Auth is also present, the proposal binds
+both identities. The raw application identity stays in the server-side approval
+record; caller-visible confirmation tokens bind a secret-keyed digest instead
+of exposing that identity.
 
 A proposal's id is a secret-keyed digest derived server-side from the
 principal, capability name, canonicalized input, and approval mode — never

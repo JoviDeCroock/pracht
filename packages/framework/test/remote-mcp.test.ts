@@ -1286,6 +1286,78 @@ describe("destructive capabilities over MCP", () => {
     setCapabilityConfirmationSecret(null);
   });
 
+  it.each(["capability", "api"] as const)(
+    "loads an approval store registered by %s middleware before checking preconditions",
+    async (registration) => {
+      setCapabilityApprovalStore(null);
+      let moduleLoads = 0;
+      let middlewareRuns = 0;
+      const middlewareFile = "./middleware/approval-setup.ts";
+      const capabilityFile = "./capabilities/notes.purge.ts";
+      const capability = defineCapability({
+        title: "Purge notes",
+        description: "Delete notes by title prefix.",
+        input: {
+          type: "object",
+          properties: { titlePrefix: { type: "string", minLength: 1 } },
+          required: ["titlePrefix"],
+          additionalProperties: false,
+        },
+        output: {
+          type: "object",
+          properties: { purged: { type: "integer" } },
+          required: ["purged"],
+        },
+        effect: "destructive",
+        expose: { mcp: true },
+        middleware: registration === "capability" ? ["approvalSetup"] : [],
+        async run() {
+          return { purged: 0 };
+        },
+      } as CapabilityDefinition);
+      const app = defineApp({
+        agents: DESTRUCTIVE_AGENTS,
+        middleware: { approvalSetup: middlewareFile },
+        capabilities: { "notes.purge": capabilityFile },
+        ...(registration === "api" ? { api: { middleware: ["approvalSetup"] } } : {}),
+        routes: [],
+      });
+      const registry: ModuleRegistry = {
+        middlewareModules: {
+          [middlewareFile]: async () => {
+            moduleLoads += 1;
+            setCapabilityApprovalStore(createMemoryApprovalStore());
+            return {
+              middleware: async (_args: unknown, next: () => Promise<Response>) => {
+                middlewareRuns += 1;
+                return next();
+              },
+            };
+          },
+        },
+        capabilityModules: {
+          [capabilityFile]: async () => ({ default: capability }),
+        },
+      };
+
+      const response = await handlePrachtRequest({
+        app,
+        registry,
+        request: new Request(`${ORIGIN}/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+        }),
+      });
+      const json = (await response.json()) as Record<string, any>;
+
+      expect(json.error).toBeUndefined();
+      expect(json.result.tools.map((tool: { name: string }) => tool.name)).toContain("notes_purge");
+      expect(moduleLoads).toBe(1);
+      expect(middlewareRuns).toBe(0);
+    },
+  );
+
   it("serves destructive tools with a destructive hint and the confirmation contract", async () => {
     const { json } = await mcp(
       { jsonrpc: "2.0", id: 1, method: "tools/list" },

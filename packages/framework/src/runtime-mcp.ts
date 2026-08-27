@@ -47,11 +47,13 @@ import {
   isWellFormedConfirmationToken,
   resolveConfirmationSecret,
 } from "./runtime-confirmation.ts";
+import { resolveRegistryModule } from "./runtime-manifest.ts";
 export { resolveMcpEndpoint } from "./mcp-config.ts";
 import type {
   CapabilityAuditHook,
   CapabilityEnvelope,
   McpProjectionConfig,
+  MiddlewareModule,
   ModuleRegistry,
   PrachtAgentIdentity,
   PrachtAgentsConfig,
@@ -270,7 +272,23 @@ export interface HandleMcpRequestOptions<TContext> {
   // rule for all of the preconditions: if a destructive tool would be served
   // and anything its confirmation flow needs is missing, the whole endpoint
   // answers an explanatory error instead of half-working.
-  if (exposedCapabilities.some((entry) => entry.capability.effect === "destructive")) {
+  const destructiveCapabilities = exposedCapabilities.filter(
+    (entry) => entry.capability.effect === "destructive",
+  );
+  if (destructiveCapabilities.length > 0) {
+    try {
+      await loadDestructiveMcpRegistrationModules(options, destructiveCapabilities);
+    } catch (error: unknown) {
+      const detail = options.exposeErrors && error instanceof Error ? `: ${error.message}` : ".";
+      return respond(200, {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: JSONRPC_INTERNAL_ERROR,
+          message: `Destructive MCP setup modules failed to load${detail}`,
+        },
+      });
+    }
     const unmet = destructiveMcpPreconditionErrors(options.agents);
     if (unmet.length > 0) {
       return respond(200, {
@@ -370,6 +388,31 @@ export interface HandleMcpRequestOptions<TContext> {
         },
       });
   }
+}
+
+/**
+ * Import the middleware modules that would run before a destructive
+ * capability's confirmation gate. Their top-level server setup may register
+ * the approval store, confirmation secret, or application-principal resolver;
+ * checking process-local registrations before these imports made the endpoint
+ * depend on an unrelated request warming the middleware graph first.
+ *
+ * Importing is enough here. The middleware functions still execute only for a
+ * real `tools/call`, through the ordinary capability pipeline.
+ */
+async function loadDestructiveMcpRegistrationModules<TContext>(
+  options: HandleMcpRequestOptions<TContext>,
+  capabilities: readonly ResolvedCapability[],
+): Promise<void> {
+  const files = new Set(options.apiMiddlewareFiles ?? []);
+  for (const capability of capabilities) {
+    for (const file of capability.middlewareFiles) files.add(file);
+  }
+  await Promise.all(
+    [...files].map((file) =>
+      resolveRegistryModule<MiddlewareModule>(options.registry.middlewareModules, file),
+    ),
+  );
 }
 
 /**

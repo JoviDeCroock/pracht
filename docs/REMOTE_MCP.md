@@ -192,6 +192,11 @@ import { createSqlApprovalStore, setCapabilityApprovalStore } from "@pracht/core
 setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 ```
 
+The setup may instead be imported by app-level capability/API middleware or
+named middleware on the destructive capability. The endpoint imports those
+applied middleware modules before checking its preconditions, without running
+the middleware functions during `tools/list`.
+
 The store is not optional. Over MCP the confirmation token is handed to the
 very agent that will commit with it, and a stateless HMAC token replays until
 it expires — so exactly-once consumption is the whole reason the transport may

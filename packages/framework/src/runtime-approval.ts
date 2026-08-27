@@ -41,8 +41,8 @@ let approvalPrincipalResolver: CapabilityApprovalPrincipalResolver | null = null
 
 /**
  * Register the store backing destructive-capability approvals. Call it from a
- * server-only module (a capability module, middleware, or a custom server
- * entry). Passing `null` unregisters.
+ * server-only module (a capability module, middleware applied to the
+ * capability/API chain, or a custom server entry). Passing `null` unregisters.
  */
 export function setCapabilityApprovalStore(store: CapabilityApprovalStore | null): void {
   approvalStore = store;
