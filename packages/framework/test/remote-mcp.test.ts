@@ -1501,7 +1501,23 @@ describe("destructive capabilities over MCP", () => {
       { agents: { ...agents, webBotAuth: { policy: "observe" } } },
     );
     expect(withoutTrustSource.json?.error.code).toBe(-32603);
-    expect(withoutTrustSource.json?.error.message).toContain("static key or HTTPS directory");
+    expect(withoutTrustSource.json?.error.message).toContain(
+      "valid 32-byte base64url Ed25519 static key or HTTPS directory",
+    );
+
+    // A non-empty but malformed JWK cannot verify any signature, so it must
+    // not make the endpoint advertise a destructive tool that every call will
+    // reject for lack of a principal.
+    for (const x of ["not-a-key", "A".repeat(42), `${"A".repeat(42)}!`]) {
+      const withMalformedKey = await mcp(
+        { jsonrpc: "2.0", id: 1, method: "tools/list" },
+        { agents: { ...agents, webBotAuth: { keys: [{ x }] } } },
+      );
+      expect(withMalformedKey.json?.error.code).toBe(-32603);
+      expect(withMalformedKey.json?.error.message).toContain(
+        "valid 32-byte base64url Ed25519 static key",
+      );
+    }
 
     // A real Web Bot Auth trust source makes a principal possible, so the
     // endpoint can advertise the tool (individual unsigned calls still fail).

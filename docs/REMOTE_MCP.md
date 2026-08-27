@@ -213,8 +213,8 @@ carry a destructive effect at all. The runtime is the gate: the endpoint
 answers an explanatory JSON-RPC error instead of serving destructive tools
 whenever the store, the confirmation secret, or (in `mode: "human"`) any
 resolvable principal is missing. A policy-only `webBotAuth: {}` block is not an
-identity source: configure at least one non-empty static key or HTTPS directory,
-or register an application principal resolver. `pracht verify` *warns* when it
+identity source: configure at least one valid 32-byte base64url Ed25519 static
+key or HTTPS directory, or register an application principal resolver. `pracht verify` *warns* when it
 cannot find a `setCapabilityApprovalStore()` call in the configured source
 directories — a warning rather than an error because a source scan cannot see a
 registration that lives in a workspace package. There is no silent downgrade

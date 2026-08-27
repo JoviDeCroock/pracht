@@ -446,7 +446,8 @@ export function destructiveMcpPreconditionErrors(agents: PrachtAgentsConfig | un
   ) {
     unmet.push(
       'agents.confirmation.mode is "human" but no principal can ever be resolved ' +
-        "(configure agents.webBotAuth with a static key or HTTPS directory, or call " +
+        "(configure agents.webBotAuth with a valid 32-byte base64url Ed25519 static key or " +
+        "HTTPS directory, or call " +
         "setCapabilityApprovalPrincipalResolver() from a server-only module).",
     );
   }

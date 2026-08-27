@@ -109,7 +109,8 @@ For every exposed capability, ask whether the exposure is deliberate:
   scan cannot see a registration in a workspace package, so it must not
   hard-block). Two more preconditions fail the endpoint the same way — a
   missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither
-  `agents.webBotAuth` nor a principal resolver — so check all three together.
+  `agents.webBotAuth` with a valid 32-byte base64url Ed25519 static key or HTTPS
+  directory nor a principal resolver — so check all three together.
   Runtime-backed `/_pracht` reports a verified endpoint-wide failure by marking
   every MCP exposure `mcp(unserved)`. Graph-only `pracht dev`, `pracht inspect
   capabilities`, and MCP inspection use `mcp(unverified)` when the same missing
