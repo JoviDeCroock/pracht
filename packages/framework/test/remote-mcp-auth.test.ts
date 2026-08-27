@@ -437,6 +437,29 @@ describe("fail-closed verification", () => {
     expect(shadow).not.toHaveBeenCalled();
   });
 
+  it("deduplicates a verifier registered by overlapping source directories", async () => {
+    const verify = vi.fn(() => ({ subject: "user-1" }));
+    const dataImporter = vi.fn(async () => ({ default: verify }));
+    const capabilityImporter = vi.fn(async () => ({ default: verify }));
+    const registry: ModuleRegistry = {
+      dataModules: { "/src/server/capabilities/token.ts": dataImporter } as never,
+      capabilityModules: {
+        "/src/server/capabilities/token.ts": capabilityImporter,
+      } as never,
+    };
+
+    const verifier = await loadMcpTokenVerifier(
+      { ...BASE_AUTH, verify: "/src/server/capabilities/token.ts" },
+      registry,
+    );
+
+    expect(verifier("token", { request: new Request(`${ORIGIN}/mcp`) })).toEqual({
+      subject: "user-1",
+    });
+    expect(dataImporter).toHaveBeenCalledOnce();
+    expect(capabilityImporter).not.toHaveBeenCalled();
+  });
+
   it("authenticates before loading capability modules", async () => {
     const { app, registry } = createHarness();
     const loadCapability = vi.fn(async () => ({ default: tokenProbe }));

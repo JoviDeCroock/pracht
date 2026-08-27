@@ -196,6 +196,40 @@ describe("collectAppGraph", () => {
     }
   });
 
+  it("reports an authenticated endpoint as blocked when its verifier cannot load", async () => {
+    const server = fakeServer({
+      "virtual:pracht/dev-metadata": {
+        apiRoutes: [],
+        registry: {
+          dataModules: {
+            "/src/server/mcp-token.ts": async () => ({ default: "not a function" }),
+          },
+        },
+        resolvedApp: {
+          agents: {
+            mcp: {
+              auth: {
+                resource: "https://app.example/mcp",
+                authorizationServers: ["https://auth.example"],
+                verify: "/src/server/mcp-token.ts",
+              },
+            },
+          },
+          capabilities: {},
+          routes: [],
+        },
+      },
+    });
+
+    const graph = await collectAppGraph(server, process.cwd());
+
+    expect(graph.mcpAuthenticated).toBe(true);
+    expect(graph.mcpRuntimeStatus).toBe("blocked");
+    expect(graph.mcpUnavailableReasons).toEqual([
+      'MCP token verifier failed to load: agents.mcp.auth.verify module "/src/server/mcp-token.ts" has no default-exported function.',
+    ]);
+  });
+
   it("loads applied setup middleware before reading destructive MCP preconditions", async () => {
     let setupLoaded = false;
     const destructiveMcpPreconditionErrors = vi.fn(() =>

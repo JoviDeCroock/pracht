@@ -356,6 +356,8 @@ token verifier — with its JWKS client and issuer configuration — must never 
 Verifier lookup rejects ambiguous suffixes across `src/server/`,
 `src/middleware/`, and `src/capabilities/`; use a root-relative reference such
 as `() => import("/src/server/mcp-token.ts")` when duplicate suffixes exist.
+Source directories may overlap; duplicate registry entries for the same
+normalized file are treated as one verifier, not as an ambiguous reference.
 `resolveApp()` and `pracht verify` reject a relative `resource`, a `resource`
 carrying a query, fragment, or non-root trailing slash, a `resource` whose path
 does not exactly identify the served endpoint, a non-loopback cleartext URL, an
@@ -371,6 +373,12 @@ identifier. `/mcp/` is not equivalent to `/mcp`, even though routing accepts
 either spelling. Authenticated endpoints redirect every non-canonical request
 spelling, alternate host, and query-bearing request to `resource` with `308`
 before challenging or verifying it.
+
+Graph-only inspection loads the configured verifier before calling a protected
+endpoint ready. A missing module or non-callable default export sets
+`mcpRuntimeStatus` to `blocked`, records the reason in `mcpUnavailableReasons`,
+and renders its MCP exposures as `mcp(unserved)` in `pracht dev` and `pracht
+inspect`.
 
 The MCP path must also be distinct from every explicit API route. `pracht
 verify` rejects exact and dynamic collisions. For example,

@@ -368,23 +368,30 @@ interface VerifierModuleCandidate {
 }
 
 function resolveMcpTokenVerifierImporter(file: string, registry: ModuleRegistry): ModuleImporter {
-  const candidates: VerifierModuleCandidate[] = [];
+  const candidates = new Map<string, VerifierModuleCandidate>();
   for (const modules of [
     registry.dataModules,
     registry.middlewareModules,
     registry.capabilityModules,
   ]) {
     for (const [key, importer] of Object.entries(modules ?? {})) {
-      candidates.push({ key, importer });
+      // Configurable source directories may overlap, so one physical module can
+      // be present in more than one generated glob. That is not ambiguity: all
+      // of those entries import the same file.
+      const normalized = normalizeModulePath(key);
+      if (!candidates.has(normalized)) candidates.set(normalized, { key, importer });
     }
   }
 
   const target = normalizeModulePath(file);
-  const exact = candidates.filter(({ key }) => key === file || normalizeModulePath(key) === target);
+  const uniqueCandidates = [...candidates.values()];
+  const exact = uniqueCandidates.filter(
+    ({ key }) => key === file || normalizeModulePath(key) === target,
+  );
   const matches =
     exact.length > 0
       ? exact
-      : candidates.filter(({ key }) => normalizeModulePath(key).endsWith(`/${target}`));
+      : uniqueCandidates.filter(({ key }) => normalizeModulePath(key).endsWith(`/${target}`));
 
   if (matches.length === 1) return matches[0]!.importer;
   if (matches.length > 1) {

@@ -1,6 +1,6 @@
 ---
 name: audit-agent-surface
-version: 1.0.3
+version: 1.0.4
 description: |
   Inventory what agents can reach in a pracht app — capability exposure (HTTP,
   WebMCP, remote MCP), `agents` trust config, the destructive-confirmation gate,
@@ -110,7 +110,11 @@ With `agents.mcp.auth`, check:
 - `verify` is a module reference under `src/server`, `src/middleware`, or
   `src/capabilities`, resolves uniquely, and default-exports a function. Inline,
   missing, ambiguous, or non-callable verifiers are `error`. Its request clone
-  may consume the body without consuming later JSON-RPC dispatch.
+  may consume the body without consuming later JSON-RPC dispatch. Overlapping
+  source directories may register the same normalized file more than once;
+  that is one verifier, not ambiguity. A `blocked` inspection reason for an
+  unusable verifier is conclusive because the adapter server entry cannot
+  replace the configured module reference.
 - The verifier binds token audience to `resource`; otherwise tokens for another
   service authenticate here (`error`). Require `requiredScopes` or per-tool
   checks of `context.tokenAuth.scopes` (`warn` otherwise). The initial challenge
