@@ -600,7 +600,7 @@ const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
       outcome: event.outcome,
       status: event.status,
       durationMs: Math.round(event.durationMs),
-      agent: event.agent?.agentDomain ?? null,
+      agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
     }),
   );
 });
@@ -634,8 +634,11 @@ const stopOtel = addCapabilityAuditListener("otel", (event) => {
     "pracht.transport": event.transport,
     "pracht.via": event.via ?? "none",
     "pracht.outcome": event.outcome,
-    "pracht.agent": event.agent?.agentDomain ?? "unverified",
+    "pracht.agent": event.agent?.agentDomain ?? event.agent?.keyId ?? "unverified",
   };
+
+  const completed =
+    event.outcome === "ok" || (event.status >= 200 && event.status < 300);
 
   dispatches.add(1, attributes);
   duration.record(event.durationMs, attributes);
@@ -647,7 +650,7 @@ const stopOtel = addCapabilityAuditListener("otel", (event) => {
     attributes: { ...attributes, "http.response.status_code": event.status },
     startTime: end - event.durationMs,
   });
-  if (event.status >= 400) {
+  if (!completed) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: event.outcome });
   }
   span.end(end);
@@ -658,10 +661,12 @@ if (import.meta.hot) {
 }
 ```
 
-Both modules are server-only and are imported for their side effect from a
-middleware, an API route, or a custom server entry — anywhere that runs before
-the first request is served. The surrounding request-level tracing setup lives
-on the public site's logging and observability recipe
+Both modules are server-only. Import them from an eagerly loaded server module:
+the configured adapter `createContextFrom` module is one portable option, and a
+custom server entry can import them directly. Route, API, middleware, and
+`src/server/` registry modules are lazy, so importing the sink only from an
+unrelated registered module can miss earlier capability calls. The surrounding
+request-level tracing setup lives on the public site's logging and observability recipe
 (<https://pracht.resynapse.dev/docs/recipes-logging>).
 
 ### Watching agent traffic in dev

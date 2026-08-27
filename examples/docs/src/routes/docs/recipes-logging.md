@@ -255,7 +255,7 @@ const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
       outcome: event.outcome, // "ok" or the envelope error code
       status: event.status,
       durationMs: Math.round(event.durationMs),
-      agent: event.agent?.agentDomain ?? null,
+      agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
     }),
   );
 });
@@ -265,7 +265,7 @@ if (import.meta.hot) {
 }
 ```
 
-Import the module for its side effect from a middleware, an API route, or a custom server entry — anywhere that runs before the first request. Keep the HMR disposal hook so removing the module or renaming the sink cannot leave a stale listener in the dev server.
+Import the module from an eagerly loaded server module. The `createContextFrom` module configured earlier on this page is loaded with the generated adapter entry, so adding `import "./audit.ts"` there registers the sink before request handling. A custom server entry can import it directly. Do not rely on an unrelated route, API route, middleware, or `src/server/` registry module: those modules are lazy and can miss earlier capability calls. Keep the HMR disposal hook so removing the module or renaming the sink cannot leave a stale listener in the dev server.
 
 Sinks are invoked synchronously, so keep work before the callback returns or reaches its first `await` cheap. A returned promise is never awaited, and a sink that throws synchronously is swallowed (the first failure per named registration is reported once via `console.warn`). On Cloudflare Workers, a batching exporter must flush within the request or be handed the execution context by your own code — pracht does not call `ctx.waitUntil()` on a sink's behalf.
 
@@ -274,7 +274,7 @@ The three metrics worth deriving from these events:
 | Metric | Derivation | What it tells you |
 | --- | --- | --- |
 | Activation | Count verified identities, MCP, and MCP-caused composition; keep unsigned HTTP and client-declared WebMCP separate | Whether attributable agents are visiting, without trusting spoofable client markers or counting human forms as agents |
-| Task completion | Ratio of `status < 400` per `capability` | Whether they can finish what they came for, including successful middleware short-circuits |
+| Task completion | Ratio where `outcome === "ok"` or status is 2xx, per `capability` | Whether they can finish what they came for, including successful middleware short-circuits without counting middleware redirects |
 | Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
 
 In development, the same events are already collected for you: the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. Adapter-owned dev servers do not register that middleware, so Cloudflare `workerd` returns 404 for both paths; validate the sink from its own output there. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.

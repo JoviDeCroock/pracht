@@ -1,6 +1,6 @@
 ---
 name: add-observability
-version: 1.1.2
+version: 1.1.3
 description: |
   Wire Sentry or OpenTelemetry into pracht server boundaries (loaders, middleware,
   API routes), client-side Web Vitals reporting, and a capability audit sink that
@@ -258,7 +258,7 @@ const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
       outcome: event.outcome, // "ok" or the envelope error code
       status: event.status,
       durationMs: Math.round(event.durationMs),
-      agent: event.agent?.agentDomain ?? null,
+      agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
     }),
   );
 });
@@ -273,8 +273,12 @@ capability/transport/outcome, and backdates a span with
 `startTime: Date.now() - event.durationMs` (the dispatch has already
 finished when the sink runs). The full snippet is on the agent-trust docs page.
 
-Import the module for its side effect from a middleware, an API route, or a
-custom server entry — anywhere that runs before the first request.
+Import the module from an eagerly loaded server module. The adapter's configured
+`createContextFrom` module is one portable option: add `import "./audit.ts"`
+there so the generated entry registers the sink before request handling. A
+custom server entry can import it directly. Do not rely on an unrelated route,
+API route, middleware, or `src/server/` registry module; those modules are lazy
+and can miss earlier capability calls.
 
 Key properties to state when scaffolding this:
 

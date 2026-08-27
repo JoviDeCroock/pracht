@@ -522,6 +522,42 @@ describe("buildDevtoolsHtml — agent traffic", () => {
     expect(html).not.toContain(`<td class="err">middleware_204 (204)</td>`);
   });
 
+  it("distinguishes completed form redirects from middleware redirects", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 2,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "middleware_302",
+            status: 302,
+            durationMs: 1,
+            agent: null,
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 14, 250),
+            capability: "notes.create",
+            effect: "write",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 303,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(`<td class="err">middleware_302 (302)</td>`);
+    expect(html).toContain(`<td class="ok">ok (303)</td>`);
+  });
+
   it("says how many older events the ring buffer dropped", () => {
     const html = buildDevtoolsHtml(capabilityGraphFixture, {
       agentTraffic: {

@@ -147,7 +147,7 @@ ${capabilityRows}
         <td>${escapeHtml(formatTransport(event))}</td>
         <td>${escapeHtml(event.effect)}</td>
         <td>${escapeHtml(formatAgent(event.agent))}</td>
-        <td class="${event.status < 400 ? "ok" : "err"}">${escapeHtml(formatOutcome(event))}</td>
+        <td class="${agentTrafficSucceeded(event) ? "ok" : "err"}">${escapeHtml(formatOutcome(event))}</td>
         <td class="file">${escapeHtml(formatDuration(event.durationMs))}</td>
       </tr>`,
     )
@@ -450,6 +450,16 @@ function formatDuration(durationMs: number): string {
 
 function formatOutcome(event: AgentTrafficEvent): string {
   return `${event.outcome} (${event.status})`;
+}
+
+/**
+ * A completed dispatch normally has a 2xx status. The progressive no-JS form
+ * path is the exception: after the capability succeeds it redirects back to
+ * the document with `outcome: "ok"`. Middleware redirects also have a 3xx
+ * status, but their `middleware_3xx` outcome means the capability never ran.
+ */
+function agentTrafficSucceeded(event: AgentTrafficEvent): boolean {
+  return event.outcome === "ok" || (event.status >= 200 && event.status < 300);
 }
 
 function formatAgent(agent: AgentTrafficEvent["agent"]): string {
