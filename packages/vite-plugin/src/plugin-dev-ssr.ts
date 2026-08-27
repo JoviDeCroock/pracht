@@ -12,6 +12,8 @@ import type {
   RouteErrorContext,
 } from "@pracht/core";
 import { applyDefaultSecurityHeaders, resolveRegistryModule } from "@pracht/core";
+import type { AgentTrafficBuffer } from "./agent-traffic.ts";
+import { createAgentTrafficBuffer } from "./agent-traffic.ts";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -93,6 +95,11 @@ export function createDevSSRMiddleware(
     devBase === "/" || !path.startsWith("/") ? path : `${devBase}${path.slice(1)}`;
   let warnedDevtoolsCollision = false;
   let warnedLlmsTxtCollision = false;
+  // Dev-only agent traffic log, scoped to this dev server. Fed by the
+  // `onCapabilityAudit` option below, which the runtime already calls for every
+  // capability dispatch on every transport (HTTP, WebMCP, remote MCP, and
+  // nested `invokeCapability()` composition).
+  const agentTraffic = createAgentTrafficBuffer();
 
   // A hand-written public/llms.txt and the generated one disagree about who
   // wins: Vite's publicDir middleware serves the static file in dev (before
@@ -138,6 +145,7 @@ export function createDevSSRMiddleware(
         }
 
         await serveDevtools(server, res, {
+          agentTraffic,
           apiRoutes: serverMod.apiRoutes ?? [],
           app: serverMod.resolvedApp,
           base: devBase,
@@ -233,6 +241,7 @@ export function createDevSSRMiddleware(
         islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
         apiRoutes: serverMod.apiRoutes,
         timings,
+        onCapabilityAudit: agentTraffic.record,
       });
 
       // A 404 from the runtime normally falls through to Vite (which has
@@ -699,6 +708,7 @@ async function serveDevtools(
   server: ViteDevServer,
   res: ServerResponse,
   options: {
+    agentTraffic: AgentTrafficBuffer;
     apiRoutes: ResolvedApiRoute[];
     app: ResolvedPrachtApp;
     base: string;
@@ -729,14 +739,19 @@ async function serveDevtools(
     readSource: (file: string) => readFileSync(resolve(server.config.root, `.${file}`), "utf-8"),
   });
 
+  // `agentTraffic` is deliberately not part of `buildAppGraph()`: the graph is
+  // the static shape of the app and is shared byte-for-byte with `pracht
+  // inspect --json`, while traffic is live dev-server state. Merged only here.
+  const agentTraffic = options.agentTraffic.snapshot();
+
   if (options.wantsJson) {
     res.statusCode = 200;
     res.setHeader("content-type", "application/json; charset=utf-8");
-    res.end(JSON.stringify(graph, null, 2));
+    res.end(JSON.stringify({ ...graph, agentTraffic }, null, 2));
     return;
   }
 
-  let html = devtools.buildDevtoolsHtml(graph, { base: options.base });
+  let html = devtools.buildDevtoolsHtml(graph, { agentTraffic, base: options.base });
   html = await server.transformIndexHtml(options.url, html);
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");

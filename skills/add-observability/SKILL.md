@@ -1,11 +1,14 @@
 ---
 name: add-observability
-version: 1.1.1
+version: 1.1.3
 description: |
   Wire Sentry or OpenTelemetry into pracht server boundaries (loaders, middleware,
-  API routes) plus client-side Web Vitals reporting.
+  API routes), client-side Web Vitals reporting, and a capability audit sink that
+  records every capability dispatch with transport, outcome, latency, and verified
+  identity.
   Use for "add observability", "wire Sentry", "set up tracing", "add
-  OpenTelemetry", "monitor Web Vitals", "track errors".
+  OpenTelemetry", "monitor Web Vitals", "track errors", "log capability calls",
+  or "are agents calling my app".
 allowed-tools:
   - Bash
   - Read
@@ -18,17 +21,19 @@ allowed-tools:
 
 # Pracht Add Observability
 
-Three layers, each opt-in:
+Four layers, each opt-in:
 
 1. **Server error tracking** — capture loader/middleware/API exceptions.
 2. **Request tracing** — span per request with child spans per loader/db call.
 3. **Web Vitals (LCP/CLS/INP/FCP/TTFB)** — client-side, posted to a beacon
    endpoint.
+4. **Agent traffic** — one structured audit event per capability dispatch.
+   Only relevant when the app registers capabilities; skip it otherwise.
 
 MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
-`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
-tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
-config.
+`inspect_agents`/`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/
+`verify`/`generate_*` tools over shelling out. `pracht inspect` needs the pracht
+plugin in the vite config.
 
 ## Step 1: Pick the stack
 
@@ -230,7 +235,98 @@ export async function POST({ request }: ApiRouteArgs) {
 For Sentry users, Sentry's browser SDK can capture Web Vitals natively —
 prefer that over a custom beacon if you've gone the Sentry route.
 
-## Step 6: Sampling and PII
+## Step 6: Agent traffic (capability apps only)
+
+Skip when `pracht inspect agents --json` reports an empty `capabilities` list.
+That only means there are no capability operations to audit; `llms.txt`, MCP,
+or Web Bot Auth may still expose other agent-facing surfaces. When capabilities
+do exist, every dispatch already emits a structured `CapabilityAuditEvent` —
+nothing is instrumented per capability, a sink just has to be registered.
+
+```ts [src/server/audit.ts]
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
+  console.log(
+    JSON.stringify({
+      msg: "capability",
+      at: new Date().toISOString(),
+      capability: event.capability,
+      effect: event.effect,
+      transport: event.transport, // "http" | "webmcp" | "mcp" | "server"
+      via: event.via, // causal transport for nested invokeCapability()
+      outcome: event.outcome, // "ok" or the envelope error code
+      status: event.status,
+      durationMs: Math.round(event.durationMs),
+      agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
+    }),
+  );
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAuditLog);
+}
+```
+
+The OTel version records a counter and a histogram keyed on
+capability/transport/outcome, and backdates a span with
+`startTime: Date.now() - event.durationMs` (the dispatch has already
+finished when the sink runs). The full snippet is on the agent-trust docs page.
+
+Import the module from an eagerly loaded server module. The adapter's configured
+`createContextFrom` module is one portable option: add `import "./audit.ts"`
+there so the generated entry registers the sink before request handling. A
+custom server entry can import it directly. Do not rely on an unrelated route,
+API route, middleware, or `src/server/` registry module; those modules are lazy
+and can miss earlier capability calls.
+
+Key properties to state when scaffolding this:
+
+- Sinks are invoked synchronously, so keep work before the callback returns or
+  reaches its first `await` cheap. A returned promise is never awaited, and a
+  synchronous throw is swallowed (first failure per sink reported via
+  `console.warn`, naming it), so a broken exporter cannot fail the call.
+- **Always pass a stable name** as the first argument. Registering the same
+  name again replaces that sink, which is what keeps a module-scope call safe
+  under dev HMR: Vite re-executes importers on every save, so an unkeyed
+  registration would add a fresh closure per keystroke and deliver every event
+  N times. Never compute the name. Register the returned unsubscribe with
+  `import.meta.hot.dispose()` too, so removing the module or renaming the sink
+  cannot leave the old name active until the dev server restarts.
+- `setCapabilityAuditHook()` is a **single slot** — a second call replaces the
+  first. Use `addCapabilityAuditListener()` whenever more than one sink exists;
+  it returns an unsubscribe handle that removes only its own registration.
+- Warning suppression is per named registration, so differently named sinks
+  still report independently when they reuse one callback.
+- Delivery snapshots the registered sinks before callbacks run. Adding or
+  replacing a sink from inside a callback takes effect on the next dispatch,
+  so the current event is never delivered twice to one name.
+- On Cloudflare Workers, a batching exporter must flush within the request or
+  be handed the execution context by app code
+  (`context.executionContext.waitUntil(exporter.flush())`). Pracht does not
+  call `ctx.waitUntil()` for a sink.
+- Audit events cover *dispatch* only. A cross-origin 403, an unknown-capability
+  404, and an unknown MCP tool name all return before dispatch and emit
+  nothing, so do not build a reconnaissance alert on these events — use the
+  HTTP access log for that.
+
+In dev the same events are already collected: the **Agents** section of
+`/_pracht` shows recent dispatches with transport, `via`, verified identity,
+outcome, and duration, and `/_pracht.json` exposes all of them under
+`agentTraffic`. The page counts verified identities, MCP, and MCP-caused
+composition as agent-attributed; shows top-level unsigned HTTP, HTTP-caused
+composition, and client-declared WebMCP markers separately as unverified client
+dispatches; and hides only `invokeCapability()` work with no served-request
+provenance behind a first-party toggle, so the panel's visible count can be
+lower than the sink's.
+Counts and empty-state conclusions only cover the retained window when older
+events have been dropped. Use it to confirm the sink sees what the panel sees
+before wiring a paid backend. Adapter-owned dev servers do not register this
+middleware: on Cloudflare `workerd`, `/_pracht` and `/_pracht.json` return 404.
+Validate the sink from its own output there; a missing panel is not a failed
+audit hook.
+
+## Step 7: Sampling and PII
 
 - Set `SENTRY_TRACES_SAMPLE_RATE` to a small number (0.05–0.10) in
   production.
@@ -240,10 +336,14 @@ prefer that over a custom beacon if you've gone the Sentry route.
   ```
 - Never send loader return values verbatim — they often contain user data.
 
-## Step 7: Verify
+## Step 8: Verify
 
 - Trigger a deliberate error in dev and confirm it lands in Sentry/OTel.
 - Open a route, check the Web Vitals beacon fires (Network tab).
+- If an audit sink was added: call a capability in dev and confirm the event
+  reaches both the sink and, when the adapter exposes it, the Agents panel at
+  `/_pracht`. On Cloudflare's adapter-owned dev server, validate the sink output
+  directly because the panel does not exist.
 - Confirm `pnpm test` and `pnpm e2e` still pass.
 - Run `pracht typegen` if any routes were added (the beacon API route does
   not affect page-route types, but re-run when in doubt).
@@ -263,6 +363,11 @@ prefer that over a custom beacon if you've gone the Sentry route.
    routes still benefit but the values reflect the post-bootstrap state.
 4. Sample traces (≤ 10%) in production; full sampling in dev.
 5. Never send raw cookies, auth headers, or full loader payloads to a
-   third-party SaaS.
+   third-party SaaS. The same applies to audit events: log the capability
+   name, effect, transport, outcome, and agent domain — not the capability's
+   input, which is application data.
+6. Keep the synchronous part of an audit sink cheap: no CPU-heavy work or
+   synchronous network call. Returned promises are fire-and-forget; the runtime
+   does not await them or catch their rejections.
 
 $ARGUMENTS

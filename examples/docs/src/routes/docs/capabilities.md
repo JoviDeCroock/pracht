@@ -237,13 +237,17 @@ The client stays opt-in too. Capability metadata only reaches the browser throug
 
 ## Inspect the Graph
 
-The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` tool on the `pracht mcp` server, and the static checks in `pracht verify`.
+The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the `pracht mcp` server, and the static checks in `pracht verify`.
 
 ```sh
 pracht inspect capabilities
 # notes.search   read   http,webmcp,mcp   /api/capabilities/notes/search
 # notes.create   write  http,mcp          /api/capabilities/notes/create
 ```
+
+`pracht inspect agents` rolls the same graph up against `defineApp({ agents })` — the Web Bot Auth policy and keys, the destructive-confirmation mode, the remote MCP endpoint, whether `llms.txt` is generated, and how many capabilities each transport exposes.
+
+The CLI, MCP, startup-banner, and Capabilities-table views describe the static configured surface. To see whether agents actually are calling it, read the live audit events in the **Agents** panel on `/_pracht` in dev, or register a production sink with `addCapabilityAuditListener()`. Retained traffic keeps the panel visible after HMR removes the final capability, until the dev server restarts. See [Agent trust](/docs/agent-trust#audit-trail).
 
 Coming next: MCP Apps UI views rendered with Preact, so a capability can return an interactive result into an agent's chat.
 

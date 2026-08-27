@@ -152,7 +152,8 @@ See [Capabilities](/docs/capabilities) and [Agent Trust](/docs/agent-trust).
 | --- | --- |
 | `invokeCapability(name, input, ctx)` | Trusted server-side call, including private capabilities |
 | `createCapabilityTestHost(options?)` | Drive capabilities in tests without booting a server |
-| `setCapabilityAuditHook(hook)` | Receive a structured event for every capability call |
+| `setCapabilityAuditHook(hook)` | Receive a structured event for every capability call (single slot) |
+| `addCapabilityAuditListener(name, hook)` | Add a named audit sink alongside others; re-registering the name replaces it. Returns an unsubscribe |
 | `setCapabilityApprovalStore(store)` | Persist approvals for the confirmation flow |
 | `createMemoryApprovalStore(options?)` | An in-memory store, for development and tests |
 | `setCapabilityApprovalPrincipalResolver(fn)` | Decide which principal an approval belongs to |

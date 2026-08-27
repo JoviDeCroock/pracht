@@ -57,7 +57,7 @@ collide with other skill packs installed in the same app.
 | `/add-auth`           | Wire session-based email/password auth.                           |
 | `/add-db`             | Wire Drizzle ORM (D1, PlanetScale, Neon, Postgres, ...).          |
 | `/add-i18n`           | Wire `@pracht/i18n`: locale routing, dictionaries, hreflang.      |
-| `/add-observability`  | Wire Sentry / OpenTelemetry plus Web Vitals.                      |
+| `/add-observability`  | Wire Sentry / OpenTelemetry, Web Vitals, and a capability audit sink for agent traffic. |
 | `/add-content`        | Wire `@pracht/content` / `@pracht/markdown`: collections, Markdown routes, artifacts. |
 | `/add-images`         | Wire `@pracht/image`: `<Image>`, per-target loaders, static variants. |
 | `/add-capabilities`   | Expose typed operations to agents over HTTP, WebMCP, and remote MCP. |

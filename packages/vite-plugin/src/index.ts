@@ -131,6 +131,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const prachtPlugin: Plugin = {
     name: "pracht",
     enforce: "pre",
+    // Tooling that audits the deployable surface must read the configuration
+    // Vite resolved for the production server build. Dev virtual-module
+    // metadata is evaluated with `command: "serve"`, so it cannot answer
+    // honestly when a config callback enables llms.txt only for builds.
+    api: {
+      llmsTxtEnabled: Boolean(resolved.llmsTxt),
+    },
 
     config(_config, env) {
       const isEdge = resolved.adapter.edge === true;

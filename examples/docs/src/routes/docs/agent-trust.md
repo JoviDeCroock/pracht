@@ -237,6 +237,154 @@ auditing can neither rewrite trusted request identity nor break a request.
 
 A capability that calls `invokeCapability()` produces a second event with `transport: "server"` and `via` set to the transport of the request it ran under, so an effect a remote agent triggered through a composing MCP tool reads as `{ transport: "server", via: "mcp" }` rather than looking like an ordinary loader call. `via` is `null` for top-level dispatches and outside a served request.
 
+### Registering More Than One Sink
+
+`setCapabilityAuditHook()` is a single slot — calling it twice replaces the hook. An app that wants both structured logs and metrics uses `addCapabilityAuditListener(name, hook)`, which composes with the single slot and with every differently-named sink, and returns an unsubscribe handle:
+
+```ts [src/server/audit.ts]
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+const stop = addCapabilityAuditListener("metrics", (event) => metrics.record(event));
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stop);
+}
+```
+
+The name is required, and registering the same name again **replaces** that sink. That is what makes the call safe at a module's top level, which is where it belongs. In dev, `@pracht/core` is inlined into Vite's SSR graph and Vite re-executes importers on every save, so a module-scope registration runs again with a fresh closure each time you edit the file. Keyed by name the reload replaces; keyed by function identity it would accumulate one live sink per keystroke, each delivering the same event again and inflating every counter. Pick a stable name per sink (`"otel"`, `"audit-log"`), not a computed one.
+
+Register the returned unsubscribe with Vite's HMR disposal hook, as above. The stable name prevents duplicate delivery when a reload replaces the sink, while disposal removes the old name when the module is deleted or the name changes. The unsubscribe only removes its own registration, so cleanup running after a new registration cannot delete the live sink. Delivery snapshots the registered sinks before invoking any of them, so a sink added or replaced from inside a callback starts receiving events on the next dispatch rather than receiving the current event twice.
+
+Every registered sink receives the same frozen snapshot for every dispatch, on every transport. The contract for all of them:
+
+| Guarantee | What it means for your sink |
+| --- | --- |
+| Never throws into dispatch | A throwing sink is swallowed. Its first failure is reported via `console.warn`, naming the sink; later failures from that sink stay quiet rather than logging one line per capability call. Warn-once is per named registration, so a broken log sink cannot silence a broken metrics sink even when both reuse the same callback. |
+| Never awaited | The hook is invoked synchronously, so keep work before its return or first `await` cheap. A returned promise is not awaited; its asynchronous continuation does not add dispatch latency, but an unhandled rejection is yours to catch. |
+| Runs everywhere | No Node-only APIs, so the same sink works on Node, Workers, Vercel, and Netlify. |
+
+**Cloudflare Workers caveat.** Work started inside a sink but unfinished when the response is returned may be cancelled once the request context ends. Pracht does not call `ctx.waitUntil()` for you — it holds no handle on your sink's promises. A batching exporter must either flush within the request or be handed the execution context by your own code, for example `context.executionContext.waitUntil(exporter.flush())` from a middleware or API route.
+
+### Production Recipes
+
+A plain structured log is the whole loop for most apps — one line per dispatch, queryable by capability, transport, and outcome:
+
+```ts [src/server/audit.ts]
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
+  // Synchronous and allocation-light: safe on every runtime.
+  console.log(
+    JSON.stringify({
+      msg: "capability",
+      at: new Date().toISOString(),
+      capability: event.capability,
+      effect: event.effect,
+      transport: event.transport,
+      via: event.via,
+      outcome: event.outcome,
+      status: event.status,
+      durationMs: Math.round(event.durationMs),
+      agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
+    }),
+  );
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAuditLog);
+}
+```
+
+The OpenTelemetry version records dispatch counts and schema/authorization failure rates. Derive trusted agent activation from verified identities, MCP, and MCP-caused composition. Unsigned HTTP and WebMCP dispatches are ambiguous: the former may be a human `<Form capability>` submission or browser-client call, and the latter is only a client-declared marker:
+
+```ts [src/server/audit-otel.ts]
+import { metrics, SpanStatusCode, trace } from "@opentelemetry/api";
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+const meter = metrics.getMeter("pracht.capabilities");
+const dispatches = meter.createCounter("pracht.capability.dispatches");
+const duration = meter.createHistogram("pracht.capability.duration", { unit: "ms" });
+const tracer = trace.getTracer("pracht.capabilities");
+
+const stopOtel = addCapabilityAuditListener("otel", (event) => {
+  const attributes = {
+    "pracht.capability": event.capability,
+    "pracht.effect": event.effect,
+    "pracht.transport": event.transport,
+    "pracht.via": event.via ?? "none",
+    "pracht.outcome": event.outcome,
+    "pracht.agent": event.agent?.agentDomain ?? event.agent?.keyId ?? "unverified",
+  };
+
+  const completed = event.outcome === "ok" || (event.status >= 200 && event.status < 300);
+
+  dispatches.add(1, attributes);
+  duration.record(event.durationMs, attributes);
+
+  // The dispatch already finished, so the span is backdated to its real start
+  // rather than wrapping work that is still running.
+  const end = Date.now();
+  const span = tracer.startSpan(`capability ${event.capability}`, {
+    attributes: { ...attributes, "http.response.status_code": event.status },
+    startTime: end - event.durationMs,
+  });
+  if (!completed) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: event.outcome });
+  }
+  span.end(end);
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopOtel);
+}
+```
+
+Both modules are server-only. Import them from an eagerly loaded server module: the configured adapter `createContextFrom` module is one portable option, and a custom server entry can import them directly. Route, API, middleware, and `src/server/` registry modules are lazy, so importing the sink only from an unrelated registered module can miss earlier capability calls. See [Logging and observability](/docs/recipes-logging) for the surrounding request-level tracing setup.
+
+### Watching Agent Traffic In Dev
+
+`pracht dev` keeps the last 200 audit events in memory and renders them as the **Agents** section of the `/_pracht` devtools page — timestamp, capability, transport, effect, verified agent, outcome with error code, and duration, one row per dispatch, newest first. Nested composition shows both ends of the causal chain (`http → server`).
+
+The same data is available as machine-readable JSON at `/_pracht.json`:
+
+```json
+{
+  "agentTraffic": {
+    "limit": 200,
+    "recorded": 3,
+    "events": [
+      {
+        "at": 1787718593323,
+        "capability": "notes.search",
+        "effect": "read",
+        "transport": "mcp",
+        "via": null,
+        "outcome": "ok",
+        "status": 200,
+        "durationMs": 0.28,
+        "agent": null
+      }
+    ]
+  }
+}
+```
+
+`recorded` is the total since the dev server started, so the panel can say how many older events the ring buffer dropped. Transport counts and empty-state conclusions only describe the retained events; once older events have been dropped, the panel does not claim whether those older dispatches were external or first-party. The buffer also outlives app-graph HMR, so removing the final capability keeps its retained traffic visible until the dev server restarts; an app that has never registered a capability or recorded a dispatch still omits the Agents section. This is a development tool only: the buffer lives in the Vite dev middleware, so nothing about it reaches a production bundle, adapter, or endpoint. Under adapter-owned dev servers (Cloudflare `workerd`) that middleware is never registered, so `/_pracht` and `/_pracht.json` do not exist there at all — they 404 rather than answering with an empty log.
+
+The JSON keeps every recorded dispatch and carries `transport` on each, so consumers filter for themselves. The page separates three categories. Verified identities, MCP, and MCP-caused composition are **agent-attributed**. Top-level unsigned HTTP, HTTP-caused composition (`transport: "server"`, `via: "http"`), and WebMCP stay visible but are counted as unverified client **dispatches** because the request may come from a person, an unsigned agent, or another client, while the WebMCP marker is caller-controlled. Only `invokeCapability()` work with no served-request provenance is hidden behind a "show first-party" toggle. A non-null verified identity qualifies as agent-attributed, including when the agent enters through a page or ordinary API route and that composed dispatch is its only row.
+
+### What Is Not Audited
+
+The audit trail covers *dispatch*. Several rejections happen before a capability is dispatched and emit no event at all:
+
+- **Cross-origin mutation requests** are refused with a `cross_origin_blocked` 403 before the capability pipeline is entered.
+- **Unknown paths under the default `/api/capabilities/*` prefix** answer the typed `unknown_capability` 404 before ordinary route matching. An unmatched custom capability path can instead fall through to an application route.
+- **Unknown or unexposed MCP tool names** are answered as a JSON-RPC `invalid_params` protocol error before dispatch.
+
+An agent — or a scanner — enumerating tool names or probing capability URLs therefore leaves no trace in the audit trail. Absence of events is not evidence that nothing tried. Use the deployment's HTTP access log for reconnaissance detection, and treat the audit trail as the record of what actually ran.
+
+To see the *configured* surface rather than live traffic, run [`pracht inspect agents`](/docs/cli#pracht-inspect). Its `llmsTxt` state comes from the Vite plugin's resolved production server-build configuration, including computed options, rather than a source-text guess or the development configuration. When the CLI is newer than an installed Vite plugin that does not expose that metadata yet, the state is `null` in JSON and `unknown` in text until the plugin is upgraded — never a false opt-out.
+
 ### Remote MCP Composition Is Guarded
 
 `invokeCapability()` is trusted first-party composition. It runs the callee's own pipeline — input validation, its named middleware, `run()`, output validation — without re-running app-level `api.middleware`, so private capabilities remain useful as server-side building blocks.

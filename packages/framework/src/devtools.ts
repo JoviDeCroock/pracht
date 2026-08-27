@@ -33,7 +33,43 @@ export type {
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
 
-export function buildDevtoolsHtml(graph: AppGraph, options: { base?: string } = {}): string {
+/**
+ * One recorded capability dispatch, as the dev devtools show it. A flattened
+ * projection of `CapabilityAuditEvent` plus the wall-clock time the dev server
+ * observed it — the audit event itself carries no timestamp, because a
+ * production sink stamps events with its own clock.
+ */
+export interface AgentTrafficEvent {
+  /** Unix milliseconds, stamped when the dev server recorded the dispatch. */
+  at: number;
+  capability: string;
+  effect: string;
+  /** `"http" | "server" | "webmcp" | "mcp"` — how the dispatch arrived. */
+  transport: string;
+  /** Causal transport for nested `invokeCapability()` dispatches, else `null`. */
+  via: string | null;
+  /** `"ok"` or the envelope error code. */
+  outcome: string;
+  status: number;
+  durationMs: number;
+  /** Verified agent identity, `null` when unsigned or Web Bot Auth is off. */
+  agent: { agentDomain: string | null; keyId: string } | null;
+}
+
+/** The `agentTraffic` field of `/_pracht.json`. */
+export interface DevtoolsAgentTraffic {
+  /** Ring-buffer capacity — older events past this count are dropped. */
+  limit: number;
+  /** Total dispatches observed since the dev server started; survives eviction. */
+  recorded: number;
+  /** Newest first, at most `limit` entries. */
+  events: AgentTrafficEvent[];
+}
+
+export function buildDevtoolsHtml(
+  graph: AppGraph,
+  options: { base?: string; agentTraffic?: DevtoolsAgentTraffic } = {},
+): string {
   const base = options.base ?? "/";
   const routeRows = graph.routes
     .map(
@@ -91,6 +127,79 @@ export function buildDevtoolsHtml(graph: AppGraph, options: { base?: string } = 
 ${capabilityRows}
       </tbody>
     </table>`
+      : "";
+
+  const trafficEvents = options.agentTraffic?.events ?? [];
+  const trafficKinds = trafficEvents.map(classifyAgentTraffic);
+  const agentCount = trafficKinds.filter((kind) => kind === "agent").length;
+  const unverifiedDispatchCount = trafficKinds.filter(
+    (kind) => kind === "unverified-client",
+  ).length;
+  const composedCount = trafficKinds.filter((kind) => kind === "first-party").length;
+  const droppedCount = Math.max(
+    0,
+    (options.agentTraffic?.recorded ?? trafficEvents.length) - trafficEvents.length,
+  );
+
+  const trafficRows = trafficEvents
+    .map(
+      (event) => `<tr${classifyAgentTraffic(event) === "first-party" ? ` class="composed"` : ""}>
+        <td class="file">${escapeHtml(formatEventTime(event.at))}</td>
+        <td>${escapeHtml(event.capability)}</td>
+        <td>${escapeHtml(formatTransport(event))}</td>
+        <td>${escapeHtml(event.effect)}</td>
+        <td>${escapeHtml(formatAgent(event.agent))}</td>
+        <td class="${agentTrafficSucceeded(event) ? "ok" : "err"}">${escapeHtml(formatOutcome(event))}</td>
+        <td class="file">${escapeHtml(formatDuration(event.durationMs))}</td>
+      </tr>`,
+    )
+    .join("\n");
+
+  // First-party composition with no served-request provenance is hidden behind
+  // a CSS-only toggle rather than dropped. HTTP-caused composition stays
+  // visible because an unsigned request may have come from an agent or another
+  // external client.
+  const composedToggle =
+    composedCount > 0
+      ? `<input type="checkbox" id="pracht-show-composed" class="toggle-input">
+    <label class="toggle" for="pracht-show-composed">Show ${composedCount} first-party <code>invokeCapability()</code> dispatch${composedCount === 1 ? "" : "es"}</label>
+    `
+      : "";
+
+  const trafficTable = `${composedToggle}<table>
+      <thead><tr><th>Time (UTC)</th><th>Capability</th><th>Transport</th><th>Effect</th><th>Agent</th><th>Outcome</th><th>Duration</th></tr></thead>
+      <tbody>
+${trafficRows}
+      </tbody>
+    </table>`;
+
+  // An app with no capabilities and no retained traffic has no agent surface
+  // to observe, so its devtools page stays byte-for-byte unchanged. The buffer
+  // outlives app-graph HMR, though: after the final capability is removed, keep
+  // its recorded history visible for the rest of the dev-server session.
+  const agentsSection =
+    (graph.capabilities ?? []).length > 0 || (options.agentTraffic?.recorded ?? 0) > 0
+      ? `<h2>Agents${agentTrafficCaption(
+          options.agentTraffic,
+          agentCount,
+          unverifiedDispatchCount,
+          composedCount,
+        )}</h2>
+    ${
+      trafficEvents.length === 0
+        ? `<p class="empty">No capability dispatches recorded yet. Call a capability over HTTP, WebMCP, or MCP and reload.</p>`
+        : agentCount === 0 && unverifiedDispatchCount === 0
+          ? `<p class="empty">${
+              droppedCount > 0
+                ? "No agent-attributed traffic in the retained window. Older dropped dispatches may include agent traffic."
+                : "No agent-attributed traffic yet — every recorded dispatch is this app calling itself."
+            }</p>
+    ${trafficTable}`
+          : agentCount === 0
+            ? `<p class="empty">No agent-attributed traffic in the retained window. Unverified HTTP-caused and WebMCP dispatches may be people, agents, or other clients.</p>
+    ${trafficTable}`
+            : trafficTable
+    }`
       : "";
 
   const apiSection =
@@ -180,6 +289,36 @@ ${apiRows}
     .file {
       color: #888;
     }
+    .ok {
+      color: #8ce99a;
+    }
+    .err {
+      color: #ffa8a8;
+    }
+    /* CSS-only disclosure: the page ships no JavaScript of its own. */
+    .toggle-input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .toggle {
+      display: inline-block;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: #a0c4ff;
+      cursor: pointer;
+      border-bottom: 1px dotted #4c6ef5;
+    }
+    .toggle-input:focus-visible + .toggle {
+      outline: 2px solid #4c6ef5;
+      outline-offset: 2px;
+    }
+    tr.composed {
+      display: none;
+    }
+    .toggle-input:checked ~ table tr.composed {
+      display: table-row;
+    }
     .empty {
       font-size: 13px;
       color: #888;
@@ -210,15 +349,126 @@ ${notFoundRow}
     </table>
     ${apiSection}
     ${capabilitiesSection}
+    ${agentsSection}
     <div class="hint">
       Raw JSON at <a href="${escapeHtml(withDevBase(DEVTOOLS_JSON_PATH, base))}">${DEVTOOLS_JSON_PATH}</a> ·
-      same data as <code>pracht inspect --json</code> ·
+      same graph as <code>pracht inspect --json</code>, plus a dev-only
+      <code>agentTraffic</code> log ·
+      configured agent surface: <code>pracht inspect agents</code> ·
       per-request middleware/loader/render timings are on the <code>Server-Timing</code>
       response header in the browser Network panel.
     </div>
   </div>
 </body>
 </html>`;
+}
+
+/**
+ * Classify a dispatch as agent-attributed, ambiguous unverified client
+ * traffic, or the app composing its own capabilities.
+ *
+ * `transport: "server"` is `invokeCapability()`. A call with no `via` is
+ * first-party work outside a served request. Under a served HTTP request the
+ * same call has `via: "http"`, which is ambiguous: an ordinary page or API
+ * route can be driven by a person, an unsigned agent, or another client, and
+ * there may be no top-level capability row to preserve that provenance. Keep
+ * it visible with the other unverified client traffic. A nested call composed
+ * under remote MCP (`via: "mcp"`) is trusted agent attribution.
+ *
+ * Top-level unsigned HTTP is also ambiguous: Pracht's human `<Form capability>`
+ * and browser client use the same endpoint as an HTTP agent. The WebMCP marker
+ * is client-declared and equally untrusted. Keep both rows visible, but never
+ * count them as agent-attributed without a verified identity or trusted MCP
+ * provenance.
+ */
+type AgentTrafficKind = "agent" | "unverified-client" | "first-party";
+
+function classifyAgentTraffic(event: AgentTrafficEvent): AgentTrafficKind {
+  if (event.agent !== null || event.transport === "mcp" || event.via === "mcp") {
+    return "agent";
+  }
+  if (event.transport === "http" || event.transport === "webmcp" || event.via === "http") {
+    return "unverified-client";
+  }
+  return "first-party";
+}
+
+/**
+ * `— 3 agent-attributed dispatches (mcp 3) · 3 unverified client dispatches ·
+ * 8 first-party · 4 older dropped`. The separate unverified count prevents
+ * human form, browser-client, and spoofed WebMCP calls from masquerading as
+ * agent activation, and the dropped count tells a reader that the visible log
+ * is only a tail.
+ */
+function agentTrafficCaption(
+  traffic: DevtoolsAgentTraffic | undefined,
+  agentCount: number,
+  unverifiedDispatchCount: number,
+  composedCount: number,
+): string {
+  if (!traffic || traffic.recorded === 0) return "";
+
+  const byTransport = new Map<string, number>();
+  for (const event of traffic.events) {
+    if (classifyAgentTraffic(event) !== "agent") continue;
+    byTransport.set(event.transport, (byTransport.get(event.transport) ?? 0) + 1);
+  }
+  const breakdown = [...byTransport]
+    .map(([transport, count]) => `${transport} ${count}`)
+    .join(" · ");
+
+  const parts = [`${agentCount} agent-attributed dispatch${agentCount === 1 ? "" : "es"}`];
+  if (breakdown !== "") parts[0] += ` (${breakdown})`;
+  if (unverifiedDispatchCount > 0) {
+    parts.push(
+      `${unverifiedDispatchCount} unverified client dispatch${unverifiedDispatchCount === 1 ? "" : "es"}`,
+    );
+  }
+  if (composedCount > 0) parts.push(`${composedCount} first-party`);
+  const dropped = Math.max(0, traffic.recorded - traffic.events.length);
+  if (dropped > 0) parts.push(`${dropped} older dropped`);
+
+  return escapeHtml(` — ${parts.join(" · ")}`);
+}
+
+/** `HH:MM:SS.mmm` in UTC — stable across locales and trivially testable. */
+function formatEventTime(at: number): string {
+  return new Date(at).toISOString().slice(11, 23);
+}
+
+/**
+ * A nested dispatch is rendered as `http → server`: the transport the request
+ * arrived on, then the composed dispatch it caused.
+ */
+function formatTransport(event: AgentTrafficEvent): string {
+  return event.via ? `${event.via} → ${event.transport}` : event.transport;
+}
+
+/**
+ * In-process dispatch is routinely sub-millisecond; rounding those to `0ms`
+ * reads as "not measured" rather than "fast".
+ */
+function formatDuration(durationMs: number): string {
+  return durationMs < 1 ? "<1ms" : `${Math.round(durationMs)}ms`;
+}
+
+function formatOutcome(event: AgentTrafficEvent): string {
+  return `${event.outcome} (${event.status})`;
+}
+
+/**
+ * A completed dispatch normally has a 2xx status. The progressive no-JS form
+ * path is the exception: after the capability succeeds it redirects back to
+ * the document with `outcome: "ok"`. Middleware redirects also have a 3xx
+ * status, but their `middleware_3xx` outcome means the capability never ran.
+ */
+function agentTrafficSucceeded(event: AgentTrafficEvent): boolean {
+  return event.outcome === "ok" || (event.status >= 200 && event.status < 300);
+}
+
+function formatAgent(agent: AgentTrafficEvent["agent"]): string {
+  if (!agent) return "—";
+  return agent.agentDomain ?? agent.keyId;
 }
 
 function routeLinkHtml(route: AppGraphRoute, base: string): string {

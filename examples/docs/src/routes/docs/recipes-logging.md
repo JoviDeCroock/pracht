@@ -233,3 +233,48 @@ export const POST = withRequestLogging(async ({ request, context }) => {
 ```
 
 Multiple wrappers compose: `withRequestLogging(withAuth(handler))`.
+
+---
+
+## Agent Traffic
+
+Request logging covers pages and API routes. Capability dispatches get their own structured event — one per call, on every transport, including nested `invokeCapability()` composition — so agent traffic is observable without instrumenting each capability.
+
+```ts [src/server/audit.ts]
+import { addCapabilityAuditListener } from "@pracht/core/server";
+
+const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
+  console.log(
+    JSON.stringify({
+      msg: "capability",
+      at: new Date().toISOString(),
+      capability: event.capability,
+      effect: event.effect,
+      transport: event.transport, // "http" | "webmcp" | "mcp" | "server"
+      via: event.via, // causal transport for nested dispatches
+      outcome: event.outcome, // "ok" or the envelope error code
+      status: event.status,
+      durationMs: Math.round(event.durationMs),
+      agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
+    }),
+  );
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(stopAuditLog);
+}
+```
+
+Import the module from an eagerly loaded server module. The `createContextFrom` module configured earlier on this page is loaded with the generated adapter entry, so adding `import "./audit.ts"` there registers the sink before request handling. A custom server entry can import it directly. Do not rely on an unrelated route, API route, middleware, or `src/server/` registry module: those modules are lazy and can miss earlier capability calls. Keep the HMR disposal hook so removing the module or renaming the sink cannot leave a stale listener in the dev server.
+
+Sinks are invoked synchronously, so keep work before the callback returns or reaches its first `await` cheap. A returned promise is never awaited, and a sink that throws synchronously is swallowed (the first failure per named registration is reported once via `console.warn`). On Cloudflare Workers, a batching exporter must flush within the request or be handed the execution context by your own code — pracht does not call `ctx.waitUntil()` on a sink's behalf.
+
+The three metrics worth deriving from these events:
+
+| Metric | Derivation | What it tells you |
+| --- | --- | --- |
+| Activation | Count verified identities, MCP, and MCP-caused composition; keep top-level unsigned HTTP, HTTP-caused composition, and client-declared WebMCP separate | Whether attributable agents are visiting, without trusting spoofable client markers or counting human forms as agents |
+| Task completion | Ratio where `outcome === "ok"` or status is 2xx, per `capability` | Whether they can finish what they came for, including successful middleware short-circuits without counting middleware redirects |
+| Contract failures | Count of `invalid_input` / `invalid_output` / `unauthorized` | Whether your schemas or auth are what is blocking them |
+
+In development, the same events are already collected for you: the **Agents** section of `/_pracht` shows the last 200 dispatches, and `/_pracht.json` exposes them under `agentTraffic`. Adapter-owned dev servers do not register that middleware, so Cloudflare `workerd` returns 404 for both paths; validate the sink from its own output there. See [Agent trust](/docs/agent-trust#audit-trail) for the full event shape and an OpenTelemetry recipe.

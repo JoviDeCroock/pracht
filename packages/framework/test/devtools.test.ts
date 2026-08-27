@@ -214,6 +214,454 @@ describe("buildDevtoolsHtml", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Agent traffic panel
+// ---------------------------------------------------------------------------
+
+const capabilityGraphFixture: AppGraph = {
+  ...graphFixture,
+  capabilities: [
+    {
+      agentPolicy: null,
+      description: null,
+      effect: "read",
+      hasUi: false,
+      httpPath: "/api/capabilities/notes/search",
+      input: null,
+      middleware: [],
+      name: "notes.search",
+      output: null,
+      source: "./capabilities/notes-search.ts",
+      title: null,
+      transports: ["http"],
+    },
+  ],
+};
+
+describe("buildDevtoolsHtml — agent traffic", () => {
+  it("omits the Agents section for an app with no capabilities", () => {
+    const html = buildDevtoolsHtml(graphFixture, {
+      agentTraffic: { limit: 200, recorded: 0, events: [] },
+    });
+
+    expect(html).not.toContain("<h2>Agents");
+  });
+
+  it("keeps retained traffic visible after the final capability is removed", () => {
+    const html = buildDevtoolsHtml(graphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.removed",
+            effect: "read",
+            transport: "mcp",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 1 agent-attributed dispatch (mcp 1)</h2>");
+    expect(html).toContain("notes.removed");
+  });
+
+  it("shows an empty state once capabilities exist but nothing has been called", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: { limit: 200, recorded: 0, events: [] },
+    });
+
+    expect(html).toContain("<h2>Agents</h2>");
+    expect(html).toContain("No capability dispatches recorded yet.");
+  });
+
+  it("separates unverified dispatches from agent-attributed and first-party traffic", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 4,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 14, 0),
+            capability: "notes.stats",
+            effect: "read",
+            transport: "server",
+            // An unsigned request to a page or API route can produce this as
+            // its only row, so HTTP-caused composition remains ambiguous.
+            via: "http",
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: null,
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 13, 0),
+            capability: "notes.archive",
+            effect: "write",
+            transport: "server",
+            // Composed under a remote MCP request: trusted dispatch state, so
+            // this effect really was agent-caused and stays in the default view.
+            via: "mcp",
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: null,
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 12, 0),
+            capability: "notes.internal",
+            effect: "read",
+            transport: "server",
+            // No served-request provenance: genuinely first-party work.
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(
+      "<h2>Agents — 1 agent-attributed dispatch (server 1) · 2 unverified client dispatches · 1 first-party</h2>",
+    );
+    expect(html).toContain("Show 1 first-party");
+    // Only the call without HTTP or MCP provenance is collapsed.
+    expect(html).toContain(`<tr class="composed">\n        <td class="file">09:30:12.000</td>`);
+    expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:14.000</td>`);
+    expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:13.000</td>`);
+    expect(html).not.toContain(`<tr class="composed">\n        <td class="file">09:30:15.000</td>`);
+    // The toggle is CSS-only — the page still ships no JavaScript of its own.
+    expect(html).toContain(`<input type="checkbox" id="pracht-show-composed"`);
+    expect(html).not.toContain("<script");
+  });
+
+  it("keeps an unsigned WebMCP marker in the unverified client category", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.search",
+            effect: "read",
+            transport: "webmcp",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(
+      "<h2>Agents — 0 agent-attributed dispatches · 1 unverified client dispatch</h2>",
+    );
+    expect(html).toContain(
+      "Unverified HTTP-caused and WebMCP dispatches may be people, agents, or other clients.",
+    );
+  });
+
+  it("omits the toggle when nothing is first-party", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.search",
+            effect: "read",
+            transport: "mcp",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 1 agent-attributed dispatch (mcp 1)</h2>");
+    expect(html).not.toContain("first-party");
+    expect(html).not.toContain("<input");
+  });
+
+  it("keeps verified HTTP-originated composition in the agent view", () => {
+    // A verified agent may call an ordinary API or page route whose loader
+    // composes a capability. That produces no top-level capability row, so the
+    // nested dispatch itself must stay visible.
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.search",
+            effect: "read",
+            transport: "server",
+            via: "http",
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: { agentDomain: "agent.example", keyId: "kid-1" },
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 1 agent-attributed dispatch (server 1)</h2>");
+    expect(html).not.toContain("first-party");
+    expect(html).not.toContain(`<tr class="composed">`);
+  });
+
+  it("says so when every recorded dispatch has no served-request provenance", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.stats",
+            effect: "read",
+            transport: "server",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 0 agent-attributed dispatches · 1 first-party</h2>");
+    expect(html).toContain("No agent-attributed traffic yet");
+    // The rows are still reachable through the toggle.
+    expect(html).toContain("Show 1 first-party");
+  });
+
+  it("does not classify agent traffic that has already been dropped", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 1,
+        recorded: 201,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 0),
+            capability: "notes.stats",
+            effect: "read",
+            transport: "server",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("No agent-attributed traffic in the retained window.");
+    expect(html).toContain("Older dropped dispatches may include agent traffic.");
+    expect(html).not.toContain("every recorded dispatch is this app calling itself");
+  });
+
+  it("renders one row per dispatch with transport, agent, outcome and duration", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 2,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "mcp",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 4.2,
+            agent: { agentDomain: "agent.example", keyId: "kid-1" },
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 14, 0),
+            capability: "notes.purge",
+            effect: "destructive",
+            transport: "server",
+            via: "mcp",
+            outcome: "confirmation_required",
+            status: 409,
+            durationMs: 11,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain("<h2>Agents — 2 agent-attributed dispatches (mcp 1 · server 1)</h2>");
+    expect(html).toContain("09:30:15.250");
+    expect(html).toContain("agent.example");
+    expect(html).toContain(`<td class="ok">ok (200)</td>`);
+    expect(html).toContain("4ms");
+    expect(html).toContain("11ms");
+    // Nested composition names the transport it was composed under.
+    expect(html).toContain("mcp → server");
+    expect(html).toContain(`<td class="err">confirmation_required (409)</td>`);
+    // No verified identity renders as the em dash the other tables use.
+    expect(html).toContain("<td>destructive</td>\n        <td>—</td>");
+  });
+
+  it("renders successful middleware short-circuits as successes", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "middleware_204",
+            status: 204,
+            durationMs: 1,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(`<td class="ok">middleware_204 (204)</td>`);
+    expect(html).not.toContain(`<td class="err">middleware_204 (204)</td>`);
+  });
+
+  it("distinguishes completed form redirects from middleware redirects", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 2,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "middleware_302",
+            status: 302,
+            durationMs: 1,
+            agent: null,
+          },
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 14, 250),
+            capability: "notes.create",
+            effect: "write",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 303,
+            durationMs: 2,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(`<td class="err">middleware_302 (302)</td>`);
+    expect(html).toContain(`<td class="ok">ok (303)</td>`);
+  });
+
+  it("says how many older events the ring buffer dropped", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 1,
+        recorded: 5,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "notes.search",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 0.4,
+            agent: null,
+          },
+        ],
+      },
+    });
+
+    expect(html).toContain(
+      "<h2>Agents — 0 agent-attributed dispatches · 1 unverified client dispatch · 4 older dropped</h2>",
+    );
+    expect(html).toContain(
+      "Unverified HTTP-caused and WebMCP dispatches may be people, agents, or other clients.",
+    );
+    // Sub-millisecond in-process dispatch must not round to a misleading 0ms.
+    expect(html).toContain("&lt;1ms");
+  });
+
+  it("escapes capability and agent values", () => {
+    const html = buildDevtoolsHtml(capabilityGraphFixture, {
+      agentTraffic: {
+        limit: 200,
+        recorded: 1,
+        events: [
+          {
+            at: Date.UTC(2026, 7, 26, 9, 30, 15, 250),
+            capability: "<script>alert(1)</script>",
+            effect: "read",
+            transport: "http",
+            via: null,
+            outcome: "ok",
+            status: 200,
+            durationMs: 1,
+            agent: { agentDomain: "<img onerror=x>", keyId: "kid" },
+          },
+        ],
+      },
+    });
+
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("&lt;img onerror=x&gt;");
+  });
+
+  it("renders unchanged when no traffic is supplied at all", () => {
+    expect(buildDevtoolsHtml(capabilityGraphFixture)).toContain("<h2>Agents</h2>");
+    expect(buildDevtoolsHtml(capabilityGraphFixture)).toContain(
+      "No capability dispatches recorded yet.",
+    );
+  });
+});
+
 describe("buildAppGraph", () => {
   it("fails a strict API graph read with the route, file, and original module error", async () => {
     await expect(

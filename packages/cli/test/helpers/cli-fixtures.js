@@ -201,7 +201,13 @@ export const app = defineApp({
   );
 }
 
-export function writeTypedManifestApp(appDir, { capabilities = false } = {}) {
+/**
+ * `agents: true` additionally configures the app-level agent surface (Web Bot
+ * Auth, confirmation, remote MCP, llms.txt) and widens `notes.search` onto
+ * every transport. Off by default so the typegen fixtures it is shared with
+ * keep producing byte-identical output.
+ */
+export function writeTypedManifestApp(appDir, { capabilities = false, agents = false } = {}) {
   const vitePluginImport = pathToFileURL(vitePluginImportPath).href;
 
   writeProjectFile(
@@ -224,7 +230,7 @@ export function writeTypedManifestApp(appDir, { capabilities = false } = {}) {
 import { pracht } from ${JSON.stringify(vitePluginImport)};
 
 export default defineConfig({
-  plugins: [pracht()],
+  plugins: [pracht(${agents ? `{ llmsTxt: { title: "Fixture app" } }` : ""})],
   resolve: {
     alias: {
       "@pracht/adapter-node": ${JSON.stringify(nodeAdapterImportPath)},
@@ -242,16 +248,29 @@ export default defineConfig({
 
 export const app = defineApp({
 ${
-  capabilities
-    ? `  capabilities: {
+  agents
+    ? `  agents: {
+    webBotAuth: {
+      policy: "require",
+      keys: [{ x: "cV0kXWRRfDlPS0hRfEFPS0hRfEFPS0hRfEFPS0hRfEE", agent: "agent.example" }],
+      directories: ["https://signature-agent.example"],
+    },
+    confirmation: { mode: "token", ttlSeconds: 300, singleUse: true },
+    mcp: { path: "/mcp" },
+  },
+`
+    : ""
+}${
+      capabilities
+        ? `  capabilities: {
     "notes.search": () => import("./capabilities/notes-search.ts"),
     "notes.set-status": () => import("./capabilities/notes-set-status.ts"),
     "notes.purge": () => import("./capabilities/notes-purge.ts"),
     "notes.stats": () => import("./capabilities/notes-stats.ts"),
   },
 `
-    : ""
-}  routes: [
+        : ""
+    }  routes: [
     route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
     route("/products/:id", "./routes/product.tsx", { id: "product", render: "ssr" }),
     route("/dashboard", {
@@ -288,7 +307,7 @@ export default defineCapability({
     required: ["notes"],
   },
   effect: "read",
-  expose: { http: true },
+  expose: ${agents ? `{ http: true, webmcp: true, mcp: true }` : `{ http: true }`},
   async run() {
     return { notes: [] };
   },

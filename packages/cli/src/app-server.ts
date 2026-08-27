@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createServer, type InlineConfig, type ViteDevServer } from "vite";
+import { createServer, resolveConfig, type InlineConfig, type ViteDevServer } from "vite";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 
 import { loadAppMetadataModule } from "./app-graph.js";
@@ -12,6 +12,64 @@ export interface AppServerContext {
   project: ProjectConfig;
   server: ViteDevServer;
   serverModule: Record<string, any>;
+}
+
+interface PrachtPluginWithMetadata {
+  name?: string;
+  api?: {
+    llmsTxtEnabled?: unknown;
+  };
+}
+
+/** Read the version-compatible metadata exposed by the resolved pracht plugin. */
+export function readBuildLlmsTxtEnabled(
+  plugins: readonly PrachtPluginWithMetadata[],
+): boolean | null {
+  const enabled = plugins.find((plugin) => plugin.name === "pracht")?.api?.llmsTxtEnabled;
+  return typeof enabled === "boolean" ? enabled : null;
+}
+
+/**
+ * Resolve the same production SSR configuration that emits `generateLlmsTxt`.
+ * A normal graph server uses Vite's `serve` command and development mode, so
+ * reading its options would misreport build- or production-only configuration.
+ */
+export async function resolveBuildLlmsTxtEnabled(root: string): Promise<boolean | null> {
+  const releaseStartup = await acquireGraphStartup();
+  try {
+    enterGraphOnlyMode();
+    const previousNodeEnv = process.env.NODE_ENV;
+    try {
+      const config = await resolveConfig(
+        {
+          root,
+          logLevel: "silent",
+          build: {
+            copyPublicDir: false,
+            rollupOptions: { input: "virtual:pracht/server" },
+            ssr: true,
+          },
+        },
+        "build",
+        "production",
+        "production",
+      );
+      return readBuildLlmsTxtEnabled(config.plugins);
+    } finally {
+      // Vite initializes NODE_ENV from its fourth argument and leaves it set.
+      // This production-only probe runs immediately before the ordinary dev
+      // graph server, so leaking "production" would make the two reads observe
+      // different app configurations for reasons the caller never requested.
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+      exitGraphOnlyMode();
+    }
+  } finally {
+    releaseStartup();
+  }
 }
 
 /**

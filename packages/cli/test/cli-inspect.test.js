@@ -85,10 +85,26 @@ describe("@pracht/cli inspect", () => {
     );
     expect(capabilities).toEqual({ capabilities: [], mode: "manifest" });
 
+    const agents = JSON.parse(runCli(["inspect", "agents", "--json"], { cwd: appDir }).stdout);
+    // An app that configures nothing agent-facing must read as an app with no
+    // agent surface, not as an app with unknown defaults.
+    expect(agents).toEqual({
+      agents: {
+        webBotAuth: { enabled: false, policy: "observe", staticKeys: 0, directories: [] },
+        confirmation: { mode: "token", ttlSeconds: null, singleUse: false },
+        mcp: { enabled: false, endpoint: null },
+        llmsTxt: { enabled: false },
+        capabilities: [],
+        exposure: { http: 0, webmcp: 0, mcp: 0, private: 0 },
+      },
+      mode: "manifest",
+    });
+
     expect(all).toEqual({
       ...routes,
       ...api,
       ...capabilities,
+      ...agents,
       ...build,
     });
   }, 30_000);

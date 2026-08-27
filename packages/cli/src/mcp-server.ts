@@ -70,6 +70,16 @@ export function createPrachtMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "inspect_agents",
+    {
+      description:
+        "Summarize the configured agent surface of a pracht app: Web Bot Auth policy and keys, the destructive-confirmation mode, the remote MCP endpoint, whether llms.txt is generated, and which capabilities are exposed on which transports. Same payload as `pracht inspect agents --json`.",
+      inputSchema: { ...cwdInput },
+    },
+    guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "agents" })),
+  );
+
+  server.registerTool(
     "inspect_build",
     {
       description:

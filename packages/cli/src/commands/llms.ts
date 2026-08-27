@@ -60,9 +60,9 @@ export default defineCommand({
 });
 
 /** Whether the app enables the vite plugin's `llmsTxt` option. */
-function projectPublishesItsOwnLlmsTxt(): boolean {
+function projectPublishesItsOwnLlmsTxt(root: string = process.cwd()): boolean {
   try {
-    const project = readProjectConfig(process.cwd());
+    const project = readProjectConfig(root);
     if (!project.configFile) return false;
     const source = readFileSync(project.configFile, "utf-8");
     // A text probe, matching how the rest of the CLI reads the vite config

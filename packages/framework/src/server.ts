@@ -74,7 +74,9 @@ export type {
   SerializeCapabilitiesOptions,
 } from "./app-graph.ts";
 export {
+  addCapabilityAuditListener,
   capabilityHttpPath,
+  clearCapabilityAuditListeners,
   invokeCapability,
   matchCapabilityRoute,
   resolveAppCapabilities,

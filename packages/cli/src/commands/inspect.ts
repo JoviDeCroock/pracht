@@ -1,21 +1,27 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { serializeApiRoutes, serializeAppRoutes, serializeCapabilities } from "@pracht/core";
+import {
+  resolveMcpEndpoint,
+  serializeApiRoutes,
+  serializeAppRoutes,
+  serializeCapabilities,
+} from "@pracht/core";
 import type {
   AppGraphApiRoute,
   AppGraphCapability,
   AppGraphRoute,
+  PrachtAgentsConfig,
   ResolvedApiRoute,
 } from "@pracht/core";
 import { defineCommand } from "citty";
 
 import { capabilityModuleLoader, createSourceReader } from "../app-graph.js";
-import { withAppServer } from "../app-server.js";
+import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
 import { handleCliError } from "../utils.js";
 import { readClientBuildAssets } from "../build-metadata.js";
 
-const INSPECT_TARGETS = new Set(["routes", "api", "capabilities", "build", "all"]);
+const INSPECT_TARGETS = new Set(["routes", "api", "capabilities", "agents", "build", "all"]);
 
 export default defineCommand({
   meta: {
@@ -25,7 +31,7 @@ export default defineCommand({
   args: {
     target: {
       type: "positional",
-      description: "Inspect target: routes, api, capabilities, build, or all",
+      description: "Inspect target: routes, api, capabilities, agents, build, or all",
       required: false,
     },
     json: {
@@ -70,7 +76,50 @@ export interface InspectRoute extends AppGraphRoute {
   hydrationEffective: string;
 }
 
+/**
+ * The configured agent surface, rolled up from the same resolved manifest the
+ * other targets read. Answers "what can an agent reach, on which transport,
+ * under which policy" without making a reviewer diff the per-capability list
+ * against `defineApp({ agents })` by hand.
+ */
+export interface InspectAgents {
+  webBotAuth: {
+    enabled: boolean;
+    /** App-wide default policy; `"observe"` when unset. */
+    policy: string;
+    staticKeys: number;
+    directories: string[];
+  };
+  confirmation: {
+    /** `"token"` unless the app opts into human approval. */
+    mode: string;
+    ttlSeconds: number | null;
+    singleUse: boolean;
+  };
+  mcp: {
+    enabled: boolean;
+    /** Endpoint pathname, or `null` when `agents.mcp` is unconfigured. */
+    endpoint: string | null;
+  };
+  llmsTxt: {
+    /** Whether the resolved vite plugin configuration enables `llmsTxt`. */
+    enabled: boolean | null;
+  };
+  /** One row per capability, in manifest order. */
+  capabilities: {
+    name: string;
+    effect: string | null;
+    /** Per-capability override of the app-wide Web Bot Auth policy. */
+    agentPolicy: string | null;
+    transports: string[];
+    httpPath: string | null;
+  }[];
+  /** How many capabilities each transport exposes; `private` means none. */
+  exposure: { http: number; webmcp: number; mcp: number; private: number };
+}
+
 export interface InspectReport {
+  agents?: InspectAgents;
   api?: AppGraphApiRoute[];
   capabilities?: AppGraphCapability[];
   build?: {
@@ -97,6 +146,7 @@ export async function runInspect(
 ): Promise<InspectReport> {
   const targets = new Set(Array.isArray(target) ? target : [target]);
   const wants = (name: string) => targets.has(name) || targets.has("all");
+  const llmsTxtEnabled = wants("agents") ? await resolveBuildLlmsTxtEnabled(root) : null;
 
   return withAppServer(root, async ({ project, server, serverModule }) => {
     const report: InspectReport = {
@@ -129,14 +179,28 @@ export async function runInspect(
           }));
     }
 
-    if (wants("capabilities")) {
-      report.capabilities = await serializeCapabilities(
-        serverModule.resolvedApp.capabilities,
-        {
-          loadModule: capabilityModuleLoader(server, serverModule),
-          readSource: createSourceReader(root, project.appFile),
-        },
-        { strict: true },
+    // `agents` is a rollup of the same serialization, so resolve it once.
+    const capabilities =
+      wants("capabilities") || wants("agents")
+        ? await serializeCapabilities(
+            serverModule.resolvedApp.capabilities,
+            {
+              loadModule: capabilityModuleLoader(server, serverModule),
+              readSource: createSourceReader(root, project.appFile),
+            },
+            { strict: true },
+          )
+        : null;
+
+    if (wants("capabilities") && capabilities) {
+      report.capabilities = capabilities;
+    }
+
+    if (wants("agents") && capabilities) {
+      report.agents = summarizeAgentSurface(
+        serverModule.resolvedApp.agents,
+        capabilities,
+        llmsTxtEnabled,
       );
     }
 
@@ -156,6 +220,54 @@ export async function runInspect(
 
     return report;
   });
+}
+
+export function summarizeAgentSurface(
+  agents: PrachtAgentsConfig | undefined,
+  capabilities: AppGraphCapability[],
+  llmsTxtEnabled: boolean | null,
+): InspectAgents {
+  const exposure = { http: 0, webmcp: 0, mcp: 0, private: 0 };
+  for (const capability of capabilities) {
+    if (capability.transports.length === 0) {
+      exposure.private += 1;
+      continue;
+    }
+    for (const transport of capability.transports) {
+      if (transport === "http" || transport === "webmcp" || transport === "mcp") {
+        exposure[transport] += 1;
+      }
+    }
+  }
+
+  return {
+    webBotAuth: {
+      // `agents.webBotAuth` present at all means signatures are verified;
+      // `policy` only decides whether an unverified caller is refused.
+      enabled: agents?.webBotAuth !== undefined,
+      policy: agents?.webBotAuth?.policy ?? "observe",
+      staticKeys: agents?.webBotAuth?.keys?.length ?? 0,
+      directories: agents?.webBotAuth?.directories ?? [],
+    },
+    confirmation: {
+      mode: agents?.confirmation?.mode ?? "token",
+      ttlSeconds: agents?.confirmation?.ttlSeconds ?? null,
+      singleUse: agents?.confirmation?.singleUse ?? false,
+    },
+    mcp: {
+      enabled: agents?.mcp !== undefined,
+      endpoint: resolveMcpEndpoint(agents),
+    },
+    llmsTxt: { enabled: llmsTxtEnabled },
+    capabilities: capabilities.map((capability) => ({
+      name: capability.name,
+      effect: capability.effect,
+      agentPolicy: capability.agentPolicy,
+      transports: capability.transports,
+      httpPath: capability.httpPath,
+    })),
+    exposure,
+  };
 }
 
 function printInspectReport(report: InspectReport): void {
@@ -219,6 +331,59 @@ function printInspectReport(report: InspectReport): void {
           );
         }
       }
+    }
+  }
+
+  if (report.agents) {
+    const agents = report.agents;
+    console.log("\nAgents");
+    console.log(
+      `  webBotAuth=${agents.webBotAuth.enabled ? "on" : "off"}  policy=${agents.webBotAuth.policy}` +
+        `  keys=${agents.webBotAuth.staticKeys}  directories=[${agents.webBotAuth.directories.join(", ")}]`,
+    );
+    console.log(
+      `  confirmation=${agents.confirmation.mode}  ttlSeconds=${agents.confirmation.ttlSeconds ?? "default"}` +
+        `  singleUse=${agents.confirmation.singleUse}`,
+    );
+    console.log(
+      `  mcp=${agents.mcp.enabled ? "on" : "off"}  endpoint=${agents.mcp.endpoint ?? "n/a"}`,
+    );
+    console.log(
+      `  llmsTxt=${
+        agents.llmsTxt.enabled === null
+          ? "unknown (upgrade @pracht/vite-plugin)"
+          : agents.llmsTxt.enabled
+            ? "on"
+            : "off"
+      }`,
+    );
+    console.log(
+      `  exposure  http=${agents.exposure.http}  webmcp=${agents.exposure.webmcp}` +
+        `  mcp=${agents.exposure.mcp}  private=${agents.exposure.private}`,
+    );
+
+    if (agents.capabilities.length === 0) {
+      console.log("  No capability operations registered.");
+    } else {
+      for (const capability of agents.capabilities) {
+        const transports =
+          capability.transports.length > 0 ? capability.transports.join(",") : "private";
+        console.log(
+          `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
+            `policy=${capability.agentPolicy ?? `${agents.webBotAuth.policy} (inherited)`}  ` +
+            `http=${capability.httpPath ?? "n/a"}`,
+        );
+      }
+    }
+
+    // The one silent hole in the surface: exposure recorded in the graph that
+    // nothing serves. `pracht verify` warns about it too; say it here as well,
+    // because this is the command a reviewer runs to answer the question.
+    if (agents.exposure.mcp > 0 && !agents.mcp.enabled) {
+      console.log(
+        "    ! capabilities set expose.mcp but agents.mcp is unconfigured — the exposure is " +
+          "recorded and nothing serves it.",
+      );
     }
   }
 
