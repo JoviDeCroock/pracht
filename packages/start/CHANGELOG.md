@@ -1,5 +1,11 @@
 # create-pracht
 
+## 0.6.3
+
+### Patch Changes
+
+- [#352](https://github.com/JoviDeCroock/pracht/pull/352) [`848e9ad`](https://github.com/JoviDeCroock/pracht/commit/848e9ad55640cc7b93336f43cb17e2054e91dc6b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Publish `virtual.d.ts` and expose it as `@pracht/vite-plugin/virtual`, so apps installed from npm can typecheck `virtual:pracht/*` imports; new scaffolds include it in `compilerOptions.types` automatically.
+
 ## 0.6.2
 
 ### Patch Changes
