@@ -933,6 +933,21 @@ WebMCP is not covered by the reversal and is no longer waiting on a mechanism:
 a page host's approval UX is not a security boundary, so there is nothing
 server-verified for the flow to bind to.
 
+### Addendum (2026-08-27 — WebMCP conformance)
+
+The shim described in spike answer 8 tracked the spec as it stood; the spec
+moved. Chromium removed the deprecated `navigator.modelContext` alias in 152,
+so the shim now targets `document.modelContext` only (the getter landed in
+150; pre-150 origin-trial builds are no longer targeted). `execute()` returns
+the capability envelope as a plain value — the host serializes it per the
+current draft, where the earlier MCP-style content blocks arrived
+double-encoded — and the descriptor gained `title`, the remote projection's
+effect-derived hint set, and an opt-in `untrustedContentHint`
+(`expose.webmcp: { untrustedContent: true }`). ChatGPT's desktop browser
+shipped WebMCP support on 2026-08-25 with no SDK or manifest, which makes the
+"disposable shim over the HTTP projection" design the load-bearing hedge it
+was meant to be.
+
 ## Final Recommendation
 
 > **Status note (2026-08-26).** This document is the original bet, kept as

@@ -21,11 +21,13 @@ import {
   DEFAULT_MCP_ENDPOINT,
   isValidCapabilityHttpPath,
   isValidMcpToolName,
+  isValidWebmcpToolName,
   MCP_CONFIRMATION_META_KEY,
   MCP_SCHEMA_ROOT_ERROR,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
   normalizeCapabilityHttpPath,
+  WEBMCP_TOOL_NAME_ERROR,
 } from "@pracht/capabilities";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import {
@@ -163,6 +165,12 @@ async function resolveAppCapabilitiesUncached(
     }
     if (capability.expose?.webmcp && !capability.expose.http) {
       throw new Error(`Capability "${name}": expose.webmcp requires expose.http.`);
+    }
+    // The registered capability name is projected verbatim as the WebMCP tool
+    // name, and the browser rejects names outside the spec grammar — fail here
+    // rather than letting registration fail silently in the page.
+    if (capability.expose?.webmcp && !isValidWebmcpToolName(name)) {
+      throw new Error(`Capability "${name}": ${WEBMCP_TOOL_NAME_ERROR}.`);
     }
     if (
       capability.expose?.mcp &&

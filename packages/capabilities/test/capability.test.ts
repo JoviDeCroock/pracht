@@ -34,7 +34,40 @@ describe("defineCapability", () => {
 
   it("normalizes expose.http: true to a POST exposure", () => {
     const capability = defineCapability({ ...baseDefinition, expose: { http: true } });
-    expect(capability.expose).toEqual({ http: { method: "POST" }, mcp: false, webmcp: false });
+    expect(capability.expose).toEqual({
+      http: { method: "POST" },
+      mcp: false,
+      webmcp: false,
+      webmcpUntrustedContent: false,
+    });
+  });
+
+  it("normalizes the expose.webmcp options object", () => {
+    const capability = defineCapability({
+      ...baseDefinition,
+      expose: { http: true, webmcp: { untrustedContent: true } },
+    });
+    expect(capability.expose?.webmcp).toBe(true);
+    expect(capability.expose?.webmcpUntrustedContent).toBe(true);
+
+    const plain = defineCapability({ ...baseDefinition, expose: { http: true, webmcp: {} } });
+    expect(plain.expose?.webmcp).toBe(true);
+    expect(plain.expose?.webmcpUntrustedContent).toBe(false);
+  });
+
+  it("rejects invalid expose.webmcp shapes", () => {
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        expose: { http: true, webmcp: "yes" as unknown as true },
+      }),
+    ).toThrow(/"expose\.webmcp" must be a boolean or an options object/);
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        expose: { http: true, webmcp: { untrustedContent: "yes" as unknown as true } },
+      }),
+    ).toThrow(/"untrustedContent" must be a boolean/);
   });
 
   it("keeps custom HTTP paths", () => {

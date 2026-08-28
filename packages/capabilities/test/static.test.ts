@@ -376,3 +376,47 @@ describe("extractCapabilityProjection guard fields", () => {
     expect(opaque.middleware).toBeUndefined();
   });
 });
+
+describe("extractCapabilityProjection webmcp fields", () => {
+  const capability = (expose: string) => `
+    import { defineCapability } from "@pracht/capabilities";
+    export default defineCapability({
+      title: "Search notes",
+      description: "D",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "read",
+      expose: ${expose},
+      async run() { return {}; },
+    });
+  `;
+
+  it("extracts the title and the webmcp options object", () => {
+    const projection = extractCapabilityProjection(
+      "notes.search",
+      capability("{ http: true, webmcp: { untrustedContent: true } }"),
+      (detail) => detail,
+    );
+    expect(projection.title).toBe("Search notes");
+    expect(projection.webmcp).toBe(true);
+    expect(projection.webmcpUntrustedContent).toBe(true);
+
+    const plain = extractCapabilityProjection(
+      "notes.search",
+      capability("{ http: true, webmcp: true }"),
+      (detail) => detail,
+    );
+    expect(plain.webmcp).toBe(true);
+    expect(plain.webmcpUntrustedContent).toBe(false);
+  });
+
+  it("rejects invalid webmcp literals", () => {
+    expect(() =>
+      extractCapabilityProjection(
+        "notes.search",
+        capability('{ http: true, webmcp: "yes" }'),
+        (detail) => detail,
+      ),
+    ).toThrow(/"expose\.webmcp" must be a boolean or an options object/);
+  });
+});

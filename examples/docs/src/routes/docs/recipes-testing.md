@@ -576,12 +576,13 @@ test("webmcp tools register and execute", async ({ page }) => {
   await page.goto("/notes");
   await page.waitForFunction(() => (window as any).__webmcpTools?.length);
 
-  const result = await page.evaluate(() => {
+  const envelope = await page.evaluate(() => {
     const tool = (window as any).__webmcpTools.find((t: any) => t.name === "notes.search");
     return tool.execute({ query: "roadmap" });
   });
 
-  const envelope = JSON.parse(result.content[0].text);
+  // execute() resolves to the capability envelope as a plain value; the
+  // WebMCP host serializes it itself.
   expect(envelope.ok).toBe(true);
 });
 ```

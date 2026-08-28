@@ -225,8 +225,10 @@ test("no-JS form posts hit the same capability contract and redirect back", asyn
 
 interface FakeRegisteredTool {
   name: string;
+  title?: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
 }
 
 test("webmcp shim registers page tools and execute() round-trips over HTTP", async ({ page }) => {
@@ -252,15 +254,24 @@ test("webmcp shim registers page tools and execute() round-trips over HTTP", asy
   const tools = await page.evaluate(() =>
     (window as unknown as { __webmcpTools: FakeRegisteredTool[] }).__webmcpTools.map((tool) => ({
       name: tool.name,
+      title: tool.title,
       description: tool.description,
       inputSchema: tool.inputSchema,
+      annotations: tool.annotations,
     })),
   );
 
   // Only webmcp-exposed capabilities become page tools, with their real schema.
   expect(tools).toHaveLength(1);
   expect(tools[0].name).toBe("notes.search");
+  expect(tools[0].title).toBe("Search notes");
   expect(tools[0].description).toBe("Find notes whose title or body matches the query.");
+  expect(tools[0].annotations).toEqual({
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: true,
+    untrustedContentHint: true,
+  });
   expect(tools[0].inputSchema).toMatchObject({
     type: "object",
     properties: {
@@ -270,19 +281,19 @@ test("webmcp shim registers page tools and execute() round-trips over HTTP", asy
     required: ["query"],
   });
 
-  // execute() dispatches through the HTTP projection with the page's session.
-  const result = await page.evaluate(async () => {
+  // execute() dispatches through the HTTP projection with the page's session
+  // and returns the capability envelope as a plain value — per the WebMCP
+  // spec the host serializes the result itself, so MCP-style content blocks
+  // would reach the agent double-encoded.
+  const envelope = (await page.evaluate(async () => {
     const tool = (
       window as unknown as {
         __webmcpTools: { name: string; execute: (input: unknown) => Promise<unknown> }[];
       }
     ).__webmcpTools.find((candidate) => candidate.name === "notes.search");
     return tool!.execute({ query: "capabilities" });
-  });
+  })) as { ok: boolean; data: { notes: { title: string }[] } };
 
-  const content = (result as { content: { type: string; text: string }[] }).content;
-  expect(content[0].type).toBe("text");
-  const envelope = JSON.parse(content[0].text);
   expect(envelope.ok).toBe(true);
   expect(envelope.data.notes[0].title).toBe("Capabilities");
 });
@@ -304,7 +315,7 @@ test("webmcp execute() aborts its capability request when the host cancels", asy
     () => (window as unknown as { __webmcpTools?: unknown[] }).__webmcpTools?.length,
   );
 
-  const result = await page.evaluate(async () => {
+  const envelope = (await page.evaluate(async () => {
     const tool = (
       window as unknown as {
         __webmcpTools: {
@@ -317,10 +328,8 @@ test("webmcp execute() aborts its capability request when the host cancels", asy
     const pending = tool!.execute({ query: "capabilities" }, { signal: controller.signal });
     controller.abort();
     return pending;
-  });
+  })) as { ok: boolean; error: { code: string } };
 
-  const content = (result as { content: { text: string }[] }).content;
-  const envelope = JSON.parse(content[0].text);
   expect(envelope.ok).toBe(false);
   expect(envelope.error.code).toBe("network_error");
 });
@@ -350,16 +359,15 @@ test("zero-island responses keep the WebMCP projection executable", async ({ pag
   );
   expect(scriptRequests).toContain("/@pracht/islands.js");
 
-  const result = await page.evaluate(async () => {
+  const envelope = (await page.evaluate(async () => {
     const tool = (
       window as unknown as {
         __webmcpTools: { name: string; execute: (input: unknown) => Promise<unknown> }[];
       }
     ).__webmcpTools[0];
     return tool.execute({ query: "capabilities" });
-  });
-  const content = (result as { content: { text: string }[] }).content;
-  expect(JSON.parse(content[0].text).data.notes[0].title).toBe("Capabilities");
+  })) as { data: { notes: { title: string }[] } };
+  expect(envelope.data.notes[0].title).toBe("Capabilities");
 });
 
 test("without the WebMCP API the page works and registers nothing", async ({ page }) => {

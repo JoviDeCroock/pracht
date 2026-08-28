@@ -16,6 +16,7 @@ export type {
   CapabilityHttpExposure,
   CapabilityRunArgs,
   CapabilityValidationResult,
+  CapabilityWebmcpOptions,
 } from "./capability.ts";
 export {
   CAPABILITY_EFFECT_HEADER,
@@ -43,6 +44,8 @@ export {
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
   normalizeCapabilityHttpPath,
+  isValidWebmcpToolName,
+  WEBMCP_TOOL_NAME_ERROR,
 } from "./protocol.ts";
 export type { CapabilityErrorCode, McpToolNameCollision, PrachtAgentIdentity } from "./protocol.ts";
 export {

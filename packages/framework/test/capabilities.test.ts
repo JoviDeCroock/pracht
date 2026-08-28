@@ -278,6 +278,19 @@ describe("resolveAppCapabilities", () => {
     );
   });
 
+  it("rejects webmcp-exposed capabilities whose name the browser would refuse", async () => {
+    // The manifest grammar is a subset of WebMCP's except for length: the
+    // spec caps tool names at 128 characters and registration rejects longer.
+    const longName = `notes.${"x".repeat(130)}`;
+    const { app, registry } = createApp(
+      createSearchCapability({ expose: { http: true, webmcp: true } }),
+      { capabilities: { [longName]: "./capabilities/notes-search.ts" } },
+    );
+    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+      /not a valid WebMCP tool name/,
+    );
+  });
+
   it("resolves destructive capabilities that declare expose.mcp", async () => {
     const capability = {
       ...createSearchCapability({ expose: { mcp: true } }),

@@ -573,16 +573,41 @@ describe("createPrachtWebmcpModuleSource", () => {
 
     const source = createPrachtWebmcpModuleSource({}, { root });
     expect(source).toContain('"name":"notes.search"');
+    expect(source).toContain('"title":"Search notes"');
     expect(source).toContain('"description":"Find notes whose title matches the query."');
     expect(source).toContain('"inputSchema":{"type":"object"');
+    // The same effect-derived hint set as the remote MCP projection.
+    expect(source).toContain(
+      '"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true}',
+    );
     // notes.create is http-only — it must not become a page tool.
     expect(source).not.toContain('"name":"notes.create"');
-    // Targets the origin-trial API with the deprecated fallback.
+    // Targets the standardized API only — Chromium removed the deprecated
+    // navigator.modelContext alias in 152.
     expect(source).toContain("document.modelContext");
-    expect(source).toContain("navigator.modelContext");
+    expect(source).not.toContain("navigator.modelContext");
     expect(source).toContain("registerTool");
     expect(source).toContain("async execute(input, { signal } = {})");
     expect(source).toContain("signal,");
+    // The host serializes the returned value itself; MCP-style content blocks
+    // would reach the agent double-encoded.
+    expect(source).not.toContain("content:");
+  });
+
+  it("advertises untrustedContentHint for expose.webmcp.untrustedContent", () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY.replace(
+          "webmcp: true,",
+          "webmcp: { untrustedContent: true },",
+        ),
+      },
+    });
+
+    const source = createPrachtWebmcpModuleSource({}, { root });
+    expect(source).toContain(
+      '"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"untrustedContentHint":true}',
+    );
   });
 });
 
