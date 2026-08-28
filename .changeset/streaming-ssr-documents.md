@@ -1,6 +1,7 @@
 ---
 "@pracht/core": minor
 "@pracht/cli": patch
+"@pracht/vite-plugin": patch
 ---
 
 Add opt-in streaming SSR documents via `streaming: true`.
