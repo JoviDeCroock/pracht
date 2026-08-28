@@ -1094,7 +1094,7 @@ function createBaseTSConfig(_adapter) {
       skipLibCheck: true,
       strict: true,
       target: "ES2022",
-      types: ["vite/client"],
+      types: ["vite/client", "@pracht/vite-plugin/virtual"],
       verbatimModuleSyntax: true,
     },
   };

@@ -25,7 +25,8 @@
     "directory": "packages/vite-plugin"
   },
   "files": [
-    "dist"
+    "dist",
+    "virtual.d.ts"
   ],
   "type": "module",
   "exports": {
@@ -36,6 +37,9 @@
     "./pages-router": {
       "types": "./dist/pages-router.d.mts",
       "default": "./dist/pages-router.mjs"
+    },
+    "./virtual": {
+      "types": "./virtual.d.ts"
     }
   },
   "publishConfig": {

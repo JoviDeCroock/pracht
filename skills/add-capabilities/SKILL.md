@@ -314,6 +314,8 @@ import { capabilities, useCapability } from "virtual:pracht/capabilities";
 const result = await capabilities.notes.search({ query: "roadmap" });
 ```
 
+Unresolvable in TS? Add `"@pracht/vite-plugin/virtual"` to tsconfig `types`.
+
 ```tsx
 // One contract for the human form and the agent tool.
 <Form capability="notes.create" onCapabilityResult={(result) => { /* … */ }}>

@@ -118,6 +118,12 @@ const same = await capabilities.notes.create({ title });
 
 Both take the same path (one endpoint table, one settled event, one revalidation rule); `capabilities` is a nested view of the same call, and private capabilities are absent from it entirely. Reach for the nested form when typing a name by hand — its members are real property accesses, so a typo gets `Did you mean 'search'?` where a string literal argument gets no suggestion.
 
+TypeScript resolves the `virtual:pracht/*` module declarations from `@pracht/vite-plugin/virtual`. New scaffolds include it in `compilerOptions.types`; an app created before that adds it next to `vite/client`:
+
+```json [tsconfig.json]
+{ "compilerOptions": { "types": ["vite/client", "@pracht/vite-plugin/virtual"] } }
+```
+
 For calls driven by interaction — a button, a search box, a picker — `useCapability()` owns the pending/error/result state:
 
 ```tsx [src/routes/notes.tsx]

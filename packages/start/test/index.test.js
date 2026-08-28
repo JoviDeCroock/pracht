@@ -165,7 +165,8 @@ describe("create-pracht", () => {
               "strict": true,
               "target": "ES2022",
               "types": [
-                  "vite/client"
+                  "vite/client",
+                  "@pracht/vite-plugin/virtual"
               ],
               "verbatimModuleSyntax": true
           }
@@ -246,7 +247,8 @@ describe("create-pracht", () => {
               "strict": true,
               "target": "ES2022",
               "types": [
-                  "vite/client"
+                  "vite/client",
+                  "@pracht/vite-plugin/virtual"
               ],
               "verbatimModuleSyntax": true
           }
@@ -477,7 +479,8 @@ describe("create-pracht", () => {
               "strict": true,
               "target": "ES2022",
               "types": [
-                  "vite/client"
+                  "vite/client",
+                  "@pracht/vite-plugin/virtual"
               ],
               "verbatimModuleSyntax": true
           }
