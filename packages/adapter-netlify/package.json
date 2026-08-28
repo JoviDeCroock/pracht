@@ -1,6 +1,6 @@
 {
   "name": "@pracht/adapter-netlify",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Netlify Functions adapter for deploying Pracht apps with SSR, SSG, ISG, Markdown negotiation, and durable CDN caching.",
   "keywords": [
     "pracht",

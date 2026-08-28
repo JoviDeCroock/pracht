@@ -1,5 +1,93 @@
 # create-pracht
 
+## 0.6.2
+
+### Patch Changes
+
+- [#337](https://github.com/JoviDeCroock/pracht/pull/337) [`174a40d`](https://github.com/JoviDeCroock/pracht/commit/174a40d605eac84bb6a3e502dc80f90ff105195f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add five skills to the seeded catalog: `/add-content`, `/add-images`,
+  `/add-capabilities`, `/add-openapi`, and `/audit-agent-surface`.
+  
+  `@pracht/content`, `@pracht/markdown`, `@pracht/image`, `@pracht/capabilities`,
+  and `@pracht/openapi` shipped without a skill, so an agent wiring any of them
+  had to rediscover the plugin order, the server-only snapshot boundary, the
+  loader-per-target matrix, the inline-literal constraint on `expose`/`effect`,
+  and the destructive confirmation gate from the docs each time.
+  `/audit-agent-surface` reports what agents can actually reach — capability
+  exposure, `agents` trust config, `llms.txt`, Markdown negotiation, OpenAPI —
+  and confirms an app that wants no agent surface pays nothing for one.
+
+- [#344](https://github.com/JoviDeCroock/pracht/pull/344) [`3b0fdf7`](https://github.com/JoviDeCroock/pracht/commit/3b0fdf74944fb4db70ad7006678c05ca3b596be8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Serve `destructive` capabilities over remote MCP with `agents: { mcp: { destructive: true } }`, and ship `createSqlApprovalStore()` as the first durable approval store.
+  
+  The opt-in keeps the server-verified prepare/commit gate, requires a durable approval store and a valid identity source in human mode, and carries confirmation tokens in MCP `_meta`. Without it, destructive MCP declarations stay unserved. Inspection loads applied setup middleware, preserves effective MCP status in capability and agent reports, and confines confirmed composition to the active request. Updated starter skills document the new transport contract.
+
+- [#332](https://github.com/JoviDeCroock/pracht/pull/332) [`32485f4`](https://github.com/JoviDeCroock/pracht/commit/32485f4f1a9199c0f073979fe6124b5159a1aa2b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Make the `<Link href>` compile error name the fix.
+  
+  `href` is the muscle-memory prop from every other router, so it is the first
+  wall a new pracht app hits. `LinkProps` did not declare it, which left TypeScript
+  to guess: `Property 'href' does not exist … Did you mean 'ref'?` — a suggestion
+  that sends the reader hunting for a typo rather than at the API. The prop is now
+  declared with a single-value string type carrying the guidance, so the compiler
+  prints it:
+  
+  ```
+  Type '"/blog/hello"' is not assignable to type '"`href` is not a <Link> prop:
+  <Link> builds its own href from `route` and `params`. Use a generated route id
+  with <Link route={routeId}>, a plain <a href> for external and user-provided
+  URLs, or omit href from the props you spread here."'
+  ```
+  
+  **Source-breaking for one pattern.** JSX does not check spreads for excess
+  properties, so an object carrying an optional `href` could be spread into
+  `<Link>` and compiled — and `<Link>` silently dropped it, because it always
+  overwrites `href` with the one it builds from `route` and `params`. That now
+  fails to typecheck:
+  
+  ```tsx
+  type ButtonLinkProps = JSX.AnchorHTMLAttributes<HTMLAnchorElement> & { route: RouteId };
+  function ButtonLink({ route, ...rest }: ButtonLinkProps) {
+    return <Link route={route} {...rest} />; // `rest` still carries `href`
+  }
+  ```
+  
+  Migration: drop `href` from the wrapper's own props —
+  `Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href">` — or stop forwarding
+  it. The link never navigated to that `href`, so nothing about the rendered
+  output changes. Untyped JavaScript and JSX receive the same direct diagnostic in
+  development, including when `route` and `href` arrive together.
+  
+  **`<Link>` now accepts the anchor attributes.** `LinkProps` was based on
+  `JSX.HTMLAttributes<HTMLAnchorElement>`, but Preact keeps `target`, `rel`,
+  `download`, `ping`, `referrerpolicy`, and `hreflang` on
+  `JSX.AnchorHTMLAttributes` — so none of them typechecked, and
+  `<Link route="home" target="_blank">` needed a cast. It also meant the
+  `Omit<…, "href">` removed nothing, since `href` was never in the generic
+  interface either; that, not the `Omit`, is why the compiler answered
+  `<Link href>` with `Did you mean 'ref'?`. The base type is now
+  `Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href">`, which is purely
+  widening.
+  
+  `create-pracht` also seeds a Conventions section in `AGENTS.md` naming the
+  route-id API, since that file is what a coding agent reads before writing its
+  first link. The ids it names come from the router that was actually scaffolded:
+  the manifest scaffold declares `home`, and the pages router derives ids from
+  filenames, so its home page is `index`.
+  
+  The scaffolded `README.md` gained the same Navigating note, since `AGENTS.md`
+  is only seeded when agent tooling is enabled and this is the convention a new
+  app trips over before it writes anything else.
+
+- [#348](https://github.com/JoviDeCroock/pracht/pull/348) [`135b30c`](https://github.com/JoviDeCroock/pracht/commit/135b30c6d21fa78a343e40b9279ed9372532e6ba) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Tighten the seeded skill catalog for context efficiency: descriptions are 25%
+  smaller and the largest skill bodies 8-25% smaller.
+  
+  Every skill's `description` sits in the agent's system prompt for the whole
+  session whether or not the skill runs, so the catalog was a ~3.5k-token
+  standing tax on every scaffolded app. Descriptions are now one sentence of what
+  the skill does plus its trigger phrases, and the biggest bodies (`/migrate-nextjs`,
+  `/pracht-deploy`, `/pracht-debug`, `/pracht-scaffold`, `/add-db`, `/add-auth`,
+  `/pre-deploy`, `/add-i18n`) drop duplicated preambles and trailing rule recaps.
+  No skill loses a directive or a check. CI now enforces per-skill and
+  catalog-wide budgets so the prose cannot creep back.
+
 ## 0.6.1
 
 ### Patch Changes
