@@ -1,5 +1,12 @@
 # @pracht/content
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [[`3b0fdf7`](https://github.com/JoviDeCroock/pracht/commit/3b0fdf74944fb4db70ad7006678c05ca3b596be8), [`7ae02fe`](https://github.com/JoviDeCroock/pracht/commit/7ae02feeb2a46dcba8457c861015b48680c6a388), [`0e7da8a`](https://github.com/JoviDeCroock/pracht/commit/0e7da8a2339b3583c6e8c4d67fc22a969b3b816c)]:
+  - @pracht/capabilities@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes

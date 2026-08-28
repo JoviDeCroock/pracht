@@ -1,5 +1,162 @@
 # @pracht/vite-plugin
 
+## 0.11.0
+
+### Minor Changes
+
+- [#343](https://github.com/JoviDeCroock/pracht/pull/343) [`7ebedcb`](https://github.com/JoviDeCroock/pracht/commit/7ebedcbeb79bc216a6609642126ba00a46ef0f9a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Make agent traffic observable: composable audit sinks, a dev Agents panel, and `pracht inspect agents`.
+  
+  Named audit listeners now compose safely with existing hooks and dev HMR. In
+  development, `/_pracht` records recent capability dispatches while distinguishing
+  trusted agent attribution from unverified HTTP-caused and WebMCP dispatches, and
+  the new CLI and MCP inspection commands summarize agent policies, transports, and discovery.
+  Retained traffic stays visible when app-graph HMR removes the final capability.
+  Audit callbacks run synchronously and should stay cheap; returned promises are not
+  awaited. Listener replacement remains safe when callbacks are reused, and sink
+  diagnostics cannot interrupt dispatch.
+
+- [#345](https://github.com/JoviDeCroock/pracht/pull/345) [`985aaad`](https://github.com/JoviDeCroock/pracht/commit/985aaad3e1a544863058f204b9ac217374aefe35) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Compose the framework vendor chunk with the app's chunking instead of replacing it.
+  
+  Pracht now reads `build.rollupOptions.output` and contributes its Preact group
+  in the same form the app used — `codeSplitting.groups`, `advancedChunks.groups`,
+  or a wrapped `manualChunks` function. Previously it always wrote `manualChunks`,
+  which Rolldown ignores as soon as an app sets `codeSplitting`: configuring
+  chunking (to group feature modules, say) silently cost you the vendor
+  chunk, and an app-provided `manualChunks` was overwritten outright.
+  
+  New `pracht({ vendorChunk: false })` opts out entirely, and `frameworkChunkGroups()`
+  is exported for apps that want to place the framework group themselves.
+
+- [#351](https://github.com/JoviDeCroock/pracht/pull/351) [`0e7da8a`](https://github.com/JoviDeCroock/pracht/commit/0e7da8a2339b3583c6e8c4d67fc22a969b3b816c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Align the WebMCP projection with the current spec and its shipping hosts (ChatGPT desktop browser, Chrome/Edge origin trial).
+  
+  Page tools now resolve `execute()` to the capability envelope as a plain value — the host serializes it per the spec — instead of MCP-style content blocks, which reached agents double-encoded. Descriptors gain the capability `title`, the remote MCP projection's effect-derived hint set (`readOnlyHint`/`destructiveHint`/`idempotentHint`), and, via the new `expose.webmcp: { untrustedContent: true }` options form, the `untrustedContentHint` annotation. The shim targets `document.modelContext` only: the getter landed in Chromium 150 and the deprecated `navigator.modelContext` alias was removed in 152, so pre-150 origin-trial builds are no longer targeted. Names outside the WebMCP tool-name grammar are rejected at registry resolution and by `pracht verify`, which also warns when a page tool sits behind an effective `agentPolicy: "require"` (unsigned page fetches always 401) and when tool or parameter descriptions exceed the published agent-legibility budgets. Type note: the exported `CapabilityExposure` and `CapabilityProjection` shapes gained required `webmcpUntrustedContent` (and `title` on the projection) fields — code constructing these objects by hand needs the new fields.
+
+### Patch Changes
+
+- [#349](https://github.com/JoviDeCroock/pracht/pull/349) [`91cc1f8`](https://github.com/JoviDeCroock/pracht/commit/91cc1f8f4cc357cf791071070d7b5c04dcec211d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Abort WebMCP capability requests when the browser host cancels tool execution.
+
+- [#330](https://github.com/JoviDeCroock/pracht/pull/330) [`cdffabc`](https://github.com/JoviDeCroock/pracht/commit/cdffabccdf8079cdbe57da2ecd7a11a0f22ad198) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Render loader, middleware, and render failures in the dev error overlay
+  instead of a plain-text dump.
+  
+  `handlePrachtRequest()` answers a page failure that no `ErrorBoundary` claims
+  with a `text/plain` body. That is correct for a production adapter and wrong
+  for a browser in dev — worst of all for a syntax error in a route file, whose
+  compiler diagnostic arrives colourized for a terminal and rendered every
+  escape sequence literally, wrapping each character of the offending line in
+  `[38;5;249m`.
+  
+  The dev SSR middleware now captures the raw error through `onRouteError` and
+  serves the overlay instead, with clickable stack frames and open-in-editor
+  links. `buildErrorOverlayHtml()` strips ANSI escapes from the message and
+  stack, keeps multi-line diagnostics readable with `white-space: pre-wrap`, and
+  gained `phase`, `loaderFile`, and `shellFile` rows. `onRouteError` receives a
+  third `RouteErrorContext` argument carrying that metadata.
+  
+  A route or shell `ErrorBoundary` still renders its own output, and route-state
+  requests still fail as JSON.
+  
+  The overlay itself gained fixes found while reviewing this change: it keeps the
+  framework's default security headers, honours the runtime's
+  `NODE_ENV=production` redaction instead of printing the internals the body just
+  withheld, declares its auto-reload block as a module (`import.meta` is a parse
+  error in a classic script, so the block was silently dropped), reloads for both
+  ordinary client HMR updates and server-only full reloads, and no longer mangles
+  OSC terminal hyperlinks — the sequence miette, and therefore oxc, emits for
+  diagnostic codes.
+  
+  The handoff now identifies declared route and shell error boundaries explicitly
+  instead of inferring them from `Content-Type`, preserves `Server-Timing` on the
+  overlay response, and retains a separately wired loader path when that module
+  fails during import.
+
+- [#333](https://github.com/JoviDeCroock/pracht/pull/333) [`a9bbf4a`](https://github.com/JoviDeCroock/pracht/commit/a9bbf4a6a03b16ca00d6655a340cc27b06b81dc6) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Stop llms.txt and the build log from scaling with the number of prerendered
+  pages.
+  
+  A dynamic SSG/ISG route expanded every `getStaticPaths()` instance into the
+  Pages section, so a 5,000-post blog produced a 5,000-line, 180 KB llms.txt —
+  larger than most agent context budgets, and a sitemap rather than the index
+  llms.txt is meant to be. Each dynamic route now contributes at most
+  `llmsTxt.maxPagesPerRoute` instances (50 by default, applied after `exclude`,
+  `0` lists everything). The instances kept are the first ones `getStaticPaths()`
+  returns — the author's order, newest-first for most blogs — and they are still
+  printed in path order. Invalid ceilings are rejected by both the Vite option
+  and direct `buildLlmsTxt()` calls.
+  
+  Truncation is never silent. A line in the free-form block above the `## Pages`
+  heading names the route and the ratio it lists:
+  
+  ```
+  _Pages lists 50 of 5000 prerendered URLs under `/blog/:slug`; 4950 are omitted. Raise `llmsTxt.maxPagesPerRoute` to include them._
+  ```
+  
+  It sits above the heading rather than inside the section because llms.txt only
+  allows free-form prose before the first `##`; a section is a file list, and the
+  reference parser throws on any line inside one that is not a link.
+  
+  This changes existing output: an app whose dynamic route prerenders more than
+  50 instances will see its llms.txt shrink to 50 of them plus the note. Set
+  `llmsTxt: { maxPagesPerRoute: 0 }` to keep listing every instance.
+  
+  The same build printed one line per prerendered page. `pracht build` now names
+  the first 20 and closes with `… and N more`; the total was already stated on
+  the line above.
+
+- [#331](https://github.com/JoviDeCroock/pracht/pull/331) [`40d6753`](https://github.com/JoviDeCroock/pracht/commit/40d675347c4725a618bb6e85d4fbe6c35d540cdc) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Give route, shell, and head-bearing modules Preact Fast Refresh in dev.
+  
+  Editing anything under `src/routes/` or `src/shells/` triggered a full page
+  reload, wiping client state on every save — while a component in
+  `src/components/` refreshed in place. Two independent causes:
+  
+  - `@prefresh/vite` filters on ids ending in `.tsx`/`.jsx`, and pracht loads
+    route and shell modules in the browser as `?pracht-client` variants so its
+    post transform can strip server-only exports. Prefresh skipped exactly those
+    modules, so no `import.meta.hot.accept` was injected and the update
+    propagated to the non-accepting virtual client entry. A new
+    `pracht:client-module-prefresh` plugin runs prefresh's transform for those
+    ids, ordered after the strip so prefresh sees a module whose exports are only
+    components. Compiled Markdown, MDX, `.tsrx`, and configured route formats use
+    a synthetic JSX id so the same refresh instrumentation covers them after
+    their companion Vite transform runs.
+  - Any route exporting `head` was reported as a head *change* on every edit,
+    because the head-bearing walk started at the changed module itself. It now
+    starts at that module's importers when the change is a route or shell source,
+    and the client entry only reloads when the head hint actually flips.
+  
+  Adding or removing a `head` export still reloads the document, as does a change
+  that reaches `defineFont()` state. Adding or removing a `loader` export also
+  reloads so the browser's route-state fetch hints cannot remain stale across a
+  later client navigation. Editing a route or shell that exports document
+  `headers()` reloads as well, because CSP, cache policy, and other response
+  headers cannot be updated by a route-state fetch. Compiled Markdown, MDX, and
+  configured formats stay conservative because their companion transform may
+  synthesize `headers()` from metadata that raw-source scanning cannot see.
+  Pages-router `_app` shells and quoted aliases such as
+  `export { policy as "headers" }` participate in the same reload safeguard.
+  
+  Fast Refresh alone would have been a downgrade for data: a route module's
+  `loader`, `head`, `headers`, and `getStaticPaths` are stripped out of the
+  browser copy, so patching the component in place leaves the page holding data
+  the server would no longer send — something the old full reload hid by
+  re-fetching everything. The dev server now sends a `pracht:route-data-stale`
+  HMR event after a route or shell update, including a client-reachable shared
+  dependency that leads to an inline or separately wired loader, and the
+  generated client entry re-fetches route state through the same path
+  `useRevalidate()` uses. Data is as fresh as the reload made it, and client state
+  survives. Rapid saves are
+  serialized and coalesced so an older response cannot overwrite the newest
+  loader result or reload after a later fix succeeded. A failed latest refresh
+  falls back to a reload so loader errors, not-found responses, and route error
+  boundaries replace stale data. The whole path is dead code in a production
+  build.
+  
+  Synthetic prefresh registration ids use a reserved, injective namespace, so a
+  real route filename or distinct remaining Vite query cannot collide with the
+  client variant and queue an unrelated component replacement.
+- Updated dependencies [[`7ebedcb`](https://github.com/JoviDeCroock/pracht/commit/7ebedcbeb79bc216a6609642126ba00a46ef0f9a), [`c341eb4`](https://github.com/JoviDeCroock/pracht/commit/c341eb45703b70adfb18957e55faa5aa99969271), [`3b0fdf7`](https://github.com/JoviDeCroock/pracht/commit/3b0fdf74944fb4db70ad7006678c05ca3b596be8), [`cdffabc`](https://github.com/JoviDeCroock/pracht/commit/cdffabccdf8079cdbe57da2ecd7a11a0f22ad198), [`7ae02fe`](https://github.com/JoviDeCroock/pracht/commit/7ae02feeb2a46dcba8457c861015b48680c6a388), [`4ade033`](https://github.com/JoviDeCroock/pracht/commit/4ade03313c7f55b7b61ef3dcd2a9d2af6be188e1), [`32485f4`](https://github.com/JoviDeCroock/pracht/commit/32485f4f1a9199c0f073979fe6124b5159a1aa2b), [`a9bbf4a`](https://github.com/JoviDeCroock/pracht/commit/a9bbf4a6a03b16ca00d6655a340cc27b06b81dc6), [`00477af`](https://github.com/JoviDeCroock/pracht/commit/00477af10f877c83afd5e7501482845cf214b175), [`2548140`](https://github.com/JoviDeCroock/pracht/commit/2548140ee82fd63e9e1264c042f6a3decd6f107f), [`40d6753`](https://github.com/JoviDeCroock/pracht/commit/40d675347c4725a618bb6e85d4fbe6c35d540cdc), [`0e7da8a`](https://github.com/JoviDeCroock/pracht/commit/0e7da8a2339b3583c6e8c4d67fc22a969b3b816c)]:
+  - @pracht/core@0.16.0
+  - @pracht/capabilities@0.3.0
+  - @pracht/adapter-node@0.4.2
+
 ## 0.10.0
 
 ### Minor Changes

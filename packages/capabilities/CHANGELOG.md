@@ -1,5 +1,37 @@
 # @pracht/capabilities
 
+## 0.3.0
+
+### Minor Changes
+
+- [#344](https://github.com/JoviDeCroock/pracht/pull/344) [`3b0fdf7`](https://github.com/JoviDeCroock/pracht/commit/3b0fdf74944fb4db70ad7006678c05ca3b596be8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Serve `destructive` capabilities over remote MCP with `agents: { mcp: { destructive: true } }`, and ship `createSqlApprovalStore()` as the first durable approval store.
+  
+  The opt-in keeps the server-verified prepare/commit gate, requires a durable approval store and a valid identity source in human mode, and carries confirmation tokens in MCP `_meta`. Without it, destructive MCP declarations stay unserved. Inspection loads applied setup middleware, preserves effective MCP status in capability and agent reports, and confines confirmed composition to the active request. Updated starter skills document the new transport contract.
+
+- [#341](https://github.com/JoviDeCroock/pracht/pull/341) [`7ae02fe`](https://github.com/JoviDeCroock/pracht/commit/7ae02feeb2a46dcba8457c861015b48680c6a388) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht eval` scenarios can now run over the remote MCP transport with `"transport": "mcp"`.
+  
+  A scenario that opts in performs a real `initialize` handshake against the app's
+  MCP endpoint (`/mcp`, or `"mcpPath"`) and issues every step as a `tools/call`
+  with the projected tool name, so an `expose.mcp` capability is proven the way an
+  MCP host reaches it. Expectations stay portable between transports: `ok` mirrors
+  `isError`, `output` matches `structuredContent`, `errorCode` reads the
+  projection's error metadata, and `status` is the capability dispatch status
+  (read from the projection's status metadata, not the JSON-RPC POST, which is 200
+  for every answered call). `signAs` signs the JSON-RPC POSTs, so an
+  `agentPolicy: "require"` capability is provable over MCP too.
+  
+  Three MCP limits fail the scenario with an explanation instead of passing
+  quietly: a capability the endpoint does not project, a step header other than
+  `authorization` (the projection forwards nothing else), and the destructive
+  confirmation flow — destructive capabilities cannot be served over MCP today, so
+  no MCP tool can answer `confirmation_required`; `confirm` is wired to the
+  `tools/call` `_meta` for when that opt-in lands. The default stays `"http"`;
+  existing scenarios are unchanged.
+
+- [#351](https://github.com/JoviDeCroock/pracht/pull/351) [`0e7da8a`](https://github.com/JoviDeCroock/pracht/commit/0e7da8a2339b3583c6e8c4d67fc22a969b3b816c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Align the WebMCP projection with the current spec and its shipping hosts (ChatGPT desktop browser, Chrome/Edge origin trial).
+  
+  Page tools now resolve `execute()` to the capability envelope as a plain value — the host serializes it per the spec — instead of MCP-style content blocks, which reached agents double-encoded. Descriptors gain the capability `title`, the remote MCP projection's effect-derived hint set (`readOnlyHint`/`destructiveHint`/`idempotentHint`), and, via the new `expose.webmcp: { untrustedContent: true }` options form, the `untrustedContentHint` annotation. The shim targets `document.modelContext` only: the getter landed in Chromium 150 and the deprecated `navigator.modelContext` alias was removed in 152, so pre-150 origin-trial builds are no longer targeted. Names outside the WebMCP tool-name grammar are rejected at registry resolution and by `pracht verify`, which also warns when a page tool sits behind an effective `agentPolicy: "require"` (unsigned page fetches always 401) and when tool or parameter descriptions exceed the published agent-legibility budgets. Type note: the exported `CapabilityExposure` and `CapabilityProjection` shapes gained required `webmcpUntrustedContent` (and `title` on the projection) fields — code constructing these objects by hand needs the new fields.
+
 ## 0.2.0
 
 ### Minor Changes
