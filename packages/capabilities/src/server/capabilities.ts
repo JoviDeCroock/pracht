@@ -1387,28 +1387,20 @@ export async function invokeCapabilityOnHost<T = unknown>(
   // Bind the host to the request when nothing served it yet, so a capability
   // invoked directly (standalone `host.invoke()`, test hosts) can itself
   // compose others via `invokeCapability()`. A host installed by a live
-  // request keeps precedence — its transport provenance must not be replaced —
-  // and a binding installed here is removed on settle, so two hosts invoked
-  // with one Request cannot silently dispatch against each other's graph.
-  const installedHostBinding = !activeCapabilityHosts.has(ctx.request);
-  if (installedHostBinding) {
+  // request keeps precedence — its transport provenance must not be replaced.
+  //
+  // The binding deliberately lives as long as the Request (the WeakMap
+  // reclaims it): removing it when this call settles was tried and strands
+  // legitimate work — a parallel invoke sharing the Request, or a detached
+  // follow-up task composing after the response — in ordering-dependent
+  // failures. The serve path (`setActiveCapabilityHost`) never removes
+  // bindings either, so this keeps `invoke()` and `fetch()` semantics
+  // identical. The residual sharp edge is deliberate reuse of one Request
+  // object across two *different* hosts' invoke(): the first binding wins for
+  // nested composition, exactly as a served request's binding would.
+  if (!activeCapabilityHosts.has(ctx.request)) {
     activeCapabilityHosts.set(ctx.request, host);
   }
-  try {
-    return await invokeCapabilityOnBoundHost<T>(host, name, input, ctx);
-  } finally {
-    if (installedHostBinding) {
-      activeCapabilityHosts.delete(ctx.request);
-    }
-  }
-}
-
-async function invokeCapabilityOnBoundHost<T = unknown>(
-  host: CapabilityHost,
-  name: string,
-  input: unknown,
-  ctx: InvokeCapabilityContext,
-): Promise<CapabilityEnvelope<T>> {
   const capabilities = await resolveAppCapabilities(host.app, host.registry);
   const resolved = capabilities.find((entry) => entry.name === name);
   if (!resolved) {

@@ -529,6 +529,62 @@ describe("createCapabilityHost composition", () => {
     });
   });
 
+  it("survives parallel invokes sharing one Request, composition included", async () => {
+    const host = createCapabilityHost({
+      capabilities: {
+        "notes.search": searchCapability({ expose: undefined }),
+        "notes.wrapped": searchCapability({
+          async run({ input, request }: { input: unknown; request: Request }) {
+            const { invokeCapability } = await import("../src/server/index.ts");
+            // Yield first so a sibling invoke on the same Request can settle
+            // before this composition runs — the binding must still be there.
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            const nested = await invokeCapability<{ notes: string[] }>("notes.search", input, {
+              request,
+            });
+            if (!nested.ok) throw new Error(nested.error.message);
+            return nested.data;
+          },
+        }),
+      },
+    });
+
+    const request = new Request("https://shared.local/");
+    const [fast, slow] = await Promise.all([
+      host.invoke("notes.search", { query: "a" }, { request }),
+      host.invoke("notes.wrapped", { query: "b" }, { request }),
+    ]);
+    expect(fast).toEqual({ ok: true, data: { notes: ["match:a"] } });
+    expect(slow).toEqual({ ok: true, data: { notes: ["match:b"] } });
+  });
+
+  it("keeps the binding alive for detached follow-up composition", async () => {
+    let tail: Promise<unknown> = Promise.resolve();
+    const host = createCapabilityHost({
+      capabilities: {
+        "notes.search": searchCapability({ expose: undefined }),
+        "notes.kickoff": searchCapability({
+          async run({ request }: { request: Request }) {
+            const { invokeCapability } = await import("../src/server/index.ts");
+            // Fire-and-forget work that composes after the response settled —
+            // the "don't block the response" pattern.
+            tail = (async () => {
+              await new Promise((resolve) => setTimeout(resolve, 10));
+              return invokeCapability("notes.search", { query: "later" }, { request });
+            })();
+            return { notes: [] };
+          },
+        }),
+      },
+    });
+
+    const request = new Request("https://shared.local/");
+    await expect(host.invoke("notes.kickoff", { query: "x" }, { request })).resolves.toMatchObject({
+      ok: true,
+    });
+    await expect(tail).resolves.toEqual({ ok: true, data: { notes: ["match:later"] } });
+  });
+
   it("lets run() compose other capabilities via the bound host", async () => {
     vi.useRealTimers();
     const inner = searchCapability({ expose: undefined });

@@ -585,7 +585,7 @@ describe("createPrachtWebmcpModuleSource", () => {
     // here would resolve against the app root again — the exact regression.
     expect(source).not.toContain('from "@pracht/capabilities/webmcp"');
     expect(source).toMatch(
-      /import \{ registerWebmcpTools \} from "\/[^"]*capabilities\/dist\/webmcp\.mjs"/,
+      /import \{ registerWebmcpTools \} from "(?:[A-Za-z]:)?\/[^"]*capabilities\/dist\/webmcp\.mjs"/,
     );
     // notes.create is http-only — it must not become a page tool.
     expect(source).not.toContain('"name":"notes.create"');

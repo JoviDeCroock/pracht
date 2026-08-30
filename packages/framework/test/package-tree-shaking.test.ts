@@ -131,9 +131,12 @@ describe("published package tree shaking", () => {
   it.each([
     ["publicEnv", 350],
     // Public deploy-base helpers add one tiny re-export to the browser entry.
-    // +30 over the old 1,410 budget: @pracht/capabilities used to be external
-    // to this harness and is now bundled, so the protocol constants the href
-    // graph reaches are counted instead of hidden behind an import statement.
+    // Was 1,410 while @pracht/capabilities sat on the external list; bundling
+    // it (which the agent-surface assertions need) measures 1,421 under
+    // vitest's bundler — reproducibly, and with zero capability-code markers
+    // in the output — so the budget carries matching headroom. Standalone
+    // vite measures this same graph smaller; trust the number the harness
+    // that runs in CI produces.
     ["createHref", 1_440],
     ["apiFetch", 2_200],
     ["PrachtHttpError", 350],
