@@ -29,6 +29,7 @@ import {
   normalizeCapabilityHttpPath,
   WEBMCP_TOOL_NAME_ERROR,
 } from "../protocol.ts";
+import { globalSlot } from "./global-state.ts";
 import { formatUnknownNameError } from "./names.ts";
 import {
   capabilityApprovalId,
@@ -436,7 +437,12 @@ async function responseMatchesEnvelope(
 // capability modules, custom server entries) can subscribe without a way to
 // pass functions through the serializable app manifest. Same registration
 // style as `setActiveCapabilityHost`/`setIslandsClientEntryUrl`.
-let capabilityAuditHook: CapabilityAuditHook | null = null;
+const auditHookState = /* @__PURE__ */ globalSlot<{ hook: CapabilityAuditHook | null }>(
+  "auditHook",
+  () => ({
+    hook: null,
+  }),
+);
 
 // The single-slot setter below is the original API and stays single-slot:
 // calling it twice replaces the hook. Real apps ship more than one sink
@@ -456,10 +462,13 @@ interface CapabilityAuditListenerRegistration {
   hook: CapabilityAuditHook;
 }
 
-const capabilityAuditListeners = new Map<string, CapabilityAuditListenerRegistration>();
+const capabilityAuditListeners = /* @__PURE__ */ globalSlot(
+  "auditListeners",
+  () => new Map<string, CapabilityAuditListenerRegistration>(),
+);
 
 export function setCapabilityAuditHook(hook: CapabilityAuditHook | null): void {
-  capabilityAuditHook = hook;
+  auditHookState.hook = hook;
 }
 
 /**
@@ -545,7 +554,7 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
   // single-slot hook can add, replace, or remove an additive sink too; those
   // changes must follow the same next-event rule as changes made by an
   // additive sink itself.
-  const singleSlotHook = capabilityAuditHook;
+  const singleSlotHook = auditHookState.hook;
   const listeners = Array.from(capabilityAuditListeners);
   deliverCapabilityAudit("setCapabilityAuditHook", singleSlotHook, snapshot);
   for (const [name, registration] of listeners) {
@@ -1263,7 +1272,10 @@ export interface CapabilityHost {
 // can replace a registry while an older request is still awaiting its loader.
 // A WeakMap keeps those overlapping invocations isolated on every Web runtime
 // without retaining completed requests.
-const activeCapabilityHosts = new WeakMap<Request, CapabilityHost>();
+const activeCapabilityHosts = /* @__PURE__ */ globalSlot(
+  "activeHosts",
+  () => new WeakMap<Request, CapabilityHost>(),
+);
 
 /**
  * Record that the destructive dispatch on this request cleared prepare/commit,
@@ -1372,6 +1384,13 @@ export async function invokeCapabilityOnHost<T = unknown>(
   input: unknown,
   ctx: InvokeCapabilityContext,
 ): Promise<CapabilityEnvelope<T>> {
+  // Bind the host to the request when nothing served it yet, so a capability
+  // invoked directly (standalone `host.invoke()`, test hosts) can itself
+  // compose others via `invokeCapability()`. A host installed by a live
+  // request keeps precedence — its transport provenance must not be replaced.
+  if (!activeCapabilityHosts.has(ctx.request)) {
+    activeCapabilityHosts.set(ctx.request, host);
+  }
   const capabilities = await resolveAppCapabilities(host.app, host.registry);
   const resolved = capabilities.find((entry) => entry.name === name);
   if (!resolved) {

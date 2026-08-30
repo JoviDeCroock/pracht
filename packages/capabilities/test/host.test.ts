@@ -7,6 +7,7 @@ import {
   setCapabilityApprovalStore,
   setCapabilityConfirmationSecret,
 } from "../src/server/index.ts";
+import { webmcpToolAnnotations } from "../src/webmcp.ts";
 import type { MiddlewareFn } from "../src/server/index.ts";
 
 const ORIGIN = "https://app.example";
@@ -84,8 +85,10 @@ describe("createCapabilityHost HTTP dispatch", () => {
 
     const response = await host.fetch(post("/api/capabilities/notes/create", {}));
     expect(response?.status).toBe(404);
-    const envelope = (await response?.json()) as { error: { code: string } };
+    const envelope = (await response?.json()) as { error: { code: string; message: string } };
     expect(envelope.error.code).toBe("unknown_capability");
+    // Reachable anonymously, so it must not enumerate the registered graph.
+    expect(envelope.error.message).not.toContain("notes.search");
   });
 
   it("validates input through the standard pipeline", async () => {
@@ -258,8 +261,13 @@ describe("createCapabilityHost remote MCP", () => {
     expect(initBody.result.serverInfo.name).toBe("standalone-test");
 
     const list = await host.fetch(post("/mcp", { jsonrpc: "2.0", id: 2, method: "tools/list" }));
-    const listBody = (await list?.json()) as { result: { tools: { name: string }[] } };
+    const listBody = (await list?.json()) as {
+      result: { tools: { name: string; annotations: Record<string, unknown> }[] };
+    };
     expect(listBody.result.tools.map((tool) => tool.name)).toEqual(["notes_search"]);
+    // One capability advertises one hint set on both agent transports: the MCP
+    // annotations for a read effect must equal the WebMCP registrar's.
+    expect(listBody.result.tools[0].annotations).toEqual(webmcpToolAnnotations("read"));
   });
 
   it("dispatches tools/call through the capability pipeline", async () => {
@@ -445,7 +453,82 @@ describe("createCapabilityHost registration errors", () => {
   });
 });
 
+describe("createCapabilityHost agents validation", () => {
+  const withAuth =
+    (auth: Record<string, unknown>, mcp: Record<string, unknown> = {}) =>
+    () =>
+      createCapabilityHost({
+        capabilities: { "notes.search": searchCapability({ expose: { http: true, mcp: true } }) },
+        agents: { mcp: { ...mcp, auth: { verify: async () => null, ...auth } } as never },
+      });
+
+  it("rejects a relative OAuth resource at construction", () => {
+    expect(withAuth({ resource: "/mcp", authorizationServers: ["https://auth.example"] })).toThrow(
+      /must be an absolute URL/,
+    );
+  });
+
+  it("rejects a resource that does not address the MCP endpoint", () => {
+    expect(
+      withAuth({
+        resource: `${ORIGIN}/somewhere-else`,
+        authorizationServers: ["https://auth.example"],
+      }),
+    ).toThrow(/does not address the MCP endpoint/);
+  });
+
+  it("rejects the reserved well-known path as the MCP endpoint", () => {
+    expect(
+      withAuth(
+        {
+          resource: `${ORIGIN}/.well-known/oauth-protected-resource`,
+          authorizationServers: ["https://auth.example"],
+        },
+        { path: "/.well-known/oauth-protected-resource" },
+      ),
+    ).toThrow(/reserved OAuth protected-resource metadata path/);
+  });
+
+  it("rejects misspelled trust options and bad policies", () => {
+    expect(() =>
+      createCapabilityHost({
+        capabilities: { "notes.search": searchCapability() },
+        agents: { webBotAuth: { policy: "requre" } } as never,
+      }),
+    ).toThrow(/agents.webBotAuth.policy/);
+    expect(() =>
+      createCapabilityHost({
+        capabilities: { "notes.search": searchCapability() },
+        agents: { mcp: { pth: "/mcp" } } as never,
+      }),
+    ).toThrow(/Unknown option "pth"/);
+  });
+});
+
 describe("createCapabilityHost composition", () => {
+  it("lets run() compose other capabilities when entered through invoke()", async () => {
+    const host = createCapabilityHost({
+      capabilities: {
+        "notes.search": searchCapability({ expose: undefined }),
+        "notes.wrapped": searchCapability({
+          async run({ input, request }: { input: unknown; request: Request }) {
+            const { invokeCapability } = await import("../src/server/index.ts");
+            const nested = await invokeCapability<{ notes: string[] }>("notes.search", input, {
+              request,
+            });
+            if (!nested.ok) throw new Error(nested.error.message);
+            return nested.data;
+          },
+        }),
+      },
+    });
+
+    await expect(host.invoke("notes.wrapped", { query: "a" })).resolves.toEqual({
+      ok: true,
+      data: { notes: ["match:a"] },
+    });
+  });
+
   it("lets run() compose other capabilities via the bound host", async () => {
     vi.useRealTimers();
     const inner = searchCapability({ expose: undefined });

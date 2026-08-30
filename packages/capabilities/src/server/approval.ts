@@ -24,6 +24,7 @@
  */
 
 import { hmacSha256Base64Url, type CapabilityConfirmationMode } from "./confirmation.ts";
+import { globalSlot } from "./global-state.ts";
 import type { PrachtAgentIdentity } from "../protocol.ts";
 import type {
   CapabilityApprovalConsumeResult,
@@ -35,8 +36,10 @@ import type {
 // Module-level registration, like `setCapabilityAuditHook` and
 // `setCapabilityConfirmationSecret`: the app manifest carries serializable
 // data only, so a store or resolver function cannot travel through it.
-let approvalStore: CapabilityApprovalStore | null = null;
-let approvalPrincipalResolver: CapabilityApprovalPrincipalResolver | null = null;
+const approvalState = /* @__PURE__ */ globalSlot<{
+  store: CapabilityApprovalStore | null;
+  resolver: CapabilityApprovalPrincipalResolver | null;
+}>("approval", () => ({ store: null, resolver: null }));
 
 /**
  * Register the store backing destructive-capability approvals. Call it from a
@@ -44,11 +47,11 @@ let approvalPrincipalResolver: CapabilityApprovalPrincipalResolver | null = null
  * capability/API chain, or a custom server entry). Passing `null` unregisters.
  */
 export function setCapabilityApprovalStore(store: CapabilityApprovalStore | null): void {
-  approvalStore = store;
+  approvalState.store = store;
 }
 
 export function resolveCapabilityApprovalStore(): CapabilityApprovalStore | null {
-  return approvalStore;
+  return approvalState.store;
 }
 
 /**
@@ -59,7 +62,7 @@ export function resolveCapabilityApprovalStore(): CapabilityApprovalStore | null
 export function setCapabilityApprovalPrincipalResolver<TContext = unknown>(
   resolver: CapabilityApprovalPrincipalResolver<TContext> | null,
 ): void {
-  approvalPrincipalResolver = resolver as CapabilityApprovalPrincipalResolver | null;
+  approvalState.resolver = resolver as CapabilityApprovalPrincipalResolver | null;
 }
 
 /**
@@ -68,7 +71,7 @@ export function setCapabilityApprovalPrincipalResolver<TContext = unknown>(
  * resolved for a given request.
  */
 export function hasCapabilityApprovalPrincipalResolver(): boolean {
-  return approvalPrincipalResolver !== null;
+  return approvalState.resolver !== null;
 }
 
 export interface ResolvedCapabilityApprovalPrincipal {
@@ -85,8 +88,8 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
   agent: PrachtAgentIdentity | null;
   confirmationSecret: string;
 }): Promise<ResolvedCapabilityApprovalPrincipal | null> {
-  const applicationPrincipal = approvalPrincipalResolver
-    ? await approvalPrincipalResolver({
+  const applicationPrincipal = approvalState.resolver
+    ? await approvalState.resolver({
         ...options,
         context: options.context as unknown,
       })

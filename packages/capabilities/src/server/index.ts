@@ -25,6 +25,9 @@ export {
   type StandaloneCapabilityHost,
 } from "./host.ts";
 
+// Agent-trust config validation (shared with defineApp)
+export { validateAgentsConfig, type ValidateAgentsConfigOptions } from "./agents-config.ts";
+
 // Dispatch pipeline
 export {
   addCapabilityAuditListener,

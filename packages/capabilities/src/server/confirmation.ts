@@ -32,7 +32,14 @@ const DURABLE_TOKEN_VERSION = "v2";
 
 const encoder = new TextEncoder();
 
-let programmaticSecret: string | null = null;
+import { globalSlot } from "./global-state.ts";
+
+const secretState = /* @__PURE__ */ globalSlot<{ secret: string | null }>(
+  "confirmationSecret",
+  () => ({
+    secret: null,
+  }),
+);
 
 /**
  * Configure the confirmation secret at runtime — for platforms where
@@ -40,11 +47,11 @@ let programmaticSecret: string | null = null;
  * `nodejs_compat`). Takes precedence over the environment variable.
  */
 export function setCapabilityConfirmationSecret(secret: string | null): void {
-  programmaticSecret = secret;
+  secretState.secret = secret;
 }
 
 export function resolveConfirmationSecret(): string | null {
-  if (programmaticSecret) return programmaticSecret;
+  if (secretState.secret) return secretState.secret;
   try {
     const secret = resolveServerEnvSource()[CONFIRMATION_SECRET_ENV];
     return typeof secret === "string" && secret !== "" ? secret : null;
@@ -202,7 +209,10 @@ function confirmationTokenVersion(binding: ConfirmationBinding): string {
 // Optional best-effort single-use cache (per-instance, in-memory)
 // ---------------------------------------------------------------------------
 
-const usedTokens = new Map<string, number>();
+const usedTokens = /* @__PURE__ */ globalSlot(
+  "confirmationUsedTokens",
+  () => new Map<string, number>(),
+);
 
 /**
  * Mark a token as used. Returns false when it was already consumed on this

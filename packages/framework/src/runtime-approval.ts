@@ -5,6 +5,9 @@
  * because it has always been part of `@pracht/core`'s surface.
  */
 
+import { setCapabilityApprovalPrincipalResolver as setCapabilityApprovalPrincipalResolverShared } from "@pracht/capabilities/server";
+import type { CapabilityApprovalPrincipalResolver, PrachtRequestContext } from "./types.ts";
+
 export {
   capabilityApprovalId,
   createMemoryApprovalStore,
@@ -12,7 +15,6 @@ export {
   hasCapabilityApprovalPrincipalResolver,
   resolveCapabilityApprovalPrincipal,
   resolveCapabilityApprovalStore,
-  setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
   type MemoryApprovalStoreOptions,
   type ResolvedCapabilityApprovalPrincipal,
@@ -21,3 +23,18 @@ export {
   type SqlApprovalStoreOptions,
   type SqlApprovalStoreResult,
 } from "@pracht/capabilities/server";
+
+/**
+ * Register a server-only resolver for the application-authenticated identity
+ * bound to approval proposals. Human approval without either this identity or
+ * a verified agent identity fails closed.
+ *
+ * The implementation lives in `@pracht/capabilities/server`, where the
+ * context type defaults to `unknown`; this re-declaration restores the
+ * framework default (`PrachtRequestContext`) so an app resolver can read its
+ * registered context without a type argument.
+ */
+export const setCapabilityApprovalPrincipalResolver =
+  setCapabilityApprovalPrincipalResolverShared as <TContext = PrachtRequestContext>(
+    resolver: CapabilityApprovalPrincipalResolver<TContext> | null,
+  ) => void;

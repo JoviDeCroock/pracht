@@ -88,13 +88,13 @@ app.use("*", async (c, next) => {
 // ...the rest of your app's routes
 ```
 
-A Next.js App Router catch-all:
+A Next.js App Router catch-all — falling back to `notFound()` so unmatched paths still render your app's `not-found.tsx`:
 
 ```ts [app/[...capability]/route.ts]
+import { notFound } from "next/navigation";
 import { host } from "@/server/capability-host";
 
-const handler = async (request: Request) =>
-  (await host.fetch(request)) ?? new Response("Not found", { status: 404 });
+const handler = async (request: Request) => (await host.fetch(request)) ?? notFound();
 
 export { handler as GET, handler as POST };
 ```

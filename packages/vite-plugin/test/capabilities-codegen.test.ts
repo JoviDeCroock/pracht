@@ -580,7 +580,9 @@ describe("createPrachtWebmcpModuleSource", () => {
     // the same policy the remote MCP projection uses (covered by the
     // @pracht/capabilities/webmcp unit tests).
     expect(source).toContain('"effect":"read"');
-    expect(source).toContain('registerWebmcpTools } from "@pracht/capabilities/webmcp"');
+    // Resolved from the plugin's own copy of @pracht/capabilities so version
+    // skew in the app root cannot break the generated import.
+    expect(source).toMatch(/import \{ registerWebmcpTools \} from "[^"]*webmcp[^"]*"/);
     // notes.create is http-only — it must not become a page tool.
     expect(source).not.toContain('"name":"notes.create"');
     // The dispatch forwards the abort signal and the transport marker header.

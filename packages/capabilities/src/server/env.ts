@@ -8,7 +8,14 @@
  * `@pracht/core` is visible to a standalone capability host and vice versa.
  */
 
-let installedEnv: Record<string, unknown> | undefined;
+import { globalSlot } from "./global-state.ts";
+
+const installed = /* @__PURE__ */ globalSlot<{ env: Record<string, unknown> | undefined }>(
+  "serverEnv",
+  () => ({
+    env: undefined,
+  }),
+);
 
 /**
  * Install the platform's env bindings as the source behind server env reads.
@@ -17,7 +24,7 @@ let installedEnv: Record<string, unknown> | undefined;
  * it because reads fall back to `process.env`.
  */
 export function setServerEnv(env: Record<string, unknown> | undefined): void {
-  installedEnv = env;
+  installed.env = env;
 }
 
 /**
@@ -25,7 +32,7 @@ export function setServerEnv(env: Record<string, unknown> | undefined): void {
  * before the first request installs bindings).
  */
 export function resolveServerEnvSource(): Record<string, unknown> {
-  if (installedEnv) return installedEnv;
+  if (installed.env) return installed.env;
   // Reach the ambient process through globalThis so Vite's webworker SSR
   // transform does not rewrite this access to an empty object. Vercel exposes
   // its Edge environment here; Cloudflare has no process and installs its

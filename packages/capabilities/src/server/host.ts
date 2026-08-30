@@ -22,6 +22,7 @@ import { CAPABILITY_HTTP_PREFIX, normalizeCapabilityHttpPath } from "../protocol
 import type { PrachtAgentIdentity } from "../protocol.ts";
 import { bindAgentContext } from "./agent-context.ts";
 import { verifyAgentSignature } from "./agent-auth.ts";
+import { validateAgentsConfig } from "./agents-config.ts";
 import {
   envelopeResponse,
   handleCapabilityRequest,
@@ -189,6 +190,16 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
   });
 
   const registry: CapabilityModuleRegistry = { capabilityModules, middlewareModules };
+
+  // Reject exactly the agent-trust misconfigurations `defineApp()` rejects —
+  // a relative OAuth resource, a resource that does not address the MCP
+  // endpoint, the reserved well-known path, malformed scopes — before a
+  // request can hit them. A standalone host has no deploy base, so the
+  // resource must address the configured endpoint path as-is.
+  validateAgentsConfig(options.agents as PrachtAgentsConfig | undefined, {
+    label: (path) => `createCapabilityHost({ ${path} })`,
+    verifyMode: "function",
+  });
 
   // The verifier function is registered like any other server-only module so
   // `loadMcpTokenVerifier()` — the code path a pracht app exercises — resolves
@@ -363,19 +374,14 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
       // Unmatched requests under the capability prefix get the typed 404
       // instead of falling through to the embedding application.
       if (normalizeCapabilityHttpPath(url.pathname).startsWith(CAPABILITY_HTTP_PREFIX)) {
+        // Same terse message as the framework runtime: the 404 is reachable by
+        // anonymous callers, so it must not enumerate the registered graph.
         return finalize(
           envelopeResponse(404, {
             ok: false,
             error: {
               code: "unknown_capability",
-              message: formatUnknownNameError({
-                kind: "capability",
-                kindPlural: "capabilities",
-                name: url.pathname,
-                registered: capabilities
-                  .filter((entry) => entry.httpPath)
-                  .map((entry) => entry.name),
-              }),
+              message: "No capability is exposed at this path.",
             },
           }),
         );
