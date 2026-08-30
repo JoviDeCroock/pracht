@@ -129,6 +129,14 @@ export const app = defineApp({
         id: "remote-mcp",
         render: "ssg",
       }),
+      route(
+        "/docs/standalone-capabilities",
+        () => import("./routes/docs/standalone-capabilities.md"),
+        {
+          id: "standalone-capabilities",
+          render: "ssg",
+        },
+      ),
       route("/docs/mcp", () => import("./routes/docs/mcp.md"), {
         id: "mcp",
         render: "ssg",

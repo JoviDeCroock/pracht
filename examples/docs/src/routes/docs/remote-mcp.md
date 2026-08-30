@@ -6,8 +6,8 @@ prev:
   href: /docs/agent-trust
   title: Agent Trust
 next:
-  href: /docs/recipes/i18n
-  title: i18n
+  href: /docs/standalone-capabilities
+  title: Standalone Capabilities
 ---
 
 ## Two Opt-Ins

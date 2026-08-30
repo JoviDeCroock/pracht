@@ -3,8 +3,8 @@ title: Internationalization (i18n)
 lead: Serve your app in multiple languages with @pracht/i18n — middleware detects the locale, loaders return translations, and components consume them via route data.
 breadcrumb: i18n
 prev:
-  href: /docs/remote-mcp
-  title: Remote MCP
+  href: /docs/standalone-capabilities
+  title: Standalone Capabilities
 next:
   href: /docs/recipes/auth
   title: Authentication

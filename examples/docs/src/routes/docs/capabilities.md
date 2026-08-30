@@ -274,6 +274,12 @@ The client stays opt-in too. Capability metadata only reaches the browser throug
 
 ---
 
+## Outside a Pracht App
+
+The whole pipeline is hosted, not framework-bound: `@pracht/capabilities/server` ships `createCapabilityHost()`, which serves the same HTTP endpoints and remote MCP surface from capability objects registered at runtime — inside Express, Hono, Next.js, or a bare Worker. Your capability modules are identical in both worlds, so a standalone adoption later graduates into `defineApp({ capabilities })` unchanged. See [Standalone Capabilities](/docs/standalone-capabilities).
+
+---
+
 ## Inspect the Graph
 
 The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the `pracht mcp` server, and the static checks in `pracht verify`. Runtime-backed devtools label a blocked declaration `mcp(unserved)`. Graph-only CLI inspection labels it `mcp(unverified)` when the unmet precondition may instead be registered by the skipped adapter server entry. Destructive declarations without `agents.mcp.destructive` remain `mcp(unserved)`. JSON inspection always includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`, so automation can distinguish declared exposure, verified runtime failure, and incomplete inspection.

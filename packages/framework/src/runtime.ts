@@ -1,3 +1,4 @@
+import { isSameOriginRequest } from "@pracht/capabilities/server";
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
 import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
@@ -180,53 +181,6 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
  * the agent surface does not ship it. See docs/CAPABILITIES.md.
  */
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
-
-/**
- * Stricter variant of first-party detection used to protect API requests
- * that a cross-site page must not be able to make on the user's behalf:
- * state-changing methods (CSRF) and WebSocket upgrades (cross-site
- * WebSocket hijacking). It rejects any browser signal that points outside
- * this exact origin — a cross-origin form POST will send `Origin` from the
- * attacker, and `Sec-Fetch-Site: same-site` is not enough because sibling
- * subdomains can be attacker-controlled. Requests with no browser
- * provenance headers are treated as non-browser callers.
- */
-function isSameOriginRequest(request: Request, url: URL): boolean {
-  const site = request.headers.get("sec-fetch-site");
-  if (site && site !== SAME_ORIGIN_FETCH_SITE) {
-    return false;
-  }
-
-  const origin = request.headers.get("origin");
-  if (origin) {
-    try {
-      return new URL(origin).origin === url.origin;
-    } catch {
-      return false;
-    }
-  }
-
-  if (site === SAME_ORIGIN_FETCH_SITE) {
-    return true;
-  }
-
-  // No Sec-Fetch-Site AND no Origin: fall back to Referer. Browsers
-  // always send Origin on POST to same-origin endpoints, so a POST
-  // missing both is almost certainly a non-browser caller.
-  const referer = request.headers.get("referer");
-  if (referer) {
-    try {
-      return new URL(referer).origin === url.origin;
-    } catch {
-      return false;
-    }
-  }
-
-  // No browser-provided signals at all — allow (curl, server-to-server,
-  // tests). The threat model here is CSRF via browser forms, which
-  // cannot produce a request with none of these headers set.
-  return true;
-}
 
 /**
  * Heuristic "this request came from our own page" check. Used to gate

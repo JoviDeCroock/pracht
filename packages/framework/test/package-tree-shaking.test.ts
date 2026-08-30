@@ -240,7 +240,11 @@ describe("published package tree shaking", () => {
         define: { __PRACHT_AGENT_SURFACE__: "false" },
       });
 
-      expect(code).not.toContain("web-bot-auth");
+      // The agent runtime itself now lives in `@pracht/capabilities/server`
+      // (external to this harness), so assert on the request-time branches in
+      // the framework runtime that gate it: the Web Bot Auth header probe and
+      // the capability dispatch strings.
+      expect(code).not.toContain("signature-input");
       expect(code).not.toContain("/api/capabilities");
       expect(code).not.toContain("unknown_capability");
       expect(gzipBytes).toBeLessThanOrEqual(
@@ -251,7 +255,7 @@ describe("published package tree shaking", () => {
     it("keeps them reachable when the build cannot prove it", async () => {
       const { code } = await bundleExport("handlePrachtRequest", { entry: serverEntry });
 
-      expect(code).toContain("web-bot-auth");
+      expect(code).toContain("signature-input");
       expect(code).toContain("unknown_capability");
     });
   });

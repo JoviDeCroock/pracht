@@ -64,6 +64,12 @@ The full API lives in [Agent Trust](/docs/agent-trust).
 
 ---
 
+## Already Have an App?
+
+None of this requires starting over. The capability contract, dispatch pipeline, trust layer, and remote MCP endpoint live in the zero-dependency `@pracht/capabilities` package and mount inside any existing server via `createCapabilityHost()` — and the WebMCP registrar is published for any page. Adopt one capability in the app you have today, and bring the modules over unchanged if you adopt the framework later. See [Standalone Capabilities](/docs/standalone-capabilities).
+
+---
+
 ## Try It in Five Minutes
 
 Everything above is testable with nothing but `curl`. The repository's [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic) app registers five capabilities around a notes store:

@@ -370,4 +370,5 @@ export default {
 7. **Move middleware** — Split your single `middleware.ts` into named middleware files
 8. **Move API routes** — Copy `app/api/` handlers to `src/api/`, replace `NextResponse` with `Response`
 9. **Choose an adapter** — Pick your deployment target in `vite.config.ts`
-10. **Test** — Run `pracht dev` and verify each route renders correctly
+10. **Expose your agent surface** — If the Next app served capabilities through `createCapabilityHost()` ([Standalone Capabilities](/docs/standalone-capabilities)), move the capability modules into `src/capabilities/` and register them in `defineApp({ capabilities })`; the contracts carry over unchanged
+11. **Test** — Run `pracht dev` and verify each route renders correctly

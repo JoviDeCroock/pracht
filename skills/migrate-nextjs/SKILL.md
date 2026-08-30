@@ -310,6 +310,18 @@ imports, `className`, `react` imports, and `next.config.*`/`next-env.d.ts`/
 `.next/`. Run `pracht typegen` if route ids or paths changed, then `pracht dev`
 and fix errors iteratively.
 
+## Phase 10: Agent surface
+
+If the Next app mounted pracht capabilities via `createCapabilityHost()` from
+`@pracht/capabilities/server` (the standalone adoption path,
+https://pracht.resynapse.dev/docs/standalone-capabilities), the capability
+modules carry over unchanged: move them into `src/capabilities/`, register the
+names in `defineApp({ capabilities })`, and move `agents` config from the host
+options into `defineApp({ agents })` — with one difference, `agents.mcp.auth.verify`
+becomes a server-only module reference instead of an inline function. Delete
+the host mount; `handlePrachtRequest` now serves the same endpoints. Runtime
+middleware functions become named middleware modules in `src/middleware/`.
+
 ## Dependency mapping
 
 | Next.js package | Pracht equivalent                                                            |

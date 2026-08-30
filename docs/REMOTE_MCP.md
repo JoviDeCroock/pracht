@@ -101,6 +101,11 @@ POST /mcp
 Stateless: no session id, no server→client stream, no resumability. That is
 what the Node, Cloudflare, Netlify, and Vercel adapters already serve.
 
+The projection is implemented in `@pracht/capabilities/server`
+(`handleMcpRequest`), not in `@pracht/core`; the framework mounts it from
+`handlePrachtRequest`, and `createCapabilityHost()` mounts the identical
+handler in non-pracht servers (see docs/CAPABILITIES.md, "Package boundary").
+
 ## Tool names
 
 Capability names are dot-separated; MCP hosts widely constrain tool names to

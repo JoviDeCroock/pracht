@@ -948,6 +948,38 @@ shipped WebMCP support on 2026-08-25 with no SDK or manifest, which makes the
 "disposable shim over the HTTP projection" design the load-bearing hedge it
 was meant to be.
 
+### Addendum (2026-08-30 — standalone capability host)
+
+The dispatch pipeline, trust layer (confirmation, approvals, Web Bot Auth,
+context binding), and remote MCP projection moved out of `@pracht/core` into
+`@pracht/capabilities/server` — the zero-dependency, Preact-free leaf package
+that already owned the wire protocol. `@pracht/core` re-exports everything
+unchanged and keeps only the framework-specific layers (deploy-base handling,
+the typegen-aware `invokeCapability` signature, manifest resolution). Singleton
+registrations (audit hooks, approval store, confirmation secret, `setServerEnv`)
+live in the shared package, so core and standalone consumers see one state.
+
+Two new public entry points make the suite incrementally adoptable in
+brownfield and non-pracht apps, closing the "greenfield-only" adoption gap:
+
+- `createCapabilityHost()` (`@pracht/capabilities/server`) — a
+  `(Request) => Promise<Response | null>` mount serving capability HTTP
+  endpoints, the MCP endpoint, and RFC 9728 metadata from runtime-registered
+  capability objects (no manifest, no static analysis; `agents.mcp.auth.verify`
+  is the verifier function directly). It calls the same
+  `handleCapabilityRequest`/`handleMcpRequest` pipeline — no second dispatch
+  path — with pracht's CSRF stance and security-header defaults applied.
+- `registerWebmcpTools()` (`@pracht/capabilities/webmcp`) — the registration
+  runtime the generated `virtual:pracht/webmcp` shim now imports instead of
+  inlining, so pracht apps and standalone sites share one registration and
+  effect-derived annotation policy.
+
+This implements the risk-table countermeasure ("value must stand on web +
+HTTP + trust layer alone") as an adoption funnel: the capability contract can
+be the first pracht artifact in an existing app, and the framework becomes the
+graduation step (`<Form capability>`, typed clients, verify/inspect, llms.txt)
+rather than the entry fee.
+
 ## Final Recommendation
 
 > **Status note (2026-08-26).** This document is the original bet, kept as

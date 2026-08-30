@@ -27,6 +27,23 @@ model. JavaScript-only values such as `File`, `Blob`, `Date`, `Map`,
 unconstrained. File uploads should stay in API routes rather than capability
 contracts.
 
+## Package boundary
+
+The contract layer (`defineCapability`, schema validation, wire constants) and
+the entire server core — the dispatch pipeline, confirmation/approval flows,
+Web Bot Auth verification, request-context binding, and the remote MCP
+projection — live in `@pracht/capabilities` (`.` and `./server` entry points):
+zero dependencies, Web-standard APIs, no Preact. `@pracht/core` re-exports the
+server core and layers the framework-specific parts on top (manifest
+resolution, deploy-base handling, the typegen-aware `invokeCapability`
+signature). The standalone mount for non-pracht servers is
+`createCapabilityHost()` in `@pracht/capabilities/server`; the WebMCP
+registration runtime is `@pracht/capabilities/webmcp` (used by the generated
+`virtual:pracht/webmcp` shim and publishable to any site). Process-level
+registrations (`setCapabilityAuditHook`, `setCapabilityApprovalStore`,
+`setCapabilityConfirmationSecret`, `setServerEnv`) hold their state in the
+shared package, so framework and standalone code observe the same slots.
+
 ## Registration
 
 Capabilities are registered in the app manifest, exactly like shells and

@@ -32,6 +32,15 @@ inferred as a capability, and an app that registers none ships no capability
 dispatch surface (the build drops ~15 KB gzip of dispatch and verifier code).
 Other agent-facing surfaces such as `llms.txt` remain independent.
 
+For a **non-pracht app** (Express, Hono, Next.js, a bare Worker), do not
+migrate: `createCapabilityHost()` from `@pracht/capabilities/server` mounts the
+same dispatch pipeline, remote MCP endpoint, and trust layer from capability
+objects registered at runtime, and `@pracht/capabilities/webmcp` registers page
+tools on any site. See
+https://pracht.resynapse.dev/docs/standalone-capabilities and skip the
+manifest/generator steps below — the contract in Step 1 and the rules at the
+end apply unchanged.
+
 ## Step 1: Decide the contract before writing code
 
 Settle these with `AskUserQuestion` when the request is vague:
