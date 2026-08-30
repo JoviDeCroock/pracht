@@ -131,9 +131,9 @@ describe("published package tree shaking", () => {
   it.each([
     ["publicEnv", 350],
     // Public deploy-base helpers add one tiny re-export to the browser entry.
-    // +30 over the old 1,410: the shared agents-config validator (now in
-    // @pracht/capabilities/server, bundled by this harness) gained the label
-    // indirection that lets defineApp and createCapabilityHost share it.
+    // +30 over the old 1,410 budget: @pracht/capabilities used to be external
+    // to this harness and is now bundled, so the protocol constants the href
+    // graph reaches are counted instead of hidden behind an import statement.
     ["createHref", 1_440],
     ["apiFetch", 2_200],
     ["PrachtHttpError", 350],

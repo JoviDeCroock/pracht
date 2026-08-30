@@ -158,8 +158,8 @@ function validateMcpAuthConfig(
     assertAbsoluteUrl(auth.resourceDocumentation, label("agents.mcp.auth.resourceDocumentation"));
   }
 
-  assertScopeList(auth.scopesSupported, label("agents.mcp.auth.scopesSupported"), options);
-  assertScopeList(auth.requiredScopes, label("agents.mcp.auth.requiredScopes"), options);
+  assertScopeList(auth.scopesSupported, label("agents.mcp.auth.scopesSupported"));
+  assertScopeList(auth.requiredScopes, label("agents.mcp.auth.requiredScopes"));
 
   if (options.verifyMode === "function") {
     if (typeof auth.verify !== "function") {
@@ -240,11 +240,7 @@ function isLoopbackHost(hostname: string): boolean {
   return !!ipv4 && Number(ipv4[1]) === 127 && ipv4.slice(1).every((part) => Number(part) <= 255);
 }
 
-function assertScopeList(
-  value: readonly string[] | undefined,
-  label: string,
-  _options: ValidateAgentsConfigOptions,
-): void {
+function assertScopeList(value: readonly string[] | undefined, label: string): void {
   if (value === undefined) return;
   if (!Array.isArray(value) || value.some((scope) => !isValidOAuthScopeToken(scope))) {
     throw new Error(

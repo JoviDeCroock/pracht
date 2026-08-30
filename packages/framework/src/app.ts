@@ -21,15 +21,10 @@ import type {
   PrachtAppConfig,
   PrachtAgentsConfig,
 } from "./types.ts";
-import { isValidCapabilityHttpPath } from "@pracht/capabilities";
 import { withBase } from "./base.ts";
 import { validateAgentsConfig as validateAgentsConfigShared } from "@pracht/capabilities/server";
 import { formatUnknownNameError } from "./name-suggestions.ts";
-import {
-  NOT_FOUND_ROUTE_ID,
-  NOT_FOUND_ROUTE_PATH,
-  OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
-} from "./runtime-constants.ts";
+import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
 import {
   matchResolvedRoute,
   matchRouteSegments,

@@ -23,6 +23,7 @@
 
 import { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV } from "../protocol.ts";
 import { resolveServerEnvSource } from "./env.ts";
+import { globalSlot } from "./global-state.ts";
 
 export { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV };
 export const DEFAULT_CONFIRMATION_TTL_SECONDS = 120;
@@ -31,8 +32,6 @@ const STATELESS_TOKEN_VERSION = "v1";
 const DURABLE_TOKEN_VERSION = "v2";
 
 const encoder = new TextEncoder();
-
-import { globalSlot } from "./global-state.ts";
 
 const secretState = /* @__PURE__ */ globalSlot<{ secret: string | null }>(
   "confirmationSecret",

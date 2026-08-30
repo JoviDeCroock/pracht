@@ -581,8 +581,12 @@ describe("createPrachtWebmcpModuleSource", () => {
     // @pracht/capabilities/webmcp unit tests).
     expect(source).toContain('"effect":"read"');
     // Resolved from the plugin's own copy of @pracht/capabilities so version
-    // skew in the app root cannot break the generated import.
-    expect(source).toMatch(/import \{ registerWebmcpTools \} from "[^"]*webmcp[^"]*"/);
+    // skew in the app root cannot break the generated import. A bare specifier
+    // here would resolve against the app root again — the exact regression.
+    expect(source).not.toContain('from "@pracht/capabilities/webmcp"');
+    expect(source).toMatch(
+      /import \{ registerWebmcpTools \} from "\/[^"]*capabilities\/dist\/webmcp\.mjs"/,
+    );
     // notes.create is http-only — it must not become a page tool.
     expect(source).not.toContain('"name":"notes.create"');
     // The dispatch forwards the abort signal and the transport marker header.

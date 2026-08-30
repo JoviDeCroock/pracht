@@ -88,7 +88,7 @@ app.use("*", async (c, next) => {
 // ...the rest of your app's routes
 ```
 
-A Next.js App Router catch-all — falling back to `notFound()` so unmatched paths still render your app's `not-found.tsx`:
+A Next.js App Router catch-all — falling back to `notFound()` so unmatched paths get Next's 404 response instead of a hand-rolled one:
 
 ```ts [app/[...capability]/route.ts]
 import { notFound } from "next/navigation";
