@@ -240,8 +240,8 @@ Rules to hold the user to:
 - The bare `/.well-known/oauth-protected-resource` path is reserved for
   discovery and cannot be used as `mcp.path`.
 - `pracht plan` snapshots the OAuth policy separately from the endpoint path:
-  dropping `auth` or a required scope is a guard weakening even when `/mcp`
-  itself did not move.
+  dropping `auth` or a required scope, or trusting another authorization
+  server, is a guard weakening even when `/mcp` itself did not move.
 
 See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
 
@@ -271,9 +271,10 @@ fails closed without both a store and an authenticated principal.
 `createSqlApprovalStore({ execute })` from `@pracht/core/server` is the
 first-party durable store — one implementation for Postgres, Cloudflare D1,
 and SQLite/Turso. Pass a parameterized-query function and run the migration
-from `docs/AGENT_TRUST.md`; use `dialect: "postgres"` for `$1` placeholders. `createMemoryApprovalStore()` is for tests and development
-only. A non-SQL backend needs atomic conditional writes (Durable Objects,
-Redis — not Cloudflare KV).
+from `docs/AGENT_TRUST.md`; use `dialect: "postgres"` for `$1` placeholders.
+`createMemoryApprovalStore()` is for tests and development only. A non-SQL
+backend needs atomic conditional writes (Durable Objects, Redis — not
+Cloudflare KV).
 
 ### Destructive over remote MCP
 
@@ -356,7 +357,8 @@ If `agents.mcp.auth` protects the endpoint, add scenario-level
 and every later request. Inject test tokens in CI instead of committing real
 credentials. Step-level `headers.authorization` overrides it for one call.
 Expectations are portable: `expect.status` is the capability dispatch status on
-both transports.
+both transports, so `{ "ok": false, "status": 400, "errorCode":
+"invalid_input" }` holds on either.
 
 Three MCP limits fail loudly rather than silently: a step for a capability
 without `expose.mcp`, a step header other than `authorization` (the projection
