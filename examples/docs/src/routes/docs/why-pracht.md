@@ -24,6 +24,17 @@ Most full-stack frameworks force a global rendering strategy or use implicit fil
 
 Pracht is built on Preact — a 3kB alternative to React with the same API. If you want small bundles and fast hydration without giving up the component model you know, this is the tradeoff: you get a lighter runtime, but you don't get the full React ecosystem (some libraries need a compatibility layer).
 
+That tradeoff has a price you can read off a table rather than take on faith. The same page, rendering the same markup, with one thing changed each time:
+
+| Route setting | Gzip client JS |
+| --- | --- |
+| `hydration: "none"` | 0 KB |
+| `hydration: "islands"` | 7.6 KB |
+| `hydration: "full"` | 16.5 KB |
+| `hydration: "full"` + `preact/compat` | 17.9 KB |
+
+Your application code sits on top of these; they are a floor, not a budget. The `preact/compat` row is the cost of keeping the React ecosystem — 1.4 KB, which is usually the right trade when a dependency needs it. All four come from `pnpm bench` in the repository; [Performance](/docs/performance) explains how they are measured and how to measure your own app.
+
 ### Explicit routing manifest
 
 ```ts
@@ -89,7 +100,7 @@ Fresh is a Preact framework for Deno built around island hydration. Pracht's isl
 
 ## When to choose pracht
 
-- You want Preact's small footprint for a full-stack app
+- You want Preact's small footprint for a full-stack app, and want it measured rather than asserted
 - Different pages in your app need different rendering strategies
 - Different pages need different amounts of client JavaScript, from full hydration down to none
 - You value seeing route → file → render mode in one place
