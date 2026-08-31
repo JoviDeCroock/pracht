@@ -1,0 +1,45 @@
+{
+  "note": "Byte sizes are deterministic for a given commit. Regenerate with `node bench/run.mjs --update`.",
+  "rungs": [
+    {
+      "rung": "hydration: none",
+      "hydration": "none",
+      "bytes": 0,
+      "gzipBytes": 0,
+      "lazyGzipBytes": 0,
+      "coldGzipBytes": 0
+    },
+    {
+      "rung": "hydration: islands",
+      "hydration": "islands",
+      "bytes": 17723,
+      "gzipBytes": 7776,
+      "lazyGzipBytes": 0,
+      "coldGzipBytes": 7776
+    },
+    {
+      "rung": "hydration: full",
+      "hydration": "full",
+      "bytes": 41416,
+      "gzipBytes": 15790,
+      "lazyGzipBytes": 1126,
+      "coldGzipBytes": 16916
+    },
+    {
+      "rung": "hydration: full, prefetch off",
+      "hydration": "full",
+      "bytes": 40507,
+      "gzipBytes": 15446,
+      "lazyGzipBytes": 0,
+      "coldGzipBytes": 15446
+    },
+    {
+      "rung": "hydration: full + preact/compat",
+      "hydration": "full",
+      "bytes": 46069,
+      "gzipBytes": 17239,
+      "lazyGzipBytes": 1128,
+      "coldGzipBytes": 18367
+    }
+  ]
+}

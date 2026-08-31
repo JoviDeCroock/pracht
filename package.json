@@ -19,6 +19,8 @@
     "version": "changeset version",
     "release": "node ./scripts/build.mjs --force && changeset publish",
     "e2e": "playwright test",
+    "bench": "node ./bench/run.mjs",
+    "bench:check": "node ./bench/run.mjs --bytes-only --check",
     "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js dev",
     "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js build"
   },
