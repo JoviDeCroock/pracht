@@ -6,8 +6,8 @@ prev:
   href: /docs/env
   title: Environment Variables
 next:
-  href: /docs/deployment
-  title: Deployment
+  href: /docs/upgrading
+  title: Upgrading
 ---
 
 ## create-pracht
@@ -177,6 +177,27 @@ The doctor command checks:
 - App manifest or pages-router directory wiring
 - Referenced shell, middleware, and route modules
 - Package-level CLI and adapter dependencies
+
+---
+
+## pracht upgrade
+
+Report `@pracht/*` APIs your app still uses that the installed versions have
+deprecated or removed, and apply the codemods those packages publish.
+
+```sh
+pracht upgrade                  # report findings and the upgrade command
+pracht upgrade --json           # structured report for agents and scripts
+pracht upgrade --check          # exit 1 when a removed API is still used
+pracht upgrade --check --strict # also fail on not-yet-removed deprecations
+pracht upgrade --fix            # apply published codemods, then re-report
+```
+
+Findings come from the `deprecations.json` each package ships in its tarball,
+not from this CLI, so they stay accurate for whatever versions are installed —
+including third-party packages in the `@pracht/*` scope. The command never
+installs anything; it prints the command for your package manager and leaves
+running it to you. See [Upgrading](/docs/upgrading).
 
 ---
 

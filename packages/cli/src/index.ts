@@ -26,6 +26,7 @@ const main = defineCommand({
     preview: () => import("./commands/preview.js").then((m) => m.default),
     report: () => import("./commands/report.js").then((m) => m.default),
     typegen: () => import("./commands/typegen.js").then((m) => m.default),
+    upgrade: () => import("./commands/upgrade.js").then((m) => m.default),
     verify: () => import("./commands/verify.js").then((m) => m.default),
   },
 });

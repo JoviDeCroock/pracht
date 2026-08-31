@@ -3,8 +3,8 @@ title: Deployment
 lead: pracht apps deploy anywhere via platform adapters. Each adapter handles request conversion, asset serving, and the runtime's supported ISG revalidation strategy.
 breadcrumb: Deployment
 prev:
-  href: /docs/cli
-  title: CLI
+  href: /docs/upgrading
+  title: Upgrading
 next:
   href: /docs/adapters
   title: Adapters Reference

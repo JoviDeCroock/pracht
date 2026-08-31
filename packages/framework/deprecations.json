@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "package": "@pracht/core",
+  "deprecations": [
+    {
+      "id": "core.use-revalidate-route",
+      "title": "useRevalidateRoute() was replaced by useRevalidate()",
+      "since": "0.0.1",
+      "removedIn": "0.2.7",
+      "replacement": "useRevalidate()",
+      "detail": "useRevalidateRoute was an alias for useRevalidate with the same signature and return value, so the change is a rename.",
+      "docs": "https://pracht.resynapse.dev/docs/data-loading#userevalidate",
+      "detect": {
+        "include": ["src/**/*.{ts,tsx,js,jsx,mts,mjs}"],
+        "pattern": "\\buseRevalidateRoute\\b"
+      },
+      "codemod": "./codemods/use-revalidate-route.js"
+    }
+  ]
+}

@@ -213,6 +213,11 @@ Each adapter:
   app has an e2e setup.
 - **Authoring guide**: `pracht llms [--write]` and the MCP `get_docs` tool expose
   the framework's conventions to any coding agent.
+- **Upgrades**: every `@pracht/*` package publishes a `deprecations.json` in its
+  tarball describing the APIs it renamed or removed, how to detect them in
+  source, and an optional codemod. `pracht upgrade` reads the installed
+  manifests, reports real call sites, applies codemods with `--fix`, and gates
+  CI with `--check`. See [docs/UPGRADES.md](docs/UPGRADES.md).
 
 See [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
 
@@ -289,7 +294,7 @@ pracht/
     adapter-cloudflare/  # Cloudflare Workers adapter
     adapter-netlify/     # Netlify Functions v2 adapter
     adapter-vercel/      # Vercel Edge adapter
-    cli/              # Dev/build/generate/inspect/verify/plan/report/doctor commands
+    cli/              # Dev/build/generate/inspect/verify/plan/report/upgrade/doctor commands
     content/          # Server-only content registry + generated artifacts
     markdown/         # Official Markdown route modules + local image imports
     image/            # Responsive <Image> component + runtime/static optimization

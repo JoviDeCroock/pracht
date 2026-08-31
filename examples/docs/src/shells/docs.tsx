@@ -71,6 +71,7 @@ const NAV = [
     label: "Guides",
     links: [
       { href: "/docs/cli", Icon: IconTerminal2, title: "CLI" },
+      { href: "/docs/upgrading", Icon: IconRefresh, title: "Upgrading" },
       { href: "/docs/deployment", Icon: IconCloud, title: "Deployment" },
     ],
   },

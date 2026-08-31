@@ -211,6 +211,23 @@ pracht doctor
 pracht doctor --json
 ```
 
+### `pracht upgrade`
+
+Report `@pracht/*` APIs the app still uses that the installed versions have
+deprecated or removed, from the `deprecations.json` each package publishes, and
+apply the codemods those packages ship.
+
+```bash
+pracht upgrade
+pracht upgrade --json             # structured report for agents
+pracht upgrade --check            # exit 1 when a removed API is still used
+pracht upgrade --check --strict   # also fail on not-yet-removed deprecations
+pracht upgrade --fix              # apply published codemods, then re-report
+```
+
+The command never installs anything; it prints the upgrade command for the
+detected package manager.
+
 ### `pracht mcp`
 
 Start a Model Context Protocol server on stdio that exposes inspect, doctor,

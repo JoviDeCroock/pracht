@@ -1,6 +1,6 @@
 ---
 name: upgrade-pracht
-version: 1.0.2
+version: 1.1.0
 description: |
   Upgrade the `@pracht/*` packages safely: inventory installed versions, read the
   changelogs between installed and target, map breaking changes to real usage,
@@ -22,19 +22,31 @@ allowed-tools:
 Upgrade `@pracht/*` dependencies with the changelog read *before* the install,
 not after the build breaks.
 
-## Step 1: Inventory
+## Step 1: Inventory and machine-readable deprecations
 
-List every installed pracht package and its resolved version:
+Start with the CLI — it inventories the installed family *and* reports every
+deprecated or removed API the app still uses, from the `deprecations.json`
+each package publishes in its tarball:
 
 ```bash
-pnpm list --depth 1 --json | grep -A2 '@pracht/'   # or read package.json + lockfile
+pracht upgrade --json
 ```
 
-The family: `@pracht/core`, `@pracht/cli`, `@pracht/vite-plugin`,
-`@pracht/adapter-node`, `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`,
-`@pracht/preact-ssr-precompile`, `@pracht/content`, `@pracht/markdown`,
-`@pracht/image`. Get the latest published versions with
-`npm view <pkg> version`.
+The payload gives you `packages[]` (name, declared range, installed version)
+and `findings[]`, each with a stable `id`, a `severity` (`error` = the
+installed version already removed it, `warn` = deprecated), a `replacement`,
+the exact `occurrences` in app source, and whether a `codemod` is published.
+Use those findings as the spine of the plan; they are precise where a
+changelog paragraph is not.
+
+If the command is unavailable (very old `@pracht/cli`), fall back to
+`pnpm list --depth 1 --json | grep -A2 '@pracht/'`. The family: `@pracht/core`,
+`@pracht/cli`, `@pracht/vite-plugin`, `@pracht/adapter-node`,
+`@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
+`@pracht/adapter-vercel`, `@pracht/adapter-static`,
+`@pracht/preact-ssr-precompile`, `@pracht/capabilities`, `@pracht/content`,
+`@pracht/markdown`, `@pracht/image`, `@pracht/i18n`, `@pracht/openapi`. Get the
+latest published versions with `npm view <pkg> version`.
 
 ## Step 2: Understand the versioning model
 
@@ -58,7 +70,12 @@ After any upgrade, confirm a single core resolution:
 pnpm why @pracht/core   # exactly one version may appear
 ```
 
-## Step 3: Read the changelogs between installed and target
+## Step 3: Read the changelogs for what the manifests cannot express
+
+`pracht upgrade` reads the manifests of the packages that are **installed**, so
+it catches migrations you have already missed but cannot preview a version you
+have not installed yet. It also cannot express changed defaults, peer ranges,
+or behavioural changes with no API surface. The changelogs still cover those.
 
 Only `@pracht/cli` ships `CHANGELOG.md` in its npm tarball
 (`node_modules/@pracht/cli/CHANGELOG.md`); the other packages publish `dist/`
@@ -108,14 +125,23 @@ required: confirm the target versions and which migrations to apply. Then:
 pnpm up '@pracht/core@<v>' '@pracht/cli@<v>' '@pracht/vite-plugin@<v>' <adapters...>
 ```
 
-Upgrade every installed `@pracht/*` package in the same command. Apply the
-agreed code migrations with minimal diffs, one changelog entry at a time.
+Upgrade every installed `@pracht/*` package in the same command. Then let the
+published codemods do the mechanical part before touching anything by hand:
+
+```bash
+pracht upgrade          # re-read findings against the new versions
+pracht upgrade --fix    # apply published codemods, then re-report
+```
+
+Review the codemod diff — the transforms are textual. Apply the remaining
+migrations with minimal diffs, one changelog entry at a time.
 
 ## Step 6: Verification ladder
 
 Run in order; stop and fix at the first failure:
 
 ```bash
+pracht upgrade --check        # no removed API left in use
 pracht doctor --json          # wiring still valid
 pracht typegen --check        # generated route types up to date?
 pracht typegen                # regenerate if --check failed or routes changed
@@ -124,8 +150,9 @@ pracht build                  # full production build (budgets included)
 pnpm test                     # the app's own suite
 ```
 
-`pracht doctor`, `verify`, and `typegen --check` exit non-zero on failure, so
-they gate CI cleanly.
+`pracht upgrade --check`, `doctor`, `verify`, and `typegen --check` exit
+non-zero on failure, so they gate CI cleanly. Add `pracht upgrade --check` to
+the app's CI to catch the call site a future upgrade misses.
 
 ## Step 7: Rollback note
 
@@ -145,7 +172,8 @@ roll the whole family back together.
 
 1. Never mix `@pracht/*` versions from different release waves — upgrade and
    roll back the family as a unit, and verify with `pnpm why @pracht/core`.
-2. Read changelogs before installing, not after something breaks.
+2. Read `pracht upgrade --json` first and changelogs second — both before
+   installing, not after something breaks.
 3. Never apply a breaking-change migration without explicit user confirmation
    via `AskUserQuestion`.
 4. Treat 0.x minor bumps as potentially breaking.

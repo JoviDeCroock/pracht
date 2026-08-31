@@ -25,11 +25,16 @@
     "directory": "packages/framework"
   },
   "files": [
+    "codemods",
+    "deprecations.json",
     "dist"
   ],
   "sideEffects": [
     "./dist/prerender.mjs"
   ],
+  "pracht": {
+    "deprecations": "./deprecations.json"
+  },
   "type": "module",
   "exports": {
     ".": {
