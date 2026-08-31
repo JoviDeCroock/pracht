@@ -8,6 +8,11 @@ see the [remote MCP contract](REMOTE_MCP.md) and dated decision logs below.
 **Recommendation:** Make typed, protocol-neutral application capabilities the next major Pracht
 primitive.
 
+> A draft follow-on,
+> [LOADERS_AS_CAPABILITIES.md](LOADERS_AS_CAPABILITIES.md), proposes closing the
+> gap between this graph and the loader path, which today carries no contract,
+> no agent policy, and no audit event.
+
 > The code samples below are the original proposal's illustrations and predate
 > the implementation. The shipped developer model is documented in
 > [CAPABILITIES.md](CAPABILITIES.md) and [AGENT_TRUST.md](AGENT_TRUST.md);
