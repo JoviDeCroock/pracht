@@ -41,9 +41,21 @@ The manifest tells you exactly which file handles which path, what shell wraps i
 
 Other frameworks typically default to one mode globally (SSR in Next.js, SSG in Astro) and make you opt out per page. Pracht treats the render mode as a first-class route config — `"ssg"`, `"ssr"`, `"isg"`, or `"spa"` — so the decision is always visible and intentional.
 
+### Per-route hydration modes
+
+Hydration is a separate axis from rendering. Every route also declares `hydration` — `"full"` (the default), `"islands"`, or `"none"` — so a route can be server-rendered every request and still ship almost no JavaScript:
+
+```ts
+route("/", "./routes/home.tsx", { render: "ssg", hydration: "none" }),
+route("/pricing", "./routes/pricing.tsx", { render: "isg", hydration: "islands" }),
+route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
+```
+
+With `"islands"`, only components in `src/islands/` hydrate, each as its own code-split chunk loaded by a small bootstrap, with per-usage `client` strategies (`load`, `idle`, `visible`). With `"none"`, the route ships no framework JavaScript at all. See [Islands](/docs/islands).
+
 ### Multi-adapter deployment
 
-One codebase deploys to Node.js, Cloudflare Workers, or Vercel with a one-line adapter swap. Adapters handle platform-specific concerns (static file serving, request conversion, edge bindings, and Node ISG cache invalidation) so your application code stays portable.
+One codebase deploys to Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static host with a one-line adapter swap. Adapters handle platform-specific concerns (static file serving, request conversion, edge bindings, and per-platform ISG invalidation) so your application code stays portable.
 
 ---
 
@@ -63,7 +75,7 @@ Remix pioneered loader/action patterns for data loading. Pracht adopts a similar
 
 ### Astro
 
-Astro excels at content sites with its island architecture and zero-JS-by-default approach. Pracht is for apps that need interactive Preact components on every page — the framework is built around full hydration, not islands. If your site is mostly static content with a few interactive widgets, Astro is likely better.
+Astro is built for content sites: islands and zero JavaScript by default, with UI frameworks as an integration. Pracht supports the same shapes through `hydration: "islands"` and `hydration: "none"`, but treats them as one axis of a route's configuration rather than the default posture — the client router, full hydration, and per-route render modes are all first-class. If your site is almost entirely content and you want a framework whose defaults enforce that, Astro fits well. If you have a mix of static pages and app-like pages that should share one codebase, shells, middleware, and deploy, pracht lets each route pick its own point on both axes.
 
 ### SvelteKit
 
@@ -71,7 +83,7 @@ SvelteKit has great DX and small bundles thanks to Svelte's compiler approach. I
 
 ### Fresh (Deno)
 
-Fresh is a Preact framework for Deno with island-based hydration. Pracht runs on Node.js, Cloudflare Workers, and Vercel, uses full hydration, and supports ISG. If you're on Deno and want islands, Fresh is great. If you want broader deployment targets and per-route rendering, pracht fits better.
+Fresh is a Preact framework for Deno built around island hydration. Pracht's islands mode is directly inspired by it, but pracht runs on Node.js, Cloudflare Workers, Netlify, Vercel, and static hosts, and adds SSG/ISG/SPA render modes alongside SSR. If you're on Deno, Fresh is the natural choice. If you want broader deployment targets and per-route control over both rendering and hydration, pracht fits better.
 
 ---
 
@@ -79,5 +91,6 @@ Fresh is a Preact framework for Deno with island-based hydration. Pracht runs on
 
 - You want Preact's small footprint for a full-stack app
 - Different pages in your app need different rendering strategies
+- Different pages need different amounts of client JavaScript, from full hydration down to none
 - You value seeing route → file → render mode in one place
 - You want to deploy the same codebase to multiple platforms
