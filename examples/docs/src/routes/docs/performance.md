@@ -20,10 +20,10 @@ thing changed each time.
 | Route setting | Gzip | Raw | What reaches the browser |
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
-| `hydration: "islands"` | **7.6 KB** | 17.3 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "full"` | **16.5 KB** | 41.4 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **15.1 KB** | 39.6 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"` + `preact/compat` | **17.9 KB** | 46.0 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "islands"` | **7.5 KB** | 17.1 KB | Preact, the island bootstrap, and the island chunks on the page. |
+| `hydration: "full"` | **15.8 KB** | 38.6 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **14.4 KB** | 37.7 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"` + `preact/compat` | **17.3 KB** | 43.2 KB | Full hydration with the React compatibility layer in the graph. |
 
 Your application code sits on top of these. They are a floor, not a budget.
 

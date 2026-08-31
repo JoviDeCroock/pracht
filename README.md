@@ -23,7 +23,7 @@ npm create pracht@latest my-app
 
 ## Why pracht
 
-- **Preact-first** — 0 KB of client JavaScript on a static route, 7.6 KB gzip with islands, 16.5 KB fully hydrated with the router. Measured by `pnpm bench` in this repo and gated in CI, not asserted.
+- **Preact-first** — 0 KB of client JavaScript on a static route, 7.5 KB gzip with islands, 15.8 KB fully hydrated with the router. Measured by `pnpm bench` in this repo and gated in CI, not asserted.
 - **Per-route render modes** — SPA, SSR, SSG, and ISG in the same app. No global default fighting you.
 - **Explicit over magic** — a typed `defineApp()` manifest wires routes, shells, and middleware. What runs where is never a mystery. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.

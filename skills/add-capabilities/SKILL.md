@@ -61,8 +61,7 @@ enforce:
 
 ## Step 2: Install and scaffold
 
-`create-pracht` does not add the package, because an app without capabilities
-should not carry it:
+`create-pracht` does not add the package:
 
 ```bash
 npm install @pracht/capabilities
@@ -73,12 +72,11 @@ pracht generate capability --name notes.search --effect read --expose http,webmc
 The generator writes `src/capabilities/notes-search.ts` with `expose`,
 `effect`, and `input` as inline literals and registers the name in the
 manifest. `--description` is required whenever `--expose` is set — that text is
-the contract an agent reads. It refuses the combinations the runtime rejects
-anyway. The MCP `generate_capability` tool does the same thing.
+the contract an agent reads, and it refuses the combinations the runtime
+rejects anyway. The MCP `generate_capability` tool does the same thing.
 
 If dispatch answers `500 internal_error` and `pracht inspect capabilities`
-prints capabilities as `unreadable`, the package is missing — that is the
-symptom.
+prints capabilities as `unreadable`, the package is missing.
 
 ## Step 3: Write the capability
 
@@ -196,11 +194,10 @@ Rules to hold the user to:
   bundled into the client; a JWKS client in it would ship to every visitor.
   Put the module in `src/server/` and default-export the verifier function. It
   must live under `src/server/`, `src/middleware/`, or `src/capabilities/` —
-  those are the only directories the build globs into the module registry, and
-  a verifier anywhere else is never loadable, so every `/mcp` request 401s
-  forever. `pracht verify` errors on that, but do not create the file elsewhere.
-  If the same suffix exists in more than one registry directory, lookup rejects
-  it as ambiguous; use a root-relative reference such as
+  nothing else is globbed into the module registry, so a verifier elsewhere is
+  never loadable and every `/mcp` request 401s forever (`pracht verify` errors
+  on it). If the same suffix exists in more than one registry directory, lookup
+  rejects it as ambiguous; use a root-relative reference such as
   `() => import("/src/server/mcp-token.ts")`.
 - **Security option names are exact.** Unknown keys under `agents.mcp` and
   `agents.mcp.auth` are rejected instead of ignored; do not work around the
@@ -214,17 +211,17 @@ Rules to hold the user to:
   token minted for another service on the same issuer is accepted.
 - **It fails closed.** `null`, a throw, or a malformed principal all give
   `401 invalid_token`; a missing required scope gives `403 insufficient_scope`.
-  When `requiredScopes` is set, every challenge advertises it. The verifier receives an
-  independent request clone, so reading its JSON-RPC body does not consume the
-  body that MCP dispatch reads next.
+  When `requiredScopes` is set, every challenge advertises it. The verifier
+  receives an independent request clone, so reading its JSON-RPC body does not
+  consume the body that MCP dispatch reads next.
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
   and `run()` for per-user authorization; the framework only authenticates. It
   lives on a request-local overlay (wrap native built-ins such as `Map` in an
-  ordinary context); `claims` is frozen shallowly. The capability audit
-  event does not carry it yet, so capture it in named middleware or capability
-  code and send it to the same audit sink if MCP calls must be attributable to
-  an account. Nested capability calls rebind this field to the transport-verified
+  ordinary context); `claims` is frozen shallowly. The capability audit event
+  does not carry it yet, so capture it in named middleware or capability code
+  and send it to the same audit sink if MCP calls must be attributable to an
+  account. Nested capability calls rebind this field to the transport-verified
   principal, so caller-supplied composition context cannot replace it.
 - `resource` must be the endpoint's **real deployed URL**: absolute, free of
   query/fragment, free of a non-root trailing slash, and exactly matching the
@@ -241,11 +238,10 @@ Rules to hold the user to:
   verification. Scope values must use OAuth's printable ASCII grammar (no
   spaces, controls, non-ASCII, quotes, or backslashes).
 - The bare `/.well-known/oauth-protected-resource` path is reserved for
-  discovery and cannot be used as `mcp.path`. Production adapters route both
-  metadata forms ahead of copied static files.
-- `pracht plan` snapshots the OAuth policy separately from the endpoint path.
-  Removing `auth` or a required scope, or trusting another authorization server,
-  is a guard weakening even when `/mcp` itself did not move.
+  discovery and cannot be used as `mcp.path`.
+- `pracht plan` snapshots the OAuth policy separately from the endpoint path:
+  dropping `auth` or a required scope is a guard weakening even when `/mcp`
+  itself did not move.
 
 See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
 
@@ -273,10 +269,9 @@ and `confirmation: { mode: "human" }` for a real human decision — that mode
 fails closed without both a store and an authenticated principal.
 
 `createSqlApprovalStore({ execute })` from `@pracht/core/server` is the
-first-party durable store — no driver dependency, one implementation for
-Postgres, Cloudflare D1, and SQLite/Turso. Pass a parameterized-query function
-and run the migration from `docs/AGENT_TRUST.md`; use `dialect: "postgres"` for
-`$1` placeholders. `createMemoryApprovalStore()` is for tests and development
+first-party durable store — one implementation for Postgres, Cloudflare D1,
+and SQLite/Turso. Pass a parameterized-query function and run the migration
+from `docs/AGENT_TRUST.md`; use `dialect: "postgres"` for `$1` placeholders. `createMemoryApprovalStore()` is for tests and development
 only. A non-SQL backend needs atomic conditional writes (Durable Objects,
 Redis — not Cloudflare KV).
 
@@ -347,10 +342,9 @@ browser calls to private capabilities, destructive calls without
 `as HttpCapabilityName`). Re-run `pracht typegen --check` in CI.
 
 `pracht eval` runs JSON scenarios against the live app and exits 1 on a failed
-expectation — the repeatable answer to "can an agent actually finish this
-task?". Steps can reference earlier results
-(`$steps[0].error.confirmationToken`) and a scenario-level `signAs` block signs
-every step as a verified agent.
+expectation. Steps can reference earlier results
+(`$steps[0].error.confirmationToken`), and a scenario-level `signAs` block
+signs every step as a verified agent.
 
 A scenario targets the HTTP projection by default; set scenario-level
 `"transport": "mcp"` to run the same steps over the app's remote MCP endpoint
@@ -362,8 +356,7 @@ If `agents.mcp.auth` protects the endpoint, add scenario-level
 and every later request. Inject test tokens in CI instead of committing real
 credentials. Step-level `headers.authorization` overrides it for one call.
 Expectations are portable: `expect.status` is the capability dispatch status on
-both transports, so the same `{ "ok": false, "status": 400, "errorCode":
-"invalid_input" }` holds either way.
+both transports.
 
 Three MCP limits fail loudly rather than silently: a step for a capability
 without `expose.mcp`, a step header other than `authorization` (the projection

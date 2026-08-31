@@ -29,11 +29,11 @@ That tradeoff has a price you can read off a table rather than take on faith. Th
 | Route setting | Gzip client JS |
 | --- | --- |
 | `hydration: "none"` | 0 KB |
-| `hydration: "islands"` | 7.6 KB |
-| `hydration: "full"` | 16.5 KB |
-| `hydration: "full"` + `preact/compat` | 17.9 KB |
+| `hydration: "islands"` | 7.5 KB |
+| `hydration: "full"` | 15.8 KB |
+| `hydration: "full"` + `preact/compat` | 17.3 KB |
 
-Your application code sits on top of these; they are a floor, not a budget. The `preact/compat` row is the cost of keeping the React ecosystem — 1.4 KB, which is usually the right trade when a dependency needs it. All four come from `pnpm bench` in the repository; [Performance](/docs/performance) explains how they are measured and how to measure your own app.
+Your application code sits on top of these; they are a floor, not a budget. The `preact/compat` row is the cost of keeping the React ecosystem — 1.5 KB, which is usually the right trade when a dependency needs it. All four come from `pnpm bench` in the repository; [Performance](/docs/performance) explains how they are measured and how to measure your own app.
 
 ### Explicit routing manifest
 
