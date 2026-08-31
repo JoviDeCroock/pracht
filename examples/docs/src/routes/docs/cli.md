@@ -30,7 +30,7 @@ pnpm create pracht my-app --adapter=vercel --template=tailwind --yes
 
 Options:
 
-- `--adapter=node|cf|vercel` — choose Node.js, Cloudflare Workers, or Vercel output.
+- `--adapter=node|cf|netlify|vercel|static` — choose Node.js, Cloudflare Workers, Netlify, Vercel, or pure static output.
 - `--router=manifest|pages` — choose explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — control Tailwind setup.
 - `--agent-tools`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`.
