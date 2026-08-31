@@ -1,6 +1,6 @@
 ---
 title: Performance
-lead: pracht optimizes page load performance through automatic code splitting, module preloading, and vendor chunk extraction — with zero configuration.
+lead: What pracht costs a page, how those numbers are measured, and the automatic code splitting, module preloading, and vendor chunk extraction you get without configuring anything.
 breadcrumb: Performance
 prev:
   href: /docs/prefetching
@@ -8,6 +8,79 @@ prev:
 next:
   href: /docs/agents
   title: The Agentic Web
+---
+
+## What pracht costs a page
+
+Hydration is a per-route setting, so the framework's runtime cost is something
+you pick rather than something you inherit. These are the gzipped client
+JavaScript totals for the *same page*, rendering the *same markup*, with one
+thing changed each time.
+
+| Route setting | Gzip | Raw | What reaches the browser |
+| --- | --- | --- | --- |
+| `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
+| `hydration: "islands"` | **7.6 KB** | 17.3 KB | Preact, the island bootstrap, and the island chunks on the page. |
+| `hydration: "full"` | **16.5 KB** | 41.4 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **15.1 KB** | 39.6 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"` + `preact/compat` | **17.9 KB** | 46.0 KB | Full hydration with the React compatibility layer in the graph. |
+
+Your application code sits on top of these. They are a floor, not a budget.
+
+Two things worth reading off the table. Going from full hydration to islands is
+the single largest lever — it removes the router, not just some of it. And
+[turning prefetching off](/docs/prefetching) is worth about 1.4 KB, which is
+more than it looks: the router `import()`s the prefetch runtime *after*
+hydration, so those bytes are part of a cold load without showing up in any
+route's chunk list.
+
+### How these numbers are measured
+
+They come from `pnpm bench`, which lives in the repository and anyone can run:
+
+```bash
+pnpm bench              # bytes and timings, printed as a table
+pnpm bench:check        # bytes only, fails when they drift
+```
+
+The fixture is one app whose routes render identical markup and share a single
+interactive component. The only variable between rows is the hydration mode, so
+a delta is framework runtime rather than application code. `preact/compat` is
+measured in a separate app on purpose: it lands in the shared vendor chunk, and
+measuring it in the same build would inflate every other row.
+
+Byte sizes are deterministic for a given commit, so they are recorded in a
+baseline and CI fails when they move — a stray import that pulls a new module
+into the client entry becomes a failing pull request. Timings are not
+deterministic, so the harness reports a median with its observed spread and
+nothing in CI gates on them.
+
+### Measuring your own app
+
+`pracht build --analyze` prints the same shape of report for the app you are
+actually building, per route:
+
+```bash
+pracht build --analyze
+```
+
+```
+Route / chunk                        Gzip     Raw
+/dashboard (ssr)
+  /assets/dashboard-BCIbC3P5.js      744b   1.3kb
+  /assets/app-CyBulJul.js            257b    447b
+  total (incl. shared)             13.1kb  32.0kb
+```
+
+Add `--json` for machine-readable output, and set per-route
+[budgets](/docs/reference/config) to fail a build when a route ships too much.
+
+One caveat the report shares with every bundle analyzer: it accounts for the
+chunks a route loads *to hydrate*. Runtime the router imports afterwards — the
+prefetch runtime today, roughly 1.1 KB gzip — is fetched by the browser on a
+full-hydration route without appearing in a route total. The table above quotes
+the cold-load number, which includes it.
+
 ---
 
 ## Route-Level Code Splitting

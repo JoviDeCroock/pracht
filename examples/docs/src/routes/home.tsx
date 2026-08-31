@@ -61,7 +61,7 @@ const AGENT_DOC_LINKS: { href: string; text: string }[] = [
   },
   {
     href: "/docs/performance",
-    text: "Performance — automatic code splitting, module preloading, and vendor chunking",
+    text: "Performance — what pracht costs a page per hydration mode, how those numbers are measured, and the automatic code splitting, module preloading, and vendor chunking",
   },
   {
     href: "/docs/cli",
@@ -173,7 +173,7 @@ const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
   {
     Icon: IconAtom,
     title: "Preact-First",
-    desc: "Built on Preact for a tiny runtime. Full hooks support, JSX, and the complete Preact ecosystem. Fast by default.",
+    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 16.5 KB gzip fully hydrated. Both measured, both gated in CI.",
   },
   {
     Icon: IconWorld,
@@ -191,6 +191,43 @@ const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
     desc: "Loader return types flow automatically to components. No manual typing, no casting — just inference from server to client.",
   },
 ];
+
+/**
+ * Gzipped client JavaScript a cold page load fetches, per hydration mode.
+ *
+ * These are the `coldGzipBytes` figures recorded in `bench/baseline.json` and
+ * re-measured by `pnpm bench`. Update both together — CI fails the bundle-size
+ * job when the harness and its baseline disagree, but nothing checks that this
+ * page agrees with either.
+ */
+const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
+  {
+    mode: 'hydration: "none"',
+    kb: "0 KB",
+    bytes: 0,
+    desc: "Static HTML. No client runtime is injected at all.",
+  },
+  {
+    mode: 'hydration: "islands"',
+    kb: "7.6 KB",
+    bytes: 7776,
+    desc: "Preact plus the island bootstrap. Only components in src/islands/ hydrate — the router never loads.",
+  },
+  {
+    mode: 'hydration: "full"',
+    kb: "16.5 KB",
+    bytes: 16916,
+    desc: "The page hydrates and the client router takes over navigation, prefetching, and loader fetches.",
+  },
+  {
+    mode: "full + preact/compat",
+    kb: "17.9 KB",
+    bytes: 18367,
+    desc: "The same page with the React compatibility layer, so React-authored dependencies resolve.",
+  },
+];
+
+const LADDER_MAX_BYTES = Math.max(...LADDER.map((rung) => rung.bytes));
 
 const MODES = [
   {
@@ -302,6 +339,41 @@ export const app = defineApp({
 });`}
             />
           </div>
+        </div>
+      </section>
+
+      {/* ─── The numbers ──────────────────────────────────────── */}
+      <section class="section ladder-section">
+        <div class="section-inner">
+          <p class="section-eyebrow">Measured, not claimed</p>
+          <h2 class="section-title">What a page costs</h2>
+          <p class="section-sub">
+            Hydration is a per-route setting, so the framework's cost is something you choose rather
+            than something you inherit. Each rung below is the same page, rendering the same markup,
+            with one thing changed.
+          </p>
+          <div class="ladder">
+            {LADDER.map((rung) => (
+              <div key={rung.mode} class="ladder-row">
+                <code class="ladder-mode">{rung.mode}</code>
+                <div class="ladder-bar-track">
+                  <div
+                    class="ladder-bar"
+                    style={`width:${Math.round((rung.bytes / LADDER_MAX_BYTES) * 100)}%`}
+                  />
+                </div>
+                <span class="ladder-kb">{rung.kb}</span>
+                <p class="ladder-desc">{rung.desc}</p>
+              </div>
+            ))}
+          </div>
+          <p class="ladder-note">
+            Gzipped client JavaScript a cold load fetches, including the chunks the router imports
+            after hydration. Your application code sits on top of this. Switching prefetching off
+            with <code>client: {"{ prefetch: false }"}</code> takes full hydration to 15.1 KB.
+            Re-measure any of it with <code>pnpm bench</code> —{" "}
+            <a href="/docs/performance">how these numbers are produced</a>.
+          </p>
         </div>
       </section>
 
