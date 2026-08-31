@@ -10,6 +10,25 @@ next:
   title: Examples
 ---
 
+## Start with an analysis
+
+Before moving anything, run the analyser against your Next.js project:
+
+```sh
+npx @pracht/cli migrate ../acme-web
+```
+
+It reads the app and writes nothing to it. You get every `page.tsx` mapped to a
+pracht route with an inferred render mode, a proposed `src/routes.ts`, and a
+graded list of what needs a decision — Server Actions and parallel routes have
+no mechanical translation, `next/image` and root middleware do. Work through
+the blockers first: they are the parts of the app that need a different shape,
+not a different import.
+
+The rest of this guide is the reference behind those findings.
+
+---
+
 ## Overview
 
 Next.js and pracht share many of the same concepts — server rendering, file-based conventions, loaders, middleware — but pracht takes a more explicit approach. This guide walks through the key differences so you can migrate incrementally.

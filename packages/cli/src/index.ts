@@ -22,6 +22,7 @@ const main = defineCommand({
     inspect: () => import("./commands/inspect.js").then((m) => m.default),
     llms: () => import("./commands/llms.js").then((m) => m.default),
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
+    migrate: () => import("./commands/migrate.js").then((m) => m.default),
     plan: () => import("./commands/plan.js").then((m) => m.default),
     preview: () => import("./commands/preview.js").then((m) => m.default),
     report: () => import("./commands/report.js").then((m) => m.default),

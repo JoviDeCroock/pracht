@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.3.0
+version: 1.4.0
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -33,12 +33,24 @@ vite config; `inspect_build` needs a prior `pracht build`.
 
 ## Step 0: Assess the source
 
-Read `next.config.*` and `package.json` (React/Next versions, deps), then map
-the tree: `app/` (App Router), `pages/` (Pages Router), `middleware.ts`,
-`app/api/` or `pages/api/`. Note which patterns are in use — `"use client"`,
-`async` server components, `generateStaticParams`, `generateMetadata`/`metadata`,
-`"use server"` actions — and the third-party integrations (auth, CMS, DB,
-analytics). Confirm scope with the user if the app has more than ~20 routes.
+Run the analyser first — it is read-only and does the inventory for you:
+
+```sh
+npx @pracht/cli migrate <source-dir> --json
+```
+
+It returns every `page.tsx` mapped to a pracht route path with an inferred
+render mode and the reason, the API routes with their method exports, the
+layouts that would become shells, a proposed `src/routes.ts`, and findings
+graded `blocker` / `review` / `note`. Work the blockers first: Server Actions,
+parallel routes, intercepting routes, and optional catch-alls need a different
+shape, not a different import. Treat the inferred render modes as a starting
+point and confirm them against the source.
+
+Then read what the analyser cannot judge: `next.config.*` and `package.json`
+for third-party integrations (auth, CMS, DB, analytics), and `pages/` if the
+report says the app uses the Pages Router. Confirm scope with the user if the
+app has more than ~20 routes.
 
 ## Fast path: Pages Router
 

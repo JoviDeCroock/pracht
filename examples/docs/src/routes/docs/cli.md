@@ -324,6 +324,47 @@ status and every scenario/step result.
 
 ---
 
+## pracht migrate
+
+Analyses a Next.js App Router project and reports what migrating it to pracht
+involves. It reads the app and writes nothing to it:
+
+```sh
+# Analyse the current directory
+pracht migrate
+
+# Or another project
+pracht migrate ../acme-web
+
+pracht migrate --json
+pracht migrate --output migration.txt
+```
+
+The report has three parts:
+
+- **Routes** — every `page.tsx` mapped to a pracht route path, with a render
+  mode inferred from what the page actually does (`export const revalidate`
+  becomes `isg`, reading `cookies()` becomes `ssr`, `generateStaticParams`
+  becomes `ssg`) and the reason quoted back to you.
+- **Findings** — graded `blocker`, `review`, or `note`. A blocker is something
+  with no mechanical translation: Server Actions, parallel routes, intercepting
+  routes, optional catch-alls. Reviews and notes name the pracht equivalent for
+  `next/image`, `next/headers`, root middleware, `error.tsx`, and the rest.
+- **A proposed `src/routes.ts`** — printed for you to copy, never written.
+
+The command exits non-zero when it found a blocker, so it can gate a migration
+plan in CI. It changes nothing either way.
+
+> [!NOTE]
+> This is deliberately a diagnostic rather than a codemod. Almost every step of
+> a migration is a judgement call — which render mode a page wants, whether a
+> client component should become an island, whether a parallel route can be
+> flattened into one route — and a tool that rewrites source while guessing at
+> those produces a diff nobody can review. Pair it with the
+> [Next.js migration guide](/docs/migrate/nextjs).
+
+---
+
 ## pracht llms
 
 Prints an embedded authoring guide for coding agents: project layout, conventions, constraints, and the verify/plan/report loop.
