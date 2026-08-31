@@ -65,6 +65,12 @@ export interface PrachtClientOptions {
    * `prefetch()` export a no-op.
    */
   prefetch?: boolean;
+  /**
+   * `useBlocker()` navigation guards. Off also drops the per-history-entry
+   * index the router stamps so a refused back/forward traversal can be put
+   * back, and makes `useBlocker()` never block (it warns in development).
+   */
+  navigationGuards?: boolean;
 }
 
 export interface PrachtPluginOptions {
@@ -148,6 +154,7 @@ export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
 
 export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
   prefetch: true,
+  navigationGuards: true,
 };
 
 const DEFAULTS: ResolvedPrachtPluginOptions = {

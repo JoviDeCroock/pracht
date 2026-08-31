@@ -37,9 +37,11 @@ application code.
 | `/islands` | `islands`  |
 | `/full`    | `full`     |
 
-It is built twice: once as-is, and once with `PRACHT_BENCH_PREFETCH=off`, which
-sets `pracht({ client: { prefetch: false } })`. Every other input is identical,
-so the delta is the prefetch runtime and nothing else.
+It is built three times: once as-is, once with `PRACHT_BENCH_PREFETCH=off`
+(`pracht({ client: { prefetch: false } })`), and once with
+`PRACHT_BENCH_GUARDS=off` (`pracht({ client: { navigationGuards: false } })`).
+Every other input is identical across the three, so each delta is that one
+runtime and nothing else.
 
 `fixtures/compat` is the same full-hydration page with `preact/compat` in the
 client graph. It is a separate app on purpose: `preact/compat` lands in the

@@ -1,6 +1,6 @@
 import { h } from "preact";
 import type { JSX } from "preact";
-import { useContext, useEffect, useMemo, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
 import {
@@ -11,6 +11,18 @@ import {
 } from "./api-validation.ts";
 import { withBase } from "./base.ts";
 import { buildHrefUntyped } from "./route-matching.ts";
+import {
+  getBlockerSnapshot,
+  proceedBlockedNavigation,
+  registerBlocker,
+  resetBlockedNavigation,
+  subscribeToBlocker,
+  type Blocker,
+  type BlockerArgs,
+  type BlockerSnapshot,
+  type RegisterBlockerOptions,
+  type ShouldBlockNavigation,
+} from "./navigation-blocker.ts";
 import {
   beginSubmittingNavigation,
   createNavigationLocation,
@@ -63,6 +75,14 @@ import type {
 export { PrachtRuntimeProvider, readHydrationState, startApp };
 export type { PrachtHydrationState, StartAppOptions };
 export type { Navigation, NavigationLocation } from "./navigation-state.ts";
+export type {
+  Blocker,
+  BlockerArgs,
+  BlockerHistoryAction,
+  BlockerState,
+  RegisterBlockerOptions,
+  ShouldBlockNavigation,
+} from "./navigation-blocker.ts";
 
 /** Envelope data type for a capability name, when typegen has registered it. */
 type CapabilityFormResult<TName extends string> = CapabilityEnvelope<CapabilityOutputFor<TName>>;
@@ -271,6 +291,74 @@ export function useNavigation(): Navigation {
   }, []);
 
   return navigation;
+}
+
+/**
+ * Guard client navigations away from the current route.
+ *
+ * Pass `true` (or a predicate over the pending navigation) to stop link
+ * clicks, `useNavigate()` calls, and back/forward traversals before they
+ * commit, then resolve the returned blocker with `proceed()` or `reset()`:
+ *
+ * ```tsx
+ * const blocker = useBlocker(form.isDirty);
+ *
+ * return blocker.state === "blocked" ? (
+ *   <dialog open>
+ *     <p>Discard your unsaved changes?</p>
+ *     <button onClick={blocker.proceed}>Discard</button>
+ *     <button onClick={blocker.reset}>Keep editing</button>
+ *   </dialog>
+ * ) : null;
+ * ```
+ *
+ * Full document unloads — reloads, closed tabs, links to another origin — are
+ * guarded too, through `beforeunload` and the browser's own dialog. Opt out
+ * with `{ beforeUnload: false }`. Those calls receive
+ * `nextLocation: null`, because the destination is not the router's to know.
+ *
+ * Render at most one blocker at a time; a second registration wins and warns
+ * in development. During SSR the returned blocker is always unblocked.
+ */
+export function useBlocker(
+  shouldBlock: boolean | ShouldBlockNavigation,
+  options?: RegisterBlockerOptions,
+): Blocker {
+  const beforeUnload = options?.beforeUnload !== false;
+  const [snapshot, setSnapshot] = useState<BlockerSnapshot>(getBlockerSnapshot);
+
+  // Read through a ref so a predicate closing over fresh state does not have
+  // to be memoized to stay correct, and so re-registering is not the price of
+  // a changed dependency.
+  const shouldBlockRef = useRef(shouldBlock);
+  shouldBlockRef.current = shouldBlock;
+
+  useEffect(() => {
+    const unregister = registerBlocker(
+      (args: BlockerArgs) => {
+        const value = shouldBlockRef.current;
+        return typeof value === "function" ? value(args) : value;
+      },
+      { beforeUnload },
+    );
+    // Re-sync in case a navigation was blocked between render and effect.
+    setSnapshot(getBlockerSnapshot());
+    const unsubscribe = subscribeToBlocker(() => setSnapshot(getBlockerSnapshot()));
+    return () => {
+      unsubscribe();
+      unregister();
+    };
+  }, [beforeUnload]);
+
+  return useMemo(
+    () => ({
+      state: snapshot.state,
+      location: snapshot.location,
+      proceed: proceedBlockedNavigation,
+      reset: resetBlockedNavigation,
+    }),
+    [snapshot],
+  );
 }
 
 export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {

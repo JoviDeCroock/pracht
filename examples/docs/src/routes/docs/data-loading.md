@@ -526,6 +526,76 @@ function NavigationProgress() {
 - `location` — the target `{ pathname, search, hash, href }` while not idle
 - `formData` — the submitted `FormData` while a submission is pending (great for optimistic UI)
 
+### useBlocker()
+
+Stop a navigation before it commits — the "you have unsaved changes" guard.
+`useNavigation()` reports that a navigation is happening; `useBlocker()` is how
+you say no to one.
+
+```tsx
+import { useBlocker } from "@pracht/core";
+
+export function Component() {
+  const [dirty, setDirty] = useState(false);
+  const blocker = useBlocker(dirty);
+
+  return (
+    <>
+      <textarea onInput={() => setDirty(true)} />
+      {blocker.state === "blocked" && (
+        <dialog open>
+          <p>Discard your unsaved changes?</p>
+          <button onClick={blocker.proceed}>Discard</button>
+          <button onClick={blocker.reset}>Keep editing</button>
+        </dialog>
+      )}
+    </>
+  );
+}
+```
+
+- `state` — `"unblocked"`, `"blocked"` (a navigation is waiting on you), or `"proceeding"`
+- `location` — where the blocked navigation was going, while blocked
+- `proceed()` — let it continue
+- `reset()` — abandon it and stay put
+
+Pass a predicate instead of a boolean to decide per navigation:
+
+```ts
+const blocker = useBlocker(
+  ({ nextLocation }) => dirty && nextLocation?.pathname !== "/drafts",
+);
+```
+
+The predicate receives `{ currentLocation, nextLocation, historyAction }`, where
+`historyAction` is `"push"`, `"replace"`, `"pop"` (back/forward), or `"unload"`.
+
+**What is guarded.** `<Link>` clicks, `useNavigate()` calls, and back/forward
+traversals. Full document unloads — reloads, closed tabs, links to another
+origin — go through the browser's own `beforeunload` dialog, whose text is not
+yours to choose; those calls get `nextLocation: null` and
+`historyAction: "unload"`. Opt out with `useBlocker(dirty, { beforeUnload: false })`.
+
+**Shipping less JavaScript.** The guard checks are two branches, but the
+per-history-entry index the router stamps so a refused back/forward traversal
+can be put back is unconditional — a guard mounted later still has to measure
+traversals across entries created earlier. An app that guards no navigation
+compiles all of it out:
+
+```ts [vite.config.ts]
+pracht({ client: { navigationGuards: false } });
+```
+
+With it off `useBlocker()` stays importable but never blocks, and says so in
+development.
+
+**Limits.** Render at most one blocker at a time — a second registration wins
+and warns in development. A back/forward traversal onto a history entry pracht
+did not create (app code calling `history.pushState()` directly) is not
+guarded, because the router cannot measure how far the browser moved and so
+cannot put the entry back. `<Form>` submissions are not navigations and are not
+guarded.
+
 ### \<Form\> Component
 
 Declarative form submission with progressive enhancement. Use the `action` prop to target an API route:

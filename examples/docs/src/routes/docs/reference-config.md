@@ -67,6 +67,7 @@ route options and `<Link>` props.
 | Option | Default | Description |
 | --- | --- | --- |
 | `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) driven by `route({ prefetch })` and `<Link prefetch>`. Off also drops the separate prefetch chunk and makes `prefetch()` a no-op |
+| `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off also drops the per-history-entry index the router stamps so a refused back/forward traversal can be put back, and makes `useBlocker()` never block (it warns in development) |
 
 An unknown key here is an error rather than a silent no-op, so a typo cannot
 quietly ship the feature you meant to remove.

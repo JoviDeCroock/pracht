@@ -181,6 +181,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // same flags apply in dev — a feature switched off must behave the same
       // in `pracht dev` as it does in the build that ships.
       const clientFeatureDefines = {
+        __PRACHT_CLIENT_BLOCKER__: String(resolved.client.navigationGuards),
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
       };
 
