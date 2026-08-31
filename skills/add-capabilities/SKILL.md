@@ -32,14 +32,10 @@ inferred as a capability, and an app that registers none ships no capability
 dispatch surface (the build drops ~15 KB gzip of dispatch and verifier code).
 Other agent-facing surfaces such as `llms.txt` remain independent.
 
-For a **non-pracht app** (Express, Hono, Next.js, a bare Worker), do not
-migrate: `createCapabilityHost()` from `@pracht/capabilities/server` mounts the
-same dispatch pipeline, remote MCP endpoint, and trust layer from capability
-objects registered at runtime, and `@pracht/capabilities/webmcp` registers page
-tools on any site. See
-https://pracht.resynapse.dev/docs/standalone-capabilities and skip the
-manifest/generator steps below — the contract in Step 1 and the rules at the
-end apply unchanged.
+Non-pracht app? Mount the same pipeline with `createCapabilityHost()`
+(`@pracht/capabilities/server`); page tools via `@pracht/capabilities/webmcp`.
+Docs: https://pracht.resynapse.dev/docs/standalone-capabilities. Skip the
+manifest/generator steps; Step 1 and the Rules still apply.
 
 ## Step 1: Decide the contract before writing code
 
@@ -179,8 +175,7 @@ That is fine for a public read surface and wrong for anything scoped to a user.
 Add `auth` and `/mcp` becomes an OAuth 2.0 protected resource: pracht publishes
 RFC 9728 metadata at `/.well-known/oauth-protected-resource`, answers
 unauthenticated calls with the `WWW-Authenticate` challenge MCP hosts follow,
-and calls your `verify` module. This is what makes a real host (Claude, a
-ChatGPT connector) able to connect at all.
+and calls your `verify` module.
 
 ```ts
 mcp: {
@@ -219,18 +214,14 @@ Rules to hold the user to:
   token minted for another service on the same issuer is accepted.
 - **It fails closed.** `null`, a throw, or a malformed principal all give
   `401 invalid_token`; a missing required scope gives `403 insufficient_scope`.
-  When `requiredScopes` is set, every challenge advertises it so hosts request
-  the right grant on the first authorization attempt. The verifier receives an
+  When `requiredScopes` is set, every challenge advertises it. The verifier receives an
   independent request clone, so reading its JSON-RPC body does not consume the
   body that MCP dispatch reads next.
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
   and `run()` for per-user authorization; the framework only authenticates. It
-  lives on a fresh request-local overlay, leaving an adapter's reused base
-  context unchanged. Frozen and sealed ordinary contexts work; native built-ins
-  such as `Map` and `Date` must be wrapped in an ordinary context. `claims` is
-  frozen shallowly, but the complete principal is request-local so nested
-  mutations cannot become stale auth on a later request. The capability audit
+  lives on a request-local overlay (wrap native built-ins such as `Map` in an
+  ordinary context); `claims` is frozen shallowly. The capability audit
   event does not carry it yet, so capture it in named middleware or capability
   code and send it to the same audit sink if MCP calls must be attributable to
   an account. Nested capability calls rebind this field to the transport-verified
