@@ -250,3 +250,34 @@ When a route blows its budget, the usual levers, in order of impact:
    shell; a heavy dependency imported in a shell taxes every page.
 4. **Audit the vendor chunk** — see the `audit-bundles` skill for a guided
    deep-dive into fan-in, heavy dependencies, and prefetch tuning.
+
+## The benchmark harness
+
+`--analyze` answers "what does *my app* ship". `bench/` answers "what does
+*pracht* cost", so the framework's own numbers are reproducible rather than
+remembered:
+
+```bash
+pnpm bench              # bytes + timings, printed as a table
+pnpm bench:check        # bytes only, fails when they drift (what CI runs)
+```
+
+The harness builds a fixture whose three routes render identical markup and
+share one interactive component, varying nothing but the hydration mode. A
+delta between two rows is therefore framework runtime, not application code.
+
+Bytes are deterministic, so they are recorded in `bench/baseline.json` and the
+`bundle-size` CI job fails when they move — an accidental import that pulls a
+new module into the client entry surfaces as a failing PR. Timings are not
+deterministic, so the harness reports their median and spread and nothing in CI
+gates on them.
+
+One thing the harness measures that `--analyze` cannot: chunks the router
+`import()`s *after* hydration. The prefetch runtime is one, so a full-hydration
+route fetches roughly 1.1 KB gzip that no route total mentions. The harness
+attributes it by subtraction and reports it in a `+ lazy` column, which is why
+`client: { prefetch: false }` is worth about 1.4 KB on a cold load rather than
+the ~0.3 KB the route report implies.
+
+See [bench/README.md](../bench/README.md) for the fixture layout and what to do
+when the baseline moves.

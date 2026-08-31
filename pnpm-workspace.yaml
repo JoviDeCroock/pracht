@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - examples/*
+  - bench/fixtures/*
 
 minimumReleaseAge: 10080
 

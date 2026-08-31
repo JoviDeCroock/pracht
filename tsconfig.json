@@ -56,6 +56,8 @@
     "packages/cli/test/fixtures/cloudflare-runtime-import"
   ],
   "include": [
+    "bench/**/*.ts",
+    "bench/**/*.tsx",
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "packages/vite-plugin/virtual.d.ts",

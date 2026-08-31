@@ -51,6 +51,56 @@ importers:
         specifier: ^3.2.4
         version: 3.2.4(@types/node@22.19.17)(jsdom@29.0.2)(lightningcss@1.32.0)(yaml@2.9.0)
 
+  bench/fixtures/compat:
+    dependencies:
+      '@pracht/adapter-node':
+        specifier: workspace:*
+        version: link:../../../packages/adapter-node
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../../../packages/framework
+    devDependencies:
+      '@pracht/cli':
+        specifier: workspace:*
+        version: link:../../../packages/cli
+      '@pracht/vite-plugin':
+        specifier: workspace:*
+        version: link:../../../packages/vite-plugin
+      preact:
+        specifier: ^10.26.9
+        version: 10.29.1
+      preact-render-to-string:
+        specifier: ^6.5.13
+        version: 6.6.7(preact@10.29.1)
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
+
+  bench/fixtures/ladder:
+    dependencies:
+      '@pracht/adapter-node':
+        specifier: workspace:*
+        version: link:../../../packages/adapter-node
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../../../packages/framework
+    devDependencies:
+      '@pracht/cli':
+        specifier: workspace:*
+        version: link:../../../packages/cli
+      '@pracht/vite-plugin':
+        specifier: workspace:*
+        version: link:../../../packages/vite-plugin
+      preact:
+        specifier: ^10.26.9
+        version: 10.29.1
+      preact-render-to-string:
+        specifier: ^6.5.13
+        version: 6.6.7(preact@10.29.1)
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
+
   examples/basic:
     dependencies:
       '@pracht/adapter-cloudflare':
