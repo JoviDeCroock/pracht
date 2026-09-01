@@ -87,6 +87,7 @@ See [Agent Workflow](/docs/agent-workflow).
 | `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws — navigate instead |
 | `useNavigate()` | `(to, options?) => Promise<void>` | Imperative navigation, by path or route object |
 | `useNavigation()` | `{ state, location?, formData? }` | Pending state for the current navigation or `<Form>` submission: `"idle"`, `"loading"`, or `"submitting"` |
+| `useBlocker(shouldBlock, options?)` | `{ state, location, proceed, reset }` | Stop a navigation before it commits — unsaved-changes guards. See [Data Loading](/docs/data-loading#useblocker) |
 | `useRevalidate()` | `() => void` | Re-run the active route's loader |
 | `useIsHydrated()` | `boolean` | `false` during SSR and the first client render, `true` after |
 | `useEventSource(url, options?)` | `{ status, data, lastEventId }` | Subscribe to a server-sent event stream. `status` is `"connecting"`, `"open"`, or `"closed"`. See [Streaming](/docs/recipes/streaming) |

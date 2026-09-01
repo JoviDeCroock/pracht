@@ -535,6 +535,8 @@ prefetch.ts     — prefetch listener wiring (intent/viewport/render), loaded by
 router.ts       — client router, hydration bootstrap (imports runtime-context + prefetch-api)
 
 navigation-state.ts — shared useNavigation() store written by router.ts and <Form> (no internal deps)
+navigation-blocker.ts — useBlocker() guard registry + the per-history-entry index that lets a
+                        refused back/forward traversal be put back (imports navigation-state.ts)
 scroll-restoration.ts — sessionStorage-backed per-history-entry scroll position store (no internal deps)
 runtime-speculation.ts — builds the `<script type="speculationrules">` payload from
                          opted-in routes, including the link-level exclusion

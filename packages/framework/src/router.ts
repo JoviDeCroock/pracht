@@ -15,6 +15,8 @@ import {
   scrollToFragmentTarget,
 } from "./fragment-navigation.ts";
 import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
+import { readHistoryIndex, withHistoryIndex } from "./navigation-blocker.ts";
+import type { BlockerHistoryAction, BlockNavigationFn } from "./navigation-blocker.ts";
 import { markHydrating, onHydrationComplete } from "./hydration.ts";
 import {
   beginLoadingNavigation,
@@ -86,6 +88,19 @@ declare const __PRACHT_CLIENT_PREFETCH__: boolean | undefined;
 const PREFETCH_ENABLED =
   typeof __PRACHT_CLIENT_PREFETCH__ === "undefined" || __PRACHT_CLIENT_PREFETCH__ !== false;
 
+/**
+ * `useBlocker()` guards, compiled out by `client: { navigationGuards: false }`.
+ *
+ * The guard checks themselves are two `if`s, but the per-history-entry index
+ * they need to undo a refused traversal has to be stamped on every entry the
+ * router creates, whether or not a guard is ever registered. This define is
+ * how an app that never guards a navigation stops paying for that.
+ */
+declare const __PRACHT_CLIENT_BLOCKER__: boolean | undefined;
+
+const BLOCKER_ENABLED =
+  typeof __PRACHT_CLIENT_BLOCKER__ === "undefined" || __PRACHT_CLIENT_BLOCKER__ !== false;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -99,6 +114,7 @@ interface RouteRenderState {
 
 declare global {
   interface Window {
+    __PRACHT_BLOCK_NAVIGATION__?: BlockNavigationFn;
     __PRACHT_NAVIGATE__?: InternalNavigateFn;
     __PRACHT_ROUTER_READY__?: boolean;
   }
@@ -106,12 +122,32 @@ declare global {
 
 type ModuleMap = Record<string, () => Promise<unknown>>;
 
+/**
+ * Ask the navigation guard, if `useBlocker()` installed one. Reading a window
+ * slot rather than importing `navigation-blocker.ts` is what keeps that store
+ * out of the client bundle of an app that renders no guard.
+ */
+function isBlocked(
+  currentHref: string,
+  nextHref: string,
+  historyAction: BlockerHistoryAction,
+  retry: () => void,
+): boolean {
+  return window.__PRACHT_BLOCK_NAVIGATION__?.(currentHref, nextHref, historyAction, retry) === true;
+}
+
 export interface NavigateFn {
   (to: string, options?: NavigateOptions): Promise<void>;
   <TRoute extends RouteId>(to: RouteTarget<TRoute>, options?: NavigateOptions): Promise<void>;
 }
 
 interface InternalNavigateOptions extends NavigateOptions {
+  /**
+   * Skip the navigation guard. Set only when a navigation already cleared one
+   * and is continuing under the same approval — a loader redirect resolving to
+   * another internal path must not prompt the user a second time.
+   */
+  _blockerChecked?: boolean;
   _popstate?: boolean;
   _reloadRouteState?: boolean;
   /**
@@ -202,14 +238,20 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   let currentScrollKey = readScrollKeyFromHistoryState(history.state) ?? "";
   const hadExistingScrollKey = currentScrollKey !== "";
-  if (!hadExistingScrollKey) {
-    currentScrollKey = generateScrollKey();
+  // Monotonic per-entry index, used only to measure how far a `popstate`
+  // traversal moved so a blocked one can be put back. `null` means the entry
+  // was created by something other than this router (app code, the browser),
+  // so its distance is unmeasurable and traversals across it are not guarded.
+  let currentHistoryIndex: number | null = BLOCKER_ENABLED ? readHistoryIndex(history.state) : null;
+  if (!hadExistingScrollKey || (BLOCKER_ENABLED && currentHistoryIndex === null)) {
+    if (!hadExistingScrollKey) currentScrollKey = generateScrollKey();
+    let entryState = withScrollKeyInHistoryState(history.state, currentScrollKey);
+    if (BLOCKER_ENABLED) {
+      currentHistoryIndex ??= 0;
+      entryState = withHistoryIndex(entryState, currentHistoryIndex);
+    }
     try {
-      history.replaceState(
-        withScrollKeyInHistoryState(history.state, currentScrollKey),
-        "",
-        window.location.href,
-      );
+      history.replaceState(entryState, "", window.location.href);
     } catch {
       // Some embedders restrict history mutation; scroll restoration then
       // degrades to scroll-to-top, which matches the previous behavior.
@@ -226,6 +268,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // popstate to tell a same-document fragment navigation apart from a
   // traversal that needs the route re-resolved.
   let currentDocumentPath = window.location.pathname + window.location.search;
+  // Same entry as `currentDocumentPath` but fragment included, because a
+  // navigation guard is told where it currently is, and `popstate` fires after
+  // `window.location` has already moved on.
+  let currentBrowserHref = BLOCKER_ENABLED
+    ? window.location.pathname + window.location.search + window.location.hash
+    : "";
 
   function restoreOrResetScroll(
     opts: InternalNavigateOptions | undefined,
@@ -300,11 +348,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       saveScrollPosition();
       const nextScrollKey = generateScrollKey();
       try {
-        history.pushState(
-          withScrollKeyInHistoryState(null, nextScrollKey),
-          "",
-          url.pathname + url.search + url.hash,
-        );
+        let entryState = withScrollKeyInHistoryState(null, nextScrollKey);
+        if (BLOCKER_ENABLED) {
+          currentHistoryIndex = (currentHistoryIndex ?? 0) + 1;
+          entryState = withHistoryIndex(entryState, currentHistoryIndex);
+        }
+        history.pushState(entryState, "", url.pathname + url.search + url.hash);
         currentScrollKey = nextScrollKey;
       } catch {
         // History mutation restricted — the scroll below still lands, the
@@ -312,6 +361,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
     }
     currentDocumentPath = url.pathname + url.search;
+    if (BLOCKER_ENABLED) currentBrowserHref = url.pathname + url.search + url.hash;
 
     if (!preserveScroll) {
       scrollToFragment(url.hash);
@@ -506,13 +556,28 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     to: string | UntypedRouteTarget,
     opts?: InternalNavigateOptions,
   ): Promise<void> {
+    const navigationTarget =
+      typeof to === "string" ? to : buildHrefUntyped(app.routes, to.route, to);
+
+    // Before anything is aborted or superseded: a guard that runs after
+    // `latestNavigationId` moves would cancel the navigation already on screen
+    // in order to refuse the one replacing it. Traversals are guarded in the
+    // `popstate` handler instead, which knows how far to put the entry back.
+    if (
+      BLOCKER_ENABLED &&
+      !opts?._popstate &&
+      !opts?._blockerChecked &&
+      isBlocked(currentBrowserHref, navigationTarget, opts?.replace ? "replace" : "push", () => {
+        void navigate(to, opts);
+      })
+    ) {
+      return;
+    }
+
     const navigationId = ++latestNavigationId;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
     activeNavigationAbort = abortController;
-
-    const navigationTarget =
-      typeof to === "string" ? to : buildHrefUntyped(app.routes, to.route, to);
     const target = resolveBrowserRouteTarget(navigationTarget);
     if (!target) {
       const safeUrl = parseSafeNavigationUrl(navigationTarget, window.location.href);
@@ -596,7 +661,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             }
 
             if (redirect.internalPath) {
-              await navigate(redirect.internalPath, opts);
+              await navigate(redirect.internalPath, { ...opts, _blockerChecked: true });
               return;
             }
 
@@ -663,23 +728,26 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         // this entry is replaced / a new one is pushed.
         saveScrollPosition();
         if (opts?.replace) {
-          history.replaceState(
-            withScrollKeyInHistoryState(history.state, currentScrollKey),
-            "",
-            target.browserUrl,
-          );
+          let entryState = withScrollKeyInHistoryState(history.state, currentScrollKey);
+          if (BLOCKER_ENABLED) {
+            currentHistoryIndex ??= 0;
+            entryState = withHistoryIndex(entryState, currentHistoryIndex);
+          }
+          history.replaceState(entryState, "", target.browserUrl);
         } else {
           const nextScrollKey = generateScrollKey();
-          history.pushState(
-            withScrollKeyInHistoryState(null, nextScrollKey),
-            "",
-            target.browserUrl,
-          );
+          let entryState = withScrollKeyInHistoryState(null, nextScrollKey);
+          if (BLOCKER_ENABLED) {
+            currentHistoryIndex = (currentHistoryIndex ?? 0) + 1;
+            entryState = withHistoryIndex(entryState, currentHistoryIndex);
+          }
+          history.pushState(entryState, "", target.browserUrl);
           currentScrollKey = nextScrollKey;
         }
         const hashIndex = target.browserUrl.indexOf("#");
         currentDocumentPath =
           hashIndex === -1 ? target.browserUrl : target.browserUrl.slice(0, hashIndex);
+        if (BLOCKER_ENABLED) currentBrowserHref = target.browserUrl;
       }
 
       // Module imports started above are already in-flight
@@ -930,7 +998,40 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     navigate(url.pathname + url.search + url.hash, navOptions);
   });
 
+  // Set while the router is undoing a traversal a guard refused; the browser
+  // fires `popstate` for that correction too and it is not a navigation.
+  let suppressNextPopstate = false;
+
   window.addEventListener("popstate", () => {
+    if (BLOCKER_ENABLED && suppressNextPopstate) {
+      suppressNextPopstate = false;
+      return;
+    }
+
+    const traversedToIndex = BLOCKER_ENABLED ? readHistoryIndex(history.state) : null;
+    // An entry with no index was not created by this router, so how far the
+    // browser moved is unknown — and a traversal whose distance cannot be
+    // measured cannot be put back. Those pass unguarded rather than being
+    // blocked into a history position nobody asked for.
+    if (traversedToIndex !== null && currentHistoryIndex !== null) {
+      const delta = traversedToIndex - currentHistoryIndex;
+      if (
+        delta !== 0 &&
+        isBlocked(currentBrowserHref, window.location.href, "pop", () => {
+          history.go(delta);
+        })
+      ) {
+        suppressNextPopstate = true;
+        history.go(-delta);
+        return;
+      }
+    }
+
+    // Adopted here rather than at the bottom so the same-document fragment
+    // branch below, which returns early, does not leave the router pointing at
+    // the index of an entry it is no longer on.
+    if (BLOCKER_ENABLED) currentHistoryIndex = traversedToIndex;
+
     // The history entry already changed, but the on-screen scroll position
     // still belongs to the entry we are leaving — save it under its key
     // before adopting the new entry's key. A same-document fragment
@@ -982,6 +1083,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     currentDocumentPath = nextDocumentPath;
+    if (BLOCKER_ENABLED) {
+      currentBrowserHref = window.location.pathname + window.location.search + window.location.hash;
+    }
     navigate(window.location.pathname + window.location.search + window.location.hash, {
       _popstate: true,
     });

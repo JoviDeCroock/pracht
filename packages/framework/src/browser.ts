@@ -128,13 +128,20 @@ export {
   PrachtRuntimeProvider,
   readHydrationState,
   startApp,
+  useBlocker,
   useLocation,
   useNavigation,
   useParams,
   useRevalidate,
   useRouteData,
   useSearchParams,
+  type Blocker,
+  type BlockerArgs,
+  type BlockerHistoryAction,
+  type BlockerState,
   type ReadonlyURLSearchParams,
+  type RegisterBlockerOptions,
+  type ShouldBlockNavigation,
 } from "./runtime-hooks.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 

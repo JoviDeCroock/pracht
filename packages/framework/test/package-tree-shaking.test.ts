@@ -140,16 +140,38 @@ describe("published package tree shaking", () => {
     // A ceiling, not a target: every byte here is on the critical path of
     // every hydrating route. Lower it when a feature moves off that path;
     // raising it should need a reason.
-    it("keeps the router runtime below 9,600 gzip bytes", async () => {
+    //
+    // Raised from 9,600 for `useBlocker()` navigation guards. Two thirds of
+    // that is not the guard checks but the per-history-entry index the router
+    // has to stamp on every entry it creates so a refused back/forward
+    // traversal can be put back — unconditional, because a guard mounted later
+    // still has to measure traversals across entries created earlier. An app
+    // that never guards a navigation compiles all of it out with
+    // `client: { navigationGuards: false }`, which lands below the old ceiling.
+    //
+    // No app built through the plugin measures at this number: the plugin
+    // always emits the define, so a real bundle is smaller either way. This
+    // shape (no client defines at all) is the worst case, where neither branch
+    // can be folded.
+    it("keeps the router runtime below 9,850 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_600);
+      expect(gzipBytes).toBeLessThanOrEqual(9_850);
     });
 
     it("drops preact-suspense when the app renders no Suspense boundary", async () => {
       const { code } = await bundleExport("initClientRouter", production);
 
       expect(code).not.toContain("preact-suspense");
+    });
+
+    it("drops the navigation blocker when the app renders no useBlocker()", async () => {
+      const { code } = await bundleExport("initClientRouter", production);
+
+      // The router reads a window slot instead of importing the guard store,
+      // so the `beforeunload` wiring and subscriber set only ship when
+      // `useBlocker()` puts them there.
+      expect(code).not.toContain("beforeunload");
     });
 
     it("drops capability revalidation when the app dispatches no capability calls", async () => {
@@ -220,6 +242,46 @@ describe("published package tree shaking", () => {
   // The agent surface is opt-in: a server bundle for an app that registers no
   // capabilities and configures no agents must not contain the capability
   // dispatch or the Web Bot Auth verifier at all.
+  describe("__PRACHT_CLIENT_BLOCKER__", () => {
+    const PRODUCTION = { "import.meta.env.DEV": "false" };
+
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: { ...PRODUCTION, ...define },
+        entry: clientEntry,
+      });
+
+    it("drops the guard checks and the history-entry index when disabled", async () => {
+      const { code } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
+
+      expect(code).not.toContain("__PRACHT_BLOCK_NAVIGATION__");
+      expect(code).not.toContain("__prachtHistoryIndex");
+    });
+
+    it("lands below the pre-guard ceiling when disabled", async () => {
+      // The point of the switch: an app that guards no navigation pays nothing
+      // for the feature, including the index stamped on every history entry.
+      const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
+
+      expect(gzipBytes).toBeLessThanOrEqual(9_600);
+    });
+
+    it("keeps guards when the feature is enabled", async () => {
+      const { code } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "true" });
+
+      expect(code).toContain("__PRACHT_BLOCK_NAVIGATION__");
+      expect(code).toContain("__prachtHistoryIndex");
+    });
+
+    it("costs nothing when the define is absent", async () => {
+      // Unit tests and direct Node imports run without the define. The `typeof`
+      // guard has to keep guards on rather than throw.
+      const { code } = await routerBundle({});
+
+      expect(code).toContain("__PRACHT_BLOCK_NAVIGATION__");
+    });
+  });
+
   describe("__PRACHT_AGENT_SURFACE__", () => {
     it("keeps graph serialization from defeating lazy agent-runtime chunks", async () => {
       const { warnings } = await bundleExport("buildAppGraph, buildLlmsTxt, handlePrachtRequest", {

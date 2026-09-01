@@ -815,6 +815,70 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
+### `useBlocker()`
+
+Stop a client navigation before it commits. `useNavigation()` reports that a
+navigation is happening; `useBlocker()` is what refuses one.
+
+```tsx
+import { useBlocker } from "@pracht/core";
+
+const blocker = useBlocker(form.isDirty);
+
+blocker.state; // "unblocked" | "blocked" | "proceeding"
+blocker.location; // where the blocked navigation was going, while blocked
+blocker.proceed(); // let it continue
+blocker.reset(); // abandon it and stay put
+```
+
+A predicate decides per navigation, receiving
+`{ currentLocation, nextLocation, historyAction }` where `historyAction` is
+`"push"`, `"replace"`, `"pop"`, or `"unload"`:
+
+```ts
+const blocker = useBlocker(
+  ({ nextLocation }) => form.isDirty && nextLocation?.pathname !== "/drafts",
+);
+```
+
+**Where the guard runs.** `<Link>` clicks and `useNavigate()` calls are checked
+at the top of the router's `navigate()`, before `latestNavigationId` moves — a
+guard that ran later would cancel the page already on screen in order to refuse
+the one replacing it. Back/forward traversals are checked in the `popstate`
+handler instead, because by then the URL has already changed and refusing means
+putting the entry back.
+
+**The history index.** Undoing a traversal needs to know how far the browser
+moved, so every entry the router creates carries a monotonic index in
+`history.state` alongside its scroll key (`navigation-blocker.ts`). A blocked
+traversal calls `history.go(-delta)`; `proceed()` calls `history.go(delta)`. An
+entry the router did not create carries no index, so its distance is
+unmeasurable and traversals onto it pass unguarded — being blocked into a
+history position nobody asked for is worse than not being blocked.
+
+**Document unloads.** Reloads, closed tabs, and links to another origin never
+reach the router, so the guard also attaches a `beforeunload` listener (opt out
+with `{ beforeUnload: false }`). Those calls get `nextLocation: null` and
+`historyAction: "unload"`, and the browser shows its own dialog.
+
+**Compiling it out.** `pracht({ client: { navigationGuards: false } })` sets
+`__PRACHT_CLIENT_BLOCKER__: false`, which removes both guard checks and the
+index stamping. The switch exists because the stamping is unconditional
+otherwise: a guard mounted later still has to measure traversals across entries
+created before it. With guards off `useBlocker()` stays importable, never
+blocks, and warns in development — unlike `client.prefetch`, which goes quiet,
+because silently not protecting unsaved work is a different class of surprise.
+
+**One at a time.** Two components each believing they own the guard is a bug
+worth naming rather than a composition to support: the newest registration
+wins and development warns. Unregistering while a navigation is blocked
+releases it, so unmounting the guard cannot strand the router holding a retry
+nobody can trigger. A guard that throws fails open and logs. During SSR the
+blocker is always unblocked.
+
+`<Form>` submissions post and revalidate in place rather than navigating, so
+they are not guarded.
+
 ### `<Form>` Component
 
 Declarative form submission:

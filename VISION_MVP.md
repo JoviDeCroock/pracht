@@ -108,7 +108,9 @@ core framework conventions. See
   shell-level head.
 - **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
-  `useLocation()`, `useSearchParams()`, `useParams()`, `<Form>` component, `<Link>`
+  `useLocation()`, `useSearchParams()`, `useParams()`, `useBlocker()` (guard a
+  navigation before it commits, including back/forward and document unload),
+  `<Form>` component, `<Link>`
   (with `prefetch`, `preserveScroll`, `viewTransition`, `speculate` props), and imperative
   `prefetch()`.
 

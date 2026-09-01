@@ -31,11 +31,18 @@ describe("resolveOptions additionalExtensions", () => {
 
 describe("resolveOptions client", () => {
   it("enables every client feature by default", () => {
-    expect(resolveOptions({}).client).toEqual({ prefetch: true });
+    expect(resolveOptions({}).client).toEqual({ prefetch: true, navigationGuards: true });
   });
 
   it("applies an explicit override", () => {
-    expect(resolveOptions({ client: { prefetch: false } }).client).toEqual({ prefetch: false });
+    expect(resolveOptions({ client: { prefetch: false } }).client).toEqual({
+      prefetch: false,
+      navigationGuards: true,
+    });
+    expect(resolveOptions({ client: { navigationGuards: false } }).client).toEqual({
+      prefetch: true,
+      navigationGuards: false,
+    });
   });
 
   it("treats an explicit undefined as unset rather than as false", () => {

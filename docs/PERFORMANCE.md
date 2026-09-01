@@ -86,6 +86,29 @@ fragment navigation by whether the entry carries a router-stamped scroll key, so
 the two are one mechanism rather than two features — removing it would change
 navigation semantics, not just bundle size.
 
+## Switching off navigation guards
+
+`useBlocker()` guards are two branches in `navigate()` and the `popstate`
+handler, but the per-history-entry index they need to put a refused back/forward
+traversal back has to be stamped on every entry the router creates — a guard
+mounted later still has to measure traversals across entries created earlier.
+That part is unconditional, so it gets the same switch prefetching has:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [pracht({ client: { navigationGuards: false } })],
+});
+```
+
+Measured by `pnpm bench` on the ladder fixture, the feature costs 300 gzip
+bytes with guards on and 60 with them compiled out — the residue is a few dead
+variable declarations the minifier keeps inside the router closure.
+
+Unlike `client.prefetch`, turning this off is not silent: `useBlocker()` stays
+importable, never blocks, and warns in development. Quietly not protecting
+unsaved work is a different class of surprise from quietly not prefetching.
+
 ## Composing with the app's chunking
 
 Pracht has one chunking opinion — Preact belongs in a shared `vendor` chunk —
