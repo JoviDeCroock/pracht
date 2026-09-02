@@ -6,8 +6,8 @@ prev:
   href: /docs/agents
   title: The Agentic Web
 next:
-  href: /docs/agent-trust
-  title: Agent Trust
+  href: /docs/standalone-capabilities
+  title: Standalone Capabilities
 ---
 
 > **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover every module in `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`; everything on this page — HTTP endpoints, WebMCP, remote MCP, typed clients, `pracht eval` — works the same in both.
@@ -229,7 +229,7 @@ Runtime validation is unchanged either way, and it is the runtime — not the co
 
 With `expose.webmcp: true`, the client runtime registers the capability as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool via `document.modelContext.registerTool()`. The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side. If the WebMCP host cancels execution, its `AbortSignal` aborts the capability's HTTP request too, and the returned value is the capability envelope itself (`{ ok, data }` or `{ ok: false, error }`) — the host serializes it per the spec, so there is no extra wrapping for an agent to unpick.
 
-The registered descriptor carries the capability's `title` (hosts show it in their tool UI; statically extracted, so keep it an inline literal), its `description`, the input JSON Schema, and effect-derived annotations — the same `readOnlyHint`/`destructiveHint`/`idempotentHint` set the remote MCP projection advertises, so one capability presents one contract on both agent transports. (Native Chromium currently keeps only the spec's two annotation members, `readOnlyHint` and `untrustedContentHint`, and silently drops the rest at the IDL boundary — registering the fuller set is harmless and still reaches non-native hosts.) Capabilities whose results include user-generated or third-party content can advertise the spec's `untrustedContentHint` with the options form:
+The registered descriptor carries the capability's `title` (hosts show it in their tool UI; statically extracted, so keep it an inline literal), its `description`, the input JSON Schema, and WebMCP's effect-derived `readOnlyHint`. Remote MCP derives its additional `destructiveHint` and `idempotentHint` separately because those annotations are not part of WebMCP. Capabilities whose results include user-generated or third-party content can advertise `untrustedContentHint` with the options form:
 
 ```ts
 expose: {

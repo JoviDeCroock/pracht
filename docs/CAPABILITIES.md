@@ -83,6 +83,29 @@ capabilities should not carry it:
 npm install @pracht/capabilities
 ```
 
+## Standalone hosting
+
+The capability pipeline does not require the Pracht router. The curated
+`@pracht/capabilities/server` entry exports `createCapabilityHost()` plus the
+supported trust, approval, audit, and invocation APIs. A host receives
+capability objects and middleware functions at runtime and exposes the same
+HTTP, remote MCP, and RFC 9728 metadata handlers through Web-standard
+`Request`/`Response` values. `host.fetch(request)` returns `null` for unrelated
+paths before context creation or signature verification, which makes it safe
+as wildcard middleware; unknown generated capability paths remain owned and
+return the normal typed 404 envelope.
+
+The framework consumes the broader
+`@pracht/capabilities/server/internal` entry. Keep application documentation
+and examples on the curated entry so internal registry and request-binding
+machinery do not become a compatibility promise.
+
+The browser registrar is independently available at
+`@pracht/capabilities/webmcp`. Its optional `{ signal }` registration argument
+owns the registered tools' lifetime; abort it when an SPA scope unmounts or is
+replaced. The public setup guide lives at
+<https://pracht.resynapse.dev/docs/standalone-capabilities>.
+
 Skipping this is not a quiet failure but it *is* a confusing one: capability
 dispatch answers `500 internal_error`, and because the modules cannot be
 loaded, every inspection surface reads their metadata as unknown — the dev
@@ -536,10 +559,10 @@ and the Chrome/Edge origin trial (stable-channel visitors need an origin-trial
 token in the page head — see the site docs for the `head()` recipe):
 
 - one tool per capability: `name`, `title`, `description`, `inputSchema` (the
-  capability's JSON Schema), the same effect-derived
-  `readOnlyHint`/`destructiveHint`/`idempotentHint` annotation set as the
-  remote MCP projection, and `annotations.untrustedContentHint` when the
-  capability opts in via `expose.webmcp: { untrustedContent: true }`;
+  capability's JSON Schema), WebMCP's effect-derived `readOnlyHint`, and
+  `annotations.untrustedContentHint` when the capability opts in via
+  `expose.webmcp: { untrustedContent: true }`; remote MCP derives its
+  additional MCP-only annotations separately;
 - `execute()` calls the HTTP projection via `callCapability`, so the user's
   session authenticates the call and validation, middleware, and policy all
   stay server-side — the agent acts as the signed-in user, in their tab. When
@@ -555,6 +578,8 @@ token in the page head — see the site docs for the `head()` recipe):
 - the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
   detection: browsers without the API never download it, and pages without
   webmcp-exposed capabilities never reference it;
+- registrations use a caller-owned abort signal, and the generated shim aborts
+  stale registrations before re-registering and when Vite replaces the module;
 - works in full-hydration and islands modes (the islands bootstrap pulls the
   shim in too; `hydration: "none"` pages ship no JS and register no tools).
 

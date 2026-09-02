@@ -86,6 +86,11 @@ const NAV = [
     links: [
       { href: "/docs/agents", Icon: IconWorldBolt, title: "The Agentic Web" },
       { href: "/docs/capabilities", Icon: IconRobot, title: "Capabilities" },
+      {
+        href: "/docs/standalone-capabilities",
+        Icon: IconPlug,
+        title: "Standalone Capabilities",
+      },
       { href: "/docs/agent-trust", Icon: IconShieldCheck, title: "Agent Trust" },
       { href: "/docs/coding-agents", Icon: IconTerminal2, title: "Coding Agents" },
     ],

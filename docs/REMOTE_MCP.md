@@ -8,6 +8,11 @@ HTTP, at one endpoint — for agents that never open a browser.
 > stdio server that gives *coding* agents access to your app graph at
 > development time. This page is about the deployed application's own tools.
 
+Applications outside the Pracht framework can expose this same endpoint with
+`createCapabilityHost()` from `@pracht/capabilities/server`; capability
+semantics and transport hardening are identical. See the standalone section in
+[CAPABILITIES.md](CAPABILITIES.md#standalone-hosting).
+
 ## Enabling it
 
 Two opt-ins, both explicit:

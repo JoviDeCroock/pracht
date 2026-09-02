@@ -41,7 +41,7 @@ constraint; the CLI test is.
 | `packages/i18n`               | `@pracht/i18n`               | i18n primitives: locale-detection middleware, lazy typed dictionaries, `t()`/`tPlural()`, `localePath()`/`hreflang()` helpers (see `packages/i18n/README.md`) |
 | `packages/session`            | `@pracht/session`            | Sessions: AES-GCM-sealed cookie or store-backed session id, secret rotation, flash values, `sessionMiddleware()`/`requireSession()`, WebCrypto password hashing (see `docs/SESSION.md`) |
 | `packages/test`               | `@pracht/test`               | Testing utilities for app developers: typed loader/API/middleware args factories, a middleware chain runner, form submission helpers, and minimal response readers |
-| `packages/capabilities`       | `@pracht/capabilities`       | Capability primitive: `defineCapability()`, JSON Schema validation, form-input coercion, and the shared envelope/error protocol |
+| `packages/capabilities`       | `@pracht/capabilities`       | Capability primitive plus standalone server host and WebMCP registrar: contracts, validation, trust policy, HTTP/MCP dispatch, and the shared envelope/error protocol |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, `doctor`, and the `pracht dev-mcp` authoring server |
 | `packages/start`              | `create-pracht`              | Project scaffolder: router choice, adapter choice, agent tooling (`.mcp.json`, skills, `AGENTS.md`)         |
 | `examples/basic`              | `@pracht/example-basic`      | The reference app: all four render modes, loaders, API routes, `@pracht/session` auth, capabilities, forms. Builds for four adapters from one source tree |

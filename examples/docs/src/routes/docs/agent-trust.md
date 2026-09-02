@@ -3,8 +3,8 @@ title: Agent Trust
 lead: Who is calling, may they do this, and what happened? Verified agent identity with Web Bot Auth, a prepare/commit confirmation flow for destructive operations, structured audit events, and `pracht eval` to prove agent flows in CI.
 breadcrumb: Agent Trust
 prev:
-  href: /docs/capabilities
-  title: Capabilities
+  href: /docs/standalone-capabilities
+  title: Standalone Capabilities
 next:
   href: /docs/coding-agents
   title: Coding Agents
