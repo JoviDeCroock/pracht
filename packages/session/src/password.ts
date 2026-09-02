@@ -29,6 +29,20 @@ const HASH_BITS = 256;
  */
 export const DEFAULT_PASSWORD_ITERATIONS = 210_000;
 
+/**
+ * Iteration floor, enforced when hashing **and** when verifying.
+ *
+ * Enforcing it on verification is the half that matters for security: the
+ * iteration count is read out of the stored string, so anything that can write
+ * to the user table — a SQL injection, a compromised admin tool, a bad
+ * migration — could otherwise replace a hash with a one-iteration equivalent
+ * and turn every subsequent login into a trivially precomputable check.
+ */
+const MIN_PASSWORD_ITERATIONS = 1000;
+
+/** Refuse absurd counts rather than hanging the request for minutes. */
+const MAX_PASSWORD_ITERATIONS = 10_000_000;
+
 export interface HashPasswordOptions {
   /** PBKDF2 iterations. Default: {@link DEFAULT_PASSWORD_ITERATIONS}. */
   iterations?: number;
@@ -49,8 +63,10 @@ export async function hashPassword(
   options: HashPasswordOptions = {},
 ): Promise<string> {
   const iterations = options.iterations ?? DEFAULT_PASSWORD_ITERATIONS;
-  if (!Number.isInteger(iterations) || iterations < 1000) {
-    throw new TypeError("hashPassword: `iterations` must be an integer of at least 1000.");
+  if (!Number.isInteger(iterations) || iterations < MIN_PASSWORD_ITERATIONS) {
+    throw new TypeError(
+      `hashPassword: \`iterations\` must be an integer of at least ${MIN_PASSWORD_ITERATIONS}.`,
+    );
   }
   const salt = new Uint8Array(SALT_BYTES);
   crypto.getRandomValues(salt);
@@ -72,7 +88,15 @@ export async function verifyPassword(password: string, stored: string): Promise<
   if (parts.length !== 4 || parts[0] !== ALGORITHM) return false;
 
   const iterations = Number(parts[1]);
-  if (!Number.isInteger(iterations) || iterations < 1 || iterations > 10_000_000) return false;
+  // Same floor as hashing: a stored hash claiming fewer iterations than the
+  // minimum is not a weak password, it is a tampered row. Refuse it.
+  if (
+    !Number.isInteger(iterations) ||
+    iterations < MIN_PASSWORD_ITERATIONS ||
+    iterations > MAX_PASSWORD_ITERATIONS
+  ) {
+    return false;
+  }
 
   const salt = fromBase64Url(parts[2]);
   if (salt === null || salt.length === 0) return false;

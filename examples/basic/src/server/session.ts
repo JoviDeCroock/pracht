@@ -25,7 +25,11 @@ let storage: SessionStorage<AppSession> | undefined;
  */
 export function sessions(): SessionStorage<AppSession> {
   storage ??= createSessionStorage<AppSession>({
-    cookie: { name: "session", secrets: [secret()] },
+    // `__Host-` is enforced by the browser: the cookie is rejected unless it
+    // is Secure, Path=/, and host-only, so a sibling subdomain cannot write a
+    // cookie this app would read. It also pins Secure on, which browsers
+    // accept over http://localhost.
+    cookie: { name: "__Host-session", secrets: [secret()] },
   });
   return storage;
 }

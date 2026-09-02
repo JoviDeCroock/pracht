@@ -61,7 +61,19 @@ export function toBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-/** Inverse of {@link toBase64Url}; returns `null` for anything malformed. */
+/**
+ * Inverse of {@link toBase64Url}; returns `null` for anything malformed **or
+ * non-canonical**.
+ *
+ * `atob` is lenient about the final character: for a byte length that does not
+ * divide into 6-bit groups, several different last characters decode to the
+ * same bytes because the leftover low bits are simply dropped. That makes a
+ * sealed cookie value malleable in a way that changes the string without
+ * changing what it decodes to — so a value could be modified and still open,
+ * and any cache, log, or replay check keyed on the cookie *string* would see a
+ * different token for the same session. Re-encoding and comparing rejects
+ * every encoding but the canonical one.
+ */
 export function fromBase64Url(value: string): Bytes | null {
   if (!/^[A-Za-z0-9_-]*$/.test(value)) return null;
   const padded = value.replaceAll("-", "+").replaceAll("_", "/");
@@ -69,6 +81,7 @@ export function fromBase64Url(value: string): Bytes | null {
     const binary = atob(padded);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+    if (toBase64Url(bytes) !== value) return null;
     return bytes;
   } catch {
     return null;

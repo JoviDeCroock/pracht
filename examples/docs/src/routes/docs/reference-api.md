@@ -192,7 +192,7 @@ adapter. See [Authentication](/docs/recipes/auth).
 
 | Export | Description |
 | --- | --- |
-| `createSessionStorage<Data>({ cookie, store })` | The app's session storage. Without `store`, the data travels AES-256-GCM sealed in the cookie; with one, the cookie carries only a sealed id |
+| `createSessionStorage<Data>({ cookie, store, rolling })` | The app's session storage. Without `store`, the data travels AES-256-GCM sealed in the cookie; with one, the cookie carries only a sealed id. `rolling: true` re-commits on every request, turning `maxAge` into an idle timeout |
 | `sessionMiddleware(storage, options?)` | Loads the session onto `context.session` and commits changes after the chain. Does not gate |
 | `requireSession(storage, options?)` | The same, plus a gate: page requests redirect to `loginPath`, API requests get `401` |
 | `createMemorySessionStore()` | In-memory `SessionStore` for tests and dev. Not a production store |
@@ -202,7 +202,14 @@ adapter. See [Authentication](/docs/recipes/auth).
 
 `cookie` takes `{ name, secrets, maxAge?, path?, domain?, sameSite?, secure?, httpOnly? }`.
 `secrets` is newest-first: the first seals, all of them open, which is what
-makes rotation a deploy rather than a mass logout.
+makes rotation a deploy rather than a mass logout. A `__Host-`/`__Secure-`
+`name` is validated at construction and pins `Secure` on. `secure` defaults to
+on for every request except plain http from `localhost`/`127.0.0.1`/`[::1]`,
+so a deployment behind a TLS-terminating proxy does not silently lose it.
+
+Expiry is absolute from the last write, and the middleware commits only when
+the session changed — see [Authentication](/docs/recipes/auth) for the full
+model and for `rolling`.
 
 | `SessionStorage` method | Description |
 | --- | --- |
@@ -219,6 +226,7 @@ makes rotation a deploy rather than a mass logout.
 | `get(key)` | Read a value — and consume it, if it was flashed |
 | `set(key, value)` / `unset(key)` / `has(key)` | Durable writes and presence |
 | `flash(key, value)` | Write a value that survives exactly one read |
+| `regenerate()` | New id, same data, old store record dropped. Call it on every privilege change — it is what closes session fixation |
 
 | `SessionStore` method | Description |
 | --- | --- |

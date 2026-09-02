@@ -23,6 +23,10 @@ export async function POST({ request }: ApiRouteArgs) {
 
   const storage = sessions();
   const session = await storage.getSession(request);
+  // Rotate the id before writing the user onto it. Without this, an attacker
+  // who planted a session cookie in the victim's browser still holds a valid
+  // pointer to the session that is about to become authenticated.
+  await session.regenerate();
   session.set("userId", user.id);
   session.set("email", user.email);
   session.set("name", user.name);

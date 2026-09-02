@@ -13,6 +13,9 @@ const COOKIE_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 // attribute value could smuggle extra cookie attributes or split the header.
 const COOKIE_ATTRIBUTE_UNSAFE = /[;,\s]|[^ -~]/;
 
+const HOST_PREFIX = "__Host-";
+const SECURE_PREFIX = "__Secure-";
+
 /**
  * The practical per-cookie ceiling in every current browser: 4096 bytes for
  * the whole `name=value; attributes` string. Over it, browsers do not error —
@@ -21,6 +24,15 @@ const COOKIE_ATTRIBUTE_UNSAFE = /[;,\s]|[^ -~]/;
  * the oversized cookie is created.
  */
 export const MAX_COOKIE_BYTES = 4096;
+
+/**
+ * How many same-named cookies {@link readCookies} will hand back. A browser
+ * sends every cookie whose domain and path match, so an attacker who can write
+ * a cookie on a parent domain can send a second `session` alongside the real
+ * one. Trying each candidate is the fix; trying an unbounded number of them is
+ * a way to make one request perform hundreds of AES-GCM opens.
+ */
+const MAX_COOKIE_CANDIDATES = 8;
 
 export type SameSite = "Lax" | "Strict" | "None";
 
@@ -31,11 +43,22 @@ export interface ResolvedCookieOptions {
   name: string;
   path: string;
   sameSite: SameSite;
+  /** `true`/`false` pin the attribute; `undefined` means "infer per request". */
   secure: boolean | undefined;
 }
 
 export interface CookieOptionsInput {
-  /** Cookie name. Default: `"pracht_session"`. */
+  /**
+   * Cookie name. Default: `"pracht_session"`.
+   *
+   * Prefer a `__Host-` prefix (`"__Host-session"`). It is enforced by the
+   * browser, not by the server: a `__Host-` cookie is rejected unless it is
+   * `Secure`, `Path=/`, and **host-only**, which is exactly what stops a
+   * sibling subdomain — or anything that has taken one over — from writing a
+   * cookie your app will read. `createSessionStorage()` validates the same
+   * rules up front so the mistake surfaces at boot instead of as a cookie the
+   * browser silently discards.
+   */
   name?: string;
   /**
    * Signing/encryption secrets, newest first. The first one seals new cookies;
@@ -56,10 +79,18 @@ export interface CookieOptionsInput {
   /** `SameSite` attribute. Default: `"Lax"`. */
   sameSite?: SameSite;
   /**
-   * Add the `Secure` attribute. Default: automatic — set when the request the
-   * session was read from is https, and always when `sameSite` is `"None"`.
-   * Set it to `true` explicitly when TLS terminates upstream, because the
-   * request URL the app sees is then plain http.
+   * Add the `Secure` attribute.
+   *
+   * Default: **on**, except for a request whose host is plainly local
+   * (`localhost`, `*.localhost`, `127.0.0.1`, `[::1]`) over http. This fails
+   * closed on purpose: a production app behind a TLS-terminating proxy sees
+   * `http://` in `request.url` unless the adapter is configured to trust the
+   * forwarding headers, and inferring "not https, so not Secure" from that
+   * would drop the attribute on exactly the deployments that need it most.
+   *
+   * Set it to `false` only for http development on a non-localhost host. It
+   * cannot be `false` for a `__Host-`/`__Secure-` cookie or with
+   * `sameSite: "None"`, because the browser would reject the result.
    */
   secure?: boolean;
   /**
@@ -114,32 +145,76 @@ export function resolveCookieOptions(options: CookieOptionsInput): ResolvedCooki
     );
   }
 
-  return {
-    domain,
-    httpOnly: options.httpOnly ?? true,
-    maxAge,
-    name,
-    path,
-    sameSite,
-    secure: options.secure,
-  };
+  // Browser-enforced name prefixes. Getting these wrong produces a cookie the
+  // browser drops without a word, which reads to the developer as "sessions
+  // randomly do not persist" — so validate them here.
+  const hostPrefixed = name.startsWith(HOST_PREFIX);
+  const securePrefixed = name.startsWith(SECURE_PREFIX);
+  if (hostPrefixed) {
+    if (domain !== undefined) {
+      throw new TypeError(
+        `createSessionStorage: a "${HOST_PREFIX}" cookie must be host-only, but a domain ` +
+          `("${domain}") was configured. Drop \`cookie.domain\`, or drop the prefix.`,
+      );
+    }
+    if (path !== "/") {
+      throw new TypeError(
+        `createSessionStorage: a "${HOST_PREFIX}" cookie must use \`path: "/"\`, got "${path}".`,
+      );
+    }
+  }
+  if ((hostPrefixed || securePrefixed) && options.secure === false) {
+    throw new TypeError(
+      `createSessionStorage: a "${hostPrefixed ? HOST_PREFIX : SECURE_PREFIX}" cookie is ` +
+        "rejected by the browser without the Secure attribute, so `cookie.secure: false` " +
+        "cannot be honoured. Use an unprefixed name for plain-http development.",
+    );
+  }
+  if (sameSite === "None" && options.secure === false) {
+    throw new TypeError(
+      'createSessionStorage: `sameSite: "None"` is rejected by the browser without the ' +
+        "Secure attribute, so `cookie.secure: false` cannot be honoured.",
+    );
+  }
+
+  // A prefixed name or SameSite=None pins Secure on: there is no request for
+  // which the browser would accept the alternative, localhost included.
+  const secure = hostPrefixed || securePrefixed || sameSite === "None" ? true : options.secure;
+
+  return { domain, httpOnly: options.httpOnly ?? true, maxAge, name, path, sameSite, secure };
 }
 
-/** Read one cookie value from a `Cookie` header; malformed pairs are skipped. */
-export function readCookie(header: string | null | undefined, name: string): string | null {
-  if (!header) return null;
+/**
+ * Every value sent under `name`, in header order.
+ *
+ * A browser sends one `Cookie` header containing every cookie whose domain and
+ * path match, and nothing stops two of them sharing a name — `example.com` and
+ * `.example.com` can both hold a `session`. The ordering between them is not
+ * something the server can rely on, so taking the first match lets whoever
+ * planted the second one decide which session the request runs as (or, with a
+ * junk value, deny the real one). The caller tries each candidate instead.
+ *
+ * Malformed pairs are skipped. The result is capped at
+ * {@link MAX_COOKIE_CANDIDATES} so a header stuffed with duplicates cannot
+ * turn one request into hundreds of decrypt attempts.
+ */
+export function readCookies(header: string | null | undefined, name: string): string[] {
+  if (!header) return [];
+  const values: string[] = [];
   for (const pair of header.split(";")) {
+    if (values.length >= MAX_COOKIE_CANDIDATES) break;
     const equals = pair.indexOf("=");
     if (equals === -1) continue;
     if (pair.slice(0, equals).trim() !== name) continue;
     const raw = pair.slice(equals + 1).trim();
+    if (raw.length === 0) continue;
     try {
-      return decodeURIComponent(raw);
+      values.push(decodeURIComponent(raw));
     } catch {
-      return raw;
+      values.push(raw);
     }
   }
-  return null;
+  return values;
 }
 
 export interface SerializeCookieOptions {
@@ -160,8 +235,8 @@ export function serializeCookie(options: SerializeCookieOptions): string {
   ];
   if (cookie.domain !== undefined) attributes.push(`Domain=${cookie.domain}`);
   if (cookie.httpOnly) attributes.push("HttpOnly");
-  // Browsers reject `SameSite=None` without `Secure`, so an explicit `false`
-  // there would produce a cookie that silently never persists.
+  // `resolveCookieOptions` has already pinned `cookie.secure` to `true` for
+  // the cases the browser would otherwise reject outright.
   if (secure || cookie.sameSite === "None") attributes.push("Secure");
   return attributes.join("; ");
 }
@@ -178,5 +253,28 @@ export function assertCookieSize(header: string, cookieName: string): void {
       `${MAX_COOKIE_BYTES}-byte limit browsers enforce by silently dropping the cookie. ` +
       "Store less in the session, or pass a `store` to createSessionStorage() so the " +
       "cookie carries only a session id.",
+  );
+}
+
+/**
+ * Whether a request came from a host where plain http is a development
+ * reality rather than a downgrade — the only case in which the `Secure`
+ * attribute is dropped automatically.
+ */
+export function isLocalHttpRequest(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === "https:") return false;
+  const host = parsed.hostname.toLowerCase();
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "127.0.0.1" ||
+    host === "[::1]" ||
+    host === "::1"
   );
 }

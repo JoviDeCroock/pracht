@@ -18,7 +18,9 @@ import { createSessionStorage } from "@pracht/session";
 
 export const sessions = createSessionStorage<{ userId: string; email: string }>({
   cookie: {
-    name: "session",
+    // `__Host-` is browser-enforced: Secure, Path=/, host-only. It stops a
+    // sibling subdomain from writing a cookie this app would read.
+    name: "__Host-session",
     // Newest first. Every secret is tried on read, so rotation is a deploy
     // rather than a mass logout.
     secrets: [serverEnv.SESSION_SECRET],
@@ -84,7 +86,7 @@ export const middleware = requireSession(sessions, { loginPath: "/login" });
 import { createSessionStorage } from "@pracht/session";
 
 export const sessions = createSessionStorage({
-  cookie: { name: "session", secrets: [serverEnv.SESSION_SECRET] },
+  cookie: { name: "__Host-session", secrets: [serverEnv.SESSION_SECRET] },
   store: {
     async get(id) {
       return await env.SESSIONS.get(`session:${id}`, "json");
@@ -110,12 +112,20 @@ servers. It is not a production store: the sessions die with the process.
   key derived from your secret via HKDF-SHA256. A signed-but-readable cookie
   leaks whatever you put in it to anything that can read the cookie jar.
 - **Expiry that the client cannot extend.** The lifetime is inside the sealed
-  payload, not only in `Max-Age`.
+  payload, not only in `Max-Age`. It is absolute from the last write, and the
+  middleware commits only when the session changed; `rolling: true` re-commits
+  every request to give an idle timeout instead.
 - **Rotation without logging anyone out.** The first secret seals; every
   secret opens.
 - **Cookie hygiene by default.** `HttpOnly`, `SameSite=Lax`, `Path=/`, and
-  `Secure` inferred from the request's scheme (or forced with
-  `cookie.secure`).
+  `Secure` on everything but plain-http localhost — it fails closed, because a
+  TLS-terminating proxy makes a production request look like http. `__Host-`
+  and `__Secure-` names are validated at construction.
+- **A fix for session fixation.** `session.regenerate()` rotates the id and
+  drops the old store record; call it the moment credentials verify.
+- **Duplicate-cookie safety.** When several cookies share the name, each is
+  tried until one unseals, so a planted duplicate cannot take precedence or
+  deny the real session.
 - **A size guard.** Over 4 KB, browsers silently drop the cookie; this throws
   instead, and names the fix.
 - **No `node:` imports.** Enforced by a test against the built output.

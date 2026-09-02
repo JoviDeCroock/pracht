@@ -123,12 +123,21 @@ export function requireSession<Data extends Record<string, unknown> = Record<str
       // A rejected request never gets a refreshed cookie: committing here
       // would hand an anonymous visitor a rolling empty session on every
       // blocked navigation, for nothing.
-      if (!isPageRoute(args.route)) return unauthorized(args);
-      const target =
-        redirectParam === false
-          ? loginPath
-          : `${loginPath}?${redirectParam}=${encodeURIComponent(args.url.pathname + args.url.search)}`;
-      return redirect(target, { request: args.request });
+      //
+      // It does still get `Vary: Cookie`. Whether this request is answered
+      // with the page or with a redirect to the login page is decided by the
+      // Cookie header, so a shared cache that stored the redirect without
+      // varying on it would go on serving that redirect to the user who just
+      // logged in.
+      const rejection = !isPageRoute(args.route)
+        ? unauthorized(args)
+        : redirect(
+            redirectParam === false
+              ? loginPath
+              : `${loginPath}?${redirectParam}=${encodeURIComponent(args.url.pathname + args.url.search)}`,
+            { request: args.request },
+          );
+      return varyOnCookie(rejection, args);
     }
 
     return finalize(storage, session, await next(), args, shouldCommit);
@@ -142,18 +151,27 @@ async function finalize<Data extends Record<string, unknown>>(
   args: MiddlewareArgs,
   shouldCommit: (response: Response, session: Session<Data>) => boolean,
 ): Promise<Response> {
-  // A prerendered route's output is stored once and replayed to everyone, so
-  // it can depend on no request state at all. Marking it `Vary: Cookie` would
-  // only make an ISG response fail the cacheability check for a dependency it
-  // does not have. A session write on such a route still commits — and a
-  // `Set-Cookie` failing the prerender build is the correct, loud answer to
-  // mutating a session in an SSG loader.
-  const render = (args.route as { render?: string }).render;
-  const varied = render === "ssg" || render === "isg" ? response : withVary(response, "Cookie");
+  const varied = varyOnCookie(response, args);
 
   if (!storage.isDirty(session)) return varied;
   if (!shouldCommit(varied, session)) return varied;
   return storage.commit(session, varied);
+}
+
+/**
+ * Mark a response as depending on the `Cookie` header.
+ *
+ * A prerendered route's output is stored once and replayed to everyone, so it
+ * can depend on no request state at all. Marking it `Vary: Cookie` would only
+ * make an ISG response fail the cacheability check for a dependency it does
+ * not have. A session write on such a route still commits — and a `Set-Cookie`
+ * failing the prerender build is the correct, loud answer to mutating a
+ * session in an SSG loader.
+ */
+function varyOnCookie(response: Response, args: MiddlewareArgs): Response {
+  const render = (args.route as { render?: string }).render;
+  if (render === "ssg" || render === "isg") return response;
+  return withVary(response, "Cookie");
 }
 
 function attachSession(context: unknown, key: string, session: unknown): void {

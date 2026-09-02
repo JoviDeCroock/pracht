@@ -240,16 +240,58 @@ describe("cookie attributes", () => {
     expect(cookieAttribute(setCookie, "Path")).toBe("/");
   });
 
-  it("adds Secure for an https request and omits it for http", async () => {
+  it("adds Secure for https and for plain http on a non-local host", async () => {
     const sessions = storage();
 
-    const secure = await sessions.getSession(new Request("https://example.com/"));
-    secure.set("userId", "u_1");
-    expect(cookieAttribute(await sessions.commitSession(secure), "Secure")).toBe(true);
+    for (const url of [
+      "https://example.com/",
+      // The failure this guards: a TLS-terminating proxy in front of the Node
+      // adapter (which defaults to `trustProxy: false`) makes a production
+      // request look like plain http. Inferring "not https, so not Secure"
+      // there would strip the attribute on exactly the deployments that need
+      // it, so anything that is not plainly local dev gets Secure.
+      "http://example.com/",
+      "http://10.0.0.7:8080/",
+      "http://myapp.internal/",
+    ]) {
+      const session = await sessions.getSession(new Request(url));
+      session.set("userId", "u_1");
+      expect(cookieAttribute(await sessions.commitSession(session), "Secure"), url).toBe(true);
+    }
+  });
 
-    const insecure = await sessions.getSession(new Request("http://localhost:3000/"));
-    insecure.set("userId", "u_1");
-    expect(cookieAttribute(await sessions.commitSession(insecure), "Secure")).toBe(false);
+  it("omits Secure only for local http development", async () => {
+    const sessions = storage();
+
+    for (const url of [
+      "http://localhost:3000/",
+      "http://app.localhost:3000/",
+      "http://127.0.0.1:5173/",
+      "http://[::1]:5173/",
+    ]) {
+      const session = await sessions.getSession(new Request(url));
+      session.set("userId", "u_1");
+      expect(cookieAttribute(await sessions.commitSession(session), "Secure"), url).toBe(false);
+    }
+  });
+
+  it("fails closed when there is no request to judge", async () => {
+    // A raw Cookie header or `null` carries no scheme. Guessing "insecure"
+    // would silently downgrade every caller that reads a session outside a
+    // request (a job, a test, a capability).
+    const sessions = storage();
+    const session = await sessions.getSession(null);
+    session.set("userId", "u_1");
+    expect(cookieAttribute(await sessions.commitSession(session), "Secure")).toBe(true);
+  });
+
+  it("honours an explicit `secure: false` for non-localhost http dev", async () => {
+    const sessions = createSessionStorage<AppSession>({
+      cookie: { name: "session", secrets: [SECRET], secure: false },
+    });
+    const session = await sessions.getSession(new Request("http://staging.internal/"));
+    session.set("userId", "u_1");
+    expect(cookieAttribute(await sessions.commitSession(session), "Secure")).toBe(false);
   });
 
   it("lets `secure` be forced, for TLS terminated upstream", async () => {
@@ -263,13 +305,24 @@ describe("cookie attributes", () => {
 
   it("forces Secure for SameSite=None, which browsers require", async () => {
     const sessions = createSessionStorage<AppSession>({
-      cookie: { name: "session", secrets: [SECRET], sameSite: "None", secure: false },
+      cookie: { name: "session", secrets: [SECRET], sameSite: "None" },
     });
+    // Even on localhost, where the attribute would otherwise be dropped.
     const session = await sessions.getSession(new Request("http://localhost/"));
     session.set("userId", "u_1");
     const setCookie = await sessions.commitSession(session);
     expect(cookieAttribute(setCookie, "SameSite")).toBe("None");
     expect(cookieAttribute(setCookie, "Secure")).toBe(true);
+  });
+
+  it('refuses `sameSite: "None"` with an explicit `secure: false`', () => {
+    // Silently overriding the option would leave the developer believing they
+    // had a non-Secure cookie; the browser would just discard it.
+    expect(() =>
+      createSessionStorage({
+        cookie: { name: "session", secrets: [SECRET], sameSite: "None", secure: false },
+      }),
+    ).toThrow(/cannot be honoured/);
   });
 
   it("passes through domain, path, and httpOnly overrides", async () => {

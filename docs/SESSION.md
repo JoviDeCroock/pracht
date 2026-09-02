@@ -39,7 +39,7 @@ it is.
 | `src/session.ts` | `createSessionStorage()`, the `Session` object, `withSetCookie()` |
 | `src/store.ts` | The `SessionStore` interface and `createMemorySessionStore()` |
 | `src/middleware.ts` | `sessionMiddleware()` and `requireSession()` |
-| `src/password.ts` | PBKDF2-HMAC-SHA256 `hashPassword()` / `verifyPassword()` |
+| `src/password.ts` | PBKDF2-HMAC-SHA256 `hashPassword()` / `verifyPassword()`, with one iteration floor enforced on both paths |
 
 ## The cookie format
 
@@ -65,6 +65,46 @@ envelope:
 - **Rotation has no key id.** `open()` tries every configured key, newest
   first. An id in the token would tell an attacker which secret to attack and
   buys nothing at the handful of secrets a rotation involves.
+- **Base64url must be canonical.** `atob` drops the unused low bits of the
+  final character, so several strings decode to identical bytes;
+  `fromBase64Url` re-encodes and compares, which keeps the token string a
+  stable identifier for the session it opens.
+- **The cookie is read as a list, not a value.** A request may legitimately
+  carry two cookies of the same name (host-only and parent-domain), in an
+  order the server cannot rely on. `readCookies()` returns every candidate,
+  capped at 8, and `readEnvelope()` takes the first that unseals *and*
+  validates. A `__Host-` name is the real fix; this stops a planted duplicate
+  from taking precedence or denying the real session.
+
+## Two things the shape of the cookie decides
+
+**Session fixation** is a store-mode problem only. With a store the cookie is
+a pointer, so an attacker who can write a cookie for the host plants an id,
+waits for login, and their copy addresses the now-authenticated record.
+`Session.regenerate()` mints a new id, keeps the data, and deletes the old
+record; the login path calls it before writing the user. Cookie mode carries
+the sealed data rather than a pointer, so a replayed cookie decrypts to the
+anonymous session it was sealed with — `regenerate()` is a no-op for security
+there and is still called so the path is correct if a store is added later.
+
+**`Secure` fails closed.** Inferring it from `request.url` being https is
+wrong behind a TLS-terminating proxy: `@pracht/adapter-node` defaults to
+`trustProxy: false`, so a production request reads as `http://` and the
+attribute would be dropped on exactly the deployments that need it. The
+attribute is set unless `isLocalHttpRequest()` recognises plain http from
+`localhost`/`*.localhost`/`127.0.0.1`/`[::1]`. `__Host-`/`__Secure-` names and
+`sameSite: "None"` pin it on and refuse an explicit `secure: false` rather
+than silently overriding it.
+
+## Expiry
+
+Absolute from the last write: `maxAge` counts from the most recent
+`commitSession()`, and `sessionMiddleware()` commits only when
+`storage.isDirty(session)`. `rolling: true` makes `isDirty()` also true for
+any session that was loaded or committed, so every request re-seals and
+`maxAge` becomes an idle timeout — at the price of a `Set-Cookie` per response
+and, with a store, a write per request. It never fires for a session that does
+not exist yet, so anonymous traffic still receives no cookie.
 
 ## Middleware shape
 

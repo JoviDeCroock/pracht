@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.3.0
+version: 1.4.0
 description: |
   Find pracht routes that look protected but aren't: missing auth middleware,
   middleware that augments context but never gates, client-only checks, and
@@ -160,9 +160,18 @@ SPA route loaders.
 With `@pracht/session`, check the configuration rather than the mechanics:
 `cookie.secrets` read from `serverEnv` (never a literal), the storage built
 inside a function rather than at module scope (Workers env is request-scoped),
-`secure: true` forced when TLS terminates upstream, and `sameSite` matching
-the app's embedding needs. A `store` is required for logout to invalidate a
-session anywhere other than the browser that asked.
+a `__Host-` cookie name unless subdomain sharing is required, and `sameSite`
+matching the app's embedding needs. A `store` is required for logout to
+invalidate a session anywhere other than the browser that asked.
+
+Then check the **login path for `session.regenerate()`**, called after
+credentials verify and before the user is written onto the session. Its
+absence is session fixation: with a store, an attacker who can plant a cookie
+for the host keeps a valid pointer to the session that becomes authenticated.
+Flag it as `error`/`fixation` on any store-backed app; on a cookie-only app it
+is `info` (the cookie carries the sealed data, not a pointer), but still worth
+adding before the app grows a store. Audit every other privilege change the
+same way — 2FA completion, role assumption, impersonation.
 
 Cross-reference with `audit-csrf`: the same cookies that authorize the user
 are the CSRF target. Recommend running `audit-csrf` after this skill.
@@ -180,6 +189,7 @@ Severity is the primary scale; the verdict is a secondary domain label:
 - `warn` / `augmented-only` — middleware reads session but never blocks;
   loader must handle null user.
 - `warn` / `client-only` — server allows; client hides UI.
+- `error` / `fixation` — store-backed session, no `regenerate()` at login.
 - `info` / `protected` — gate confirmed.
 - `info` / `public-by-design` — deliberately exposed (login, signup,
   marketing).

@@ -197,6 +197,42 @@ describe("requireSession", () => {
     await expect(response.json()).resolves.toEqual({ error: "unauthorized" });
   });
 
+  it("marks a redirect rejection as varying on Cookie", async () => {
+    // Whether this URL answers with the page or with a redirect to /login is
+    // decided by the Cookie header. A shared cache that stored the redirect
+    // without varying on it would keep serving it to the user who just
+    // logged in.
+    const middleware = requireSession(storage());
+    const response = await middleware(
+      middlewareArgs({ request: new Request("https://example.com/dashboard") }),
+      () => Promise.resolve(new Response("should not run")),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("vary")).toBe("Cookie");
+  });
+
+  it("marks a 401 rejection as varying on Cookie", async () => {
+    const middleware = requireSession(storage());
+    const response = await middleware(
+      apiMiddlewareArgs({ request: new Request("https://example.com/api/items") }),
+      () => Promise.resolve(new Response("should not run")),
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("vary")).toBe("Cookie");
+  });
+
+  it("leaves a rejection on a prerendered route unvaried", async () => {
+    const middleware = requireSession(storage());
+    const response = await middleware(
+      middlewareArgs({
+        request: new Request("https://example.com/dashboard"),
+        route: { render: "isg" },
+      }),
+      () => Promise.resolve(new Response("should not run")),
+    );
+    expect(response.headers.get("vary")).toBeNull();
+  });
+
   it("does not hand an anonymous visitor a rolling empty session", async () => {
     const middleware = requireSession(storage());
     const response = await middleware(

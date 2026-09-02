@@ -591,7 +591,9 @@ async function signIn(port: number): Promise<string> {
     redirect: "manual",
   });
   expect(response.status).toBe(303);
-  const setCookie = response.headers.getSetCookie().find((value) => value.startsWith("session="));
+  const setCookie = response.headers
+    .getSetCookie()
+    .find((value) => value.startsWith("__Host-session="));
   expect(setCookie, "login did not issue a session cookie").toBeDefined();
   return (setCookie as string).split(";")[0];
 }

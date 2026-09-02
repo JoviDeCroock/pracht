@@ -1,6 +1,6 @@
 ---
 name: add-auth
-version: 2.0.0
+version: 2.1.0
 description: |
   Wire session-based auth into a pracht app with `@pracht/session`: encrypted
   cookie sessions, gate middleware, login/logout/signup API routes, `<Form>`
@@ -78,7 +78,10 @@ export function sessions(): SessionStorage<AppSession> {
     cookie: {
       // Newest first: the first secret seals, all of them open.
       secrets: [serverEnv.SESSION_SECRET as string],
-      name: "session",
+      // `__Host-` is browser-enforced (Secure, Path=/, host-only) and is
+      // validated at construction. Prefer it unless the cookie must be shared
+      // across subdomains.
+      name: "__Host-session",
       maxAge: 60 * 60 * 24 * 7,
     },
   });
@@ -87,8 +90,15 @@ export function sessions(): SessionStorage<AppSession> {
 ```
 
 Defaults you do not have to configure: `HttpOnly`, `SameSite=Lax`, `Path=/`,
-`Secure` on https requests, AES-256-GCM with an HKDF-derived key, expiry
-sealed into the payload, and a throw instead of an oversized cookie.
+AES-256-GCM with an HKDF-derived key, expiry sealed into the payload, and a
+throw instead of an oversized cookie. `Secure` is on for every request except
+plain http from localhost — it fails closed, because a TLS-terminating proxy
+makes a production request look like http.
+
+Expiry is absolute from the *last write*, and the middleware commits only when
+the session changed. Add `rolling: true` to `createSessionStorage()` if the
+app wants `maxAge` as an idle timeout instead; the cost is a `Set-Cookie` per
+response and, with a store, a write per request.
 
 For a store, pass `store: { get, set, delete }` — three methods over KV, D1,
 Redis, or Postgres. `createMemorySessionStore()` is for tests only.
@@ -187,6 +197,11 @@ export async function POST({ request }: ApiRouteArgs) {
 
   const storage = sessions();
   const session = await storage.getSession(request);
+  // Session fixation: rotate the id on every privilege change, before writing
+  // the user. Without it, an attacker who planted a session cookie in the
+  // victim's browser still holds a pointer to the session that just became
+  // authenticated. Required with a store; harmless and future-proof without.
+  await session.regenerate();
   session.set("userId", user.id);
   session.set("email", user.email);
   session.set("name", user.name);

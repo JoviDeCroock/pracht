@@ -39,6 +39,15 @@ describe("hashPassword / verifyPassword", () => {
       "argon2id$1000$c2FsdA$aGFzaA",
       "pbkdf2-sha256$abc$c2FsdA$aGFzaA",
       "pbkdf2-sha256$1000$$aGFzaA",
+      // Below the iteration floor. A row like this is not a weak password, it
+      // is a tampered one: anything able to write the user table could drop
+      // the count to make every later login trivially precomputable.
+      "pbkdf2-sha256$1$c2FsdA$aGFzaA",
+      "pbkdf2-sha256$999$c2FsdA$aGFzaA",
+      "pbkdf2-sha256$0$c2FsdA$aGFzaA",
+      "pbkdf2-sha256$-1000$c2FsdA$aGFzaA",
+      // Absurdly high, which would hang the request instead of answering it.
+      "pbkdf2-sha256$100000000$c2FsdA$aGFzaA",
     ]) {
       await expect(verifyPassword("hunter2", stored)).resolves.toBe(false);
     }
@@ -46,6 +55,16 @@ describe("hashPassword / verifyPassword", () => {
 
   it("refuses an iteration count low enough to be pointless", async () => {
     await expect(hashPassword("hunter2", { iterations: 10 })).rejects.toThrow(/at least 1000/);
+  });
+
+  it("applies the same floor on verification as on hashing", async () => {
+    // Hash at the floor, then rewrite the stored parameters downward the way a
+    // tampered row would. The value still describes a real PBKDF2 hash, so
+    // only an explicit floor on the verify path rejects it.
+    const stored = await hashPassword("hunter2", { iterations: 1000 });
+    const [, , salt, hash] = stored.split("$");
+    await expect(verifyPassword("hunter2", stored)).resolves.toBe(true);
+    await expect(verifyPassword("hunter2", `pbkdf2-sha256$1$${salt}$${hash}`)).resolves.toBe(false);
   });
 
   it("handles non-ASCII passwords", async () => {

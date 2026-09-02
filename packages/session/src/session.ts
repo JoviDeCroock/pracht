@@ -1,7 +1,8 @@
 import {
   assertCookieSize,
   type CookieOptionsInput,
-  readCookie,
+  isLocalHttpRequest,
+  readCookies,
   type ResolvedCookieOptions,
   resolveCookieOptions,
   serializeCookie,
@@ -22,9 +23,10 @@ type Key<Data> = Extract<keyof Data, string>;
  */
 export interface Session<Data extends Record<string, unknown> = Record<string, unknown>> {
   /**
-   * Stable random 128-bit id for this session. With a `store` it is the
-   * storage key; without one it is still useful as a log correlation id and as
-   * the seed for a per-session CSRF token.
+   * Random 128-bit id for this session. With a `store` it is the storage key;
+   * without one it is still useful as a log correlation id and as the seed for
+   * a per-session CSRF token. Stable for the life of the session unless
+   * {@link Session.regenerate} is called.
    */
   readonly id: string;
   /**
@@ -48,6 +50,25 @@ export interface Session<Data extends Record<string, unknown> = Record<string, u
    * existing plain value replaces it and makes it single-read.
    */
   flash<K extends Key<Data>>(key: K, value: Data[K]): void;
+  /**
+   * Issue a new id for this session, keeping the data, and drop the record the
+   * old id pointed at. **Call it on every privilege change — immediately after
+   * credentials verify, before writing the user onto the session.**
+   *
+   * This closes session fixation. With a `store`, the cookie is a pointer: an
+   * attacker who can write a cookie for your host (a sibling subdomain, an
+   * XSS, plain http on a shared network) plants a session id they already
+   * know, waits for the victim to log in, and their copy of the pointer now
+   * addresses an authenticated record. Rotating the id at the moment of login
+   * means the pointer they planted no longer names anything.
+   *
+   * Cookie sessions — no `store` — are not vulnerable to that: the cookie
+   * carries the sealed *data*, not a pointer to it, so the attacker's copy
+   * still decrypts to the anonymous session it was sealed with and never sees
+   * the user written after it. Calling `regenerate()` there is harmless and
+   * keeps the login path identical whichever backing you switch to later.
+   */
+  regenerate(): Promise<void>;
 }
 
 export interface CommitOptions {
@@ -108,6 +129,22 @@ export interface SessionStorageOptions {
    * logout. Provided, the cookie carries only a sealed session id.
    */
   store?: SessionStore;
+  /**
+   * Re-commit an existing session on every request, sliding its expiry.
+   *
+   * By default the lifetime is **absolute from the last write**: `maxAge`
+   * counts from the most recent commit, and a request that only reads emits no
+   * `Set-Cookie` at all, so a user who browses read-only pages for longer than
+   * `maxAge` is logged out mid-session. With `rolling`, every request under
+   * {@link sessionMiddleware} re-seals the cookie, which turns `maxAge` into an
+   * **idle** timeout instead.
+   *
+   * The cost is a `Set-Cookie` on every response — and, with a `store`, a
+   * store write per request. Leave it off unless idle expiry is the behaviour
+   * you want. It never applies to a session that does not exist yet: an
+   * anonymous visitor who touches nothing still receives no cookie.
+   */
+  rolling?: boolean;
 }
 
 /**
@@ -151,6 +188,10 @@ interface SessionState {
   destroyed: boolean;
   dirty: boolean;
   flash: Set<string>;
+  /** Mutable so {@link Session.regenerate} can rotate it. */
+  id: string;
+  /** True when the session was restored from a cookie that opened. */
+  loaded: boolean;
   /** Inferred from the request the session was read from; see `cookie.secure`. */
   secure: boolean;
 }
@@ -179,6 +220,7 @@ export function createSessionStorage<
 >(options: SessionStorageOptions): SessionStorage<Data> {
   const cookie: ResolvedCookieOptions = resolveCookieOptions(options.cookie);
   const store = options.store;
+  const rolling = options.rolling === true;
   const keyring: Keyring = createKeyring(options.cookie.secrets);
 
   // Sessions are handed to application code, so the bookkeeping lives beside
@@ -203,11 +245,22 @@ export function createSessionStorage<
     data: Record<string, unknown>,
     flash: Set<string>,
     secure: boolean,
+    loaded: boolean,
   ): Session<Data> {
-    const state: SessionState = { data, destroyed: false, dirty: false, flash, secure };
+    const state: SessionState = {
+      data,
+      destroyed: false,
+      dirty: false,
+      flash,
+      id,
+      loaded,
+      secure,
+    };
 
     const session: Session<Data> = {
-      id,
+      get id() {
+        return state.id;
+      },
       get data() {
         return { ...state.data } as Readonly<Partial<Data>>;
       },
@@ -240,6 +293,14 @@ export function createSessionStorage<
         state.flash.add(key);
         state.dirty = true;
       },
+      async regenerate(): Promise<void> {
+        const previous = state.id;
+        state.id = randomId();
+        state.dirty = true;
+        // Delete after minting the new id, so a store that throws cannot
+        // leave the session pointing at a record it just orphaned.
+        if (store && state.loaded) await store.delete(previous);
+      },
     };
 
     states.set(session, state);
@@ -247,13 +308,14 @@ export function createSessionStorage<
   }
 
   function emptySession(secure: boolean): Session<Data> {
-    return makeSession(randomId(), emptyData(), new Set(), secure);
+    return makeSession(randomId(), emptyData(), new Set(), secure, false);
   }
 
-  async function readEnvelope(header: string | null): Promise<Envelope | null> {
-    const raw = readCookie(header, cookie.name);
-    if (raw === null || raw.length === 0) return null;
-
+  /**
+   * Open one candidate cookie value, or `null` when it is not a usable
+   * envelope for this storage.
+   */
+  async function openEnvelope(raw: string): Promise<Envelope | null> {
     const plaintext = await keyring.open(raw);
     if (plaintext === null) return null;
 
@@ -278,6 +340,42 @@ export function createSessionStorage<
     return parsed as Envelope;
   }
 
+  /**
+   * The first cookie under our name that actually opens.
+   *
+   * The request may legitimately carry more than one — a host-only cookie and
+   * a parent-domain cookie of the same name both match — and the order the
+   * browser sends them in is not something to depend on. Stopping at the first
+   * *value* would let a junk duplicate log the user out, and let a planted one
+   * take precedence; stopping at the first value that unseals and validates
+   * does not.
+   */
+  async function readEnvelope(header: string | null): Promise<Envelope | null> {
+    for (const raw of readCookies(header, cookie.name)) {
+      const envelope = await openEnvelope(raw);
+      if (envelope !== null) return envelope;
+    }
+    return null;
+  }
+
+  /**
+   * Decide the `Secure` attribute for this request, failing closed.
+   *
+   * An explicit `cookie.secure` always wins (and `resolveCookieOptions` has
+   * already pinned it to `true` for prefixed names and `SameSite=None`).
+   * Otherwise the attribute is set unless the request plainly came from local
+   * development over http. Inferring it from `https:` alone would be wrong on
+   * every deployment that terminates TLS at a proxy — `@pracht/adapter-node`
+   * defaults to `trustProxy: false`, so `request.url` there is `http://` even
+   * though the browser is on https, and the session cookie would go out
+   * without `Secure` in production.
+   */
+  function resolveSecure(source: Request | string | null | undefined): boolean {
+    if (cookie.secure !== undefined) return cookie.secure;
+    if (!(source instanceof Request)) return true;
+    return !isLocalHttpRequest(source.url);
+  }
+
   async function getSession(source?: Request | string | null): Promise<Session<Data>> {
     const header =
       typeof source === "string"
@@ -285,9 +383,7 @@ export function createSessionStorage<
         : source instanceof Request
           ? source.headers.get("cookie")
           : null;
-    // `secure` is inferred the way @pracht/i18n infers it: https request →
-    // Secure cookie, plain http (localhost) → not, explicit option wins.
-    const secure = cookie.secure ?? (source instanceof Request ? isHttps(source.url) : false);
+    const secure = resolveSecure(source);
 
     const envelope = await readEnvelope(header);
     if (envelope === null) return emptySession(secure);
@@ -299,14 +395,14 @@ export function createSessionStorage<
       // The store is authoritative: a deleted record ends the session even
       // though the browser still holds a perfectly valid cookie.
       if (record === null || typeof record !== "object") return emptySession(secure);
-      return makeSession(envelope.i, Object.assign(emptyData(), record), flash, secure);
+      return makeSession(envelope.i, Object.assign(emptyData(), record), flash, secure, true);
     }
 
     const data = envelope.d;
     if (data === null || typeof data !== "object" || Array.isArray(data)) {
       return emptySession(secure);
     }
-    return makeSession(envelope.i, Object.assign(emptyData(), data), flash, secure);
+    return makeSession(envelope.i, Object.assign(emptyData(), data), flash, secure, true);
   }
 
   async function commitSession(
@@ -321,11 +417,11 @@ export function createSessionStorage<
     }
 
     const expiresAt = Date.now() + maxAge * 1000;
-    const envelope: Envelope = { n: cookie.name, i: session.id, e: expiresAt };
+    const envelope: Envelope = { n: cookie.name, i: state.id, e: expiresAt };
     if (state.flash.size > 0) envelope.f = [...state.flash];
 
     if (store) {
-      await store.set(session.id, { ...state.data }, expiresAt);
+      await store.set(state.id, { ...state.data }, expiresAt);
     } else {
       envelope.d = { ...state.data };
     }
@@ -334,12 +430,15 @@ export function createSessionStorage<
     const header = serializeCookie({ cookie, maxAge, secure: state.secure, value });
     assertCookieSize(header, cookie.name);
     state.dirty = false;
+    // Anything committed exists from here on, so a later regenerate() knows
+    // there is a store record to clean up.
+    state.loaded = true;
     return header;
   }
 
   async function destroySession(session: Session<Data>): Promise<string> {
     const state = stateOf(session);
-    if (store) await store.delete(session.id);
+    if (store) await store.delete(state.id);
     state.data = emptyData();
     state.flash.clear();
     state.destroyed = true;
@@ -359,7 +458,11 @@ export function createSessionStorage<
       return withSetCookie(response, await destroySession(session));
     },
     isDirty(session) {
-      return stateOf(session).dirty;
+      const state = stateOf(session);
+      // `rolling` slides the expiry of a session that already exists. A
+      // never-committed empty session stays uncommitted, so an anonymous
+      // visitor is not handed a cookie for having loaded a page.
+      return state.dirty || (rolling && state.loaded && !state.destroyed);
     },
   };
 }
@@ -379,14 +482,6 @@ function resolveMaxAge(override: number | undefined, fallback: number): number {
     throw new TypeError("commitSession: `maxAge` must be a positive integer number of seconds.");
   }
   return override;
-}
-
-function isHttps(url: string): boolean {
-  try {
-    return new URL(url).protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 /**

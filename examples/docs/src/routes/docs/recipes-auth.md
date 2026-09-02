@@ -58,7 +58,11 @@ let storage: SessionStorage<AppSession> | undefined;
 export function sessions(): SessionStorage<AppSession> {
   storage ??= createSessionStorage<AppSession>({
     cookie: {
-      name: "session",
+      // The `__Host-` prefix is enforced by the *browser*: it rejects the
+      // cookie unless it is Secure, `Path=/`, and host-only. That is what
+      // stops a sibling subdomain — or anything that has taken one over —
+      // from writing a cookie your app will read.
+      name: "__Host-session",
       // Newest first: the first secret seals, every secret opens. Rotating is
       // then a deploy — add the new one at the front, remove the old one on
       // the next release — instead of logging everybody out.
@@ -81,10 +85,20 @@ What the defaults give you, without configuration:
 | `HttpOnly` | on — the cookie is invisible to JavaScript |
 | `SameSite` | `Lax` |
 | `Path` | `/` |
-| `Secure` | set automatically for https requests; force it with `secure: true` when TLS terminates upstream |
+| `Secure` | on, except for plain http on `localhost`/`127.0.0.1`/`[::1]` |
 | Encryption | AES-256-GCM, key derived from the secret with HKDF-SHA256 |
 | Expiry | sealed into the payload, so a client that ignores `Max-Age` gains nothing |
 | Size | over 4 KB throws instead of emitting a cookie the browser silently drops |
+
+The `Secure` default **fails closed**. It would be tempting to infer it from
+`request.url` being https, but a production app behind a TLS-terminating proxy
+sees `http://` there unless the adapter is told to trust the forwarding
+headers — `@pracht/adapter-node` defaults to `trustProxy: false` — so that
+inference would drop `Secure` on exactly the deployments that need it. The
+attribute is therefore set for every request except plain http from a local
+host. Pass `secure: false` only for http development on a non-localhost
+hostname; it is refused outright for a `__Host-`/`__Secure-` name or
+`sameSite: "None"`, because the browser would discard the result.
 
 ---
 
@@ -221,6 +235,9 @@ export async function POST({ request }: ApiRouteArgs) {
 
   const storage = sessions();
   const session = await storage.getSession(request);
+  // Rotate the session id at the moment of privilege change, before writing
+  // the user onto it. See "Session fixation" below — this line is the fix.
+  await session.regenerate();
   session.set("userId", user.id);
   session.set("email", user.email);
   session.set("name", user.name);
@@ -233,6 +250,26 @@ export async function POST({ request }: ApiRouteArgs) {
 `storage.commit(session, response)` **appends** the `Set-Cookie` — it never
 replaces one the response already carries, so a locale or consent cookie set
 elsewhere survives.
+
+### Session fixation
+
+`session.regenerate()` issues a new id, keeps the data, and drops the record
+the old id pointed at. Call it on **every privilege change** — right after
+credentials verify, and again after anything else that raises what the session
+can do (completing 2FA, assuming an admin role).
+
+The attack it closes: anything that can write a cookie for your host — a
+sibling subdomain, an XSS, plain http on a shared network — plants a session
+id it already knows, waits for the victim to log in, and then uses its copy.
+With a `store` the cookie is a *pointer*, so the planted pointer ends up
+addressing an authenticated record. Rotating the id at login means it no
+longer names anything.
+
+Cookie sessions are not vulnerable to this: the cookie carries the sealed
+*data*, not a pointer to it, so a replayed copy still decrypts to the
+anonymous session it was sealed with. Call `regenerate()` anyway — it costs
+nothing there, and it means the login path is already correct if you move to a
+store later.
 
 ```tsx [src/routes/login.tsx]
 import { Form, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
@@ -401,7 +438,7 @@ import { createSessionStorage } from "@pracht/session";
 
 export function sessions() {
   return createSessionStorage<AppSession>({
-    cookie: { name: "session", secrets: [serverEnv.SESSION_SECRET as string] },
+    cookie: { name: "__Host-session", secrets: [serverEnv.SESSION_SECRET as string] },
     store: {
       async get(id) {
         return await KV.get(`session:${id}`, "json");
@@ -430,7 +467,40 @@ store.
 
 ---
 
-## 8. CSRF
+## 8. How Sessions Expire
+
+The lifetime is **absolute from the last write**. `maxAge` counts from the most
+recent `commitSession()`, and the expiry is sealed into the payload, so a
+client that ignores `Max-Age` gains nothing.
+
+The middleware commits **only when the session changed** during the request. A
+page that just reads `context.session` emits no `Set-Cookie` — which keeps
+read-only responses cacheable, but also means a user who browses for longer
+than `maxAge` without changing anything is logged out mid-session.
+
+If you want `maxAge` to behave as an **idle** timeout instead, pass `rolling`:
+
+```ts
+createSessionStorage<AppSession>({
+  cookie: { name: "__Host-session", secrets: [serverEnv.SESSION_SECRET as string], maxAge: 60 * 30 },
+  // Every request under sessionMiddleware() re-seals the cookie, so the
+  // 30-minute window is measured from the last request rather than the last
+  // write.
+  rolling: true,
+});
+```
+
+The cost is a `Set-Cookie` on every response and — with a `store` — a store
+write per request. An anonymous visitor still receives no cookie either way:
+`rolling` only re-commits a session that already exists.
+
+Independently of both, `destroySession()` ends a session immediately, and with
+a `store` it ends it for every browser holding the cookie rather than only the
+one that asked.
+
+---
+
+## 9. CSRF
 
 Session cookies are the ambient credential a CSRF attack abuses: a malicious
 site submits a form to your API and the browser attaches the cookie
@@ -530,7 +600,7 @@ This is a pure header check — it doesn't issue or validate tokens. Pair it wit
 
 ---
 
-## 9. Env
+## 10. Env
 
 Add the secret to `.env.example`, and confirm `.env*` is gitignored:
 
