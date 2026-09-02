@@ -66,9 +66,48 @@ every concrete prerendered path for adapters, and annotates generated
 | request | Request       | The incoming Web Request                             |
 | params  | RouteParams   | Dynamic URL params, e.g. `{ slug: "hello" }`         |
 | context | TContext      | App-level context from the adapter's context factory |
-| signal  | AbortSignal   | Cancellation signal for timeouts                     |
+| signal  | AbortSignal   | Aborts when the client disconnects or the budget runs out |
 | url     | URL           | Parsed URL object                                    |
 | route   | ResolvedRoute | Matched route metadata                               |
+
+#### `signal`
+
+`signal` aborts for either of two reasons, whichever comes first: the client
+went away, or the request ran out of its budget. Pass it to `fetch()`, to a
+database driver, or to anything else that accepts an `AbortSignal`, and work
+stops instead of running to completion for a visitor who has already navigated
+away.
+
+```ts [src/routes/search.tsx]
+export async function loader({ signal, url }: LoaderArgs) {
+  const response = await fetch(`https://api.example.com/search?q=${url.searchParams.get("q")}`, {
+    signal,
+  });
+  return { results: await response.json() };
+}
+```
+
+The budget defaults to 30 seconds and is configurable app-wide with
+[`defineApp({ loaderTimeoutMs })`](/docs/reference/config#defineapp--the-route-manifest).
+One budget covers the whole request: middleware, the loader, and — when a
+loader throws `notFound()` — rendering the not-found page all run on what is
+left of it. The same signal reaches [API route](/docs/api-routes) handlers.
+
+**It applies at build time too.** SSG and ISG prerendering run loaders through
+the same request pipeline, so a budget tuned down for an edge runtime will fail
+the *build* for any loader slower than it. The build error names the route and
+says the loader ran past the budget.
+
+**A client disconnect is not an error.** When the visitor goes away, pracht
+skips `onRouteError` and answers 499 rather than rendering an error page, so an
+abandoned navigation does not appear in Sentry or OpenTelemetry as an
+application fault. A budget expiry still reports normally.
+
+**Adapter support.** Cloudflare, Netlify, and Vercel hand pracht the platform's
+own `Request`, whose signal already tracks the connection. The Node adapter
+wires one from the socket. Static export has no request to abandon — there the
+signal only carries the build-time budget. Runtimes without `AbortSignal.any`
+get the same composed signal, wired by hand.
 
 ### When loaders run
 
@@ -170,6 +209,10 @@ ahead of a pending field yet. It is tracked in
 this page is the one it would build on, so route source written against `defer()`
 and `<Suspense>` now should not need to change. `ssg` and `isg` will resolve
 everything regardless, because a static file cannot stream.
+
+A route that never calls `defer()` pays nothing for any of this: the runtime
+tracks whether the process has ever created a deferred value and skips the
+resolution pass entirely when it has not.
 
 Three rules:
 
@@ -517,6 +560,12 @@ export function Component() {
   return <span>{data.user.name}</span>;
 }
 ```
+
+The runtime holds one route's data — the one on screen — so the route id is a
+typing shortcut, not a lookup. It is still honoured: passing the id of a route
+other than the active one throws, rather than handing back another route's data
+under the requested route's type. To read data across routes, pass it down as a
+prop.
 
 For projects that do not run typegen, pass the loader type explicitly as a generic instead:
 

@@ -6,9 +6,16 @@
  * here, apart from `runtime-context.ts`, because only two places can dispatch
  * `CAPABILITY_SETTLED_EVENT` — `<Form capability>` and the generated
  * `callCapability()` — and both call `ensureCapabilityRevalidation()` before
- * they do. An app that registers no capabilities therefore reaches neither
- * this module, `runtime-revalidate.ts`, nor `@pracht/capabilities` from its
- * client bundle.
+ * they do. `<Form capability>` reaches it through a dynamic `import()`, so this
+ * module and `runtime-revalidate.ts` land in a lazy chunk that a page only
+ * fetches once a capability submission is actually under way: rendering a plain
+ * `<Form action=…>` costs nothing. The generated `callCapability()` imports it
+ * eagerly — that module only exists in apps that registered capabilities.
+ *
+ * `<Form>` still imports the wire-protocol constants from
+ * `@pracht/capabilities` — header names and the capability URL formula are
+ * needed to render the form element itself. That is a handful of string
+ * constants out of a side-effect-free module, not the capability runtime.
  */
 
 import { CAPABILITY_SETTLED_EVENT } from "@pracht/capabilities";

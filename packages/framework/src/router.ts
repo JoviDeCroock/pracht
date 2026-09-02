@@ -156,7 +156,21 @@ interface InternalNavigateOptions extends NavigateOptions {
    * would answer the reload with this same fallback document and loop.
    */
   _staticFallback?: boolean;
+  /**
+   * How many loader redirects this navigation has already followed. Chains
+   * longer than {@link MAX_REDIRECT_HOPS} stop with an error instead of
+   * recursing forever, matching how the browser bounds a document redirect
+   * chain.
+   */
+  _redirectHop?: number;
 }
+
+/**
+ * Redirect hops one client navigation may follow before giving up. Twenty is
+ * the limit browsers apply to document redirects, so a chain a full page load
+ * would survive is a chain client navigation survives too.
+ */
+const MAX_REDIRECT_HOPS = 20;
 
 interface InternalNavigateFn {
   (to: string, options?: InternalNavigateOptions): Promise<void>;
@@ -641,6 +655,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         if (navigationId !== latestNavigationId) return;
         if (result.type === "redirect") {
           if (result.location) {
+            const hop = (opts?._redirectHop ?? 0) + 1;
+            if (hop > MAX_REDIRECT_HOPS) {
+              console.error(`[pracht] too many redirects: ${result.location}`);
+              return;
+            }
             const redirect = resolveRedirectTarget(result.location);
             if (redirect.unsafe) {
               console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);
@@ -661,13 +680,21 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             }
 
             if (redirect.internalPath) {
-              await navigate(redirect.internalPath, { ...opts, _blockerChecked: true });
+              await navigate(redirect.internalPath, {
+                ...opts,
+                _blockerChecked: true,
+                _redirectHop: hop,
+              });
               return;
             }
 
             window.location.href = target.browserUrl;
             return;
           }
+          // An opaque redirect: `redirect: "manual"` hid both the status and
+          // the destination, so the client cannot resolve it. Hand the URL
+          // back to the browser and let it follow the 3xx as a document
+          // navigation.
           window.location.href = target.browserUrl;
           return;
         }
@@ -844,6 +871,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       try {
         const result = await dataPromise;
         if (result.type === "redirect") {
+          if (!result.location) {
+            // Opaque redirect — destination unreadable. Reload the document so
+            // the browser follows the 3xx itself.
+            window.location.href = initialBrowserUrl;
+            return;
+          }
           const safeRedirect = parseSafeNavigationUrl(result.location, window.location.href);
           if (!safeRedirect) {
             console.error(`[pracht] refused to navigate to unsafe URL: ${result.location}`);

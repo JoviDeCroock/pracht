@@ -54,7 +54,6 @@ import {
   capabilityHttpPath,
 } from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
-import { ensureCapabilityRevalidation } from "./runtime-capability-revalidate.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import type {
@@ -237,14 +236,28 @@ class PrachtReadonlyURLSearchParams extends URLSearchParams {
   }
 }
 
+/**
+ * Read the active route's loader data.
+ *
+ * Passing a route id is a typing shortcut, not a lookup: the runtime holds
+ * exactly one route's data, the one on screen. The argument is still honoured
+ * — asking for a route that is not the active one throws rather than handing
+ * back another route's data under the requested route's type.
+ */
 export function useRouteData<TRoute extends RouteId>(routeId: TRoute): RouteDataFor<TRoute>;
 export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
 export function useRouteData<TData = unknown>(): TData;
 export function useRouteData(routeId?: string): unknown {
   const runtime = useContext(RouteDataContext);
-  if (import.meta.env?.DEV && routeId !== undefined && runtime && runtime.routeId !== routeId) {
-    console.warn(
-      `useRouteData("${routeId}") rendered inside route "${runtime.routeId}"; returning the active route's data.`,
+  if (routeId !== undefined && runtime && runtime.routeId !== routeId) {
+    // The long form is dev-only: `import.meta.env.DEV` folds to `false` in a
+    // production bundle, so shipping apps carry the short message alone.
+    throw new Error(
+      import.meta.env?.DEV
+        ? `useRouteData(${JSON.stringify(routeId)}) was called inside route ${JSON.stringify(runtime.routeId)}. ` +
+            "A component can only read the data of the route it renders under — drop the route id " +
+            "to read the active route's data, or pass the value down as a prop."
+        : `useRouteData: ${routeId} is not the active route (${runtime.routeId})`,
     );
   }
   return runtime?.data;
@@ -460,11 +473,6 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           : undefined;
 
       if (capability) {
-        // This branch dispatches CAPABILITY_SETTLED_EVENT below, so it owns
-        // installing the listener that acts on it. Registering here rather
-        // than in the runtime provider keeps route revalidation out of the
-        // client bundle of every app that has no capabilities.
-        ensureCapabilityRevalidation();
         const submitterAction = nativeSubmitter?.getAttribute("formaction");
         const endpoint = submitterAction ?? actionAttribute ?? form.action;
         const endpointUrl = parseSafeNavigationUrl(endpoint, window.location.href);
@@ -483,14 +491,21 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         event.preventDefault();
         const formData = new FormData(form, nativeSubmitter);
 
-        if (schema) {
-          const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
-          if (result.issues) {
-            onValidationIssues?.(result.issues);
-            return;
-          }
-        }
+        // A cross-origin endpoint cannot take part in the enhanced handshake,
+        // so this submission ends as a document navigation. Decided here,
+        // before any pending state is published: entering `submitting` and
+        // then settling it as `form.requestSubmit()` starts that navigation
+        // would re-enable a button gated on `useNavigation()` while the page
+        // is already leaving. Only `schema` forms reach this — without one the
+        // handler returned above and let the browser submit natively.
         if (isCrossOriginEndpoint) {
+          if (schema) {
+            const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+            if (result.issues) {
+              onValidationIssues?.(result.issues);
+              return;
+            }
+          }
           validatedNativeSubmissions.add(form);
           try {
             form.requestSubmit(nativeSubmitter);
@@ -500,8 +515,9 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           return;
         }
 
-        clearPrefetchCache();
-        // Expose the in-flight submission through useNavigation().
+        // Published before the first `await` below, so the pending state shows
+        // on the frame the visitor submitted rather than a chunk fetch later.
+        // Every exit from here on runs through the `finally` that settles it.
         const navigationToken = beginSubmittingNavigation(
           createNavigationLocation(endpoint),
           formData,
@@ -509,43 +525,80 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         let envelope: CapabilityEnvelope;
         let response: Response | undefined;
         try {
-          response = await fetch(endpoint, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-            headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
-          });
-          const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
-          if (
-            enhancedRedirect ||
-            response.redirected ||
-            (response.status >= 300 && response.status < 400)
-          ) {
-            const location =
-              enhancedRedirect ??
-              (response.redirected ? response.url : response.headers.get("location"));
-            await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
-            return;
-          }
+          // This branch dispatches CAPABILITY_SETTLED_EVENT below, so it owns
+          // installing the listener that acts on it. Imported here — lazily,
+          // and only once a capability submission is actually under way — so a
+          // `<Form action=…>` app never pulls the revalidation runtime into
+          // its bundle. `event.preventDefault()` above already ran, so
+          // awaiting is safe: the browser will not fall back to a native
+          // submission.
           try {
-            envelope = (await response.clone().json()) as CapabilityEnvelope;
-          } catch {
+            const revalidation = await import("./runtime-capability-revalidate.ts");
+            revalidation.ensureCapabilityRevalidation();
+          } catch (error: unknown) {
+            // The chunk is unreachable — a tab left open across a deploy, or
+            // an offline page — or the module threw while evaluating. Losing
+            // automatic route revalidation is a far smaller failure than
+            // losing the submission itself, so carry on: the request still
+            // goes out and still reports its result. Say so in development,
+            // where a module-eval bug would otherwise be silent.
+            if (import.meta.env?.DEV) {
+              console.warn(
+                `[pracht] <Form capability="${capability}"> could not load the route revalidation runtime; ` +
+                  "the submission continues, but route data will not refresh automatically.",
+                error,
+              );
+            }
+          }
+
+          if (schema) {
+            const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+            if (result.issues) {
+              onValidationIssues?.(result.issues);
+              return;
+            }
+          }
+
+          clearPrefetchCache();
+          try {
+            response = await fetch(endpoint, {
+              method: "POST",
+              body: formData,
+              credentials: "same-origin",
+              headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
+            });
+            const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
+            if (
+              enhancedRedirect ||
+              response.redirected ||
+              (response.status >= 300 && response.status < 400)
+            ) {
+              const location =
+                enhancedRedirect ??
+                (response.redirected ? response.url : response.headers.get("location"));
+              await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
+              return;
+            }
+            try {
+              envelope = (await response.clone().json()) as CapabilityEnvelope;
+            } catch {
+              envelope = {
+                ok: false,
+                error: {
+                  code: "invalid_response",
+                  message: `Capability endpoint returned a non-JSON response (status ${response.status}).`,
+                },
+              };
+            }
+          } catch (error: unknown) {
             envelope = {
               ok: false,
               error: {
-                code: "invalid_response",
-                message: `Capability endpoint returned a non-JSON response (status ${response.status}).`,
+                code: "network_error",
+                message: error instanceof Error ? error.message : String(error),
               },
             };
           }
-        } catch (error: unknown) {
-          envelope = {
-            ok: false,
-            error: {
-              code: "network_error",
-              message: error instanceof Error ? error.message : String(error),
-            },
-          };
         } finally {
           settleNavigation(navigationToken);
         }

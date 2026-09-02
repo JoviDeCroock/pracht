@@ -71,10 +71,37 @@ of falling through to a render (see
 | `request`  | `Request`       | The incoming Web Request                                      |
 | `params`   | `RouteParams`   | Dynamic URL params (e.g. `{ slug: "hello" }`)                 |
 | `context`  | `TContext`      | App-level context (from adapter's context factory)            |
-| `signal`   | `AbortSignal`   | Cancellation signal for timeouts                              |
+| `signal`   | `AbortSignal`   | Aborts on client disconnect or `loaderTimeoutMs` expiry       |
 | `url`      | `URL`           | Parsed URL                                                    |
 | `route`    | `ResolvedRoute` | Matched route metadata                                        |
 | `pathname` | `string`        | Matched pathname with the configured deployment base removed |
+
+`signal` composes two independent reasons to stop: the request's own
+`AbortSignal` (the client went away) and a server-side budget. The budget
+defaults to 30 seconds and is set app-wide with `defineApp({ loaderTimeoutMs })`.
+It is one budget per request — the middleware chain, the loader, and the
+not-found render that follows a thrown `notFound()` all share it, so a 404 page
+cannot mint itself a fresh 30 seconds on top of a loader that already spent
+them. Runtimes without `AbortSignal.any` get the same composed signal wired by
+hand rather than losing the client's half of it.
+
+Prerendering runs loaders through the same pipeline, so `loaderTimeoutMs`
+bounds SSG/ISG builds too. A budget tuned down for an edge runtime fails the
+build for any loader slower than it, and the build error names the route and
+the budget.
+
+The two abort reasons are distinguished when the request fails. A client
+disconnect skips `onRouteError` and returns an empty 499 — reporting an
+abandoned navigation would fill an app's error tracker with faults it cannot
+act on — while a `TimeoutError` takes the normal error path. The composed
+signal's reason names whichever source won the race, so a timeout followed by a
+disconnect is still reported.
+
+Only adapters that hand the runtime a live `Request` can supply the client's
+half. Cloudflare, Netlify, and Vercel pass the platform request through;
+`@pracht/adapter-node` builds one from `req`/`res` `close` events, using
+`res.writableFinished` to tell an abandoned exchange from a completed one
+(Node emits `close` for both). Static export has no live request.
 
 `ApiRouteArgs` and `MiddlewareArgs` expose the same base-free `pathname`, so
 route-aware server code does not need to strip the deployment base from
@@ -187,9 +214,15 @@ of the same deferred value never do the work twice.
 #### What defers, and when
 
 Today **every render mode resolves deferred values before the response is
-written.** The benefit right now is the authoring shape and the concurrency:
-independent deferred fields resolve together rather than in series, so two
-300 ms calls cost 300 ms, not 600 ms.
+written** — nothing streams yet, in any mode (streaming is issue #191). The
+benefit right now is the authoring shape and the concurrency: independent
+deferred fields resolve together rather than in series, so two 300 ms calls cost
+300 ms, not 600 ms.
+
+The resolution pass costs nothing when the app never defers. `defer()` sets a
+process-level latch and `resolveDeferredData()` returns its input untouched
+until that latch flips, so a loader result is only walked in a process that has
+actually created a deferred value.
 
 The reason to write `defer()` now is that it is the finished API. When the
 streaming renderer lands, `render: "ssr"` will flush the shell before deferred
@@ -667,9 +700,12 @@ Route ids autocomplete against the generated route map. The generated
 declaration points at the route module (or the separate loader module wired via
 the manifest), so changing a loader's return type flows through without
 re-running typegen; only adding, removing, or renaming routes requires a
-regeneration. Routes without a loader type their data as `undefined`. In
-development, pracht logs a warning when the id you pass is not the active
-route, since the hook always returns the active route's data.
+regeneration. Routes without a loader type their data as `undefined`.
+
+The runtime holds one route's data, so the id is a typing shortcut rather than
+a lookup — but it is honoured: `useRouteData(id)` throws when `id` is not the
+active route, instead of returning another route's data under the requested
+route's type. Reading data across routes means passing it down as a prop.
 
 For projects that do not run typegen, pass the loader type explicitly as a
 generic instead:

@@ -639,7 +639,14 @@ The published core package also exposes small browser-oriented entries:
   the vite plugin rejects client-side imports of it at build time, and its
   browser condition points at a throwing stub as a backstop for other bundlers.
 - The root `@pracht/core` export has a browser condition that points at a
-  client-safe public entry for route and shell modules.
+  client-safe public entry for route and shell modules. The condition carries
+  its own `types`, so the ~70 server-only exports of `index.ts` are a compile
+  error in client code instead of type-checking and then failing at bundle
+  time. Anything genuinely pure that client code needs (`matchRoutePath`,
+  `matchApiRoute`, `routePathIsDynamic`, `resolveApiRoutes`,
+  `evaluateConstraints`) therefore has to be re-exported from `browser.ts` as
+  well — a name missing there is unreachable from the browser, not merely
+  untyped.
 
 **Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
 `app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic

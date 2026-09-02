@@ -316,7 +316,8 @@ later through route metadata without changing the runtime helper shape.
 The declaration also registers each route's loader data type, so
 `useRouteData("product")` returns the awaited return type of that route's
 loader (including separate loader files wired via the manifest) without
-writing a generic. See
+writing a generic. The id must name the active route — the hook throws
+otherwise. See
 [docs/DATA_LOADING.md](DATA_LOADING.md#useroutedata) for details.
 
 API routes register too: every `src/api/` module's exported HTTP methods,

@@ -55,6 +55,19 @@ export interface Deferred<T> {
 }
 
 /**
+ * Whether this process has ever created a {@link Deferred}.
+ *
+ * A one-way latch, deliberately: `resolveDeferredData()` runs on every loader
+ * result, and `containsDeferred()` walks the whole payload to answer a
+ * question that is `false` for every app that never calls `defer()`. Reading a
+ * boolean instead makes that the common case cost nothing. It never resets,
+ * because a deferred value created for one request may still be in flight when
+ * the next one is resolved — an app that defers anywhere pays the walk
+ * everywhere, which is the cost it opted into.
+ */
+let anyDeferredCreated = false;
+
+/**
  * Mark a loader value as deferred.
  *
  * Accepts a promise, or a function returning one when the work should not
@@ -73,6 +86,7 @@ export function defer<T>(source: Promise<T> | (() => Promise<T>)): Deferred<T> {
     );
   }
 
+  anyDeferredCreated = true;
   let started: Promise<T> | undefined;
   if (typeof source !== "function") {
     started = Promise.resolve(source);
@@ -137,8 +151,14 @@ export function use<T>(value: T): UsedValue<T> {
  * concurrently — one slow field does not serialize behind another.
  */
 export async function resolveDeferredData<T>(data: T): Promise<T> {
+  if (!anyDeferredCreated) return data;
   if (!containsDeferred(data)) return data;
   return (await resolveValue(data, new Map())) as T;
+}
+
+/** @internal Reset the `defer()` latch for tests. */
+export function _resetDeferredTrackingForTesting(): void {
+  anyDeferredCreated = false;
 }
 
 type SettledState<T> =

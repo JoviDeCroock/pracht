@@ -322,6 +322,10 @@ describe("deferred loader data types", () => {
     summary: { score: number };
   };
 
+  // head() and headers() decide status and headers, so they can never see an
+  // unsettled value and their data type resolves. The component can — once
+  // streaming lands — so its props keep the markers and `use()` stays the only
+  // way to read one.
   it("resolves deferred fields for head and headers while preserving component markers", () => {
     expectTypeOf<HeadArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();
     expectTypeOf<HeadersArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();

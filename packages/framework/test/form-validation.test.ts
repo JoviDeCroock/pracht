@@ -10,6 +10,11 @@ import {
   CAPABILITY_SETTLED_EVENT,
 } from "../../capabilities/src/index.ts";
 import { Form, type ApiValidationIssue, type HttpCapabilityName } from "../src/index.ts";
+import {
+  _resetNavigationForTesting,
+  getNavigation,
+  subscribeToNavigation,
+} from "../src/navigation-state.ts";
 
 /**
  * `<Form capability>` only accepts http-exposed capability names an app has
@@ -373,6 +378,42 @@ describe("<Form> validation", () => {
 
     expect(event.defaultPrevented).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  // A cross-origin capability submission ends as a document navigation, so it
+  // must never publish pending state: settling it as `requestSubmit()` starts
+  // that navigation re-enables a button gated on `useNavigation()` while the
+  // page is already leaving.
+  it("never enters submitting state for a cross-origin capability target", async () => {
+    const requestSubmit = vi
+      .spyOn(HTMLFormElement.prototype, "requestSubmit")
+      .mockImplementation(() => undefined);
+    _resetNavigationForTesting();
+    const states: string[] = [];
+    const unsubscribe = subscribeToNavigation((navigation) => states.push(navigation.state));
+
+    render(
+      h(
+        Form,
+        { capability: unregistered("items.save"), schema: nameSchema },
+        h("input", { name: "name", value: "pracht" }),
+        h("button", { formAction: "https://auth.example/login" }, "Sign in"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const button = root.querySelector("button")!;
+    form.dispatchEvent(
+      new SubmitEvent("submit", { bubbles: true, cancelable: true, submitter: button }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    unsubscribe();
+
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(states).toEqual([]);
+    expect(getNavigation().state).toBe("idle");
   });
 
   it("blocks unsafe capability form targets", async () => {

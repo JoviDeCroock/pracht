@@ -20,6 +20,12 @@ export async function revalidateRouteData(
   const result = await fetchPrachtRouteState(path, { cache: "reload" });
 
   if (result.type === "redirect") {
+    // No location on an opaque redirect: reload so the browser follows the
+    // 3xx as a document navigation instead of re-fetching the same URL.
+    if (!result.location) {
+      window.location.reload();
+      return undefined;
+    }
     await navigateToClientLocation(result.location);
     return undefined;
   }

@@ -1,6 +1,6 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
-import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
+import { DEFAULT_LOADER_TIMEOUT_MS, matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import { resolveDeferredData } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
@@ -180,6 +180,82 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
  * the agent surface does not ship it. See docs/CAPABILITIES.md.
  */
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
+
+/**
+ * The request budget, validated at the point the server actually uses it.
+ *
+ * `defineApp()` checks the same value, but only under dev-time manifest
+ * validation: that call site is compiled into the client bundle too, and the
+ * client never reads this option. A bad value that only reaches a production
+ * build would otherwise become `AbortSignal.timeout(NaN)` — every request
+ * aborting instantly, with nothing in the failure naming the cause.
+ */
+function resolveLoaderTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_LOADER_TIMEOUT_MS;
+  if (Number.isFinite(value) && value > 0) return value;
+  throw new TypeError(
+    `defineApp({ loaderTimeoutMs }) must be a positive number of milliseconds, received ${JSON.stringify(value)}.`,
+  );
+}
+
+/**
+ * The `AbortSignal` handed to middleware, loaders, and API route handlers.
+ *
+ * Two independent reasons to stop the work are folded into one signal: the
+ * server-side budget (`defineApp({ loaderTimeoutMs })`, 30s by default) and
+ * the client going away. Composing them is what makes `signal` worth passing
+ * to `fetch()` or a database driver — a timeout alone keeps a request the
+ * caller has already abandoned running to completion.
+ *
+ * `AbortSignal.any` is not available everywhere, so runtimes without it get
+ * the same signal wired by hand. Dropping either half there would be the wrong
+ * trade: the client abort is the one that stops work nobody is waiting for.
+ */
+function composeRequestSignal(request: Request, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const clientSignal: AbortSignal | undefined = request.signal;
+  if (!clientSignal) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([clientSignal, timeout]);
+
+  const controller = new AbortController();
+  if (clientSignal.aborted) {
+    controller.abort(clientSignal.reason);
+    return controller.signal;
+  }
+  if (timeout.aborted) {
+    controller.abort(timeout.reason);
+    return controller.signal;
+  }
+  // Each handler removes the other, so the composed signal does not hold a
+  // listener on the request signal for the rest of the budget.
+  const onClientAbort = () => {
+    timeout.removeEventListener("abort", onTimeoutAbort);
+    controller.abort(clientSignal.reason);
+  };
+  const onTimeoutAbort = () => {
+    clientSignal.removeEventListener("abort", onClientAbort);
+    controller.abort(timeout.reason);
+  };
+  clientSignal.addEventListener("abort", onClientAbort, { once: true });
+  timeout.addEventListener("abort", onTimeoutAbort, { once: true });
+  return controller.signal;
+}
+
+/**
+ * Did the client go away, as opposed to the request running out of budget?
+ *
+ * Both reach a loader as the same `AbortError`-shaped failure, but they are
+ * not the same event to report: an abandoned navigation is the visitor's
+ * decision and an app that reports it fills Sentry with noise it can do
+ * nothing about, while a timeout is a real fault worth a page. The composed
+ * signal's reason names whichever source won the race, so a timeout that fires
+ * first is still reported even if the client disconnects afterwards.
+ */
+function isClientDisconnect(request: Request, signal: AbortSignal): boolean {
+  if (!signal.aborted) return false;
+  if ((signal.reason as { name?: string } | undefined)?.name === "TimeoutError") return false;
+  return request.signal?.aborted === true;
+}
 
 /**
  * Stricter variant of first-party detection used to protect API requests
@@ -406,6 +482,7 @@ export async function handlePrachtRequest<TContext>(
   // no dynamic pattern can consume the synthetic request, and passes the real
   // table separately so the shell's links still build.
   const hrefRoutes = resolvedApp.hrefRoutes ?? resolvedApp.routes;
+  const loaderTimeoutMs = resolveLoaderTimeoutMs(resolvedApp.loaderTimeoutMs);
   // The route-state endpoint returns loader output as JSON. Two entry
   // points into it: the explicit header (only settable via fetch, so the
   // browser forces CORS preflight cross-origin) and the `_data=1` query
@@ -553,7 +630,7 @@ export async function handlePrachtRequest<TContext>(
         );
       }
 
-      const requestSignal = AbortSignal.timeout(30_000);
+      const requestSignal = composeRequestSignal(options.request, loaderTimeoutMs);
       const apiContext = requestContext;
 
       const apiTerminal = async (): Promise<Response> => {
@@ -854,8 +931,12 @@ export async function handlePrachtRequest<TContext>(
   async function renderPageMatch(
     match: RouteMatch,
     pageOptions: { isNotFoundPage: boolean; status: number },
+    inheritedSignal?: AbortSignal,
   ): Promise<Response> {
-    const requestSignal = AbortSignal.timeout(30_000);
+    // One budget per request. The not-found re-render below passes its
+    // caller's signal so a loader that spent 29 of 30 seconds before throwing
+    // `notFound()` cannot buy the 404 page a fresh 30 on top.
+    const requestSignal = inheritedSignal ?? composeRequestSignal(options.request, loaderTimeoutMs);
     const pageContext = requestContext;
     const routeArgs: BaseRouteArgs<TContext> = {
       request: options.request,
@@ -1264,6 +1345,15 @@ export async function handlePrachtRequest<TContext>(
         shellModule: shellModulePromise,
       });
     } catch (error: unknown) {
+      // The client went away mid-load. Whatever surfaced here is downstream of
+      // that abort rather than a fault the app can act on, and nothing is left
+      // to read the response — so skip the error report and the error render
+      // both. 499 is nginx's "Client Closed Request". A timeout still takes
+      // the normal path below.
+      if (isClientDisconnect(options.request, requestSignal)) {
+        return new Response(null, { status: 499 });
+      }
+
       // A thrown `Response` is a deliberate short-circuit, not a failure: it is
       // how a loader aborts its own render to redirect (`throw redirect(...)`)
       // or answer directly, which returning cannot express from inside a helper
@@ -1306,7 +1396,11 @@ export async function handlePrachtRequest<TContext>(
         if (notFoundMatch) {
           const module = routeModule ?? (await routeModulePromise?.catch(() => undefined));
           if (!module?.ErrorBoundary) {
-            return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
+            return renderPageMatch(
+              notFoundMatch,
+              { isNotFoundPage: true, status: 404 },
+              requestSignal,
+            );
           }
         }
       }

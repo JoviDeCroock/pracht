@@ -175,7 +175,7 @@ const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
   {
     Icon: IconAtom,
     title: "Preact-First",
-    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 16.8 KB gzip fully hydrated. Both measured by pnpm bench, both gated in CI.",
+    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 16.9 KB gzip fully hydrated. Both measured by pnpm bench, both gated in CI.",
   },
   {
     Icon: IconBolt,
@@ -206,19 +206,19 @@ const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
   },
   {
     mode: 'hydration: "islands"',
-    kb: "7.6 KB",
+    kb: "7.5 KB",
     bytes: 7776,
     desc: "Preact plus the island bootstrap. Only components in src/islands/ hydrate — the router never loads.",
   },
   {
     mode: 'hydration: "full"',
-    kb: "16.8 KB",
+    kb: "16.9 KB",
     bytes: 17215,
     desc: "The page hydrates and the client router takes over navigation, prefetching, and loader fetches.",
   },
   {
     mode: "full + preact/compat",
-    kb: "18.2 KB",
+    kb: "18.3 KB",
     bytes: 18667,
     desc: "The same page with the React compatibility layer, so React-authored dependencies resolve.",
   },
