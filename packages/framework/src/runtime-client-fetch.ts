@@ -6,7 +6,14 @@ import type { ResolvedRoute } from "./types.ts";
 
 export type RouteStateResult =
   | { type: "data"; data: unknown; fontHead?: FontHeadFragments }
-  | { type: "redirect"; location: string }
+  /**
+   * `location` is absent for an opaque redirect: the fetch was made with
+   * `redirect: "manual"`, and an opaque response exposes neither the status
+   * nor the `Location` header. The destination is unknowable here, so the
+   * caller has to hand the URL back to the browser as a document navigation
+   * and let it follow the 3xx itself.
+   */
+  | { type: "redirect"; location?: string }
   | { type: "error"; error: SerializedRouteError; fontHead?: FontHeadFragments };
 
 const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
@@ -84,10 +91,17 @@ export async function fetchPrachtRouteState(
     signal: options?.signal,
   });
 
-  if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) {
+  if (response.type === "opaqueredirect") {
+    // Nothing readable to redirect to. Reporting `url` here — the URL just
+    // requested — is what turned a same-URL 3xx into an endless client
+    // redirect loop, so report the redirect without a destination instead.
+    return { type: "redirect" };
+  }
+
+  if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
     return {
-      location: location ?? url,
+      location: location ?? undefined,
       type: "redirect",
     };
   }
