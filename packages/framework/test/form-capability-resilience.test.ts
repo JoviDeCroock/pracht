@@ -21,6 +21,9 @@ function submit(root: HTMLElement): void {
 describe("<Form capability> when the revalidation chunk cannot be loaded", () => {
   let root: HTMLDivElement;
   let fetchSpy: ReturnType<typeof vi.fn>;
+  // Every submission in this file hits the guarded import, so the dev warning
+  // fires each time. Captured rather than printed, and asserted on below.
+  let warnSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -28,6 +31,7 @@ describe("<Form capability> when the revalidation chunk cannot be loaded", () =>
     document.body.appendChild(root);
     fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     _resetNavigationForTesting();
   });
 
@@ -80,7 +84,7 @@ describe("<Form capability> when the revalidation chunk cannot be loaded", () =>
     expect(results[0].error?.code).toBe("network_error");
   });
 
-  it("shows the pending state on the frame the visitor submitted", () => {
+  it("shows the pending state on the frame the visitor submitted", async () => {
     fetchSpy.mockReturnValue(new Promise(() => {}));
 
     render(h(Form, { capability: "notes.create" }), root);
@@ -89,6 +93,27 @@ describe("<Form capability> when the revalidation chunk cannot be loaded", () =>
     // Synchronous: awaiting the chunk import before publishing this would
     // leave the button un-disabled until a network round trip finished.
     expect(getNavigation().state).toBe("submitting");
+
+    // Let the guarded import settle inside the test, so its dev warning lands
+    // on this test's spy rather than on a restored console.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  it("warns in development so a lost listener is not silent", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    render(h(Form, { capability: "notes.create" }), root);
+    submit(root);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("could not load the route revalidation runtime"),
+      expect.any(Error),
+    );
   });
 
   it("settles the pending state once the submission resolves", async () => {

@@ -37,7 +37,7 @@ describe("staticAdapter", () => {
     expect(source).toContain("app: staticNotFoundApp");
     expect(source).toContain("if (!resolvedApp.notFound) return null;");
     expect(source).toContain("Static export failed to render the notFound page");
-    expect(source).toContain("describeRenderError(renderError)");
+    expect(source).toContain("describeRenderError(renderError, resolvedApp.loaderTimeoutMs)");
     expect(source).toContain(
       'new Request(new URL("404.html", new URL(buildBase, "http://localhost"))',
     );

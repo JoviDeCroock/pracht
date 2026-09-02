@@ -491,6 +491,30 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         event.preventDefault();
         const formData = new FormData(form, nativeSubmitter);
 
+        // A cross-origin endpoint cannot take part in the enhanced handshake,
+        // so this submission ends as a document navigation. Decided here,
+        // before any pending state is published: entering `submitting` and
+        // then settling it as `form.requestSubmit()` starts that navigation
+        // would re-enable a button gated on `useNavigation()` while the page
+        // is already leaving. Only `schema` forms reach this — without one the
+        // handler returned above and let the browser submit natively.
+        if (isCrossOriginEndpoint) {
+          if (schema) {
+            const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+            if (result.issues) {
+              onValidationIssues?.(result.issues);
+              return;
+            }
+          }
+          validatedNativeSubmissions.add(form);
+          try {
+            form.requestSubmit(nativeSubmitter);
+          } finally {
+            validatedNativeSubmissions.delete(form);
+          }
+          return;
+        }
+
         // Published before the first `await` below, so the pending state shows
         // on the frame the visitor submitted rather than a chunk fetch later.
         // Every exit from here on runs through the `finally` that settles it.
@@ -511,11 +535,20 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           try {
             const revalidation = await import("./runtime-capability-revalidate.ts");
             revalidation.ensureCapabilityRevalidation();
-          } catch {
+          } catch (error: unknown) {
             // The chunk is unreachable — a tab left open across a deploy, or
-            // an offline page. Losing automatic route revalidation is a far
-            // smaller failure than losing the submission itself, so carry on:
-            // the request still goes out and still reports its result.
+            // an offline page — or the module threw while evaluating. Losing
+            // automatic route revalidation is a far smaller failure than
+            // losing the submission itself, so carry on: the request still
+            // goes out and still reports its result. Say so in development,
+            // where a module-eval bug would otherwise be silent.
+            if (import.meta.env?.DEV) {
+              console.warn(
+                `[pracht] <Form capability="${capability}"> could not load the route revalidation runtime; ` +
+                  "the submission continues, but route data will not refresh automatically.",
+                error,
+              );
+            }
           }
 
           if (schema) {
@@ -524,15 +557,6 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
               onValidationIssues?.(result.issues);
               return;
             }
-          }
-          if (isCrossOriginEndpoint) {
-            validatedNativeSubmissions.add(form);
-            try {
-              form.requestSubmit(nativeSubmitter);
-            } finally {
-              validatedNativeSubmissions.delete(form);
-            }
-            return;
           }
 
           clearPrefetchCache();
