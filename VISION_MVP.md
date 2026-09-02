@@ -1,6 +1,9 @@
 # Pracht — Vision & MVP
 
-Pracht is a full-stack Preact framework built on Vite. It draws routing and rendering
+Pracht is a full-stack Preact framework built on Vite. It resolves routing, rendering,
+data loading, API endpoints, and capabilities into one explicit app graph, then projects
+that graph to both of the web's audiences: components for browsers, and typed,
+trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
 
 ---
 

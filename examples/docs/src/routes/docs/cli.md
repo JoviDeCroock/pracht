@@ -258,7 +258,7 @@ pracht plan --json
 pracht plan --markdown
 ```
 
-The snapshot works like a lockfile for the route graph: `pracht verify` fails when `.pracht/app-graph.json` is stale, with the fix in the message (run `pracht plan --write`). See [AI-Assisted Authoring & Review](/docs/agent-workflow) for the full workflow.
+The snapshot works like a lockfile for the route graph: `pracht verify` fails when `.pracht/app-graph.json` is stale, with the fix in the message (run `pracht plan --write`). See [Coding Agents](/docs/coding-agents#the-route-graph-lockfile) for the full workflow.
 
 Capability changes are marked `!` when they widen what agents can reach — a new exposure, a downgraded `agentPolicy`, dropped middleware, or a loosened input schema — and `--markdown` puts a callout above the diff so the line is not missed.
 
@@ -311,7 +311,7 @@ pracht eval --json
 ```
 
 A scenario picks its transport: the capability HTTP projection by default, or
-the app's [remote MCP endpoint](/docs/remote-mcp) with `"transport": "mcp"`,
+the app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with `"transport": "mcp"`,
 where the runner performs an `initialize` handshake and issues each step as a
 `tools/call`. See [Agent Trust](/docs/agent-trust) for the scenario format.
 
@@ -355,6 +355,12 @@ runs until its MCP client disconnects and exits non-zero on startup or protocol
 failure. There is no `--json` flag because MCP frames are already structured
 protocol output. It is adapter-independent, although individual inspection and
 verification results reflect the configured target.
+
+See [Coding Agents](/docs/coding-agents#the-authoring-mcp-server) for client
+registration and the full tool reference. This is the *development-time* server;
+serving your app's own capabilities to end-user agents in production is
+[remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser),
+a different thing entirely.
 
 ---
 

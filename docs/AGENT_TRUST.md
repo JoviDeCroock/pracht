@@ -876,7 +876,7 @@ custom server entry can import them directly. Route, API, middleware, and
 `src/server/` registry modules are lazy, so importing the sink only from an
 unrelated registered module can miss earlier capability calls. The surrounding
 request-level tracing setup lives on the public site's logging and observability recipe
-(<https://pracht.resynapse.dev/docs/recipes-logging>).
+(<https://pracht.resynapse.dev/docs/recipes/logging>).
 
 ### Watching agent traffic in dev
 

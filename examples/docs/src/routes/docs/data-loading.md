@@ -162,12 +162,14 @@ Boundaries are always explicit; Pracht never wraps a component for you.
 start until something reads the value. It is memoized, so two reads never do
 the work twice.
 
-Today every render mode resolves deferred values before the response is
-written. The immediate win is concurrency — two independent 300 ms fields cost
-300 ms instead of 600 ms. The reason to write it now is that this is the
-finished API: when the streaming renderer lands, `render: "ssr"` will flush the
-shell first and stream these in with no change to your route source. `ssg` and
-`isg` will always resolve everything, because a static file cannot stream.
+Every render mode resolves deferred values before the response is written, so
+today the win is concurrency: two independent 300 ms fields cost 300 ms instead
+of 600 ms. **Streaming HTML SSR is not implemented** — nothing flushes the shell
+ahead of a pending field yet. It is tracked in
+[issue #191](https://github.com/JoviDeCroock/pracht/issues/191), and the API on
+this page is the one it would build on, so route source written against `defer()`
+and `<Suspense>` now should not need to change. `ssg` and `isg` will resolve
+everything regardless, because a static file cannot stream.
 
 Three rules:
 
@@ -177,8 +179,9 @@ Three rules:
 - **`head()` and `headers()` see awaited data only.** They run before the
   render.
 - **A suspending `<Suspense>` boundary must resolve to exactly one DOM
-  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11
-  removes this constraint.
+  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11 is
+  expected to lift this; pracht does not run on it yet, so plan for the
+  constraint.
 - Return `defer()` from an enumerable data property, not from a getter. Pracht
   does not eagerly invoke loader getters to discover hidden deferred values and
   throws instead of silently serializing an unresolved marker.
@@ -259,36 +262,7 @@ pass straight through, so a `<Suspense>` ancestor still sees them — wrapping a
 
 #### Custom 404 page
 
-Declare a `notFound` page in the manifest. It handles both ways a page can be missing — an unmatched URL, and a loader that cannot find what it was asked for:
-
-```ts [src/routes.ts]
-export const app = defineApp({
-  shells: { public: () => import("./shells/public.tsx") },
-  notFound: {
-    component: () => import("./routes/not-found.tsx"),
-    shell: "public",
-  },
-  routes: [...],
-});
-```
-
-```tsx [src/routes/not-found.tsx]
-import { useLocation } from "@pracht/core";
-
-export function Component() {
-  const location = useLocation();
-
-  return (
-    <div>
-      <h1>404</h1>
-      <p>No page lives at {location.pathname}.</p>
-      <a href="/">Go home</a>
-    </div>
-  );
-}
-```
-
-Inside a loader or middleware, `throw notFound()` renders the same page with a 404 status:
+Inside a loader or middleware, `throw notFound()` renders the app's not-found page with a 404 status:
 
 ```ts
 import { notFound } from "@pracht/core";
@@ -300,13 +274,89 @@ export async function loader({ params }: LoaderArgs) {
 }
 ```
 
-A route module's own `ErrorBoundary` still wins for that route. Shell-level boundaries do not intercept 404s once `notFound` is configured — "not found" is an outcome, not a failure.
+A route module's own `ErrorBoundary` still wins for that route. Shell-level boundaries do not intercept 404s once a `notFound` page is configured — "not found" is an outcome, not a failure.
 
-> [!NOTE]
-> The not-found page is deliberately not a route: it never matches a URL, so it cannot shadow static assets or a path you add later, and it never appears in typed routes, prefetching, or SSG output. Pages-router apps get the same behavior from `pages/404.tsx`.
+Declaring that page is a manifest concern rather than a data-loading one: see [Routing](/docs/routing#not-found-page) for the `notFound` entry, why it is deliberately not a route, and the pages-router equivalent (`pages/404.tsx`).
 
 > [!NOTE]
 > Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages are shown to users. Pass `debugErrors: true` to `handlePrachtRequest()` to see full error details during development; it is ignored when `NODE_ENV=production`.
+
+---
+
+## Mutations
+
+A loader cannot mutate: it runs on GET, it may be replayed from a prerendered page, and it has no place to put a response status. Writes go to an [API route](/docs/api-routes), and the framework's `<Form>` connects the two — it intercepts the submission and posts it over `fetch` with no page reload, exposes the in-flight state through `useNavigation()`, and still submits natively when JavaScript has not loaded.
+
+```ts [src/api/projects.ts]
+import { redirect } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
+
+export async function POST({ request, context }: ApiRouteArgs) {
+  const form = await request.formData();
+  const title = String(form.get("title") ?? "").trim();
+  if (!title) {
+    return Response.json({ error: "validation", issues: [{ path: "title", message: "Required" }] }, {
+      status: 400,
+    });
+  }
+
+  await context.db.projects.create({ title });
+  // Post/redirect/get: the router follows this and refetches the route's
+  // loader data, and a no-JavaScript submission gets an ordinary 303.
+  return redirect("/projects", { request });
+}
+```
+
+```tsx [src/routes/projects.tsx]
+import { Form, useNavigation, useRouteData } from "@pracht/core";
+
+export async function loader({ context }: LoaderArgs) {
+  return { projects: await context.db.projects.all() };
+}
+
+export function Component() {
+  const data = useRouteData<typeof loader>();
+  const navigation = useNavigation();
+
+  return (
+    <>
+      <ul>
+        {data.projects.map((p) => (
+          <li key={p.id}>{p.title}</li>
+        ))}
+      </ul>
+
+      <Form method="post" action="/api/projects">
+        <input name="title" placeholder="Project name" required />
+        <button type="submit" disabled={navigation.state === "submitting"}>
+          {navigation.state === "submitting" ? "Creating…" : "Create"}
+        </button>
+      </Form>
+    </>
+  );
+}
+```
+
+**Refreshing the page after a write is your call, not an automatic one.** A `<Form action>` submission that gets a 2xx back leaves loader data exactly as it was. Two ways to refresh it:
+
+- **Redirect from the handler**, as above. API dispatch converts the 3xx into a handshake the client router understands, so it navigates and refetches route state instead of letting `fetch` follow the redirect itself. This is the one that also works with JavaScript disabled.
+- **Call `useRevalidate()`** from `onResponse` when the page should stay put:
+
+```tsx
+const revalidate = useRevalidate();
+
+<Form
+  method="post"
+  action="/api/projects"
+  onResponse={(response) => {
+    if (response.ok) revalidate();
+  }}
+>
+```
+
+A `<Form capability>` submission is the exception: capabilities carry an effect class, so any successful non-`read` call revalidates the active route on its own. That is one reason to reach for a [capability](/docs/capabilities) when the same operation should also be callable by an agent.
+
+`navigation.formData` holds the submitted fields while the request is in flight, which is what optimistic UI reads. For client-side `schema` validation, rendering server validation issues, file uploads, and multi-button forms, see the [Forms recipe](/docs/recipes/forms).
 
 ---
 
@@ -598,43 +648,14 @@ guarded.
 
 ### \<Form\> Component
 
-Declarative form submission with progressive enhancement. Use the `action` prop to target an API route:
+Declarative form submission with progressive enhancement, shown in full under [Mutations](#mutations). It intercepts same-origin submissions and sends them via `fetch` (no full page reload), while cross-origin actions retain native form navigation so they do not require a custom-header CORS preflight. It falls back to native submission if JavaScript fails, and drives `useNavigation()`'s `"submitting"` state.
 
-```ts
-import { Form } from "@pracht/core";
-
-export function Component() {
-  return (
-    <Form method="post" action="/api/projects">
-      <input name="title" placeholder="Project name" />
-      <button type="submit">Create</button>
-    </Form>
-  );
-}
-```
-
-The `<Form>` component intercepts same-origin submissions and sends them via `fetch` (no full page reload), while cross-origin actions retain native form navigation so they do not require a custom-header CORS preflight. It also falls back to native submission if JavaScript fails.
+Set `action` to an API route path, or `capability` to post straight to a [capability](/docs/capabilities) endpoint.
 
 ---
 
 ## API Routes
 
-Standalone server endpoints for REST APIs, webhooks, and health checks. Files in `src/api/` are auto-discovered and mapped to URLs:
+Loaders read; API routes write. Files in `src/api/` are auto-discovered, export named HTTP method handlers, return native `Response` objects, share the same context system as page routes, and never enter the client bundle. See [API Routes](/docs/api-routes) for the file convention, method handlers, API middleware, same-origin protection, and WebSockets, and [API Validation](/docs/api-validation) for Standard Schema validation and typed `apiFetch()`.
 
-```ts [src/api/users/[id].ts]
-// src/api/health.ts  → GET /api/health
-// src/api/users/[id].ts → GET /api/users/:id
-
-export async function GET({ params, context }: ApiRouteArgs) {
-  const user = await context.db.users.find(params.id);
-  if (!user) return new Response("Not found", { status: 404 });
-  return Response.json(user);
-}
-
-export async function DELETE({ params, context }: ApiRouteArgs) {
-  await context.db.users.delete(params.id);
-  return new Response(null, { status: 204 });
-}
-```
-
-API routes export named HTTP method handlers or one default handler that branches on `request.method`, return `Response` objects directly, share the same context system as page routes, and are excluded from client bundles entirely.
+For an operation you also want agents to call, define it once as a [capability](/docs/capabilities) instead: same validation and middleware pipeline, plus an HTTP endpoint, a WebMCP page tool, and a remote MCP tool generated from one contract.

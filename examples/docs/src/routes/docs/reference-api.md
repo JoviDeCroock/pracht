@@ -42,7 +42,7 @@ and are listed at the bottom of this page.
 ### Constraints
 
 Declarative invariants over the resolved graph, enforced by `pracht verify`.
-See [Agent Workflow](/docs/agent-workflow).
+See [Coding Agents](/docs/coding-agents#constraints).
 
 | Export | Description |
 | --- | --- |
@@ -90,7 +90,7 @@ See [Agent Workflow](/docs/agent-workflow).
 | `useBlocker(shouldBlock, options?)` | `{ state, location, proceed, reset }` | Stop a navigation before it commits — unsaved-changes guards. See [Data Loading](/docs/data-loading#useblocker) |
 | `useRevalidate()` | `() => void` | Re-run the active route's loader |
 | `useIsHydrated()` | `boolean` | `false` during SSR and the first client render, `true` after |
-| `useEventSource(url, options?)` | `{ status, data, lastEventId }` | Subscribe to a server-sent event stream. `status` is `"connecting"`, `"open"`, or `"closed"`. See [Streaming](/docs/recipes/streaming) |
+| `useEventSource(url, options?)` | `{ status, data, lastEventId }` | Subscribe to a server-sent event stream. `status` is `"connecting"`, `"open"`, or `"closed"`. See [Server-Sent Events & WebSockets](/docs/recipes/streaming) |
 | `useCapability(name)` | `{ call, data, error, pending, reset }` | Call state for a user-triggered [capability](/docs/capabilities) call. From `virtual:pracht/capabilities` |
 
 ---
@@ -135,7 +135,7 @@ the base. See [Sub-Path Deploys](/docs/deployment#sub-path-deploys).
 
 ## Streaming
 
-See [Streaming](/docs/recipes/streaming).
+See [Server-Sent Events & WebSockets](/docs/recipes/streaming).
 
 | Export | Description |
 | --- | --- |

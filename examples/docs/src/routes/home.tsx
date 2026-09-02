@@ -5,6 +5,7 @@ import {
   IconBolt,
   IconAtom,
   IconWorld,
+  IconWorldBolt,
   IconSettings,
   IconLock,
   IconArrowRight,
@@ -77,23 +78,19 @@ const AGENT_DOC_LINKS: { href: string; text: string }[] = [
   },
   {
     href: "/docs/agents",
-    text: "The agentic web — why pracht projects one app graph to humans and agents: capabilities, trust, and discovery",
-  },
-  {
-    href: "/docs/llms",
-    text: "LLM content negotiation — markdown on the same URLs as HTML, plus /llms.txt",
-  },
-  {
-    href: "/docs/agent-skills",
-    text: "Agent skills — installable Claude Code skills with a /.well-known discovery manifest",
+    text: "The agentic web — the one app graph pracht projects to browsers and to agents, plus Accept: text/markdown negotiation and /llms.txt discovery",
   },
   {
     href: "/docs/capabilities",
-    text: "Capabilities — typed operations defined once and projected to server calls, HTTP endpoints, and WebMCP page tools",
+    text: "Capabilities — typed operations defined once and projected to server calls, HTTP endpoints, WebMCP page tools, and remote MCP tools",
   },
   {
     href: "/docs/agent-trust",
-    text: "Agent trust — Web Bot Auth verified identity, confirmation flow for destructive operations, and pracht eval",
+    text: "Agent trust — Web Bot Auth verified identity, confirmation flow for destructive operations, audit events, and pracht eval",
+  },
+  {
+    href: "/docs/coding-agents",
+    text: "Coding agents — the pracht dev-mcp authoring server, Claude Code skills, constraints, app-graph snapshots, and pracht plan/report",
   },
   {
     href: "/docs/demo-comparison",
@@ -145,7 +142,7 @@ export const markdown = [
 export function head() {
   // The shell registers `inter` too — the head renderer collapses the
   // duplicate to a single preload and @font-face block.
-  return { title: "pracht — Preact-first. Vite-native. Explicit routing.", fonts: [inter] };
+  return { title: "pracht — one app graph, projected to browsers and to agents.", fonts: [inter] };
 }
 
 export function headers() {
@@ -162,33 +159,33 @@ export function headers() {
 const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
   {
     Icon: IconSitemap,
-    title: "Explicit Route Manifest",
-    desc: "Define routes in code, not filesystem conventions. Assign shells, middleware, and render modes per group or route — auditable and type-checked.",
+    title: "One Explicit App Graph",
+    desc: "Routes, loaders, API routes, and capabilities are declared in one typed manifest and resolved into a single graph. Nothing is inferred from folder names, so what runs where is readable by you, by a reviewer, and by a machine.",
   },
   {
-    Icon: IconBolt,
-    title: "Per-Route Render Modes",
-    desc: "SSG, SSR, ISG, and SPA — pick the right strategy for each page. Mix static marketing pages with dynamic dashboards in a single app.",
+    Icon: IconWorldBolt,
+    title: "Projected to Agents, Not Scraped",
+    desc: "The same graph becomes typed HTTP endpoints, WebMCP page tools, remote MCP tools, and an llms.txt index. Agents call declared operations with validated input instead of guessing at your DOM.",
+  },
+  {
+    Icon: IconLock,
+    title: "One Set of Rules per Operation",
+    desc: "Validation, middleware, effect class, and confirmation run on the server for every caller — your loader, the browser, an in-page agent, a remote MCP host. The human UI and the agent surface cannot drift, because they are the same function.",
   },
   {
     Icon: IconAtom,
     title: "Preact-First",
-    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 16.5 KB gzip fully hydrated. Both measured, both gated in CI.",
+    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 16.8 KB gzip fully hydrated. Both measured by pnpm bench, both gated in CI.",
   },
   {
-    Icon: IconWorld,
-    title: "Edge-Ready Adapters",
-    desc: "Deploy to Cloudflare Workers, Vercel Edge Functions, or Node.js. Thin adapter layers with no vendor lock-in.",
+    Icon: IconBolt,
+    title: "Per-Route Render and Hydration Modes",
+    desc: "SSG, SSR, ISG, or SPA, and full, islands, or no hydration — chosen per route. Mix static marketing pages with dynamic dashboards in one app and one build.",
   },
   {
     Icon: IconSettings,
-    title: "Vite-Native",
-    desc: "Full Vite pipeline for client and SSR builds. Bring your own plugins — Tailwind, MDX, image tools all work without special integration.",
-  },
-  {
-    Icon: IconLock,
-    title: "End-to-End Types",
-    desc: "Loader return types flow automatically to components. No manual typing, no casting — just inference from server to client.",
+    title: "Vite-Native, End-to-End Typed",
+    desc: "Full Vite pipeline for client and SSR builds, plus loader return types that flow into components and capability contracts that flow into every call site.",
   },
 ];
 
@@ -215,14 +212,14 @@ const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
   },
   {
     mode: 'hydration: "full"',
-    kb: "16.5 KB",
-    bytes: 16916,
+    kb: "16.8 KB",
+    bytes: 17215,
     desc: "The page hydrates and the client router takes over navigation, prefetching, and loader fetches.",
   },
   {
     mode: "full + preact/compat",
-    kb: "17.9 KB",
-    bytes: 18367,
+    kb: "18.2 KB",
+    bytes: 18667,
     desc: "The same page with the React compatibility layer, so React-authored dependencies resolve.",
   },
 ];
@@ -292,14 +289,17 @@ export function Component(_props: RouteComponentProps<typeof loader>) {
         <div class="hero-grid" />
         <div class="hero-inner">
           <h1 class="hero-title">
-            Build with Preact.
+            One app graph.
             <br />
-            <span class="gradient-text">Deploy everywhere.</span>
+            <span class="gradient-text">Two kinds of caller.</span>
           </h1>
 
           <p class="hero-sub">
-            <strong>pracht</strong> is a Preact framework with <strong>explicit routing</strong>,
-            per-route render modes, and thin adapters for Cloudflare, Netlify, Vercel, and Node.js.
+            <strong>pracht</strong> resolves your routes, loaders, API routes, and{" "}
+            <strong>capabilities</strong> into one explicit graph — then projects it to browsers{" "}
+            <em>and</em> to agents: HTTP endpoints, WebMCP page tools, remote MCP, and{" "}
+            <code>llms.txt</code>. Most frameworks render your app for humans and leave agents to
+            scrape it.
           </p>
 
           <div class="hero-actions">
@@ -307,8 +307,8 @@ export function Component(_props: RouteComponentProps<typeof loader>) {
               Read the docs
               <IconArrowRight size={14} stroke={2} />
             </a>
-            <a href="/docs/demo-comparison" class="btn btn-secondary">
-              See the demo comparison
+            <a href="/docs/agents" class="btn btn-secondary">
+              See the agent projections
             </a>
           </div>
 
@@ -324,6 +324,8 @@ export const app = defineApp({
     app:    "./shells/app.tsx",
   },
   middleware: { auth: "./middleware/auth.ts" },
+  // The same graph an agent sees: typed operations, not a scraped DOM.
+  capabilities: { "notes.search": "./capabilities/notes-search.ts" },
   routes: [
     group({ shell: "public" }, [
       route("/",        "./routes/home.tsx",    { render: "ssg" }),
@@ -370,7 +372,7 @@ export const app = defineApp({
           <p class="ladder-note">
             Gzipped client JavaScript a cold load fetches, including the chunks the router imports
             after hydration. Your application code sits on top of this. Switching prefetching off
-            with <code>client: {"{ prefetch: false }"}</code> takes full hydration to 15.1 KB.
+            with <code>client: {"{ prefetch: false }"}</code> takes full hydration to 15.4 KB.
             Re-measure any of it with <code>pnpm bench</code> —{" "}
             <a href="/docs/performance">how these numbers are produced</a>.
           </p>
@@ -381,10 +383,10 @@ export const app = defineApp({
       <section class="section">
         <div class="section-inner">
           <p class="section-eyebrow">Why pracht</p>
-          <h2 class="section-title">Everything you need, nothing you don't</h2>
+          <h2 class="section-title">Write the app down once</h2>
           <p class="section-sub">
-            A focused framework that gives you the primitives to build fast, maintainable Preact
-            applications — without magic.
+            Everything below follows from the graph being explicit. A manifest a machine can read is
+            a manifest a machine can serve, review, and test.
           </p>
           <div class="features-grid">
             {FEATURES.map((f) => (
@@ -397,6 +399,11 @@ export const app = defineApp({
               </div>
             ))}
           </div>
+          <p class="ladder-note">
+            <IconWorld size={14} stroke={1.5} /> And it deploys anywhere: Node, Cloudflare Workers,
+            Netlify, Vercel, or a pure static export, from one codebase and one build. A thin{" "}
+            <a href="/docs/adapters">adapter</a>, not a rewrite.
+          </p>
         </div>
       </section>
 
