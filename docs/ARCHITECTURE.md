@@ -389,12 +389,15 @@ difference here only shows up after deploy.
   byte-identical in dev and production. `text/event-stream` keeps its own
   earlier branch: it must stream and never buffer.
 - A loader, middleware, or render failure is logged once to
-  `server.config.logger`, with phase, route id, request path, and message. The
-  overlay only reaches a document navigation; a route-state fetch, a `curl`, or
-  a test run would otherwise see a 500 and nothing server-side. A body stream
-  that fails after the headers are on the wire is logged there too — destroying
-  the socket is all that is left, so the line is the only signal. Expected 404s
-  are not logged.
+  `server.config.logger`, with phase, route id, request path, and message —
+  plus `file:line:column` when the error blames a module of the user's
+  (`describeAnnotatedUserModule()`), which is how a route file that will not
+  compile gets named: it fails while the virtual server module is evaluated, so
+  there is no route context to report. The overlay only reaches a document
+  navigation; a route-state fetch, a `curl`, or a test run would otherwise see
+  a 500 and nothing server-side. A body stream that fails after the headers are
+  on the wire is logged there too — destroying the socket is all that is left,
+  so the line is the only signal. Expected 404s are not logged.
 - The stack is appended only when the failure names no user module, or under
   `DEBUG` (`shouldIncludeDevErrorStack()`). A route/loader/shell file in
   `RouteErrorContext`, Vite's `id`/`loc.file` on a transform error, or a stack
@@ -405,9 +408,13 @@ difference here only shows up after deploy.
 - Both error paths check `res.headersSent` first. A failure *after* the
   response is on the wire would otherwise raise `ERR_HTTP_HEADERS_SENT` on top
   of the original error, replacing it as the thing the developer sees. When the
-  response has *not* gone out, they clear every header already staged on it: a
-  `content-length` describing the abandoned body would truncate the error page
-  written in its place.
+  response has *not* gone out, they clear the headers that described the body
+  being abandoned — `content-length`, `content-type`, `content-encoding`,
+  `transfer-encoding`, `content-disposition` — and only those. A stale
+  `content-length` would truncate the error page written in its place, while
+  clearing everything would also drop the CORS headers Vite's own middleware
+  staged, answering a cross-origin 500 with a CORS failure and no readable
+  overlay.
 
 ### Route hint tables
 

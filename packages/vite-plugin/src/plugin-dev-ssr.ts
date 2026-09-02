@@ -399,13 +399,15 @@ export function createDevSSRMiddleware(
  * end-to-end test — used to get a 500 and no server-side trace of why.
  */
 function formatDevRequestErrorLine(options: {
+  file?: string;
   message: string;
   path: string;
   phase?: string;
   routeId?: string;
 }): string {
   const route = options.routeId ? ` in route "${options.routeId}"` : "";
-  return `[pracht] ${options.phase ?? "request"} error${route} at ${options.path}: ${options.message}`;
+  const file = options.file ? ` (${options.file})` : "";
+  return `[pracht] ${options.phase ?? "request"} error${route}${file} at ${options.path}: ${options.message}`;
 }
 
 /**
@@ -436,6 +438,11 @@ function logDevRequestError(
 
   const { error } = options;
   const line = formatDevRequestErrorLine({
+    // A compile failure carries the module it could not build but no route
+    // context — it happened before anything matched — so without this a route
+    // file's syntax error names no file at all on a route-state poll, where
+    // there is no overlay to fall back on.
+    file: describeAnnotatedUserModule(error, server.config.root),
     message: error instanceof Error ? error.message : String(error),
     path: options.path,
     phase: options.context?.phase,
@@ -486,9 +493,8 @@ function isAttributableToUserModule(
   // Vite and Rollup put the offending module on the error itself, which is how
   // a syntax error in a user file arrives here: it escapes to the outer catch
   // with no route context at all, because it failed before any route matched.
-  const annotated = error as { id?: unknown; loc?: { file?: unknown } | null } | null;
-  if (typeof annotated?.id === "string") return isUserModulePath(annotated.id, root);
-  if (typeof annotated?.loc?.file === "string") return isUserModulePath(annotated.loc.file, root);
+  const annotatedFile = readAnnotatedFile(error);
+  if (annotatedFile !== undefined) return isUserModulePath(annotatedFile, root);
 
   const stack = error instanceof Error ? error.stack : undefined;
   if (!stack) return false;
@@ -499,6 +505,41 @@ function isAttributableToUserModule(
       const match = /(?:\(|\bat\s)([^()\s]+):\d+:\d+\)?\s*$/.exec(frame.trim());
       return match ? isUserModulePath(match[1], root) : false;
     });
+}
+
+interface AnnotatedErrorLocation {
+  column?: unknown;
+  file?: unknown;
+  line?: unknown;
+}
+
+/** The module a Vite or Rollup build error blames, when it names one. */
+function readAnnotatedFile(error: unknown): string | undefined {
+  const annotated = error as { id?: unknown; loc?: AnnotatedErrorLocation | null } | null;
+  if (typeof annotated?.id === "string") return annotated.id;
+  if (typeof annotated?.loc?.file === "string") return annotated.loc.file;
+  return undefined;
+}
+
+/**
+ * The annotated module as `path/to/file.tsx:line:column`, relative to the
+ * project root, or `undefined` when the error blames nothing of the user's.
+ */
+export function describeAnnotatedUserModule(
+  error: unknown,
+  root: string | undefined,
+): string | undefined {
+  const file = readAnnotatedFile(error);
+  if (file === undefined || !isUserModulePath(file, root)) return undefined;
+
+  const rootPrefix = root ? `${root.replace(/\/$/, "")}/` : undefined;
+  const label = rootPrefix && file.startsWith(rootPrefix) ? file.slice(rootPrefix.length) : file;
+
+  const loc = (error as { loc?: AnnotatedErrorLocation | null } | null)?.loc;
+  if (typeof loc?.line !== "number") return label;
+  return typeof loc.column === "number"
+    ? `${label}:${loc.line}:${loc.column}`
+    : `${label}:${loc.line}`;
 }
 
 function isUserModulePath(candidate: string, root: string | undefined): boolean {
@@ -1135,13 +1176,29 @@ async function respondWithErrorOverlay(
  * exactly when that happens.
  */
 /**
- * Drop every header staged for the response being replaced. The failure can
- * arrive after the runtime's headers were copied across, and a `content-length`
- * describing the abandoned body would truncate the error page written in its
- * place.
+ * Headers that describe the body being abandoned. A `content-length` measuring
+ * the response the error replaced would truncate the error page written in its
+ * place, and a stale `content-type`/`content-encoding` would have the browser
+ * decode HTML as something else.
+ */
+const ABANDONED_BODY_HEADERS = new Set([
+  "content-disposition",
+  "content-encoding",
+  "content-length",
+  "content-type",
+  "transfer-encoding",
+]);
+
+/**
+ * Drop the headers that described the response being replaced, and only those.
+ * Everything else staged on `res` belongs to a different concern — Vite's cors
+ * middleware has already put `access-control-allow-origin` there, and clearing
+ * it would turn a cross-origin 500 into a CORS failure with no overlay to read.
  */
 function discardPendingResponseHeaders(res: ServerResponse): void {
-  for (const name of res.getHeaderNames()) res.removeHeader(name);
+  for (const name of res.getHeaderNames()) {
+    if (ABANDONED_BODY_HEADERS.has(name.toLowerCase())) res.removeHeader(name);
+  }
 }
 
 function finishAlreadySentResponse(res: ServerResponse): boolean {

@@ -7,7 +7,11 @@ import { describe, expect, it, vi } from "vitest";
 import * as frameworkServer from "../../framework/src/server.ts";
 import * as errorOverlay from "../../framework/src/error-overlay.ts";
 import { defineApp, resolveApp, route } from "../../framework/src/app.ts";
-import { createDevSSRMiddleware, shouldIncludeDevErrorStack } from "../src/plugin-dev-ssr.ts";
+import {
+  createDevSSRMiddleware,
+  describeAnnotatedUserModule,
+  shouldIncludeDevErrorStack,
+} from "../src/plugin-dev-ssr.ts";
 import { PRACHT_SERVER_MODULE_ID } from "../src/plugin-assets.ts";
 
 function createRequest(url: string): IncomingMessage {
@@ -60,6 +64,7 @@ async function render(
   routeModule: Record<string, unknown>,
   options: {
     request?: IncomingMessage;
+    serverModuleError?: unknown;
     shellModule?: Record<string, unknown>;
     stageHeaders?: Record<string, string>;
   } = {},
@@ -96,7 +101,10 @@ async function render(
     ssrLoadModule: async (id: string) => {
       if (id === "@pracht/core/server") return frameworkServer;
       if (id === "@pracht/core/error-overlay") return errorOverlay;
-      if (id === PRACHT_SERVER_MODULE_ID) return serverMod;
+      if (id === PRACHT_SERVER_MODULE_ID) {
+        if (options.serverModuleError) throw options.serverModuleError;
+        return serverMod;
+      }
       throw new Error(`Unexpected ssrLoadModule id: ${id}`);
     },
     // The real transform injects the Vite client; the overlay must survive it.
@@ -279,24 +287,67 @@ describe("dev SSR error overlay", () => {
     expect(state.logger.error).not.toHaveBeenCalled();
   });
 
-  // Vite stages `server.headers` before this middleware runs, and the failure
-  // can arrive after the abandoned response's headers were copied across. A
-  // surviving content-length would truncate the overlay.
-  it("drops headers staged for the response it replaces", async () => {
+  // The failure can arrive after the abandoned response's headers were copied
+  // across, and a surviving content-length would truncate the overlay.
+  it("drops the headers describing the response it replaces", async () => {
     const state = await render(
       {
         Component: () => {
           throw new Error("render exploded");
         },
       },
-      { stageHeaders: { "content-length": "5", "x-abandoned": "1" } },
+      { stageHeaders: { "content-length": "5", "content-type": "application/pdf" } },
     );
 
     expect(state.statusCode).toBe(500);
     expect(state.headers["content-length"]).toBeUndefined();
-    expect(state.headers["x-abandoned"]).toBeUndefined();
     expect(state.headers["content-type"]).toContain("text/html");
     expect(state.body).toContain("render exploded");
+  });
+
+  // A route module that will not compile fails while the virtual server module
+  // is evaluated — before any route matches — so the logger sees no route
+  // context at all. On a route-state poll there is no overlay either, which
+  // leaves this line as the only place the file is named.
+  it("names the file a compile failure blames", async () => {
+    const state = await render(
+      { Component: () => null },
+      {
+        serverModuleError: Object.assign(new Error("Unexpected token (4:2)"), {
+          id: "/tmp/pracht-overlay-test/src/routes/boom.tsx",
+          loc: { column: 2, file: "/tmp/pracht-overlay-test/src/routes/boom.tsx", line: 4 },
+        }),
+      },
+    );
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("src/routes/boom.tsx:4:2");
+    expect(line).toContain("Unexpected token (4:2)");
+    // Attributed, so the trace stays out of the way.
+    expect(line).not.toContain("\n");
+  });
+
+  // Vite's cors middleware runs before this one and stages its headers on the
+  // same response. Clearing them would answer a cross-origin request with a
+  // CORS failure, hiding the overlay that explains what actually broke.
+  it("keeps headers that belong to another middleware", async () => {
+    const state = await render(
+      {
+        Component: () => {
+          throw new Error("render exploded");
+        },
+      },
+      {
+        stageHeaders: {
+          "access-control-allow-origin": "https://studio.example",
+          "content-length": "5",
+        },
+      },
+    );
+
+    expect(state.headers["access-control-allow-origin"]).toBe("https://studio.example");
+    expect(state.headers["content-length"]).toBeUndefined();
   });
 
   // `pracht dev` passes debugErrors unconditionally; the runtime ignores it
@@ -380,5 +431,28 @@ describe("dev error stack attribution", () => {
 
   it("opts everything back in under DEBUG", () => {
     expect(shouldIncludeDevErrorStack({ debug: true, error: userSyntaxError(), root })).toBe(true);
+  });
+
+  // Suppressing the stack only helps if the line that replaces it says where to
+  // look. A compile failure carries no route context, so on a route-state poll
+  // — which has no overlay — this is the developer's only pointer.
+  it("names the blamed module, relative to the project root", () => {
+    const error = Object.assign(new Error("Unexpected token"), {
+      id: "/work/app/src/routes/home.tsx",
+      loc: { column: 2, file: "/work/app/src/routes/home.tsx", line: 4 },
+    });
+
+    expect(describeAnnotatedUserModule(error, root)).toBe("src/routes/home.tsx:4:2");
+  });
+
+  it("falls back to the file alone, and to nothing outside the project", () => {
+    expect(describeAnnotatedUserModule(userSyntaxError(), root)).toBe("src/routes/home.tsx");
+    expect(describeAnnotatedUserModule(frameworkError(), root)).toBeUndefined();
+    expect(
+      describeAnnotatedUserModule(
+        Object.assign(new Error("boom"), { id: "/work/app/node_modules/vite/dist/x.js" }),
+        root,
+      ),
+    ).toBeUndefined();
   });
 });
