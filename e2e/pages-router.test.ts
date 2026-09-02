@@ -350,6 +350,72 @@ test("_middleware is not routable and appears in the app graph", async ({ reques
 });
 
 // ---------------------------------------------------------------------------
+// src/capabilities/ auto-discovery and src/pages/_app.config.ts
+// ---------------------------------------------------------------------------
+
+async function mcpRpc(
+  request: { post: (url: string, init: Record<string, unknown>) => Promise<any> },
+  method: string,
+  params?: unknown,
+) {
+  const response = await request.post("/mcp", {
+    data: { jsonrpc: "2.0", id: 1, method, ...(params === undefined ? {} : { params }) },
+    headers: { "content-type": "application/json" },
+  });
+  return { status: response.status(), body: await response.json() };
+}
+
+test("an auto-discovered capability serves its HTTP projection", async ({ request }) => {
+  const response = await request.post("/api/capabilities/posts/search", {
+    data: { query: "pages" },
+    headers: { "content-type": "application/json" },
+  });
+
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body.ok).toBe(true);
+  expect(body.data.posts).toEqual([{ slug: "pages-router", title: "Pages Router" }]);
+});
+
+test("the capability appears in the app graph under its declared name", async ({ request }) => {
+  const response = await request.get("/_pracht.json");
+  const graph = await response.json();
+  const names = (graph.capabilities ?? []).map((entry: { name: string }) => entry.name);
+
+  expect(names).toContain("posts.search");
+});
+
+test("_app.config.ts agents.mcp serves the remote MCP projection", async ({ request }) => {
+  const initialized = await mcpRpc(request, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "playwright", version: "1.0.0" },
+  });
+
+  expect(initialized.status).toBe(200);
+  expect(initialized.body.result.serverInfo).toEqual({
+    name: "pracht-pages-example",
+    version: "0.0.0",
+  });
+
+  const listed = await mcpRpc(request, "tools/list");
+  const names = listed.body.result.tools.map((tool: { name: string }) => tool.name);
+  expect(names).toContain("posts_search");
+});
+
+test("capability modules are not routable and never reach the browser", async ({
+  page,
+  request,
+}) => {
+  expect((await request.get("/capabilities/posts-search")).status()).toBe(404);
+  expect((await request.get("/_app.config")).status()).toBe(404);
+
+  await page.goto("/");
+  const html = await page.content();
+  expect(html).not.toContain("Find blog posts whose title or slug matches");
+});
+
+// ---------------------------------------------------------------------------
 // 404 handling
 // ---------------------------------------------------------------------------
 

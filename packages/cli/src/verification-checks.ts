@@ -33,6 +33,7 @@ import {
 import {
   collectDuplicateRoutePaths,
   describePagesFile,
+  PAGES_APP_CONFIG_EXPORTS,
   scanPagesDirectory,
   type PagesFile,
   type PagesRoute,
@@ -478,6 +479,7 @@ export function collectPagesVerification(
   }
 
   collectPagesShellChecks(project, checks, appShells);
+  collectPagesAppConfigChecks(project, checks, pages, scope);
 
   const validMiddlewareFiles = collectPagesMiddlewareChecks(project, checks, pages, scope);
 
@@ -608,6 +610,98 @@ function collectPagesShellChecks(
         `Pages shell ${JSON.stringify(displayPath(project.root, shell.file))} never mentions ` +
           "`children`. A shell that does not render its children renders a blank page for " +
           `every route under ${JSON.stringify(shell.directory === "" ? "the pages directory" : `${shell.directory}/`)}.`,
+      ),
+    );
+  }
+}
+
+/**
+ * `_app.config.ts` mirrors the build's rules: at most one root-level
+ * `_app.config.{ts,tsx,js,jsx}` exporting at least one of `agents`,
+ * `constraints`, and `notFound`.
+ *
+ * Every rejected shape is one that leaves an app looking configured while
+ * nothing is registered — the same fail-open class the middleware checks
+ * cover, and more consequential here because `agents` is what decides who may
+ * reach the app's capabilities.
+ */
+function collectPagesAppConfigChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  pages: PagesFile[],
+  scope: string,
+): void {
+  const configs = pages.filter((page) => page.kind === "app-config");
+  if (configs.length === 0) return;
+
+  const show = (file: string): string => JSON.stringify(displayPath(project.root, file));
+  const supportedKeys = PAGES_APP_CONFIG_EXPORTS.map((key) => `\`${key}\``).join(", ");
+
+  for (const config of configs.filter((entry) => entry.nested)) {
+    checks.push(
+      createCheck(
+        "error",
+        `Nested \`_app.config\` ${show(config.file)} is not read. ${supportedKeys} are app-wide, ` +
+          "so only a root-level `_app.config.ts` in the pages directory is applied.",
+      ),
+    );
+  }
+
+  for (const config of configs.filter((entry) => !entry.nested && !entry.supportedExtension)) {
+    checks.push(
+      createCheck(
+        "error",
+        `Pages app config ${show(config.file)} cannot use the \`${extname(config.file)}\` ` +
+          "extension. Rename the file to `_app.config.ts`.",
+      ),
+    );
+  }
+
+  const rootConfigs = configs.filter((entry) => !entry.nested && entry.supportedExtension);
+  if (rootConfigs.length > 1) {
+    checks.push(
+      createCheck(
+        "error",
+        `Multiple pages app config files resolve to the same registration: ` +
+          `${rootConfigs.map((config) => show(config.file)).join(", ")}. Keep exactly one ` +
+          "root-level `_app.config` file.",
+      ),
+    );
+    return;
+  }
+
+  const config = rootConfigs[0];
+  if (!config) return;
+
+  if (config.opaque) {
+    checks.push(
+      createCheck(
+        "error",
+        `Pages app config ${show(config.file)} re-exports \`export * from …\`, whose names cannot ` +
+          "be read without loading the module. Re-export the keys explicitly, for example " +
+          '`export { agents } from "./_config/agents.ts"`.',
+      ),
+    );
+    return;
+  }
+
+  if (config.exports.length === 0) {
+    checks.push(
+      createCheck(
+        "error",
+        `Pages app config ${show(config.file)} exports none of ${supportedKeys}. It must declare ` +
+          "named value exports such as `export const agents: PrachtAgentsConfig = { … }` " +
+          "(a default export is not used), or be deleted.",
+      ),
+    );
+    return;
+  }
+
+  if (scope === "full") {
+    checks.push(
+      createCheck(
+        "ok",
+        `Found pages app config \`_app.config\` (${config.exports.map((key) => `\`${key}\``).join(", ")}).`,
       ),
     );
   }
@@ -822,6 +916,21 @@ function collectChangedPagesChecks(
           createCheck(
             "ok",
             `Changed pages middleware ${JSON.stringify(display)} runs on every page route.`,
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (page.kind === "app-config") {
+      // Broken shapes are reported as errors by the app-config checks that run
+      // in every scope; only the working shape gets an ok here.
+      if (!page.nested && page.supportedExtension && !page.opaque && page.exports.length > 0) {
+        checks.push(
+          createCheck(
+            "ok",
+            `Changed pages app config ${JSON.stringify(display)} sets ` +
+              `${page.exports.map((key) => `\`${key}\``).join(", ")} on the generated manifest.`,
           ),
         );
       }

@@ -1,6 +1,6 @@
 ---
 name: add-capabilities
-version: 1.0.2
+version: 1.1.0
 description: |
   Expose an app operation as a typed pracht capability — one contract projected
   into direct server calls, an HTTP endpoint, a WebMCP page tool, and a remote MCP
@@ -41,8 +41,11 @@ Settle these with `AskUserQuestion` when the request is vague:
 - **Effect** — `read`, `write`, or `destructive`. This drives confirmation
   gating, client revalidation, and MCP annotations. Classify honestly.
 - **Exposure** — private (omit `expose`), `http`, `webmcp` (requires `http`),
-  `mcp`. Capabilities are manifest-router only; the pages router has no
-  manifest to register them in.
+  `mcp`.
+- **Router** — manifest apps use a `defineApp({ capabilities })` key; pages apps
+  auto-discover `src/capabilities/`, where each module declares
+  `name: "notes.search"` (or takes its file stem) and the name must map back to
+  its file with dots as hyphens (`notes-search.ts`). Step 4 covers the rest.
 - **Authorization** — which named middleware runs, and whether the endpoint
   requires a verified agent (`agentPolicy: "require"`).
 
@@ -155,6 +158,10 @@ export const app = defineApp({
 });
 ```
 
+Pages apps have no manifest: the same `capabilities` come from
+`src/capabilities/` and the same `agents` object is `export const agents` in
+`src/pages/_app.config.ts`.
+
 Each `agents` sub-option is independent — add only what the app uses. Web Bot
 Auth `policy: "require"` gates capability HTTP endpoints (not pages or API
 routes) with `401 agent_required`; `agentPolicy: "require"` on a capability
@@ -266,19 +273,18 @@ See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
 
 Be honest about what this buys, and say so to the user
 (`docs/AGENT_TRUST.md`): stateless HMAC cannot prevent replay inside the TTL,
-the calling agent can hand the token straight back to itself, and without Web
-Bot Auth or `setCapabilityApprovalPrincipalResolver()` both phases run as
-`"anonymous"`. Register a `CapabilityApprovalStore` for exactly-once commits,
-and `confirmation: { mode: "human" }` for a real human decision — that mode
-fails closed without both a store and an authenticated principal.
+the calling agent can hand the token back to itself, and without Web Bot Auth
+or `setCapabilityApprovalPrincipalResolver()` both phases run as `"anonymous"`.
+Register a `CapabilityApprovalStore` for exactly-once commits, and
+`confirmation: { mode: "human" }` for a real human decision — that mode fails
+closed without both a store and an authenticated principal.
 
 `createSqlApprovalStore({ execute })` from `@pracht/core/server` is the
-first-party durable store — no driver dependency, one implementation for
-Postgres, Cloudflare D1, and SQLite/Turso. Pass a parameterized-query function
-and run the migration from `docs/AGENT_TRUST.md`; use `dialect: "postgres"` for
-`$1` placeholders. `createMemoryApprovalStore()` is for tests and development
-only. A non-SQL backend needs atomic conditional writes (Durable Objects,
-Redis — not Cloudflare KV).
+first-party durable store — one implementation for Postgres, Cloudflare D1, and
+SQLite/Turso. Pass a parameterized-query function and run the migration from
+`docs/AGENT_TRUST.md`; use `dialect: "postgres"` for `$1` placeholders.
+`createMemoryApprovalStore()` is for tests only. A non-SQL backend needs atomic
+conditional writes (Durable Objects, Redis — not Cloudflare KV).
 
 ### Destructive over remote MCP
 
@@ -286,18 +292,18 @@ Off by default. To serve one:
 
 1. `agents: { mcp: { destructive: true } }` in `defineApp()`.
 2. Register an approval store from a server entry or a capability module, so it
-   exists before the graph is served. This is not optional — a token handed to
-   the committing agent must be consumable exactly once. The endpoint refuses
-   to serve at all when the store, `PRACHT_CONFIRMATION_SECRET`, or (in human
-   mode) any resolvable principal is missing; `pracht verify` warns when it
-   cannot find the registration in the configured source directories.
+   exists before the graph is served — a token handed to the committing agent
+   must be consumable exactly once. The endpoint refuses to serve at all when
+   the store, `PRACHT_CONFIRMATION_SECRET`, or (in human mode) any resolvable
+   principal is missing; `pracht verify` warns when it cannot find the
+   registration in the configured source directories.
 3. The flow is unchanged; only the channel differs. Prepare answers
    `isError: true` with the token in `_meta["io.pracht/error"]`, and the commit
    repeats `tools/call` with identical `arguments` plus
    `_meta["io.pracht/confirmation"]`.
 
 Nested `invokeCapability()` under an MCP tool still refuses destructive callees
-unless the tool being served is a destructive capability that already cleared
+unless the served tool is itself a destructive capability that already cleared
 prepare/commit.
 
 ## Step 6: Call it
@@ -343,49 +349,45 @@ pracht eval --start "pracht preview"
 
 Once the declaration exists the compiler rejects unknown names, bad input,
 browser calls to private capabilities, destructive calls without
-`prepare`/`confirm`, and runtime-computed names (assert
-`as HttpCapabilityName`). Re-run `pracht typegen --check` in CI.
+`prepare`/`confirm`, and computed names (assert `as HttpCapabilityName`).
+Re-run `pracht typegen --check` in CI.
 
 `pracht eval` runs JSON scenarios against the live app and exits 1 on a failed
-expectation — the repeatable answer to "can an agent actually finish this
-task?". Steps can reference earlier results
-(`$steps[0].error.confirmationToken`) and a scenario-level `signAs` block signs
+expectation. Steps can reference earlier results
+(`$steps[0].error.confirmationToken`); a scenario-level `signAs` block signs
 every step as a verified agent.
 
-A scenario targets the HTTP projection by default; set scenario-level
-`"transport": "mcp"` to run the same steps over the app's remote MCP endpoint
-(`initialize` handshake, then one `tools/call` per step, tool names mapped
-`notes.search` → `notes_search`). Write one of each for any capability with
-`expose.mcp` — passing over HTTP does not prove an MCP host can reach it.
+A scenario targets HTTP by default; scenario-level `"transport": "mcp"` runs
+the same steps over the remote MCP endpoint (`initialize`, then one
+`tools/call` per step, names mapped `notes.search` → `notes_search`). Write one
+of each for any `expose.mcp` capability — passing over HTTP does not prove an
+MCP host can reach it.
 If `agents.mcp.auth` protects the endpoint, add scenario-level
-`"mcpHeaders": { "authorization": "Bearer …" }`; it applies to `initialize`
-and every later request. Inject test tokens in CI instead of committing real
-credentials. Step-level `headers.authorization` overrides it for one call.
-Expectations are portable: `expect.status` is the capability dispatch status on
-both transports, so the same `{ "ok": false, "status": 400, "errorCode":
-"invalid_input" }` holds either way.
+`"mcpHeaders": { "authorization": "Bearer …" }`; it applies to `initialize` and
+every later request, and step-level `headers.authorization` overrides it for
+one call. Inject test tokens in CI. Expectations are portable: `expect.status`
+is the capability dispatch status on both transports.
 
-Three MCP limits fail loudly rather than silently: a step for a capability
-without `expose.mcp`, a step header other than `authorization` (the projection
-forwards nothing else), and a destructive step whose app has not enabled
-`agents.mcp.destructive` with an approval store. For an exposed destructive MCP
-tool, `confirm` completes the same prepare/commit round trip as HTTP; the token
-travels in the call's `_meta["io.pracht/confirmation"]` field.
+Three MCP limits fail loudly: a step for a capability without `expose.mcp`, a
+step header other than `authorization` (the projection forwards nothing else),
+and a destructive step whose app has not enabled `agents.mcp.destructive` with
+an approval store. For an exposed destructive MCP tool, `confirm` completes the
+same prepare/commit round trip as HTTP, with the token in the call's
+`_meta["io.pracht/confirmation"]`.
 
 `createCapabilityTestHost()` from `@pracht/core` covers the same pipeline in
-unit tests without a server.
+unit tests, without a server.
 
-WebMCP specifics `pracht verify` checks for you: tool names must fit the
-spec's grammar (1–128 ASCII `[a-zA-Z0-9_.-]`); an effective
-`agentPolicy: "require"` makes a page tool dead (unsigned browser fetches
-always 401 — warned); descriptions have advisory budgets (~500 chars per
-tool, ~150 per schema parameter). Hosts: the ChatGPT desktop browser enables
-the API itself, but stable Chrome/Edge visitors only get
-`document.modelContext` if the page head carries an origin-trial token — the
-capabilities page on the docs site shows the shell `head()` recipe.
+WebMCP specifics `pracht verify` checks: tool names must fit the spec's
+grammar (1–128 ASCII `[a-zA-Z0-9_.-]`); an effective `agentPolicy: "require"`
+makes a page tool dead (unsigned browser fetches always 401 — warned);
+descriptions have advisory budgets (~500 chars per tool, ~150 per schema
+parameter). Hosts: the ChatGPT desktop browser enables the API itself, but
+stable Chrome/Edge visitors only get `document.modelContext` if the page head
+carries an origin-trial token — the docs site's capabilities page shows the
+shell `head()` recipe.
 
-For an audit of what the whole agent surface currently exposes, run
-`/audit-agent-surface`.
+To audit what the whole agent surface exposes, run `/audit-agent-surface`.
 
 ## Rules
 

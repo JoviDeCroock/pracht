@@ -609,6 +609,134 @@ export default defineConfig({
     ).toBe(true);
   });
 
+  it("verifies capabilities auto-discovered from src/capabilities in pages mode", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-capabilities-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/capabilities/notes-search.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  name: "notes.search",
+  title: "Search notes",
+  description: "Find notes whose title matches the query.",
+  effect: "read",
+  expose: { http: true },
+  input: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+  output: { type: "object", properties: { hits: { type: "number" } }, required: ["hits"] },
+  run: () => ({ hits: 0 }),
+});
+`,
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message === "Registered 1 capability.",
+      ),
+    ).toBe(true);
+    expect(report.checks.some((check) => check.message.includes('Capability "notes.search"'))).toBe(
+      true,
+    );
+  });
+
+  it("fails doctor when a pages capability name does not map back to its file", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-capability-name-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/capabilities/search.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  name: "notes.search",
+  title: "Search notes",
+  description: "Find notes.",
+  effect: "read",
+  input: { type: "object" },
+  output: { type: "object" },
+  run: () => ({}),
+});
+`,
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" &&
+          check.message.includes('declares name "notes.search" but lives in'),
+      ),
+    ).toBe(true);
+  });
+
+  it("reports the pages app config exports it applies", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-config-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_app.config.ts",
+      'export const agents = { webBotAuth: { policy: "observe", keys: [] } };\n',
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "ok" &&
+          check.message === "Found pages app config `_app.config` (`agents`).",
+      ),
+    ).toBe(true);
+  });
+
+  it("fails doctor for a pages app config that exports nothing usable", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-config-empty-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_app.config.ts", "export default { agents: {} };\n");
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" &&
+          check.message.includes("exports none of `agents`, `constraints`, `notFound`"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails doctor for a nested pages app config", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-config-nested-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.config.ts",
+      "export const agents = { mcp: {} };\n",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "error" && check.message.includes("Nested `_app.config`"),
+      ),
+    ).toBe(true);
+  });
+
   it("fails doctor when two _app files compete for the same shell registration", () => {
     const appDir = createTempDir("pracht-cli-doctor-pages-app-duplicate-");
     writePagesApp(appDir);

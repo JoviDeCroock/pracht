@@ -599,12 +599,6 @@ export interface CapabilityArgs {
 const CAPABILITY_TRANSPORTS = ["http", "webmcp", "mcp"];
 
 export function generateCapability(args: CapabilityArgs, project: ProjectConfig): GenerateResult {
-  if (project.mode === "pages") {
-    throw new Error(
-      "Pages router apps have no manifest to register capabilities in. `pracht generate capability` is only available for manifest apps.",
-    );
-  }
-
   const name = args.name;
   if (!CAPABILITY_NAME_RE.test(name)) {
     throw new Error(
@@ -647,7 +641,13 @@ export function generateCapability(args: CapabilityArgs, project: ProjectConfig)
   }
 
   const manifestPath = resolveProjectPath(project.root, project.appFile);
-  assertFileExists(manifestPath, `App manifest not found at ${project.appFile}.`);
+  // Pages apps discover `src/capabilities/` directly: the directory is the
+  // registry, so there is no manifest to update — but the module must name
+  // itself when the name is not simply its file stem.
+  const isPagesMode = project.mode === "pages";
+  if (!isPagesMode) {
+    assertFileExists(manifestPath, `App manifest not found at ${project.appFile}.`);
+  }
 
   const capabilityFile = resolveScopedFile(
     project.root,
@@ -660,9 +660,27 @@ export function generateCapability(args: CapabilityArgs, project: ProjectConfig)
       description: args.description ?? `TODO: describe what ${name} does.`,
       effect,
       expose,
+      name: isPagesMode ? name : undefined,
       title: args.title ?? titleFromPath(`/${name.replaceAll(".", " ")}`),
     }),
   );
+
+  const capabilitiesNote = hasCapabilitiesDependency(project.root)
+    ? {}
+    : {
+        notes: [
+          "This module imports `@pracht/capabilities`, which is not installed yet. Run: npm install @pracht/capabilities",
+        ],
+      };
+
+  if (isPagesMode) {
+    return {
+      created: [displayPath(project.root, capabilityFile)],
+      kind: "capability",
+      ...capabilitiesNote,
+      updated: [],
+    };
+  }
 
   const manifestSource = readFileSync(manifestPath, "utf-8");
   const updatedSource = upsertObjectEntry(

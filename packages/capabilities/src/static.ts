@@ -12,7 +12,12 @@
  * as data and returns `undefined` for anything else.
  */
 
-import { capabilityHttpPath, isValidCapabilityHttpPath } from "./protocol.ts";
+import {
+  capabilityFileStem,
+  capabilityHttpPath,
+  isValidCapabilityHttpPath,
+  isValidCapabilityName,
+} from "./protocol.ts";
 
 /**
  * The parts of a capability contract that decide what gets projected to the
@@ -220,6 +225,16 @@ function collectStaticModuleBindings(root: StaticAnalysisNode): {
  * not create runtime bindings and are ignored.
  */
 export function hasNamedMiddlewareExport(program: unknown): boolean {
+  return hasNamedValueExport(program, "middleware");
+}
+
+/**
+ * Whether a parsed module explicitly exports a runtime binding named `name`,
+ * under the rules `hasNamedMiddlewareExport()` documents: a value `export *`
+ * counts because its names cannot be known without loading the referenced
+ * module, and explicit type-only exports do not.
+ */
+export function hasNamedValueExport(program: unknown, name: string): boolean {
   const root = staticNode(program);
   if (!root || !Array.isArray(root.body)) return false;
   const bindings = collectStaticModuleBindings(root);
@@ -230,7 +245,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
 
     if (statement.type === "ExportAllDeclaration") {
       if (statement.exportKind === "type") continue;
-      if (!statement.exported || staticName(statement.exported) === "middleware") return true;
+      if (!statement.exported || staticName(statement.exported) === name) return true;
       continue;
     }
     if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
@@ -240,11 +255,11 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
       if (
         declaration?.type === "VariableDeclaration" &&
         Array.isArray(declaration.declarations) &&
-        declaration.declarations.some((item) => bindsStaticName(staticNode(item)?.id, "middleware"))
+        declaration.declarations.some((item) => bindsStaticName(staticNode(item)?.id, name))
       ) {
         return true;
       }
-      if (staticName(declaration.id) === "middleware") {
+      if (staticName(declaration.id) === name) {
         return true;
       }
     }
@@ -257,7 +272,7 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
         return (
           specifier?.type === "ExportSpecifier" &&
           specifier.exportKind !== "type" &&
-          staticName(specifier.exported) === "middleware" &&
+          staticName(specifier.exported) === name &&
           (statement.source ||
             localName === null ||
             !bindings.typeOnly.has(localName) ||
@@ -273,6 +288,26 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
 }
 
 /**
+ * Whether a parsed module has an unnamed value `export * from "..."`.
+ *
+ * Callers that need the exact export set — rather than whether one particular
+ * name is present — use this to refuse instead of guessing: the star's names
+ * cannot be known without loading the referenced module.
+ */
+export function hasValueStarExport(program: unknown): boolean {
+  const root = staticNode(program);
+  if (!root || !Array.isArray(root.body)) return false;
+  return root.body.some((value) => {
+    const statement = staticNode(value);
+    return (
+      statement?.type === "ExportAllDeclaration" &&
+      statement.exportKind !== "type" &&
+      !statement.exported
+    );
+  });
+}
+
+/**
  * Derive a capability's projection from its source, without executing it.
  *
  * This is the single implementation behind three consumers that must agree:
@@ -285,6 +320,114 @@ export function hasNamedMiddlewareExport(program: unknown): boolean {
  * each caller can phrase them its own way (the plugin fails the build, the CLI
  * fails a check).
  */
+/**
+ * Resolve the name a pages-router capability module registers under.
+ *
+ * The pages router has no `capabilities` registry to key modules by, so the
+ * module either declares `defineCapability({ name })` or takes the file stem.
+ * A declared name must still map back to its file (`notes.search` ↔
+ * `notes-search.ts`) so the file a name resolves to is readable from the name
+ * alone — the same mapping `pracht generate capability` writes.
+ *
+ * Returns the resolved name, or an `error` string for the caller to report as
+ * a build/doctor/verify failure. Never guesses: a `name` the analyzer cannot
+ * read statically falls back to the file stem rather than to nothing.
+ */
+export function resolvePagesCapabilityName(
+  fileStem: string,
+  source: string,
+): { ok: true; name: string } | { ok: false; error: string } {
+  const declared = readDeclaredCapabilityName(source);
+  if (declared === null) {
+    if (!isValidCapabilityName(fileStem)) {
+      return {
+        ok: false,
+        error:
+          `file name ${JSON.stringify(fileStem)} is not a usable capability name. Rename the ` +
+          "file to dot-separated segments of letters, numbers, hyphens, and underscores written " +
+          'with hyphens (for example `notes-search.ts`), or declare `name: "notes.search"` in ' +
+          "its `defineCapability({ ... })` call.",
+      };
+    }
+    return { ok: true, name: fileStem };
+  }
+
+  if (!isValidCapabilityName(declared)) {
+    return {
+      ok: false,
+      error:
+        `declares name ${JSON.stringify(declared)}, which is not a valid capability name. Use ` +
+        'dot-separated segments of letters, numbers, hyphens, and underscores (for example "notes.search").',
+    };
+  }
+
+  const expectedStem = capabilityFileStem(declared);
+  if (expectedStem !== fileStem) {
+    return {
+      ok: false,
+      error:
+        `declares name ${JSON.stringify(declared)} but lives in ${JSON.stringify(`${fileStem}.*`)}. ` +
+        `A pages-router capability is discovered by file, so its name must map back to it: rename ` +
+        `the file to ${JSON.stringify(`${expectedStem}.*`)}, or change the declared name to ` +
+        `${JSON.stringify(fileStem.replaceAll("-", "."))}.`,
+    };
+  }
+
+  return { ok: true, name: declared };
+}
+
+/**
+ * The source text of a module's top-level `export const <name> = <expr>`
+ * initializer, or `null` when there is no single unambiguous one.
+ *
+ * Returns the expression *text*, not a value: callers hand it to the same
+ * object-body scanners they use on a `defineApp({ ... })` literal, so a config
+ * file that lives outside the manifest is analyzed by exactly the same rules.
+ */
+export function readNamedExportInitializer(source: string, name: string): string | null {
+  const searchable = maskCommentsAndStrings(source);
+  const declarations = [
+    ...searchable.matchAll(new RegExp(`export\\s+const\\s+${name}\\b`, "g")),
+  ].filter((match) => match.index != null && braceDepthAt(searchable, match.index) === 0);
+  if (declarations.length !== 1) return null;
+
+  // Skip an optional `: Type` annotation, then require the `=`.
+  const afterName = (declarations[0].index ?? 0) + declarations[0][0].length;
+  const assignment = /^\s*(?::[^=]*)?=/.exec(searchable.slice(afterName));
+  if (!assignment) return null;
+
+  const start = skipInsignificant(source, afterName + assignment[0].length);
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = searchable[index];
+    if (char === "{" || char === "(" || char === "[") depth += 1;
+    else if (char === "}" || char === ")" || char === "]") depth -= 1;
+    else if (depth === 0 && (char === ";" || char === "\n")) {
+      const text = source.slice(start, index).trim();
+      // A newline at depth 0 only ends the declaration once something was read
+      // (`export const agents =\n  { … }` continues onto the next line).
+      if (text !== "") return text;
+    }
+    if (depth < 0) return null;
+  }
+
+  const trailing = source.slice(start).trim();
+  return trailing === "" ? null : trailing;
+}
+
+/**
+ * The string literal passed as `defineCapability({ name })`, or `null` when
+ * the property is absent or not a statically readable literal.
+ */
+export function readDeclaredCapabilityName(source: string): string | null {
+  const args = extractDefineCapabilityArgs(source);
+  if (!args) return null;
+  const value = scanTopLevelProperties(args).get("name");
+  if (value === undefined) return null;
+  const literal = evaluateLiteral(value);
+  return typeof literal === "string" ? literal : null;
+}
+
 export function extractCapabilityProjection(
   name: string,
   source: string,

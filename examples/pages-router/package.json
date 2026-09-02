@@ -7,6 +7,7 @@
     "@pracht/adapter-cloudflare": "workspace:*",
     "@pracht/adapter-node": "workspace:*",
     "@pracht/adapter-vercel": "workspace:*",
+    "@pracht/capabilities": "workspace:*",
     "@pracht/core": "workspace:*",
     "@pracht/openapi": "workspace:*"
   },

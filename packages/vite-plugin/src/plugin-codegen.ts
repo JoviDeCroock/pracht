@@ -953,9 +953,12 @@ function generatePagesAppInlineSource(
   root = process.cwd(),
 ): string {
   const absPagesDir = resolve(root, options.pagesDir.slice(1));
+  const absCapabilitiesDir = resolve(root, options.capabilitiesDir.slice(1));
   const cacheKey = JSON.stringify({
     additionalExtensions: options.additionalExtensions,
+    absCapabilitiesDir,
     absPagesDir,
+    capabilitiesDirPrefix: options.capabilitiesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,
   });
@@ -965,6 +968,8 @@ function generatePagesAppInlineSource(
   const pages = scanPagesDirectory(absPagesDir, options.additionalExtensions);
   const source = generatePagesManifestSource(pages, {
     additionalExtensions: options.additionalExtensions,
+    capabilitiesDir: absCapabilitiesDir,
+    capabilitiesDirPrefix: options.capabilitiesDir,
     pagesDir: absPagesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,

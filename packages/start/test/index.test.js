@@ -43,10 +43,10 @@ describe("create-pracht", () => {
       { encoding: "utf-8", input: "2\n" },
     );
 
-    expect(prompt).toContain("plus one root");
-    expect(prompt).toContain("_middleware.ts on server adapters");
-    expect(prompt).toContain("no per-route middleware");
+    expect(prompt).toContain("_middleware.ts, src/capabilities/, and _app.config.ts");
+    expect(prompt).toContain("no per-route middleware or shell overrides");
     expect(prompt).not.toContain("pages and API routes only");
+    expect(prompt).not.toContain("MCP, or agent trust");
   });
 
   it("detects the package manager from the npm user agent", () => {
@@ -541,7 +541,9 @@ describe("create-pracht", () => {
     expect(existsSync(join(targetDir, "src/routes.ts"))).toBe(false);
     expect(readme).toContain("src/pages/");
     expect(readme).toContain("The pages router has no manifest");
-    expect(readme).toContain("pure static exports cannot use request middleware");
+    expect(readme).toContain("every module in `src/capabilities/`");
+    expect(readme).toContain("`src/pages/_app.config.ts`");
+    expect(readme).toContain("Pure static exports have no request runtime");
     expect(readme).toContain("export const REVALIDATE = 3600");
 
     // AGENTS.md is only seeded with agent tooling, so the README — which every
@@ -564,7 +566,8 @@ describe("create-pracht", () => {
     expect(agents).toContain("pages routing");
     expect(agents).toContain("src/pages/");
     expect(agents).toContain("The pages router has no manifest");
-    expect(agents).toContain("pure static exports cannot use request middleware");
+    expect(agents).toContain("every module in `src/capabilities/`");
+    expect(agents).toContain("`src/pages/_app.config.ts`");
     expect(agents).toContain("export const REVALIDATE = 3600");
     expect(agents).toContain("pracht generate middleware --name _middleware");
   });

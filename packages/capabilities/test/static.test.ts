@@ -4,9 +4,13 @@ import { parseAst } from "vite";
 import {
   evaluateLiteral,
   hasNamedMiddlewareExport,
+  hasNamedValueExport,
+  hasValueStarExport,
   extractCapabilityProjection,
   extractCapabilityRegistrations,
   extractDefineCapabilityArgs,
+  readNamedExportInitializer,
+  resolvePagesCapabilityName,
   scanTopLevelProperties,
 } from "../src/static.ts";
 
@@ -37,6 +41,102 @@ describe("middleware export syntax", () => {
     ["export default createMiddleware();", false],
   ])("classifies %j as %s", (source, expected) => {
     expect(hasNamedMiddlewareExport(parseAst(source, { lang: "ts" }))).toBe(expected);
+  });
+});
+
+describe("pages capability name resolution", () => {
+  it("takes the declared name when it maps back to the file", () => {
+    expect(
+      resolvePagesCapabilityName(
+        "notes-search",
+        'export default defineCapability({ name: "notes.search" });',
+      ),
+    ).toEqual({ ok: true, name: "notes.search" });
+  });
+
+  it("falls back to the file stem when no name is declared", () => {
+    expect(
+      resolvePagesCapabilityName("ping", 'export default defineCapability({ effect: "read" });'),
+    ).toEqual({ ok: true, name: "ping" });
+  });
+
+  it("rejects a declared name that does not map back to the file", () => {
+    const resolved = resolvePagesCapabilityName(
+      "search",
+      'export default defineCapability({ name: "notes.search" });',
+    );
+    expect(resolved.ok).toBe(false);
+    expect(resolved.ok === false && resolved.error).toContain('but lives in "search.*"');
+  });
+
+  it("rejects a declared name that is not a capability name", () => {
+    const resolved = resolvePagesCapabilityName(
+      "notes",
+      'export default defineCapability({ name: "notes search" });',
+    );
+    expect(resolved.ok).toBe(false);
+  });
+
+  it("rejects a file stem that is not a usable capability name", () => {
+    const resolved = resolvePagesCapabilityName(
+      "notes search",
+      'export default defineCapability({ effect: "read" });',
+    );
+    expect(resolved.ok).toBe(false);
+    expect(resolved.ok === false && resolved.error).toContain("is not a usable capability name");
+  });
+
+  it("ignores a name it cannot read statically", () => {
+    expect(
+      resolvePagesCapabilityName(
+        "ping",
+        'export default defineCapability({ name: NAME, effect: "read" });',
+      ),
+    ).toEqual({ ok: true, name: "ping" });
+  });
+});
+
+describe("named export analysis", () => {
+  it("finds a value export by name and ignores type-only ones", () => {
+    const program = (source: string) => parseAst(source, { lang: "ts" });
+    expect(hasNamedValueExport(program("export const agents = {};"), "agents")).toBe(true);
+    expect(hasNamedValueExport(program("export type agents = never;"), "agents")).toBe(false);
+    expect(hasNamedValueExport(program("export const constraints = [];"), "agents")).toBe(false);
+  });
+
+  it("detects an unnamed value star export", () => {
+    const program = (source: string) => parseAst(source, { lang: "ts" });
+    expect(hasValueStarExport(program('export * from "./config.ts";'))).toBe(true);
+    expect(hasValueStarExport(program('export type * from "./config.ts";'))).toBe(false);
+    expect(hasValueStarExport(program('export * as agents from "./config.ts";'))).toBe(false);
+  });
+});
+
+describe("named export initializers", () => {
+  it("reads a single top-level initializer verbatim", () => {
+    expect(
+      readNamedExportInitializer(
+        'export const agents = { mcp: { serverInfo: { name: "x" } } };\nexport const other = 1;\n',
+        "agents",
+      ),
+    ).toBe('{ mcp: { serverInfo: { name: "x" } } }');
+  });
+
+  it("skips a type annotation", () => {
+    expect(
+      readNamedExportInitializer(
+        "export const agents: PrachtAgentsConfig = { mcp: {} };",
+        "agents",
+      ),
+    ).toBe("{ mcp: {} }");
+  });
+
+  it("refuses ambiguous or absent declarations", () => {
+    expect(readNamedExportInitializer("export const other = 1;", "agents")).toBe(null);
+    expect(
+      readNamedExportInitializer("export const agents = 1;\nexport const agents = 2;", "agents"),
+    ).toBe(null);
+    expect(readNamedExportInitializer('export { agents } from "./x.ts";', "agents")).toBe(null);
   });
 });
 

@@ -488,11 +488,11 @@ async function promptForRouter(readline) {
   // The two routers are not equivalent, and the difference is invisible until
   // you reach for a manifest-only feature. Say so at the point of choosing.
   console.log("Router:");
-  console.log("  1. Manifest (explicit routes.ts) — supports middleware, capabilities,");
-  console.log("     MCP, Web Bot Auth, and constraints");
-  console.log("  2. Pages (file-system routing) — pages and API routes, plus one root");
-  console.log("     _middleware.ts on server adapters; no per-route middleware, capabilities,");
-  console.log("     MCP, or agent trust");
+  console.log("  1. Manifest (explicit routes.ts) — per-route middleware and shells,");
+  console.log("     path-prefix groups, explicit route ids");
+  console.log("  2. Pages (file-system routing) — routes, `_app.tsx` shells, one root");
+  console.log("     _middleware.ts, src/capabilities/, and _app.config.ts for agents");
+  console.log("     and constraints; no per-route middleware or shell overrides");
 
   while (true) {
     const answer = await readline.question("Router (1): ");
@@ -1427,7 +1427,7 @@ function createDockerignore() {
 }
 
 const PAGES_ROUTER_LIMITATIONS =
-  "**The pages router has no manifest**, so these manifest-only features are unavailable: named shells (there is one, `_app.tsx`), named per-route middleware (serverful adapters provide one root `_middleware.ts`, applied to every page route; pure static exports cannot use request middleware), capabilities (and therefore capability HTTP endpoints, WebMCP, remote MCP, and `pracht eval`), `defineApp({ constraints })`, and `agents`. If the app needs per-route auth policy or a runtime agent surface, eject with `generateRoutesFile` from `@pracht/vite-plugin/pages-router`, remove `pagesDir`, and customize the generated manifest.";
+  "**The pages router has no manifest.** Everything a manifest registers by name is registered by file instead: an `_app.tsx` per directory (the nearest one wraps that subtree), one root `_middleware.ts` applied to every page route, every module in `src/capabilities/`, and `agents` / `constraints` / `notFound` as named exports of `src/pages/_app.config.ts`. Capability HTTP endpoints, WebMCP, remote MCP, typed clients, and `pracht eval` all work. What still needs a manifest: per-route middleware assignment, per-route shell overrides, `group({ pathPrefix })`, explicit route ids, and webhook ISG policies. Pure static exports have no request runtime, so `_middleware.ts` and capability endpoints do not apply there. To move over, eject with `generateRoutesFile` from `@pracht/vite-plugin/pages-router`, remove `pagesDir`, and customize the generated manifest.";
 
 const PAGES_ROUTER_ISG_POLICY =
   'Pages-router ISG supports time revalidation only: pair `export const RENDER_MODE = "isg"` with a positive integer such as `export const REVALIDATE = 3600`. Missing or misplaced policies fail `pracht build`, `doctor`, and `verify`. Webhook revalidation and combined policies require an explicit manifest.';
@@ -1510,7 +1510,8 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("This app uses **pages routing** (file-system based).");
     lines.push("");
     lines.push("- `src/pages/` — file-system routes (each file becomes a route)");
-    lines.push("- `src/pages/_app.tsx` — app shell (layout and head)");
+    lines.push("- `src/pages/_app.tsx` — app shell (layout and head); an `_app.tsx` in a");
+    lines.push("  subdirectory replaces it for that subtree");
     lines.push(
       "- `src/pages/404.tsx` — not-found page, wired automatically (never a URL of its own)",
     );
@@ -1852,11 +1853,11 @@ function printNextSteps({
   if (router === "pages") {
     console.log("");
     console.log(
-      "Note: the pages router has no manifest, so per-route middleware (serverful adapters\n" +
-        "provide only a root `_middleware.ts` applied to every page route; pure static\n" +
-        "exports cannot use request middleware), capabilities, constraints, and\n" +
-        "the agent surface (capability endpoints, WebMCP, remote MCP, `pracht eval`) are not\n" +
-        "available. Scaffold with --router=manifest if you need them.",
+      "Note: the pages router registers by file — `_app.tsx` per directory, one root\n" +
+        "`_middleware.ts` for every page route, `src/capabilities/`, and\n" +
+        "`src/pages/_app.config.ts` for agents and constraints. Per-route middleware\n" +
+        "assignment, per-route shell overrides, path-prefix groups, and webhook ISG\n" +
+        "still need a manifest; scaffold with --router=manifest, or eject later.",
     );
   }
   console.log("");

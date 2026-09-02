@@ -10,6 +10,7 @@ in `src/api/`.
 src/
   pages/
     _app.tsx          → Shared shell (wraps all pages)
+    _app.config.ts    → agents / constraints for defineApp()
     _middleware.ts    → Middleware for every page route
     _components/
       page-note.tsx   → Imported helper (not a route)
@@ -19,6 +20,8 @@ src/
     blog/
       _app.tsx        → Shell for /blog/** (replaces the root shell)
       [slug].tsx      → /blog/:slug
+  capabilities/
+    posts-search.ts   → capability "posts.search" (HTTP + remote MCP)
   api/
     health.ts         → GET /api/health
     me.ts             → GET /api/me
@@ -67,8 +70,19 @@ export const REVALIDATE = 3600;
 ```
 
 Webhook or combined revalidation policies require ejecting to an explicit
-manifest. Pages mode also has no registration seam for per-route shell
-overrides, nested or per-route middleware (only the root `_middleware.ts`),
-capabilities/WebMCP/remote MCP, constraints, or runtime agents.
-`REVALIDATE` belongs on each ISG page, never `_app.tsx` or `404.tsx`.
-Declarations shown inside Markdown/MDX fenced examples are ignored.
+manifest, as do per-route shell overrides, per-route middleware assignment,
+`group({ pathPrefix })`, and explicit route ids. `REVALIDATE` belongs on each
+ISG page, never `_app.tsx` or `404.tsx`. Declarations shown inside Markdown/MDX
+fenced examples are ignored.
+
+## Capabilities and agent config
+
+Every module in `src/capabilities/` is registered as a capability — here
+`posts.search`, which declares its own name and is exposed over HTTP and remote
+MCP. `src/pages/_app.config.ts` supplies `agents` (this app enables `agents.mcp`,
+so `/mcp` serves the tool). Try them:
+
+```sh
+curl -X POST http://localhost:3000/api/capabilities/posts/search \
+  -H 'content-type: application/json' -d '{"query":"pages"}'
+```

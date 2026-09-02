@@ -32,9 +32,56 @@ import {
   extractCapabilityRegistrations,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
-import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
+import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
+import {
+  resolveOptions,
+  type PrachtPluginOptions,
+  type ResolvedPrachtPluginOptions,
+} from "./plugin-options.ts";
 
 export { extractCapabilityRegistrations };
+
+/**
+ * The app manifest source these analyzers read.
+ *
+ * In pages mode there is no manifest file, so the generated one is
+ * synthesized here — the exact source the virtual module serves. Analyzing the
+ * generated text rather than re-deriving the registry from the file system is
+ * what keeps pages mode and manifest mode from ever disagreeing about which
+ * capabilities exist and how they are exposed.
+ *
+ * Throws when the manifest cannot be read or the pages tree is invalid; each
+ * caller decides whether that means "assume the worst" or "report nothing".
+ */
+function readAppManifestSource(resolved: ResolvedPrachtPluginOptions, root: string): string {
+  if (!resolved.pagesDir) {
+    return readFileSync(resolve(root, resolved.appFile.replace(/^\//, "")), "utf-8");
+  }
+
+  const pagesDir = resolve(root, resolved.pagesDir.replace(/^\//, ""));
+  const source = generatePagesManifestSource(
+    scanPagesDirectory(pagesDir, [...resolved.additionalExtensions]),
+    {
+      additionalExtensions: resolved.additionalExtensions,
+      capabilitiesDir: resolve(root, resolved.capabilitiesDir.replace(/^\//, "")),
+      capabilitiesDirPrefix: resolved.capabilitiesDir,
+      pagesDir,
+      pagesDefaultRender: resolved.pagesDefaultRender,
+      pagesDirPrefix: resolved.pagesDir,
+    },
+  );
+  // `extractDefineAppObjectBody()` looks for an exported `app`, which the
+  // virtual module deliberately does not have (it re-exports through the
+  // registry instead).
+  return source.replace("const app = defineApp(", "export const app = defineApp(");
+}
+
+/** The directory manifest-relative module refs resolve against. */
+function appManifestDir(resolved: ResolvedPrachtPluginOptions, root: string): string {
+  return resolved.pagesDir
+    ? resolve(root, resolved.pagesDir.replace(/^\//, ""), "..")
+    : dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
+}
 
 export interface ExtractedCapability {
   name: string;
@@ -67,13 +114,10 @@ export function hasAgentSurface(
   root: string = process.cwd(),
 ): boolean {
   const resolved = resolveOptions(options);
-  // The pages router has no manifest: nowhere to register capabilities or agents.
-  if (resolved.pagesDir) return false;
 
-  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
   let manifestSource: string;
   try {
-    manifestSource = readFileSync(appFileAbs, "utf-8");
+    manifestSource = readAppManifestSource(resolved, root);
   } catch {
     return true;
   }
@@ -167,12 +211,10 @@ export function extractCapabilities(
   root: string = process.cwd(),
 ): ExtractedCapability[] {
   const resolved = resolveOptions(options);
-  if (resolved.pagesDir) return [];
 
-  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
   let manifestSource: string;
   try {
-    manifestSource = readFileSync(appFileAbs, "utf-8");
+    manifestSource = readAppManifestSource(resolved, root);
   } catch {
     return [];
   }
@@ -180,7 +222,7 @@ export function extractCapabilities(
   const registrations = extractCapabilityRegistrations(manifestSource);
   if (registrations.length === 0) return [];
 
-  const appDir = dirname(appFileAbs);
+  const appDir = appManifestDir(resolved, root);
   return registrations.map(({ name, file }) => {
     // Root-relative refs (`/src/capabilities/x.ts`) resolve against the Vite
     // root, matching the runtime registry loader; everything else is relative
@@ -218,17 +260,15 @@ export function resolveCapabilityModulePaths(
   root: string = process.cwd(),
 ): string[] {
   const resolved = resolveOptions(options);
-  if (resolved.pagesDir) return [];
 
-  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
   let manifestSource: string;
   try {
-    manifestSource = readFileSync(appFileAbs, "utf-8");
+    manifestSource = readAppManifestSource(resolved, root);
   } catch {
     return [];
   }
 
-  const appDir = dirname(appFileAbs);
+  const appDir = appManifestDir(resolved, root);
   return extractCapabilityRegistrations(manifestSource).map(({ file }) =>
     file.startsWith("/") ? resolve(root, file.replace(/^\//, "")) : resolve(appDir, file),
   );

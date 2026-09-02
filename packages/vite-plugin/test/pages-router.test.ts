@@ -474,6 +474,158 @@ describe("scanPagesDirectory", () => {
     expect(source).not.toContain("shells: {");
   });
 
+  it("registers src/capabilities modules and _app.config exports", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    const capabilitiesDir = join(root, "src", "capabilities");
+    mkdirSync(pagesDir, { recursive: true });
+    mkdirSync(capabilitiesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_app.config.ts"),
+      "export const agents = { mcp: {} };\nexport const constraints = [];\n",
+    );
+    writeFileSync(
+      join(capabilitiesDir, "notes-search.ts"),
+      'export default defineCapability({ name: "notes.search", effect: "read" });\n',
+    );
+    writeFileSync(
+      join(capabilitiesDir, "ping.ts"),
+      'export default defineCapability({ effect: "read" });\n',
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      capabilitiesDir,
+      capabilitiesDirPrefix: "/src/capabilities",
+      pagesDir,
+      pagesDirPrefix: "/src/pages",
+    });
+
+    expect(source).toContain('import { agents, constraints } from "/src/pages/_app.config.ts";');
+    expect(source).toContain("  agents,");
+    expect(source).toContain("  constraints,");
+    // A declared name wins; a module without one takes its file stem.
+    expect(source).toContain('"notes.search": "/src/capabilities/notes-search.ts"');
+    expect(source).toContain('"ping": "/src/capabilities/ping.ts"');
+  });
+
+  it("does not import an _app.config export the manifest does not use", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "404.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_app.config.ts"),
+      "export const notFound = { component: () => null };\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      capabilitiesDir: null,
+      pagesDir,
+      pagesDirPrefix: "/src/pages",
+    });
+
+    // `pages/404.tsx` is the more specific declaration and wins, so the
+    // exported `notFound` is never referenced — importing it would not compile.
+    expect(source).not.toContain("_app.config");
+    expect(source).toContain('notFound: { component: "/src/pages/404.tsx"');
+  });
+
+  it("uses the _app.config notFound export when there is no 404 page", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_app.config.ts"),
+      "export const notFound = { component: () => null };\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      capabilitiesDir: null,
+      pagesDir,
+      pagesDirPrefix: "/src/pages",
+    });
+
+    expect(source).toContain('import { notFound } from "/src/pages/_app.config.ts";');
+    expect(source).toContain("  notFound,");
+  });
+
+  it("rejects an _app.config that exports nothing usable", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.config.ts"), "export default { agents: {} };\n");
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir: null,
+        pagesDir,
+      }),
+    ).toThrow(/exports none of `agents`, `constraints`, `notFound`/s);
+  });
+
+  it("rejects a nested _app.config instead of silently ignoring it", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "blog", "_app.config.ts"), "export const agents = { mcp: {} };\n");
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir: null,
+        pagesDir,
+      }),
+    ).toThrow(/Nested `_app.config` is not supported.*blog\/_app\.config\.ts/s);
+  });
+
+  it("rejects a capability whose declared name does not map back to its file", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    const capabilitiesDir = join(root, "src", "capabilities");
+    mkdirSync(pagesDir, { recursive: true });
+    mkdirSync(capabilitiesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(capabilitiesDir, "search.ts"),
+      'export default defineCapability({ name: "notes.search", effect: "read" });\n',
+    );
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir,
+        pagesDir,
+      }),
+    ).toThrow(/declares name "notes.search" but lives in "search\.\*"/s);
+  });
+
+  it("rejects two capability modules registering the same name", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    const capabilitiesDir = join(root, "src", "capabilities");
+    mkdirSync(pagesDir, { recursive: true });
+    mkdirSync(join(capabilitiesDir, "nested"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(capabilitiesDir, "ping.ts"),
+      'export default defineCapability({ effect: "read" });\n',
+    );
+    writeFileSync(
+      join(capabilitiesDir, "nested", "ping.ts"),
+      'export default defineCapability({ effect: "read" });\n',
+    );
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir,
+        pagesDir,
+      }),
+    ).toThrow(/Multiple capability modules register the name "ping"/s);
+  });
+
   it("rejects two _app files competing for the same registration", () => {
     const pagesDir = makeTempPagesDir();
     mkdirSync(join(pagesDir, "blog"), { recursive: true });

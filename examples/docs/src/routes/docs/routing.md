@@ -339,21 +339,27 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 
 For projects that prefer file-system routing — especially when migrating from Next.js — pracht offers an optional pages-based routing mode. Instead of writing a route manifest, set `pagesDir` and pracht auto-discovers routes from the file system.
 
-### What the pages router does not have
+### What the pages router supports and how
 
-Auto-discovery replaces the manifest — and several features are registered *through* that manifest, so they are unavailable in `pagesDir` mode. Read this before choosing a router: `create-pracht` offers both, and they are not equivalent.
+Auto-discovery replaces the manifest, so everything a manifest registers by name is registered by file instead. The two routers reach the same runtime: the plugin generates a `defineApp()` manifest from the file system, and every feature below runs through it unchanged.
 
 | Feature | Pages router |
 | --- | --- |
-| Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | ✅ via `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports |
-| Shells | one `_app.tsx`; no named shells or per-route assignment |
-| [Route middleware](/docs/middleware) | on serverful adapters, one root `_middleware.ts`, applied to every page route; no nested or per-route middleware — pure static exports have no request runtime, and API handlers use higher-order functions |
-| [Capabilities](/docs/capabilities) | ❌ no capability HTTP endpoints, [WebMCP](/docs/agents), [remote MCP](/docs/remote-mcp), or `pracht eval` |
-| [`defineApp({ constraints })`](/docs/agent-workflow), [`agents`](/docs/agent-trust) (Web Bot Auth) | ❌ |
+| Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports on the page file |
+| Shells | `_app.tsx` per directory — [`pages`, `pages:blog`, …](#directory-scoped-shells). The nearest one wins and replaces its parent |
+| [Route middleware](/docs/middleware) | one root [`_middleware.ts`](#middleware-via-_middlewarets) on serverful adapters, applied to every page route |
+| [Capabilities](/docs/capabilities) | every module in [`src/capabilities/`](#capabilities-via-srccapabilities) — HTTP endpoints, [WebMCP page tools](/docs/agents), [remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), `<Form capability>`, typed clients, and `pracht eval` all work |
+| [`agents`](/docs/agent-trust) (Web Bot Auth, confirmation, MCP) and [`constraints`](/docs/coding-agents#constraints) | named exports from [`src/pages/_app.config.ts`](#app-config-via-_appconfigts) |
 
-In short: the pages router covers pages, but the runtime agent surface lives on `defineApp()`. If the app needs any of it, start with the manifest router — or [eject to one](#ejecting-to-explicit-manifest) later, which is a one-time codegen.
+What still requires an explicit manifest — the things whose whole point is that they differ per route:
 
-The authoring MCP server and generated skills still work in pages mode; they do not add a runtime agent surface.
+- **Per-route middleware assignment.** `_middleware.ts` runs on every page route. Gating only `/app/**` means [ejecting](#ejecting-to-explicit-manifest) and using `group({ middleware: [...] })`, or branching on `stripBase(url.pathname)` inside the one file.
+- **Per-route shell overrides.** A shell is chosen by directory. One page opting out of its directory's shell needs a manifest.
+- **Named middleware beyond the one file**, and `capabilities` registered from outside `src/capabilities/`.
+- **Path prefixes and route ids** — `group({ pathPrefix })` and explicit `route(..., { id })` have no file-system spelling.
+- **Webhook and combined ISG policies.** Pages ISG is time-based only.
+
+Ejecting is a one-time codegen, so starting with pages routing does not close any of these off.
 
 ### Setup
 
@@ -380,6 +386,7 @@ When `pagesDir` is set, the `appFile` option is ignored. The plugin scans the pa
 | `pages/_app.tsx`        | _(shell, not a route)_                      |
 | `pages/blog/_app.tsx`   | _(shell for `/blog/**`, not a route)_       |
 | `pages/_middleware.ts`  | _(middleware, not a route)_                 |
+| `pages/_app.config.ts`  | _(app config, not a route)_                 |
 | `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
 | `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
 
@@ -488,6 +495,65 @@ Scope and limits:
 
 Like every other `_`-prefixed file, `_middleware.ts` never becomes a route.
 
+### Capabilities via `src/capabilities/`
+
+Every module in `src/capabilities/` is registered as a [capability](/docs/capabilities). The directory *is* the registry — there is no second place to repeat the name — so a module is reachable exactly when it is in that directory:
+
+```ts [src/capabilities/notes-search.ts]
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
+
+export default defineCapability({
+  name: "notes.search",
+  title: "Search notes",
+  description: "Find notes whose title or body matches the query.",
+  effect: "read",
+  expose: { http: true, mcp: true },
+  input: {
+    type: "object",
+    properties: { query: { type: "string", minLength: 1 } },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  output: { type: "object", properties: { notes: { type: "array", items: { type: "object" } } } },
+  async run({ input }: CapabilityRunArgs<{ query: string }>) {
+    return { notes: await searchNotes(input.query) };
+  },
+});
+```
+
+`pracht generate capability --name notes.search --expose http` scaffolds this file, including the `name`.
+
+**Naming.** The name comes from `defineCapability({ name })`. Without one it is the file stem, so `src/capabilities/ping.ts` registers `ping`. A declared name must map back to its own file with dots written as hyphens — `notes.search` ↔ `notes-search.ts` — so the file a name resolves to is readable from the name alone. A mismatch, an unusable file name, and two modules claiming the same name are all build, `doctor`, and `verify` errors.
+
+Everything downstream is the manifest router's, unchanged: the HTTP endpoint at `/api/capabilities/notes/search`, WebMCP page tools, the remote MCP projection, `pracht eval` scenarios, `<Form capability>`, and the typed client `pracht typegen` generates.
+
+Capability modules are server-only. They are not routes, they never enter a client bundle, and `pracht verify` checks the same contract rules a manifest app gets — an exposed capability needs a full contract, and a `destructive` one still needs the confirmation secret.
+
+### App config via `_app.config.ts`
+
+`agents` and `constraints` are app-wide, so they live in one root-level `src/pages/_app.config.ts` rather than being derived from the file system:
+
+```ts [src/pages/_app.config.ts]
+import type { PrachtAgentsConfig } from "@pracht/core";
+
+export const agents: PrachtAgentsConfig = {
+  webBotAuth: { policy: "observe", keys: [{ x: "…", agent: "acme-agent.example" }] },
+  confirmation: { ttlSeconds: 120 },
+  mcp: {
+    serverInfo: { name: "my-app", version: "1.0.0" },
+    instructions: "Search and create notes.",
+  },
+};
+```
+
+The generated manifest passes these to `defineApp()` verbatim, which is what makes the pages router's [agent trust](/docs/agent-trust) surface identical to a manifest app's.
+
+Three named exports are read — `agents`, `constraints`, and `notFound` — and only those. Routes, shells, middleware, and capabilities stay file-discovered, so the config file cannot quietly redefine them. `notFound` is a fallback: when `pages/404.tsx` exists it wins, because it is the more specific declaration.
+
+The file fails closed on every shape that would leave an app looking configured while nothing is registered. A nested copy, an unsupported extension, duplicates, a default export instead of named ones, a module exporting none of the three keys, and `export * from …` (whose names cannot be read without loading the module) are all build, `doctor`, and `verify` errors. Delete the file rather than leaving an empty one.
+
+It is not a route, never enters a client bundle, and `pracht inspect agents` reports the resulting surface exactly as it does for a manifest app.
+
 ### Per-Route Render Mode
 
 Page files can export a `RENDER_MODE` constant to override the rendering strategy:
@@ -535,8 +601,12 @@ import { generateRoutesFile } from "@pracht/vite-plugin/pages-router";
 generateRoutesFile("src/pages", "src/routes.ts", {
   pagesDir: "src/pages",
   pagesDefaultRender: "ssr",
+  // Defaults to `<pagesDir>/../capabilities`; pass `null` to register none.
+  capabilitiesDir: "src/capabilities",
 });
 ```
+
+The generated manifest carries everything auto-discovery registered: every `_app` as a named shell, `_middleware` as the `pages` middleware, every `src/capabilities/` module under its resolved name, and the `agents` / `constraints` / `notFound` exports of `_app.config.ts` as ordinary imports. Nothing has to be re-declared by hand.
 
 Then remove `pagesDir` from your pracht config and point the discovery directories at the files the ejected manifest references — the runtime resolves manifest refs through those directory registries, so a manifest pointing outside them fails closed at request time:
 

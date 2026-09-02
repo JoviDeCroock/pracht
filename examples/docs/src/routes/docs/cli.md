@@ -133,6 +133,7 @@ pracht generate api --path /health --methods GET,POST
 
 - Manifest apps update `src/routes.ts` automatically for routes, shells, and middleware.
 - Pages-router apps scaffold route files into `src/pages/`; with a serverful adapter, `generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts` (the only middleware seam in pages mode). Pure static exports cannot use request middleware.
+- `generate capability` works in both modes. Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the generated module declares its own `name` and no manifest is written. `generate shell` stays manifest-only — pages apps add an `_app.tsx` to the directory they want it to wrap.
 - Add `--json` when another tool or agent needs machine-readable output.
 
 `generate route` also emits a Playwright smoke test at `e2e/<route-id>.spec.ts` whenever the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory). The test visits the route with example values for dynamic params (`/blog/:slug` → `/blog/example-slug`), asserts the response status is below 400, and checks the `h1` text. `--test` forces the test, `--no-test` skips it. Generated tests import `@playwright/test`; if it is not installed, the generator prints the required follow-up (`pnpm add -D @playwright/test`).

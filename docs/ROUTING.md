@@ -830,20 +830,34 @@ auto-discovers routes from the file system.
 
 ### What the pages router does not have
 
-Auto-discovery replaces the manifest, and several features are registered
-*through* that manifest — so they are unavailable in `pagesDir` mode:
+Auto-discovery replaces the manifest: everything a manifest registers by name
+is registered by file instead, and the plugin generates a `defineApp()`
+manifest from the file system. Both routers therefore reach the same runtime.
 
 | Feature | Pages router |
 | --- | --- |
-| Render + hydration modes, dynamic and catch-all routes, `getStaticPaths`, API routes | ✅ (`RENDER_MODE` / `HYDRATION` exports) |
-| Shells | `_app.tsx` per directory (`pages`, `pages:blog`, …); the nearest one replaces its parent — no per-route assignment |
-| Middleware | on serverful adapters, one `_middleware.ts` at the pages root, applied to every page route — no nested or per-route middleware; pure static exports have no request runtime |
-| [Capabilities](CAPABILITIES.md) | ❌ — and therefore no capability HTTP endpoints, no WebMCP, no remote MCP, no `pracht eval` |
-| `defineApp({ constraints })`, `agents` | ❌ |
+| Render + hydration modes, dynamic and catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports |
+| Shells | `_app.tsx` per directory (`pages`, `pages:blog`, …); the nearest one replaces its parent |
+| Middleware | one `_middleware.ts` at the pages root on serverful adapters, applied to every page route |
+| [Capabilities](CAPABILITIES.md) | every module in `capabilitiesDir` (`src/capabilities`) — HTTP endpoints, WebMCP, remote MCP, `<Form capability>`, typed clients, and `pracht eval` all work |
+| [`agents`](AGENT_TRUST.md), `constraints` | named exports from `src/pages/_app.config.ts` |
 
-If you start with the pages router and later need any of these, you can eject
-to an explicit manifest with `generateRoutesFile` — see [Ejecting to Explicit
-Manifest](#ejecting-to-explicit-manifest).
+What still needs an explicit manifest — the things whose point is that they
+differ per route:
+
+- **Per-route middleware assignment.** `_middleware.ts` runs on every page
+  route; gating only `/app/**` needs `group({ middleware: […] })`.
+- **Per-route shell overrides.** A shell is chosen by directory.
+- **Named middleware beyond the one file**, and capabilities registered from
+  outside `capabilitiesDir`.
+- **`group({ pathPrefix })` and explicit route ids** — no file-system spelling.
+- **Webhook and combined ISG policies.** Pages ISG is time-based only.
+- **Pure static exports have no request runtime**, so `_middleware.ts` and the
+  capability HTTP endpoints do not apply there in either router.
+
+Ejecting is a one-time codegen — see [Ejecting to Explicit
+Manifest](#ejecting-to-explicit-manifest) — so starting with pages routing
+closes none of this off.
 
 ### Setup
 
@@ -874,6 +888,7 @@ directory and generates the route manifest automatically.
 | `pages/_app.tsx`        | _(shell, not a route)_ |
 | `pages/blog/_app.tsx`   | _(shell for `/blog/**`, not a route)_ |
 | `pages/_middleware.ts`  | _(middleware, not a route)_ |
+| `pages/_app.config.ts`  | _(app config, not a route)_ |
 | `pages/_anything.tsx`   | _(ignored)_            |
 | `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
 
@@ -1065,6 +1080,62 @@ Scope and limits:
 
 Like every other `_`-prefixed file, `_middleware.ts` never becomes a route.
 
+### Capabilities via `src/capabilities/`
+
+Every module in `capabilitiesDir` is registered as a capability. The directory
+*is* the registry, so a module is reachable exactly when it lives there; the
+generated manifest emits an ordinary `capabilities` record, and every consumer
+downstream — the HTTP projection, WebMCP, remote MCP, `<Form capability>`,
+`pracht typegen`, `pracht eval` — sees what a manifest app produces.
+
+Name resolution lives in `resolvePagesCapabilityName()`
+(`@pracht/capabilities/static`), shared by the build and `pracht verify` so the
+two cannot disagree:
+
+1. `defineCapability({ name })` when the analyzer can read it as a literal.
+2. Otherwise the file stem — `src/capabilities/ping.ts` registers `ping`.
+3. A declared name must map back to its own file with dots as hyphens
+   (`notes.search` ↔ `notes-search.ts`, the mapping
+   `pracht generate capability` writes). A mismatch, an unusable file name, and
+   two modules claiming one name are build, `doctor`, and `verify` errors.
+
+`pracht generate capability` emits the `name` property in pages mode and skips
+the manifest edit, because there is no registry entry to add.
+
+The static analyzers in `plugin-capabilities.ts` read the *generated* manifest
+source rather than re-deriving the registry from the file system
+(`readAppManifestSource()`). Analyzing the same text the virtual module serves
+is what keeps `hasAgentSurface()`, `extractCapabilities()`, and
+`resolveCapabilityModulePaths()` from drifting between the two routers.
+`pracht verify` does the same on its side by synthesizing an equivalent
+`defineApp({ … })` body from `src/capabilities/` and `_app.config.ts`.
+
+### App config via `_app.config.ts`
+
+`agents` and `constraints` are app-wide, so they come from one root-level
+`src/pages/_app.config.ts` rather than from the file system. Exactly three
+named exports are read — `agents`, `constraints`, `notFound` — and the
+generated manifest names only the ones the module actually declares: emitting
+`agents: undefined` would make an app that configures nothing look like it
+opted into the agent surface, and an unused import would not typecheck in an
+ejected manifest.
+
+`notFound` is a fallback. `pages/404.tsx` is the more specific declaration and
+wins; the export covers apps that render their not-found page another way.
+
+The file is root-only for the reason `_middleware` is, and fails closed on
+every shape that leaves an app looking configured while nothing is registered:
+a nested copy, an unsupported extension, duplicates, a default export, a module
+exporting none of the three keys, and `export * from …` (whose names cannot be
+read without loading the module). Each is an error in build, `doctor`, and
+`verify`.
+
+The name is `_app.config` rather than a new reserved word: the pages router
+already reserves the `_` prefix, and `_app` already means "the app-level
+thing", so `_app.config.ts` reads as configuration for the app that `_app.tsx`
+shells. It also sorts next to it. `basename(file, extname(file))` is
+`_app.config`, not `_app`, so shell discovery never mistakes the two.
+
 ### Per-Route Render Mode
 
 Page files can export a `RENDER_MODE` constant to set the rendering strategy:
@@ -1189,8 +1260,15 @@ import { generateRoutesFile } from "@pracht/vite-plugin/pages-router";
 generateRoutesFile("src/pages", "src/routes.ts", {
   pagesDir: "src/pages",
   pagesDefaultRender: "ssr",
+  // Defaults to `<pagesDir>/../capabilities`; pass `null` to register none.
+  capabilitiesDir: "src/capabilities",
 });
 ```
+
+The ejected manifest carries everything auto-discovery registered: every `_app`
+as a named shell, `_middleware` as the `pages` middleware, every capability
+module under its resolved name, and the `agents` / `constraints` / `notFound`
+exports of `_app.config.ts` as ordinary imports.
 
 Then remove `pagesDir` from your pracht config and point the discovery
 directories at the files the ejected manifest references — the runtime

@@ -1,4 +1,9 @@
-import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import {
+  hasNamedValueExport,
+  hasValueStarExport,
+  maskCommentsAndStrings,
+} from "@pracht/capabilities/static";
+import { parseAst } from "vite";
 import { readFileSync } from "node:fs";
 import { basename, extname, relative } from "node:path";
 
@@ -22,8 +27,21 @@ export type PagesFile =
       nested: boolean;
       shape: "directory" | "file" | "unsupported-extension";
     }
+  | {
+      file: string;
+      kind: "app-config";
+      nested: boolean;
+      supportedExtension: boolean;
+      /** The subset of PAGES_APP_CONFIG_EXPORTS the module declares. */
+      exports: string[];
+      /** A value `export *` hides the export set from static analysis. */
+      opaque: boolean;
+    }
   | { file: string; kind: "ignored" }
   | PagesRoute;
+
+/** The `defineApp` keys a pages app may set from `_app.config.ts`. */
+export const PAGES_APP_CONFIG_EXPORTS = ["agents", "constraints", "notFound"] as const;
 
 // Mirrors the vite plugin's pages middleware extensions (and the
 // `middlewareDir` registry glob). Every exact `_middleware` basename using a
@@ -58,7 +76,8 @@ export function scanPagesDirectory(
       (file) =>
         !isInsideMiddlewareDirectory(pagesDir, file) &&
         (isPageSource(file, additionalExtensions) ||
-          basename(file, extname(file)) === "_middleware"),
+          basename(file, extname(file)) === "_middleware" ||
+          basename(file, extname(file)) === "_app.config"),
     )
     .map((file) => describePagesFile(pagesDir, file, additionalExtensions));
   return [...middlewareDirectories, ...files];
@@ -80,6 +99,32 @@ export function describePagesFile(
   // `/_middleware` while looking like an auth gate.
   if (parentSegments.includes("_middleware")) {
     return { file, kind: "middleware", nested: true, shape: "directory" };
+  }
+
+  // Like `_middleware`, app config is checked before reserved parent
+  // directories are ignored: build-time discovery scans every file for this
+  // basename, so a stray copy has to be reported rather than dropped.
+  if (name === "_app.config") {
+    const supportedExtension = PAGES_MIDDLEWARE_SOURCE_RE.test(file);
+    if (!supportedExtension) {
+      return {
+        file,
+        kind: "app-config",
+        nested: relativePath.includes("/"),
+        supportedExtension,
+        exports: [],
+        opaque: false,
+      };
+    }
+    const program = parseAst(readFileSync(file, "utf-8"), { lang: parserLanguage(file) });
+    return {
+      file,
+      kind: "app-config",
+      nested: relativePath.includes("/"),
+      supportedExtension,
+      exports: PAGES_APP_CONFIG_EXPORTS.filter((key) => hasNamedValueExport(program, key)),
+      opaque: hasValueStarExport(program),
+    };
   }
 
   // Check middleware-shaped files before ignoring reserved parent directories.
@@ -177,6 +222,19 @@ export function findOwningPagesShell<T extends { directory: string }>(
         shell.directory === "" ||
         segments.slice(0, shell.directory.split("/").length).join("/") === shell.directory,
     );
+}
+
+function parserLanguage(file: string): "js" | "jsx" | "ts" | "tsx" {
+  switch (extname(file).toLowerCase()) {
+    case ".js":
+      return "js";
+    case ".jsx":
+      return "jsx";
+    case ".tsx":
+      return "tsx";
+    default:
+      return "ts";
+  }
 }
 
 function isInsideMiddlewareDirectory(pagesDir: string, file: string): boolean {

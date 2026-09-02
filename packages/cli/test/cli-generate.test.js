@@ -287,6 +287,37 @@ export default {
     expect(existsSync(join(appDir, "src/pages/_middleware.ts"))).toBe(false);
   });
 
+  it("scaffolds a self-naming capability module for pages apps", () => {
+    const appDir = createTempDir("pracht-cli-pages-capability-");
+    writePagesApp(appDir);
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        cliPath,
+        "generate",
+        "capability",
+        "--name",
+        "notes.search",
+        "--expose",
+        "http",
+        "--description",
+        "Find notes whose title matches the query.",
+        "--json",
+      ],
+      { cwd: appDir, encoding: "utf-8" },
+    );
+
+    expect(result.status).toBe(0);
+    const payload = JSON.parse(result.stdout);
+    expect(payload.created).toEqual(["src/capabilities/notes-search.ts"]);
+    // The directory is the registry in pages mode; nothing to update.
+    expect(payload.updated).toEqual([]);
+
+    const source = readFileSync(join(appDir, "src/capabilities/notes-search.ts"), "utf-8");
+    expect(source).toContain('name: "notes.search",');
+  });
+
   it("refuses to duplicate an existing pages middleware extension", () => {
     const appDir = createTempDir("pracht-cli-pages-middleware-existing-");
     writePagesApp(appDir);

@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.5.0
+version: 1.6.0
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -49,21 +49,22 @@ automatic**:
    `src/pages/`.
 2. `_app.tsx` → pracht shell shape (`Shell` export taking `children`). A
    subdirectory `_app` scopes a shell to that subtree (`blog/_app.tsx` →
-   `"pages:blog"`) — where App Router `layout.tsx` lands — but pracht shells
-   replace rather than nest, so it must repeat the chrome, `head()`, and
-   `headers()` it needs.
+   `"pages:blog"`), where App Router `layout.tsx` lands — but shells replace
+   rather than nest, so it repeats the chrome, `head()`, and `headers()` it
+   needs.
 3. `getServerSideProps`/`getStaticProps` → `loader` export.
 4. `export const RENDER_MODE = "ssg"` on static pages (`"ssr"` is the
    default). For time-revalidated pages export `RENDER_MODE = "isg"` plus a
    positive integer `REVALIDATE` in seconds; webhook policies require ejecting
    to a manifest.
 5. `middleware.ts` → a root-level `src/pages/_middleware.ts` exporting a
-   pracht `MiddlewareFn` (Phase 6). It runs on every page route; API routes are
-   not wrapped. Move `config.matcher` checks into the body and compare
+   `MiddlewareFn` (Phase 6). It runs on every page route; API routes are not
+   wrapped. Move `config.matcher` checks into the body and compare
    `stripBase(url.pathname)`. A nested `_middleware`, a `_middleware/`
-   directory, and a missing `middleware` export are build/doctor/verify errors.
-6. Other `_`-prefixed files and directories are reserved implementation
-   details: pracht ignores the whole subtree.
+   directory, and a missing export are build/doctor/verify errors.
+6. Other `_`-prefixed files and directories are reserved: pracht ignores the
+   subtree. Capabilities live in `src/capabilities/` (auto-discovered,
+   self-named); `agents` / `constraints` in `src/pages/_app.config.ts`.
 7. Run the dev server, iterate, and optionally eject later with
    `generateRoutesFile`.
 
@@ -216,12 +217,12 @@ is wrap-around (Hono/Koa/Astro shape), so you can `await next()` and observe
 the response — useful for tracing.
 
 In `pagesDir` mode the same `MiddlewareFn` goes in a root-level
-`src/pages/_middleware.ts`, registered automatically for every page route (API
-routes stay unwrapped). Do not migrate a per-request auth matcher onto an
-`ssg`/`isg` page and call it protected: the static document runs middleware
-only at build/revalidation with a sanitized request and is public before the
-visitor's route-state request. Keep those pages `ssr`/`spa`, or keep a
-separately verified edge gate. Pure static exports have no request runtime.
+`src/pages/_middleware.ts`, applied to every page route (API routes stay
+unwrapped). Do not migrate a per-request auth matcher onto an `ssg`/`isg` page
+and call it protected: that document runs middleware only at
+build/revalidation, with a sanitized request. Keep such pages `ssr`/`spa`, or
+keep a separately verified edge gate. Pure static exports have no request
+runtime.
 
 ## Phase 7: Route manifest
 
