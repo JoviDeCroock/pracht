@@ -252,7 +252,7 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(disallowedImageResponse.status).toBe(403);
 
     const dashboardResponse = await fetch(`http://127.0.0.1:${port}/dashboard`, {
-      headers: { cookie: "session=1" },
+      headers: { cookie: await signIn(port) },
     });
     expect(dashboardResponse.status).toBe(200);
     expect(dashboardResponse.headers.get("x-pracht-shell")).toBe("app");
@@ -415,7 +415,7 @@ test("precompileSsrJsx opt-in precompiles server JSX and keeps the app deployabl
     expect(homeHtml).toContain("Hybrid route manifest");
 
     const dashboardResponse = await fetch(`http://127.0.0.1:${port}/dashboard`, {
-      headers: { cookie: "session=1" },
+      headers: { cookie: await signIn(port) },
     });
     expect(dashboardResponse.status).toBe(200);
     expect(await dashboardResponse.text()).toContain("Ada Lovelace");
@@ -574,6 +574,26 @@ function installPublicAssetRewritePlugin(exampleDir: string): void {
     )
     .replace("    plugins: [", "    plugins: [\n      rewritePublicAsset(),");
   writeFileSync(configPath, config, "utf-8");
+}
+
+/**
+ * Log in against the built server and return the `Cookie` header for the
+ * session it issued. The example gates `/dashboard` with `@pracht/session`, so
+ * a hand-written `session=1` no longer opens anything — which is the point.
+ * A bare `fetch` sends no browser provenance headers, so the framework's
+ * same-origin check on mutation API requests lets it through.
+ */
+async function signIn(port: number): Promise<string> {
+  const response = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ email: "ada@example.com", password: "lovelace" }).toString(),
+    redirect: "manual",
+  });
+  expect(response.status).toBe(303);
+  const setCookie = response.headers.getSetCookie().find((value) => value.startsWith("session="));
+  expect(setCookie, "login did not issue a session cookie").toBeDefined();
+  return (setCookie as string).split(";")[0];
 }
 
 function createTempExampleDir(prefix: string): { exampleDir: string; tempDir: string } {

@@ -54,7 +54,7 @@ collide with other skill packs installed in the same app.
 
 | Skill                 | Use when                                                          |
 | --------------------- | ----------------------------------------------------------------- |
-| `/add-auth`           | Wire session-based email/password auth.                           |
+| `/add-auth`           | Wire `@pracht/session`: encrypted sessions, gate middleware, login/logout. |
 | `/add-db`             | Wire Drizzle ORM (D1, PlanetScale, Neon, Postgres, ...).          |
 | `/add-i18n`           | Wire `@pracht/i18n`: locale routing, dictionaries, hreflang.      |
 | `/add-observability`  | Wire Sentry / OpenTelemetry, Web Vitals, and a capability audit sink for agent traffic. |

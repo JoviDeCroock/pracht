@@ -1,10 +1,10 @@
 ---
 name: add-auth
-version: 1.2.0
+version: 2.0.0
 description: |
-  Wire session-based auth into a pracht app: session utilities, auth middleware,
-  login/logout/signup API routes, `<Form>` pages, and public vs. protected route
-  groups.
+  Wire session-based auth into a pracht app with `@pracht/session`: encrypted
+  cookie sessions, gate middleware, login/logout/signup API routes, `<Form>`
+  pages, and public vs. protected route groups.
   Use for "add auth", "set up login", "wire authentication", "add session
   middleware", "I need users".
 allowed-tools:
@@ -20,8 +20,13 @@ allowed-tools:
 # Pracht Add Auth
 
 Stamps out the auth pattern documented in
-`examples/docs/src/routes/docs/recipes-auth.md`; the user replaces
-`verifyCredentials()` with a real DB lookup.
+`examples/docs/src/routes/docs/recipes-auth.md`, on top of `@pracht/session`.
+The user replaces `verifyCredentials()` with a real DB lookup.
+
+Never hand-roll the session cookie. `@pracht/session` already handles
+encryption, expiry inside the payload, secret rotation, the `Secure`/`HttpOnly`
+attributes, and the 4 KB size ceiling — every one of which the hand-rolled
+version got wrong.
 
 MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
@@ -33,162 +38,173 @@ config.
 Use `AskUserQuestion` for:
 
 1. **Flavor** — session cookie + email/password (default), magic link, or OAuth
-   (out of scope: recommend a dedicated library).
+   (out of scope: keep `@pracht/session` for the session half and use
+   `arctic`/`openid-client`/the provider SDK for the protocol half).
 2. **Where credentials live** — an existing DB, or none yet? If none, run
    `/add-db` first.
-3. **Cookie posture** — `SameSite=Lax` (default, recommended), `Strict`, or
+3. **Where sessions live** — in the cookie (default, no infrastructure, 4 KB
+   ceiling, no server-side logout) or in a store (KV/D1/Redis/Postgres).
+4. **Cookie posture** — `SameSite=Lax` (default, recommended), `Strict`, or
    `None` + token. See `/audit-csrf`.
 
-## Step 2: Session utilities
+## Step 2: Install and define the storage
 
-`src/server/session.ts` — HMAC-signed cookie payload:
+```bash
+pnpm add @pracht/session
+```
+
+`src/server/session.ts`:
 
 ```ts
 import { serverEnv } from "@pracht/core/env/server";
+import { createSessionStorage, type SessionRequestContext, type SessionStorage } from "@pracht/session";
 
-export interface Session {
+export interface AppSession extends Record<string, unknown> {
   userId: string;
   email: string;
+  name: string;
+  notice: string;
 }
 
-export async function getSession(request: Request): Promise<Session | null> {
-  const cookie = request.headers.get("cookie") ?? "";
-  const match = cookie.match(/session=([^;]+)/);
-  if (!match) return null;
-  try {
-    const [payload, signature] = match[1].split(".");
-    if (!payload || !signature) return null;
-    if (!(await verify(payload, signature))) return null;
-    return JSON.parse(atob(payload));
-  } catch {
-    return null;
-  }
-}
+export type SessionContext = SessionRequestContext<AppSession>;
 
-export async function createSessionCookie(session: Session): Promise<string> {
-  const payload = btoa(JSON.stringify(session));
-  const signature = await sign(payload);
-  return `session=${payload}.${signature}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=604800`;
-}
+let storage: SessionStorage<AppSession> | undefined;
 
-export function clearSessionCookie(): string {
-  return "session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
-}
-
-async function getKey(usage: "sign" | "verify"): Promise<CryptoKey> {
-  // Read the secret INSIDE the function, never at module scope. On Cloudflare
-  // Workers env bindings only exist per request — a module-level read (or
-  // throw) bricks the worker at import time. `serverEnv` resolves correctly
-  // per adapter (docs/ENV.md).
-  const secret = serverEnv.SESSION_SECRET;
-  if (!secret) throw new Error("SESSION_SECRET is required");
-  return crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    [usage],
-  );
-}
-
-async function sign(data: string): Promise<string> {
-  const key = await getKey("sign");
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
-}
-
-async function verify(data: string, signature: string): Promise<boolean> {
-  let sig: Uint8Array;
-  try {
-    sig = Uint8Array.from(atob(signature), (c) => c.charCodeAt(0));
-  } catch {
-    return false;
-  }
-  const key = await getKey("verify");
-  return crypto.subtle.verify("HMAC", key, sig, new TextEncoder().encode(data));
+// Built lazily, NOT at module scope. On Cloudflare Workers env bindings only
+// exist per request, so reading `serverEnv` while the module evaluates throws
+// and bricks the worker at import time.
+export function sessions(): SessionStorage<AppSession> {
+  storage ??= createSessionStorage<AppSession>({
+    cookie: {
+      // Newest first: the first secret seals, all of them open.
+      secrets: [serverEnv.SESSION_SECRET as string],
+      name: "session",
+      maxAge: 60 * 60 * 24 * 7,
+    },
+  });
+  return storage;
 }
 ```
 
-- `crypto.subtle` works in Node 18+, Cloudflare Workers, and Vercel Edge.
-- Verification goes through `crypto.subtle.verify`, which compares in constant
-  time. Never compare signature strings with `===` — that leaks timing an
-  attacker can use to forge signatures.
-- Keep `HttpOnly`, `SameSite=Lax`, and `Secure` on the cookie. Drop `Secure`
-  only for plain-HTTP local dev, conditionalized on `NODE_ENV`.
+Defaults you do not have to configure: `HttpOnly`, `SameSite=Lax`, `Path=/`,
+`Secure` on https requests, AES-256-GCM with an HKDF-derived key, expiry
+sealed into the payload, and a throw instead of an oversized cookie.
 
-## Step 3: Auth middleware
+For a store, pass `store: { get, set, delete }` — three methods over KV, D1,
+Redis, or Postgres. `createMemorySessionStore()` is for tests only.
 
-`src/middleware/auth.ts` — a **Gate**: it short-circuits with a redirect rather
-than merely augmenting context (see `/audit-auth` for that distinction).
+Type `context.session` once, in `src/env.d.ts`:
 
 ```ts
-import { redirect, type MiddlewareFn } from "@pracht/core";
-import { getSession } from "../server/session";
+import type { SessionRequestContext } from "@pracht/session";
+import type { AppSession } from "./server/session.ts";
 
-export const middleware: MiddlewareFn = async ({ request, url }, next) => {
-  const session = await getSession(request);
-  if (!session) {
-    const target = encodeURIComponent(url.pathname + url.search);
-    return redirect(`/login?redirect=${target}`, { request });
+declare module "@pracht/core" {
+  interface Register {
+    context: SessionRequestContext<AppSession>;
   }
-  request.headers.set("x-user-id", session.userId);
-  request.headers.set("x-user-email", session.email);
-  return next();
+}
+```
+
+## Step 3: Middleware
+
+Two factories, and the difference is the whole point:
+
+- `sessionMiddleware(storage)` — loads `context.session`, never blocks
+  (an **Augmenter**, in `/audit-auth` terms).
+- `requireSession(storage)` — loads **and gates**: pages redirect to
+  `loginPath`, API routes get `401` (a **Gate**).
+
+`src/middleware/auth.ts`:
+
+```ts
+import type { MiddlewareFn } from "@pracht/core";
+import { requireSession } from "@pracht/session";
+
+import { sessions } from "../server/session.ts";
+
+let gate: MiddlewareFn | undefined;
+
+export const middleware: MiddlewareFn = (args, next) => {
+  gate ??= requireSession(sessions(), { loginPath: "/login" });
+  return gate(args, next);
 };
 ```
 
-## Step 4: Auth API routes
+Generate `src/middleware/session.ts` the same way with `sessionMiddleware` when
+public routes or the API also need to read a session.
+
+Both commit after `next()`, so a loader downstream can `context.session.set(…)`
+and the cookie still lands on that loader's response. **Never** write user info
+onto `args.request.headers` — the client controls those, and the incoming
+`Request` is immutable on Cloudflare Workers.
+
+## Step 4: Password hashing
+
+```ts
+// src/server/users.ts
+import { hashPassword, verifyPassword } from "@pracht/session";
+
+export async function verifyCredentials(email: string, password: string) {
+  const row = await db.users.findByEmail(email.trim().toLowerCase());
+  if (!row) return null;
+  return (await verifyPassword(password, row.passwordHash)) ? row : null;
+}
+```
+
+`hashPassword()` is PBKDF2-HMAC-SHA256 — the only password KDF WebCrypto
+exposes, so it runs on every adapter. The stored string records its own
+parameters, so the iteration count can be raised later without invalidating
+existing hashes. Never store a plain `SHA-256(password)`. On Cloudflare
+Workers, measure a login against the plan's CPU limit.
+
+## Step 5: Auth API routes
 
 `src/api/auth/login.ts`:
 
 ```ts
-import type { ApiRouteArgs } from "@pracht/core";
-import { createSessionCookie } from "../../server/session";
+import { redirect, type ApiRouteArgs } from "@pracht/core";
+
+import { sessions } from "../../server/session.ts";
+import { verifyCredentials } from "../../server/users.ts";
 
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
-  const email = String(form.get("email") ?? "").trim();
+  const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
-  const requested = String(form.get("redirect") ?? "/dashboard");
 
   // The redirect field is user input — gate it, or this is an open redirect.
-  const safeRedirect = requested.startsWith("/") && !requested.startsWith("//")
-    ? requested
-    : "/dashboard";
+  const requested = String(form.get("redirect") ?? "/dashboard");
+  const target =
+    requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard";
 
   const user = await verifyCredentials(email, password);
   if (!user) {
-    // Redirect back with an error flag — do NOT return a 401 JSON body.
-    // Pracht's <Form> only acts on 3xx (it follows `location`); a non-redirect
-    // response is silently ignored and the user sees nothing happen.
-    const back = new URLSearchParams({ error: "1", redirect: safeRedirect });
-    return new Response(null, { status: 302, headers: { location: `/login?${back}` } });
+    // `<Form>` only acts on 3xx (it follows `location`); a 401 JSON body is
+    // silently ignored and the user sees nothing happen.
+    return redirect(`/login?error=1&redirect=${encodeURIComponent(target)}`, { request });
   }
 
-  const cookie = await createSessionCookie({ userId: user.id, email: user.email });
-  return new Response(null, {
-    status: 302,
-    headers: { location: safeRedirect, "set-cookie": cookie },
-  });
-}
+  const storage = sessions();
+  const session = await storage.getSession(request);
+  session.set("userId", user.id);
+  session.set("email", user.email);
+  session.set("name", user.name);
+  session.flash("notice", `Welcome back, ${user.name}.`);
 
-async function verifyCredentials(_email: string, _password: string) {
-  // TODO: replace with a real DB lookup + password hash check (argon2 / bcrypt).
-  return null as null | { id: string; email: string };
+  // `commit` appends Set-Cookie; it never replaces one already on the response.
+  return storage.commit(session, redirect(target, { request }));
 }
 ```
 
-`src/api/auth/logout.ts` — `POST` returning a 302 to `/` with
-`clearSessionCookie()` as `set-cookie`.
+`src/api/auth/logout.ts` — `POST` returning
+`storage.destroy(session, redirect("/", { request }))`. Never a `GET`.
 
 `src/api/auth/signup.ts` — same shape as login: validate (`email` present,
 `password.length >= 8`), redirect to `/signup?error=1` on failure, otherwise
-hash the password, insert the user, and issue `createSessionCookie()` with a
-302 to `/dashboard`. Leave the hashing and insert as TODOs for the user.
+`hashPassword()`, insert the user, and issue the session.
 
-**Never ship the skeleton without real password hashing (argon2 or bcrypt).**
-
-## Step 5: Login and signup pages
+## Step 6: Login and signup pages
 
 `src/routes/login.tsx`:
 
@@ -196,9 +212,10 @@ hash the password, insert the user, and issue `createSessionCookie()` with a
 import { Form, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
 
 export async function loader({ url }: LoaderArgs) {
+  const requested = url.searchParams.get("redirect") ?? "/dashboard";
   return {
-    redirect: url.searchParams.get("redirect") ?? "/dashboard",
     error: url.searchParams.get("error") === "1",
+    redirect: requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard",
   };
 }
 
@@ -210,7 +227,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   return (
     <section class="login">
       <h1>Log in</h1>
-      {data.error && <p class="error">Invalid email or password.</p>}
+      {data.error && <p role="alert">Invalid email or password.</p>}
       <Form method="post" action="/api/auth/login">
         <input type="hidden" name="redirect" value={data.redirect} />
         <label>Email <input type="email" name="email" required /></label>
@@ -224,14 +241,25 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 
 Generate `signup.tsx` analogously, posting to `/api/auth/signup`.
 
-## Step 6: Wire the manifest
+Protected loaders read the session, never a header:
 
-Public routes in one group, protected routes in a group carrying the middleware:
+```ts
+export async function loader({ context }: LoaderArgs<SessionContext>) {
+  return { user: context.session.get("name") ?? "", notice: context.session.get("notice") ?? null };
+}
+```
+
+`get()` on a flashed key is the read that consumes it.
+
+## Step 7: Wire the manifest
+
+Public routes in one group, protected routes in a group carrying the gate:
 
 ```ts
 export const app = defineApp({
   shells: { public: "./shells/public.tsx", app: "./shells/app.tsx" },
-  middleware: { auth: "./middleware/auth.ts" },
+  middleware: { auth: "./middleware/auth.ts", session: "./middleware/session.ts" },
+  api: { middleware: ["session"] },
   routes: [
     group({ shell: "public" }, [
       route("/", "./routes/home.tsx", { render: "ssg" }),
@@ -245,22 +273,31 @@ export const app = defineApp({
 });
 ```
 
-If the project already has a `defineApp({...})`, merge into it — preserve the
-existing shells, middleware, and routes.
+Anything that reads the session must be `render: "ssr"` — its output is
+per-visitor. If the project already has a `defineApp({...})`, merge into it and
+preserve the existing shells, middleware, and routes.
 
-## Step 7: Env
+## Step 8: Env
 
 Add `SESSION_SECRET=<generate with: openssl rand -base64 32>` to
-`.env.example`, and confirm `.env*` is gitignored.
+`.env.example`, and confirm `.env*` is gitignored. Secrets shorter than 16
+characters are rejected. To rotate, put the new secret first and keep the old
+one for one release.
 
-## Step 8: Verify
+## Step 9: Verify
 
-- `pracht typegen` (step 6 added routes); `pracht typegen --check` in CI.
+- `pracht typegen` (step 7 added routes); `pracht typegen --check` in CI.
 - In `pracht dev`: `/dashboard` redirects to `/login?redirect=%2Fdashboard`; a
   successful login lands on `/dashboard`; a failed one lands back on
   `/login?error=1` with the message rendered; logout posts to
   `/api/auth/logout` and clears the cookie.
 - `pnpm test`, `pnpm e2e`, and `pracht verify --json` all pass.
 - Run `/audit-auth` and `/audit-csrf` to confirm the resulting posture.
+
+## Out of scope
+
+OAuth/OIDC protocol handling, 2FA, password reset, email verification, rate
+limiting on the login endpoint, and authorization (roles/permissions). Say so
+rather than generating a weak version.
 
 $ARGUMENTS

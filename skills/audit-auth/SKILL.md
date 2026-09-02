@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.2.4
+version: 1.3.0
 description: |
   Find pracht routes that look protected but aren't: missing auth middleware,
   middleware that augments context but never gates, client-only checks, and
@@ -24,8 +24,18 @@ redirect `Response`. What the framework does NOT decide is *which* routes get
 an auth gate — that is app wiring, and this skill audits it.
 
 The pracht auth pattern (see `examples/docs/src/routes/docs/recipes-auth.md`):
-middleware checks the session, short-circuits with a redirect on absence, and
-forwards user info via request headers; loaders downstream read the headers.
+middleware loads the session onto `context.session` and short-circuits with a
+redirect when there is no user; loaders downstream read `context.session`.
+
+`@pracht/session` is the first-party implementation. Two of its exports map
+straight onto the Gate/Augmenter classification below — `requireSession()` is
+a Gate, `sessionMiddleware()` is an Augmenter — so a project using it can be
+classified from the factory name without reading the middleware body. A
+project that hand-rolls its session instead is not automatically wrong, but
+check it for the things the package handles: an expiry inside the signed
+payload (not only `Max-Age`), a constant-time or `crypto.subtle.verify`
+signature check, `HttpOnly`/`Secure`/`SameSite`, and encryption if the cookie
+carries anything beyond an opaque id.
 
 Prerequisites: `pracht inspect` requires a vite config that registers the
 pracht plugin.
@@ -48,10 +58,18 @@ each middleware file and classify it:
 
 - **Gate** — on auth failure, returns a short-circuit `Response`
   (`redirect("/login", { request })`, or a 401/403 `Response`) WITHOUT calling
-  `next()`; on success, `return next()`.
-- **Augmenter** — mutates request headers/context with user info, then always
-  returns `next()`. Never short-circuits.
+  `next()`; on success, `return next()`. `requireSession()` from
+  `@pracht/session` is one.
+- **Augmenter** — puts user info on `context` (or, in older code, on request
+  headers), then always returns `next()`. Never short-circuits.
+  `sessionMiddleware()` is one.
 - **Other** — non-auth middleware (rate limit, logging, CORS, etc.).
+
+Flag any middleware that writes identity onto `args.request.headers`: the
+client controls request headers, so a loader reading `x-user-id` back out is
+trusting attacker-supplied input, and the write throws outright on Cloudflare
+Workers where the incoming `Request` is immutable. Identity belongs on
+`context`.
 
 The "Augmenter" category is the silent killer: it makes loaders *think*
 auth is enforced because `request.headers.get('x-user-id')` returns a value
@@ -63,7 +81,8 @@ to handle it. Flag every loader downstream of an Augmenter that doesn't.
 A route is "expected protected" if any of:
 
 - It has `auth`/`session`/`requireUser`/similar middleware applied.
-- Its loader reads `x-user-id`/`x-user-email`/`getSession`/equivalent.
+- Its loader reads `context.session`, `getSession`, or (legacy)
+  `x-user-id`/`x-user-email`.
 - It lives under conventional protected paths: `/dashboard*`, `/admin*`,
   `/account*`, `/settings*`, `/app*` (ask the user to confirm the
   convention if unclear).
@@ -137,6 +156,13 @@ source of "I see the data flash before redirect" or worse, leaked data via
 SPA route loaders.
 
 ## Step 6: Session cookie sanity
+
+With `@pracht/session`, check the configuration rather than the mechanics:
+`cookie.secrets` read from `serverEnv` (never a literal), the storage built
+inside a function rather than at module scope (Workers env is request-scoped),
+`secure: true` forced when TLS terminates upstream, and `sameSite` matching
+the app's embedding needs. A `store` is required for logout to invalidate a
+session anywhere other than the browser that asked.
 
 Cross-reference with `audit-csrf`: the same cookies that authorize the user
 are the CSRF target. Recommend running `audit-csrf` after this skill.
