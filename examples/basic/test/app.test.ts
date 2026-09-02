@@ -11,6 +11,7 @@ import {
 import { POST as dashboardPost } from "../src/api/dashboard.ts";
 import { POST as echoPost } from "../src/api/echo.ts";
 import { middleware as auth } from "../src/middleware/auth.ts";
+import { sessions } from "../src/server/session.ts";
 import { loader as productLoader } from "../src/routes/product.tsx";
 
 // Dogfood tests: the example app's real middleware, loader, and API handlers
@@ -18,15 +19,34 @@ import { loader as productLoader } from "../src/routes/product.tsx";
 // developer consumes it.
 
 describe("auth middleware", () => {
-  it("redirects anonymous requests to /", async () => {
+  it("redirects anonymous requests to the login page with a return path", async () => {
     const response = await runMiddleware(auth, createMiddlewareArgs({ url: "/dashboard" }));
-    expect(readRedirect(response)).toEqual({ status: 302, location: "/" });
+    expect(readRedirect(response)).toEqual({
+      status: 302,
+      location: "/login?redirect=%2Fdashboard",
+    });
   });
 
-  it("passes requests with a session cookie through to the handler", async () => {
+  it("rejects a cookie that was not sealed by the app", async () => {
     const response = await runMiddleware(
       auth,
-      createMiddlewareArgs({ url: "/dashboard", headers: { cookie: "session=abc" } }),
+      createMiddlewareArgs({ url: "/dashboard", headers: { cookie: "__Host-session=abc" } }),
+      async () => new Response("dashboard"),
+    );
+    expect(readRedirect(response)?.status).toBe(302);
+  });
+
+  it("passes requests with a signed-in session through to the handler", async () => {
+    const storage = sessions();
+    const session = await storage.getSession(null);
+    session.set("userId", "u_1");
+    session.set("email", "ada@example.com");
+    session.set("name", "Ada");
+    const cookie = (await storage.commitSession(session)).split(";")[0];
+
+    const response = await runMiddleware(
+      auth,
+      createMiddlewareArgs({ url: "/dashboard", headers: { cookie } }),
       async () => new Response("dashboard"),
     );
     expect(await response.text()).toBe("dashboard");
