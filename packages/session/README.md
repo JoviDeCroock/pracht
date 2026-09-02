@@ -123,9 +123,14 @@ servers. It is not a production store: the sessions die with the process.
   and `__Secure-` names are validated at construction.
 - **A fix for session fixation.** `session.regenerate()` rotates the id and
   drops the old store record; call it the moment credentials verify.
-- **Duplicate-cookie safety.** When several cookies share the name, each is
-  tried until one unseals, so a planted duplicate cannot take precedence or
-  deny the real session.
+- **A `__Host-` cookie name by default.** The browser rejects a `__Host-`
+  cookie unless it is `Secure`, `Path=/`, and host-only. Pinning the domain and
+  path is what makes same-name duplicates impossible — a cookie is identified
+  by name *plus* domain and path — so a sibling subdomain cannot plant a second
+  `__Host-session`. When several cookies do share a name, each is tried until
+  one unseals, so a junk duplicate does not take precedence; that list is
+  capped, so it bounds work rather than guaranteeing the real cookie is
+  reached. Keep the prefix unless you need the cookie on several subdomains.
 - **A size guard.** Over 4 KB, browsers silently drop the cookie; this throws
   instead, and names the fix.
 - **No `node:` imports.** Enforced by a test against the built output.

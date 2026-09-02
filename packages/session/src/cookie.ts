@@ -17,6 +17,13 @@ const HOST_PREFIX = "__Host-";
 const SECURE_PREFIX = "__Secure-";
 
 /**
+ * Secure by default. The prefix costs nothing for an app that does not need a
+ * `Domain`, and it is the only thing that makes same-name duplicate cookies
+ * impossible rather than merely survivable — see {@link readCookies}.
+ */
+const DEFAULT_COOKIE_NAME = "__Host-session";
+
+/**
  * The practical per-cookie ceiling in every current browser: 4096 bytes for
  * the whole `name=value; attributes` string. Over it, browsers do not error —
  * they silently drop the cookie, and the app looks like it randomly logs users
@@ -49,15 +56,22 @@ export interface ResolvedCookieOptions {
 
 export interface CookieOptionsInput {
   /**
-   * Cookie name. Default: `"pracht_session"`.
+   * Cookie name. Default: `"__Host-session"`.
    *
-   * Prefer a `__Host-` prefix (`"__Host-session"`). It is enforced by the
-   * browser, not by the server: a `__Host-` cookie is rejected unless it is
-   * `Secure`, `Path=/`, and **host-only**, which is exactly what stops a
-   * sibling subdomain — or anything that has taken one over — from writing a
-   * cookie your app will read. `createSessionStorage()` validates the same
-   * rules up front so the mistake surfaces at boot instead of as a cookie the
-   * browser silently discards.
+   * The `__Host-` prefix is enforced by the browser, not by the server: the
+   * cookie is rejected unless it is `Secure`, `Path=/`, and **host-only**.
+   * That pins the two fields that, together with the name, identify a cookie —
+   * so at most one `__Host-session` can exist, and a sibling subdomain cannot
+   * write one at all. `createSessionStorage()` validates the same rules up
+   * front, so a mistake surfaces at boot instead of as a cookie the browser
+   * silently discards.
+   *
+   * Because the prefix forces `Secure`, the cookie is only accepted over
+   * `http://localhost` by browsers that treat localhost as a trustworthy
+   * origin for cookies — Chrome 89+ and Firefox 75+ do; others may not. Use an
+   * unprefixed name if your development browser drops it, or if the cookie
+   * has to be shared across subdomains (which needs `__Secure-` plus a
+   * `domain`, or no prefix at all).
    */
   name?: string;
   /**
@@ -102,7 +116,7 @@ export interface CookieOptionsInput {
 }
 
 export function resolveCookieOptions(options: CookieOptionsInput): ResolvedCookieOptions {
-  const name = options.name ?? "pracht_session";
+  const name = options.name ?? DEFAULT_COOKIE_NAME;
   if (!COOKIE_NAME_PATTERN.test(name)) {
     throw new TypeError(`createSessionStorage: invalid cookie name "${name}".`);
   }
@@ -147,27 +161,34 @@ export function resolveCookieOptions(options: CookieOptionsInput): ResolvedCooki
 
   // Browser-enforced name prefixes. Getting these wrong produces a cookie the
   // browser drops without a word, which reads to the developer as "sessions
-  // randomly do not persist" — so validate them here.
+  // randomly do not persist" — so validate them here. The prefix may have come
+  // from the default rather than from the caller, so say so: "drop the prefix"
+  // is baffling advice to someone who never wrote one.
+  const nameHint = options.name === undefined ? ` (the default is "${DEFAULT_COOKIE_NAME}")` : "";
   const hostPrefixed = name.startsWith(HOST_PREFIX);
   const securePrefixed = name.startsWith(SECURE_PREFIX);
   if (hostPrefixed) {
     if (domain !== undefined) {
       throw new TypeError(
-        `createSessionStorage: a "${HOST_PREFIX}" cookie must be host-only, but a domain ` +
-          `("${domain}") was configured. Drop \`cookie.domain\`, or drop the prefix.`,
+        `createSessionStorage: the cookie name "${name}" carries the "${HOST_PREFIX}" prefix, ` +
+          `which the browser only accepts on a host-only cookie, but a domain ("${domain}") ` +
+          `was configured. Drop \`cookie.domain\`, or set an unprefixed \`cookie.name\`${nameHint}.`,
       );
     }
     if (path !== "/") {
       throw new TypeError(
-        `createSessionStorage: a "${HOST_PREFIX}" cookie must use \`path: "/"\`, got "${path}".`,
+        `createSessionStorage: the cookie name "${name}" carries the "${HOST_PREFIX}" prefix, ` +
+          `which the browser only accepts with \`path: "/"\`, got "${path}". Drop ` +
+          `\`cookie.path\`, or set an unprefixed \`cookie.name\`${nameHint}.`,
       );
     }
   }
   if ((hostPrefixed || securePrefixed) && options.secure === false) {
     throw new TypeError(
-      `createSessionStorage: a "${hostPrefixed ? HOST_PREFIX : SECURE_PREFIX}" cookie is ` +
-        "rejected by the browser without the Secure attribute, so `cookie.secure: false` " +
-        "cannot be honoured. Use an unprefixed name for plain-http development.",
+      `createSessionStorage: the cookie name "${name}" carries the ` +
+        `"${hostPrefixed ? HOST_PREFIX : SECURE_PREFIX}" prefix, which the browser rejects ` +
+        "without the Secure attribute, so `cookie.secure: false` cannot be honoured. Set an " +
+        `unprefixed \`cookie.name\`${nameHint} for plain-http development.`,
     );
   }
   if (sameSite === "None" && options.secure === false) {

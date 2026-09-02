@@ -61,7 +61,8 @@ export function sessions(): SessionStorage<AppSession> {
       // The `__Host-` prefix is enforced by the *browser*: it rejects the
       // cookie unless it is Secure, `Path=/`, and host-only. That is what
       // stops a sibling subdomain — or anything that has taken one over —
-      // from writing a cookie your app will read.
+      // from writing a cookie your app will read. It is also the default,
+      // so you can omit `name` entirely.
       name: "__Host-session",
       // Newest first: the first secret seals, every secret opens. Rotating is
       // then a deploy — add the new one at the front, remove the old one on
@@ -89,6 +90,21 @@ What the defaults give you, without configuration:
 | Encryption | AES-256-GCM, key derived from the secret with HKDF-SHA256 |
 | Expiry | sealed into the payload, so a client that ignores `Max-Age` gains nothing |
 | Size | over 4 KB throws instead of emitting a cookie the browser silently drops |
+
+### `__Host-` and local development
+
+The prefix forces `Secure` on, in development too. Chrome 89+ and Firefox 75+
+treat `http://localhost` as a trustworthy origin and accept a `Secure` cookie
+there, so `pracht dev` works unchanged in those browsers. A browser that does
+not will drop the cookie and the app will look like it cannot log in — use an
+unprefixed `name` for local development if you hit that, or run dev over
+https.
+
+Drop the prefix permanently only if the cookie genuinely has to be shared
+across subdomains. It is what makes same-name duplicate cookies impossible: a
+cookie is identified by its name *plus* its domain and path, and `__Host-`
+pins both, so nothing can plant a second cookie of the same name for your app
+to trip over.
 
 The `Secure` default **fails closed**. It would be tempting to infer it from
 `request.url` being https, but a production app behind a TLS-terminating proxy
@@ -493,6 +509,15 @@ createSessionStorage<AppSession>({
 The cost is a `Set-Cookie` on every response and — with a `store` — a store
 write per request. An anonymous visitor still receives no cookie either way:
 `rolling` only re-commits a session that already exists.
+
+**`rolling` and cached routes.** A response carrying a `Set-Cookie` is never
+stored in a shared cache — pracht's own ISG check treats one as "this output
+is specific to this visitor" — so putting `rolling` on a route group that
+contains `ssg` or `isg` routes makes those routes stop being cached for every
+signed-in visitor, while anonymous traffic still gets the cached copy. That is
+correct behaviour (the alternative is serving one user's cookie to the next),
+but it is easy to enable by accident. Keep `rolling` on the group that holds
+the per-visitor `ssr` routes, not on one that spans your prerendered pages.
 
 Independently of both, `destroySession()` ends a session immediately, and with
 a `store` it ends it for every browser holding the cookie rather than only the

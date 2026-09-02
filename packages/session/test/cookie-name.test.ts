@@ -35,7 +35,7 @@ describe("__Host- prefix", () => {
       createSessionStorage({
         cookie: { name: "__Host-session", secrets: [SECRET], domain: "example.com" },
       }),
-    ).toThrow(/must be host-only/);
+    ).toThrow(/only accepts on a host-only cookie/);
   });
 
   it("rejects a path other than /", () => {
@@ -43,7 +43,7 @@ describe("__Host- prefix", () => {
       createSessionStorage({
         cookie: { name: "__Host-session", secrets: [SECRET], path: "/app" },
       }),
-    ).toThrow(/must use `path: "\/"`/);
+    ).toThrow(/only accepts with `path: "\/"`/);
   });
 
   it("rejects an explicit secure: false", () => {
@@ -62,6 +62,38 @@ describe("__Host- prefix", () => {
     session.set("userId", "u_1");
     const cookie = toCookieHeader(await sessions.commitSession(session));
     expect((await sessions.getSession(cookie)).get("userId")).toBe("u_1");
+  });
+});
+
+describe("the default name", () => {
+  it("is __Host-session, so the safe posture is the one you get for free", async () => {
+    const sessions = createSessionStorage<AppSession>({ cookie: { secrets: [SECRET] } });
+    expect(sessions.cookieName).toBe("__Host-session");
+
+    const session = await sessions.getSession(new Request("http://localhost:3000/"));
+    session.set("userId", "u_1");
+    const setCookie = await sessions.commitSession(session);
+    expect(setCookie.startsWith("__Host-session=")).toBe(true);
+    expect(cookieAttribute(setCookie, "Secure")).toBe(true);
+  });
+
+  it("explains itself when the default prefix collides with a domain", () => {
+    // "Drop the prefix" is baffling advice to someone who never wrote one, so
+    // the message has to say where it came from.
+    expect(() =>
+      createSessionStorage({ cookie: { secrets: [SECRET], domain: "example.com" } }),
+    ).toThrow(/the default is "__Host-session"/);
+  });
+
+  it("steps out of the way for an unprefixed name", async () => {
+    const sessions = createSessionStorage<AppSession>({
+      cookie: { name: "session", secrets: [SECRET], domain: "example.com" },
+    });
+    const session = await sessions.getSession(new Request("http://localhost:3000/"));
+    session.set("userId", "u_1");
+    const setCookie = await sessions.commitSession(session);
+    expect(cookieAttribute(setCookie, "Domain")).toBe("example.com");
+    expect(cookieAttribute(setCookie, "Secure")).toBe(false);
   });
 });
 

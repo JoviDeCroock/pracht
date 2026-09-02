@@ -69,12 +69,27 @@ envelope:
   final character, so several strings decode to identical bytes;
   `fromBase64Url` re-encodes and compares, which keeps the token string a
   stable identifier for the session it opens.
-- **The cookie is read as a list, not a value.** A request may legitimately
-  carry two cookies of the same name (host-only and parent-domain), in an
-  order the server cannot rely on. `readCookies()` returns every candidate,
-  capped at 8, and `readEnvelope()` takes the first that unseals *and*
-  validates. A `__Host-` name is the real fix; this stops a planted duplicate
-  from taking precedence or denying the real session.
+- **The cookie is read as a list, not a value.** A cookie is identified by
+  name *plus* domain and path, so a request may legitimately carry two of the
+  same name — host-only and parent-domain — in an order the server cannot rely
+  on. `readCookies()` returns every candidate and `readEnvelope()` takes the
+  first that unseals *and* validates, so a junk duplicate does not take
+  precedence over the real session.
+
+  This is a robustness measure, **not** a defence against an attacker who can
+  write cookies for the host. The candidate list is capped at 8
+  (`MAX_COOKIE_CANDIDATES`, `src/cookie.ts`) because the loop costs one
+  AES-GCM open per candidate per secret, and RFC 6265 sends longer-`Path`
+  cookies first — so someone able to set host cookies can plant nine at a
+  deeper path and push the real one past the cap, denying the session. The cap
+  bounds the work; it does not guarantee the real cookie is reached.
+
+  The actual mitigation is the `__Host-` prefix, which is why it is the
+  default. It pins the cookie host-only and `Path=/`, which are exactly the
+  two fields that distinguish same-name cookies — so at most one
+  `__Host-session` can exist, and a sibling subdomain cannot write one at all.
+  An app that opts out of the prefix (to share a cookie across subdomains)
+  accepts the duplicate-flooding case above.
 
 ## Two things the shape of the cookie decides
 
@@ -105,6 +120,15 @@ any session that was loaded or committed, so every request re-seals and
 `maxAge` becomes an idle timeout — at the price of a `Set-Cookie` per response
 and, with a store, a write per request. It never fires for a session that does
 not exist yet, so anonymous traffic still receives no cookie.
+
+`rolling` interacts with prerendered routes. `varyOnCookie()` withholds
+`Vary: Cookie` from `ssg`/`isg` responses, but the commit itself is not
+withheld, and `isCacheableISGResponse()`
+(`packages/framework/src/revalidation.ts`) rejects any response carrying a
+`Set-Cookie`. So a route group that mixes `rolling` with prerendered routes
+serves them uncached to every signed-in visitor. That is the right answer —
+the alternative is replaying one visitor's `Set-Cookie` to the next — but it
+is silent, so the recipe tells apps to scope `rolling` to the `ssr` group.
 
 ## Middleware shape
 

@@ -27,8 +27,11 @@ export function sessions(): SessionStorage<AppSession> {
   storage ??= createSessionStorage<AppSession>({
     // `__Host-` is enforced by the browser: the cookie is rejected unless it
     // is Secure, Path=/, and host-only, so a sibling subdomain cannot write a
-    // cookie this app would read. It also pins Secure on, which browsers
-    // accept over http://localhost.
+    // cookie this app would read. This is also the default name.
+    //
+    // The prefix pins Secure on, including in dev. Chrome 89+ and Firefox 75+
+    // accept a Secure cookie over http://localhost; browsers that do not will
+    // drop it, and an unprefixed name is the workaround there.
     cookie: { name: "__Host-session", secrets: [secret()] },
   });
   return storage;
