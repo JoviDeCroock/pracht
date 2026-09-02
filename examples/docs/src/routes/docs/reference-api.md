@@ -15,6 +15,22 @@ next:
 Almost everything comes from `@pracht/core`. The package declares a `browser`
 condition, so a client bundle automatically resolves to a client-safe subset of
 the same entry point — you do not pick a different specifier for the browser.
+That condition carries its own type declarations, so a server-only export such
+as `handlePrachtRequest` is a compile error in client code rather than a
+bundling failure. TypeScript only applies the condition when you ask it to, in
+a `tsconfig.json` used for client-only code:
+
+```json [tsconfig.client.json]
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "customConditions": ["browser"]
+  }
+}
+```
+
+Without it — and in a project with one `tsconfig.json` covering loaders and
+components alike — types keep resolving to the full entry, exactly as before.
 
 | Specifier | Use |
 | --- | --- |
@@ -81,7 +97,7 @@ See [Agent Workflow](/docs/agent-workflow).
 
 | Export | Returns | Description |
 | --- | --- | --- |
-| `useRouteData()` | The loader's data | The active route's loader result. See [Data Loading](/docs/data-loading) |
+| `useRouteData(routeId?)` | The loader's data | The active route's loader result. The optional route id types the result; passing an id other than the active route throws. See [Data Loading](/docs/data-loading#useroutedata) |
 | `useParams()` | `Record<string, string>` | Matched dynamic segments. See [Routing](/docs/routing#reading-params) |
 | `useLocation()` | `{ pathname, search }` | The current URL as the visitor sees it, deploy base included |
 | `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws — navigate instead |
