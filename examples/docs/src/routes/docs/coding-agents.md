@@ -270,7 +270,7 @@ pracht publishes 33 [Claude Code skills](https://code.claude.com/docs/en/skills)
 
 The source of truth lives in the repo's [skills/ directory](https://github.com/JoviDeCroock/pracht/tree/main/skills), with per-skill descriptions in [skills/README.md](https://github.com/JoviDeCroock/pracht/blob/main/skills/README.md). Instead of globbing `src/`, the skills read the resolved app graph via `pracht inspect routes|api|build --json`.
 
-Skills and the MCP server are two front doors onto one source of truth. The skills shell out to `pracht inspect ... --json`, `pracht doctor`, and `pracht verify`; [`pracht dev-mcp`](#the-authoring-mcp-server) exposes the same commands as native tools for clients that prefer tool calls to shell access. Neither reads your source directly. Use whichever fits your client, or both.
+Skills and the MCP server overlap but are not interchangeable. [`pracht dev-mcp`](#the-authoring-mcp-server) exposes graph inspection, `doctor`, `verify`, and the generators as native tools, and nothing else. A skill reaches the same commands by shelling out to `pracht inspect ... --json`, `pracht doctor`, and `pracht verify`, then reads source where the check needs something the graph does not carry — `/audit-islands` opens `src/routes.ts` to see inherited hydration, `/audit-secrets` scans `src/server/**` for values that must not cross to the client. Start from the resolved graph either way; use whichever fits your client, or both.
 
 ### Context Cost
 

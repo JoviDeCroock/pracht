@@ -142,7 +142,8 @@ The first call never runs the capability — it answers with a short-lived token
 
 ```jsonc
 // POST /api/capabilities/notes/purge  { "titlePrefix": "Old" }
-// → 409
+// → 409  — the "v1" prefix is the stateless HMAC form; an app that registers
+//   an approval store issues "v2" and adds an approvalId.
 {
   "ok": false,
   "error": {
@@ -161,15 +162,20 @@ The whole exchange is two `curl`s against the [`examples/basic`](https://github.
 # 1. Prepare. The capability does not run.
 curl -s -X POST http://localhost:3000/api/capabilities/notes/purge \
   -H 'content-type: application/json' -d '{"titlePrefix":"Old"}'
-# → 409 { "error": { "code": "confirmation_required", "confirmationToken": "v1...." } }
+# → 409
+# { "ok": false, "error": { "code": "confirmation_required",
+#     "message": "Capability \"notes.purge\" is destructive. To commit, repeat the call…",
+#     "confirmationToken": "v2....", "expiresAt": 1735689720, "approvalId": "…" } }
 
 # 2. Commit. Identical input, plus the token.
 curl -s -X POST http://localhost:3000/api/capabilities/notes/purge \
   -H 'content-type: application/json' \
-  -H 'x-pracht-confirm: v1....' \
+  -H 'x-pracht-confirm: v2....' \
   -d '{"titlePrefix":"Old"}'
 # → { "ok": true, "data": { "purged": 1 } }
 ```
+
+The `v2` prefix is `examples/basic` [registering an approval store](#durable-approvals), which is also where `approvalId` comes from — it names the proposal the commit consumes.
 
 Change one character of the body on the second call and it fails: the token is bound to the input, not just to the capability name. Validation failures answer the same way, path-scoped so a caller can correct itself:
 
@@ -543,23 +549,44 @@ That is a **scope, not a per-callee check**, and the difference matters. One cle
 
 ## pracht eval: Prove Agent Flows in CI
 
-Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against your live app's agent surface and exits 1 on any failed expectation. Three steps from the scenario the `examples/basic` app ships:
+Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against your live app's agent surface and exits 1 on any failed expectation. This is the scenario the `examples/basic` app ships, in full:
 
-```jsonc [evals/notes.eval.json (abridged)]
+```jsonc [evals/notes.eval.json]
 {
   "name": "notes agent flow",
+  "task": "Search notes, hit a validation failure, then purge with the confirmation flow.",
   "steps": [
-    { "capability": "notes.search", "input": { "query": "roadmap" } },
     {
-      "capability": "notes.purge",
-      "input": { "titlePrefix": "Old" },
-      "expect": { "status": 409, "errorCode": "confirmation_required" }
+      "capability": "notes.search",
+      "input": { "query": "capabilities" },
+      "expect": { "ok": true, "status": 200 }
+    },
+    {
+      "capability": "notes.search",
+      "input": { "query": "" },
+      "expect": { "ok": false, "status": 400, "errorCode": "invalid_input" }
+    },
+    {
+      "capability": "notes.create",
+      "input": { "title": "Purge target", "body": "Created by pracht eval." },
+      "expect": { "ok": true, "output": { "note": { "title": "Purge target" } } }
     },
     {
       "capability": "notes.purge",
-      "input": { "titlePrefix": "Old" },
-      "confirm": "$steps[1].error.confirmationToken",
-      "expect": { "ok": true, "output": { "purged": 1 } }
+      "input": {
+        "titlePrefix": "Purge target",
+        "idempotencyKey": "$steps[2].data.note.id"
+      },
+      "expect": { "ok": false, "status": 409, "errorCode": "confirmation_required" }
+    },
+    {
+      "capability": "notes.purge",
+      "input": {
+        "titlePrefix": "Purge target",
+        "idempotencyKey": "$steps[2].data.note.id"
+      },
+      "confirm": "$steps[3].error.confirmationToken",
+      "expect": { "ok": true }
     }
   ]
 }
@@ -579,25 +606,31 @@ Each step reports the capability's own dispatch status, so a scenario reads as t
 
 ```
 PASS  notes agent flow  (evals/notes.eval.json)
-  ✓ 1. notes.search → ok (200)
-  ✓ 2. notes.search → invalid_input (400)
-  ✓ 3. notes.create → ok (200)
-  ✓ 4. notes.purge → confirmation_required (409)
-  ✓ 5. notes.purge → ok (200)
+  ✓ 1. notes.search → ok (200, 12ms)
+  ✓ 2. notes.search → invalid_input (400, 3ms)
+  ✓ 3. notes.create → ok (200, 5ms)
+  ✓ 4. notes.purge → confirmation_required (409, 4ms)
+  ✓ 5. notes.purge → ok (200, 6ms)
 
 PASS  notes agent flow over MCP  [mcp]  (evals/notes-mcp.eval.json)
-  ✓ 1. notes.search → ok (200)
-  ✓ 2. notes.search → invalid_input (400)
-  ✓ 3. notes.create → ok (200)
+  ✓ 1. notes.search → ok (200, 15ms)
+  ✓ 2. notes.search → invalid_input (400, 4ms)
+  ✓ 3. notes.create → ok (200, 7ms)
+  ✓ 4. notes.purge → confirmation_required (409, 5ms)
+  ✓ 5. notes.purge → ok (200, 8ms)
+
+2 scenario(s) passed, 0 failed.
 ```
+
+Each step prints `(status, latency)`; the millisecond figures are whatever that run measured.
 
 ### The Same Scenario Over Remote MCP
 
 An `expose.mcp` capability is only proven when an MCP host can actually call it. Add one line and the same scenario runs over the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead: the runner performs a real `initialize` handshake, then issues every step as a `tools/call` with the projected tool name (`notes.search` → `notes_search`).
 
-That is the `[mcp]` run in the output above — the same task, driven the way a host drives it, with nothing changed but `"transport": "mcp"` in the scenario file. Its statuses match the HTTP run because the runner reports the capability's dispatch status rather than the JSON-RPC transport's blanket `200`.
+That is the `[mcp]` run in the output above: the same five steps in the same order, driven the way a host drives it. `"transport": "mcp"` is the only field that moves the scenario onto the endpoint — the shipped MCP file otherwise differs only in the note titles it uses, so both scenarios can run against one server without colliding. Its statuses match the HTTP run because the runner reports the capability's dispatch status rather than the JSON-RPC transport's blanket `200`.
 
-```jsonc [evals/notes-mcp.eval.json]
+```jsonc [evals/notes-mcp.eval.json — transport keys]
 {
   "name": "notes agent flow over MCP",
   "transport": "mcp",              // default is "http"
