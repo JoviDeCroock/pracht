@@ -9,10 +9,14 @@ import { redirect, type LoaderArgs } from "@pracht/core";
  * land on the page that absorbed the content. One module serves all of them;
  * the target is chosen from the request path.
  *
- * Fragments survive automatically: a browser re-applies the original `#anchor`
- * when the redirect's `Location` carries none, and the absorbing pages keep the
- * old heading text (`#destructive-tools`, `#oauth-letting-a-real-host-connect`)
- * so those deep links still resolve.
+ * A browser re-applies the original `#anchor` when the redirect's `Location`
+ * carries none, so a fragment survives the hop — but only lands somewhere if
+ * the target page still has that heading. Two were worth preserving deliberately
+ * because other pages linked them: `#destructive-tools` and
+ * `#oauth-letting-a-real-host-connect`, both kept verbatim on
+ * `/docs/capabilities`. Every other old fragment has no counterpart on the page
+ * that absorbed it and simply lands at the top, which is the intended outcome —
+ * the surrounding content moved, so a stale anchor has nothing to point at.
  *
  * These routes are excluded from `sitemap.xml` (see `vite-plugin-sitemap.ts`)
  * and never enter `llms.txt`, which is generated from the Markdown collection

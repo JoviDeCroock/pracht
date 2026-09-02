@@ -45,7 +45,7 @@ It speaks MCP over stdin/stdout, logs to stderr, and runs until stdin closes. Yo
 With Claude Code, from an app directory that has `@pracht/cli` installed:
 
 ```sh
-claude mcp add pracht -- npx pracht dev-mcp
+claude mcp add pracht -- npx --no-install pracht dev-mcp
 ```
 
 Or check an `.mcp.json` into the repository root so every collaborator and CI agent picks it up automatically:
@@ -55,11 +55,13 @@ Or check an `.mcp.json` into the repository root so every collaborator and CI ag
   "mcpServers": {
     "pracht": {
       "command": "npx",
-      "args": ["pracht", "dev-mcp"]
+      "args": ["--no-install", "pracht", "dev-mcp"]
     }
   }
 }
 ```
+
+`--no-install` is load-bearing, not a speed optimization: it pins the server to the `@pracht/cli` this project depends on and fails loudly when that binary is missing. Without it, `npx pracht` falls back to fetching an unrelated registry package literally named `pracht`, and an agent ends up describing a CLI the app does not build with.
 
 Apps scaffolded with `create-pracht` get this file — plus the [skills](#agent-skills) in `.claude/skills/` — unless you pass `--no-agent-tools`.
 
@@ -266,7 +268,9 @@ pracht publishes 33 [Claude Code skills](https://code.claude.com/docs/en/skills)
 | Testing scaffolds       | `/scaffold-tests`, `/scaffold-e2e`, `/pracht-test-api`                                                                                                                                          |
 | App primitives          | `/add-auth`, `/add-db`, `/add-i18n`, `/add-observability`, `/add-content`, `/add-images`, `/add-capabilities`, `/add-openapi`, `/typed-routes`, `/configure-isg`                                 |
 
-The source of truth lives in the repo's [skills/ directory](https://github.com/JoviDeCroock/pracht/tree/main/skills), with per-skill descriptions in [skills/README.md](https://github.com/JoviDeCroock/pracht/blob/main/skills/README.md). Instead of globbing `src/`, the skills read the resolved app graph via `pracht inspect routes|api|build --json` — the same source of truth the MCP server exposes as native tools. Use whichever fits your client, or both.
+The source of truth lives in the repo's [skills/ directory](https://github.com/JoviDeCroock/pracht/tree/main/skills), with per-skill descriptions in [skills/README.md](https://github.com/JoviDeCroock/pracht/blob/main/skills/README.md). Instead of globbing `src/`, the skills read the resolved app graph via `pracht inspect routes|api|build --json`.
+
+Skills and the MCP server are two front doors onto one source of truth. The skills shell out to `pracht inspect ... --json`, `pracht doctor`, and `pracht verify`; [`pracht dev-mcp`](#the-authoring-mcp-server) exposes the same commands as native tools for clients that prefer tool calls to shell access. Neither reads your source directly. Use whichever fits your client, or both.
 
 ### Context Cost
 

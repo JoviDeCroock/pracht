@@ -155,6 +155,32 @@ The first call never runs the capability — it answers with a short-lived token
 
 The token is an HMAC over the caller's principal (verified agent key, or `"anonymous"`), the capability name, the canonicalized input, and an expiry. Committing means repeating the call with identical input plus the `x-pracht-confirm` header — tampered, expired, different-input, or different-principal tokens are rejected with `403`, fail closed.
 
+The whole exchange is two `curl`s against the [`examples/basic`](https://github.com/JoviDeCroock/pracht/tree/main/examples/basic) app, which is worth running once to see that the gate is real rather than advisory:
+
+```sh
+# 1. Prepare. The capability does not run.
+curl -s -X POST http://localhost:3000/api/capabilities/notes/purge \
+  -H 'content-type: application/json' -d '{"titlePrefix":"Old"}'
+# → 409 { "error": { "code": "confirmation_required", "confirmationToken": "v1...." } }
+
+# 2. Commit. Identical input, plus the token.
+curl -s -X POST http://localhost:3000/api/capabilities/notes/purge \
+  -H 'content-type: application/json' \
+  -H 'x-pracht-confirm: v1....' \
+  -d '{"titlePrefix":"Old"}'
+# → { "ok": true, "data": { "purged": 1 } }
+```
+
+Change one character of the body on the second call and it fails: the token is bound to the input, not just to the capability name. Validation failures answer the same way, path-scoped so a caller can correct itself:
+
+```sh
+curl -s -X POST http://localhost:3000/api/capabilities/notes/search \
+  -H 'content-type: application/json' -d '{"query":"","limit":99}'
+# { "ok": false, "error": { "code": "invalid_input", "issues": [
+#   { "path": "/query", "message": "must be at least 1 character(s) long" },
+#   { "path": "/limit", "message": "must be <= 20" } ] } }
+```
+
 From your own browser code, the typed client spells out both halves and sets the header for you. Once `pracht typegen` has registered the effect class, omitting both options is a compile error rather than a 409 you discover at runtime:
 
 ```ts [src/islands/PurgeButton.tsx]
@@ -517,9 +543,9 @@ That is a **scope, not a per-callee check**, and the difference matters. One cle
 
 ## pracht eval: Prove Agent Flows in CI
 
-Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against your live app's agent surface and exits 1 on any failed expectation:
+Can an agent actually complete a task through your capabilities? `pracht eval` runs scripted scenarios against your live app's agent surface and exits 1 on any failed expectation. Three steps from the scenario the `examples/basic` app ships:
 
-```jsonc [evals/notes.eval.json]
+```jsonc [evals/notes.eval.json (abridged)]
 {
   "name": "notes agent flow",
   "steps": [
@@ -549,9 +575,27 @@ pracht preview                          # in another terminal
 pracht eval --url http://localhost:3000
 ```
 
+Each step reports the capability's own dispatch status, so a scenario reads as the task an agent was trying to perform rather than as a list of HTTP calls:
+
+```
+PASS  notes agent flow  (evals/notes.eval.json)
+  ✓ 1. notes.search → ok (200)
+  ✓ 2. notes.search → invalid_input (400)
+  ✓ 3. notes.create → ok (200)
+  ✓ 4. notes.purge → confirmation_required (409)
+  ✓ 5. notes.purge → ok (200)
+
+PASS  notes agent flow over MCP  [mcp]  (evals/notes-mcp.eval.json)
+  ✓ 1. notes.search → ok (200)
+  ✓ 2. notes.search → invalid_input (400)
+  ✓ 3. notes.create → ok (200)
+```
+
 ### The Same Scenario Over Remote MCP
 
 An `expose.mcp` capability is only proven when an MCP host can actually call it. Add one line and the same scenario runs over the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead: the runner performs a real `initialize` handshake, then issues every step as a `tools/call` with the projected tool name (`notes.search` → `notes_search`).
+
+That is the `[mcp]` run in the output above — the same task, driven the way a host drives it, with nothing changed but `"transport": "mcp"` in the scenario file. Its statuses match the HTTP run because the runner reports the capability's dispatch status rather than the JSON-RPC transport's blanket `200`.
 
 ```jsonc [evals/notes-mcp.eval.json]
 {

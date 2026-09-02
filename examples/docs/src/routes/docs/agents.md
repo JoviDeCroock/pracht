@@ -198,7 +198,7 @@ curl -s -X POST http://localhost:3000/api/capabilities/notes/search \
 # { "ok": true, "data": { "notes": [...] } }
 ```
 
-Then visit [`/notes`](http://localhost:3000/notes) to see the human projection of the same contracts, and `/_pracht` to watch the capability traffic with agent attribution. [Capabilities](/docs/capabilities) and [Agent Trust](/docs/agent-trust) carry the rest of the walkthrough: the validation envelope, the destructive confirmation exchange, and the same flow replayed as a `pracht eval` scenario over HTTP and over MCP.
+Then visit [`/notes`](http://localhost:3000/notes) to see the human projection of the same contracts, and `/_pracht` to watch the capability traffic with agent attribution. Agent Trust carries the rest of the walkthrough: the [destructive confirmation exchange](/docs/agent-trust#destructive-capabilities-preparecommit) as two `curl`s, and [the same flow replayed as a `pracht eval` scenario](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) over HTTP and over real MCP `tools/call`.
 
 The [`showcase`](https://github.com/JoviDeCroock/pracht/tree/main/examples/showcase) example is the fuller version: six operations projected to the browser, to progressively-enhanced forms, to in-page WebMCP agents, to signed remote callers, and to MCP tools at `/mcp`, behind one set of policies.
 

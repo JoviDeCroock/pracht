@@ -298,7 +298,7 @@ export function Component(_props: RouteComponentProps<typeof loader>) {
             <strong>pracht</strong> resolves your routes, loaders, API routes, and{" "}
             <strong>capabilities</strong> into one explicit graph — then projects it to browsers{" "}
             <em>and</em> to agents: HTTP endpoints, WebMCP page tools, remote MCP, and{" "}
-            <code>llms.txt</code>. Other frameworks render your app for humans and leave agents to
+            <code>llms.txt</code>. Most frameworks render your app for humans and leave agents to
             scrape it.
           </p>
 
