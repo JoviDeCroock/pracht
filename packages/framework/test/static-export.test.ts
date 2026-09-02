@@ -201,7 +201,7 @@ describe("prerenderApp staticExport", () => {
       await expect(prerenderApp({ app, registry: brokenRegistry })).rejects.toMatchObject({
         cause: renderError,
         message: expect.stringMatching(
-          /No SSG\/ISG pages were prerendered: all 1 attempted render returned a non-200 response.*empty prerender output/s,
+          /Failed to prerender SSG route "\/docs".*document request returned status 500/s,
         ),
       });
     } finally {
@@ -209,7 +209,8 @@ describe("prerenderApp staticExport", () => {
     }
   });
 
-  it("keeps successful output when only some serverful prerenders fail", async () => {
+  it("fails the build when any serverful prerender returns a 5xx", async () => {
+    const renderError = new Error("optional page data unavailable");
     const app = defineApp({
       routes: [
         route("/working", "./routes/working.tsx", { render: "ssg" }),
@@ -224,7 +225,7 @@ describe("prerenderApp staticExport", () => {
         "/src/routes/broken.tsx": async () => ({
           Component: () => h("main", null, "broken"),
           loader: () => {
-            throw new Error("optional page data unavailable");
+            throw renderError;
           },
         }),
       },
@@ -232,8 +233,12 @@ describe("prerenderApp staticExport", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     try {
-      const pages = await prerenderApp({ app, registry: partialRegistry });
-      expect(pages.map((page) => page.path)).toEqual(["/working"]);
+      await expect(prerenderApp({ app, registry: partialRegistry })).rejects.toMatchObject({
+        cause: renderError,
+        message: expect.stringMatching(
+          /Failed to prerender SSG route "\/broken".*document request returned status 500/s,
+        ),
+      });
     } finally {
       warn.mockRestore();
     }

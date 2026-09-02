@@ -60,10 +60,9 @@ const ANY_FENCE = /^```(\S+)(.*)$/;
 /** The one form this harness understands: ```` ```ts ```` or ```` ```tsx [path] ````. */
 const TS_FENCE = /^```(tsx?)(?:\s+\[([^\]]+)\])?\s*$/;
 
-// Owned by another workstream, so its fences are extracted and checked but its
-// failures are not yet a gate. A pending page that becomes clean fails the
-// suite below, so this list cannot outlive the problem it names.
-const PENDING_PAGES = new Set(["recipes-auth.md"]);
+// A pending page is still extracted, but its diagnostics do not gate the
+// suite. Keep this empty unless a parallel workstream temporarily owns a page.
+const PENDING_PAGES = new Set<string>();
 
 /**
  * A stand-in for `@cloudflare/workers-types`, which this repo does not depend

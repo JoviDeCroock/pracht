@@ -53,8 +53,9 @@ export const app = defineApp({
 
 Capability modules live in `src/capabilities/` by default (configurable via
 the `capabilitiesDir` plugin option). Names are dot-separated segments of
-letters, numbers, hyphens, and underscores. Capabilities are manifest-mode
-only for now — the pages router has no manifest to register them in.
+letters, numbers, hyphens, and underscores. In pages mode, every module in
+`capabilitiesDir` is registered automatically; its `defineCapability({ name })`
+must map back to the filename, with dots written as hyphens.
 
 ## Scaffolding
 
@@ -64,7 +65,8 @@ pracht generate capability --name notes.search --effect read --expose http,webmc
 
 Writes `src/capabilities/notes-search.ts` with `expose`, `effect`, and `input`
 as inline literals (which the browser projection's static analysis requires)
-and registers the name in the manifest. `--effect` defaults to `read`;
+and registers the name in a manifest app. Pages apps take the name from the
+module and need no manifest edit. `--effect` defaults to `read`;
 `--expose` is omitted for a private capability, and `--description` is required
 whenever it is set — that text is the contract an agent reads. The generator
 refuses the combinations the runtime and `pracht verify` reject anyway: a

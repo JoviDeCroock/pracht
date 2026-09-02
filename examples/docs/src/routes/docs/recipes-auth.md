@@ -344,6 +344,8 @@ Trigger logout from anywhere with a form. It must be a `POST` — a `GET` logout
 link is a one-click CSRF and gets pre-fetched by link scanners:
 
 ```tsx
+import { Form } from "@pracht/core";
+
 <Form method="post" action="/api/auth/logout">
   <button type="submit">Log out</button>
 </Form>
@@ -451,6 +453,7 @@ data must never leave the server.
 
 ```ts [src/server/session.ts]
 import { createSessionStorage } from "@pracht/session";
+import { serverEnv } from "@pracht/core/env/server";
 
 export function sessions() {
   return createSessionStorage<AppSession>({
@@ -497,6 +500,9 @@ than `maxAge` without changing anything is logged out mid-session.
 If you want `maxAge` to behave as an **idle** timeout instead, pass `rolling`:
 
 ```ts
+import { serverEnv } from "@pracht/core/env/server";
+import { createSessionStorage } from "@pracht/session";
+
 createSessionStorage<AppSession>({
   cookie: { name: "__Host-session", secrets: [serverEnv.SESSION_SECRET as string], maxAge: 60 * 30 },
   // Every request under sessionMiddleware() re-seals the cookie, so the
@@ -547,12 +553,14 @@ This runs before API middleware, is controlled by
 out only if you build your own CSRF protection into middleware:
 
 ```ts [src/routes.ts]
+import { defineApp } from "@pracht/core";
+
 defineApp({
   api: {
     middleware: ["session"],
     requireSameOrigin: false, // default: true
   },
-  routes: [...],
+  routes: [],
 });
 ```
 
@@ -608,13 +616,15 @@ stricter built-in check off since it would reject the allowlisted origins
 first:
 
 ```ts
+import { defineApp } from "@pracht/core";
+
 defineApp({
   middleware: {
     auth: "./middleware/auth.ts",
     originCheck: "./middleware/origin-check.ts",
   },
   api: { middleware: ["originCheck"], requireSameOrigin: false },
-  routes: [...],
+  routes: [],
 });
 ```
 
@@ -639,7 +649,12 @@ one is brute-forceable offline from a single stolen cookie.
 To rotate: put the new secret first and keep the old one for one release.
 
 ```ts
-secrets: [serverEnv.SESSION_SECRET_V2 as string, serverEnv.SESSION_SECRET as string];
+import { serverEnv } from "@pracht/core/env/server";
+
+const secrets = [
+  serverEnv.SESSION_SECRET_V2 as string,
+  serverEnv.SESSION_SECRET as string,
+];
 ```
 
 Every existing cookie still opens under the old secret and is re-sealed with

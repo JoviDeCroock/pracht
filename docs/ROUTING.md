@@ -1114,20 +1114,20 @@ is what keeps `hasAgentSurface()`, `extractCapabilities()`, and
 ### App config via `_app.config.ts`
 
 `agents` and `constraints` are app-wide, so they come from one root-level
-`src/pages/_app.config.ts` rather than from the file system. Exactly three
-named exports are read — `agents`, `constraints`, `notFound` — and the
-generated manifest names only the ones the module actually declares: emitting
+`src/pages/_app.config.ts` rather than from the file system. Exactly two
+named exports are read — `agents` and `constraints` — and the generated
+manifest names only the ones the module actually declares: emitting
 `agents: undefined` would make an app that configures nothing look like it
 opted into the agent surface, and an unused import would not typecheck in an
 ejected manifest.
 
-`notFound` is a fallback. `pages/404.tsx` is the more specific declaration and
-wins; the export covers apps that render their not-found page another way.
+The not-found page is `pages/404.tsx`. It stays in the client route registry,
+where the router can load it without importing server-only app configuration.
 
 The file is root-only for the reason `_middleware` is, and fails closed on
 every shape that leaves an app looking configured while nothing is registered:
 a nested copy, an unsupported extension, duplicates, a default export, a module
-exporting none of the three keys, and `export * from …` (whose names cannot be
+exporting neither key, and `export * from …` (whose names cannot be
 read without loading the module). Each is an error in build, `doctor`, and
 `verify`.
 
@@ -1268,8 +1268,8 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 
 The ejected manifest carries everything auto-discovery registered: every `_app`
 as a named shell, `_middleware` as the `pages` middleware, every capability
-module under its resolved name, and the `agents` / `constraints` / `notFound`
-exports of `_app.config.ts` as ordinary imports.
+module under its resolved name, and the `agents` / `constraints` exports of
+`_app.config.ts` as ordinary imports. `pages/404.tsx` remains the not-found page.
 
 Then remove `pagesDir` from your pracht config and point the discovery
 directories at the files the ejected manifest references — the runtime

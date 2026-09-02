@@ -496,7 +496,7 @@ export const middleware: MiddlewareFn = async (_args, next) => next();
     ).toBe(false);
   });
 
-  it("warns when manifest middleware sits inside a client registry directory", () => {
+  it("fails when manifest middleware sits inside a client registry directory", () => {
     const appDir = createTempDir("pracht-cli-verify-middleware-client-boundary-");
     writeManifestApp(appDir, {
       routesSource: `import { defineApp } from "@pracht/core";
@@ -531,12 +531,13 @@ export default defineConfig({
       "export const middleware = async (_args, next) => next();",
     );
 
-    const report = JSON.parse(runCli(["verify", "--json"], { cwd: appDir }).stdout);
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
     expect(
       report.checks.some(
         (check) =>
-          check.status === "warning" &&
-          check.message.includes("inside a client registry directory"),
+          check.status === "error" && check.message.includes("inside a client registry directory"),
       ),
     ).toBe(true);
   });
@@ -712,7 +713,7 @@ export default defineCapability({
       report.checks.some(
         (check) =>
           check.status === "error" &&
-          check.message.includes("exports none of `agents`, `constraints`, `notFound`"),
+          check.message.includes("exports none of `agents`, `constraints`"),
       ),
     ).toBe(true);
   });

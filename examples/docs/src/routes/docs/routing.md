@@ -606,7 +606,7 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-The generated manifest carries everything auto-discovery registered: every `_app` as a named shell, `_middleware` as the `pages` middleware, every `src/capabilities/` module under its resolved name, and the `agents` / `constraints` / `notFound` exports of `_app.config.ts` as ordinary imports. Nothing has to be re-declared by hand.
+The generated manifest carries everything auto-discovery registered: every `_app` as a named shell, `_middleware` as the `pages` middleware, every `src/capabilities/` module under its resolved name, and the `agents` / `constraints` exports of `_app.config.ts` as ordinary imports. `pages/404.tsx` remains the not-found page, so nothing has to be re-declared by hand.
 
 Then remove `pagesDir` from your pracht config and point the discovery directories at the files the ejected manifest references — the runtime resolves manifest refs through those directory registries, so a manifest pointing outside them fails closed at request time:
 

@@ -165,10 +165,7 @@ Patterns match route paths segment-wise: `*` matches exactly one segment, a trai
 ✖ Route "/app/billing" is missing required middleware "auth" (constraint pattern "/app/**").
 ```
 
-An agent that scaffolds a new route under `/app` without the auth middleware fails verification immediately — no reviewer vigilance required. And because constraints live in the manifest, weakening one is a visible, reviewable policy change rather than a silent drift.
-
-> [!NOTE]
-> Constraints are evaluated for manifest apps (`defineApp`) in this release, not the pages router.
+An agent that scaffolds a new route under `/app` without the auth middleware fails verification immediately — no reviewer vigilance required. Manifest apps declare constraints in `defineApp()`; pages apps export them from the root `src/pages/_app.config.ts`. Either way, weakening one is a visible, reviewable policy change rather than a silent drift.
 
 ---
 

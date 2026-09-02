@@ -25,7 +25,7 @@ yarn create pracht my-app
 bunx create-pracht my-app
 ```
 
-The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static export), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. Adapters can be changed later in `vite.config.ts`. Moving from pages routing to manifest routing is an explicit ejection step because named shells, route middleware, capabilities, constraints, and runtime agent configuration live in the manifest; see [Pages Router](/docs/routing#pages-router-auto-discovery).
+The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static export), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. Adapters can be changed later in `vite.config.ts`. Moving from pages routing to manifest routing is an explicit ejection step when you need per-route shell or middleware assignment, explicit route ids, path-prefix groups, or webhook ISG policies; see [Pages Router](/docs/routing#pages-router-auto-discovery).
 
 For reproducible setup in CI, demos, or agents, pass the same choices as flags:
 
@@ -40,7 +40,7 @@ Useful creation flags:
 - `--adapter=node|cf|vercel` chooses the deployment target.
 - `--router=manifest|pages` chooses explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, and `--no-tailwind` control styling setup.
-- `--agent-tools` and `--no-agent-tools` control `.claude/skills/`, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` setup.
+- `--agent-tools[=core|full]` and `--no-agent-tools` control `.claude/skills/`, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` setup.
 - `--skip-install`, `--no-git`, `--json`, and `--dry-run` are handy for automation.
 
 ---

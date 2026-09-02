@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readlinkSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 import { defineCommand } from "citty";

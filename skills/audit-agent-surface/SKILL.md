@@ -334,9 +334,7 @@ Severities:
 4. Distinguish `pracht dev-mcp` (the development-time stdio server exposing the app
    *graph* to coding agents) from the deployed `/mcp` endpoint exposing the app's
    *operations*. They have different threat models.
-5. State the framework guarantee before each finding so the reader can tell an
-   opt-out from a hole.
-6. Pair with `/audit-auth`, `/audit-csrf`, and `/audit-secrets` — this skill
+5. Pair with `/audit-auth`, `/audit-csrf`, and `/audit-secrets` — this skill
    owns agent reachability, not general request authorization.
 
 $ARGUMENTS

@@ -352,7 +352,7 @@ pracht dev-mcp
 
 This is the **authoring** server: it exposes your app's *graph* to the agent
 writing the code. It is not your app's own [remote MCP
-endpoint](/docs/remote-mcp), which exposes your app's *operations* to end-user
+endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), which exposes your app's *operations* to end-user
 agents in production. The command was called `pracht mcp` through v1.12; that
 name still works and behaves identically, printing a deprecation notice to
 stderr.

@@ -29,11 +29,11 @@ input validation → middleware chain → run() → output validation → audit 
 
 ---
 
-## Register in the Manifest
+## Register capabilities
 
 Capabilities are registered in `defineApp()`, exactly like shells and middleware. Registration is deliberately opt-in — no API route or loader is ever inferred as a capability.
 
-Capabilities require the explicit manifest router. A pages-router project can still use Pracht's [authoring MCP server](/docs/coding-agents) and generated skills, but it has no registration seam for capability HTTP endpoints, WebMCP, remote MCP, or runtime agent policy. [Eject the pages router to a manifest](/docs/routing#ejecting-to-explicit-manifest) before adding capabilities.
+With the pages router, every module in `src/capabilities/` is registered automatically. Name it with `defineCapability({ name })` or let its filename provide the name (`notes-search.ts` becomes `notes.search`). A root `src/pages/_app.config.ts` can export `agents` and `constraints`, so capability HTTP endpoints, WebMCP, remote MCP, typed clients, and `pracht eval` work in both router modes. See [Pages Router](/docs/routing#capabilities-via-srccapabilities).
 
 On `hydration: "islands"` routes, Pracht retains the page bootstrap whenever WebMCP is exposed, even when a response renders zero island components. Conditional UI therefore cannot make the agent tools silently appear or disappear. `hydration: "none"` remains deliberately zero-JavaScript and cannot expose in-page WebMCP tools.
 
@@ -44,6 +44,18 @@ export const app = defineApp({
     "notes.create": () => import("./capabilities/notes-create.ts"),
   },
   // shells, middleware, routes...
+});
+```
+
+```ts [src/capabilities/notes-search.ts]
+import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  name: "notes.search",
+  effect: "read",
+  input: { type: "object", properties: {}, additionalProperties: false },
+  output: { type: "object", properties: {}, additionalProperties: false },
+  run: async () => ({}),
 });
 ```
 
