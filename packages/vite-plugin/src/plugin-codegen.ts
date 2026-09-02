@@ -12,12 +12,7 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
-import {
-  createRouteHeadersHints,
-  createRouteHeadHints,
-  createRouteLoaderHints,
-  createRouteStaticPathsHints,
-} from "./route-loader-hints.ts";
+import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
@@ -149,12 +144,10 @@ export function createPrachtClientModuleSource(
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
-  const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
-  const routeHeadHints = createRouteHeadHintsForVirtualModules(resolved, buildOptions.root);
-  const routeStaticPathsHints = createRouteStaticPathsHintsForVirtualModules(
-    resolved,
-    buildOptions.root,
-  );
+  const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
+  const routeLoaderHints = routeHints.loader;
+  const routeHeadHints = routeHints.head;
+  const routeStaticPathsHints = routeHints.staticPaths;
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
@@ -330,12 +323,10 @@ export function createPrachtServerModuleSource(
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   const registrySource = createPrachtRegistryModuleSource(resolved);
-  const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
-  const routeHeadHints = createRouteHeadHintsForVirtualModules(resolved, buildOptions.root);
-  const routeStaticPathsHints = createRouteStaticPathsHintsForVirtualModules(
-    resolved,
-    buildOptions.root,
-  );
+  const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
+  const routeLoaderHints = routeHints.loader;
+  const routeHeadHints = routeHints.head;
+  const routeStaticPathsHints = routeHints.staticPaths;
   const clientBuild = buildOptions.isBuild
     ? readClientBuildAssets(buildOptions.root, buildOptions.base ?? "/")
     : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
@@ -441,12 +432,10 @@ export function createPrachtDevModuleSource(
   buildOptions: { root?: string; base?: string } = {},
 ): string {
   const resolved = resolveOptions(options);
-  const routeLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, buildOptions.root);
-  const routeHeadHints = createRouteHeadHintsForVirtualModules(resolved, buildOptions.root);
-  const routeStaticPathsHints = createRouteStaticPathsHintsForVirtualModules(
-    resolved,
-    buildOptions.root,
-  );
+  const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
+  const routeLoaderHints = routeHints.loader;
+  const routeHeadHints = routeHints.head;
+  const routeStaticPathsHints = routeHints.staticPaths;
   const appImport = resolved.pagesDir
     ? generatePagesAppInlineSource(resolved, buildOptions.root)
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
@@ -543,107 +532,100 @@ function createApplyRouteLoaderHintsSource(): string[] {
   ];
 }
 
-export function createRouteHeadHintsForVirtualModules(
+/**
+ * Every route hint table the generated client entry bakes in, resolved against
+ * the plugin's configured directories and keyed the way the app manifest names
+ * its modules.
+ *
+ * One call, one walk per directory, one parse per route file. The four tables
+ * used to be built independently, which walked the routes directory four times
+ * and re-parsed every route module four times — on each file of each save.
+ */
+export function createRouteHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
-): Record<string, boolean> {
+): RouteHints {
   const appFileAbs = resolve(root, options.appFile.slice(1));
   const appFileDir = dirname(appFileAbs);
+  // `pagesDir` defaults to "" rather than undefined, so test truthiness.
+  const routesPrefix = options.pagesDir || options.routesDir;
+  // In pages mode `scanPagesDirectory()` returns route records only — its final
+  // sort filters the `_app` shell out — so scan the directory itself, or a
+  // header-bearing pages shell would stop forcing a document reload.
   const directories = options.pagesDir
     ? [[options.pagesDir, resolve(root, options.pagesDir.slice(1))] as const]
     : [
         [options.routesDir, resolve(root, options.routesDir.slice(1))] as const,
         [options.shellsDir, resolve(root, options.shellsDir.slice(1))] as const,
       ];
-  return Object.assign(
-    {},
-    ...directories.map(([prefix, directory]) =>
-      createRouteHeadHints(directory, {
-        additionalExtensions: options.additionalExtensions,
-        appFileDir,
-        rootRelativePrefix: prefix,
-      }),
-    ),
-  );
+
+  const hints: RouteHints = {
+    head: {},
+    headers: {},
+    incomplete: false,
+    loader: {},
+    staticPaths: {},
+  };
+
+  for (const [prefix, directory] of directories) {
+    const scanned = createRouteHints(directory, {
+      additionalExtensions: options.additionalExtensions,
+      appFileDir,
+      rootRelativePrefix: prefix,
+    });
+    hints.incomplete ||= scanned.incomplete;
+    Object.assign(hints.head, scanned.head);
+    Object.assign(hints.headers, scanned.headers);
+    // A shell can own neither a loader nor `getStaticPaths()`, so only the
+    // routes directory contributes those two.
+    if (prefix === routesPrefix) {
+      Object.assign(hints.loader, scanned.loader);
+      Object.assign(hints.staticPaths, scanned.staticPaths);
+    }
+  }
+
+  if (options.pagesDir) {
+    // Pages routes are keyed by their manifest-relative path and carry the
+    // loader flag the pages scanner already resolved.
+    hints.loader = {};
+    for (const page of scanPagesDirectory(
+      resolve(root, options.pagesDir.slice(1)),
+      options.additionalExtensions,
+    )) {
+      hints.loader[`${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`] =
+        !!page.hasLoader;
+    }
+  }
+
+  return hints;
+}
+
+export function createRouteHeadHintsForVirtualModules(
+  options: ResolvedPrachtPluginOptions,
+  root = process.cwd(),
+): Record<string, boolean> {
+  return createRouteHintsForVirtualModules(options, root).head;
 }
 
 export function createRouteHeadersHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): Record<string, boolean> {
-  if (options.pagesDir) {
-    // `scanPagesDirectory()` returns route records only; its final sort filters
-    // the `_app` shell out. Scan the directory directly so a header-bearing
-    // pages shell keeps forcing a document reload in development.
-    return createRouteHeadersHints(resolve(root, options.pagesDir.slice(1)), {
-      additionalExtensions: options.additionalExtensions,
-      rootRelativePrefix: options.pagesDir,
-    });
-  }
-
-  const appFileAbs = resolve(root, options.appFile.slice(1));
-  const appFileDir = dirname(appFileAbs);
-  const directories = [
-    [options.routesDir, resolve(root, options.routesDir.slice(1))] as const,
-    [options.shellsDir, resolve(root, options.shellsDir.slice(1))] as const,
-  ];
-  return Object.assign(
-    {},
-    ...directories.map(([prefix, directory]) =>
-      createRouteHeadersHints(directory, {
-        additionalExtensions: options.additionalExtensions,
-        appFileDir,
-        rootRelativePrefix: prefix,
-      }),
-    ),
-  );
+  return createRouteHintsForVirtualModules(options, root).headers;
 }
 
-/**
- * `getStaticPaths()` presence per route file. Only routes matter — a shell
- * cannot enumerate paths — so unlike the head hints this skips the shells
- * directory.
- */
 export function createRouteStaticPathsHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): Record<string, boolean> {
-  const appFileAbs = resolve(root, options.appFile.slice(1));
-  const appFileDir = dirname(appFileAbs);
-  // `pagesDir` defaults to "" rather than undefined, so test truthiness.
-  const routesPrefix = options.pagesDir || options.routesDir;
-  return createRouteStaticPathsHints(resolve(root, routesPrefix.slice(1)), {
-    additionalExtensions: options.additionalExtensions,
-    appFileDir,
-    rootRelativePrefix: routesPrefix,
-  });
+  return createRouteHintsForVirtualModules(options, root).staticPaths;
 }
 
 export function createRouteLoaderHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): Record<string, boolean> {
-  if (options.pagesDir) {
-    const pages = scanPagesDirectory(
-      resolve(root, options.pagesDir.slice(1)),
-      options.additionalExtensions,
-    );
-    const hints: Record<string, boolean> = {};
-    for (const page of pages) {
-      const key = `${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`;
-      hints[key] = !!page.hasLoader;
-    }
-    return hints;
-  }
-
-  const appFileAbs = resolve(root, options.appFile.slice(1));
-  const appFileDir = dirname(appFileAbs);
-  const routesDirAbs = resolve(root, options.routesDir.slice(1));
-  return createRouteLoaderHints(routesDirAbs, {
-    additionalExtensions: options.additionalExtensions,
-    appFileDir,
-    rootRelativePrefix: options.routesDir,
-  });
+  return createRouteHintsForVirtualModules(options, root).loader;
 }
 
 /**

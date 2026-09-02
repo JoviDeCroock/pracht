@@ -391,12 +391,44 @@ difference here only shows up after deploy.
 - A loader, middleware, or render failure is logged once to
   `server.config.logger`, with phase, route id, request path, and message. The
   overlay only reaches a document navigation; a route-state fetch, a `curl`, or
-  a test run would otherwise see a 500 and nothing server-side. Expected 404s
-  are not logged, and the stack is appended only when the failure cannot be
-  attributed to a user module or when `DEBUG` is set.
+  a test run would otherwise see a 500 and nothing server-side. A body stream
+  that fails after the headers are on the wire is logged there too — destroying
+  the socket is all that is left, so the line is the only signal. Expected 404s
+  are not logged.
+- The stack is appended only when the failure names no user module, or under
+  `DEBUG` (`shouldIncludeDevErrorStack()`). A route/loader/shell file in
+  `RouteErrorContext`, Vite's `id`/`loc.file` on a transform error, or a stack
+  frame under the project root outside `node_modules` all count as named — the
+  message and the overlay already locate those, and repeating the trace for
+  each failing route-state poll buries the terminal. Anything unattributable is
+  a framework or module-loading fault where the trace is the only clue.
 - Both error paths check `res.headersSent` first. A failure *after* the
   response is on the wire would otherwise raise `ERR_HTTP_HEADERS_SENT` on top
-  of the original error, replacing it as the thing the developer sees.
+  of the original error, replacing it as the thing the developer sees. When the
+  response has *not* gone out, they clear every header already staged on it: a
+  `content-length` describing the abandoned body would truncate the error page
+  written in its place.
+
+### Route hint tables
+
+The generated client entry bakes in four per-route tables — does this module
+export `loader`, `head`, `headers`, `getStaticPaths` — which the browser's
+router reads to decide whether a navigation must fetch route state.
+`createRouteHints()` (`route-loader-hints.ts`) builds all four from one
+directory walk and one parse per route file; the per-table
+`createRoute*Hints()` exports are thin wrappers over it, as is
+`createRouteHintsForVirtualModules()` in `plugin-codegen.ts`, which resolves
+the plugin's configured directories. Building them independently meant walking
+`src/routes` and re-parsing every route module once per table, on every file of
+every save.
+
+`handleHotUpdate` compares the fresh scan against `emittedRouteHints` — a
+snapshot of what `load()` last baked into the entry, not the table the previous
+file in the same save just refreshed. A save that writes several files fires
+`handleHotUpdate` once per file against a disk that already holds all of them,
+so comparing against the freshly recomputed table reported "unchanged" for
+every file after the first. A scan that had to skip an entry reports
+`incomplete`, which forces reloads until `load()` rebuilds from a clean walk.
 
 The separate CSS-injection middleware (used by adapter-owned dev servers)
 buffers only responses whose content type is `text/html`, up to

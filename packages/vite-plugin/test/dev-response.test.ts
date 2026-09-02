@@ -18,9 +18,14 @@ function createResponse() {
   const stream = new PassThrough();
   const chunks: Buffer[] = [];
   stream.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
-  const finished = new Promise<void>((resolve) => stream.on("end", () => resolve()));
+  // `end` for a clean response, `close` for one destroyed mid-stream.
+  const finished = new Promise<void>((resolve) => {
+    stream.on("end", () => resolve());
+    stream.on("close", () => resolve());
+  });
   const res = Object.assign(stream, {
     getHeader: (name: string) => headers[name.toLowerCase()],
+    getHeaderNames: () => Object.keys(headers),
     removeHeader: (name: string) => {
       delete headers[name.toLowerCase()];
     },
@@ -81,8 +86,9 @@ async function request(
     ),
   };
 
+  const logger = { error: vi.fn(), warn: vi.fn() };
   const server = {
-    config: { base: "/", logger: { error: vi.fn(), warn: vi.fn() }, root: "/tmp/pracht-dev-res" },
+    config: { base: "/", logger, root: "/tmp/pracht-dev-res" },
     ssrFixStacktrace: () => {},
     ssrLoadModule: async (id: string) => {
       if (id === "@pracht/core/server") return frameworkServer;
@@ -101,7 +107,7 @@ async function request(
 
   await createDevSSRMiddleware(server)(req, response.res, vi.fn());
   await response.finished;
-  return response;
+  return { ...response, logger };
 }
 
 describe("writeDevResponseHeaders", () => {
@@ -175,6 +181,28 @@ describe("dev SSR response body", () => {
       "session=1; Path=/; HttpOnly",
       "theme=dark; Path=/",
     ]);
+  });
+
+  // The response is already on the wire when the body fails, so it can never
+  // become a 500. Destroying the socket silently left the developer with a
+  // truncated download and no explanation anywhere.
+  it("logs a body stream that fails mid-response", async () => {
+    const response = await request({
+      apiResponse: () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new Uint8Array([1, 2, 3]));
+              controller.error(new Error("body stream exploded"));
+            },
+          }),
+          { headers: { "content-type": "application/octet-stream" } },
+        ),
+    });
+
+    expect(response.logger.error).toHaveBeenCalledTimes(1);
+    expect((response.logger.error.mock.calls[0] as [string])[0]).toContain("body stream exploded");
+    expect((response.logger.error.mock.calls[0] as [string])[0]).toContain("/api/download");
   });
 
   it("answers a bodiless response without hanging", async () => {

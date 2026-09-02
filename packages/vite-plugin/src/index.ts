@@ -43,10 +43,7 @@ import {
   createPrachtClientModuleSource,
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
-  createRouteHeadersHintsForVirtualModules,
-  createRouteHeadHintsForVirtualModules,
-  createRouteLoaderHintsForVirtualModules,
-  createRouteStaticPathsHintsForVirtualModules,
+  createRouteHintsForVirtualModules,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
 } from "./plugin-codegen.ts";
@@ -66,6 +63,11 @@ import {
   extensionGlob,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import type { RouteHints } from "./route-loader-hints.ts";
+
+function emptyRouteHints(): RouteHints {
+  return { head: {}, headers: {}, incomplete: false, loader: {}, staticPaths: {} };
+}
 
 export type { RenderMode };
 export type { PrachtAdapter } from "./plugin-adapter.ts";
@@ -109,9 +111,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
-  let clientRouteHeadHints: Record<string, boolean> = {};
-  let clientRouteHeadersHints: Record<string, boolean> = {};
-  let clientRouteLoaderHints: Record<string, boolean> = {};
+  let clientRouteHints: RouteHints = emptyRouteHints();
   let serverRouteLoaderHints: Record<string, true> = {};
   // What the *browser's* client entry actually carries. `handleHotUpdate` runs
   // once per changed file, but recomputes from disk — which already reflects
@@ -120,12 +120,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   // reloaded and the browser keeps a baked `hasLoader: false`. These snapshots
   // only move when `load()` regenerates the entry, which is the moment the
   // browser's copy actually changes.
-  let emittedRouteHeadHints: Record<string, boolean> = {};
-  let emittedRouteHeadersHints: Record<string, boolean> = {};
-  let emittedRouteLoaderHints: Record<string, boolean> = {};
-  let emittedRouteStaticPathsHints: Record<string, boolean> = {};
-  // A hint scan that threw leaves every table describing the previous state of
-  // an unknown set of files. Force a reload until `load()` rebuilds them.
+  let emittedRouteHints: RouteHints = emptyRouteHints();
+  // A hint scan that threw, or that had to skip a file it could not read,
+  // leaves the tables describing an unknown subset of the routes directory.
+  // Force a reload until `load()` rebuilds them from a clean scan.
   let routeHintsNeedResync = false;
   const routeFileExtensions = withAdditionalExtensions(
     DEFAULT_ROUTE_EXTENSIONS,
@@ -360,17 +358,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtIslandsClientModuleSource(resolved, { root });
       }
       if (isClientModule(id)) {
-        clientRouteHeadHints = createRouteHeadHintsForVirtualModules(resolved, root);
-        clientRouteHeadersHints = createRouteHeadersHintsForVirtualModules(resolved, root);
-        clientRouteLoaderHints = createRouteLoaderHintsForVirtualModules(resolved, root);
+        clientRouteHints = createRouteHintsForVirtualModules(resolved, root);
         serverRouteLoaderHints = createServerLoaderHintsForHotUpdates(resolved, root);
         // These are the tables `createPrachtClientModuleSource()` is about to
         // bake into the module the browser receives.
-        emittedRouteHeadHints = clientRouteHeadHints;
-        emittedRouteHeadersHints = clientRouteHeadersHints;
-        emittedRouteLoaderHints = clientRouteLoaderHints;
-        emittedRouteStaticPathsHints = createRouteStaticPathsHintsForVirtualModules(resolved, root);
-        routeHintsNeedResync = false;
+        emittedRouteHints = clientRouteHints;
+        // A partial scan here means the entry ships hints for only some of the
+        // routes, so the next hint-relevant edit still has to reload.
+        routeHintsNeedResync = clientRouteHints.incomplete;
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
@@ -462,20 +457,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         }
       }
       const loaderDependencyHints = {
-        ...clientRouteLoaderHints,
+        ...clientRouteHints.loader,
         ...previousServerRouteLoaderHints,
         ...serverRouteLoaderHints,
       };
       const changesRouteHeadDependency = reachesRouteHintedModule(
         modules,
         serverRoot,
-        clientRouteHeadHints,
+        clientRouteHints.head,
         { startAtImporters: changesRouteHeadSource },
       );
       const changesRouteHeadersDependency = reachesRouteHintedModule(
         modules,
         serverRoot,
-        clientRouteHeadersHints,
+        clientRouteHints.headers,
         { startAtImporters: changesRouteHeadSource },
       );
       const changesRouteLoaderDependency = reachesRouteHintedModule(
@@ -492,27 +487,65 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (changesRouteHeadSource || changesRouteHeadDependency || changesRouteHeadersDependency) {
         clientHeadModule = server.moduleGraph.getModuleById(PRACHT_CLIENT_MODULE_ID);
       }
-      if (changesRouteHeadSource) {
-        const previousHint = emittedRouteHeadHints[relative] === true;
+      if (changesRouteHeadSource || changesRouteLoaderSource) {
         try {
-          const nextHints = createRouteHeadHintsForVirtualModules(resolved, root);
-          // Only a *transition* changes what the virtual client entry bakes:
-          // the hint is "does this module export head", and the client router
-          // reads it to decide whether a navigation must fetch route state.
-          // Reloading whenever a head-bearing route is touched — the old
-          // behaviour — meant every edit to such a route lost client state,
-          // and most routes export head. Editing the head *body* still needs a
-          // manual refresh to show in the document, which is the same rule
-          // pracht already applies to client-side navigation: head metadata is
-          // server-rendered and does not follow the router.
-          shouldReloadClientEntry ||= previousHint !== (nextHints[relative] === true);
-          clientRouteHeadHints = nextHints;
+          // One scan answers all four tables. Each is compared against what the
+          // client entry actually emitted, not against the table the previous
+          // file in this same save just refreshed — on disk both files are
+          // already new, so that comparison reported "unchanged" and left the
+          // browser holding the old route table.
+          const nextHints = createRouteHintsForVirtualModules(resolved, root);
+
+          if (changesRouteHeadSource) {
+            // Only a *transition* changes what the virtual client entry bakes:
+            // the hint is "does this module export head", and the client router
+            // reads it to decide whether a navigation must fetch route state.
+            // Reloading whenever a head-bearing route is touched — the old
+            // behaviour — meant every edit to such a route lost client state,
+            // and most routes export head. Editing the head *body* still needs
+            // a manual refresh to show in the document, which is the same rule
+            // pracht already applies to client-side navigation: head metadata
+            // is server-rendered and does not follow the router.
+            shouldReloadClientEntry ||=
+              (emittedRouteHints.head[relative] === true) !== (nextHints.head[relative] === true);
+
+            // A route-state fetch cannot update document response headers such
+            // as CSP or Cache-Control. Any edit to a module that owns headers —
+            // including adding or removing the export — needs a navigation.
+            shouldReloadClientEntry ||=
+              emittedRouteHints.headers[relative] === true || nextHints.headers[relative] === true;
+          }
+
+          if (changesRouteLoaderSource) {
+            // Like head presence, loader presence is baked into the browser's
+            // resolved route table. The custom stale-data event refreshes only
+            // the active route; a transition must reload the client entry so a
+            // later navigation does not keep using the old fetch decision.
+            shouldReloadClientEntry ||=
+              (emittedRouteHints.loader[relative] === true) !==
+              (nextHints.loader[relative] === true);
+
+            // `getStaticPaths()` presence sits in that same resolved route
+            // table, and the browser reads it to decide whether a route has any
+            // prerendered state to fetch at all.
+            shouldReloadClientEntry ||=
+              (emittedRouteHints.staticPaths[relative] === true) !==
+              (nextHints.staticPaths[relative] === true);
+          }
+
+          // A scan that skipped a file describes fewer routes than exist, so
+          // the comparison above cannot be trusted for the ones it missed.
+          shouldReloadClientEntry ||= nextHints.incomplete;
+          // Stays set until `load()` rebuilds the entry from a clean scan: the
+          // reload requested above is a request, not a guarantee.
+          routeHintsNeedResync ||= nextHints.incomplete;
+          clientRouteHints = nextHints;
         } catch {
           // A file can be observed while its editor is replacing it. Reloading
           // is the safe fallback because the previous or next module may own
-          // server-generated head state that cannot be patched in the browser.
-          // The retained table now describes an unknown mix of old and new, so
-          // keep forcing reloads until `load()` rebuilds it.
+          // server-generated state that cannot be patched in the browser, and
+          // the retained tables now describe an unknown mix of old and new — so
+          // keep forcing reloads until `load()` rebuilds them.
           shouldReloadClientEntry = true;
           routeHintsNeedResync = true;
         }
@@ -520,51 +553,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // A dependency such as src/fonts.ts is part of normal client HMR, but
         // its generated style/preload state only exists in the virtual entry.
         server.moduleGraph.invalidateModule(clientHeadModule);
-      }
-
-      if (changesRouteHeadSource) {
-        const previouslyHadHeaders = emittedRouteHeadersHints[relative] === true;
-        try {
-          const nextHints = createRouteHeadersHintsForVirtualModules(resolved, root);
-          // A route-state fetch cannot update document response headers such
-          // as CSP or Cache-Control. Any edit to a module that owns headers —
-          // including adding or removing the export — needs a real navigation.
-          shouldReloadClientEntry ||= previouslyHadHeaders || nextHints[relative] === true;
-          clientRouteHeadersHints = nextHints;
-        } catch {
-          shouldReloadClientEntry = true;
-          routeHintsNeedResync = true;
-        }
-      }
-
-      if (changesRouteLoaderSource) {
-        const previousHint = emittedRouteLoaderHints[relative] === true;
-        try {
-          const nextHints = createRouteLoaderHintsForVirtualModules(resolved, root);
-          // Like head presence, loader presence is baked into the browser's
-          // resolved route table. The custom stale-data event refreshes only
-          // the active route; a transition must reload the client entry so a
-          // later navigation does not keep using the old fetch decision.
-          shouldReloadClientEntry ||= previousHint !== (nextHints[relative] === true);
-          clientRouteLoaderHints = nextHints;
-        } catch {
-          shouldReloadClientEntry = true;
-          routeHintsNeedResync = true;
-        }
-      }
-
-      if (changesRouteLoaderSource) {
-        const previousHint = emittedRouteStaticPathsHints[relative] === true;
-        try {
-          const nextHints = createRouteStaticPathsHintsForVirtualModules(resolved, root);
-          // `getStaticPaths()` presence is baked into the same resolved route
-          // table as the loader and head hints, and the browser reads it to
-          // decide whether a route can be navigated to client-side at all.
-          shouldReloadClientEntry ||= previousHint !== (nextHints[relative] === true);
-        } catch {
-          shouldReloadClientEntry = true;
-          routeHintsNeedResync = true;
-        }
       }
 
       if (isPagesMode && relative.startsWith(resolved.pagesDir)) {

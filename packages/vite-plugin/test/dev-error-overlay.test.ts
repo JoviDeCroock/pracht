@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import * as frameworkServer from "../../framework/src/server.ts";
 import * as errorOverlay from "../../framework/src/error-overlay.ts";
 import { defineApp, resolveApp, route } from "../../framework/src/app.ts";
-import { createDevSSRMiddleware } from "../src/plugin-dev-ssr.ts";
+import { createDevSSRMiddleware, shouldIncludeDevErrorStack } from "../src/plugin-dev-ssr.ts";
 import { PRACHT_SERVER_MODULE_ID } from "../src/plugin-assets.ts";
 
 function createRequest(url: string): IncomingMessage {
@@ -31,6 +31,7 @@ function createResponse() {
   const finished = new Promise<void>((resolve) => stream.on("end", () => resolve()));
   const res = Object.assign(stream, {
     getHeader: (name: string) => headers[name.toLowerCase()],
+    getHeaderNames: () => Object.keys(headers),
     removeHeader: (name: string) => {
       delete headers[name.toLowerCase()];
     },
@@ -60,6 +61,7 @@ async function render(
   options: {
     request?: IncomingMessage;
     shellModule?: Record<string, unknown>;
+    stageHeaders?: Record<string, string>;
   } = {},
 ) {
   const routeDefinition = options.shellModule
@@ -102,6 +104,9 @@ async function render(
   } as unknown as ViteDevServer;
 
   const { finished, read, res } = createResponse();
+  for (const [name, value] of Object.entries(options.stageHeaders ?? {})) {
+    res.setHeader(name, value);
+  }
   // A response the middleware declines (a plain 404) falls through to Vite and
   // never ends, so waiting only on the stream would hang.
   let fellThrough = () => {};
@@ -274,6 +279,26 @@ describe("dev SSR error overlay", () => {
     expect(state.logger.error).not.toHaveBeenCalled();
   });
 
+  // Vite stages `server.headers` before this middleware runs, and the failure
+  // can arrive after the abandoned response's headers were copied across. A
+  // surviving content-length would truncate the overlay.
+  it("drops headers staged for the response it replaces", async () => {
+    const state = await render(
+      {
+        Component: () => {
+          throw new Error("render exploded");
+        },
+      },
+      { stageHeaders: { "content-length": "5", "x-abandoned": "1" } },
+    );
+
+    expect(state.statusCode).toBe(500);
+    expect(state.headers["content-length"]).toBeUndefined();
+    expect(state.headers["x-abandoned"]).toBeUndefined();
+    expect(state.headers["content-type"]).toContain("text/html");
+    expect(state.body).toContain("render exploded");
+  });
+
   // `pracht dev` passes debugErrors unconditionally; the runtime ignores it
   // under NODE_ENV=production and so must the overlay, or dev in a container
   // that exports it would print the internals the body just withheld.
@@ -292,5 +317,68 @@ describe("dev SSR error overlay", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+/**
+ * The terminal line carries the stack only when the failure names no user
+ * module. A route module that failed to compile, or a loader that threw, is
+ * already located by the message and the overlay; repeating its trace on every
+ * route-state poll buries everything else.
+ */
+describe("dev error stack attribution", () => {
+  const root = "/work/app";
+
+  function frameworkError() {
+    const error = new Error("module runner disconnected");
+    error.stack = [
+      "Error: module runner disconnected",
+      "    at ModuleRunner.import (/work/app/node_modules/vite/dist/node/runner.js:12:3)",
+      "    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
+    ].join("\n");
+    return error;
+  }
+
+  function userSyntaxError() {
+    // Vite and Rollup annotate a transform failure with the module it could
+    // not compile; the error itself escapes before any route matched, so it
+    // reaches the logger with no route context at all.
+    const error = Object.assign(new Error("Unexpected token (4:2)"), {
+      id: "/work/app/src/routes/home.tsx",
+    });
+    error.stack = [
+      "Error: Unexpected token (4:2)",
+      "    at parse (/work/app/node_modules/rollup/dist/es/shared/parseAst.js:24:1)",
+    ].join("\n");
+    return error;
+  }
+
+  it("keeps the stack for a failure that names no user module", () => {
+    expect(shouldIncludeDevErrorStack({ error: frameworkError(), root })).toBe(true);
+  });
+
+  it("omits the stack for a route module the developer can already find", () => {
+    expect(shouldIncludeDevErrorStack({ error: userSyntaxError(), root })).toBe(false);
+    expect(
+      shouldIncludeDevErrorStack({
+        context: { phase: "loader", routeFile: "./routes/home.tsx" },
+        error: new Error("loader exploded"),
+        root,
+      }),
+    ).toBe(false);
+  });
+
+  it("attributes a failure whose stack points into project source", () => {
+    const error = new Error("boom");
+    error.stack = ["Error: boom", "    at loader (/work/app/src/server/data.ts:3:9)"].join("\n");
+    expect(shouldIncludeDevErrorStack({ error, root })).toBe(false);
+
+    const devUrlError = new Error("boom");
+    devUrlError.stack = ["Error: boom", "    at Module (/src/routes/home.tsx:2:1)"].join("\n");
+    expect(shouldIncludeDevErrorStack({ error: devUrlError, root })).toBe(false);
+  });
+
+  it("opts everything back in under DEBUG", () => {
+    expect(shouldIncludeDevErrorStack({ debug: true, error: userSyntaxError(), root })).toBe(true);
   });
 });

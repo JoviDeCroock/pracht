@@ -87,6 +87,9 @@ function createResponse() {
       state.ended = true;
       state.statusCode = res.statusCode;
     },
+    getHeaderNames() {
+      return Object.keys(headers);
+    },
     removeHeader(name: string) {
       delete headers[name.toLowerCase()];
     },

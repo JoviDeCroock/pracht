@@ -374,7 +374,11 @@ export function createDevSSRMiddleware(
       res.on("close", () => {
         if (!res.writableFinished) source.destroy();
       });
-      source.on("error", () => {
+      source.on("error", (streamError: unknown) => {
+        // The response is already on the wire, so this cannot become a 500 —
+        // destroying the socket is all that is left. Without a line here the
+        // developer sees a truncated download and nothing else.
+        logDevRequestError(server, { error: streamError, path: requestUrl.pathname });
         res.destroy();
       });
       source.pipe(res);
@@ -438,17 +442,76 @@ function logDevRequestError(
     routeId: options.context?.routeId,
   });
 
-  // The overlay already renders the stack for a document navigation, and a
-  // repeated trace for every failing route-state poll drowns the terminal.
-  // Print it when the failure cannot be attributed to a user module — those
-  // are framework or module-loading faults where the stack is the only clue —
-  // or when the developer asked for it with DEBUG.
   const stack = error instanceof Error ? error.stack : undefined;
-  const wantsStack = options.context?.routeFile === undefined || Boolean(process.env?.DEBUG);
+  const wantsStack = shouldIncludeDevErrorStack({
+    context: options.context,
+    debug: Boolean(process.env?.DEBUG),
+    error,
+    root: server.config.root,
+  });
 
   server.config.logger.error(wantsStack && stack ? `${line}\n${stack}` : line, {
     timestamp: true,
   });
+}
+
+/**
+ * Whether the logged line should carry the stack trace.
+ *
+ * A failure the developer can locate — a route module, a loader, a Vite
+ * transform error that names the file it could not compile — is already
+ * pinpointed by the message and, for a document navigation, by the overlay.
+ * Repeating the trace for every one of those (a failing route-state poll fires
+ * on each navigation) buries the terminal. A failure that names no user module
+ * is a framework or module-loading fault where the trace is the only clue, so
+ * it always gets one; `DEBUG` opts back in for everything.
+ */
+export function shouldIncludeDevErrorStack(options: {
+  context?: RouteErrorContext;
+  debug?: boolean;
+  error: unknown;
+  root?: string;
+}): boolean {
+  if (options.debug) return true;
+  return !isAttributableToUserModule(options.context, options.error, options.root);
+}
+
+function isAttributableToUserModule(
+  context: RouteErrorContext | undefined,
+  error: unknown,
+  root: string | undefined,
+): boolean {
+  if (context?.routeFile || context?.loaderFile || context?.shellFile) return true;
+
+  // Vite and Rollup put the offending module on the error itself, which is how
+  // a syntax error in a user file arrives here: it escapes to the outer catch
+  // with no route context at all, because it failed before any route matched.
+  const annotated = error as { id?: unknown; loc?: { file?: unknown } | null } | null;
+  if (typeof annotated?.id === "string") return isUserModulePath(annotated.id, root);
+  if (typeof annotated?.loc?.file === "string") return isUserModulePath(annotated.loc.file, root);
+
+  const stack = error instanceof Error ? error.stack : undefined;
+  if (!stack) return false;
+  return stack
+    .split("\n")
+    .slice(1)
+    .some((frame) => {
+      const match = /(?:\(|\bat\s)([^()\s]+):\d+:\d+\)?\s*$/.exec(frame.trim());
+      return match ? isUserModulePath(match[1], root) : false;
+    });
+}
+
+function isUserModulePath(candidate: string, root: string | undefined): boolean {
+  const path = candidate
+    .replace(/^file:\/\//, "")
+    .replace(/^\/@fs/, "")
+    .split("?")[0];
+  if (path.includes("/node_modules/") || path.startsWith("node:")) return false;
+  // Virtual modules (`\0pracht:client`, `/@vite/…`) are framework-owned.
+  if (path.startsWith("\0") || path.startsWith("/@")) return false;
+  // A dev-server URL for project source, e.g. `/src/routes/home.tsx`.
+  if (!root) return path.startsWith("/src/");
+  return path.startsWith(`${root.replace(/\/$/, "")}/`) || path.startsWith("/src/");
 }
 
 /**
@@ -1031,6 +1094,7 @@ async function respondWithErrorOverlay(
   serverTiming: string,
 ): Promise<void> {
   if (finishAlreadySentResponse(res)) return;
+  discardPendingResponseHeaders(res);
 
   if (error instanceof Error) {
     server.ssrFixStacktrace(error);
@@ -1070,6 +1134,16 @@ async function respondWithErrorOverlay(
  * a failure *after* `res.end()` (a rejected body stream, a late throw) is
  * exactly when that happens.
  */
+/**
+ * Drop every header staged for the response being replaced. The failure can
+ * arrive after the runtime's headers were copied across, and a `content-length`
+ * describing the abandoned body would truncate the error page written in its
+ * place.
+ */
+function discardPendingResponseHeaders(res: ServerResponse): void {
+  for (const name of res.getHeaderNames()) res.removeHeader(name);
+}
+
 function finishAlreadySentResponse(res: ServerResponse): boolean {
   if (!res.headersSent && !res.writableEnded) return false;
   if (!res.writableEnded && !res.destroyed) res.end();
@@ -1086,6 +1160,7 @@ async function handleDevError(
   base: string,
 ): Promise<void> {
   if (finishAlreadySentResponse(res)) return;
+  discardPendingResponseHeaders(res);
 
   if (error instanceof Error) {
     server.ssrFixStacktrace(error);

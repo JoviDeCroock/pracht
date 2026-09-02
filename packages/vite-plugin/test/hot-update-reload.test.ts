@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -681,5 +681,85 @@ describe("pracht handleHotUpdate across a multi-file save", () => {
 
     expect(first.result).toEqual([first.routeModule, clientModule]);
     expect(second.result).toEqual([second.routeModule, clientModule]);
+  });
+
+  /**
+   * A file the scan cannot stat — a dangling symlink, or a file an editor is
+   * mid-replace — drops out of the hint table. Skipping it silently would leave
+   * the browser trusting a table that never saw it, so the scan reports the gap
+   * and the entry reloads until a clean scan replaces the table.
+   */
+  it("reloads while the hint scan cannot see every route", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-partial-hints-hmr-"));
+    tempDirs.push(root);
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    const first = join(root, "src", "routes", "first.tsx");
+    const second = join(root, "src", "routes", "second.tsx");
+    writeFileSync(first, WITHOUT_LOADER);
+    writeFileSync(second, WITHOUT_LOADER);
+
+    const plugin = pracht().find((candidate) => candidate.name === "pracht");
+    const configResolved = plugin?.configResolved;
+    const load = plugin?.load;
+    const handleHotUpdate = plugin?.handleHotUpdate;
+    if (
+      typeof configResolved !== "function" ||
+      typeof load !== "function" ||
+      typeof handleHotUpdate !== "function"
+    ) {
+      throw new Error("missing Pracht development hooks");
+    }
+    configResolved.call({} as never, { command: "serve", root } as never);
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+
+    const clientModule = { id: PRACHT_CLIENT_MODULE_ID };
+    const update = async (file: string) => {
+      const routeModule = createModuleNode(file);
+      const result = await handleHotUpdate.call(
+        {} as never,
+        {
+          file,
+          modules: [routeModule],
+          server: {
+            config: { root },
+            moduleGraph: {
+              getModuleById: (id: string) =>
+                id === PRACHT_CLIENT_MODULE_ID ? clientModule : undefined,
+              invalidateModule: vi.fn(),
+            },
+            environments: {
+              client: {
+                moduleGraph: { getModulesByFile: () => new Set([routeModule]) },
+                hot: { send: vi.fn() },
+              },
+            },
+          },
+        } as never,
+      );
+      return { result, routeModule };
+    };
+
+    // Neither edit changes a hint, so nothing here reloads on its own.
+    const unstattable = join(root, "src", "routes", "broken.tsx");
+    symlinkSync(join(root, "src", "routes", "gone.tsx"), unstattable);
+    writeFileSync(first, WITHOUT_LOADER.replace("return null", "return 1"));
+    writeFileSync(second, WITHOUT_LOADER.replace("return null", "return 2"));
+
+    const skipped = await update(first);
+    expect(skipped.result).toEqual([skipped.routeModule, clientModule]);
+
+    // Still partial as far as the browser knows: the reload above was only
+    // requested, so the next update keeps asking until `load()` runs again.
+    unlinkSync(unstattable);
+    const stillStale = await update(second);
+    expect(stillStale.result).toEqual([stillStale.routeModule, clientModule]);
+
+    // The entry rebuilt from a clean scan, so an inert edit is quiet again.
+    await load.call({} as never, PRACHT_CLIENT_MODULE_ID);
+    writeFileSync(first, WITHOUT_LOADER.replace("return null", "return 3"));
+    const settled = await update(first);
+    expect(settled.result).toBeUndefined();
   });
 });

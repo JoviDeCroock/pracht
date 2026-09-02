@@ -37,6 +37,7 @@ function createResponse(options: { highWaterMark?: number } = {}) {
   });
   const res = Object.assign(stream, {
     getHeader: (name: string) => headers[name.toLowerCase()],
+    getHeaderNames: () => Object.keys(headers),
     removeHeader: (name: string) => {
       delete headers[name.toLowerCase()];
     },
