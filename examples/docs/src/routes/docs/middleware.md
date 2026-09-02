@@ -122,7 +122,7 @@ The `context` object is shared by reference — there's no merge step.
 
 ## Without a Manifest (Higher-Order Functions)
 
-When using the **pages router** with a serverful adapter, page routes get middleware through a root-level [`_middleware.ts`](/docs/routing#middleware-via-_middlewarets) file — the same `MiddlewareFn` contract, applied to every page route. Pure static exports have no request runtime and cannot use middleware. API routes are not wrapped by it (matching the manifest's independent-by-default behavior). To guard API handlers in pages mode — or per-handler in any mode — wrap them with plain higher-order functions:
+When using the **pages router** with a serverful adapter, page routes get middleware through a root-level [`_middleware.ts`](/docs/routing#middleware-via-middlewarets) file — the same `MiddlewareFn` contract, applied to every page route. Pure static exports have no request runtime and cannot use middleware. API routes are not wrapped by it (matching the manifest's independent-by-default behavior). To guard API handlers in pages mode — or per-handler in any mode — wrap them with plain higher-order functions:
 
 ```ts [src/lib/with-auth.ts]
 import type { ApiRouteArgs, ApiRouteHandler } from "@pracht/core";

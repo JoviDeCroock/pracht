@@ -234,14 +234,21 @@ function exportsMiddleware(source: string, file: string): boolean {
  *
  * Named after the shell it configures, because that is what it is — the
  * app-level knobs a manifest passes to `defineApp()` that no single route
- * owns. It is root-only for the same reason `_middleware` is: `agents`,
- * `constraints`, and `notFound` are app-wide, so a per-directory copy would
- * look scoped while being ignored.
+ * owns. It is root-only for the same reason `_middleware` is: `agents` and
+ * `constraints` are app-wide, so a per-directory copy would look scoped while
+ * being ignored.
  */
 export const PAGES_APP_CONFIG_BASENAME = "_app.config";
 
-/** The `defineApp` keys a pages app may set from `_app.config.ts`. */
-export const PAGES_APP_CONFIG_EXPORTS = ["agents", "constraints", "notFound"] as const;
+/**
+ * The `defineApp` keys a pages app may set from `_app.config.ts`.
+ *
+ * Deliberately server-only keys. `notFound` is not one of them: the client
+ * router reads `app.notFound`, so accepting it here would pull this module —
+ * and its Web Bot Auth keys — into the browser bundle. `pages/404.tsx` is
+ * already the file convention for it.
+ */
+export const PAGES_APP_CONFIG_EXPORTS = ["agents", "constraints"] as const;
 
 export interface PagesAppConfig {
   absolutePath: string;
@@ -271,7 +278,7 @@ export function findPagesAppConfigFile(pagesDir: string): PagesAppConfig | null 
   if (nested.length > 0) {
     throw new Error(
       `[pracht] Nested \`${PAGES_APP_CONFIG_BASENAME}\` is not supported: ${nested.map(show).join(", ")}. ` +
-        "`agents`, `constraints`, and `notFound` are app-wide, so only a root-level " +
+        "`agents` and `constraints` are app-wide, so only a root-level " +
         `\`${PAGES_APP_CONFIG_BASENAME}.ts\` in the pages directory is read.`,
     );
   }
@@ -648,6 +655,12 @@ export function generatePagesManifestSource(
     capabilitiesDirPrefix?: string;
     pagesDirPrefix?: string;
     referenceBaseDir?: string;
+    /**
+     * `"client"` omits the keys only the server reads (`agents`,
+     * `constraints`) and the `_app.config.ts` import that supplies them, so
+     * that module and everything it imports stay out of browser bundles.
+     */
+    target?: "server" | "client";
     useImportSyntax?: boolean;
   },
 ): string {
@@ -667,7 +680,8 @@ export function generatePagesManifestSource(
   const appShells = findPagesAppShellFiles(pagesDir, shellExtensions);
   const rootAppShell = appShells.find((shell) => shell.directory === "");
   const middlewareFile = findPagesMiddlewareFile(pagesDir, options.additionalExtensions);
-  const appConfig = findPagesAppConfigFile(pagesDir);
+  const isClientTarget = options.target === "client";
+  const appConfig = isClientTarget ? null : findPagesAppConfigFile(pagesDir);
   const capabilitiesDir =
     options.capabilitiesDir === null
       ? null
@@ -793,7 +807,6 @@ export function generatePagesManifestSource(
   // `agents` and `constraints` come from `_app.config.ts` verbatim, which is
   // what makes the pages router's agent surface identical to a manifest's.
   for (const name of appConfig?.exports ?? []) {
-    if (name === "notFound") continue; // handled below, next to `pages/404`
     usedAppConfigExports.push(name);
     lines.push(`  ${name},`);
   }
@@ -830,13 +843,7 @@ export function generatePagesManifestSource(
     lines.push(routeEntries.join(",\n"));
   }
   lines.push("  ],");
-  // `pages/404` is the more specific declaration and wins; the config export
-  // covers apps that render their not-found page some other way.
   if (notFoundEntry) lines.push(notFoundEntry);
-  else if (appConfig?.exports.includes("notFound")) {
-    usedAppConfigExports.push("notFound");
-    lines.push("  notFound,");
-  }
   lines.push("});");
 
   if (appConfig && usedAppConfigExports.length > 0) {

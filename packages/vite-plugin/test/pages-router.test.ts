@@ -517,7 +517,7 @@ describe("scanPagesDirectory", () => {
     writeFileSync(join(pagesDir, "404.tsx"), "export function Component() { return null; }\n");
     writeFileSync(
       join(pagesDir, "_app.config.ts"),
-      "export const notFound = { component: () => null };\n",
+      "export const agents = {};\nexport const notFound = { component: () => null };\n",
     );
 
     const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
@@ -526,13 +526,15 @@ describe("scanPagesDirectory", () => {
       pagesDirPrefix: "/src/pages",
     });
 
-    // `pages/404.tsx` is the more specific declaration and wins, so the
-    // exported `notFound` is never referenced — importing it would not compile.
-    expect(source).not.toContain("_app.config");
+    // App config is server-only. Even when the module happens to export a
+    // client-relevant value, only the supported server keys are imported.
+    expect(source).toContain('import { agents } from "/src/pages/_app.config.ts";');
+    expect(source).not.toContain("import { agents, notFound }");
+    expect(source).not.toContain("  notFound,");
     expect(source).toContain('notFound: { component: "/src/pages/404.tsx"');
   });
 
-  it("uses the _app.config notFound export when there is no 404 page", () => {
+  it("requires pages/404 instead of accepting a server-config notFound export", () => {
     const root = makeTempPagesDir();
     const pagesDir = join(root, "src", "pages");
     mkdirSync(pagesDir, { recursive: true });
@@ -542,14 +544,13 @@ describe("scanPagesDirectory", () => {
       "export const notFound = { component: () => null };\n",
     );
 
-    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
-      capabilitiesDir: null,
-      pagesDir,
-      pagesDirPrefix: "/src/pages",
-    });
-
-    expect(source).toContain('import { notFound } from "/src/pages/_app.config.ts";');
-    expect(source).toContain("  notFound,");
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir: null,
+        pagesDir,
+        pagesDirPrefix: "/src/pages",
+      }),
+    ).toThrow(/exports none of `agents`, `constraints`/s);
   });
 
   it("rejects an _app.config that exports nothing usable", () => {
@@ -564,7 +565,7 @@ describe("scanPagesDirectory", () => {
         capabilitiesDir: null,
         pagesDir,
       }),
-    ).toThrow(/exports none of `agents`, `constraints`, `notFound`/s);
+    ).toThrow(/exports none of `agents`, `constraints`/s);
   });
 
   it("rejects a nested _app.config instead of silently ignoring it", () => {
@@ -1090,6 +1091,158 @@ describe("pracht plugin config", () => {
     expect(withFormatOptimizer.optimizeDeps?.entries).toContain(
       "src/routes/**/*.{ts,tsx,js,jsx,tsrx,vue}",
     );
+  });
+});
+
+describe("pages app config transform", () => {
+  /** Run the plugin's `transform` hook the way Vite would. */
+  function transformConfig(root: string, file: string, code: string): string | null {
+    const plugin = pracht({ pagesDir: "/src/pages" }).find(
+      (candidate) => candidate.name === "pracht",
+    );
+    (plugin?.configResolved as (config: unknown) => void)?.call(plugin, {
+      root,
+      command: "serve",
+      base: "/",
+      build: {},
+      plugins: [],
+    });
+    const transform = plugin?.transform as
+      | ((code: string, id: string) => { code: string } | null)
+      | undefined;
+    return transform?.call(plugin, code, file)?.code ?? null;
+  }
+
+  it("rewrites module refs in _app.config so the registry lookup resolves", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    const file = join(root, "src", "pages", "_app.config.ts");
+    const code = `export const agents = {
+  mcp: { auth: { verify: () => import("../server/mcp-token.ts") } },
+};
+`;
+    writeFileSync(file, code);
+
+    // Left as a function, the bundler rewrites the specifier to a hashed chunk
+    // and the verifier lookup misses — the endpoint then fails closed with
+    // advice that points at the wrong thing.
+    expect(transformConfig(root, file, code)).toContain('verify: "../server/mcp-token.ts"');
+  });
+
+  it("leaves @pracht/core imports in _app.config alone", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    const file = join(root, "src", "pages", "_app.config.ts");
+    // Unlike the app manifest, the config file is ordinary application code —
+    // narrowing its imports to `@pracht/core/manifest` would break them.
+    const code = `import { stripBase } from "@pracht/core";
+export const agents = { mcp: {} };
+export const base = stripBase("/x");
+`;
+    writeFileSync(file, code);
+
+    expect(transformConfig(root, file, code)).toBe(null);
+  });
+
+  it("does not transform an unrelated pages module", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    const file = join(root, "src", "pages", "index.tsx");
+    const code = `export const loader = () => import("../server/data.ts");\n`;
+    writeFileSync(file, code);
+
+    expect(transformConfig(root, file, code)).toBe(null);
+  });
+});
+
+describe("pages dev watcher", () => {
+  /** Drive `configureServer` and collect the watcher handlers it installs. */
+  function watchHandlers(root: string, options: Record<string, unknown>) {
+    const plugin = pracht(options).find((candidate) => candidate.name === "pracht");
+    const handlers = new Map<string, ((file: string) => void)[]>();
+    let restarts = 0;
+
+    (plugin?.configResolved as (config: unknown) => void)?.call(plugin, {
+      root,
+      command: "serve",
+      base: "/",
+      build: {},
+      plugins: [],
+    });
+    (plugin?.configureServer as (server: unknown) => void)?.call(plugin, {
+      config: { root },
+      middlewares: { use: () => {} },
+      moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} },
+      restart: () => {
+        restarts += 1;
+      },
+      watcher: {
+        on(event: string, handler: (file: string) => void) {
+          handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+        },
+      },
+    });
+
+    return {
+      emit(event: string, file: string) {
+        for (const handler of handlers.get(event) ?? []) handler(file);
+      },
+      get restarts() {
+        return restarts;
+      },
+    };
+  }
+
+  it("restarts when a capability module is added or removed", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    mkdirSync(join(root, "src", "capabilities"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const watcher = watchHandlers(root, { pagesDir: "/src/pages" });
+
+    // Without this the new capability's endpoint 404s until an unrelated page
+    // changes, and a deleted one leaves the manifest pointing at a dead module.
+    watcher.emit("add", join(root, "src", "capabilities", "posts-search.ts"));
+    expect(watcher.restarts).toBe(1);
+
+    watcher.emit("unlink", join(root, "src", "capabilities", "posts-search.ts"));
+    expect(watcher.restarts).toBe(2);
+  });
+
+  it("restarts when the pages app config is added or removed", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const watcher = watchHandlers(root, { pagesDir: "/src/pages" });
+
+    watcher.emit("add", join(root, "src", "pages", "_app.config.ts"));
+    expect(watcher.restarts).toBe(1);
+  });
+
+  it("ignores files outside the pages and capabilities directories", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    mkdirSync(join(root, "src", "lib"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const watcher = watchHandlers(root, { pagesDir: "/src/pages" });
+
+    watcher.emit("add", join(root, "src", "lib", "helper.ts"));
+    // A sibling directory whose name merely starts with the watched one must
+    // not match either.
+    watcher.emit("add", join(root, "src", "pages-archive", "old.tsx"));
+    expect(watcher.restarts).toBe(0);
   });
 });
 

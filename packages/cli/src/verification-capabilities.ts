@@ -21,6 +21,7 @@ import {
 import {
   evaluateLiteral,
   extractCapabilityRegistrations,
+  hasNamedValueExport,
   readNamedExportInitializer,
   resolvePagesCapabilityName,
   extractDefineAppObjectBody,
@@ -32,8 +33,11 @@ import {
 } from "@pracht/capabilities/static";
 import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
 
+import { parseAst } from "vite";
+
 import { extractRegistryEntries } from "./manifest.js";
-import { resolveProjectPath, type ProjectConfig } from "./project.js";
+import { displayPath, resolveProjectPath, type ProjectConfig } from "./project.js";
+import { parserLanguage } from "./verification-pages.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
@@ -74,19 +78,30 @@ function readCapabilityManifest(
   const configSource = configPath ? readFileSync(configPath, "utf-8") : "";
   const properties: string[] = [];
 
+  const configProgram = configPath === null ? null : parseConfigProgram(configPath, configSource);
+
   for (const key of ["agents", "constraints"] as const) {
-    if (configSource === "" || !PAGES_APP_CONFIG_EXPORT_RE(key).test(configSource)) continue;
+    if (configPath === null) continue;
+    // `hasNamedValueExport()` is the same reader the build uses to decide which
+    // keys the generated manifest sets, so "declared" cannot mean one thing
+    // here and another there.
+    if (configProgram !== null && !hasNamedValueExport(configProgram, key)) continue;
     const initializer = readNamedExportInitializer(configSource, key);
     if (initializer === null) {
-      // A shape this analyzer cannot read is not a failure — the build still
-      // registers whatever the module exports. Say so rather than reporting
-      // the app as having no agent config at all.
+      // Fail closed and loudly. The build still registers whatever the module
+      // exports, so an unreadable `agents` is a *checked-nothing*, not an
+      // absent config — and every check below would otherwise read the silence
+      // as proof, reporting an unauthenticated MCP endpoint or a missing
+      // destructive approval store as fine.
       checks.push(
         createCheck(
           "warning",
-          `Pages app config exports \`${key}\` in a shape static verification cannot read, so ` +
-            `its contents are not checked. Declare it as a single inline object literal to get ` +
-            "the same checks a manifest app gets.",
+          `Pages app config ${JSON.stringify(displayPath(project.root, configPath))} declares ` +
+            `\`${key}\` as something other than an inline object or array literal, so its ` +
+            "contents are not verified — the Web Bot Auth policy, MCP authentication, and " +
+            "destructive-approval checks below are skipped for it. Inline the literal (a " +
+            "`satisfies` or `as const` suffix is fine) to get the same checks a manifest app " +
+            "gets.",
         ),
       );
       continue;
@@ -121,8 +136,14 @@ function readCapabilityManifest(
   };
 }
 
-const PAGES_APP_CONFIG_EXPORT_RE = (name: string): RegExp =>
-  new RegExp(`export\\s+const\\s+${name}\\b`);
+/** `null` when the config cannot be parsed; callers then trust the source scan alone. */
+function parseConfigProgram(file: string, source: string): unknown {
+  try {
+    return parseAst(source, { lang: parserLanguage(file) });
+  } catch {
+    return null;
+  }
+}
 
 const PAGES_CONFIG_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
 

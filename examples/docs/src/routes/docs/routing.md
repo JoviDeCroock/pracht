@@ -347,9 +347,9 @@ Auto-discovery replaces the manifest, so everything a manifest registers by name
 | --- | --- |
 | Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports on the page file |
 | Shells | `_app.tsx` per directory — [`pages`, `pages:blog`, …](#directory-scoped-shells). The nearest one wins and replaces its parent |
-| [Route middleware](/docs/middleware) | one root [`_middleware.ts`](#middleware-via-_middlewarets) on serverful adapters, applied to every page route |
+| [Route middleware](/docs/middleware) | one root [`_middleware.ts`](#middleware-via-middlewarets) on serverful adapters, applied to every page route |
 | [Capabilities](/docs/capabilities) | every module in [`src/capabilities/`](#capabilities-via-srccapabilities) — HTTP endpoints, [WebMCP page tools](/docs/agents), [remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), `<Form capability>`, typed clients, and `pracht eval` all work |
-| [`agents`](/docs/agent-trust) (Web Bot Auth, confirmation, MCP) and [`constraints`](/docs/coding-agents#constraints) | named exports from [`src/pages/_app.config.ts`](#app-config-via-_appconfigts) |
+| [`agents`](/docs/agent-trust) (Web Bot Auth, confirmation, MCP) and [`constraints`](/docs/coding-agents#constraints) | named exports from [`src/pages/_app.config.ts`](#app-config-via-appconfigts) |
 
 What still requires an explicit manifest — the things whose whole point is that they differ per route:
 

@@ -377,18 +377,27 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
 
     transform(code, id) {
-      // Transform () => import("./path") to "./path" in the app manifest file.
-      // This lets users write import() for IDE click-to-navigate while keeping
-      // the framework's string-based file resolution intact.
-      const appFileAbs = canonicalFilePath(resolveConfigPath(root, resolved.appFile));
+      // Transform () => import("./path") to "./path" in the files that declare
+      // module refs. This lets users write import() for IDE click-to-navigate
+      // while keeping the framework's string-based file resolution intact —
+      // without it the bundler rewrites the specifier to a hashed chunk and the
+      // registry lookup misses.
       const normalizedId = canonicalFilePath(id.split("?")[0]);
-      if (normalizedId !== appFileAbs) return null;
+      const appFileAbs = canonicalFilePath(resolveConfigPath(root, resolved.appFile));
+      // `_app.config.ts` is the pages router's manifest for `agents`, whose
+      // `mcp.auth.verify` is a module ref like any other.
+      const isPagesAppConfig = isPagesMode && isPagesAppConfigModule(normalizedId, root, resolved);
+      if (normalizedId !== appFileAbs && !isPagesAppConfig) return null;
 
       const withStringModuleRefs = code.replace(
         /\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g,
         "$1$2$1",
       );
-      const transformed = rewriteManifestCoreImports(withStringModuleRefs);
+      // Only the app manifest is narrowed to `@pracht/core/manifest`; the config
+      // file is ordinary application code and may import whatever it needs.
+      const transformed = isPagesAppConfig
+        ? withStringModuleRefs
+        : rewriteManifestCoreImports(withStringModuleRefs);
       if (transformed === code) return null;
       return { code: transformed, map: null };
     },
@@ -579,6 +588,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           if (islandsMod) server.moduleGraph.invalidateModule(islandsMod);
         }
         if (relative.startsWith(resolved.capabilitiesDir)) {
+          // In pages mode the generated manifest reads this file to resolve the
+          // capability's registered name, so a cached manifest source would
+          // keep serving the old one.
+          if (isPagesMode) clearPagesAppSourceCache();
           // Exposure metadata and schemas are baked into the generated
           // browser modules — regenerate them alongside the server module.
           // The client entries embed the WebMCP bootstrap conditionally on
@@ -1017,24 +1030,39 @@ function toOptimizeDepsEntry(path: string): string {
   return toPosixPath(path).replace(/^\.\//, "").replace(/^\//, "").replace(/\/$/, "");
 }
 
+/**
+ * Restart the dev server when the pages graph gains or loses a file.
+ *
+ * `capabilitiesDir` is watched alongside `pagesDir` because the generated
+ * manifest registers capabilities from it: without this, adding
+ * `src/capabilities/x.ts` leaves its endpoint 404ing until some unrelated page
+ * changes, and deleting one leaves a manifest pointing at a module that is
+ * gone — a 500 on every capability endpoint. The cached manifest source is
+ * cleared first so the restart regenerates it. Edits (as opposed to
+ * add/unlink) go through `handleHotUpdate`, which clears the same cache
+ * without a restart.
+ */
 function watchPagesDirectory(
   server: import("vite").ViteDevServer,
   resolved: ResolvedPrachtPluginOptions,
   root: string,
 ): void {
-  const abs = resolveConfigPath(root, resolved.pagesDir);
-  server.watcher.on("add", (f: string) => {
-    if (toPosixPath(f).startsWith(toPosixPath(abs))) {
+  const watched = [
+    toPosixPath(resolveConfigPath(root, resolved.pagesDir)),
+    toPosixPath(resolveConfigPath(root, resolved.capabilitiesDir)),
+  ];
+  const isWatched = (file: string): boolean => {
+    const path = toPosixPath(file);
+    return watched.some((dir) => path === dir || path.startsWith(`${dir}/`));
+  };
+
+  for (const event of ["add", "unlink"] as const) {
+    server.watcher.on(event, (file: string) => {
+      if (!isWatched(file)) return;
       clearPagesAppSourceCache();
       server.restart();
-    }
-  });
-  server.watcher.on("unlink", (f: string) => {
-    if (toPosixPath(f).startsWith(toPosixPath(abs))) {
-      clearPagesAppSourceCache();
-      server.restart();
-    }
-  });
+    });
+  }
 }
 
 function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
@@ -1064,6 +1092,19 @@ function isCapabilityModule(id: string, capabilityModulePaths: Set<string>): boo
   const path = queryStart === -1 ? id : id.slice(0, queryStart);
   if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
   return capabilityModulePaths.has(canonicalFilePath(path));
+}
+
+/** Whether `modulePath` is the pages directory's root `_app.config` module. */
+function isPagesAppConfigModule(
+  modulePath: string,
+  root: string,
+  resolved: ResolvedPrachtPluginOptions,
+): boolean {
+  return [".ts", ".tsx", ".js", ".jsx"].some(
+    (extension) =>
+      modulePath ===
+      canonicalFilePath(resolveConfigPath(root, `${resolved.pagesDir}/_app.config${extension}`)),
+  );
 }
 
 function isRootMiddlewareModule(

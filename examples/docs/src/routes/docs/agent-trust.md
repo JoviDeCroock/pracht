@@ -10,7 +10,7 @@ next:
   title: Remote MCP
 ---
 
-> **Both routers.** `defineApp({ agents })` is the configuration seam for Web Bot Auth, confirmation, and remote MCP. [Pages-router](/docs/routing#app-config-via-_appconfigts) apps export the same object as `agents` from `src/pages/_app.config.ts`, which the generated manifest passes to `defineApp()` verbatim.
+> **Both routers.** `defineApp({ agents })` is the configuration seam for Web Bot Auth, confirmation, and remote MCP. [Pages-router](/docs/routing#app-config-via-appconfigts) apps export the same object as `agents` from `src/pages/_app.config.ts`, which the generated manifest passes to `defineApp()` verbatim.
 
 > **Signing requests as an agent.** Pracht ships the signer next to the verifier at `@pracht/core/agent-auth`:
 >

@@ -377,12 +377,20 @@ export function resolvePagesCapabilityName(
 }
 
 /**
- * The source text of a module's top-level `export const <name> = <expr>`
- * initializer, or `null` when there is no single unambiguous one.
+ * The source text of a module's top-level `export const <name> = <literal>`
+ * initializer, or `null` when there is no single unambiguous *literal* one.
  *
  * Returns the expression *text*, not a value: callers hand it to the same
  * object-body scanners they use on a `defineApp({ ... })` literal, so a config
  * file that lives outside the manifest is analyzed by exactly the same rules.
+ *
+ * That is also why anything other than an object or array literal answers
+ * `null`. `export const agents = buildAgents()` has no body those scanners can
+ * read; returning its text would let a caller inline an opaque expression and
+ * then conclude, from a scan that found no `mcp` key, that the app configures
+ * no MCP endpoint — reporting an open surface as absent. A `satisfies` or `as`
+ * suffix and wrapping parentheses are unwrapped, since they do not change the
+ * literal underneath.
  */
 export function readNamedExportInitializer(source: string, name: string): string | null {
   const searchable = maskCommentsAndStrings(source);
@@ -406,13 +414,41 @@ export function readNamedExportInitializer(source: string, name: string): string
       const text = source.slice(start, index).trim();
       // A newline at depth 0 only ends the declaration once something was read
       // (`export const agents =\n  { … }` continues onto the next line).
-      if (text !== "") return text;
+      if (text !== "") return asLiteralInitializer(text);
     }
     if (depth < 0) return null;
   }
 
   const trailing = source.slice(start).trim();
-  return trailing === "" ? null : trailing;
+  return trailing === "" ? null : asLiteralInitializer(trailing);
+}
+
+/** An object or array literal, unwrapped from parentheses and a `satisfies`/`as` suffix. */
+function asLiteralInitializer(text: string): string | null {
+  let value = text.trim();
+
+  // Bounded: each iteration strips one wrapping layer, and real config files
+  // nest a handful at most.
+  for (let guard = 0; guard < 8; guard += 1) {
+    const open = value[0];
+    if (open === "(") {
+      const end = findMatchingBrace(value, 0, "(", ")");
+      if (end === -1 || value.slice(end + 1).trim() !== "") return null;
+      value = value.slice(1, end).trim();
+      continue;
+    }
+    if (open !== "{" && open !== "[") return null;
+
+    const end = findMatchingBrace(value, 0, open, open === "{" ? "}" : "]");
+    if (end === -1) return null;
+    const rest = value.slice(end + 1).trim();
+    if (rest === "") return value;
+    // `{ … } satisfies PrachtAgentsConfig` and `{ … } as const` still describe
+    // the literal; `{ … }.foo` and `{ … } ?? fallback` do not.
+    return /^(?:satisfies|as)\s+\S/.test(rest) ? value.slice(0, end + 1) : null;
+  }
+
+  return null;
 }
 
 /**

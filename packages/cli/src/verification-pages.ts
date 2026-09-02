@@ -40,8 +40,14 @@ export type PagesFile =
   | { file: string; kind: "ignored" }
   | PagesRoute;
 
-/** The `defineApp` keys a pages app may set from `_app.config.ts`. */
-export const PAGES_APP_CONFIG_EXPORTS = ["agents", "constraints", "notFound"] as const;
+/**
+ * The `defineApp` keys a pages app may set from `_app.config.ts`.
+ *
+ * Server-only by design. `notFound` is not one of them — the client router
+ * reads `app.notFound`, so accepting it here would pull the config module (and
+ * its Web Bot Auth keys) into the browser bundle. `pages/404.tsx` covers it.
+ */
+export const PAGES_APP_CONFIG_EXPORTS = ["agents", "constraints"] as const;
 
 // Mirrors the vite plugin's pages middleware extensions (and the
 // `middlewareDir` registry glob). Every exact `_middleware` basename using a
@@ -224,7 +230,8 @@ export function findOwningPagesShell<T extends { directory: string }>(
     );
 }
 
-function parserLanguage(file: string): "js" | "jsx" | "ts" | "tsx" {
+/** The oxc parser language for a source file, by extension. */
+export function parserLanguage(file: string): "js" | "jsx" | "ts" | "tsx" {
   switch (extname(file).toLowerCase()) {
     case ".js":
       return "js";

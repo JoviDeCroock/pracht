@@ -163,7 +163,7 @@ export function createPrachtClientModuleSource(
   );
 
   const appImport = isPagesMode
-    ? generatePagesAppInlineSource(resolved, buildOptions.root)
+    ? generatePagesAppInlineSource(resolved, buildOptions.root, "client")
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
   // Additional formats are globbed separately without the `?pracht-client`
@@ -948,9 +948,18 @@ export function clearPagesAppSourceCache(): void {
   pagesAppSourceCache.clear();
 }
 
+/**
+ * The generated pages manifest, inlined into a virtual module.
+ *
+ * The client target drops `agents` and `constraints` — the two keys only the
+ * server reads — along with the `_app.config.ts` import that supplies them.
+ * Without that split the browser entry would import the config module, and
+ * every Web Bot Auth key in it would ship to visitors.
+ */
 function generatePagesAppInlineSource(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
+  target: "server" | "client" = "server",
 ): string {
   const absPagesDir = resolve(root, options.pagesDir.slice(1));
   const absCapabilitiesDir = resolve(root, options.capabilitiesDir.slice(1));
@@ -961,6 +970,7 @@ function generatePagesAppInlineSource(
     capabilitiesDirPrefix: options.capabilitiesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,
+    target,
   });
   const cached = pagesAppSourceCache.get(cacheKey);
   if (cached) return cached;
@@ -973,6 +983,7 @@ function generatePagesAppInlineSource(
     pagesDir: absPagesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,
+    target,
   });
   pagesAppSourceCache.set(cacheKey, source);
   return source;

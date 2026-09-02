@@ -244,7 +244,9 @@ const EJECTED_PAGES_LAYOUT_RE =
  * exclusion outside pages mode is the underscore reservation an ejected pages
  * manifest opts into with `__PRACHT_EJECTED_PAGES_LAYOUT__`. Dropping that
  * marker (or co-locating middleware with routes in the first place) publishes
- * the middleware source, so say so instead of letting it happen quietly.
+ * the middleware source to every visitor. That is source disclosure of the
+ * app's auth boundary, so it fails rather than warns: a warning is something a
+ * CI run scrolls past.
  */
 function collectMiddlewareClientBoundaryChecks(
   project: ProjectConfig,
@@ -282,14 +284,14 @@ function collectMiddlewareClientBoundaryChecks(
 
   checks.push(
     createCheck(
-      "warning",
+      "error",
       `Middleware module(s) inside a client registry directory: ${exposed.join(", ")}. ` +
         "The client route and shell registries glob these directories, so the middleware " +
-        "source is emitted into the browser bundle. Move the module out of the route and shell " +
+        "source is published in the browser bundle — auth logic, secret comparisons, and the " +
+        "shape of every gate along with it. Move the module out of the route and shell " +
         "directories, or — for an ejected pages layout — restore the " +
         "`export const __PRACHT_EJECTED_PAGES_LAYOUT__ = true` marker in the manifest, which " +
-        "reserves underscore-prefixed files and trees as server-only. Ignore this when the " +
-        "module is deliberately a route component as well.",
+        "reserves underscore-prefixed files and trees as server-only.",
     ),
   );
 }

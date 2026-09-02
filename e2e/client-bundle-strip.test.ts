@@ -134,6 +134,99 @@ test("server-only route exports and their imports are stripped from client bundl
   }
 });
 
+// `src/pages/_app.config.ts` carries the app's `agents` block — Web Bot Auth
+// public keys, MCP server info, confirmation tuning. The generated manifest
+// imports it, and the browser entry imports the manifest, so without a
+// server-only projection every one of those values would ship to visitors.
+const PAGES_AGENTS_MARKER = "PAGES_AGENTS_CONFIG_MARKER_9d41";
+const PAGES_CAPABILITY_MARKER = "PAGES_CAPABILITY_SERVER_MARKER_5e07";
+
+test("pages-router app config and capability modules stay out of client bundles", async () => {
+  test.setTimeout(120_000);
+
+  const tempRoot = resolve(repoRoot, ".tmp");
+  mkdirSync(tempRoot, { recursive: true });
+  const tempDir = mkdtempSync(resolve(tempRoot, "pracht-pages-strip-"));
+  const exampleDir = resolve(tempDir, "project");
+  const pagesFixture = resolve(repoRoot, "examples/pages-router");
+
+  try {
+    cpSync(pagesFixture, exampleDir, { filter: fixtureCopyFilter(pagesFixture), recursive: true });
+
+    writeFileSync(
+      resolve(exampleDir, "src/pages/_app.config.ts"),
+      `import type { PrachtAgentsConfig } from "@pracht/core";
+
+export const agents: PrachtAgentsConfig = {
+  webBotAuth: { policy: "observe", keys: [{ x: ${JSON.stringify(PAGES_AGENTS_MARKER)}, agent: "test.example" }] },
+  mcp: { serverInfo: { name: "pracht-pages-example", version: "0.0.0" } },
+};
+`,
+      "utf-8",
+    );
+    writeFileSync(
+      resolve(exampleDir, "src/capabilities/posts-search.ts"),
+      `import { defineCapability } from "@pracht/capabilities";
+
+const SECRET = ${JSON.stringify(PAGES_CAPABILITY_MARKER)};
+
+export default defineCapability({
+  name: "posts.search",
+  title: "Search posts",
+  description: "Find blog posts whose title or slug matches the query.",
+  effect: "read",
+  expose: { http: true, mcp: true },
+  input: {
+    type: "object",
+    properties: { query: { type: "string", minLength: 1 } },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  output: {
+    type: "object",
+    properties: { secret: { type: "string" } },
+    required: ["secret"],
+    additionalProperties: false,
+  },
+  run() {
+    return { secret: SECRET };
+  },
+});
+`,
+      "utf-8",
+    );
+
+    execFileSync(process.execPath, [cliEntry, "build"], {
+      cwd: exampleDir,
+      encoding: "utf-8",
+      stdio: "pipe",
+    });
+
+    const clientJs = collectJsSource(resolve(exampleDir, "dist/client/assets"));
+    const serverJs = collectJsSource(resolve(exampleDir, "dist/server"));
+
+    // The whole point: the config module is server-only, so neither it nor the
+    // values it declares may reach a visitor.
+    expect(clientJs).not.toContain(PAGES_AGENTS_MARKER);
+    expect(clientJs).not.toContain("test.example");
+    expect(clientJs).not.toContain(PAGES_CAPABILITY_MARKER);
+    // The config module's *path* still appears in the route hint maps, which
+    // scan the whole pages directory — a string, not an import edge. What must
+    // not appear is the module itself, which the markers above prove.
+
+    // Sanity: the server build really does carry them, so this is not just a
+    // broken build passing by omission.
+    expect(serverJs).toContain(PAGES_AGENTS_MARKER);
+    expect(serverJs).toContain(PAGES_CAPABILITY_MARKER);
+
+    // The client still gets a working route table — proof the projection drops
+    // only the server-only keys.
+    expect(clientJs).toContain("/blog/:slug");
+  } finally {
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 function collectJsSource(dir: string): string {
   const entries = readdirSync(dir, { withFileTypes: true, recursive: true });
   const pieces: string[] = [];

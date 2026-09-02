@@ -21,8 +21,9 @@ error.
 - **Manifest apps** (those with `routes.ts`): use a tracing/logging middleware
   registered with `defineApp`. One middleware covers loaders, API routes, and
   inner middleware in one wrapper.
-- **Pages router** apps: there is no manifest, so wrap individual API
-  handlers with a small higher-order function instead.
+- **Pages router** apps: `src/pages/_middleware.ts` is one wrapper around every
+  page route, but it does not wrap API routes, capability HTTP endpoints, or
+  `/mcp` — wrap those handlers with a small higher-order function instead.
 - **Adapter-level wrappers** are only needed when you want to observe the
   outer HTTP cycle including framework-internal failures, since pracht
   converts loader/handler errors into responses before they leave its
@@ -184,8 +185,9 @@ Honeycomb / Beeline-style libraries need.
 
 ## Pages Router: Higher-Order Wrapper
 
-The pages router does not use the manifest, so register logging by wrapping
-individual handlers:
+`src/pages/_middleware.ts` covers every page route with the same `MiddlewareFn`
+a manifest registers. It does not cover API routes, capability HTTP endpoints,
+or `/mcp`, so log those by wrapping the handlers:
 
 ```ts [src/lib/with-request-logging.ts]
 import type { ApiRouteHandler } from "@pracht/core";
