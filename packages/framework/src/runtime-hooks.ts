@@ -491,34 +491,9 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         event.preventDefault();
         const formData = new FormData(form, nativeSubmitter);
 
-        // This branch dispatches CAPABILITY_SETTLED_EVENT below, so it owns
-        // installing the listener that acts on it. Imported here — lazily, and
-        // only once a capability submission is actually under way — so a
-        // `<Form action=…>` app never pulls the revalidation runtime into its
-        // bundle. `event.preventDefault()` above already ran, so awaiting is
-        // safe: the browser will not fall back to a native submission.
-        const { ensureCapabilityRevalidation } = await import("./runtime-capability-revalidate.ts");
-        ensureCapabilityRevalidation();
-
-        if (schema) {
-          const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
-          if (result.issues) {
-            onValidationIssues?.(result.issues);
-            return;
-          }
-        }
-        if (isCrossOriginEndpoint) {
-          validatedNativeSubmissions.add(form);
-          try {
-            form.requestSubmit(nativeSubmitter);
-          } finally {
-            validatedNativeSubmissions.delete(form);
-          }
-          return;
-        }
-
-        clearPrefetchCache();
-        // Expose the in-flight submission through useNavigation().
+        // Published before the first `await` below, so the pending state shows
+        // on the frame the visitor submitted rather than a chunk fetch later.
+        // Every exit from here on runs through the `finally` that settles it.
         const navigationToken = beginSubmittingNavigation(
           createNavigationLocation(endpoint),
           formData,
@@ -526,43 +501,80 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         let envelope: CapabilityEnvelope;
         let response: Response | undefined;
         try {
-          response = await fetch(endpoint, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-            headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
-          });
-          const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
-          if (
-            enhancedRedirect ||
-            response.redirected ||
-            (response.status >= 300 && response.status < 400)
-          ) {
-            const location =
-              enhancedRedirect ??
-              (response.redirected ? response.url : response.headers.get("location"));
-            await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
+          // This branch dispatches CAPABILITY_SETTLED_EVENT below, so it owns
+          // installing the listener that acts on it. Imported here — lazily,
+          // and only once a capability submission is actually under way — so a
+          // `<Form action=…>` app never pulls the revalidation runtime into
+          // its bundle. `event.preventDefault()` above already ran, so
+          // awaiting is safe: the browser will not fall back to a native
+          // submission.
+          try {
+            const revalidation = await import("./runtime-capability-revalidate.ts");
+            revalidation.ensureCapabilityRevalidation();
+          } catch {
+            // The chunk is unreachable — a tab left open across a deploy, or
+            // an offline page. Losing automatic route revalidation is a far
+            // smaller failure than losing the submission itself, so carry on:
+            // the request still goes out and still reports its result.
+          }
+
+          if (schema) {
+            const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");
+            if (result.issues) {
+              onValidationIssues?.(result.issues);
+              return;
+            }
+          }
+          if (isCrossOriginEndpoint) {
+            validatedNativeSubmissions.add(form);
+            try {
+              form.requestSubmit(nativeSubmitter);
+            } finally {
+              validatedNativeSubmissions.delete(form);
+            }
             return;
           }
+
+          clearPrefetchCache();
           try {
-            envelope = (await response.clone().json()) as CapabilityEnvelope;
-          } catch {
+            response = await fetch(endpoint, {
+              method: "POST",
+              body: formData,
+              credentials: "same-origin",
+              headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
+            });
+            const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
+            if (
+              enhancedRedirect ||
+              response.redirected ||
+              (response.status >= 300 && response.status < 400)
+            ) {
+              const location =
+                enhancedRedirect ??
+                (response.redirected ? response.url : response.headers.get("location"));
+              await navigateToClientLocation(location ?? endpoint, { reloadRouteState: true });
+              return;
+            }
+            try {
+              envelope = (await response.clone().json()) as CapabilityEnvelope;
+            } catch {
+              envelope = {
+                ok: false,
+                error: {
+                  code: "invalid_response",
+                  message: `Capability endpoint returned a non-JSON response (status ${response.status}).`,
+                },
+              };
+            }
+          } catch (error: unknown) {
             envelope = {
               ok: false,
               error: {
-                code: "invalid_response",
-                message: `Capability endpoint returned a non-JSON response (status ${response.status}).`,
+                code: "network_error",
+                message: error instanceof Error ? error.message : String(error),
               },
             };
           }
-        } catch (error: unknown) {
-          envelope = {
-            ok: false,
-            error: {
-              code: "network_error",
-              message: error instanceof Error ? error.message : String(error),
-            },
-          };
         } finally {
           settleNavigation(navigationToken);
         }

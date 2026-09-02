@@ -82,7 +82,26 @@ defaults to 30 seconds and is set app-wide with `defineApp({ loaderTimeoutMs })`
 It is one budget per request — the middleware chain, the loader, and the
 not-found render that follows a thrown `notFound()` all share it, so a 404 page
 cannot mint itself a fresh 30 seconds on top of a loader that already spent
-them. Runtimes without `AbortSignal.any` fall back to the timeout alone.
+them. Runtimes without `AbortSignal.any` get the same composed signal wired by
+hand rather than losing the client's half of it.
+
+Prerendering runs loaders through the same pipeline, so `loaderTimeoutMs`
+bounds SSG/ISG builds too. A budget tuned down for an edge runtime fails the
+build for any loader slower than it, and the build error names the route and
+the budget.
+
+The two abort reasons are distinguished when the request fails. A client
+disconnect skips `onRouteError` and returns an empty 499 — reporting an
+abandoned navigation would fill an app's error tracker with faults it cannot
+act on — while a `TimeoutError` takes the normal error path. The composed
+signal's reason names whichever source won the race, so a timeout followed by a
+disconnect is still reported.
+
+Only adapters that hand the runtime a live `Request` can supply the client's
+half. Cloudflare, Netlify, and Vercel pass the platform request through;
+`@pracht/adapter-node` builds one from `req`/`res` `close` events, using
+`res.writableFinished` to tell an abandoned exchange from a completed one
+(Node emits `close` for both). Static export has no live request.
 
 `ApiRouteArgs` and `MiddlewareArgs` expose the same base-free `pathname`, so
 route-aware server code does not need to strip the deployment base from

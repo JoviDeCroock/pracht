@@ -93,6 +93,22 @@ One budget covers the whole request: middleware, the loader, and — when a
 loader throws `notFound()` — rendering the not-found page all run on what is
 left of it. The same signal reaches [API route](/docs/api-routes) handlers.
 
+**It applies at build time too.** SSG and ISG prerendering run loaders through
+the same request pipeline, so a budget tuned down for an edge runtime will fail
+the *build* for any loader slower than it. The build error names the route and
+says the loader ran past the budget.
+
+**A client disconnect is not an error.** When the visitor goes away, pracht
+skips `onRouteError` and answers 499 rather than rendering an error page, so an
+abandoned navigation does not appear in Sentry or OpenTelemetry as an
+application fault. A budget expiry still reports normally.
+
+**Adapter support.** Cloudflare, Netlify, and Vercel hand pracht the platform's
+own `Request`, whose signal already tracks the connection. The Node adapter
+wires one from the socket. Static export has no request to abandon — there the
+signal only carries the build-time budget. Runtimes without `AbortSignal.any`
+get the same composed signal, wired by hand.
+
 ### When loaders run
 
 | Scenario          | Loader runs on                                                   |

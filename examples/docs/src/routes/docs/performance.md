@@ -21,10 +21,10 @@ thing changed each time.
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
 | `hydration: "islands"` | **7.5 KB** | 17.1 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "full"` | **16.9 KB** | 41.6 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **15.4 KB** | 40.7 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **16.6 KB** | 40.7 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"` + `preact/compat` | **18.3 KB** | 46.2 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "full"` | **16.9 KB** | 41.7 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **15.5 KB** | 40.8 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **16.7 KB** | 40.9 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"` + `preact/compat` | **18.3 KB** | 46.3 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load — the route's chunks plus the one the router fetches after
 hydration. Raw is the route's chunks. Both come straight from
@@ -35,12 +35,12 @@ Your application code sits on top of these. They are a floor, not a budget.
 
 Three things worth reading off the table. Going from full hydration to islands
 is the single largest lever — it removes the router, not just some of it.
-[Turning prefetching off](/docs/prefetching) is worth about 1.5 KB, which is
+[Turning prefetching off](/docs/prefetching) is worth about 1.4 KB, which is
 more than it looks: the router `import()`s the prefetch runtime *after*
 hydration, so those bytes are part of a cold load without showing up in any
 route's chunk list. And
 [turning navigation guards off](/docs/data-loading#useblocker) is worth about
-0.3 KB — small, but it is the entire cost of a feature an app either uses or
+0.2 KB — small, but it is the entire cost of a feature an app either uses or
 does not.
 
 ### How these numbers are measured

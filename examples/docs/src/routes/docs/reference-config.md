@@ -124,7 +124,7 @@ export const app = defineApp({
 | `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/remote-mcp) with its optional OAuth resource-server config. Serializable data and module references only |
 | `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Agent Workflow](/docs/agent-workflow) |
 | `viewTransitions` | boolean | Enable the View Transitions API for every client navigation by default. See [View Transitions](/docs/recipes/view-transitions) |
-| `loaderTimeoutMs` | number | Budget in milliseconds for the `signal` passed to middleware, loaders, and API handlers. Default `30000`. The signal aborts when the budget runs out or the client disconnects, whichever comes first; one budget covers the whole request, including the not-found render after `notFound()`. See [Data Loading](/docs/data-loading#signal) |
+| `loaderTimeoutMs` | number | Budget in milliseconds for the `signal` passed to middleware, loaders, and API handlers. Default `30000`. The signal aborts when the budget runs out or the client disconnects, whichever comes first; one budget covers the whole request, including the not-found render after `notFound()`. It applies to SSG/ISG prerendering too, so a short edge budget can fail the build. See [Data Loading](/docs/data-loading#signal) |
 
 ### `api`
 

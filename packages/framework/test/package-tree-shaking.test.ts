@@ -338,6 +338,28 @@ describe("published package tree shaking", () => {
     });
   });
 
+  // `src/routes.ts` is the one module both environments compile, so most of
+  // `defineApp`'s validation folds away in a production client build. The
+  // `loaderTimeoutMs` check must not: a bad value there aborts every request
+  // the moment it starts, and `AbortSignal.timeout(NaN)` names nothing.
+  describe("defineApp validation in a production bundle", () => {
+    const production = { define: { "import.meta.env.DEV": "false" } };
+
+    it("keeps the loaderTimeoutMs check after dev-only validation is folded out", async () => {
+      const { code } = await bundleExport("defineApp", production);
+
+      expect(code).toContain("Invalid loaderTimeoutMs");
+      // The explanation is dev-only; only the short form ships.
+      expect(code).not.toContain("positive number of milliseconds");
+    });
+
+    it("drops the manifest validation that is dev-only", async () => {
+      const { code } = await bundleExport("defineApp", production);
+
+      expect(code).not.toContain("is not a registered");
+    });
+  });
+
   // The package resolves to a different entry in the browser than on the
   // server, so it has to resolve to different *types* there too. A single
   // unconditional `types` handed client code ~70 server-only declarations

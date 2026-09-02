@@ -190,14 +190,54 @@ declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
  * to `fetch()` or a database driver — a timeout alone keeps a request the
  * caller has already abandoned running to completion.
  *
- * `AbortSignal.any` is only guaranteed in newer runtimes, so an environment
- * without it degrades to the timeout rather than losing the budget.
+ * `AbortSignal.any` is not available everywhere, so runtimes without it get
+ * the same signal wired by hand. Dropping either half there would be the wrong
+ * trade: the client abort is the one that stops work nobody is waiting for.
  */
 function composeRequestSignal(request: Request, timeoutMs: number): AbortSignal {
   const timeout = AbortSignal.timeout(timeoutMs);
   const clientSignal: AbortSignal | undefined = request.signal;
-  if (!clientSignal || typeof AbortSignal.any !== "function") return timeout;
-  return AbortSignal.any([clientSignal, timeout]);
+  if (!clientSignal) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([clientSignal, timeout]);
+
+  const controller = new AbortController();
+  if (clientSignal.aborted) {
+    controller.abort(clientSignal.reason);
+    return controller.signal;
+  }
+  if (timeout.aborted) {
+    controller.abort(timeout.reason);
+    return controller.signal;
+  }
+  // Each handler removes the other, so the composed signal does not hold a
+  // listener on the request signal for the rest of the budget.
+  const onClientAbort = () => {
+    timeout.removeEventListener("abort", onTimeoutAbort);
+    controller.abort(clientSignal.reason);
+  };
+  const onTimeoutAbort = () => {
+    clientSignal.removeEventListener("abort", onClientAbort);
+    controller.abort(timeout.reason);
+  };
+  clientSignal.addEventListener("abort", onClientAbort, { once: true });
+  timeout.addEventListener("abort", onTimeoutAbort, { once: true });
+  return controller.signal;
+}
+
+/**
+ * Did the client go away, as opposed to the request running out of budget?
+ *
+ * Both reach a loader as the same `AbortError`-shaped failure, but they are
+ * not the same event to report: an abandoned navigation is the visitor's
+ * decision and an app that reports it fills Sentry with noise it can do
+ * nothing about, while a timeout is a real fault worth a page. The composed
+ * signal's reason names whichever source won the race, so a timeout that fires
+ * first is still reported even if the client disconnects afterwards.
+ */
+function isClientDisconnect(request: Request, signal: AbortSignal): boolean {
+  if (!signal.aborted) return false;
+  if ((signal.reason as { name?: string } | undefined)?.name === "TimeoutError") return false;
+  return request.signal?.aborted === true;
 }
 
 /**
@@ -1288,6 +1328,15 @@ export async function handlePrachtRequest<TContext>(
         shellModule: shellModulePromise,
       });
     } catch (error: unknown) {
+      // The client went away mid-load. Whatever surfaced here is downstream of
+      // that abort rather than a fault the app can act on, and nothing is left
+      // to read the response — so skip the error report and the error render
+      // both. 499 is nginx's "Client Closed Request". A timeout still takes
+      // the normal path below.
+      if (isClientDisconnect(options.request, requestSignal)) {
+        return new Response(null, { status: 499 });
+      }
+
       // A thrown `Response` is a deliberate short-circuit, not a failure: it is
       // how a loader aborts its own render to redirect (`throw redirect(...)`)
       // or answer directly, which returning cannot express from inside a helper
