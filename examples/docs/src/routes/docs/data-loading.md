@@ -66,9 +66,32 @@ every concrete prerendered path for adapters, and annotates generated
 | request | Request       | The incoming Web Request                             |
 | params  | RouteParams   | Dynamic URL params, e.g. `{ slug: "hello" }`         |
 | context | TContext      | App-level context from the adapter's context factory |
-| signal  | AbortSignal   | Cancellation signal for timeouts                     |
+| signal  | AbortSignal   | Aborts when the client disconnects or the budget runs out |
 | url     | URL           | Parsed URL object                                    |
 | route   | ResolvedRoute | Matched route metadata                               |
+
+#### `signal`
+
+`signal` aborts for either of two reasons, whichever comes first: the client
+went away, or the request ran out of its budget. Pass it to `fetch()`, to a
+database driver, or to anything else that accepts an `AbortSignal`, and work
+stops instead of running to completion for a visitor who has already navigated
+away.
+
+```ts [src/routes/search.tsx]
+export async function loader({ signal, url }: LoaderArgs) {
+  const response = await fetch(`https://api.example.com/search?q=${url.searchParams.get("q")}`, {
+    signal,
+  });
+  return { results: await response.json() };
+}
+```
+
+The budget defaults to 30 seconds and is configurable app-wide with
+[`defineApp({ loaderTimeoutMs })`](/docs/reference/config#defineapp--the-route-manifest).
+One budget covers the whole request: middleware, the loader, and — when a
+loader throws `notFound()` — rendering the not-found page all run on what is
+left of it. The same signal reaches [API route](/docs/api-routes) handlers.
 
 ### When loaders run
 
@@ -163,11 +186,17 @@ start until something reads the value. It is memoized, so two reads never do
 the work twice.
 
 Today every render mode resolves deferred values before the response is
-written. The immediate win is concurrency — two independent 300 ms fields cost
-300 ms instead of 600 ms. The reason to write it now is that this is the
-finished API: when the streaming renderer lands, `render: "ssr"` will flush the
-shell first and stream these in with no change to your route source. `ssg` and
-`isg` will always resolve everything, because a static file cannot stream.
+written — nothing streams yet, in any mode. The win you get now is concurrency:
+two independent 300 ms fields cost 300 ms instead of 600 ms. The reason to write
+it now is that this is the finished API — when the streaming renderer lands
+([issue #191](https://github.com/JoviDeCroock/pracht/issues/191)),
+`render: "ssr"` will flush the shell first and stream these in with no change to
+your route source. `ssg` and `isg` will always resolve everything, because a
+static file cannot stream.
+
+A route that never calls `defer()` pays nothing for any of this: the runtime
+tracks whether the process has ever created a deferred value and skips the
+resolution pass entirely when it has not.
 
 Three rules:
 
@@ -467,6 +496,12 @@ export function Component() {
   return <span>{data.user.name}</span>;
 }
 ```
+
+The runtime holds one route's data — the one on screen — so the route id is a
+typing shortcut, not a lookup. It is still honoured: passing the id of a route
+other than the active one throws, rather than handing back another route's data
+under the requested route's type. To read data across routes, pass it down as a
+prop.
 
 For projects that do not run typegen, pass the loader type explicitly as a generic instead:
 

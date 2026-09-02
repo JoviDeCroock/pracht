@@ -43,7 +43,14 @@ afterAll(() => {
 async function bundleExport(
   exportName: string,
   options: { define?: Record<string, string>; entry?: string } = {},
-): Promise<{ code: string; gzipBytes: number; warnings: string[] }> {
+): Promise<{
+  code: string;
+  /** The entry chunk alone — what a page pays before any lazy chunk loads. */
+  entryCode: string;
+  entryGzipBytes: number;
+  gzipBytes: number;
+  warnings: string[];
+}> {
   const entry = options.entry ?? browserEntry;
   const publicId = "virtual:pracht-tree-shaking-entry";
   const resolvedId = `\0${publicId}`;
@@ -94,8 +101,15 @@ async function bundleExport(
   const outputs = Array.isArray(result) ? result : [result];
   const chunks = outputs.flatMap((output) => output.output).filter((item) => item.type === "chunk");
 
+  const entryChunks = chunks.filter((chunk) => chunk.isEntry);
+
   return {
     code: chunks.map((chunk) => chunk.code).join("\n"),
+    entryCode: entryChunks.map((chunk) => chunk.code).join("\n"),
+    entryGzipBytes: entryChunks.reduce(
+      (total, chunk) => total + gzipSync(Buffer.from(chunk.code)).byteLength,
+      0,
+    ),
     gzipBytes: chunks.reduce(
       (total, chunk) => total + gzipSync(Buffer.from(chunk.code)).byteLength,
       0,
@@ -153,10 +167,15 @@ describe("published package tree shaking", () => {
     // always emits the define, so a real bundle is smaller either way. This
     // shape (no client defines at all) is the worst case, where neither branch
     // can be folded.
-    it("keeps the router runtime below 9,850 gzip bytes", async () => {
+    //
+    // Raised from 9,850 for the bounded redirect chain: a loader redirect the
+    // client follows now carries a hop count, and an opaque redirect (whose
+    // destination the browser refuses to expose) falls back to a document
+    // navigation instead of re-fetching the URL it just asked for.
+    it("keeps the router runtime below 9,900 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_850);
+      expect(gzipBytes).toBeLessThanOrEqual(9_900);
     });
 
     it("drops preact-suspense when the app renders no Suspense boundary", async () => {
@@ -190,6 +209,43 @@ describe("published package tree shaking", () => {
       const { code } = await bundleExport("ensureCapabilityRevalidation");
 
       expect(code).toContain("@pracht/capabilities");
+    });
+  });
+
+  // `<Form>` is the one client export that can dispatch a capability call, and
+  // it used to pay for that on every page that rendered a plain
+  // `<Form action=…>`: the revalidation listener was imported at module scope.
+  describe("<Form> in an app with no capabilities", () => {
+    const production = { define: { "import.meta.env.DEV": "false" } };
+
+    it("keeps the capability revalidation runtime out of the entry chunk", async () => {
+      const { entryCode } = await bundleExport("Form", production);
+
+      // The listener and everything it reaches — route-state re-fetching,
+      // error deserialization, font reapplication — now sit behind the
+      // dynamic import in the `capability` branch.
+      expect(entryCode).not.toContain("shouldRevalidateAfterCapability");
+      expect(entryCode).not.toContain("revalidateRouteData");
+      expect(entryCode).not.toContain("pracht:capability-settled");
+    });
+
+    it("keeps only the wire-protocol constants of @pracht/capabilities", async () => {
+      const { entryCode } = await bundleExport("Form", production);
+
+      // Rendering the form element needs the capability URL formula and the
+      // enhanced-submission header names; nothing else from the package may
+      // ride along.
+      expect(entryCode).not.toContain("defineCapability");
+      expect(entryCode).not.toContain("invalid_input");
+    });
+
+    // Was 3,539 when the listener was imported at module scope. The lazy
+    // chunk is bigger than the bytes it saves in isolation, but a page only
+    // fetches it after a capability form is submitted.
+    it("stays under 2,750 gzip bytes in the entry chunk", async () => {
+      const { entryGzipBytes } = await bundleExport("Form", production);
+
+      expect(entryGzipBytes).toBeLessThanOrEqual(2_750);
     });
   });
 
@@ -279,6 +335,76 @@ describe("published package tree shaking", () => {
       const { code } = await routerBundle({});
 
       expect(code).toContain("__PRACHT_BLOCK_NAVIGATION__");
+    });
+  });
+
+  // The package resolves to a different entry in the browser than on the
+  // server, so it has to resolve to different *types* there too. A single
+  // unconditional `types` handed client code ~70 server-only declarations
+  // that type-check and then fail at bundle time.
+  describe("browser export condition", () => {
+    /** Minimal conditional-exports walk: first matching condition wins. */
+    function resolveExport(entry: unknown, conditions: string[]): string | undefined {
+      if (typeof entry === "string") return entry;
+      if (entry === null || typeof entry !== "object") return undefined;
+      for (const [condition, value] of Object.entries(entry as Record<string, unknown>)) {
+        if (condition === "default" || conditions.includes(condition)) {
+          const resolved = resolveExport(value, conditions);
+          if (resolved) return resolved;
+        }
+      }
+      return undefined;
+    }
+
+    const rootExport = (
+      JSON.parse(readFileSync(join(frameworkRoot, "package.json"), "utf-8")) as {
+        exports: Record<string, unknown>;
+      }
+    ).exports["."];
+
+    it("resolves types and runtime to the same entry under every condition", () => {
+      expect(resolveExport(rootExport, ["browser", "types"])).toBe("./dist/browser.d.mts");
+      expect(resolveExport(rootExport, ["browser", "import"])).toBe("./dist/browser.mjs");
+      expect(resolveExport(rootExport, ["types"])).toBe("./dist/index.d.mts");
+      expect(resolveExport(rootExport, ["import"])).toBe("./dist/index.mjs");
+    });
+
+    it("does not declare server-only exports in the browser types", () => {
+      const browserTypes = readFileSync(join(outputDir, "browser.d.mts"), "utf-8");
+      const indexTypes = readFileSync(join(outputDir, "index.d.mts"), "utf-8");
+
+      for (const serverOnly of ["handlePrachtRequest", "prerenderApp", "handleMcpRequest"]) {
+        expect(indexTypes).toContain(serverOnly);
+        expect(browserTypes).not.toContain(serverOnly);
+      }
+    });
+
+    it("declares the pure route and constraint helpers client code needs", () => {
+      const browserTypes = readFileSync(join(outputDir, "browser.d.mts"), "utf-8");
+
+      for (const helper of [
+        "evaluateConstraints",
+        "matchApiRoute",
+        "matchRoutePath",
+        "resolveApiRoutes",
+        "routePathIsDynamic",
+      ]) {
+        expect(browserTypes).toContain(helper);
+      }
+    });
+
+    it("exports those helpers at runtime as well as in the types", async () => {
+      const browser = (await import("../src/browser.ts")) as Record<string, unknown>;
+
+      for (const helper of [
+        "evaluateConstraints",
+        "matchApiRoute",
+        "matchRoutePath",
+        "resolveApiRoutes",
+        "routePathIsDynamic",
+      ]) {
+        expect(typeof browser[helper]).toBe("function");
+      }
     });
   });
 

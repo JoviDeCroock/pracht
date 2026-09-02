@@ -54,7 +54,6 @@ import {
   capabilityHttpPath,
 } from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
-import { ensureCapabilityRevalidation } from "./runtime-capability-revalidate.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import type {
@@ -237,14 +236,28 @@ class PrachtReadonlyURLSearchParams extends URLSearchParams {
   }
 }
 
+/**
+ * Read the active route's loader data.
+ *
+ * Passing a route id is a typing shortcut, not a lookup: the runtime holds
+ * exactly one route's data, the one on screen. The argument is still honoured
+ * — asking for a route that is not the active one throws rather than handing
+ * back another route's data under the requested route's type.
+ */
 export function useRouteData<TRoute extends RouteId>(routeId: TRoute): RouteDataFor<TRoute>;
 export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
 export function useRouteData<TData = unknown>(): TData;
 export function useRouteData(routeId?: string): unknown {
   const runtime = useContext(RouteDataContext);
-  if (import.meta.env?.DEV && routeId !== undefined && runtime && runtime.routeId !== routeId) {
-    console.warn(
-      `useRouteData("${routeId}") rendered inside route "${runtime.routeId}"; returning the active route's data.`,
+  if (routeId !== undefined && runtime && runtime.routeId !== routeId) {
+    // The long form is dev-only: `import.meta.env.DEV` folds to `false` in a
+    // production bundle, so shipping apps carry the short message alone.
+    throw new Error(
+      import.meta.env?.DEV
+        ? `useRouteData(${JSON.stringify(routeId)}) was called inside route ${JSON.stringify(runtime.routeId)}. ` +
+            "A component can only read the data of the route it renders under — drop the route id " +
+            "to read the active route's data, or pass the value down as a prop."
+        : `useRouteData: ${routeId} is not the active route (${runtime.routeId})`,
     );
   }
   return runtime?.data;
@@ -460,11 +473,6 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           : undefined;
 
       if (capability) {
-        // This branch dispatches CAPABILITY_SETTLED_EVENT below, so it owns
-        // installing the listener that acts on it. Registering here rather
-        // than in the runtime provider keeps route revalidation out of the
-        // client bundle of every app that has no capabilities.
-        ensureCapabilityRevalidation();
         const submitterAction = nativeSubmitter?.getAttribute("formaction");
         const endpoint = submitterAction ?? actionAttribute ?? form.action;
         const endpointUrl = parseSafeNavigationUrl(endpoint, window.location.href);
@@ -482,6 +490,15 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         }
         event.preventDefault();
         const formData = new FormData(form, nativeSubmitter);
+
+        // This branch dispatches CAPABILITY_SETTLED_EVENT below, so it owns
+        // installing the listener that acts on it. Imported here — lazily, and
+        // only once a capability submission is actually under way — so a
+        // `<Form action=…>` app never pulls the revalidation runtime into its
+        // bundle. `event.preventDefault()` above already ran, so awaiting is
+        // safe: the browser will not fall back to a native submission.
+        const { ensureCapabilityRevalidation } = await import("./runtime-capability-revalidate.ts");
+        ensureCapabilityRevalidation();
 
         if (schema) {
           const result = await validateStandardSchema(schema, formDataToRecord(formData), "body");

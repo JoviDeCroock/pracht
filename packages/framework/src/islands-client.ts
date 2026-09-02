@@ -33,6 +33,18 @@ export interface HydrateIslandsOptions {
 let capabilityRevalidationBound = false;
 
 /**
+ * Build-time proof that the app has no agent surface at all — no registered
+ * capabilities and no `defineApp({ agents })`. The Vite plugin defines it as
+ * `false` only when it can read the manifest and see both are absent; anything
+ * it cannot prove leaves it undefined and the listener stays wired.
+ *
+ * Without it, every islands page paid for the capability-settled listener and
+ * the `@pracht/capabilities` import behind it, whether or not a capability
+ * could ever settle.
+ */
+declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
+
+/**
  * Islands routes render server-side and mount no client router, so there is no
  * route-data store to soft-refresh after a mutation the way full-hydration
  * routes do. Reload the document instead when a non-`read` capability settles
@@ -52,7 +64,9 @@ function bindCapabilityRevalidation(): void {
 }
 
 export async function hydrateIslands(options: HydrateIslandsOptions): Promise<void> {
-  bindCapabilityRevalidation();
+  if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
+    bindCapabilityRevalidation();
+  }
   const elements = document.querySelectorAll(ISLAND_ELEMENT);
   const immediate: Promise<void>[] = [];
 
