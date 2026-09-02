@@ -11,9 +11,11 @@ next:
 ---
 
 The examples live under [`examples/`](https://github.com/JoviDeCroock/pracht/tree/main/examples)
-in the repository. They are part of the workspace, so the e2e suite runs against
-them — which means they stay current with the framework rather than drifting
-into stale sample code.
+in the repository. They are part of the workspace, so they build against the
+framework in the same run you do and cannot drift into stale sample code. Six of
+them — `basic`, `cloudflare`, `islands`, `pages-router`, `static`, and `tsrx` —
+are also driven by the [e2e suite](https://github.com/JoviDeCroock/pracht/tree/main/e2e);
+`showcase` and `docs` are covered by their own builds rather than by e2e specs.
 
 ```sh
 git clone https://github.com/JoviDeCroock/pracht
@@ -91,8 +93,8 @@ that route discovery is not tied to one compiler.
 
 The site you are reading. Every page is a Markdown file compiled by a
 [content collection](/docs/content) into a real route, prerendered with SSG, and
-deployed to Cloudflare. It also generates [`llms.txt`](/docs/llms), a sitemap,
-and the [agent-skills](/docs/agent-skills) discovery index at build time.
+deployed to Cloudflare. It also generates [`llms.txt`](/docs/agents#llmstxt), a sitemap,
+and the [agent-skills](/docs/coding-agents#discovery-endpoint) discovery index at build time.
 
 The best example of `@pracht/content` and `@pracht/markdown` in anger — and a
 useful thing to read before writing a docs site of your own.

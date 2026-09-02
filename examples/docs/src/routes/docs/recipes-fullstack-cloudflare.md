@@ -4,7 +4,7 @@ lead: Build a full-stack app on Cloudflare with D1 (SQLite), KV, and R2. This re
 breadcrumb: Full-Stack Cloudflare
 prev:
   href: /docs/recipes/streaming
-  title: Streaming
+  title: Server-Sent Events & WebSockets
 next:
   href: /docs/recipes/fullstack-vercel
   title: Full-Stack Vercel

@@ -7,7 +7,7 @@ prev:
   title: Testing
 next:
   href: /docs/recipes/streaming
-  title: Streaming
+  title: Server-Sent Events & WebSockets
 ---
 
 ## Recommended Shape
