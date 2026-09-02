@@ -163,9 +163,42 @@ export function pipeToResponse(source: NodeJS.ReadableStream, res: ServerRespons
   });
 }
 
+/**
+ * A signal that fires when the client hangs up before the response finished.
+ *
+ * Node reports a completed exchange and an abandoned one the same way — a
+ * `close` on both the request and the response — so the response's own state
+ * is the discriminator: `close` while `res.writableFinished` is still `false`
+ * means the socket went away while the app was still working. Both events are
+ * wired because a connection can die before the request stream ever completes.
+ *
+ * Without this the platform `Request` carries a signal that never aborts, and
+ * `defineApp({ loaderTimeoutMs })` degrades to a plain timeout on the one
+ * adapter most likely to be running long loaders.
+ */
+export function createClientDisconnectSignal(
+  req: IncomingMessage,
+  res: ServerResponse,
+): AbortSignal {
+  const controller = new AbortController();
+  const abortIfUnfinished = (): void => {
+    if (res.writableFinished || controller.signal.aborted) return;
+    controller.abort(new DOMException("The client closed the request.", "AbortError"));
+  };
+  req.on("close", abortIfUnfinished);
+  res.on("close", abortIfUnfinished);
+  return controller.signal;
+}
+
 export async function createWebRequest(
   req: IncomingMessage,
-  options: { trustProxy: boolean; canonicalOrigin?: string; maxBodySize?: number },
+  options: {
+    trustProxy: boolean;
+    canonicalOrigin?: string;
+    maxBodySize?: number;
+    /** Aborts loaders, middleware, and API handlers when the client hangs up. */
+    signal?: AbortSignal;
+  },
 ): Promise<Request> {
   const baseUrl = resolveRequestBase(req, options);
   const url = new URL(normalizeRequestTarget(req.url, options), baseUrl);
@@ -174,6 +207,7 @@ export async function createWebRequest(
   const init: RequestInit = {
     headers,
     method,
+    signal: options.signal,
   };
 
   if (!BODYLESS_METHODS.has(method.toUpperCase())) {

@@ -50,6 +50,7 @@ import {
 } from "./node-compress.ts";
 import { regenerateISGPage, writeISGFile } from "./node-isg.ts";
 import {
+  createClientDisconnectSignal,
   createWebRequest,
   isClientDisconnectError,
   pipeToResponse,
@@ -152,9 +153,18 @@ export function createNodeRequestHandler<TContext = unknown>(
       );
     }
 
+    // Created before the body is read: a client that hangs up mid-upload has
+    // to abort the work its request already started.
+    const clientSignal = createClientDisconnectSignal(req, res);
+
     let request: Request;
     try {
-      request = await createWebRequest(req, { canonicalOrigin, trustProxy, maxBodySize });
+      request = await createWebRequest(req, {
+        canonicalOrigin,
+        trustProxy,
+        maxBodySize,
+        signal: clientSignal,
+      });
     } catch (err) {
       if (err instanceof Error && err.message === "Request body too large") {
         res.statusCode = 413;
