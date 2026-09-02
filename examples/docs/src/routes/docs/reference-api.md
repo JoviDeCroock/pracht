@@ -185,6 +185,57 @@ See [Environment Variables](/docs/env).
 
 ---
 
+## Sessions
+
+From `@pracht/session`. WebCrypto only, so the same build runs on every
+adapter. See [Authentication](/docs/recipes/auth).
+
+| Export | Description |
+| --- | --- |
+| `createSessionStorage<Data>({ cookie, store, rolling })` | The app's session storage. Without `store`, the data travels AES-256-GCM sealed in the cookie; with one, the cookie carries only a sealed id. `rolling: true` re-commits on every request, turning `maxAge` into an idle timeout |
+| `sessionMiddleware(storage, options?)` | Loads the session onto `context.session` and commits changes after the chain. Does not gate |
+| `requireSession(storage, options?)` | The same, plus a gate: page requests redirect to `loginPath`, API requests get `401` |
+| `createMemorySessionStore()` | In-memory `SessionStore` for tests and dev. Not a production store |
+| `hashPassword(password, options?)` | PBKDF2-HMAC-SHA256 hash that records its own parameters |
+| `verifyPassword(password, stored)` | Constant-time check against a stored hash |
+| `withSetCookie(response, header)` | Append a `Set-Cookie`, reconstructing the response when its headers are immutable |
+
+`cookie` takes `{ name, secrets, maxAge?, path?, domain?, sameSite?, secure?, httpOnly? }`.
+`secrets` is newest-first: the first seals, all of them open, which is what
+makes rotation a deploy rather than a mass logout. A `__Host-`/`__Secure-`
+`name` is validated at construction and pins `Secure` on. `secure` defaults to
+on for every request except plain http from `localhost`/`127.0.0.1`/`[::1]`,
+so a deployment behind a TLS-terminating proxy does not silently lose it.
+
+Expiry is absolute from the last write, and the middleware commits only when
+the session changed — see [Authentication](/docs/recipes/auth) for the full
+model and for `rolling`.
+
+| `SessionStorage` method | Description |
+| --- | --- |
+| `getSession(request)` | The session for a request. A forged, tampered, expired, or unknown cookie yields a fresh empty session — never a throw |
+| `commitSession(session, options?)` | Seal and return the `Set-Cookie` value. Throws when a cookie session exceeds 4 KB |
+| `commit(session, response, options?)` | The same, appended to a response (existing `Set-Cookie` headers preserved) |
+| `destroySession(session)` / `destroy(session, response)` | Delete the store record and expire the cookie |
+| `isDirty(session)` | Whether the session changed this request |
+
+| `Session` member | Description |
+| --- | --- |
+| `id` | Random 128-bit session id |
+| `data` | Read-only snapshot; reading it never consumes a flash value |
+| `get(key)` | Read a value — and consume it, if it was flashed |
+| `set(key, value)` / `unset(key)` / `has(key)` | Durable writes and presence |
+| `flash(key, value)` | Write a value that survives exactly one read |
+| `regenerate()` | New id, same data, old store record dropped. Call it on every privilege change — it is what closes session fixation |
+
+| `SessionStore` method | Description |
+| --- | --- |
+| `get(id)` | The stored record, or `null` when unknown or expired |
+| `set(id, data, expiresAt)` | Persist the record. `expiresAt` is `Date.now()`-style milliseconds |
+| `delete(id)` | Remove the record; must not throw on an unknown id |
+
+---
+
 ## Companion Packages
 
 | Package | Key exports | Guide |
@@ -194,6 +245,7 @@ See [Environment Variables](/docs/env).
 | `@pracht/content` | `defineCollection`, `llmsTxtArtifacts`, `rawContentArtifacts`, `parseFrontmatter` | [Content Collections](/docs/content) |
 | `@pracht/markdown` | `defineMarkdownCollection` | [Content Collections](/docs/content) |
 | `@pracht/openapi` | `defineOpenApi`, `getOpenApiDescriptor` | [OpenAPI](/docs/openapi) |
+| `@pracht/session` | `createSessionStorage`, `sessionMiddleware`, `requireSession`, `createMemorySessionStore`, `hashPassword`, `verifyPassword` | [Authentication](/docs/recipes/auth) |
 | `@pracht/capabilities` | `defineCapability` | [Capabilities](/docs/capabilities) |
 | `@pracht/test` | `createLoaderArgs`, `runMiddleware`, `createFormRequest`, `submitForm`, `readJson`, `readRedirect` | [Testing](/docs/recipes/testing) |
 
