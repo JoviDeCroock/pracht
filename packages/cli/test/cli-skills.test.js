@@ -369,6 +369,101 @@ describe("@pracht/cli skills", () => {
     });
   });
 
+  // Vetting `.claude/skills` alone left the level below it open: a symlink at
+  // `.claude/skills/<name>` is followed by `writeFileSync` just the same.
+  it("refuses a skill directory symlinked outside the project", async () => {
+    const appDir = createTempDir("pracht-cli-skills-inner-link-");
+    const outside = createTempDir("pracht-cli-skills-inner-outside-");
+    mkdirSync(join(appDir, ".claude/skills"), { recursive: true });
+    symlinkSync(outside, join(appDir, ".claude/skills/audit-loaders"));
+
+    await withIndex({ entries: goodEntries, bodies: goodBodies }, async ({ indexUrl }) => {
+      const result = await runCli(
+        ["skills", "add", "audit-loaders", "--index", indexUrl, "--force", "--json"],
+        { cwd: appDir },
+      );
+
+      expect(result.status).toBe(1);
+      const output = JSON.parse(result.stdout);
+      expect(output.ok).toBe(false);
+      expect(output.failed[0].error).toMatch(/outside/);
+      expect(existsSync(join(outside, "SKILL.md"))).toBe(false);
+    });
+  });
+
+  // The link's target need not exist, so `existsSync` never sees it and the
+  // "already installed" check cannot be what guards this.
+  it("refuses a skill directory that is a dangling symlink out of the project", async () => {
+    const appDir = createTempDir("pracht-cli-skills-dangling-");
+    const outside = createTempDir("pracht-cli-skills-dangling-outside-");
+    mkdirSync(join(appDir, ".claude/skills"), { recursive: true });
+    symlinkSync(join(outside, "not-yet"), join(appDir, ".claude/skills/audit-loaders"));
+
+    await withIndex({ entries: goodEntries, bodies: goodBodies }, async ({ indexUrl }) => {
+      const result = await runCli(["skills", "add", "audit-loaders", "--index", indexUrl], {
+        cwd: appDir,
+      });
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/outside/);
+      expect(existsSync(join(outside, "not-yet"))).toBe(false);
+    });
+  });
+
+  it("refuses a SKILL.md symlinked outside the project", async () => {
+    const appDir = createTempDir("pracht-cli-skills-file-link-");
+    const outside = createTempDir("pracht-cli-skills-file-outside-");
+    mkdirSync(join(appDir, ".claude/skills/audit-loaders"), { recursive: true });
+    symlinkSync(join(outside, "SKILL.md"), skillFile(appDir, "audit-loaders"));
+
+    await withIndex({ entries: goodEntries, bodies: goodBodies }, async ({ indexUrl }) => {
+      const result = await runCli(
+        ["skills", "add", "audit-loaders", "--index", indexUrl, "--force"],
+        { cwd: appDir },
+      );
+
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/outside/);
+      expect(existsSync(join(outside, "SKILL.md"))).toBe(false);
+    });
+  });
+
+  // Whatever went wrong, a caller piping stdout through a parser gets one shape.
+  it("emits the same --json envelope for a fatal error", async () => {
+    const appDir = createTempDir("pracht-cli-skills-json-shape-");
+
+    const result = await runCli(
+      ["skills", "add", "audit-loaders", "--index", "http://example.com/index.json", "--json"],
+      { cwd: appDir },
+    );
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      error: expect.stringMatching(/must use https/),
+      installed: [],
+      skipped: [],
+      failed: [],
+    });
+    expect(result.stderr).toBe("");
+  });
+
+  it("emits the same --json envelope when list fails", async () => {
+    const appDir = createTempDir("pracht-cli-skills-json-list-");
+
+    const result = await runCli(
+      ["skills", "list", "--index", "http://example.com/index.json", "--json"],
+      { cwd: appDir },
+    );
+
+    expect(result.status).toBe(1);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: false,
+      error: expect.stringMatching(/must use https/),
+      skills: [],
+    });
+  });
+
   it("refuses a .claude/skills symlink that escapes the project even with --force", async () => {
     const appDir = createTempDir("pracht-cli-skills-escape-");
     const outside = createTempDir("pracht-cli-skills-outside-");

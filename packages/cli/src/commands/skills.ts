@@ -1,10 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 import { defineCommand } from "citty";
-
-import { handleCliError } from "../utils.js";
 
 /**
  * The published Agent Skills Discovery index
@@ -110,38 +108,71 @@ async function fetchIndex(rawIndexUrl: string): Promise<SkillIndexEntry[]> {
   return validateEntries(indexUrl, body.skills);
 }
 
+function insideProject(project: string, path: string): boolean {
+  return path === project || path.startsWith(project + sep);
+}
+
 /**
- * Resolve `.claude/skills`, refusing anything that would write somewhere the
- * caller did not name.
+ * Where `path` really is, or `null` when nothing is there.
  *
- * Two separate hazards. A symlinked `.claude/skills` redirects every write:
- * this very repository symlinks it at its own canonical `skills/` sources, so
- * an `add` run here would silently rewrite the catalog it publishes. And a
- * name from the index is interpolated into the path, so `../../etc` has to be
- * impossible even before `SKILL_NAME` rejects it.
+ * `realpathSync` covers the ordinary cases including symlinked ancestors, but
+ * throws on a dangling link — and a link to a directory that does not exist
+ * yet is precisely how a write gets redirected without `existsSync` ever
+ * returning true. Fall back to reading the link itself.
  */
-function resolveSkillsRoot(cwd: string, force: boolean): string {
-  const root = resolve(cwd, ".claude", "skills");
-  if (!existsSync(root)) return root;
+function locate(path: string): string | null {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (!stat) return null;
+  try {
+    return realpathSync(path);
+  } catch {
+    const raw = readlinkSync(path);
+    return isAbsolute(raw) ? resolve(raw) : resolve(dirname(path), raw);
+  }
+}
 
-  const real = realpathSync(root);
-  if (real === root) return root;
-
-  const project = realpathSync(cwd);
-  const inProject = real === project || real.startsWith(project + sep);
-  if (!inProject) {
+/**
+ * The one containment rule, applied to every path this command writes
+ * through: `.claude/skills`, the skill directory under it, and `SKILL.md`
+ * itself.
+ *
+ * Vetting only `.claude/skills` is not enough. A symlink one level deeper —
+ * `.claude/skills/audit-seo` pointing at somewhere else entirely — is followed
+ * by `writeFileSync` just the same, and because the link's target need not
+ * exist yet, the "already installed" check does not even see it.
+ *
+ * A redirect that leaves the project is always refused. One that stays inside
+ * it is refused unless `--force`, because writing through a link changes the
+ * thing it points at rather than a copy: this repository points its own
+ * `.claude/skills` at the canonical `skills/` sources it publishes.
+ */
+function assertNotRedirected(project: string, path: string, force: boolean, what: string): void {
+  const real = locate(path);
+  if (real === null || real === path) return;
+  if (!insideProject(project, real)) {
     throw new Error(
-      `${root} is a symlink to ${real}, which is outside ${project}. ` +
-        "Refusing to install through it — replace it with a real directory.",
+      `${what} ${path} resolves to ${real}, outside ${project}. ` +
+        "Refusing to write through it — replace it with a real directory.",
     );
   }
   if (!force) {
     throw new Error(
-      `${root} is a symlink to ${real}. Installing would rewrite that directory, ` +
+      `${what} ${path} is a symlink to ${real}. Writing would change that path, ` +
         "not a copy. Pass --force if that is what you want.",
     );
   }
-  return root;
+}
+
+/**
+ * Resolve `.claude/skills` against the *real* project root, so a redirect is
+ * only ever a symlink and never the platform's own path aliasing (macOS
+ * resolves `/tmp` to `/private/tmp`, which would otherwise read as one).
+ */
+function resolveSkillsRoot(cwd: string, force: boolean): { project: string; root: string } {
+  const project = realpathSync(cwd);
+  const root = join(project, ".claude", "skills");
+  assertNotRedirected(project, root, force, "The skills directory");
+  return { project, root };
 }
 
 function skillPath(skillsRoot: string, name: string): string {
@@ -154,6 +185,39 @@ function skillPath(skillsRoot: string, name: string): string {
   if (target !== join(skillsRoot, name, "SKILL.md") || !target.startsWith(skillsRoot + sep)) {
     throw new Error(`Skill "${name}" resolves outside ${skillsRoot}`);
   }
+  return target;
+}
+
+/**
+ * `--json` has to be parseable by the same code on every path.
+ *
+ * The shared `handleCliError` writes its envelope to stderr and omits the
+ * result lists, so a caller piping stdout through a parser gets valid JSON for
+ * a partial failure and nothing at all for a fatal one. These emit the full
+ * shape on stdout either way; the human path keeps the message on stderr where
+ * it belongs.
+ */
+function failJson(json: boolean, error: unknown, extra: Record<string, unknown>): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (json) {
+    console.log(JSON.stringify({ ok: false, error: message, ...extra }, null, 2));
+  } else {
+    console.error(message);
+    if (error instanceof Error && error.stack && process.env.DEBUG) console.error(error.stack);
+  }
+  process.exit(1);
+}
+
+/** The same rule, for the two components below the skills root. */
+function assertWritableSkill(
+  project: string,
+  skillsRoot: string,
+  name: string,
+  force: boolean,
+): string {
+  const target = skillPath(skillsRoot, name);
+  assertNotRedirected(project, dirname(target), force, `The directory for skill "${name}",`);
+  assertNotRedirected(project, target, force, `The file for skill "${name}",`);
   return target;
 }
 
@@ -224,7 +288,7 @@ const listCommand = defineCommand({
       console.log(`\n${rows.filter((row) => row.installed).length}/${rows.length} installed here.`);
       console.log("Install with: pracht skills add <name...>");
     } catch (error) {
-      handleCliError(error, { json: Boolean(args.json) });
+      failJson(Boolean(args.json), error, { skills: [] });
     }
   },
 });
@@ -268,7 +332,7 @@ const addCommand = defineCommand({
       if (requested.length === 0) {
         throw new Error("Name at least one skill. See `pracht skills list`.");
       }
-      const skillsRoot = resolveSkillsRoot(cwd, Boolean(args.force));
+      const { project, root: skillsRoot } = resolveSkillsRoot(cwd, Boolean(args.force));
       const byName = new Map(
         (await fetchIndex(args.index ?? DEFAULT_INDEX_URL)).map((s) => [s.name, s]),
       );
@@ -282,12 +346,15 @@ const addCommand = defineCommand({
       }
 
       for (const name of requested) {
-        const target = skillPath(skillsRoot, name);
-        if (existsSync(target) && !args.force) {
-          skipped.push(name);
-          continue;
-        }
         try {
+          // Before the "already installed" check, not after: a link whose
+          // target does not exist yet is invisible to `existsSync` and would
+          // otherwise be written straight through.
+          const target = assertWritableSkill(project, skillsRoot, name, Boolean(args.force));
+          if (existsSync(target) && !args.force) {
+            skipped.push(name);
+            continue;
+          }
           const source = await download(byName.get(name) as SkillIndexEntry);
           mkdirSync(dirname(target), { recursive: true });
           writeFileSync(target, source, "utf-8");
@@ -299,7 +366,7 @@ const addCommand = defineCommand({
         }
       }
     } catch (error) {
-      handleCliError(error, { json: Boolean(args.json) });
+      failJson(Boolean(args.json), error, { installed, skipped, failed });
     }
 
     if (args.json) {
