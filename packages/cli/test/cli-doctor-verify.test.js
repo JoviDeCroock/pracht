@@ -584,13 +584,43 @@ export default defineConfig({
     ).toBe(false);
   });
 
-  it("fails doctor for a nested pages _app shell instead of dropping the shell", () => {
+  it("reports a nested pages _app as a directory-scoped shell", () => {
     const appDir = createTempDir("pracht-cli-doctor-pages-app-nested-");
     writePagesApp(appDir);
     writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
     writeProjectFile(
       appDir,
+      "src/pages/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+    writeProjectFile(
+      appDir,
       "src/pages/blog/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("(1 directory-scoped)"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails doctor when two _app files compete for the same shell registration", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-duplicate-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.jsx",
       "export function Shell({ children }) { return children; }",
     );
 
@@ -600,7 +630,24 @@ export default defineConfig({
     expect(report.ok).toBe(false);
     expect(
       report.checks.some(
-        (check) => check.status === "error" && check.message.includes("Nested pages `_app` shell"),
+        (check) =>
+          check.status === "error" && check.message.includes('Multiple `_app` shells in "blog"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when a pages _app never renders its children", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-no-children-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_app.tsx", "export function Shell() { return null; }");
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" && check.message.includes("never mentions `children`"),
       ),
     ).toBe(true);
   });

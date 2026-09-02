@@ -1,6 +1,6 @@
 ---
 name: audit-shells
-version: 1.2.0
+version: 1.3.0
 description: |
   Audit pracht shells: missing `Loading()` on SPA routes, `<html>`/`<head>`/
   `<body>` rendered inside a shell, shells that never render `children`, unused
@@ -103,12 +103,17 @@ JSON first:
   JSON has no shell registry of its own, so "unused" means "registered in
   `defineApp` but referenced by no route or group".
 - **Pages apps** (`mode: "pages"`): there is no `defineApp` shell registry.
-  The shell is `src/pages/_app.tsx`, auto-registered under the name `"pages"`
-  and applied to every route (see docs/ROUTING.md). Only the root-level file
-  counts — a nested `_app` outside an underscore-reserved tree is a build,
-  `doctor`, and `verify` error rather than a per-directory layout. "Unused
-  shells" analysis does not apply; instead verify `_app.tsx` (if present) shows
-  up as the resolved shell on every route.
+  Each `_app` file is auto-registered — `src/pages/_app.tsx` as `"pages"`,
+  `src/pages/blog/_app.tsx` as `"pages:blog"` — and owns the routes in its
+  directory subtree (see docs/ROUTING.md). Shells **replace**, they do not
+  nest: the nearest `_app` above a route is the only one that renders it, so a
+  directory shell must carry its own `head()`/`headers()` rather than inherit
+  the parent's. "Unused shells" analysis does not apply; instead check
+  `pracht inspect routes --json` and confirm each route's `shell` is the
+  nearest `_app` you expect, and that no directory you meant to scope is
+  silently falling back to `"pages"`. An `_app` inside an underscore-reserved
+  tree (`src/pages/_components/_app.tsx`) is a plain helper, and two `_app`
+  files in one directory are a build, `doctor`, and `verify` error.
 
 Then report:
 

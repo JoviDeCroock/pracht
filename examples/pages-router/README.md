@@ -16,7 +16,9 @@ src/
     index.tsx         → /
     about.tsx         → /about
     legacy.tsx        → /legacy (middleware redirects it to /about)
-    blog/[slug].tsx   → /blog/:slug
+    blog/
+      _app.tsx        → Shell for /blog/** (replaces the root shell)
+      [slug].tsx      → /blog/:slug
   api/
     health.ts         → GET /api/health
     me.ts             → GET /api/me
@@ -24,8 +26,11 @@ src/
     with-auth.ts      → Shared auth helper for API handlers
 ```
 
-`_app.tsx` is a special file that acts as the shell for all pages, equivalent
-to registering a shell in the manifest router. `_middleware.ts` is the pages
+`_app.tsx` is a special file that acts as the shell for the pages beside and
+below it, equivalent to registering a shell in the manifest router. An `_app`
+in a subdirectory — `blog/_app.tsx` here — is registered as `pages:blog` and
+owns that subtree; the nearest one replaces its parent rather than nesting
+inside it, so it carries its own `head()` and `headers()`. `_middleware.ts` is the pages
 middleware: it exports the same `MiddlewareFn` as manifest middleware and runs
 on every page route (API routes are not wrapped — they use the higher-order
 `with-auth.ts` helper instead). Dynamic segments use `[param]` bracket syntax
@@ -62,8 +67,8 @@ export const REVALIDATE = 3600;
 ```
 
 Webhook or combined revalidation policies require ejecting to an explicit
-manifest. Pages mode also has no registration seam for named shells, nested or
-per-route middleware (only the root `_middleware.ts`),
+manifest. Pages mode also has no registration seam for per-route shell
+overrides, nested or per-route middleware (only the root `_middleware.ts`),
 capabilities/WebMCP/remote MCP, constraints, or runtime agents.
 `REVALIDATE` belongs on each ISG page, never `_app.tsx` or `404.tsx`.
 Declarations shown inside Markdown/MDX fenced examples are ignored.

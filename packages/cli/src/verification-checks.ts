@@ -2,7 +2,7 @@ import { dirname, extname, relative, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
 import { formatBytes } from "./bundle-report.js";
-import { hasNamedMiddlewareExport } from "@pracht/capabilities/static";
+import { hasNamedMiddlewareExport, maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { parseAst } from "vite";
 
 import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
@@ -477,18 +477,7 @@ export function collectPagesVerification(
     }
   }
 
-  for (const page of pages) {
-    if (page.kind !== "nested-shell") continue;
-    checks.push(
-      createCheck(
-        "error",
-        `Nested pages \`_app\` shell ${JSON.stringify(displayPath(project.root, page.file))} is ` +
-          "not supported. Only a root-level `_app` in the pages directory is registered as the " +
-          "app shell. Move the shell there, or eject to an explicit manifest for per-group " +
-          "shells.",
-      ),
-    );
-  }
+  collectPagesShellChecks(project, checks, appShells);
 
   const validMiddlewareFiles = collectPagesMiddlewareChecks(project, checks, pages, scope);
 
@@ -503,11 +492,19 @@ export function collectPagesVerification(
       );
     }
 
-    const hasAppShell = pages.some((page) => page.kind === "shell");
-    if (!hasAppShell) {
+    if (appShells.length === 0) {
       checks.push(createCheck("warning", "No `_app` shell was found in the pages directory."));
     } else {
-      checks.push(createCheck("ok", "Found a pages-router `_app` shell."));
+      const nested = appShells.filter((shell) => shell.directory !== "").length;
+      checks.push(
+        createCheck(
+          "ok",
+          nested === 0
+            ? "Found a pages-router `_app` shell."
+            : `Found ${appShells.length} pages-router \`_app\` shell${appShells.length === 1 ? "" : "s"} ` +
+                `(${nested} directory-scoped).`,
+        ),
+      );
     }
 
     if (notFoundPages.length === 1) {
@@ -556,6 +553,61 @@ export function collectPagesVerification(
       createCheck(
         "ok",
         `Pages router resolved ${routes.length} route${routes.length === 1 ? "" : "s"} without path collisions.`,
+      ),
+    );
+  }
+}
+
+/**
+ * Directory-scoped `_app` shells: one per directory, each rendering its
+ * children.
+ *
+ * Two `_app` files in the same directory compete for one registration, so
+ * whichever loses silently drops its `head()` and `headers()` from every route
+ * below — the same fail-open shape the middleware checks reject. A shell that
+ * never mentions `children` blanks its whole subtree, which is much harder to
+ * notice now that a nested `_app` can own only part of the app.
+ */
+function collectPagesShellChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  shells: { directory: string; file: string; shellName: string }[],
+): void {
+  const byDirectory = new Map<string, typeof shells>();
+  for (const shell of shells) {
+    byDirectory.set(shell.directory, [...(byDirectory.get(shell.directory) ?? []), shell]);
+  }
+
+  for (const [directory, candidates] of byDirectory) {
+    if (candidates.length < 2) continue;
+    checks.push(
+      createCheck(
+        "error",
+        `Multiple \`_app\` shells in ${JSON.stringify(directory || ".")} compete for the same ` +
+          `registration (${JSON.stringify(candidates[0].shellName)}): ${candidates
+            .map((shell) => JSON.stringify(displayPath(project.root, shell.file)))
+            .join(", ")}. Keep exactly one \`_app\` file per directory.`,
+      ),
+    );
+  }
+
+  for (const shell of shells) {
+    let source: string;
+    try {
+      source = readFileSync(shell.file, "utf-8");
+    } catch {
+      continue; // Unreadable files are reported by the module-path checks.
+    }
+    // Deliberately a word-level signal, not a render-graph analysis: a shell
+    // that re-exports `Shell` from elsewhere still names `children` nowhere,
+    // which is why this warns instead of failing the build.
+    if (/\bchildren\b/.test(maskCommentsAndStrings(source))) continue;
+    checks.push(
+      createCheck(
+        "warning",
+        `Pages shell ${JSON.stringify(displayPath(project.root, shell.file))} never mentions ` +
+          "`children`. A shell that does not render its children renders a blank page for " +
+          `every route under ${JSON.stringify(shell.directory === "" ? "the pages directory" : `${shell.directory}/`)}.`,
       ),
     );
   }
@@ -751,7 +803,11 @@ function collectChangedPagesChecks(
       checks.push(
         createCheck(
           "ok",
-          `Changed pages shell ${JSON.stringify(display)} will wrap auto-discovered routes.`,
+          page.directory === ""
+            ? `Changed pages shell ${JSON.stringify(display)} will wrap auto-discovered routes.`
+            : `Changed pages shell ${JSON.stringify(display)} (registered as ` +
+                `${JSON.stringify(page.shellName)}) will wrap routes under ` +
+                `${JSON.stringify(`${page.directory}/`)}.`,
         ),
       );
       continue;
@@ -769,12 +825,6 @@ function collectChangedPagesChecks(
           ),
         );
       }
-      continue;
-    }
-
-    if (page.kind === "nested-shell") {
-      // Already reported as an error by the shell checks that run in every
-      // scope; do not also claim it resolves to a route.
       continue;
     }
 

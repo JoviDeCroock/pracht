@@ -6,7 +6,15 @@ import { hasPagesAppShell, listDirectoriesRecursively, listFilesRecursively } fr
 import { isPageSource, normalizeRoutePath } from "./verification-helpers.js";
 
 export type PagesFile =
-  | { file: string; kind: "shell"; hasRevalidateExport: boolean }
+  | {
+      file: string;
+      kind: "shell";
+      /** Posix directory relative to the pages directory; `""` at the root. */
+      directory: string;
+      /** Registered shell name: `pages` at the root, `pages:blog` for `blog/_app.tsx`. */
+      shellName: string;
+      hasRevalidateExport: boolean;
+    }
   | { file: string; kind: "not-found"; hasRevalidateExport: boolean }
   | {
       file: string;
@@ -14,7 +22,6 @@ export type PagesFile =
       nested: boolean;
       shape: "directory" | "file" | "unsupported-extension";
     }
-  | { file: string; kind: "nested-shell" }
   | { file: string; kind: "ignored" }
   | PagesRoute;
 
@@ -103,12 +110,15 @@ export function describePagesFile(
   const analysisSource = maskMarkdownFences(source, relativePath);
 
   if (hasPagesAppShell(file, additionalExtensions)) {
-    // Only a root-level `_app` is registered as the shell. A nested one is
-    // never applied, so reporting it beats silently dropping the shell.
-    if (relativePath.includes("/")) return { file, kind: "nested-shell" };
+    // Every `_app` is the shell for its own subtree; the nearest one wins and
+    // replaces the parent, matching how a group's `shell` behaves in an
+    // explicit manifest.
+    const directory = parentSegments.join("/");
     return {
       file,
       kind: "shell",
+      directory,
+      shellName: pagesShellName(directory),
       hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
     };
   }
@@ -147,6 +157,26 @@ export function describePagesFile(
     renderMode: extractQuotedExport(analysisSource, "RENDER_MODE"),
     revalidate: extractRevalidate(analysisSource),
   };
+}
+
+/** The registered shell name for an `_app` in `directory` (posix, `""` at the root). */
+export function pagesShellName(directory: string): string {
+  return directory === "" ? "pages" : `pages:${directory}`;
+}
+
+/** The `_app` that owns a page: the nearest ancestor directory with one. */
+export function findOwningPagesShell<T extends { directory: string }>(
+  shells: readonly T[],
+  pageRelativePath: string,
+): T | undefined {
+  const segments = pageRelativePath.replace(/\\/g, "/").split("/").slice(0, -1);
+  return [...shells]
+    .sort((left, right) => right.directory.length - left.directory.length)
+    .find(
+      (shell) =>
+        shell.directory === "" ||
+        segments.slice(0, shell.directory.split("/").length).join("/") === shell.directory,
+    );
 }
 
 function isInsideMiddlewareDirectory(pagesDir: string, file: string): boolean {

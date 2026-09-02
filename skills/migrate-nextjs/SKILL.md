@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.4.0
+version: 1.5.0
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -47,7 +47,11 @@ automatic**:
 
 1. `pracht({ pagesDir: "/src/pages" })` in `vite.config.ts`; copy `pages/` to
    `src/pages/`.
-2. `_app.tsx` → pracht shell shape (`Shell` export taking `children`).
+2. `_app.tsx` → pracht shell shape (`Shell` export taking `children`). A
+   subdirectory `_app` scopes a shell to that subtree (`blog/_app.tsx` →
+   `"pages:blog"`) — where App Router `layout.tsx` lands — but pracht shells
+   replace rather than nest, so it must repeat the chrome, `head()`, and
+   `headers()` it needs.
 3. `getServerSideProps`/`getStaticProps` → `loader` export.
 4. `export const RENDER_MODE = "ssg"` on static pages (`"ssr"` is the
    default). For time-revalidated pages export `RENDER_MODE = "isg"` plus a
@@ -55,13 +59,11 @@ automatic**:
    to a manifest.
 5. `middleware.ts` → a root-level `src/pages/_middleware.ts` exporting a
    pracht `MiddlewareFn` (Phase 6). It runs on every page route; API routes are
-   not wrapped. Move `config.matcher` checks into the function body and compare
-   `stripBase(url.pathname)`. A nested `_middleware` file, a `_middleware/`
-   directory, and a missing `middleware` export are all build/doctor/verify
-   errors — per-route middleware still requires ejecting to a manifest.
+   not wrapped. Move `config.matcher` checks into the body and compare
+   `stripBase(url.pathname)`. A nested `_middleware`, a `_middleware/`
+   directory, and a missing `middleware` export are build/doctor/verify errors.
 6. Other `_`-prefixed files and directories are reserved implementation
-   details: pracht ignores the whole subtree, so move any intended page out of
-   it.
+   details: pracht ignores the whole subtree.
 7. Run the dev server, iterate, and optionally eject later with
    `generateRoutesFile`.
 
@@ -71,7 +73,7 @@ automatic**:
 | ------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `pages/` directory              | `pagesDir` plugin option                                        | Auto-discovers routes from the file system                            |
 | `app/page.tsx`                  | `src/routes/*.tsx` + `route()` in manifest                      | File is a module; wiring is explicit                                  |
-| `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp`                    | Shells are named, not directory-nested                                |
+| `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp` (pages: `_app.tsx` per directory) | Named shells; a directory `_app` replaces its parent instead of nesting |
 | `app/loading.tsx`               | `Loading` export on the shell                                   | SSR placeholder for SPA routes until the client router takes over     |
 | `app/error.tsx`                 | `ErrorBoundary` export in route module                          | Same concept, different wiring                                        |
 | `app/not-found.tsx`             | `notFound:` in `defineApp` (or `pages/404.tsx` in pagesDir mode) | Not a route — never matches a URL, so it cannot shadow static assets  |
@@ -214,13 +216,12 @@ is wrap-around (Hono/Koa/Astro shape), so you can `await next()` and observe
 the response — useful for tracing.
 
 In `pagesDir` mode the same `MiddlewareFn` goes in a root-level
-`src/pages/_middleware.ts`; it is registered automatically and runs on every
-page route (API routes stay unwrapped). Do not migrate a Next.js per-request
-auth matcher onto a pracht `ssg`/`isg` page and call it protected: the static
-document runs middleware only at build/revalidation with a sanitized request
-and is already public before the visitor's live route-state request. Keep those
-pages `ssr`/`spa`, or retain a separately verified platform/CDN edge gate. A
-pure static export has no request runtime and cannot use middleware at all.
+`src/pages/_middleware.ts`, registered automatically for every page route (API
+routes stay unwrapped). Do not migrate a per-request auth matcher onto an
+`ssg`/`isg` page and call it protected: the static document runs middleware
+only at build/revalidation with a sanitized request and is public before the
+visitor's route-state request. Keep those pages `ssr`/`spa`, or keep a
+separately verified edge gate. Pure static exports have no request runtime.
 
 ## Phase 7: Route manifest
 

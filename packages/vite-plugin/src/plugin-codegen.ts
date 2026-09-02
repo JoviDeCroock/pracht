@@ -194,27 +194,37 @@ export function createPrachtClientModuleSource(
       ? [additionalRouteGlob, ...routeExcludes]
       : additionalRouteGlob;
 
+  // Directory-scoped shells: every `_app` in the pages tree is registered, so
+  // the glob walks subdirectories. `_reserved/**` helper trees stay excluded —
+  // an `_app` inside one is a helper, not a shell.
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/_app.{ts,tsx,js,jsx}`
+    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalShellGlob = isPagesMode
-    ? `${resolved.pagesDir}/_app.${extensionGlob(bareRouteExtensions)}`
+    ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const root = buildOptions.root ?? process.cwd();
   const usesEjectedPagesShellLayout =
     usesEjectedPagesLayout &&
     (sameConfigDirectory(resolved.shellsDir, resolved.routesDir, root) ||
       hasRootPagesAppShell(resolved.shellsDir, root, resolved.additionalExtensions));
-  const shellExcludes = usesEjectedPagesShellLayout
-    ? createUnderscoreReservedExcludes(resolved.shellsDir)
-    : [];
+  // In pages mode the shell glob targets `_app` by name, so it may only
+  // exclude reserved *trees* — the full underscore reservation would exclude
+  // `_app` itself. The ejected layout's shell glob is the ordinary
+  // shells-directory sweep, so it keeps the full reservation and re-adds every
+  // `_app` through `ejectedPagesAppShellSources` below.
+  const shellExcludes = isPagesMode
+    ? createReservedSubtreeExcludes(resolved.pagesDir)
+    : usesEjectedPagesShellLayout
+      ? createUnderscoreReservedExcludes(resolved.shellsDir)
+      : [];
   const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
   const additionalShellGlobPattern =
     shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;
   const ejectedPagesAppShellSources = usesEjectedPagesShellLayout
     ? [
-        `  ...import.meta.glob(${JSON.stringify(`${resolved.shellsDir}/_app.{ts,tsx,js,jsx}`)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-        `  ...import.meta.glob(${JSON.stringify(`${resolved.shellsDir}/_app.${extensionGlob(bareRouteExtensions)}`)}),`,
+        `  ...import.meta.glob(${JSON.stringify([`${resolved.shellsDir}/**/_app.{ts,tsx,js,jsx}`, ...createReservedSubtreeExcludes(resolved.shellsDir)])}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+        `  ...import.meta.glob(${JSON.stringify([`${resolved.shellsDir}/**/_app.${extensionGlob(bareRouteExtensions)}`, ...createReservedSubtreeExcludes(resolved.shellsDir)])}),`,
       ]
     : [];
   // Base directory for relative manifest refs: the app manifest file's
@@ -482,7 +492,17 @@ function getStaticProgramName(value: StaticProgramNode | null): string | null {
 }
 
 function createUnderscoreReservedExcludes(directory: string): string[] {
-  return [`!${directory}/**/_*`, `!${directory}/**/_*/**`];
+  return [`!${directory}/**/_*`, ...createReservedSubtreeExcludes(directory)];
+}
+
+/**
+ * Exclude the contents of underscore-reserved directory trees without
+ * excluding underscore-prefixed files themselves. The shell registry needs
+ * this narrower form: `_app.tsx` is a reserved *name* that must stay in the
+ * registry, while `_components/_app.tsx` is a helper that must not.
+ */
+function createReservedSubtreeExcludes(directory: string): string[] {
+  return [`!${directory}/**/_*/**`];
 }
 
 /**
@@ -874,10 +894,16 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const additionalRouteGlob = `${isPagesMode ? resolved.pagesDir : resolved.routesDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/_app.{ts,tsx,js,jsx}`
+    ? [
+        `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`,
+        ...createReservedSubtreeExcludes(resolved.pagesDir),
+      ]
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalShellGlob = isPagesMode
-    ? `${resolved.pagesDir}/_app.${extensionGlob(bareRouteExtensions)}`
+    ? [
+        `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`,
+        ...createReservedSubtreeExcludes(resolved.pagesDir),
+      ]
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   return [

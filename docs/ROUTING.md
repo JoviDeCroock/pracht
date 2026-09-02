@@ -836,7 +836,7 @@ Auto-discovery replaces the manifest, and several features are registered
 | Feature | Pages router |
 | --- | --- |
 | Render + hydration modes, dynamic and catch-all routes, `getStaticPaths`, API routes | ✅ (`RENDER_MODE` / `HYDRATION` exports) |
-| Shells | one, `_app.tsx` — no named shells or per-route assignment |
+| Shells | `_app.tsx` per directory (`pages`, `pages:blog`, …); the nearest one replaces its parent — no per-route assignment |
 | Middleware | on serverful adapters, one `_middleware.ts` at the pages root, applied to every page route — no nested or per-route middleware; pure static exports have no request runtime |
 | [Capabilities](CAPABILITIES.md) | ❌ — and therefore no capability HTTP endpoints, no WebMCP, no remote MCP, no `pracht eval` |
 | `defineApp({ constraints })`, `agents` | ❌ |
@@ -872,6 +872,7 @@ directory and generates the route manifest automatically.
 | `pages/guide.mdx`       | `/guide`               |
 | `pages/docs/intro.md`   | `/docs/intro`          |
 | `pages/_app.tsx`        | _(shell, not a route)_ |
+| `pages/blog/_app.tsx`   | _(shell for `/blog/**`, not a route)_ |
 | `pages/_middleware.ts`  | _(middleware, not a route)_ |
 | `pages/_anything.tsx`   | _(ignored)_            |
 | `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
@@ -886,10 +887,10 @@ Markdown page is routed and no such plugin is registered.
 The underscore prefix reserves both files and directory trees for non-route
 implementation details. Pracht never creates routes from their contents, so
 `pages/_components/button.tsx` is ignored rather than exposed at
-`/_components/button`. `_app` and `_middleware` are recognized only at the
-pages root. A nested `_app` or `_middleware` is a hard error — silently
-ignoring one would drop the shell from every route it looks like it wraps, or
-fail an authorization boundary open. An `_app` inside a reserved tree such as
+`/_components/button`. `_app` is recognized in any directory outside a
+reserved tree; `_middleware` is recognized only at the pages root, and a nested
+`_middleware` is a hard error because silently ignoring one would fail an
+authorization boundary open. An `_app` inside a reserved tree such as
 `pages/_components/_app.tsx` stays a plain helper. `_middleware/` is rejected
 as a directory for the same reason.
 
@@ -915,6 +916,32 @@ export function headers() {
   return { "content-security-policy": "default-src 'self'" };
 }
 ```
+
+#### Directory-scoped shells
+
+An `_app` in a subdirectory owns every route in that subtree.
+`pages/blog/_app.tsx` registers as `"pages:blog"` and wraps `/blog`,
+`/blog/:slug`, and everything below.
+
+Shells **replace**, they do not nest: the nearest `_app` above a route is the
+only shell that renders it. That is the manifest router's rule, not a
+simplification — `resolveApp()` resolves `node.shell ?? inherited.shell`, so a
+nested `group({ shell })` overrides its parent rather than composing with it,
+and every route has exactly one shell. File-system nesting cannot mean
+something the manifest cannot express. A directory shell therefore owns the
+whole document chrome for its subtree, including its own `head()` and
+`headers()`.
+
+Generation assigns the root shell through the wrapping `group()` and emits a
+per-route `shell:` override only for routes under a nested `_app`. Doing it on
+the route rather than through nested groups keeps the emitted order identical
+to the scanned specificity order the linear-scan matcher depends on.
+
+Two `_app` files in the same directory compete for one registration and are a
+hard error in build, `doctor`, and `verify`. `doctor` and `verify` also warn
+when an `_app` module never mentions `children` — a shell that drops its
+children renders a blank page for its whole subtree, which is easy to miss when
+the subtree is only part of the app.
 
 ### Additional Route Extensions
 

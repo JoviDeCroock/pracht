@@ -124,40 +124,87 @@ export function findPagesMiddlewareFile(
   return middlewareFile;
 }
 
+/** A discovered `_app` shell and the registration it owns. */
+export interface PagesAppShell {
+  absolutePath: string;
+  /** Posix directory of the shell relative to the pages directory; `""` at the root. */
+  directory: string;
+  /** Registered shell name: `pages` at the root, `pages:blog` for `blog/_app.tsx`. */
+  name: string;
+}
+
+/** The registered shell name for an `_app` in `directory` (posix, `""` at the root). */
+export function pagesShellName(directory: string): string {
+  return directory === "" ? "pages" : `pages:${directory}`;
+}
+
 /**
- * The root-level `_app` shell of a pages directory, or null when the app has
- * none. A nested `_app` is rejected for the same reason a nested
- * `_middleware` is: it is never applied, so silently ignoring it would drop
- * the shell (and its `head()`/`headers()`) from every route it looks like it
- * wraps.
+ * Every `_app` shell in a pages directory, deepest first.
+ *
+ * An `_app` in a subdirectory owns the routes in that subtree: like a group's
+ * `shell` in an explicit manifest, the nearest one wins and REPLACES the
+ * parent rather than rendering inside it — `resolveApp()` gives every route
+ * exactly one shell, so file-system nesting cannot mean something the manifest
+ * router cannot express.
+ *
+ * Two `_app` files in the same directory are rejected: they compete for one
+ * registration, and picking either silently drops the other's `head()` and
+ * `headers()` from every route below.
  */
-export function findPagesAppShellFile(
+export function findPagesAppShellFiles(
   pagesDir: string,
   shellExtensions: ReadonlySet<string>,
-): string | null {
-  const appFiles = scanAllFiles(pagesDir).filter((file) => {
-    if (basename(file, extname(file)) !== "_app" || !shellExtensions.has(extname(file))) {
-      return false;
-    }
-    // An `_app` inside an underscore-reserved tree is a deliberate helper, not
-    // a shell that went unnoticed.
-    const segments = relative(pagesDir, file).replace(/\\/g, "/").split("/");
-    return !segments.slice(0, -1).some((segment) => segment.startsWith("_"));
-  });
+): PagesAppShell[] {
+  const shells = scanAllFiles(pagesDir)
+    .filter((file) => {
+      if (basename(file, extname(file)) !== "_app" || !shellExtensions.has(extname(file))) {
+        return false;
+      }
+      // An `_app` inside an underscore-reserved tree is a deliberate helper,
+      // not a shell that went unnoticed.
+      const segments = relative(pagesDir, file).replace(/\\/g, "/").split("/");
+      return !segments.slice(0, -1).some((segment) => segment.startsWith("_"));
+    })
+    .map((file) => {
+      const directory = relative(pagesDir, file)
+        .replace(/\\/g, "/")
+        .split("/")
+        .slice(0, -1)
+        .join("/");
+      return { absolutePath: file, directory, name: pagesShellName(directory) };
+    });
 
-  const nested = appFiles.filter((file) =>
-    relative(pagesDir, file).replace(/\\/g, "/").includes("/"),
-  );
-  if (nested.length > 0) {
-    const shown = nested.map((file) => relative(pagesDir, file).replace(/\\/g, "/"));
+  const byDirectory = new Map<string, PagesAppShell[]>();
+  for (const shell of shells) {
+    byDirectory.set(shell.directory, [...(byDirectory.get(shell.directory) ?? []), shell]);
+  }
+  for (const [directory, candidates] of byDirectory) {
+    if (candidates.length < 2) continue;
+    const shown = candidates
+      .map((shell) => JSON.stringify(relative(pagesDir, shell.absolutePath).replace(/\\/g, "/")))
+      .join(", ");
     throw new Error(
-      `[pracht] Nested pages \`_app\` shells are not supported: ${shown.map((file) => JSON.stringify(file)).join(", ")}. ` +
-        "Only a root-level `_app` in the pages directory is registered as the app shell. Move " +
-        "the shell there, or eject to an explicit manifest for per-group shells.",
+      `[pracht] Multiple \`_app\` shells in ${JSON.stringify(directory || ".")} compete for the ` +
+        `same registration (${JSON.stringify(pagesShellName(directory))}): ${shown}. Keep exactly ` +
+        "one `_app` file per directory.",
     );
   }
 
-  return appFiles[0] ?? null;
+  // Deepest first so the nearest ancestor is the first prefix match.
+  return shells.sort((left, right) => right.directory.length - left.directory.length);
+}
+
+/** The `_app` that owns a page: the nearest ancestor directory with one. */
+export function findOwningPagesShell(
+  shells: readonly PagesAppShell[],
+  pageRelativePath: string,
+): PagesAppShell | undefined {
+  const segments = pageRelativePath.replace(/\\/g, "/").split("/").slice(0, -1);
+  return shells.find(
+    (shell) =>
+      shell.directory === "" ||
+      segments.slice(0, shell.directory.split("/").length).join("/") === shell.directory,
+  );
 }
 
 /** Whether a middleware module explicitly exports, or may re-export, `middleware`. */
@@ -464,7 +511,8 @@ export function generatePagesManifestSource(
     normalizeAdditionalExtensions(options.additionalExtensions),
   );
 
-  const appFile = findPagesAppShellFile(pagesDir, shellExtensions) ?? undefined;
+  const appShells = findPagesAppShellFiles(pagesDir, shellExtensions);
+  const rootAppShell = appShells.find((shell) => shell.directory === "");
   const middlewareFile = findPagesMiddlewareFile(pagesDir, options.additionalExtensions);
 
   const coreImports = pages.some((page) => page.revalidateSeconds !== undefined)
@@ -528,20 +576,33 @@ export function generatePagesManifestSource(
     if (page.revalidateSeconds !== undefined) {
       metaParts.push(`revalidate: timeRevalidate(${page.revalidateSeconds})`);
     }
+    // The wrapping group already carries the root shell, so only a nested
+    // `_app` needs a per-route override. Assigning it on the route rather than
+    // through nested groups keeps the emitted order identical to the scanned
+    // specificity order the linear-scan matcher depends on.
+    const owningShell = findOwningPagesShell(appShells, page.relativePath);
+    if (owningShell && owningShell !== rootAppShell) {
+      metaParts.push(`shell: ${JSON.stringify(owningShell.name)}`);
+    }
     routeEntries.push(
       `    route(${JSON.stringify(page.routePath)}, ${fileRef}, { ${metaParts.join(", ")} })`,
     );
   }
 
   const notFoundEntry = notFoundPage
-    ? buildNotFoundEntry(notFoundPage, { fileRef: pageFileRef(notFoundPage), withShell: !!appFile })
+    ? buildNotFoundEntry(notFoundPage, {
+        fileRef: pageFileRef(notFoundPage),
+        withShell: !!rootAppShell,
+      })
     : null;
 
-  // Root-level special files (`_app`, `_middleware`) are referenced relative
-  // to the pages directory's parent so ejected manifests written next to it
-  // (e.g. `src/routes.ts` beside `src/pages/`) resolve them.
+  // Special files (`_app`, `_middleware`) are referenced relative to the pages
+  // directory's parent so ejected manifests written next to it (e.g.
+  // `src/routes.ts` beside `src/pages/`) resolve them.
   const specialFileRef = (file: string): string => {
-    const path = prefix ? `${prefix}/${basename(file)}` : relativeModuleRef(file);
+    const path = prefix
+      ? `${prefix}/${relative(pagesDir, file).replace(/\\/g, "/")}`
+      : relativeModuleRef(file);
     return useImport ? `() => import(${JSON.stringify(path)})` : JSON.stringify(path);
   };
 
@@ -549,13 +610,18 @@ export function generatePagesManifestSource(
   // page route through the wrapping group. API routes stay independent, the
   // same default an explicit manifest has.
   const groupMetaParts: string[] = [];
-  if (appFile) groupMetaParts.push('shell: "pages"');
+  if (rootAppShell) groupMetaParts.push('shell: "pages"');
   if (middlewareFile) groupMetaParts.push('middleware: ["pages"]');
 
   lines.push("const app = defineApp({");
-  if (appFile) {
+  if (appShells.length > 0) {
     lines.push("  shells: {");
-    lines.push(`    pages: ${specialFileRef(appFile)},`);
+    // Shallowest first so the generated registry reads top-down. Directory
+    // shell names contain `:` and `/`, so they need quoting; `pages` does not.
+    for (const shell of [...appShells].reverse()) {
+      const key = /^[A-Za-z_$][\w$]*$/.test(shell.name) ? shell.name : JSON.stringify(shell.name);
+      lines.push(`    ${key}: ${specialFileRef(shell.absolutePath)},`);
+    }
     lines.push("  },");
   }
   if (middlewareFile) {

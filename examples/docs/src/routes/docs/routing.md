@@ -378,11 +378,12 @@ When `pagesDir` is set, the `appFile` option is ignored. The plugin scans the pa
 | `pages/blog/[slug].tsx` | `/blog/:slug`                               |
 | `pages/[...path].tsx`   | `/*`                                        |
 | `pages/_app.tsx`        | _(shell, not a route)_                      |
+| `pages/blog/_app.tsx`   | _(shell for `/blog/**`, not a route)_       |
 | `pages/_middleware.ts`  | _(middleware, not a route)_                 |
 | `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
 | `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
 
-The underscore prefix reserves both files and directory trees for non-route implementation details. Pracht never creates routes from their contents, so `pages/_components/button.tsx` is ignored rather than exposed at `/_components/button`. `_app` and `_middleware` are recognized only at the pages root; `_middleware/` remains a hard error because silently ignoring a directory that looks like an authorization boundary would fail open.
+The underscore prefix reserves both files and directory trees for non-route implementation details. Pracht never creates routes from their contents, so `pages/_components/button.tsx` is ignored rather than exposed at `/_components/button`. `_app` is recognized in any directory outside a reserved tree; `_middleware` is recognized only at the pages root, and `_middleware/` remains a hard error because silently ignoring a directory that looks like an authorization boundary would fail open.
 
 ### Shell via `_app.tsx`
 
@@ -404,6 +405,27 @@ export function headers() {
   return { "content-security-policy": "default-src 'self'" };
 }
 ```
+
+#### Directory-scoped shells
+
+An `_app` in a subdirectory owns every route in that subtree. `pages/blog/_app.tsx` is registered as `"pages:blog"` and wraps `/blog`, `/blog/:slug`, and everything below it:
+
+```
+src/pages/
+  _app.tsx           → shell "pages"      wraps /, /about
+  index.tsx
+  about.tsx
+  blog/
+    _app.tsx         → shell "pages:blog" wraps /blog, /blog/:slug
+    index.tsx
+    [slug].tsx
+```
+
+**Shells replace, they do not nest.** The nearest `_app` above a route is the only shell that renders it — `blog/_app.tsx` does not render inside the root `_app.tsx`. This is the same rule an explicit manifest follows: `resolveApp()` gives every route exactly one shell, and a nested `group({ shell })` overrides its parent rather than composing with it. A directory shell therefore owns the whole document chrome for its subtree, including its own `head()` and `headers()`; copy what it needs from the parent.
+
+`pracht inspect routes` prints the resolved shell per route (`shell=pages:blog`), and the ejected manifest names the same shells. One `_app` per directory: two files that resolve to the same name (`blog/_app.tsx` and `blog/_app.jsx`) fail build, `doctor`, and `verify` rather than letting one silently win. An `_app` inside a reserved tree such as `pages/_components/_app.tsx` stays an ordinary helper.
+
+Per-route shell assignment — one route in a directory opting out of its directory's shell — still requires [ejecting to an explicit manifest](#ejecting-to-explicit-manifest).
 
 ### Additional Route Extensions
 

@@ -60,6 +60,46 @@ test("_app shell wraps all pages", async ({ page }) => {
   await expect(page.locator(".pages-shell")).toBeVisible();
 });
 
+test("a directory-scoped _app replaces the root shell for its subtree", async ({ page }) => {
+  await page.goto("/blog/hello-world");
+  await expect(page.locator(".blog-shell")).toBeVisible();
+  await expect(page.locator(".pages-shell")).toHaveCount(0);
+  await expect(page).toHaveTitle("Pracht Pages Blog");
+
+  await page.goto("/pricing");
+  await expect(page.locator(".pages-shell")).toBeVisible();
+  await expect(page.locator(".blog-shell")).toHaveCount(0);
+});
+
+test("directory-scoped shells swap during client-side navigation", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+  await expect(page.locator(".pages-shell")).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+  });
+
+  await page.click('a[href="/blog/hello-world"]');
+  await page.waitForURL("/blog/hello-world");
+  await expect(page.locator(".blog-shell")).toBeVisible();
+  await expect(page.locator(".pages-shell")).toHaveCount(0);
+
+  expect(await page.evaluate(() => (window as any).__NAV_TOKEN__ === true)).toBe(true);
+});
+
+test("each page route reports its own shell in the app graph", async ({ request }) => {
+  const response = await request.get("/_pracht.json");
+  const graph = await response.json();
+  const shells = new Map<string, string | undefined>(
+    graph.routes.map((route: { path: string; shell?: string }) => [route.path, route.shell]),
+  );
+
+  expect(shells.get("/")).toBe("pages");
+  expect(shells.get("/about")).toBe("pages");
+  expect(shells.get("/blog/:slug")).toBe("pages:blog");
+});
+
 // ---------------------------------------------------------------------------
 // Dynamic routes ([slug]) capture params
 // ---------------------------------------------------------------------------
@@ -67,7 +107,7 @@ test("_app shell wraps all pages", async ({ page }) => {
 test("dynamic route captures params", async ({ page }) => {
   await page.goto("/blog/hello-world");
 
-  await expect(page.locator(".pages-shell")).toBeVisible();
+  await expect(page.locator(".blog-shell")).toBeVisible();
   await expect(page.locator("h1")).toContainText("Blog: Hello World");
   await expect(page.locator("code")).toContainText("hello-world");
 });

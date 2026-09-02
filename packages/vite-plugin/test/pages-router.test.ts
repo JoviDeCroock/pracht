@@ -412,17 +412,77 @@ describe("scanPagesDirectory", () => {
     expect(() => scanPagesDirectory(pagesDir)).toThrow(/app shell.*REVALIDATE/s);
   });
 
-  it("rejects nested _app files instead of silently dropping the shell", () => {
+  it("registers a nested _app as a directory-scoped shell", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog", "archive"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), "export function Shell() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "blog", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "blog", "archive", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export function Shell() { return null; }\n");
+
+    const pages = scanPagesDirectory(pagesDir);
+    // Shells are not routes.
+    expect(pages.map((page) => page.routePath)).toEqual(["/", "/blog", "/blog/archive"]);
+
+    const source = generatePagesManifestSource(pages, { pagesDir });
+    const dir = basename(pagesDir);
+    expect(source).toContain(`pages: "./${dir}/_app.tsx"`);
+    expect(source).toContain(`"pages:blog": "./${dir}/blog/_app.tsx"`);
+    // The root shell rides on the wrapping group; only the subtree overrides it.
+    expect(source).toContain('group({ shell: "pages" }');
+    expect(source).toMatch(
+      /route\("\/", "\.\/[^"]*\/index\.tsx", \{ render: "ssr", hasLoader: false, hasHead: false \}\)/,
+    );
+    expect(source.match(/shell: "pages:blog"/g)).toHaveLength(2);
+  });
+
+  it("registers a nested _app even when the pages root has none", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "blog", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export function Shell() { return null; }\n");
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+
+    expect(source).toContain(`"pages:blog": "./${basename(pagesDir)}/blog/_app.tsx"`);
+    expect(source).not.toContain("group(");
+    expect(source).toContain('shell: "pages:blog"');
+  });
+
+  it("treats an _app inside a reserved tree as a helper, not a shell", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_components"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_components", "_app.tsx"),
+      "export function Shell() { return null; }\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+
+    expect(source).not.toContain("shells: {");
+  });
+
+  it("rejects two _app files competing for the same registration", () => {
     const pagesDir = makeTempPagesDir();
     mkdirSync(join(pagesDir, "blog"), { recursive: true });
     writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
     writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export function Shell() { return null; }\n");
+    writeFileSync(join(pagesDir, "blog", "_app.jsx"), "export function Shell() { return null; }\n");
 
-    const pages = scanPagesDirectory(pagesDir);
-
-    expect(pages.map((page) => page.routePath)).toEqual(["/"]);
-    expect(() => generatePagesManifestSource(pages, { pagesDir })).toThrow(
-      /Nested pages `_app` shells are not supported.*blog\/_app\.tsx/s,
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /Multiple `_app` shells in "blog".*pages:blog/s,
     );
   });
 
@@ -889,8 +949,8 @@ describe("createPrachtRegistryModuleSource", () => {
 
     expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
     expect(source).toContain("/src/pages/**/*.tsrx");
-    expect(source).toContain("/src/pages/_app.tsrx");
-    expect(source).not.toContain("/src/pages/**/_app");
+    expect(source).toContain("/src/pages/**/_app.tsrx");
+    expect(source).toContain('"!/src/pages/**/_*/**"');
     expect(source).toContain(
       'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts"])',
     );
@@ -905,8 +965,8 @@ describe("createPrachtRegistryModuleSource", () => {
     });
 
     expect(source).toContain("/src/pages/**/*.{tsrx,vue}");
-    expect(source).toContain("/src/pages/_app.{tsrx,vue}");
-    expect(source).not.toContain("/src/pages/**/_app");
+    expect(source).toContain("/src/pages/**/_app.{tsrx,vue}");
+    expect(source).toContain('"!/src/pages/**/_*/**"');
   });
 
   it("keeps compatibility TSRX client module ids bare without configuration", () => {
@@ -951,8 +1011,7 @@ describe("createPrachtRegistryModuleSource", () => {
 
     expect(source).toContain('"!/src/pages/**/_*"');
     expect(source).toContain('"!/src/pages/**/_*/**"');
-    expect(source).toContain('import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}"');
-    expect(source).not.toContain("/src/pages/**/_app");
+    expect(source).toContain('"/src/pages/**/_app.{ts,tsx,js,jsx}"');
   });
 
   it("keeps reserved pages helpers out of generated ejected route and shell globs", () => {
@@ -974,9 +1033,9 @@ describe("createPrachtRegistryModuleSource", () => {
     );
 
     expect(source.match(/"!\/src\/pages\/\*\*\/_\*"/g)).toHaveLength(4);
-    expect(source.match(/"!\/src\/pages\/\*\*\/_\*\/\*\*"/g)).toHaveLength(4);
+    expect(source.match(/"!\/src\/pages\/\*\*\/_\*\/\*\*"/g)).toHaveLength(6);
     expect(source).toContain(
-      'import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
+      'import.meta.glob(["/src/pages/**/_app.{ts,tsx,js,jsx}","!/src/pages/**/_*/**"], { query: "?pracht-client" })',
     );
   });
 
@@ -1002,7 +1061,7 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain('"!/src/other/../pages/**/_*"');
     expect(source).toContain('"!/src/other/../pages/**/_*/**"');
     expect(source).toContain(
-      'import.meta.glob("/src/other/../pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
+      'import.meta.glob(["/src/other/../pages/**/_app.{ts,tsx,js,jsx}","!/src/other/../pages/**/_*/**"], { query: "?pracht-client" })',
     );
   });
 
@@ -1027,7 +1086,7 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain('"!/src/pages/**/_*"');
     expect(source).not.toContain('"!/src/shells/**/_*"');
     expect(source).toContain('import.meta.glob("/src/shells/**/*.{ts,tsx,js,jsx,md,mdx}"');
-    expect(source).not.toContain('import.meta.glob("/src/shells/_app.');
+    expect(source).not.toContain("/src/shells/**/_app.");
   });
 
   it("keeps the pages shell registry protected when ejected routes move out", () => {
@@ -1055,7 +1114,7 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain('"!/src/pages/**/_*"');
     expect(source).toContain('"!/src/pages/**/_*/**"');
     expect(source).toContain(
-      'import.meta.glob("/src/pages/_app.{ts,tsx,js,jsx}", { query: "?pracht-client" })',
+      'import.meta.glob(["/src/pages/**/_app.{ts,tsx,js,jsx}","!/src/pages/**/_*/**"], { query: "?pracht-client" })',
     );
   });
 
@@ -1126,7 +1185,7 @@ export const app = defineApp({ middleware, routes: [] });
     );
 
     expect(source).not.toContain('"!/src/pages/**/_*"');
-    expect(source).not.toContain('import.meta.glob("/src/pages/_app.');
+    expect(source).not.toContain("/src/pages/**/_app.");
   });
 
   it("ignores generated marker text in comments and strings", () => {
