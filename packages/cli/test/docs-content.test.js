@@ -60,12 +60,27 @@ describe("documentation content", () => {
       resolve(repoRoot, "examples/docs/src/routes/docs/cli.md"),
       "utf-8",
     );
+    // A hyphenated subcommand (`dev-mcp`) is not a valid identifier, so its
+    // registry key is quoted.
     const shippedCommands = Array.from(
-      cliSource.matchAll(/^    ([a-z]+): \(\) => import\(/gm),
-      (match) => match[1],
-    ).sort();
+      cliSource.matchAll(
+        /^    "?([a-z][a-z-]*)"?: \(\) => import\("\.\/commands\/([\w-]+)\.js"\)/gm,
+      ),
+      (match) => ({ name: match[1], module: match[2] }),
+    )
+      // A deprecated alias belongs in the section for the command it aliases,
+      // not in a section of its own — the reference should not read like the
+      // CLI has two ways to do the same thing.
+      .filter(
+        ({ module }) =>
+          !/description:\s*"Deprecated alias/.test(
+            readFileSync(resolve(repoRoot, `packages/cli/src/commands/${module}.ts`), "utf-8"),
+          ),
+      )
+      .map(({ name }) => name)
+      .sort();
     const documentedCommands = Array.from(
-      publicReference.matchAll(/^## pracht ([a-z]+)$/gm),
+      publicReference.matchAll(/^## pracht ([a-z][a-z-]*)$/gm),
       (match) => match[1],
     ).sort();
 

@@ -33,7 +33,7 @@ Options:
 - `--adapter=node|cf|netlify|vercel|static` — choose Node.js, Cloudflare Workers, Netlify, Vercel, or pure static output.
 - `--router=manifest|pages` — choose explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — control Tailwind setup.
-- `--agent-tools`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`.
+- `--agent-tools[=core|full]`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`. `core` (the default) seeds five skills; `full` seeds the whole catalog. Add more later with [`pracht skills add`](#pracht-skills).
 - `--skip-install` — write files without installing dependencies.
 - `--no-git` — skip `git init` and the initial commit.
 - `--json` — print a machine-readable summary.
@@ -335,17 +335,24 @@ pracht llms
 pracht llms --write
 ```
 
-The same guide is available from the MCP server (`pracht mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
+The same guide is available from the authoring MCP server (`pracht dev-mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
 
 ---
 
-## pracht mcp
+## pracht dev-mcp
 
 Starts a Model Context Protocol server over stdio for coding agents:
 
 ```sh
-pracht mcp
+pracht dev-mcp
 ```
+
+This is the **authoring** server: it exposes your app's *graph* to the agent
+writing the code. It is not your app's own [remote MCP
+endpoint](/docs/remote-mcp), which exposes your app's *operations* to end-user
+agents in production. The command was called `pracht mcp` through v1.12; that
+name still works and behaves identically, printing a deprecation notice to
+stderr.
 
 Configure the command as a local MCP server rather than running it as a human
 interactive prompt. The protocol owns stdout; diagnostics go to stderr so they
@@ -355,6 +362,32 @@ runs until its MCP client disconnects and exits non-zero on startup or protocol
 failure. There is no `--json` flag because MCP frames are already structured
 protocol output. It is adapter-independent, although individual inspection and
 verification results reflect the configured target.
+
+---
+
+## pracht skills
+
+Lists and installs the pracht Claude Code skills from the published
+[agent-skills index](https://pracht.resynapse.dev/.well-known/agent-skills/index.json):
+
+```sh
+# The catalog, with a marker on the ones this app already has
+pracht skills list
+
+# Install into .claude/skills/
+pracht skills add audit-loaders add-db
+```
+
+`create-pracht` seeds a small core set — `pracht-scaffold`, `pracht-debug`,
+`pracht-deploy`, `upgrade-pracht`, `add-capabilities` — because every skill
+description sits in the agent's system prompt for every session whether the
+skill runs or not. `pracht skills add` is how you take the rest, one at a time.
+Pass `--agent-tools=full` at scaffold time to start with all of them.
+
+Each entry in the index carries a SHA-256 digest, and `add` verifies it before
+writing; a mismatch fails instead of installing. An already-installed skill is
+skipped unless you pass `--force`. `--index <url>` points both subcommands at a
+different catalog, and `--json` gives both machine-readable output.
 
 ---
 

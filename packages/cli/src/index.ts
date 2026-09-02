@@ -16,15 +16,18 @@ const main = defineCommand({
   subCommands: {
     build: () => import("./commands/build.js").then((m) => m.default),
     dev: () => import("./commands/dev.js").then((m) => m.default),
+    "dev-mcp": () => import("./commands/dev-mcp.js").then((m) => m.default),
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
     eval: () => import("./commands/eval.js").then((m) => m.default),
     generate: () => import("./commands/generate.js").then((m) => m.default),
     inspect: () => import("./commands/inspect.js").then((m) => m.default),
     llms: () => import("./commands/llms.js").then((m) => m.default),
+    // Deprecated alias for `dev-mcp`; see commands/mcp.ts.
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
     plan: () => import("./commands/plan.js").then((m) => m.default),
     preview: () => import("./commands/preview.js").then((m) => m.default),
     report: () => import("./commands/report.js").then((m) => m.default),
+    skills: () => import("./commands/skills.js").then((m) => m.default),
     typegen: () => import("./commands/typegen.js").then((m) => m.default),
     verify: () => import("./commands/verify.js").then((m) => m.default),
   },

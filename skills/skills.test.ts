@@ -177,8 +177,10 @@ const cliIndexSource = readFileSync(join(CLI_SRC, "index.ts"), "utf-8");
 /** `pracht` subcommand -> absolute path of its citty command module. */
 const CLI_SUBCOMMANDS = new Map<string, string>(
   [
+    // A hyphenated subcommand (`dev-mcp`) is not a valid identifier, so its key
+    // is quoted in the object literal.
     ...cliIndexSource.matchAll(
-      /(\w[\w-]*):\s*\(\)\s*=>\s*import\("\.\/commands\/([\w.-]+)\.js"\)/g,
+      /"?(\w[\w-]*)"?:\s*\(\)\s*=>\s*import\("\.\/commands\/([\w.-]+)\.js"\)/g,
     ),
   ].map((m) => [m[1], join(CLI_SRC, "commands", `${m[2]}.ts`)]),
 );
@@ -316,11 +318,12 @@ describe("drift-guard source extraction", () => {
   });
 
   it("extracts citty flags from the command modules", () => {
-    // Every registered command except `mcp` (which takes no args) defines args.
+    // Every registered command except `dev-mcp` and its deprecated `mcp` alias
+    // (neither takes args) defines args.
     const withArgs = [...CLI_SUBCOMMANDS.keys()].filter(
       (sub) => cittyArgNames(CLI_SUBCOMMANDS.get(sub) as string).size > 0,
     );
-    expect(withArgs.length).toBeGreaterThanOrEqual(CLI_SUBCOMMANDS.size - 1);
+    expect(withArgs.length).toBeGreaterThanOrEqual(CLI_SUBCOMMANDS.size - 2);
   });
 
   it("extracts MCP tool names from packages/cli/src/mcp-server.ts", () => {

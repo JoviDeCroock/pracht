@@ -180,7 +180,8 @@ policy change a human must approve.
 - \`pracht typegen\` — typed route ids/params for \`<Link>\`, \`href()\`, \`useNavigate()\`.
 - \`pracht eval [files] [--url] [--start "<cmd>"]\` — run scripted agent-task scenarios against the capability HTTP projection, or the remote MCP endpoint with \`"transport": "mcp"\`; exits 1 on any failed expectation.
 - \`pracht doctor\` — app wiring diagnostics.
-- \`pracht mcp\` — this CLI as an MCP server (inspect/verify/generate/docs tools).
+- \`pracht dev-mcp\` — this CLI as an authoring MCP server (inspect/verify/generate/docs tools).
+  Not your app's own remote MCP endpoint, which serves capabilities to end-user agents.
 
 ## Finishing a change
 

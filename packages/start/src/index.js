@@ -109,6 +109,31 @@ const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 // scripts/sync-skills.js); inside the monorepo we fall back to the source.
 const SKILL_DIRS = [resolve(PACKAGE_ROOT, "skills"), resolve(PACKAGE_ROOT, "../../skills")];
 
+/**
+ * The skills a brand-new app can actually use, seeded by default.
+ *
+ * The full catalog is ~33 SKILL.md files, about 360 KB, against a starter with
+ * eight source files. Every `description` is in the agent's system prompt for
+ * every session whether the skill runs or not, so seeding all of them spends
+ * the app's context budget on audits that have nothing to audit yet and on
+ * additive scaffolds for decisions the author has not made.
+ *
+ * These five cover the lifecycle of the app as scaffolded — write it, fix it,
+ * ship it, keep it current — plus the one thing pracht does that an agent will
+ * not infer from any other framework it knows. Everything else is one
+ * `pracht skills add <name>` away, and the generated README and AGENTS.md say
+ * so.
+ */
+const CORE_SKILLS = [
+  "pracht-scaffold",
+  "pracht-debug",
+  "pracht-deploy",
+  "upgrade-pracht",
+  "add-capabilities",
+];
+
+const SKILL_CATALOG_URL = "https://pracht.resynapse.dev/.well-known/agent-skills/index.json";
+
 export async function run(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   const packageManagerUserAgent = process.env.npm_config_user_agent ?? "";
@@ -125,6 +150,7 @@ export async function run(argv = process.argv.slice(2)) {
   const router = options.router ?? (options.yes ? "manifest" : null);
   const tailwind = options.tailwind ?? (options.yes ? false : null);
   const agentTools = options.agentTools ?? (options.yes ? true : null);
+  const agentSkills = options.agentSkills ?? "core";
 
   let resolvedDir = dir;
   let resolvedAdapter = adapterId;
@@ -162,6 +188,7 @@ export async function run(argv = process.argv.slice(2)) {
   if (options.dryRun) {
     const { files } = await buildProjectFiles({
       adapter: ADAPTERS[resolvedAdapter],
+      agentSkills,
       agentTools: resolvedAgentTools,
       packageManager,
       pnpmMajor,
@@ -178,6 +205,7 @@ export async function run(argv = process.argv.slice(2)) {
       console.log(
         JSON.stringify({
           adapter: resolvedAdapter,
+          agentSkills: resolvedAgentTools ? agentSkills : null,
           agentTools: resolvedAgentTools,
           directory: resolvedDir,
           dryRun: true,
@@ -199,6 +227,7 @@ export async function run(argv = process.argv.slice(2)) {
 
   const { pnpmWorkspaceNotice } = await scaffoldProject({
     adapter: ADAPTERS[resolvedAdapter],
+    agentSkills,
     agentTools: resolvedAgentTools,
     packageManager,
     pnpmMajor,
@@ -234,6 +263,7 @@ export async function run(argv = process.argv.slice(2)) {
   if (options.json) {
     const { files } = await buildProjectFiles({
       adapter: ADAPTERS[resolvedAdapter],
+      agentSkills,
       agentTools: resolvedAgentTools,
       packageManager,
       pnpmMajor,
@@ -247,6 +277,7 @@ export async function run(argv = process.argv.slice(2)) {
     console.log(
       JSON.stringify({
         adapter: resolvedAdapter,
+        agentSkills: resolvedAgentTools ? agentSkills : null,
         agentTools: resolvedAgentTools,
         directory: resolvedDir,
         files: Object.keys(files).sort(),
@@ -263,6 +294,7 @@ export async function run(argv = process.argv.slice(2)) {
   } else {
     printNextSteps({
       adapter: ADAPTERS[resolvedAdapter],
+      agentSkills,
       agentTools: resolvedAgentTools,
       dir: resolvedDir,
       installSucceeded,
@@ -277,6 +309,7 @@ export async function run(argv = process.argv.slice(2)) {
 
 export async function scaffoldProject({
   adapter,
+  agentSkills = "core",
   agentTools = true,
   packageManager,
   pnpmMajor = 11,
@@ -288,6 +321,7 @@ export async function scaffoldProject({
   const packageName = toPackageName(basename(targetDir));
   const { files, pnpmWorkspaceNotice } = await buildProjectFiles({
     adapter,
+    agentSkills,
     agentTools,
     packageManager,
     pnpmMajor,
@@ -343,6 +377,7 @@ export function getPnpmMajor(userAgent = process.env.npm_config_user_agent ?? ""
 export function parseArgs(argv) {
   const options = {
     adapter: undefined,
+    agentSkills: undefined,
     agentTools: undefined,
     dir: undefined,
     dryRun: false,
@@ -377,6 +412,16 @@ export function parseArgs(argv) {
 
     if (arg === "--agent-tools") {
       options.agentTools = true;
+      continue;
+    }
+
+    if (arg.startsWith("--agent-tools=")) {
+      const value = arg.slice("--agent-tools=".length).toLowerCase();
+      if (value !== "core" && value !== "full") {
+        throw new ValidationError(`Invalid --agent-tools value: ${value}. Use core or full.`);
+      }
+      options.agentTools = true;
+      options.agentSkills = value;
       continue;
     }
 
@@ -647,6 +692,7 @@ async function resolveVersions(packageNames, { remote = true } = {}) {
 
 async function buildProjectFiles({
   adapter,
+  agentSkills = "core",
   agentTools = true,
   packageManager,
   pnpmMajor = 11,
@@ -675,7 +721,8 @@ async function buildProjectFiles({
 
   const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
   const policyMajor = pnpmMajor ?? 11;
-  const ancestorWorkspace = targetDir ? findAncestorPnpmWorkspace(targetDir) : null;
+  const ancestorWorkspace =
+    targetDir && packageManager === "pnpm" ? findAncestorPnpmWorkspace(targetDir) : null;
   const pnpmWorkspaceNotice = ancestorWorkspace
     ? {
         packages: pnpmBuildAllowlist(adapter, tailwind),
@@ -689,6 +736,7 @@ async function buildProjectFiles({
       "dist\nnode_modules\n.netlify\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n# Keep .pracht/app-graph.json committed — it is the `pracht plan` snapshot.\n",
     "README.md": createReadme({
       adapter,
+      agentSkills,
       agentTools,
       packageManager,
       pnpmMajor,
@@ -716,6 +764,7 @@ async function buildProjectFiles({
   if (agentTools) {
     files["AGENTS.md"] = createAgentInstructions({
       adapter,
+      agentSkills,
       agentTools,
       packageManager,
       router,
@@ -754,15 +803,19 @@ async function buildProjectFiles({
 
   if (agentTools) {
     files[".mcp.json"] = createMcpConfig();
-    Object.assign(files, await readSkillFiles());
+    Object.assign(files, await readSkillFiles(agentSkills));
   }
 
-  // pnpm resolves build-script policy from the workspace root, so inside an existing
-  // workspace our own file would be read by nobody — and `pnpm install` run
-  // from the app directory would find it first and re-root the workspace there,
-  // detaching the app from its siblings. Decided here so the `--json` and
-  // `--dry-run` listings match what is actually written.
-  if (!pnpmWorkspaceNotice) {
+  // Only pnpm reads this file; npm, yarn, and bun ignore it entirely, so
+  // emitting it for them leaves a config in the repo that nothing in the repo
+  // obeys and that a reader has to look up to dismiss.
+  //
+  // pnpm itself resolves build-script policy from the workspace root, so inside
+  // an existing workspace our own file would be read by nobody — and `pnpm
+  // install` run from the app directory would find it first and re-root the
+  // workspace there, detaching the app from its siblings. Decided here so the
+  // `--json` and `--dry-run` listings match what is actually written.
+  if (packageManager === "pnpm" && !pnpmWorkspaceNotice) {
     files["pnpm-workspace.yaml"] = createPnpmWorkspaceConfig(adapter, tailwind, policyMajor);
   }
 
@@ -781,7 +834,7 @@ function createMcpConfig() {
           // than the one the app builds with. Not bare `npx pracht` either:
           // that resolves to a registry package literally named `pracht`
           // whenever the local bin is missing — `--no-install` fails loudly.
-          args: ["--no-install", "pracht", "mcp"],
+          args: ["--no-install", "pracht", "dev-mcp"],
         },
       },
     },
@@ -790,15 +843,19 @@ function createMcpConfig() {
   )}\n`;
 }
 
-async function readSkillFiles() {
+async function readSkillFiles(scope = "core") {
   const skillsDir = SKILL_DIRS.find((dir) => existsSync(dir));
 
   if (!skillsDir) {
     return {};
   }
 
+  const wanted = scope === "full" ? null : new Set(CORE_SKILLS);
   const files = {};
   for (const name of await readdir(skillsDir)) {
+    if (wanted && !wanted.has(name)) {
+      continue;
+    }
     const skillFile = resolve(skillsDir, name, "SKILL.md");
     if (!existsSync(skillFile)) {
       continue;
@@ -856,18 +913,20 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     devDependencies.tailwindcss = versions["tailwindcss"];
   }
 
+  // Conventional key order, not alphabetical: `name` belongs at the top of a
+  // package.json, not between devDependencies and private.
   return `${JSON.stringify(
     {
+      name: projectName,
+      version: "0.0.0",
+      private: true,
+      type: "module",
+      scripts,
       dependencies: {
         [adapter.packageName]: versions[adapter.packageName],
         "@pracht/core": versions["@pracht/core"],
       },
       devDependencies,
-      name: projectName,
-      private: true,
-      scripts,
-      type: "module",
-      version: "0.0.0",
     },
     null,
     2,
@@ -1082,23 +1141,26 @@ function createPagesHomeRoute(adapter) {
 }
 
 function createBaseTSConfig(_adapter) {
+  // Two-space and trailing-newline like every other generated file, and grouped
+  // the way tsconfig documentation presents these options rather than
+  // alphabetically.
   const config = {
     compilerOptions: {
-      allowImportingTsExtensions: true,
-      jsx: "react-jsx",
-      jsxImportSource: "preact",
+      target: "ES2022",
       lib: ["ES2022", "DOM", "DOM.Iterable"],
       module: "ESNext",
       moduleResolution: "Bundler",
-      noEmit: true,
-      skipLibCheck: true,
-      strict: true,
-      target: "ES2022",
+      jsx: "react-jsx",
+      jsxImportSource: "preact",
       types: ["vite/client", "@pracht/vite-plugin/virtual"],
+      allowImportingTsExtensions: true,
       verbatimModuleSyntax: true,
+      strict: true,
+      skipLibCheck: true,
+      noEmit: true,
     },
   };
-  return JSON.stringify(config, null, 4);
+  return `${JSON.stringify(config, null, 2)}\n`;
 }
 
 function createHealthRoute(adapter) {
@@ -1431,11 +1493,21 @@ const PAGES_ROUTER_LIMITATIONS =
 const PAGES_ROUTER_ISG_POLICY =
   'Pages-router ISG supports time revalidation only: pair `export const RENDER_MODE = "isg"` with a positive integer such as `export const REVALIDATE = 3600`. Missing or misplaced policies fail `pracht build`, `doctor`, and `verify`. Webhook revalidation and combined policies require an explicit manifest.';
 
-function createAgentInstructions({ adapter, agentTools, packageManager, router, tailwind }) {
+function createAgentInstructions({
+  adapter,
+  agentSkills = "core",
+  agentTools,
+  packageManager,
+  router,
+  tailwind,
+}) {
   // `bun build` is Bun's own bundler and shadows the package script, so bun
   // needs the explicit `run` form the same way npm does.
   const runCmd =
     packageManager === "npm" || packageManager === "bun" ? `${packageManager} run` : packageManager;
+  // `pnpm deploy` is pnpm's own workspace-deploy command and shadows the
+  // package script, so this one script needs `run` for pnpm too.
+  const deployCmd = packageManager === "pnpm" ? "pnpm run" : runCmd;
   // The pages router derives route ids from filenames, so the home page of a
   // pages app is `index` (`src/pages/index.tsx`); the manifest scaffold names
   // it `home` explicitly. Every id in the instructions below has to be one the
@@ -1466,7 +1538,7 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
   }
 
   if (adapter.id === "cloudflare" || adapter.id === "netlify" || adapter.id === "vercel") {
-    lines.push(`- \`${runCmd} deploy\` — build and deploy`);
+    lines.push(`- \`${deployCmd} deploy\` — build and deploy`);
   }
 
   lines.push("");
@@ -1566,10 +1638,19 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
     lines.push("## Agent tooling");
     lines.push("");
     lines.push(
-      "- `.claude/skills/` — pracht Claude Code skills (audits, scaffolds, testing, debugging); invoke with `/<skill-name>`",
+      agentSkills === "full"
+        ? "- `.claude/skills/` — the full pracht skill catalog (audits, scaffolds, testing, debugging); invoke with `/<skill-name>`"
+        : `- \`.claude/skills/\` — the ${CORE_SKILLS.length} core pracht skills (${CORE_SKILLS.join(", ")}); invoke with \`/<skill-name>\``,
     );
+    if (agentSkills !== "full") {
+      lines.push(
+        "- More skills — audits, testing scaffolds, and the `add-*` integrations — are published at " +
+          `${SKILL_CATALOG_URL}. Run \`pracht skills list\` to see the catalog and ` +
+          "`pracht skills add <name...>` to install one; do not hand-write a SKILL.md that already exists there.",
+      );
+    }
     lines.push(
-      "- `.mcp.json` — registers the `pracht mcp` server so MCP clients can inspect the app graph, run doctor/verify, and scaffold natively",
+      "- `.mcp.json` — registers the `pracht dev-mcp` server so MCP clients can inspect the app graph, run doctor/verify, and scaffold natively",
     );
   }
 
@@ -1580,6 +1661,7 @@ function createAgentInstructions({ adapter, agentTools, packageManager, router, 
 
 function createReadme({
   adapter,
+  agentSkills = "core",
   agentTools,
   packageManager,
   pnpmMajor,
@@ -1598,7 +1680,13 @@ function createReadme({
       : `${packageManager} build`;
   const previewCommand = packageManager === "npm" ? "npm run preview" : `${packageManager} preview`;
   const startCommand = packageManager === "npm" ? "npm run start" : `${packageManager} start`;
-  const deployCommand = packageManager === "npm" ? "npm run deploy" : `${packageManager} deploy`;
+  // `pnpm deploy` is pnpm's own workspace-deploy command and shadows the
+  // package script exactly the way `bun build` shadows `build`, so both need
+  // the explicit `run` form. `yarn deploy` has no builtin to collide with.
+  const deployCommand =
+    packageManager === "npm" || packageManager === "pnpm" || packageManager === "bun"
+      ? `${packageManager} run deploy`
+      : `${packageManager} deploy`;
   const typecheckCommand =
     packageManager === "npm" ? "npm run typecheck" : `${packageManager} typecheck`;
   // The pages router derives route ids from filenames, so its home page is
@@ -1687,6 +1775,52 @@ function createReadme({
     lines.push("- `src/api/health.ts` is a sample API route.");
   }
 
+  if (tailwind) {
+    lines.push("- `src/styles/global.css` is the Tailwind CSS entry, imported by the shell.");
+  }
+
+  if (agentTools) {
+    lines.push(
+      "- `.claude/skills/` and `.mcp.json` wire up the pracht Claude Code skills and MCP server.",
+    );
+  }
+
+  if (packageManager === "pnpm") {
+    lines.push(
+      pnpmWorkspaceNotice
+        ? `- The containing pnpm workspace owns build-script policy. Add the listed dependencies to its \`${pnpmWorkspaceNotice.policy}\` block; no nested \`pnpm-workspace.yaml\` is generated.`
+        : pnpmMajor <= 10
+          ? "- `pnpm-workspace.yaml#onlyBuiltDependencies` allows only the dependency build scripts required by this starter."
+          : "- `pnpm-workspace.yaml#allowBuilds` allows only the dependency build scripts required by this starter.",
+    );
+  }
+
+  if (agentTools) {
+    lines.push("");
+    lines.push("## Skills");
+    lines.push("");
+    lines.push(
+      agentSkills === "full"
+        ? "The whole pracht skill catalog is in `.claude/skills/`. Browse it with `pracht skills list`."
+        : `\`.claude/skills/\` holds the ${CORE_SKILLS.length} core skills: ` +
+            `${CORE_SKILLS.map((name) => `\`/${name}\``).join(", ")}.`,
+    );
+    if (agentSkills !== "full") {
+      lines.push("");
+      lines.push(
+        "The rest of the catalog — audits, testing scaffolds, and the `add-*` " +
+          "integrations — is published at " +
+          `[\`/.well-known/agent-skills/index.json\`](${SKILL_CATALOG_URL}). ` +
+          "Install what you need:",
+      );
+      lines.push("");
+      lines.push("```bash");
+      lines.push("pracht skills list");
+      lines.push("pracht skills add audit-loaders add-db");
+      lines.push("```");
+    }
+  }
+
   // The one convention a new app trips over before it writes anything else,
   // and AGENTS.md — where the same note lives for coding agents — is only
   // seeded when agent tooling is enabled.
@@ -1700,26 +1834,6 @@ function createReadme({
       "typegen` types both the id and its params — so `<Link href>` is a compile error. Use a " +
       "plain `<a href>` for external and user-provided URLs.",
   );
-
-  if (packageManager === "pnpm") {
-    lines.push(
-      pnpmWorkspaceNotice
-        ? `- The containing pnpm workspace owns build-script policy. Add the listed dependencies to its \`${pnpmWorkspaceNotice.policy}\` block; no nested \`pnpm-workspace.yaml\` is generated.`
-        : pnpmMajor <= 10
-          ? "- `pnpm-workspace.yaml#onlyBuiltDependencies` allows only the dependency build scripts required by this starter."
-          : "- `pnpm-workspace.yaml#allowBuilds` allows only the dependency build scripts required by this starter.",
-    );
-  }
-
-  if (tailwind) {
-    lines.push("- `src/styles/global.css` is the Tailwind CSS entry, imported by the shell.");
-  }
-
-  if (agentTools) {
-    lines.push(
-      "- `.claude/skills/` and `.mcp.json` wire up the pracht Claude Code skills and MCP server.",
-    );
-  }
 
   lines.push("");
   lines.push("## Checks");
@@ -1824,6 +1938,7 @@ async function installDependencies(targetDir, packageManager) {
 
 function printNextSteps({
   adapter,
+  agentSkills = "core",
   agentTools,
   dir,
   installSucceeded,
@@ -1843,7 +1958,13 @@ function printNextSteps({
     `Router:  ${router === "pages" ? "pages (file-system)" : "manifest (src/routes.ts)"}`,
   );
   console.log(`Tailwind: ${tailwind ? "yes" : "no"}`);
-  console.log(`Agent tooling: ${agentTools ? "skills, .mcp.json, AGENTS.md" : "none"}`);
+  console.log(
+    `Agent tooling: ${
+      agentTools
+        ? `${agentSkills === "full" ? "full skill catalog" : `${CORE_SKILLS.length} core skills`}, .mcp.json, AGENTS.md`
+        : "none"
+    }`,
+  );
   if (router === "pages") {
     console.log("");
     console.log(
@@ -1899,8 +2020,10 @@ Options:
   --template=minimal|tailwind  Choose starter template (minimal, or minimal + Tailwind CSS)
   --tailwind / --no-tailwind   Enable or disable Tailwind CSS wiring (default: prompt).
                                Sets the same thing as --template; the last one wins.
-  --agent-tools / --no-agent-tools
-                               Seed Claude Code skills and a pracht MCP config (default: prompt, yes)
+  --agent-tools[=core|full] / --no-agent-tools
+                               Seed Claude Code skills and a pracht MCP config (default: prompt, yes).
+                               core (the default) seeds ${CORE_SKILLS.length} skills; full seeds the whole catalog.
+                               Add more later with \`pracht skills add <name>\`.
   --no-git                     Skip git init and the initial commit
   --skip-install               Skip dependency installation
   --yes, -y                    Accept defaults, skip all prompts

@@ -90,6 +90,7 @@ serious volume should watch `stream.desiredSize` (the response stream's
 remaining queue capacity, `null` once closed) and pause or drop messages while
 it is zero or negative:
 
+<!-- snippet: partial -->
 ```ts
 const size = stream.desiredSize;
 if (size === null) break; // stream closed — stop producing
@@ -191,6 +192,7 @@ export function GET({ request, context }: BaseRouteArgs<{ env: Env }>) {
 }
 ```
 
+<!-- snippet: partial -->
 ```ts [src/server/chat-room.ts]
 import { DurableObject } from "cloudflare:workers";
 
@@ -218,6 +220,7 @@ Attach a WebSocket server (e.g. [`ws`](https://github.com/websockets/ws))
 alongside pracht instead. The Node adapter's `configureServerFrom` option
 hands you the underlying `http.Server` before `listen()`:
 
+<!-- snippet: partial -->
 ```ts [vite.config.ts]
 nodeAdapter({
   configureServerFrom: "/src/server/websockets.ts",

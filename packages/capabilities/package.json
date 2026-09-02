@@ -35,6 +35,9 @@
       "default": "./dist/static.mjs"
     }
   },
+  "engines": {
+    "node": ">=22.18"
+  },
   "publishConfig": {
     "provenance": true
   },

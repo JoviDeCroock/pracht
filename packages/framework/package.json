@@ -84,6 +84,9 @@
       "default": "./dist/devtools.mjs"
     }
   },
+  "engines": {
+    "node": ">=22.18"
+  },
   "publishConfig": {
     "provenance": true
   },

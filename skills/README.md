@@ -2,9 +2,14 @@
 
 Repo-local Claude Code skills for people building applications with pracht.
 They are published for end users at
-[`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json),
-seeded into new apps by `create-pracht`, and loaded for contributors in this
-repo via the `.claude/skills` symlink.
+[`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json)
+and loaded for contributors in this repo via the `.claude/skills` symlink.
+
+`create-pracht` seeds a five-skill core set (`pracht-scaffold`, `pracht-debug`,
+`pracht-deploy`, `upgrade-pracht`, `add-capabilities`) into a new app, or the
+whole catalog with `--agent-tools=full`. End users install the rest one at a
+time with `pracht skills list` and `pracht skills add <name...>`, which read
+that published index and verify each SHA-256 before writing.
 
 Skills live one directory per skill, each with a `SKILL.md` defining
 frontmatter (`name`, `version`, `description`, `allowed-tools`) and an
@@ -73,7 +78,7 @@ collide with other skill packs installed in the same app.
   Route entries include `render`, `hydration`, `prefetch`, and `speculation`
   (`null` means the framework default applies); API entries include
   `hasDefaultHandler` for default-export dispatchers.
-- The same capabilities are available as native MCP tools via `pracht mcp`
+- The same capabilities are available as native MCP tools via `pracht dev-mcp`
   (inspect, doctor, verify, and generate) — see [docs/MCP.md](../docs/MCP.md).
   Prefer the MCP tools when the client has the server registered; every skill
   carries a reminder near its first CLI invocation.

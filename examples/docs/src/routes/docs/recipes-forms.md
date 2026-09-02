@@ -15,6 +15,8 @@ next:
 The simplest pattern: a `<Form>` that posts to an API route, with server-side validation.
 
 ```ts [src/api/contact.ts]
+import type { ApiRouteArgs } from "@pracht/core";
+
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
@@ -39,8 +41,15 @@ export async function POST({ request }: ApiRouteArgs) {
 import { Form } from "@pracht/core";
 import { useState } from "preact/hooks";
 
+interface ContactResult {
+  ok: boolean;
+  sent?: boolean;
+  errors?: Record<string, string>;
+  values?: { name?: string; email?: string; message?: string };
+}
+
 export function Component() {
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<ContactResult | null>(null);
 
   if (result?.sent) {
     return <p class="success">Thanks! We'll be in touch.</p>;
@@ -52,7 +61,11 @@ export function Component() {
   return (
     <div>
       <h1>Contact Us</h1>
-      <Form method="post" action="/api/contact" onResponse={setResult}>
+      <Form
+        method="post"
+        action="/api/contact"
+        onResponse={async (response) => setResult(await response.json())}
+      >
         <label>
           Name
           <input type="text" name="name" value={values.name} />
@@ -84,7 +97,7 @@ export function Component() {
 
 1. `<Form method="post" action="/api/contact">` intercepts the submit event and sends data via `fetch` (no full reload).
 2. The API route handler runs server-side, validates, and returns a `Response`.
-3. The component receives the parsed response and re-renders with the result.
+3. `onResponse` receives the raw `Response` — read the body yourself with `await response.json()` — and the component re-renders with the result.
 4. If JavaScript is disabled, the form still works — it falls back to a native form POST.
 
 ---
@@ -93,6 +106,7 @@ export function Component() {
 
 Use the `action` prop to target any API route:
 
+<!-- snippet: partial -->
 ```tsx
 <Form method="post" action="/api/newsletter">
   <input type="email" name="email" placeholder="you@example.com" />
@@ -139,6 +153,7 @@ You can use separate API routes for different mutations, or handle multiple inte
 
 ### Separate API routes
 
+<!-- snippet: partial -->
 ```tsx
 <Form method="post" action="/api/settings/profile">
   <input name="name" value={data.user.name} />
@@ -155,6 +170,8 @@ You can use separate API routes for different mutations, or handle multiple inte
 ### Single API route with intent
 
 ```ts [src/api/settings.ts]
+import type { ApiRouteArgs } from "@pracht/core";
+
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   const intent = form.get("intent");
@@ -188,6 +205,7 @@ export async function POST({ request }: ApiRouteArgs) {
 
 ## File Uploads
 
+<!-- snippet: partial -->
 ```tsx
 <Form method="post" action="/api/avatar" enctype="multipart/form-data">
   <input type="file" name="avatar" accept="image/*" />
@@ -196,6 +214,8 @@ export async function POST({ request }: ApiRouteArgs) {
 ```
 
 ```ts [src/api/avatar.ts]
+import type { ApiRouteArgs } from "@pracht/core";
+
 export async function POST({ request }: ApiRouteArgs) {
   const form = await request.formData();
   const file = form.get("avatar") as File;
@@ -216,8 +236,9 @@ export async function POST({ request }: ApiRouteArgs) {
 
 After a mutation via an API route, use `useRevalidate()` to refresh the current route's loader data:
 
-```ts
+```tsx
 import { useRevalidate } from "@pracht/core";
+import type { RouteComponentProps } from "@pracht/core";
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   const revalidate = useRevalidate();

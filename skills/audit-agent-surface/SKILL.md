@@ -324,7 +324,7 @@ Severities:
 3. Do not treat client-declared signals as trust: the `webmcp` transport marker
    is informational, and only MCP dispatch state is trustworthy for
    attributing nested effects.
-4. Distinguish `pracht mcp` (the development-time stdio server exposing the app
+4. Distinguish `pracht dev-mcp` (the development-time stdio server exposing the app
    *graph* to coding agents) from the deployed `/mcp` endpoint exposing the app's
    *operations*. They have different threat models.
 5. State the framework guarantee before each finding so the reader can tell an

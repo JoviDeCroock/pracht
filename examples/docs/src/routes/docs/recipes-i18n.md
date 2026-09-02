@@ -214,6 +214,7 @@ Navigating to the other prefix is an explicit choice. On SSR routes the middlewa
 
 If your URLs are fixed — an existing site, a shared link surface, an app behind a login — keep them and let the locale live in the cookie. Nothing about the manifest changes: register routes as usual and add the i18n middleware to the group.
 
+<!-- snippet: partial -->
 ```ts [src/routes.ts]
 group({ shell: "main", middleware: ["i18n"] }, [
   route("/", "./routes/home.tsx", { render: "ssr" }),
@@ -287,6 +288,7 @@ export function LanguageSwitcher({ onSwitchStart }: { onSwitchStart?: () => void
 **Client switch (no request at all).** Write the cookie from the browser and swap the dictionary in place — the URL never changes and nothing is re-fetched:
 
 ```tsx
+import type { RouteComponentProps } from "@pracht/core";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { t } from "@pracht/i18n";
 import { LanguageSwitcher } from "../components/LanguageSwitcher.tsx";
@@ -356,6 +358,7 @@ Invalidate pending client loads synchronously when any server-backed switch or n
 
 ## 5. Load Translations in Your Loader
 
+<!-- snippet: partial -->
 ```tsx [src/routes/home.tsx]
 import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { t, tPlural } from "@pracht/i18n";
@@ -414,6 +417,7 @@ Because `messages` is plain JSON, it serializes into route data and the exact sa
 
 `@pracht/i18n` is a thin layer; if you prefer zero dependencies, the original pattern is a page of code. Middleware stashes the locale on the context (or a request header), loaders read it:
 
+<!-- snippet: partial -->
 ```ts [src/i18n/index.ts]
 import en from "./en";
 import fr from "./fr";
