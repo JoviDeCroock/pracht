@@ -60,16 +60,54 @@ describe("documentation content", () => {
       resolve(repoRoot, "examples/docs/src/routes/docs/cli.md"),
       "utf-8",
     );
-    const shippedCommands = Array.from(
-      cliSource.matchAll(/^    ([a-z]+): \(\) => import\(/gm),
-      (match) => match[1],
-    ).sort();
-    const documentedCommands = Array.from(
-      publicReference.matchAll(/^## pracht ([a-z]+)$/gm),
-      (match) => match[1],
-    ).sort();
+    // A hyphenated subcommand (`dev-mcp`) is not a valid identifier, so its
+    // registry key is quoted.
+    const registered = Array.from(
+      cliSource.matchAll(
+        /^    "?([a-z][a-z-]*)"?: \(\) => import\("\.\/commands\/([\w-]+)\.js"\)/gm,
+      ),
+      (match) => ({ name: match[1], module: match[2] }),
+    );
 
-    expect(documentedCommands).toEqual(shippedCommands);
+    // A deprecated alias gets no section of its own — the reference should not
+    // read like the CLI has two ways to do the same thing. It still has to be
+    // documented, so it is required to appear *inside* the section for the
+    // command it aliases; an alias nobody can find is an alias that turns into
+    // a support question.
+    const aliases = [];
+    const commands = [];
+    for (const entry of registered) {
+      const source = readFileSync(
+        resolve(repoRoot, `packages/cli/src/commands/${entry.module}.ts`),
+        "utf-8",
+      );
+      const alias = /description:\s*"Deprecated alias for `pracht ([a-z][a-z-]*)`"/.exec(source);
+      if (alias) aliases.push({ name: entry.name, aliasOf: alias[1] });
+      else commands.push(entry.name);
+    }
+
+    const sections = new Map();
+    const headings = [...publicReference.matchAll(/^## pracht ([a-z][a-z-]*)$/gm)];
+    for (const [i, heading] of headings.entries()) {
+      const start = heading.index + heading[0].length;
+      const end = headings[i + 1]?.index ?? publicReference.length;
+      sections.set(heading[1], publicReference.slice(start, end));
+    }
+
+    expect([...sections.keys()].sort()).toEqual(commands.sort());
+
+    // Guard the guard: if the alias regex ever stops matching, the check above
+    // silently starts demanding a section for the alias instead of skipping it,
+    // so assert the alias set is the one we know ships.
+    expect(aliases).toEqual([{ name: "mcp", aliasOf: "dev-mcp" }]);
+    for (const alias of aliases) {
+      const section = sections.get(alias.aliasOf);
+      expect(section, `cli.md has no "## pracht ${alias.aliasOf}" section`).toBeDefined();
+      expect(
+        section,
+        `"pracht ${alias.name}" is a shipped alias but is not mentioned under "## pracht ${alias.aliasOf}"`,
+      ).toContain(`pracht ${alias.name}`);
+    }
   });
 
   // The manifest-only limitation was documented in docs/ROUTING.md but never on

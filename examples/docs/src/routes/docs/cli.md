@@ -33,7 +33,7 @@ Options:
 - `--adapter=node|cf|netlify|vercel|static` — choose Node.js, Cloudflare Workers, Netlify, Vercel, or pure static output.
 - `--router=manifest|pages` — choose explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — control Tailwind setup.
-- `--agent-tools`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`.
+- `--agent-tools[=core|full]`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`. `core` (the default) seeds five skills; `full` seeds the whole catalog. Add more later with [`pracht skills add`](#pracht-skills).
 - `--skip-install` — write files without installing dependencies.
 - `--no-git` — skip `git init` and the initial commit.
 - `--json` — print a machine-readable summary.
@@ -337,17 +337,24 @@ pracht llms
 pracht llms --write
 ```
 
-The same guide is available from the MCP server (`pracht mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
+The same guide is available from the authoring MCP server (`pracht dev-mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
 
 ---
 
-## pracht mcp
+## pracht dev-mcp
 
 Starts a Model Context Protocol server over stdio for coding agents:
 
 ```sh
-pracht mcp
+pracht dev-mcp
 ```
+
+This is the **authoring** server: it exposes your app's *graph* to the agent
+writing the code. It is not your app's own [remote MCP
+endpoint](/docs/remote-mcp), which exposes your app's *operations* to end-user
+agents in production. The command was called `pracht mcp` through v1.12; that
+name still works and behaves identically, printing a deprecation notice to
+stderr.
 
 Configure the command as a local MCP server rather than running it as a human
 interactive prompt. The protocol owns stdout; diagnostics go to stderr so they
@@ -363,6 +370,48 @@ registration and the full tool reference. This is the *development-time* server;
 serving your app's own capabilities to end-user agents in production is
 [remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser),
 a different thing entirely.
+
+---
+
+## pracht skills
+
+Lists and installs the pracht Claude Code skills from the published
+[agent-skills index](https://pracht.resynapse.dev/.well-known/agent-skills/index.json):
+
+```sh
+# The catalog, with a marker on the ones this app already has
+pracht skills list
+
+# Install into .claude/skills/
+pracht skills add audit-loaders add-db
+```
+
+`create-pracht` seeds a small core set — `pracht-scaffold`, `pracht-debug`,
+`pracht-deploy`, `upgrade-pracht`, `add-capabilities` — because every skill
+description sits in the agent's system prompt for every session whether the
+skill runs or not. `pracht skills add` is how you take the rest, one at a time.
+Pass `--agent-tools=full` at scaffold time to start with all of them.
+
+The index is treated as untrusted input, because its contents land in the
+directory your coding agent reads instructions from:
+
+- Every entry must carry a 64-character hex SHA-256, and `add` verifies the
+  downloaded body against it. An index missing a digest on any entry is
+  rejected whole, before anything is written.
+- The index and every skill URL must be `https` (plain `http` is allowed only
+  for `localhost`, so you can serve an offline mirror).
+- Skill names must match `[a-z0-9][a-z0-9-]*`, so a name from the index can
+  never resolve outside `.claude/skills/`.
+- If `.claude/skills` is a symlink, `add` refuses rather than writing through
+  it — this repository points its own at the canonical `skills/` sources, and
+  a stray `add` there would rewrite the published catalog. `--force` allows it
+  when the link still resolves inside the project; a link escaping the project
+  is always refused.
+
+An already-installed skill is skipped unless you pass `--force`. `--index <url>`
+points both subcommands at a different catalog, and `--json` gives both
+machine-readable output — `add --json` always reports `installed`, `skipped`,
+and `failed`, and exits non-zero if anything failed.
 
 ---
 

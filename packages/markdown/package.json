@@ -37,6 +37,9 @@
       "default": "./dist/runtime.mjs"
     }
   },
+  "engines": {
+    "node": ">=22.18"
+  },
   "publishConfig": {
     "provenance": true
   },

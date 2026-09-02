@@ -4,7 +4,7 @@ Serve your app's [capabilities](CAPABILITIES.md) as [Model Context
 Protocol](https://modelcontextprotocol.io) tools, over stateless Streamable
 HTTP, at one endpoint — for agents that never open a browser.
 
-> Not to be confused with [MCP.md](MCP.md), which documents `pracht mcp`: a
+> Not to be confused with [MCP.md](MCP.md), which documents `pracht dev-mcp`: a
 > stdio server that gives *coding* agents access to your app graph at
 > development time. This page is about the deployed application's own tools.
 

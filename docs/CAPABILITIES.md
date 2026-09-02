@@ -677,7 +677,7 @@ The capability graph feeds every existing inspection surface:
   HMR removes the final capability, until the dev server restarts; MCP
   declarations are labeled `mcp(unserved)` until the endpoint serves them,
   including destructive declarations without `agents.mcp.destructive`;
-- the `pracht mcp` server exposes `inspect_capabilities` and `inspect_agents`
+- the `pracht dev-mcp` server exposes `inspect_capabilities` and `inspect_agents`
   tools;
 - `pracht verify` runs the static contract checks described above.
 

@@ -3,6 +3,25 @@
 This repo implements Phase 1 and Phase 2 (core) of the monorepo layout
 described in `VISION_MVP.md`.
 
+## Toolchain
+
+| Pin | Where | Value |
+| --- | --- | --- |
+| Package manager | root `package.json#packageManager`, both workflows | `pnpm@11.3.0` |
+| Node | root `package.json#engines.node`, `.nvmrc`, `.node-version` | `>=22.18` / `22.22.3` |
+
+Every published package carries `engines.node: ">=22.18"` too, so an install on
+an older runtime warns instead of failing halfway through a build.
+
+**Why 22.18 specifically.** Node enabled type stripping unflagged in 22.18.0.
+`packages/cli/test/fixtures/e2e-port-lease-child.mjs` is spawned with a bare
+`process.execPath` — no `--experimental-strip-types` in `NODE_OPTIONS` — and
+imports `e2e/ports.ts` directly, which is also how `playwright.config.ts` reaches
+the port-lease helper. On 22.17 and below that import throws
+`ERR_UNKNOWN_FILE_EXTENSION` before any test body runs. `bench/run.mjs` still
+passes the flag explicitly to the fixture builds it spawns, so it is not the
+constraint; the CLI test is.
+
 ## Packages
 
 | Path                          | Package                      | Current role                                                                                                 |
@@ -23,7 +42,7 @@ described in `VISION_MVP.md`.
 | `packages/session`            | `@pracht/session`            | Sessions: AES-GCM-sealed cookie or store-backed session id, secret rotation, flash values, `sessionMiddleware()`/`requireSession()`, WebCrypto password hashing (see `docs/SESSION.md`) |
 | `packages/test`               | `@pracht/test`               | Testing utilities for app developers: typed loader/API/middleware args factories, a middleware chain runner, form submission helpers, and minimal response readers |
 | `packages/capabilities`       | `@pracht/capabilities`       | Capability primitive: `defineCapability()`, JSON Schema validation, form-input coercion, and the shared envelope/error protocol |
-| `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, `doctor`, and the `pracht mcp` authoring server |
+| `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, `doctor`, and the `pracht dev-mcp` authoring server |
 | `packages/start`              | `create-pracht`              | Project scaffolder: router choice, adapter choice, agent tooling (`.mcp.json`, skills, `AGENTS.md`)         |
 | `examples/basic`              | `@pracht/example-basic`      | The reference app: all four render modes, loaders, API routes, `@pracht/session` auth, capabilities, forms. Builds for four adapters from one source tree |
 | `examples/showcase`           | `@pracht/example-showcase`   | *Launchpad* — the whole capability graph and agent trust layer in one app: six operations projected to browser, forms, WebMCP, signed remote callers, and `/mcp` |
@@ -58,6 +77,60 @@ means three edits: the Markdown file, a `route()` in
 Never link a published page at a `docs/*.md` path or a GitHub blob URL for
 something that should be on the site — a reader following it leaves the
 documentation.
+
+### Snippets on the recipe pages are typechecked
+
+`examples/docs/test/recipes-snippets.test.ts` extracts every `ts`/`tsx` fence
+from `recipes-*.md` and compiles it against the real `@pracht/*` sources. The
+recipes are the pages a reader copies verbatim, and nothing else tied them to
+the framework they document.
+
+**A page compiles as the app it describes.** A fence labelled
+`[src/i18n/index.ts]` is written to that path, so
+`import { dictionaries } from "../i18n/index.ts"` in the same page's
+`src/routes/home.tsx` fence resolves to the page's own dictionary instead of
+collapsing to `any` — which is what makes `tPlural(messages, "cart.items", n)`
+a real check of the keys the page declares. It is also how a page's
+`src/env.d.ts` `Register` augmentation reaches its other fences, and only its
+own. A page that defines the same path twice (a recipe plus a hand-rolled
+alternative in an appendix) is compiled in layers: each redefinition opens a
+new tree carrying everything before it, and each fence is reported from the
+layer that introduced it.
+
+**It reports only what a reader would hit.** An unresolved identifier is
+ignored unless it names — or is one or two edits from — something a pracht
+package exports. `ApiRouteArgs` unimported is an error and so is
+`useRevalidat()`; an elided `db` helper is not. `noImplicitAny` is off, because
+a recipe drops annotations on purpose. A narrow stand-in for
+`@cloudflare/workers-types` lives in the test so the Cloudflare recipes are
+checked rather than collapsing to `any`; widen it when a recipe needs more.
+
+Two things guard the guard, because this test fails open: a set of cases in
+`describe("the suppression rule")` proves a typo'd export still fails and an
+elided helper still passes, and every `Register` augmentation property must
+resolve to a non-`any` type.
+
+A fence that cannot stand as a module — a bare JSX element, an object-literal
+fragment, a loop body — opts out with a marker on the line above it:
+
+````md
+<!-- snippet: partial -->
+```tsx
+<Form method="post" action="/api/newsletter">
+  <input type="email" name="email" />
+</Form>
+```
+````
+
+Reach for the marker last. A missing import is the failure the test exists to
+find, and adding it is the fix; the marker is for fences that were never a
+file, not for ones that fail. Nothing else is skipped silently: a `ts` fence
+whose info string the extractor cannot parse fails the suite rather than
+dropping out of the gate.
+
+`PENDING_PAGES` in that test names pages not yet under the gate. A pending page
+that starts typechecking fails the suite, so the list cannot outlive the pages
+on it.
 
 ## What Exists Today
 
@@ -198,15 +271,28 @@ documentation.
 ## Verifying a Change
 
 `pnpm run verify` is the pre-commit gate. It builds, formats, lints, then runs
-typecheck, the example's generated-type check and the unit tests together, and
-finishes with E2E — printing output only for the steps that fail:
+typecheck, the example's generated-type check, the unit tests and `bench:check`
+together, and finishes with E2E — printing output only for the steps that fail:
 
 | Flag           | Effect                                                     |
 | -------------- | ---------------------------------------------------------- |
 | `--skip-build` | Reuse `packages/*/dist` from a previous build               |
 | `--force-build`| Rebuild every package, ignoring the build cache             |
 | `--skip-e2e`   | Unit tests only — no dev servers, no browser                |
+| `--check`      | Run `format:check` and `oxlint` without `--fix`; nothing is rewritten |
 | `VERIFY_VERBOSE=1` | Print output for passing steps too                     |
+
+`--check` exists for the places where a rewritten file is a failure rather than
+a fixup — a pre-push hook, or a CI job reusing this script. It changes only the
+two mutating steps; the build still writes `packages/*/dist`.
+
+`bench:check` (`node bench/run.mjs --bytes-only --check`) is the client-byte
+gate CI runs as its own job. Client bytes are deterministic, so a drift is
+always a real change; four fixture builds cost about five seconds, which is
+cheap enough to sit beside the unit tests rather than be discovered on CI. When
+the drift is intended, run `node bench/run.mjs --bytes-only --update`, commit
+`bench/baseline.json`, and update the published table in
+`examples/docs/src/routes/docs/performance.md`.
 
 The individual scripts (`pnpm run build|format|lint|typecheck|test|e2e`) still
 work on their own; `verify` only changes how they are scheduled.

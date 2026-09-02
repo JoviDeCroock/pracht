@@ -25,7 +25,7 @@ npm run dev
   `onlyBuiltDependencies` for pnpm 10 or `allowBuilds` for pnpm 11. All adapters
   allow `esbuild`, Cloudflare also allows `workerd`, and Tailwind starters also
   allow `@tailwindcss/oxide`.
-- Seeds the pracht Claude Code skills into `.claude/skills/`, writes a `.mcp.json` registering the `pracht mcp` server, and writes `AGENTS.md` (yes-default prompt; all of it skipped with `--no-agent-tools`, which leaves a project with no agent files at all).
+- Seeds five core pracht Claude Code skills into `.claude/skills/`, writes a `.mcp.json` registering the `pracht dev-mcp` server, and writes `AGENTS.md` (yes-default prompt; all of it skipped with `--no-agent-tools`, which leaves a project with no agent files at all). `--agent-tools=full` seeds the whole catalog instead; `pracht skills add <name>` installs the rest one at a time.
 - Initializes a git repository with an initial commit (skipped with `--no-git`, when git is unavailable, or when the target is already inside a repository).
 - `--dry-run` uses pinned fallback versions and does not require npm registry access.
 
@@ -49,7 +49,7 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 - `--router=manifest|pages` — choose the routing system (default: manifest).
 - `--template=minimal|tailwind` — non-interactive template selection; `minimal` is the default output, `tailwind` is minimal plus Tailwind CSS wiring.
 - `--tailwind` / `--no-tailwind` — enable or disable Tailwind CSS without going through the prompt.
-- `--agent-tools` / `--no-agent-tools` — seed the Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` (or skip all of them) without going through the prompt.
+- `--agent-tools[=core|full]` / `--no-agent-tools` — seed the Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` (or skip all of them) without going through the prompt. `core` is the default.
 - `--no-git` — skip `git init` and the initial commit.
 - `--skip-install` — skip dependency installation.
 - `--yes`, `-y` — accept defaults (node adapter, manifest router, no Tailwind, agent tooling on) and skip all prompts.
@@ -66,8 +66,8 @@ node ./packages/start/bin/create-pracht.js my-app --adapter=node --no-tailwind -
 - `src/shells/public.tsx`
 - `src/api/health.ts` — serverful adapters only
 - `.gitignore`
-- `.claude/skills/<name>/SKILL.md` — the pracht agent skills (unless `--no-agent-tools`)
-- `.mcp.json` — registers the `pracht mcp` server for MCP clients (unless `--no-agent-tools`)
+- `.claude/skills/<name>/SKILL.md` — the core pracht agent skills, or all of them with `--agent-tools=full` (unless `--no-agent-tools`)
+- `.mcp.json` — registers the `pracht dev-mcp` server for MCP clients (unless `--no-agent-tools`)
 - `AGENTS.md` (plus a `CLAUDE.md` symlink pointing at it) — project conventions for coding
   agents (unless `--no-agent-tools`; `README.md` documents the same commands for humans)
 
@@ -92,7 +92,9 @@ Standalone pnpm scaffolds for every adapter include `pnpm-workspace.yaml` with
 the version-appropriate lifecycle policy. When the new app belongs to an
 ancestor pnpm workspace, that workspace owns the policy instead: the generated
 README and completion message list the exact entries to add and no nested
-workspace file is created.
+workspace file is created. npm, yarn, and bun scaffolds get no
+`pnpm-workspace.yaml` at all — those package managers ignore the file, so
+writing it would leave a config in the repo that nothing in the repo reads.
 
 ## Generated Scripts
 

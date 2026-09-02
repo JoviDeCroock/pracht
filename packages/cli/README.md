@@ -211,7 +211,7 @@ pracht doctor
 pracht doctor --json
 ```
 
-### `pracht mcp`
+### `pracht dev-mcp`
 
 Start a Model Context Protocol server on stdio that exposes inspect, doctor,
 verify, plan, report, generate, and the authoring guide (`get_docs`) as native
@@ -220,5 +220,5 @@ tools for coding agents. See
 for client registration and the tool reference.
 
 ```bash
-pracht mcp
+pracht dev-mcp
 ```
