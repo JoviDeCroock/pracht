@@ -1,6 +1,6 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import type { ConfigEnv, UserConfig } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -14,7 +14,13 @@ import {
   createRouteHeadersHintsForVirtualModules,
 } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
-import { generatePagesManifestSource, scanPagesDirectory } from "../src/pages-router.ts";
+import {
+  GENERATED_PAGES_LAYOUT_EXPORT,
+  GENERATED_PAGES_MANIFEST_MARKER,
+  generatePagesManifestSource,
+  generateRoutesFile,
+  scanPagesDirectory,
+} from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
 
@@ -152,6 +158,32 @@ describe("scanPagesDirectory", () => {
     expect(pages.find((page) => page.routePath === "/combined")?.hasHead).toBe(true);
     expect(pages.find((page) => page.routePath === "/metadata")?.hasHead).toBe(false);
     expect(pages.find((page) => page.routePath === "/type-only")?.hasHead).toBe(false);
+  });
+
+  it("ignores every file beneath underscore-prefixed directories", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_components", "nested"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_components", "button.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "_components", "nested", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "_components", "_app.tsx"),
+      "export function Shell() { return null; }\n",
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    const source = generatePagesManifestSource(pages, { pagesDir });
+
+    expect(pages.map((page) => page.routePath)).toEqual(["/"]);
+    expect(source).not.toContain("_components");
+    expect(source).not.toContain("shells:");
   });
 
   it("extracts the HYDRATION export and emits it in the generated manifest", () => {
@@ -380,6 +412,233 @@ describe("scanPagesDirectory", () => {
     expect(() => scanPagesDirectory(pagesDir)).toThrow(/app shell.*REVALIDATE/s);
   });
 
+  it("registers a nested _app as a directory-scoped shell", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog", "archive"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), "export function Shell() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "blog", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(pagesDir, "blog", "archive", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export function Shell() { return null; }\n");
+
+    const pages = scanPagesDirectory(pagesDir);
+    // Shells are not routes.
+    expect(pages.map((page) => page.routePath)).toEqual(["/", "/blog", "/blog/archive"]);
+
+    const source = generatePagesManifestSource(pages, { pagesDir });
+    const dir = basename(pagesDir);
+    expect(source).toContain(`pages: "./${dir}/_app.tsx"`);
+    expect(source).toContain(`"pages:blog": "./${dir}/blog/_app.tsx"`);
+    // The root shell rides on the wrapping group; only the subtree overrides it.
+    expect(source).toContain('group({ shell: "pages" }');
+    expect(source).toMatch(
+      /route\("\/", "\.\/[^"]*\/index\.tsx", \{ render: "ssr", hasLoader: false, hasHead: false \}\)/,
+    );
+    expect(source.match(/shell: "pages:blog"/g)).toHaveLength(2);
+  });
+
+  it("registers a nested _app even when the pages root has none", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "blog", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export function Shell() { return null; }\n");
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+
+    expect(source).toContain(`"pages:blog": "./${basename(pagesDir)}/blog/_app.tsx"`);
+    expect(source).not.toContain("group(");
+    expect(source).toContain('shell: "pages:blog"');
+  });
+
+  it("treats an _app inside a reserved tree as a helper, not a shell", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_components"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_components", "_app.tsx"),
+      "export function Shell() { return null; }\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+
+    expect(source).not.toContain("shells: {");
+  });
+
+  it("registers src/capabilities modules and _app.config exports", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    const capabilitiesDir = join(root, "src", "capabilities");
+    mkdirSync(pagesDir, { recursive: true });
+    mkdirSync(capabilitiesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_app.config.ts"),
+      "export const agents = { mcp: {} };\nexport const constraints = [];\n",
+    );
+    writeFileSync(
+      join(capabilitiesDir, "notes-search.ts"),
+      'export default defineCapability({ name: "notes.search", effect: "read" });\n',
+    );
+    writeFileSync(
+      join(capabilitiesDir, "ping.ts"),
+      'export default defineCapability({ effect: "read" });\n',
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      capabilitiesDir,
+      capabilitiesDirPrefix: "/src/capabilities",
+      pagesDir,
+      pagesDirPrefix: "/src/pages",
+    });
+
+    expect(source).toContain('import { agents, constraints } from "/src/pages/_app.config.ts";');
+    expect(source).toContain("  agents,");
+    expect(source).toContain("  constraints,");
+    // A declared name wins; a module without one takes its file stem.
+    expect(source).toContain('"notes.search": "/src/capabilities/notes-search.ts"');
+    expect(source).toContain('"ping": "/src/capabilities/ping.ts"');
+  });
+
+  it("does not import an _app.config export the manifest does not use", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "404.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_app.config.ts"),
+      "export const agents = {};\nexport const notFound = { component: () => null };\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      capabilitiesDir: null,
+      pagesDir,
+      pagesDirPrefix: "/src/pages",
+    });
+
+    // App config is server-only. Even when the module happens to export a
+    // client-relevant value, only the supported server keys are imported.
+    expect(source).toContain('import { agents } from "/src/pages/_app.config.ts";');
+    expect(source).not.toContain("import { agents, notFound }");
+    expect(source).not.toContain("  notFound,");
+    expect(source).toContain('notFound: { component: "/src/pages/404.tsx"');
+  });
+
+  it("requires pages/404 instead of accepting a server-config notFound export", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_app.config.ts"),
+      "export const notFound = { component: () => null };\n",
+    );
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir: null,
+        pagesDir,
+        pagesDirPrefix: "/src/pages",
+      }),
+    ).toThrow(/exports none of `agents`, `constraints`/s);
+  });
+
+  it("rejects an _app.config that exports nothing usable", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(pagesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.config.ts"), "export default { agents: {} };\n");
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir: null,
+        pagesDir,
+      }),
+    ).toThrow(/exports none of `agents`, `constraints`/s);
+  });
+
+  it("rejects a nested _app.config instead of silently ignoring it", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "blog", "_app.config.ts"), "export const agents = { mcp: {} };\n");
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir: null,
+        pagesDir,
+      }),
+    ).toThrow(/Nested `_app.config` is not supported.*blog\/_app\.config\.ts/s);
+  });
+
+  it("rejects a capability whose declared name does not map back to its file", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    const capabilitiesDir = join(root, "src", "capabilities");
+    mkdirSync(pagesDir, { recursive: true });
+    mkdirSync(capabilitiesDir, { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(capabilitiesDir, "search.ts"),
+      'export default defineCapability({ name: "notes.search", effect: "read" });\n',
+    );
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir,
+        pagesDir,
+      }),
+    ).toThrow(/declares name "notes.search" but lives in "search\.\*"/s);
+  });
+
+  it("rejects two capability modules registering the same name", () => {
+    const root = makeTempPagesDir();
+    const pagesDir = join(root, "src", "pages");
+    const capabilitiesDir = join(root, "src", "capabilities");
+    mkdirSync(pagesDir, { recursive: true });
+    mkdirSync(join(capabilitiesDir, "nested"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(capabilitiesDir, "ping.ts"),
+      'export default defineCapability({ effect: "read" });\n',
+    );
+    writeFileSync(
+      join(capabilitiesDir, "nested", "ping.ts"),
+      'export default defineCapability({ effect: "read" });\n',
+    );
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+        capabilitiesDir,
+        pagesDir,
+      }),
+    ).toThrow(/Multiple capability modules register the name "ping"/s);
+  });
+
+  it("rejects two _app files competing for the same registration", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "blog", "_app.tsx"), "export function Shell() { return null; }\n");
+    writeFileSync(join(pagesDir, "blog", "_app.jsx"), "export function Shell() { return null; }\n");
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /Multiple `_app` shells in "blog".*pages:blog/s,
+    );
+  });
+
   it("rejects REVALIDATE on the not-found page", () => {
     const pagesDir = makeTempPagesDir();
     writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
@@ -398,7 +657,9 @@ describe("scanPagesDirectory", () => {
 
     const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
 
-    expect(source).toContain('notFound: { component: "./404.tsx", shell: "pages" }');
+    expect(source).toContain(
+      `notFound: { component: "./${basename(pagesDir)}/404.tsx", shell: "pages" }`,
+    );
     // The 404 page is not reachable at a URL of its own.
     expect(source).not.toContain('route("/404"');
   });
@@ -497,8 +758,279 @@ describe("generatePagesManifestSource", () => {
 
     expect(source).not.toContain("shells:");
     expect(source).toContain(
-      'route("/", "./index.mdx", { render: "ssr", hasLoader: false, hasHead: true })',
+      `route("/", "./${basename(pagesDir)}/index.mdx", { render: "ssr", hasLoader: false, hasHead: true })`,
     );
+  });
+
+  it("registers root _middleware as named middleware on every route", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "about.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), "export function Shell() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+
+    expect(source).toContain("middleware: {");
+    expect(source).toContain(`pages: "./${basename(pagesDir)}/_middleware.ts",`);
+    expect(source).toContain('group({ shell: "pages", middleware: ["pages"] }, [');
+    // `_middleware` never becomes a route.
+    expect(source).not.toContain('route("/_middleware"');
+  });
+
+  it("wraps routes in a middleware-only group when there is no _app shell", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+
+    expect(source).not.toContain("shells:");
+    expect(source).toContain('group({ middleware: ["pages"] }, [');
+  });
+
+  it("accepts middleware in a multi-declarator export", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const helper = 1, middleware = async (_args, next) => next();\n",
+    );
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir });
+    expect(source).toContain(`pages: "./${basename(pagesDir)}/_middleware.ts",`);
+  });
+
+  it("emits prefix and import-syntax refs for _middleware", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    const virtualSource = generatePagesManifestSource(pages, {
+      pagesDir,
+      pagesDirPrefix: "/src/pages",
+    });
+    expect(virtualSource).toContain('pages: "/src/pages/_middleware.ts",');
+
+    const ejectedSource = generatePagesManifestSource(pages, {
+      pagesDir,
+      useImportSyntax: true,
+    });
+    expect(ejectedSource).toContain(
+      `pages: () => import("./${basename(pagesDir)}/_middleware.ts"),`,
+    );
+  });
+
+  it("rejects nested _middleware files", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "admin"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "admin", "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /Nested pages middleware is not supported/,
+    );
+  });
+
+  it("rejects a _middleware directory instead of treating its contents as routes", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_middleware"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware", "index.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /`_middleware` directory is not supported/,
+    );
+  });
+
+  it("rejects an empty _middleware directory", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "_middleware"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /`_middleware` directory is not supported/,
+    );
+  });
+
+  it.each([".md", ".mdx", ".tsrx", ".mts", ".mjs", ".cts", ".cjs", ".vue", ""])(
+    "rejects _middleware%s instead of silently ignoring it",
+    (extension) => {
+      const pagesDir = makeTempPagesDir();
+
+      writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+      writeFileSync(
+        join(pagesDir, `_middleware${extension}`),
+        "export const middleware = async (_args, next) => next();\n",
+      );
+
+      expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+        `cannot use the ${JSON.stringify(extension)} extension`,
+      );
+    },
+  );
+
+  it("rejects _middleware files using a configured custom page extension", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.vue"), "<template><main>Home</main></template>\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.vue"),
+      "<script>export const middleware = async (_args, next) => next();</script>\n",
+    );
+
+    const additionalExtensions = [".vue"];
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir, additionalExtensions), {
+        additionalExtensions,
+        pagesDir,
+      }),
+    ).toThrow(/cannot use the "\.vue" extension/);
+  });
+
+  it("emits ejected route and notFound refs relative to the manifest directory", () => {
+    const pagesDir = makeTempPagesDir();
+    mkdirSync(join(pagesDir, "blog"), { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "blog", "[slug].tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(join(pagesDir, "404.tsx"), "export function Component() { return null; }\n");
+
+    const source = generatePagesManifestSource(scanPagesDirectory(pagesDir), {
+      pagesDir,
+      useImportSyntax: true,
+    });
+
+    // An ejected manifest lives beside the pages directory (src/routes.ts
+    // next to src/pages), so every ref must include the pages directory
+    // segment or the manifest points at files that do not exist.
+    const base = basename(pagesDir);
+    expect(source).toContain(`route("/", () => import("./${base}/index.tsx")`);
+    expect(source).toContain(`route("/blog/:slug", () => import("./${base}/blog/[slug].tsx")`);
+    expect(source).toContain(`notFound: { component: () => import("./${base}/404.tsx") }`);
+    expect(source).not.toContain('import("./index.tsx")');
+  });
+
+  it("rejects multiple root _middleware files", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+    writeFileSync(
+      join(pagesDir, "_middleware.js"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /Multiple pages middleware files/,
+    );
+  });
+
+  it("rejects root _middleware without a named middleware export during codegen", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export default async (_args, next) => next();\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export `middleware`/,
+    );
+  });
+
+  it.each([
+    ["non-callable value", "export const middleware = 1;\n"],
+    ["namespace re-export", 'export * as middleware from "./middleware";\n'],
+    ["value star re-export", 'export * from "./middleware";\n'],
+  ])("accepts %s syntax and leaves callability to runtime", (_description, source) => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_middleware.ts"), source);
+
+    expect(() =>
+      generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir }),
+    ).not.toThrow();
+  });
+
+  it("rejects a type-only star export because it cannot provide a runtime binding", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_middleware.ts"), 'export type * from "./types";\n');
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export `middleware`/,
+    );
+  });
+
+  it("rejects a type-only local binding aliased as middleware", () => {
+    const pagesDir = makeTempPagesDir();
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "type Handler = () => void;\nexport { Handler as middleware };\n",
+    );
+
+    expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+      /does not export `middleware`/,
+    );
+  });
+
+  it("emits ejected refs relative to the requested output path", () => {
+    const pagesDir = makeTempPagesDir();
+    const outputDir = join(pagesDir, "generated");
+    const outputPath = join(outputDir, "routes.ts");
+    mkdirSync(outputDir, { recursive: true });
+
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() { return null; }\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), "export function Shell() { return null; }\n");
+    writeFileSync(
+      join(pagesDir, "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    generateRoutesFile(pagesDir, outputPath, { pagesDir });
+    generateRoutesFile(pagesDir, outputPath, { pagesDir });
+    const source = readFileSync(outputPath, "utf-8");
+
+    expect(source).toContain('route("/", () => import("../index.tsx")');
+    expect(source).toContain('pages: () => import("../_app.tsx")');
+    expect(source).toContain('pages: () => import("../_middleware.ts")');
+    expect(source).not.toContain('route("/generated/routes"');
+    expect(source).toContain(`export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;`);
   });
 });
 
@@ -562,6 +1094,158 @@ describe("pracht plugin config", () => {
   });
 });
 
+describe("pages app config transform", () => {
+  /** Run the plugin's `transform` hook the way Vite would. */
+  function transformConfig(root: string, file: string, code: string): string | null {
+    const plugin = pracht({ pagesDir: "/src/pages" }).find(
+      (candidate) => candidate.name === "pracht",
+    );
+    (plugin?.configResolved as (config: unknown) => void)?.call(plugin, {
+      root,
+      command: "serve",
+      base: "/",
+      build: {},
+      plugins: [],
+    });
+    const transform = plugin?.transform as
+      | ((code: string, id: string) => { code: string } | null)
+      | undefined;
+    return transform?.call(plugin, code, file)?.code ?? null;
+  }
+
+  it("rewrites module refs in _app.config so the registry lookup resolves", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    const file = join(root, "src", "pages", "_app.config.ts");
+    const code = `export const agents = {
+  mcp: { auth: { verify: () => import("../server/mcp-token.ts") } },
+};
+`;
+    writeFileSync(file, code);
+
+    // Left as a function, the bundler rewrites the specifier to a hashed chunk
+    // and the verifier lookup misses — the endpoint then fails closed with
+    // advice that points at the wrong thing.
+    expect(transformConfig(root, file, code)).toContain('verify: "../server/mcp-token.ts"');
+  });
+
+  it("leaves @pracht/core imports in _app.config alone", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    const file = join(root, "src", "pages", "_app.config.ts");
+    // Unlike the app manifest, the config file is ordinary application code —
+    // narrowing its imports to `@pracht/core/manifest` would break them.
+    const code = `import { stripBase } from "@pracht/core";
+export const agents = { mcp: {} };
+export const base = stripBase("/x");
+`;
+    writeFileSync(file, code);
+
+    expect(transformConfig(root, file, code)).toBe(null);
+  });
+
+  it("does not transform an unrelated pages module", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    const file = join(root, "src", "pages", "index.tsx");
+    const code = `export const loader = () => import("../server/data.ts");\n`;
+    writeFileSync(file, code);
+
+    expect(transformConfig(root, file, code)).toBe(null);
+  });
+});
+
+describe("pages dev watcher", () => {
+  /** Drive `configureServer` and collect the watcher handlers it installs. */
+  function watchHandlers(root: string, options: Record<string, unknown>) {
+    const plugin = pracht(options).find((candidate) => candidate.name === "pracht");
+    const handlers = new Map<string, ((file: string) => void)[]>();
+    let restarts = 0;
+
+    (plugin?.configResolved as (config: unknown) => void)?.call(plugin, {
+      root,
+      command: "serve",
+      base: "/",
+      build: {},
+      plugins: [],
+    });
+    (plugin?.configureServer as (server: unknown) => void)?.call(plugin, {
+      config: { root },
+      middlewares: { use: () => {} },
+      moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} },
+      restart: () => {
+        restarts += 1;
+      },
+      watcher: {
+        on(event: string, handler: (file: string) => void) {
+          handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+        },
+      },
+    });
+
+    return {
+      emit(event: string, file: string) {
+        for (const handler of handlers.get(event) ?? []) handler(file);
+      },
+      get restarts() {
+        return restarts;
+      },
+    };
+  }
+
+  it("restarts when a capability module is added or removed", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    mkdirSync(join(root, "src", "capabilities"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const watcher = watchHandlers(root, { pagesDir: "/src/pages" });
+
+    // Without this the new capability's endpoint 404s until an unrelated page
+    // changes, and a deleted one leaves the manifest pointing at a dead module.
+    watcher.emit("add", join(root, "src", "capabilities", "posts-search.ts"));
+    expect(watcher.restarts).toBe(1);
+
+    watcher.emit("unlink", join(root, "src", "capabilities", "posts-search.ts"));
+    expect(watcher.restarts).toBe(2);
+  });
+
+  it("restarts when the pages app config is added or removed", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const watcher = watchHandlers(root, { pagesDir: "/src/pages" });
+
+    watcher.emit("add", join(root, "src", "pages", "_app.config.ts"));
+    expect(watcher.restarts).toBe(1);
+  });
+
+  it("ignores files outside the pages and capabilities directories", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    mkdirSync(join(root, "src", "lib"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const watcher = watchHandlers(root, { pagesDir: "/src/pages" });
+
+    watcher.emit("add", join(root, "src", "lib", "helper.ts"));
+    // A sibling directory whose name merely starts with the watched one must
+    // not match either.
+    watcher.emit("add", join(root, "src", "pages-archive", "old.tsx"));
+    expect(watcher.restarts).toBe(0);
+  });
+});
+
 describe("createPrachtRegistryModuleSource", () => {
   it("includes md and mdx pages plus script server module extensions", () => {
     const source = createPrachtRegistryModuleSource({
@@ -571,6 +1255,7 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain("/src/pages/**/*.{ts,tsx,js,jsx,md,mdx}");
     expect(source).toContain("/src/pages/**/*.tsrx");
     expect(source).toContain("/src/pages/**/_app.tsrx");
+    expect(source).toContain('"!/src/pages/**/_*/**"');
     expect(source).toContain(
       'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts"])',
     );
@@ -586,6 +1271,7 @@ describe("createPrachtRegistryModuleSource", () => {
 
     expect(source).toContain("/src/pages/**/*.{tsrx,vue}");
     expect(source).toContain("/src/pages/**/_app.{tsrx,vue}");
+    expect(source).toContain('"!/src/pages/**/_*/**"');
   });
 
   it("keeps compatibility TSRX client module ids bare without configuration", () => {
@@ -602,6 +1288,356 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain('import.meta.glob("/src/routes/**/*.{tsrx,custom}")');
     expect(source).toContain('import.meta.glob("/src/shells/**/*.{tsrx,custom}")');
     expect(source).not.toContain('/src/routes/**/*.{tsrx,custom}", { query:');
+  });
+
+  it("resolves the pages _middleware file through the middleware registry", () => {
+    const source = createPrachtRegistryModuleSource({ pagesDir: "/src/pages" });
+
+    expect(source).toContain('import.meta.glob("/src/pages/_middleware.{ts,tsx,js,jsx}")');
+    // Manifest mode has no pages middleware glob.
+    expect(createPrachtRegistryModuleSource({ appFile: "/src/routes.ts" })).not.toContain(
+      "_middleware",
+    );
+  });
+
+  it("keeps _middleware out of the pages-mode client route glob", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    const source = createPrachtClientModuleSource({ pagesDir: "/src/pages" }, { root });
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+    expect(source).toContain('"/src/pages/**/_app.{ts,tsx,js,jsx}"');
+  });
+
+  it("keeps reserved pages helpers out of generated ejected route and shell globs", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;\nexport const app = {};\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source.match(/"!\/src\/pages\/\*\*\/_\*"/g)).toHaveLength(4);
+    expect(source.match(/"!\/src\/pages\/\*\*\/_\*\/\*\*"/g)).toHaveLength(6);
+    expect(source).toContain(
+      'import.meta.glob(["/src/pages/**/_app.{ts,tsx,js,jsx}","!/src/pages/**/_*/**"], { query: "?pracht-client" })',
+    );
+  });
+
+  it("keeps ejected shell helpers private when config paths alias the same directory", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "other"), { recursive: true });
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;\nexport const app = {};\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/other/../pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/other/../pages/**/_*"');
+    expect(source).toContain('"!/src/other/../pages/**/_*/**"');
+    expect(source).toContain(
+      'import.meta.glob(["/src/other/../pages/**/_app.{ts,tsx,js,jsx}","!/src/other/../pages/**/_*/**"], { query: "?pracht-client" })',
+    );
+  });
+
+  it("keeps the pages route registry protected when an ejected shell moves out", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;\nexport const app = {};\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/shells",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain('"!/src/shells/**/_*"');
+    expect(source).toContain('import.meta.glob("/src/shells/**/*.{ts,tsx,js,jsx,md,mdx}"');
+    expect(source).not.toContain("/src/shells/**/_app.");
+  });
+
+  it("keeps the pages shell registry protected when ejected routes move out", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// ${GENERATED_PAGES_MANIFEST_MARKER}\nexport const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;\nexport const app = {};\n`,
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsx"),
+      "export function Shell({ children }) { return children; }\n",
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/routes",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+    expect(source).toContain(
+      'import.meta.glob(["/src/pages/**/_app.{ts,tsx,js,jsx}","!/src/pages/**/_*/**"], { query: "?pracht-client" })',
+    );
+  });
+
+  it("preserves underscore modules in ordinary co-located manifest directories", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/modules",
+        shellsDir: "/src/modules",
+        middlewareDir: "/src/modules",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain("!/src/modules/**/_*");
+    expect(source).not.toContain('import.meta.glob("/src/modules/_app.');
+  });
+
+  it("does not infer pages from a separate conventional root middleware", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "modules"), { recursive: true });
+    mkdirSync(join(root, "src", "middleware"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `export const app = defineApp({
+        middleware: { auth: () => import("./middleware/_middleware.ts") },
+        routes: [],
+      });\n`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/modules",
+        shellsDir: "/src/modules",
+        middlewareDir: "/src/middleware",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain("!/src/modules/**/_*");
+    expect(source).not.toContain('import.meta.glob("/src/modules/_app.');
+  });
+
+  it("does not infer ejected pages ownership from a co-located pages middleware registry", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const pages: (() => Promise<unknown>) = () => import("./pages/_middleware.ts");
+const middleware: Record<string, () => Promise<unknown>> = { pages };
+export const app = defineApp({ middleware, routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain("/src/pages/**/_app.");
+  });
+
+  it("ignores generated marker text in comments and strings", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
+const docs = "export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;";
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain('"!/src/pages/**/_*/**"');
+  });
+
+  it("recognizes a typed ejected-pages ownership marker", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `export const ${GENERATED_PAGES_LAYOUT_EXPORT}: true = true as const;
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+  });
+
+  it("recognizes an angle-bracket asserted ejected-pages ownership marker", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `export const ${GENERATED_PAGES_LAYOUT_EXPORT} = <const>true;
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+  });
+
+  it("recognizes an ejected-pages ownership marker exported through a specifier", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const ejectedPagesLayout = true as const;
+export { ejectedPagesLayout as ${GENERATED_PAGES_LAYOUT_EXPORT} };
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+  });
+
+  it("recognizes a quoted ejected-pages ownership export", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const ejectedPagesLayout = true as const;
+export { ejectedPagesLayout as "${GENERATED_PAGES_LAYOUT_EXPORT}" };
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).toContain('"!/src/pages/**/_*"');
+    expect(source).toContain('"!/src/pages/**/_*/**"');
+  });
+
+  it("does not recognize an ejected-pages ownership marker that is not exported", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
+export const app = defineApp({ routes: [] });
+`,
+    );
+
+    const source = createPrachtClientModuleSource(
+      {
+        appFile: "/src/routes.ts",
+        routesDir: "/src/pages",
+        shellsDir: "/src/pages",
+        middlewareDir: "/src/pages",
+      },
+      { root },
+    );
+
+    expect(source).not.toContain('"!/src/pages/**/_*"');
+    expect(source).not.toContain('"!/src/pages/**/_*/**"');
   });
 
   it("creates adapter-neutral development metadata", () => {

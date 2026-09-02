@@ -1,7 +1,12 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
-import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
-import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
+import { parseAst } from "vite";
+import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
+import {
+  GENERATED_PAGES_LAYOUT_EXPORT,
+  generatePagesManifestSource,
+  scanPagesDirectory,
+} from "./pages-router.ts";
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
@@ -15,6 +20,7 @@ import {
 import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
+  DEFAULT_SHELL_EXTENSIONS,
   DEFAULT_ROUTE_EXTENSIONS,
   LEGACY_BARE_ROUTE_EXTENSIONS,
   extensionGlob,
@@ -150,7 +156,7 @@ export function createPrachtClientModuleSource(
   const routeStaticPathsHints = routeHints.staticPaths;
 
   const appImport = isPagesMode
-    ? generatePagesAppInlineSource(resolved, buildOptions.root)
+    ? generatePagesAppInlineSource(resolved, buildOptions.root, "client")
     : `import { app } from ${JSON.stringify(resolved.appFile)};`;
 
   // Additional formats are globbed separately without the `?pracht-client`
@@ -163,18 +169,57 @@ export function createPrachtClientModuleSource(
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
   const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
+  const usesEjectedPagesLayout = isEjectedPagesLayout(resolved, buildOptions.root ?? process.cwd());
+  if (isPagesMode || usesEjectedPagesLayout) {
+    // Pages middleware is server-only. Keep it out of the client registry in
+    // both auto-discovered pages mode and documented ejected layouts, including
+    // layouts that move `_app` or `_middleware` to a separate directory.
+    // Reserve every underscore-prefixed helper too: otherwise an
+    // implementation imported by `_middleware.ts` would still be emitted as
+    // an independent route/shell chunk through these broad registries.
+    routeExcludes.push(
+      ...createUnderscoreReservedExcludes(isPagesMode ? resolved.pagesDir : resolved.routesDir),
+    );
+  }
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
   const additionalRouteGlobPattern =
     additionalRouteGlob && routeExcludes.length > 0
       ? [additionalRouteGlob, ...routeExcludes]
       : additionalRouteGlob;
 
+  // Directory-scoped shells: every `_app` in the pages tree is registered, so
+  // the glob walks subdirectories. `_reserved/**` helper trees stay excluded —
+  // an `_app` inside one is a helper, not a shell.
   const shellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalShellGlob = isPagesMode
     ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
+  const root = buildOptions.root ?? process.cwd();
+  const usesEjectedPagesShellLayout =
+    usesEjectedPagesLayout &&
+    (sameConfigDirectory(resolved.shellsDir, resolved.routesDir, root) ||
+      hasRootPagesAppShell(resolved.shellsDir, root, resolved.additionalExtensions));
+  // In pages mode the shell glob targets `_app` by name, so it may only
+  // exclude reserved *trees* — the full underscore reservation would exclude
+  // `_app` itself. The ejected layout's shell glob is the ordinary
+  // shells-directory sweep, so it keeps the full reservation and re-adds every
+  // `_app` through `ejectedPagesAppShellSources` below.
+  const shellExcludes = isPagesMode
+    ? createReservedSubtreeExcludes(resolved.pagesDir)
+    : usesEjectedPagesShellLayout
+      ? createUnderscoreReservedExcludes(resolved.shellsDir)
+      : [];
+  const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
+  const additionalShellGlobPattern =
+    shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;
+  const ejectedPagesAppShellSources = usesEjectedPagesShellLayout
+    ? [
+        `  ...import.meta.glob(${JSON.stringify([`${resolved.shellsDir}/**/_app.{ts,tsx,js,jsx}`, ...createReservedSubtreeExcludes(resolved.shellsDir)])}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+        `  ...import.meta.glob(${JSON.stringify([`${resolved.shellsDir}/**/_app.${extensionGlob(bareRouteExtensions)}`, ...createReservedSubtreeExcludes(resolved.shellsDir)])}),`,
+      ]
+    : [];
   // Base directory for relative manifest refs: the app manifest file's
   // directory (refs like "./routes/home.tsx" are written relative to it).
   const appFilePosix = resolved.appFile.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -193,8 +238,9 @@ export function createPrachtClientModuleSource(
     `  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`,
     `};`,
     `const shellModules = {`,
-    `  ...import.meta.glob(${JSON.stringify(shellGlob)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-    `  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`,
+    `  ...import.meta.glob(${JSON.stringify(shellGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
+    `  ...import.meta.glob(${JSON.stringify(additionalShellGlobPattern)}),`,
+    ...ejectedPagesAppShellSources,
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
@@ -283,6 +329,173 @@ export function createPrachtClientModuleSource(
     // capability opts in, so apps without WebMCP exposure ship zero extra bytes.
     ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
   ].join("\n");
+}
+
+function sameConfigDirectory(left: string, right: string, root: string): boolean {
+  const canonicalize = (value: string): string => {
+    const absolute = resolve(root, value.replace(/^[/\\]+/, ""));
+    try {
+      return realpathSync.native(absolute);
+    } catch {
+      // Preserve correct `.` / `..` semantics before Vite has created or
+      // resolved the configured directory. Existing symlinks take the branch
+      // above so two aliases of the same directory still compare equal.
+      return absolute;
+    }
+  };
+
+  return canonicalize(left) === canonicalize(right);
+}
+
+function hasRootPagesAppShell(
+  directory: string,
+  root: string,
+  additionalExtensions: readonly string[],
+): boolean {
+  const absoluteDirectory = resolve(root, directory.replace(/^[/\\]+/, ""));
+  const extensions = withAdditionalExtensions(DEFAULT_SHELL_EXTENSIONS, additionalExtensions);
+
+  for (const extension of extensions) {
+    try {
+      if (statSync(join(absoluteDirectory, `_app${extension}`)).isFile()) return true;
+    } catch {
+      // Missing candidates are expected while an ejected layout is being
+      // migrated between its pages and conventional directories.
+    }
+  }
+
+  return false;
+}
+
+export function isEjectedPagesLayout(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
+  if (resolved.pagesDir) return false;
+
+  try {
+    const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
+    const manifestSource = readFileSync(appFile, "utf-8");
+    return hasTrueConstExport(manifestSource, appFile, GENERATED_PAGES_LAYOUT_EXPORT);
+  } catch {
+    return false;
+  }
+}
+
+type StaticProgramNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+function hasTrueConstExport(source: string, file: string, name: string): boolean {
+  const program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
+  const statements = (Array.isArray(program.body) ? program.body : [])
+    .map(asStaticProgramNode)
+    .filter((statement): statement is StaticProgramNode => statement !== null);
+  const trueConstBindings = new Set<string>();
+
+  for (const statement of statements) {
+    const declaration =
+      statement.type === "ExportNamedDeclaration"
+        ? asStaticProgramNode(statement.declaration)
+        : statement;
+    if (declaration?.type !== "VariableDeclaration" || declaration.kind !== "const") continue;
+
+    const declarators = Array.isArray(declaration.declarations) ? declaration.declarations : [];
+    for (const declaratorValue of declarators) {
+      const declarator = asStaticProgramNode(declaratorValue);
+      if (declarator?.type !== "VariableDeclarator") continue;
+      const identifier = asStaticProgramNode(declarator.id);
+      if (identifier?.type !== "Identifier" || typeof identifier.name !== "string") continue;
+      const initializer = unwrapStaticExpression(declarator.init);
+      if (
+        (initializer?.type === "BooleanLiteral" || initializer?.type === "Literal") &&
+        initializer.value === true
+      ) {
+        trueConstBindings.add(identifier.name);
+      }
+    }
+  }
+
+  for (const statement of statements) {
+    if (statement.type !== "ExportNamedDeclaration") continue;
+    const declaration = asStaticProgramNode(statement.declaration);
+    if (declaration?.type === "VariableDeclaration") {
+      const declarators = Array.isArray(declaration.declarations) ? declaration.declarations : [];
+      if (
+        declarators.some((declaratorValue) => {
+          const declarator = asStaticProgramNode(declaratorValue);
+          const identifier = asStaticProgramNode(declarator?.id);
+          return identifier?.type === "Identifier" && identifier.name === name;
+        }) &&
+        trueConstBindings.has(name)
+      ) {
+        return true;
+      }
+      continue;
+    }
+    if (statement.source) continue;
+
+    const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : [];
+    for (const specifierValue of specifiers) {
+      const specifier = asStaticProgramNode(specifierValue);
+      if (specifier?.type !== "ExportSpecifier" || specifier.exportKind === "type") continue;
+      const local = asStaticProgramNode(specifier.local);
+      const exported = asStaticProgramNode(specifier.exported);
+      const localName = getStaticProgramName(local);
+      if (
+        localName !== null &&
+        getStaticProgramName(exported) === name &&
+        trueConstBindings.has(localName)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function unwrapStaticExpression(value: unknown): StaticProgramNode | null {
+  let node = asStaticProgramNode(value);
+  while (
+    node &&
+    new Set([
+      "ParenthesizedExpression",
+      "TSAsExpression",
+      "TSNonNullExpression",
+      "TSSatisfiesExpression",
+      "TSTypeAssertion",
+      "TypeCastExpression",
+    ]).has(node.type)
+  ) {
+    node = asStaticProgramNode(node.expression);
+  }
+  return node;
+}
+
+function asStaticProgramNode(value: unknown): StaticProgramNode | null {
+  if (!value || typeof value !== "object" || !("type" in value)) return null;
+  return typeof (value as { type?: unknown }).type === "string"
+    ? (value as StaticProgramNode)
+    : null;
+}
+
+function getStaticProgramName(value: StaticProgramNode | null): string | null {
+  if (value?.type === "Identifier" && typeof value.name === "string") return value.name;
+  if (value?.type === "Literal" && typeof value.value === "string") return value.value;
+  return null;
+}
+
+function createUnderscoreReservedExcludes(directory: string): string[] {
+  return [`!${directory}/**/_*`, ...createReservedSubtreeExcludes(directory)];
+}
+
+/**
+ * Exclude the contents of underscore-reserved directory trees without
+ * excluding underscore-prefixed files themselves. The shell registry needs
+ * this narrower form: `_app.tsx` is a reserved *name* that must stay in the
+ * registry, while `_components/_app.tsx` is a helper that must not.
+ */
+function createReservedSubtreeExcludes(directory: string): string[] {
+  return [`!${directory}/**/_*/**`];
 }
 
 /**
@@ -663,10 +876,16 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
   const additionalRouteGlob = `${isPagesMode ? resolved.pagesDir : resolved.routesDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   const shellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`
+    ? [
+        `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`,
+        ...createReservedSubtreeExcludes(resolved.pagesDir),
+      ]
     : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalShellGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`
+    ? [
+        `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`,
+        ...createReservedSubtreeExcludes(resolved.pagesDir),
+      ]
     : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
 
   return [
@@ -678,7 +897,18 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}),`,
     `  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`,
     `};`,
-    `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
+    // Pages mode adds the root `_middleware` file so the generated manifest's
+    // `pages` middleware resolves through the same runtime registry.
+    ...(isPagesMode
+      ? [
+          `export const middlewareModules = {`,
+          `  ...import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)}),`,
+          `  ...import.meta.glob(${JSON.stringify(`${resolved.pagesDir}/_middleware.{ts,tsx,js,jsx}`)}),`,
+          `};`,
+        ]
+      : [
+          `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
+        ]),
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
     `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
     `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
@@ -700,16 +930,29 @@ export function clearPagesAppSourceCache(): void {
   pagesAppSourceCache.clear();
 }
 
+/**
+ * The generated pages manifest, inlined into a virtual module.
+ *
+ * The client target drops `agents` and `constraints` — the two keys only the
+ * server reads — along with the `_app.config.ts` import that supplies them.
+ * Without that split the browser entry would import the config module, and
+ * every Web Bot Auth key in it would ship to visitors.
+ */
 function generatePagesAppInlineSource(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
+  target: "server" | "client" = "server",
 ): string {
   const absPagesDir = resolve(root, options.pagesDir.slice(1));
+  const absCapabilitiesDir = resolve(root, options.capabilitiesDir.slice(1));
   const cacheKey = JSON.stringify({
     additionalExtensions: options.additionalExtensions,
+    absCapabilitiesDir,
     absPagesDir,
+    capabilitiesDirPrefix: options.capabilitiesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,
+    target,
   });
   const cached = pagesAppSourceCache.get(cacheKey);
   if (cached) return cached;
@@ -717,9 +960,12 @@ function generatePagesAppInlineSource(
   const pages = scanPagesDirectory(absPagesDir, options.additionalExtensions);
   const source = generatePagesManifestSource(pages, {
     additionalExtensions: options.additionalExtensions,
+    capabilitiesDir: absCapabilitiesDir,
+    capabilitiesDirPrefix: options.capabilitiesDir,
     pagesDir: absPagesDir,
     pagesDefaultRender: options.pagesDefaultRender,
     pagesDirPrefix: options.pagesDir,
+    target,
   });
   pagesAppSourceCache.set(cacheKey, source);
   return source;

@@ -110,28 +110,67 @@ describe("documentation content", () => {
     }
   });
 
-  // The manifest-only limitation was documented in docs/ROUTING.md but never on
-  // the public site, so a reader choosing the pages router could not learn that
-  // it has no capability, MCP, or agent-trust surface until much later.
-  it("publishes the pages-router limitations on the public site", () => {
+  // Router choice is made before anything is built, so the public site has to
+  // say what each router registers and — just as importantly — what still needs
+  // an explicit manifest. Claiming a limitation that no longer exists sends
+  // readers to the wrong router just as effectively as hiding a real one.
+  it("publishes what the pages router supports on the public site", () => {
     const routing = readFileSync(
       resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"),
       "utf-8",
     );
-    expect(routing).toContain("What the pages router does not have");
+    expect(routing).toContain("What the pages router supports and how");
     for (const feature of ["Capabilities", "Middleware", "WebMCP", "pracht eval", "constraints"]) {
       expect(routing).toContain(feature);
     }
+    // The honest residual: what still requires an explicit manifest.
+    expect(routing).toContain("Per-route middleware assignment");
+    expect(routing).toContain("Per-route shell overrides");
 
     // The two pages a reader lands on when they want the agent surface must
-    // point back at that table rather than silently assuming a manifest.
-    for (const file of [
-      "examples/docs/src/routes/docs/capabilities.md",
-      "examples/docs/src/routes/docs/agent-trust.md",
+    // say how a pages app reaches it, and link somewhere that exists.
+    for (const [file, anchor] of [
+      [
+        "examples/docs/src/routes/docs/capabilities.md",
+        "/docs/routing#capabilities-via-srccapabilities",
+      ],
+      ["examples/docs/src/routes/docs/agent-trust.md", "/docs/routing#app-config-via-appconfigts"],
     ]) {
       const source = readFileSync(resolve(repoRoot, file), "utf-8");
-      expect(source).toContain("Manifest router only");
-      expect(source).toContain("/docs/routing#what-the-pages-router-does-not-have");
+      expect(source).toContain("Both routers");
+      expect(source).toContain(anchor);
+      expect(source).not.toContain("/docs/routing#what-the-pages-router-does-not-have");
+    }
+  });
+
+  // Anchors are computed, not written: examples/docs/content.ts slugifies each
+  // heading by dropping everything that is not a letter, number, space, or
+  // hyphen. `_middleware.ts` therefore becomes `middlewarets`, so a link that
+  // spells the underscore scrolls nowhere — silently, in a released doc.
+  it("resolves every same-page anchor in the pages-router docs", () => {
+    const files = [
+      "examples/docs/src/routes/docs/routing.md",
+      "examples/docs/src/routes/docs/middleware.md",
+      "examples/docs/src/routes/docs/capabilities.md",
+      "examples/docs/src/routes/docs/agent-trust.md",
+    ];
+    const routingSlugs = headingSlugs(
+      readFileSync(resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"), "utf-8"),
+    );
+
+    for (const file of files) {
+      const source = readFileSync(resolve(repoRoot, file), "utf-8");
+      const ownSlugs = headingSlugs(source);
+      for (const [, target] of source.matchAll(/\]\((#[^)\s]+|\/docs\/routing#[^)\s]+)\)/g)) {
+        const [page, anchor] = target.startsWith("#")
+          ? [ownSlugs, target.slice(1)]
+          : [routingSlugs, target.slice(target.indexOf("#") + 1)];
+        expect({ file, target, resolved: page.has(anchor) }).toEqual({
+          file,
+          target,
+          resolved: true,
+        });
+      }
     }
   });
 
@@ -208,4 +247,38 @@ function collectMarkdownAndTextFiles(paths) {
     }
   }
   return files;
+}
+
+/**
+ * The heading ids examples/docs/content.ts emits. Kept in lockstep with its
+ * `slugify()`: inline code fences are stripped as tags would be, then anything
+ * that is not a letter, number, space, or hyphen is dropped.
+ */
+function headingSlugs(markdown) {
+  const slugs = new Set();
+  const seen = new Map();
+  let inFence = false;
+
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const heading = /^#{1,6}\s+(.*?)\s*$/.exec(line);
+    if (!heading) continue;
+
+    const base =
+      heading[1]
+        .replace(/`/g, "")
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N} -]/gu, "")
+        .trim()
+        .replace(/ /g, "-") || `section-${seen.size + 1}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    slugs.add(count === 0 ? base : `${base}-${count}`);
+  }
+
+  return slugs;
 }

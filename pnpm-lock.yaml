@@ -275,6 +275,9 @@ importers:
       '@pracht/adapter-vercel':
         specifier: workspace:*
         version: link:../../packages/adapter-vercel
+      '@pracht/capabilities':
+        specifier: workspace:*
+        version: link:../../packages/capabilities
       '@pracht/core':
         specifier: workspace:*
         version: link:../../packages/framework

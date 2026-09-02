@@ -320,10 +320,10 @@ export function createPrachtMcpServer(): McpServer {
     "generate_middleware",
     {
       description:
-        "Scaffold a pracht middleware function and register it in the app manifest (manifest apps only). Returns the files created and updated.",
+        "Scaffold a pracht middleware function and register it in the app manifest (manifest apps), or scaffold the root src/pages/_middleware.ts applied to every page route (pages apps using a serverful adapter; name must be `_middleware`). Pure static exports have no request runtime and cannot use middleware. Returns the files created and updated.",
       inputSchema: {
         ...cwdInput,
-        name: z.string().describe("Middleware name, e.g. auth"),
+        name: z.string().describe("Middleware name, e.g. auth (manifest) or _middleware (pages)"),
       },
     },
     guard(({ cwd, name }) => {
@@ -336,7 +336,7 @@ export function createPrachtMcpServer(): McpServer {
     "generate_capability",
     {
       description:
-        "Scaffold a capability module (a typed operation callable from server code, HTTP, WebMCP, and remote MCP) and register it in the app manifest. Manifest apps only. Keeps `expose`/`effect`/`input` as inline literals, which the browser projection's static analysis requires. Then edit the schemas and run() body.",
+        "Scaffold a capability module (a typed operation callable from server code, HTTP, WebMCP, and remote MCP). Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the module declares its own `name` instead. Keeps `expose`/`effect`/`input` as inline literals, which the browser projection's static analysis requires. Then edit the schemas and run() body.",
       inputSchema: {
         ...cwdInput,
         name: z.string().describe("Dot-separated capability name, e.g. notes.search"),

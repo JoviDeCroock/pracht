@@ -35,6 +35,19 @@ test("@-prefixed static routes render in dev", async ({ page }) => {
   await expect(page.locator("h1")).toContainText("@alice");
 });
 
+test("underscore-prefixed directories can provide helpers without becoming routes", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".page-note")).toContainText(
+    "Underscore directories can hold helpers without creating routes.",
+  );
+
+  const response = await request.get("/_components/page-note");
+  expect(response.status()).toBe(404);
+});
+
 // ---------------------------------------------------------------------------
 // _app.tsx shell wraps all pages
 // ---------------------------------------------------------------------------
@@ -47,6 +60,46 @@ test("_app shell wraps all pages", async ({ page }) => {
   await expect(page.locator(".pages-shell")).toBeVisible();
 });
 
+test("a directory-scoped _app replaces the root shell for its subtree", async ({ page }) => {
+  await page.goto("/blog/hello-world");
+  await expect(page.locator(".blog-shell")).toBeVisible();
+  await expect(page.locator(".pages-shell")).toHaveCount(0);
+  await expect(page).toHaveTitle("Pracht Pages Blog");
+
+  await page.goto("/pricing");
+  await expect(page.locator(".pages-shell")).toBeVisible();
+  await expect(page.locator(".blog-shell")).toHaveCount(0);
+});
+
+test("directory-scoped shells swap during client-side navigation", async ({ page }) => {
+  await page.goto("/");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+  await expect(page.locator(".pages-shell")).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+  });
+
+  await page.click('a[href="/blog/hello-world"]');
+  await page.waitForURL("/blog/hello-world");
+  await expect(page.locator(".blog-shell")).toBeVisible();
+  await expect(page.locator(".pages-shell")).toHaveCount(0);
+
+  expect(await page.evaluate(() => (window as any).__NAV_TOKEN__ === true)).toBe(true);
+});
+
+test("each page route reports its own shell in the app graph", async ({ request }) => {
+  const response = await request.get("/_pracht.json");
+  const graph = await response.json();
+  const shells = new Map<string, string | undefined>(
+    graph.routes.map((route: { path: string; shell?: string }) => [route.path, route.shell]),
+  );
+
+  expect(shells.get("/")).toBe("pages");
+  expect(shells.get("/about")).toBe("pages");
+  expect(shells.get("/blog/:slug")).toBe("pages:blog");
+});
+
 // ---------------------------------------------------------------------------
 // Dynamic routes ([slug]) capture params
 // ---------------------------------------------------------------------------
@@ -54,7 +107,7 @@ test("_app shell wraps all pages", async ({ page }) => {
 test("dynamic route captures params", async ({ page }) => {
   await page.goto("/blog/hello-world");
 
-  await expect(page.locator(".pages-shell")).toBeVisible();
+  await expect(page.locator(".blog-shell")).toBeVisible();
   await expect(page.locator("h1")).toContainText("Blog: Hello World");
   await expect(page.locator("code")).toContainText("hello-world");
 });
@@ -251,6 +304,115 @@ test("GET /api/me with session cookie returns user", async ({ request }) => {
 
   const json = await response.json();
   expect(json).toMatchObject({ user: "Alice" });
+});
+
+// ---------------------------------------------------------------------------
+// Root _middleware.ts
+// ---------------------------------------------------------------------------
+
+test("root _middleware runs on every page route", async ({ request }) => {
+  const home = await request.get("/");
+  expect(home.status()).toBe(200);
+  expect(home.headers()["x-pages-middleware"]).toBe("ran");
+
+  const about = await request.get("/about");
+  expect(about.status()).toBe(200);
+  expect(about.headers()["x-pages-middleware"]).toBe("ran");
+
+  const blog = await request.get("/blog/hello-world");
+  expect(blog.status()).toBe(200);
+  expect(blog.headers()["x-pages-middleware"]).toBe("ran");
+});
+
+test("root _middleware can redirect before the page renders", async ({ request }) => {
+  const response = await request.get("/legacy", { maxRedirects: 0 });
+  expect(response.status()).toBe(302);
+  expect(response.headers()["location"]).toBe("/about");
+});
+
+test("root _middleware does not wrap API routes", async ({ request }) => {
+  const response = await request.get("/api/health");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["x-pages-middleware"]).toBeUndefined();
+});
+
+test("_middleware is not routable and appears in the app graph", async ({ request }) => {
+  const notARoute = await request.get("/_middleware", { maxRedirects: 0 });
+  expect(notARoute.status()).toBe(404);
+
+  const response = await request.get("/_pracht.json");
+  const graph = await response.json();
+  const routePaths = graph.routes.map((route: { path: string }) => route.path);
+  expect(routePaths).not.toContain("/_middleware");
+  for (const route of graph.routes) {
+    expect(route.middleware).toContain("pages");
+  }
+});
+
+// ---------------------------------------------------------------------------
+// src/capabilities/ auto-discovery and src/pages/_app.config.ts
+// ---------------------------------------------------------------------------
+
+async function mcpRpc(
+  request: { post: (url: string, init: Record<string, unknown>) => Promise<any> },
+  method: string,
+  params?: unknown,
+) {
+  const response = await request.post("/mcp", {
+    data: { jsonrpc: "2.0", id: 1, method, ...(params === undefined ? {} : { params }) },
+    headers: { "content-type": "application/json" },
+  });
+  return { status: response.status(), body: await response.json() };
+}
+
+test("an auto-discovered capability serves its HTTP projection", async ({ request }) => {
+  const response = await request.post("/api/capabilities/posts/search", {
+    data: { query: "pages" },
+    headers: { "content-type": "application/json" },
+  });
+
+  expect(response.status()).toBe(200);
+  const body = await response.json();
+  expect(body.ok).toBe(true);
+  expect(body.data.posts).toEqual([{ slug: "pages-router", title: "Pages Router" }]);
+});
+
+test("the capability appears in the app graph under its declared name", async ({ request }) => {
+  const response = await request.get("/_pracht.json");
+  const graph = await response.json();
+  const names = (graph.capabilities ?? []).map((entry: { name: string }) => entry.name);
+
+  expect(names).toContain("posts.search");
+});
+
+test("_app.config.ts agents.mcp serves the remote MCP projection", async ({ request }) => {
+  const initialized = await mcpRpc(request, "initialize", {
+    protocolVersion: "2025-06-18",
+    capabilities: {},
+    clientInfo: { name: "playwright", version: "1.0.0" },
+  });
+
+  expect(initialized.status).toBe(200);
+  expect(initialized.body.result.serverInfo).toEqual({
+    name: "pracht-pages-example",
+    version: "0.0.0",
+  });
+
+  const listed = await mcpRpc(request, "tools/list");
+  const names = listed.body.result.tools.map((tool: { name: string }) => tool.name);
+  expect(names).toContain("posts_search");
+});
+
+test("capability modules are not routable and never reach the browser", async ({
+  page,
+  request,
+}) => {
+  expect((await request.get("/capabilities/posts-search")).status()).toBe(404);
+  expect((await request.get("/_app.config")).status()).toBe(404);
+
+  await page.goto("/");
+  const html = await page.content();
+  expect(html).not.toContain("Find blog posts whose title or slug matches");
 });
 
 // ---------------------------------------------------------------------------

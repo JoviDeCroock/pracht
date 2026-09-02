@@ -10,7 +10,7 @@ next:
   title: Agent Trust
 ---
 
-> **Manifest router only.** Capabilities are registered through `defineApp({ capabilities })`, so apps using the [pages router](/docs/routing#what-the-pages-router-does-not-have) have no seam to declare them in — and therefore no capability HTTP endpoints, no WebMCP, no remote MCP, and no `pracht eval`. Ejecting to a manifest is a [one-time codegen](/docs/routing#ejecting-to-explicit-manifest).
+> **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover every module in `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`; everything on this page — HTTP endpoints, WebMCP, remote MCP, typed clients, `pracht eval` — works the same in both.
 
 ## One Contract, Many Surfaces
 

@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@pracht/core";
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { href } from "../pracht-routes";
+import { PageNote } from "./_components/page-note";
 
 export const RENDER_MODE = "ssg";
 
@@ -31,6 +32,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
     <section>
       <h1>{data.message}</h1>
       <p>This page uses the pages router with auto-discovered routes.</p>
+      <PageNote />
       <p>
         <Link route="blog-slug" params={{ slug: "hello-world" }} search={{ ref: "typed-link" }}>
           Read typed blog post
