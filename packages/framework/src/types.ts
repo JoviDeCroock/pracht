@@ -975,6 +975,17 @@ export interface PrachtAppConfig {
    * `document.startViewTransition` support.
    */
   viewTransitions?: boolean;
+  /**
+   * Budget, in milliseconds, for the `signal` the runtime hands to middleware,
+   * loaders, and API route handlers. Defaults to `30_000`.
+   *
+   * The signal aborts when the budget runs out *or* when the client
+   * disconnects, whichever happens first, so work started for a request the
+   * caller has already abandoned can stop. One budget covers the whole
+   * request: rendering the not-found page after a loader throws `notFound()`
+   * continues on what is left of it rather than starting a new one.
+   */
+  loaderTimeoutMs?: number;
 }
 
 export interface PrachtApp {
@@ -987,6 +998,7 @@ export interface PrachtApp {
   notFound?: NotFoundDefinition;
   constraints?: RouteConstraint[];
   viewTransitions?: boolean;
+  loaderTimeoutMs?: number;
 }
 
 export interface StaticRouteSegment {
@@ -1134,19 +1146,32 @@ export type RouteLoaderData<TModule, TFallbackModule = TModule> = TModule extend
 
 export interface HeadArgs<
   TLoader extends LoaderLike = undefined,
-  TContext = any,
+  TContext = RegisteredContext,
 > extends BaseRouteArgs<TContext> {
   data: ResolvedLoaderData<TLoader>;
 }
 
 export interface HeadersArgs<
   TLoader extends LoaderLike = undefined,
-  TContext = any,
+  TContext = RegisteredContext,
 > extends BaseRouteArgs<TContext> {
   data: ResolvedLoaderData<TLoader>;
 }
 
 export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
+  /**
+   * Deliberately the raw loader data, unlike `HeadArgs`/`HeadersArgs`, which
+   * resolve deferred fields.
+   *
+   * `head()` and `headers()` decide the response status and headers, so they
+   * can never see an unsettled value — under streaming as much as today. A
+   * component can: once `render: "ssr"` flushes the shell before deferred
+   * fields settle (issue #191), this prop really does carry `Deferred`
+   * markers. Keeping them in the type is what makes `use()` inside a
+   * `<Suspense>` boundary the only way to read one, so a route written today
+   * keeps working then. `use()` returns an already-settled value directly,
+   * which is why that costs nothing now.
+   */
   data: LoaderData<TLoader>;
   params: RouteParams;
 }

@@ -144,6 +144,7 @@ export function group(meta: GroupMeta, routes: RouteTreeNode[]): GroupDefinition
 }
 
 export function defineApp(config: PrachtAppConfig): PrachtApp {
+  if (VALIDATE_MANIFEST) assertLoaderTimeoutMs(config.loaderTimeoutMs);
   return {
     shells: resolveModuleRefRecord(config.shells ?? {}),
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
@@ -154,7 +155,24 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
     notFound: resolveNotFoundDefinition(config.notFound),
     constraints: config.constraints,
     viewTransitions: config.viewTransitions,
+    loaderTimeoutMs: config.loaderTimeoutMs,
   };
+}
+
+/** Default budget for the request signal handed to middleware/loaders/API handlers. */
+export const DEFAULT_LOADER_TIMEOUT_MS = 30_000;
+
+/**
+ * Manifest validation, so it folds out of production bundles like the rest —
+ * `src/routes.ts` is the one module the client build also compiles.
+ */
+function assertLoaderTimeoutMs(value: number | undefined): void {
+  if (value === undefined) return;
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new TypeError(
+      `defineApp({ loaderTimeoutMs }) must be a positive number of milliseconds, received ${JSON.stringify(value)}.`,
+    );
+  }
 }
 
 function resolveNotFoundDefinition(
@@ -247,6 +265,7 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     notFound: resolveNotFoundRoute(app),
     constraints: app.constraints,
     viewTransitions: app.viewTransitions,
+    loaderTimeoutMs: app.loaderTimeoutMs,
   };
 }
 

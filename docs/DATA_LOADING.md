@@ -71,10 +71,18 @@ of falling through to a render (see
 | `request`  | `Request`       | The incoming Web Request                                      |
 | `params`   | `RouteParams`   | Dynamic URL params (e.g. `{ slug: "hello" }`)                 |
 | `context`  | `TContext`      | App-level context (from adapter's context factory)            |
-| `signal`   | `AbortSignal`   | Cancellation signal for timeouts                              |
+| `signal`   | `AbortSignal`   | Aborts on client disconnect or `loaderTimeoutMs` expiry       |
 | `url`      | `URL`           | Parsed URL                                                    |
 | `route`    | `ResolvedRoute` | Matched route metadata                                        |
 | `pathname` | `string`        | Matched pathname with the configured deployment base removed |
+
+`signal` composes two independent reasons to stop: the request's own
+`AbortSignal` (the client went away) and a server-side budget. The budget
+defaults to 30 seconds and is set app-wide with `defineApp({ loaderTimeoutMs })`.
+It is one budget per request — the middleware chain, the loader, and the
+not-found render that follows a thrown `notFound()` all share it, so a 404 page
+cannot mint itself a fresh 30 seconds on top of a loader that already spent
+them. Runtimes without `AbortSignal.any` fall back to the timeout alone.
 
 `ApiRouteArgs` and `MiddlewareArgs` expose the same base-free `pathname`, so
 route-aware server code does not need to strip the deployment base from
@@ -187,9 +195,15 @@ of the same deferred value never do the work twice.
 #### What defers, and when
 
 Today **every render mode resolves deferred values before the response is
-written.** The benefit right now is the authoring shape and the concurrency:
-independent deferred fields resolve together rather than in series, so two
-300 ms calls cost 300 ms, not 600 ms.
+written** — nothing streams yet, in any mode (streaming is issue #191). The
+benefit right now is the authoring shape and the concurrency: independent
+deferred fields resolve together rather than in series, so two 300 ms calls cost
+300 ms, not 600 ms.
+
+The resolution pass costs nothing when the app never defers. `defer()` sets a
+process-level latch and `resolveDeferredData()` returns its input untouched
+until that latch flips, so a loader result is only walked in a process that has
+actually created a deferred value.
 
 The reason to write `defer()` now is that it is the finished API. When the
 streaming renderer lands, `render: "ssr"` will flush the shell before deferred
@@ -667,9 +681,12 @@ Route ids autocomplete against the generated route map. The generated
 declaration points at the route module (or the separate loader module wired via
 the manifest), so changing a loader's return type flows through without
 re-running typegen; only adding, removing, or renaming routes requires a
-regeneration. Routes without a loader type their data as `undefined`. In
-development, pracht logs a warning when the id you pass is not the active
-route, since the hook always returns the active route's data.
+regeneration. Routes without a loader type their data as `undefined`.
+
+The runtime holds one route's data, so the id is a typing shortcut rather than
+a lookup — but it is honoured: `useRouteData(id)` throws when `id` is not the
+active route, instead of returning another route's data under the requested
+route's type. Reading data across routes means passing it down as a prop.
 
 For projects that do not run typegen, pass the loader type explicitly as a
 generic instead:

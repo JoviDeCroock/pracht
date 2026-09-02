@@ -1,6 +1,6 @@
 import { h } from "preact";
 import type { FunctionComponent } from "preact";
-import { matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
+import { DEFAULT_LOADER_TIMEOUT_MS, matchApiRoute, matchAppRoute, resolveApp } from "./app.ts";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import { resolveDeferredData } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
@@ -180,6 +180,25 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
  * the agent surface does not ship it. See docs/CAPABILITIES.md.
  */
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
+
+/**
+ * The `AbortSignal` handed to middleware, loaders, and API route handlers.
+ *
+ * Two independent reasons to stop the work are folded into one signal: the
+ * server-side budget (`defineApp({ loaderTimeoutMs })`, 30s by default) and
+ * the client going away. Composing them is what makes `signal` worth passing
+ * to `fetch()` or a database driver — a timeout alone keeps a request the
+ * caller has already abandoned running to completion.
+ *
+ * `AbortSignal.any` is only guaranteed in newer runtimes, so an environment
+ * without it degrades to the timeout rather than losing the budget.
+ */
+function composeRequestSignal(request: Request, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const clientSignal: AbortSignal | undefined = request.signal;
+  if (!clientSignal || typeof AbortSignal.any !== "function") return timeout;
+  return AbortSignal.any([clientSignal, timeout]);
+}
 
 /**
  * Stricter variant of first-party detection used to protect API requests
@@ -406,6 +425,7 @@ export async function handlePrachtRequest<TContext>(
   // no dynamic pattern can consume the synthetic request, and passes the real
   // table separately so the shell's links still build.
   const hrefRoutes = resolvedApp.hrefRoutes ?? resolvedApp.routes;
+  const loaderTimeoutMs = resolvedApp.loaderTimeoutMs ?? DEFAULT_LOADER_TIMEOUT_MS;
   // The route-state endpoint returns loader output as JSON. Two entry
   // points into it: the explicit header (only settable via fetch, so the
   // browser forces CORS preflight cross-origin) and the `_data=1` query
@@ -553,7 +573,7 @@ export async function handlePrachtRequest<TContext>(
         );
       }
 
-      const requestSignal = AbortSignal.timeout(30_000);
+      const requestSignal = composeRequestSignal(options.request, loaderTimeoutMs);
       const apiContext = requestContext;
 
       const apiTerminal = async (): Promise<Response> => {
@@ -854,8 +874,12 @@ export async function handlePrachtRequest<TContext>(
   async function renderPageMatch(
     match: RouteMatch,
     pageOptions: { isNotFoundPage: boolean; status: number },
+    inheritedSignal?: AbortSignal,
   ): Promise<Response> {
-    const requestSignal = AbortSignal.timeout(30_000);
+    // One budget per request. The not-found re-render below passes its
+    // caller's signal so a loader that spent 29 of 30 seconds before throwing
+    // `notFound()` cannot buy the 404 page a fresh 30 on top.
+    const requestSignal = inheritedSignal ?? composeRequestSignal(options.request, loaderTimeoutMs);
     const pageContext = requestContext;
     const routeArgs: BaseRouteArgs<TContext> = {
       request: options.request,
@@ -1306,7 +1330,11 @@ export async function handlePrachtRequest<TContext>(
         if (notFoundMatch) {
           const module = routeModule ?? (await routeModulePromise?.catch(() => undefined));
           if (!module?.ErrorBoundary) {
-            return renderPageMatch(notFoundMatch, { isNotFoundPage: true, status: 404 });
+            return renderPageMatch(
+              notFoundMatch,
+              { isNotFoundPage: true, status: 404 },
+              requestSignal,
+            );
           }
         }
       }
