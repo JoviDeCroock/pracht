@@ -372,6 +372,76 @@ The runtime only records timings when the dev middleware passes a collector via
 `HandlePrachtRequestOptions.timings`; production adapters never pass one, so
 production requests skip all timing work.
 
+### Writing the response
+
+The dev middleware hands the runtime's `Response` to Node the same way the
+production Node adapter does (`writeNodeResponseHeaders` in
+`packages/adapter-node/src/node-request.ts`), and for the same reason: a
+difference here only shows up after deploy.
+
+- Headers are copied with `writeDevResponseHeaders()`, which reads `set-cookie`
+  through `getSetCookie()`. `Headers.forEach()` yields that one header
+  comma-joined and `res.setHeader()` replaces rather than appends, so a loader
+  or API route setting two cookies would otherwise emit one broken header.
+- Only a `text/html` body is decoded to text, because that is the one body this
+  middleware rewrites (Vite's HTML transform). Every other body is piped as
+  bytes, so a PDF, an image, or a `Uint8Array` from an API route is
+  byte-identical in dev and production. `text/event-stream` keeps its own
+  earlier branch: it must stream and never buffer.
+- A loader, middleware, or render failure is logged once to
+  `server.config.logger`, with phase, route id, request path, and message —
+  plus `file:line:column` when the error blames a module of the user's
+  (`describeAnnotatedUserModule()`), which is how a route file that will not
+  compile gets named: it fails while the virtual server module is evaluated, so
+  there is no route context to report. The overlay only reaches a document
+  navigation; a route-state fetch, a `curl`, or a test run would otherwise see
+  a 500 and nothing server-side. A body stream that fails after the headers are
+  on the wire is logged there too — destroying the socket is all that is left,
+  so the line is the only signal. Expected 404s are not logged.
+- The stack is appended only when the failure names no user module, or under
+  `DEBUG` (`shouldIncludeDevErrorStack()`). A route/loader/shell file in
+  `RouteErrorContext`, Vite's `id`/`loc.file` on a transform error, or a stack
+  frame under the project root outside `node_modules` all count as named — the
+  message and the overlay already locate those, and repeating the trace for
+  each failing route-state poll buries the terminal. Anything unattributable is
+  a framework or module-loading fault where the trace is the only clue.
+- Both error paths check `res.headersSent` first. A failure *after* the
+  response is on the wire would otherwise raise `ERR_HTTP_HEADERS_SENT` on top
+  of the original error, replacing it as the thing the developer sees. When the
+  response has *not* gone out, they clear the headers that described the body
+  being abandoned — `content-length`, `content-type`, `content-encoding`,
+  `transfer-encoding`, `content-disposition` — and only those. A stale
+  `content-length` would truncate the error page written in its place, while
+  clearing everything would also drop the CORS headers Vite's own middleware
+  staged, answering a cross-origin 500 with a CORS failure and no readable
+  overlay.
+
+### Route hint tables
+
+The generated client entry bakes in four per-route tables — does this module
+export `loader`, `head`, `headers`, `getStaticPaths` — which the browser's
+router reads to decide whether a navigation must fetch route state.
+`createRouteHints()` (`route-loader-hints.ts`) builds all four from one
+directory walk and one parse per route file; the per-table
+`createRoute*Hints()` exports are thin wrappers over it, as is
+`createRouteHintsForVirtualModules()` in `plugin-codegen.ts`, which resolves
+the plugin's configured directories. Building them independently meant walking
+`src/routes` and re-parsing every route module once per table, on every file of
+every save.
+
+`handleHotUpdate` compares the fresh scan against `emittedRouteHints` — a
+snapshot of what `load()` last baked into the entry, not the table the previous
+file in the same save just refreshed. A save that writes several files fires
+`handleHotUpdate` once per file against a disk that already holds all of them,
+so comparing against the freshly recomputed table reported "unchanged" for
+every file after the first. A scan that had to skip an entry reports
+`incomplete`, which forces reloads until `load()` rebuilds from a clean walk.
+
+The separate CSS-injection middleware (used by adapter-owned dev servers)
+buffers only responses whose content type is `text/html`, up to
+`MAX_DEV_CSS_BUFFER_BYTES`; anything else keeps its `content-length`, its
+backpressure signal, and its bytes.
+
 ---
 
 ## Build Pipeline
@@ -752,7 +822,9 @@ selection plus the phase and route/loader/shell module paths into the overlay,
 since none is reliably recoverable from a stack trace. A loader module path
 comes from the resolved route as a fallback, so a loader that fails during its
 own import is still linked. Overlay responses retain the phase timings already
-collected for the dev `Server-Timing` header.
+collected for the dev `Server-Timing` header. Every such failure is also logged
+once to the dev terminal (see "Writing the response" above) — the overlay only
+reaches a browser navigating to a document.
 
 Four ergonomics features are built in:
 

@@ -45,13 +45,22 @@ function createRequest(url: string): IncomingMessage {
 }
 
 function createResponse() {
+  const headers = new Map<string, unknown>();
   const state = { body: "", statusCode: 0 };
   const res = {
     end(body?: unknown) {
       state.body = String(body ?? "");
       state.statusCode = res.statusCode;
     },
-    setHeader() {},
+    getHeaderNames() {
+      return [...headers.keys()];
+    },
+    removeHeader(name: string) {
+      headers.delete(name.toLowerCase());
+    },
+    setHeader(name: string, value: unknown) {
+      headers.set(name.toLowerCase(), value);
+    },
     statusCode: 200,
   };
   return { res: res as unknown as ServerResponse, state };
