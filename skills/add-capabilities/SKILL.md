@@ -1,6 +1,6 @@
 ---
 name: add-capabilities
-version: 1.1.0
+version: 1.2.0
 description: |
   Expose an app operation as a typed pracht capability — one contract projected
   into direct server calls, an HTTP endpoint, a WebMCP page tool, and a remote MCP
@@ -27,10 +27,11 @@ projection runs the identical pipeline, so rules never diverge per transport:
 input validation → named middleware chain → run() → output validation
 ```
 
-Registration is opt-in and private by default: no loader or API route is ever
-inferred as a capability, and an app that registers none ships no capability
-dispatch surface (the build drops ~15 KB gzip of dispatch and verifier code).
-Other agent-facing surfaces such as `llms.txt` remain independent.
+Registration is opt-in and private by default; loaders and API routes are never
+inferred as capabilities, and an app with none ships no dispatch surface.
+
+Non-Pracht app: use `createCapabilityHost()` and the signal-owned WebMCP
+registrar. See <https://pracht.resynapse.dev/docs/standalone-capabilities>.
 
 ## Step 1: Decide the contract before writing code
 

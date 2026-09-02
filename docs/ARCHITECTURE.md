@@ -31,7 +31,17 @@ The current repo scaffold and package boundaries are tracked in
 │  packages/adapter-*   │ │   packages/cli                 │
 │  Node · CF · Vercel   │ │   dev · build · generate       │
 └───────────────────────┘ └────────────────────────────────┘
+
+        packages/capabilities
+ contract · validation · trust · standalone HTTP/MCP host
 ```
+
+`@pracht/capabilities` is below the framework boundary: `@pracht/core` uses
+its server internals for integrated dispatch, while non-Pracht applications
+use the curated `@pracht/capabilities/server` host and
+`@pracht/capabilities/webmcp` registrar directly. Framework-only helpers are
+published at `@pracht/capabilities/server/internal` so they do not become part
+of the supported standalone API by accident.
 
 ---
 

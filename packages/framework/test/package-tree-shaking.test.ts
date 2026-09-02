@@ -9,6 +9,7 @@ import { build, createLogger } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const frameworkRoot = fileURLToPath(new URL("..", import.meta.url));
+const capabilitiesDist = fileURLToPath(new URL("../../capabilities/dist/", import.meta.url));
 const tempRoot = mkdtempSync(join(tmpdir(), "pracht-tree-shaking-"));
 const outputDir = join(tempRoot, "dist");
 const browserEntry = join(outputDir, "browser.mjs");
@@ -77,6 +78,23 @@ async function bundleExport(
         },
       },
     ],
+    resolve: {
+      // Bundle @pracht/capabilities for real: the capability/agent runtime
+      // lives there now, and the whole point of the agent-surface assertions
+      // is to measure whether those bytes ship. The workspace package resolves
+      // through its dist files so its package.json `sideEffects: false` is in
+      // force, exactly as in an app build.
+      alias: [
+        {
+          find: "@pracht/capabilities/server/internal",
+          replacement: join(capabilitiesDist, "server-internal.mjs"),
+        },
+        { find: "@pracht/capabilities/server", replacement: join(capabilitiesDist, "server.mjs") },
+        { find: "@pracht/capabilities/static", replacement: join(capabilitiesDist, "static.mjs") },
+        { find: "@pracht/capabilities/webmcp", replacement: join(capabilitiesDist, "webmcp.mjs") },
+        { find: "@pracht/capabilities", replacement: join(capabilitiesDist, "index.mjs") },
+      ],
+    },
     build: {
       minify: "esbuild",
       rollupOptions: {
@@ -84,7 +102,7 @@ async function bundleExport(
         // nothing at all. Keep the signature so the import graph is real.
         preserveEntrySignatures: "strict",
         external: [
-          /^@pracht\//,
+          /^@pracht\/(?!capabilities)/,
           "@standard-schema/spec",
           "preact",
           /^preact\//,
@@ -131,7 +149,13 @@ describe("published package tree shaking", () => {
   it.each([
     ["publicEnv", 350],
     // Public deploy-base helpers add one tiny re-export to the browser entry.
-    ["createHref", 1_410],
+    // Was 1,410 while @pracht/capabilities sat on the external list; bundling
+    // it (which the agent-surface assertions need) measures 1,421 under
+    // vitest's bundler — reproducibly, and with zero capability-code markers
+    // in the output — so the budget carries matching headroom. Standalone
+    // vite measures this same graph smaller; trust the number the harness
+    // that runs in CI produces.
+    ["createHref", 1_440],
     ["apiFetch", 2_200],
     ["PrachtHttpError", 350],
     // Standalone cost incl. the useIsHydrated machinery; in a hydrating app
@@ -196,7 +220,9 @@ describe("published package tree shaking", () => {
     it("drops capability revalidation when the app dispatches no capability calls", async () => {
       const { code } = await bundleExport("initClientRouter", production);
 
-      expect(code).not.toContain("@pracht/capabilities");
+      // @pracht/capabilities is bundled by this harness, so assert on the
+      // settled-event wire constant rather than the import specifier.
+      expect(code).not.toContain("pracht:capability-settled");
     });
 
     it("keeps Suspense hydration tracking reachable from the Suspense export", async () => {
@@ -208,7 +234,7 @@ describe("published package tree shaking", () => {
     it("keeps capability revalidation reachable from the dispatch paths", async () => {
       const { code } = await bundleExport("ensureCapabilityRevalidation");
 
-      expect(code).toContain("@pracht/capabilities");
+      expect(code).toContain("pracht:capability-settled");
     });
   });
 
@@ -462,6 +488,7 @@ describe("published package tree shaking", () => {
       });
 
       expect(code).not.toContain("web-bot-auth");
+      expect(code).not.toContain("signature-input");
       expect(code).not.toContain("/api/capabilities");
       expect(code).not.toContain("unknown_capability");
       expect(gzipBytes).toBeLessThanOrEqual(

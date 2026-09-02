@@ -4,8 +4,8 @@ Typed, protocol-neutral application capabilities for [Pracht](https://github.com
 
 Define an application operation once — JSON Schema input/output, an effect
 class (`read` / `write` / `destructive`), named middleware, and a server-only
-`run()` — and let Pracht project it to direct server invocation, a generated
-HTTP endpoint, and a WebMCP page tool for in-browser agents.
+`run()` — and project it to direct server invocation, a generated HTTP
+endpoint, a remote MCP tool, and a WebMCP page tool for in-browser agents.
 
 ```ts
 import { defineCapability } from "@pracht/capabilities";
@@ -46,6 +46,12 @@ export const app = defineApp({
 });
 ```
 
+Applications outside the Pracht framework can register capability objects
+with `createCapabilityHost()` from `@pracht/capabilities/server`. The
+Web-standard host serves the same HTTP and remote MCP pipeline and returns
+`null` for unrelated routes. `@pracht/capabilities/webmcp` exposes the page
+tool registrar separately.
+
 Capabilities are private by default; `expose.http` serves them at
 `POST /api/capabilities/<name-with-dots-as-slashes>` with a typed
 `{ ok, data | error }` envelope, and `expose.webmcp` registers them as WebMCP
@@ -53,6 +59,6 @@ page tools that dispatch through the HTTP projection so all enforcement stays
 server-side. Validation uses a dependency-free JSON Schema subset — no ajv or
 zod in your bundles.
 
-See [docs/CAPABILITIES.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/CAPABILITIES.md)
-for the full guide, including the supported schema subset and security
-defaults.
+See the [Capabilities](https://pracht.resynapse.dev/docs/capabilities) and
+[Standalone Capabilities](https://pracht.resynapse.dev/docs/standalone-capabilities)
+guides for the supported schema subset, integrations, and security defaults.

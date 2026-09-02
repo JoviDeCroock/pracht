@@ -109,6 +109,14 @@ export const app = defineApp({
         id: "capabilities",
         render: "ssg",
       }),
+      route(
+        "/docs/standalone-capabilities",
+        () => import("./routes/docs/standalone-capabilities.md"),
+        {
+          id: "standalone-capabilities",
+          render: "ssg",
+        },
+      ),
       route("/docs/agent-trust", () => import("./routes/docs/agent-trust.md"), {
         id: "agent-trust",
         render: "ssg",

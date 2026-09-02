@@ -25,6 +25,7 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
@@ -33,6 +34,18 @@
     "./static": {
       "types": "./dist/static.d.mts",
       "default": "./dist/static.mjs"
+    },
+    "./server": {
+      "types": "./dist/server.d.mts",
+      "default": "./dist/server.mjs"
+    },
+    "./server/internal": {
+      "types": "./dist/server-internal.d.mts",
+      "default": "./dist/server-internal.mjs"
+    },
+    "./webmcp": {
+      "types": "./dist/webmcp.d.mts",
+      "default": "./dist/webmcp.mjs"
     }
   },
   "engines": {

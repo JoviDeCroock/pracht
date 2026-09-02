@@ -398,6 +398,14 @@ adding the MCP SDK to `@pracht/core`:
 The MCP SDK and MCP Apps bridge stay optional and out of normal client bundles. Applications that
 do not register capabilities pay no runtime or build cost.
 
+The shipped package boundary also supports applications that do not use the
+Pracht framework. `@pracht/capabilities/server` is the curated standalone
+surface (`createCapabilityHost()` and supported trust hooks),
+`@pracht/capabilities/webmcp` is the browser registrar, and
+`@pracht/capabilities/server/internal` is reserved for framework integration.
+Standalone hosts register capability and middleware objects at runtime while
+using the same dispatch and MCP implementation as `@pracht/core`.
+
 ### Schema boundary
 
 MCP tool schemas use JSON Schema, and the capability graph also needs serializable build metadata.

@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.6.0
+version: 1.7.0
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -25,11 +25,8 @@ before converting it; never infer from the filename. Prefer the simplest
 pracht equivalent, and when a Next.js feature has no equivalent, say so and
 propose an alternative instead of inventing one.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), use
-`generate_route`/`generate_shell`/`generate_middleware`/`generate_api` to
-scaffold and `inspect_routes`/`inspect_api`/`doctor`/`verify` to check
-progress, instead of Bash. `pracht inspect` needs the pracht plugin in the
-vite config; `inspect_build` needs a prior `pracht build`.
+With the Pracht MCP server, prefer its generate/inspect/doctor/verify tools;
+`inspect_build` needs a prior `pracht build`.
 
 ## Step 0: Assess the source
 
@@ -39,6 +36,9 @@ the tree: `app/` (App Router), `pages/` (Pages Router), `middleware.ts`,
 `async` server components, `generateStaticParams`, `generateMetadata`/`metadata`,
 `"use server"` actions — and the third-party integrations (auth, CMS, DB,
 analytics). Confirm scope with the user if the app has more than ~20 routes.
+
+Agent tools alone do not require a router migration; use the standalone host:
+<https://pracht.resynapse.dev/docs/standalone-capabilities>.
 
 ## Fast path: Pages Router
 
