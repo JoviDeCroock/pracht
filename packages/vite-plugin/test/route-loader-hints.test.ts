@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -145,6 +145,20 @@ describe("createRouteLoaderHints", () => {
     ).toEqual({
       "./dashboard.tsrx": false,
       "/src/routes/dashboard.tsrx": false,
+    });
+  });
+
+  // A dangling symlink — or a file an editor is mid-replace — made the
+  // unguarded `statSync` throw and discard the whole table, which in dev meant
+  // every route's loader hint went stale at once.
+  it("skips an entry it cannot stat instead of losing the table", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-unstattable-hints-"));
+    tempDirs.push(routesDir);
+    writeFileSync(join(routesDir, "home.tsx"), "export function loader() { return {}; }\n");
+    symlinkSync(join(routesDir, "gone.tsx"), join(routesDir, "broken.tsx"));
+
+    expect(createRouteLoaderHints(routesDir, { rootRelativePrefix: "/src/routes" })).toEqual({
+      "/src/routes/home.tsx": true,
     });
   });
 });

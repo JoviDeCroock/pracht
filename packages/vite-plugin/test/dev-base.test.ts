@@ -51,6 +51,7 @@ function createResponse() {
       state.body = String(body ?? "");
       state.statusCode = res.statusCode;
     },
+    removeHeader() {},
     setHeader() {},
     statusCode: 200,
   };

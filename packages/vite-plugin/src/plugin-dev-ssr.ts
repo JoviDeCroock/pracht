@@ -24,6 +24,11 @@ import {
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 const CSS_MODULE_URL_RE = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/;
+/**
+ * Ceiling on what the dev CSS-injection middleware will hold in memory before
+ * it gives up and streams. A document that large is not a document.
+ */
+export const MAX_DEV_CSS_BUFFER_BYTES = 8 * 1024 * 1024;
 
 export const DEVTOOLS_PATH = "/_pracht";
 export const DEVTOOLS_JSON_PATH = "/_pracht.json";
@@ -118,6 +123,12 @@ export function createDevSSRMiddleware(
   return async (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const url = req.url ?? "/";
     const requestUrl = new URL(url, "http://localhost");
+    // The overlay is a browser-only surface: a `curl`, a client-side
+    // navigation, or a test run used to see a 500 with nothing at all in the
+    // terminal that started `pracht dev`. Remember what has already been
+    // reported so the same failure is never printed twice.
+    let reportedError: unknown;
+    let hasReportedError = false;
 
     try {
       const [framework, serverMod] = await Promise.all([
@@ -235,6 +246,13 @@ export function createDevSSRMiddleware(
           capturedRouteError = true;
           routeError = error;
           routeErrorContext = context;
+          reportedError = error;
+          hasReportedError = true;
+          logDevRequestError(server, {
+            context,
+            error,
+            path: requestUrl.pathname,
+          });
         },
         clientEntryUrl: withDevBase(CLIENT_BROWSER_PATH),
         islandsEntryUrl: withDevBase(ISLANDS_CLIENT_BROWSER_PATH),
@@ -274,9 +292,7 @@ export function createDevSSRMiddleware(
       // runs in dev exactly as it does in production.
       if (response.body && isEventStreamContentType(contentType)) {
         res.statusCode = response.status;
-        response.headers.forEach((value: string, key: string) => {
-          res.setHeader(key, value);
-        });
+        writeDevResponseHeaders(res, response.headers);
         const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
         // The client may already have hung up while the handler ran; `close`
         // has then already fired and the listener below would never run,
@@ -318,25 +334,121 @@ export function createDevSSRMiddleware(
         return;
       }
 
-      let body = await response.text();
+      const serverTiming = framework.formatServerTimingHeader(timings);
 
+      // Only an HTML document is decoded to text: it is the one body this
+      // middleware rewrites. Everything else — a PDF from an API route, an
+      // image, a `Uint8Array` — is forwarded as bytes, because decoding it to
+      // a string and re-encoding on `res.end()` silently corrupts every
+      // sequence that is not valid UTF-8.
       if (contentType.includes("text/html")) {
-        body = await transformDevHtml(server, url, body, devBase);
+        const html = await transformDevHtml(server, url, await response.text(), devBase);
+        res.statusCode = response.status;
+        writeDevResponseHeaders(res, response.headers);
+        // The transform changed the body length (Vite injects its client
+        // script), so any length the runtime declared no longer describes it.
+        res.removeHeader("content-length");
+        if (serverTiming) {
+          res.setHeader("Server-Timing", serverTiming);
+        }
+        res.end(html);
+        return;
       }
 
       res.statusCode = response.status;
-      response.headers.forEach((value: string, key: string) => {
-        res.setHeader(key, value);
-      });
-      const serverTiming = framework.formatServerTimingHeader(timings);
+      writeDevResponseHeaders(res, response.headers);
       if (serverTiming) {
         res.setHeader("Server-Timing", serverTiming);
       }
-      res.end(body);
+
+      if (!response.body) {
+        res.end();
+        return;
+      }
+
+      const source = Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]);
+      if (res.destroyed || res.writableEnded) {
+        source.destroy();
+        return;
+      }
+      res.on("close", () => {
+        if (!res.writableFinished) source.destroy();
+      });
+      source.on("error", () => {
+        res.destroy();
+      });
+      source.pipe(res);
     } catch (error: unknown) {
+      if (!hasReportedError || error !== reportedError) {
+        logDevRequestError(server, { error, path: requestUrl.pathname });
+      }
       await handleDevError(server, req, res, next, url, error, devBase);
     }
   };
+}
+
+/**
+ * Print one line per dev-server failure, in the terminal running `pracht dev`.
+ *
+ * The browser overlay only reaches a document navigation. Everything else that
+ * can fail — a route-state fetch during client-side navigation, `curl`, an
+ * end-to-end test — used to get a 500 and no server-side trace of why.
+ */
+function formatDevRequestErrorLine(options: {
+  message: string;
+  path: string;
+  phase?: string;
+  routeId?: string;
+}): string {
+  const route = options.routeId ? ` in route "${options.routeId}"` : "";
+  return `[pracht] ${options.phase ?? "request"} error${route} at ${options.path}: ${options.message}`;
+}
+
+/**
+ * A `throw notFound()` that reaches `onRouteError` is a routing outcome, not a
+ * crash: the app simply declares no not-found page. Redirects never reach it
+ * at all — the runtime returns a thrown `Response` before the error path.
+ */
+function shouldLogDevRequestError(error: unknown): boolean {
+  return devErrorStatus(error) >= 500;
+}
+
+function devErrorStatus(error: unknown): number {
+  if (
+    error instanceof Error &&
+    error.name === "PrachtHttpError" &&
+    typeof (error as Error & { status?: unknown }).status === "number"
+  ) {
+    return (error as Error & { status: number }).status;
+  }
+  return 500;
+}
+
+function logDevRequestError(
+  server: ViteDevServer,
+  options: { context?: RouteErrorContext; error: unknown; path: string },
+): void {
+  if (!shouldLogDevRequestError(options.error)) return;
+
+  const { error } = options;
+  const line = formatDevRequestErrorLine({
+    message: error instanceof Error ? error.message : String(error),
+    path: options.path,
+    phase: options.context?.phase,
+    routeId: options.context?.routeId,
+  });
+
+  // The overlay already renders the stack for a document navigation, and a
+  // repeated trace for every failing route-state poll drowns the terminal.
+  // Print it when the failure cannot be attributed to a user module — those
+  // are framework or module-loading faults where the stack is the only clue —
+  // or when the developer asked for it with DEBUG.
+  const stack = error instanceof Error ? error.stack : undefined;
+  const wantsStack = options.context?.routeFile === undefined || Boolean(process.env?.DEBUG);
+
+  server.config.logger.error(wantsStack && stack ? `${line}\n${stack}` : line, {
+    timestamp: true,
+  });
 }
 
 /**
@@ -580,6 +692,7 @@ async function resolveDevCssContextForPath(
  */
 export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.NextHandleFunction {
   let warned = false;
+  let warnedInjectionFailure = false;
   return (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
     const method = (req.method ?? "GET").toUpperCase();
     const accept = readRequestHeader(req.headers.accept).toLowerCase();
@@ -604,11 +717,49 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
       return null;
     });
     const chunks: Buffer[] = [];
+    let buffered = 0;
+    // `pending` until the response reveals its content type. Only an HTML
+    // document is rewritten; anything else — a JSON API answer, an image, a
+    // download — is handed straight back to Node so it keeps its
+    // `content-length` and its backpressure signal.
+    let mode: "pending" | "buffer" | "passthrough" = "pending";
+    const originalWrite = res.write.bind(res);
     const originalEnd = res.end.bind(res);
     const originalWriteHead = res.writeHead.bind(res);
 
+    const releasePatches = (): void => {
+      res.write = originalWrite as typeof res.write;
+      res.end = originalEnd as typeof res.end;
+      res.writeHead = originalWriteHead as typeof res.writeHead;
+    };
+
+    const decide = (writeHeadArgs?: unknown[]): "buffer" | "passthrough" => {
+      if (mode === "pending") {
+        const contentType =
+          readWriteHeadHeader(writeHeadArgs, "content-type") ?? res.getHeader("content-type");
+        mode = isHtmlContentType(contentType) ? "buffer" : "passthrough";
+        if (mode === "passthrough") releasePatches();
+        // Injected links change the body length, so a declared one would now
+        // be a lie. Only an HTML response pays that cost.
+        else res.removeHeader("content-length");
+      }
+      return mode;
+    };
+
+    // Beyond this the response is no longer a document worth holding in
+    // memory: flush what was collected and stop interfering.
+    const spillToPassthrough = (): void => {
+      mode = "passthrough";
+      releasePatches();
+      for (const chunk of chunks) originalWrite(chunk);
+      chunks.length = 0;
+      buffered = 0;
+    };
+
     res.writeHead = ((statusCode: number, ...args: unknown[]) => {
-      res.removeHeader("content-length");
+      if (decide(args) === "passthrough") {
+        return Reflect.apply(originalWriteHead, res, [statusCode, ...args]);
+      }
       return Reflect.apply(originalWriteHead, res, [
         statusCode,
         ...args.map(stripContentLengthHeader),
@@ -616,34 +767,30 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
     }) as typeof res.writeHead;
 
     res.write = ((chunk: unknown, encodingOrCallback?: unknown, callback?: unknown) => {
-      chunks.push(toBuffer(chunk, encodingOrCallback));
-      const done: (() => void) | undefined =
-        typeof encodingOrCallback === "function"
-          ? (encodingOrCallback as () => void)
-          : typeof callback === "function"
-            ? (callback as () => void)
-            : undefined;
+      if (decide() === "passthrough") {
+        return originalWrite(chunk as never, encodingOrCallback as never, callback as never);
+      }
+      const done = readNodeWriteCallback(encodingOrCallback, callback);
+      const buffer = toBuffer(chunk, encodingOrCallback);
+      if (buffered + buffer.length > MAX_DEV_CSS_BUFFER_BYTES) {
+        spillToPassthrough();
+        return originalWrite(buffer, done as never);
+      }
+      chunks.push(buffer);
+      buffered += buffer.length;
       done?.();
       return true;
     }) as typeof res.write;
 
     res.end = ((chunk?: unknown, encodingOrCallback?: unknown, callback?: unknown) => {
+      if (decide() === "passthrough") {
+        return originalEnd(chunk as never, encodingOrCallback as never, callback as never);
+      }
       if (chunk != null) chunks.push(toBuffer(chunk, encodingOrCallback));
-      const done: (() => void) | undefined =
-        typeof encodingOrCallback === "function"
-          ? (encodingOrCallback as () => void)
-          : typeof callback === "function"
-            ? (callback as () => void)
-            : undefined;
+      const done = readNodeWriteCallback(encodingOrCallback, callback);
 
       void (async () => {
         const body = Buffer.concat(chunks);
-        const contentType = String(res.getHeader("content-type") ?? "");
-        if (!contentType.includes("text/html")) {
-          originalEnd(body, done);
-          return;
-        }
-
         try {
           const context = await contextPromise;
           const manifest = context ? await createDevCssManifest(server, context) : null;
@@ -651,7 +798,18 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
             ? injectDevCssLinks(body.toString("utf-8"), manifest, server.config.base || "/")
             : body.toString("utf-8");
           originalEnd(html, done);
-        } catch {
+        } catch (error) {
+          // The document still has to reach the browser, but a silent catch
+          // here is how an app ends up mysteriously unstyled in dev.
+          if (!warnedInjectionFailure) {
+            warnedInjectionFailure = true;
+            server.config.logger.error(
+              `[pracht] Could not inject development stylesheets: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+              { timestamp: true },
+            );
+          }
           originalEnd(body, done);
         }
       })();
@@ -661,6 +819,38 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
 
     next();
   };
+}
+
+function isHtmlContentType(value: unknown): boolean {
+  return String(value ?? "")
+    .toLowerCase()
+    .includes("text/html");
+}
+
+/** Read a header out of the `writeHead(status[, statusMessage][, headers])` tail. */
+function readWriteHeadHeader(args: unknown[] | undefined, name: string): string | undefined {
+  if (!args) return undefined;
+  for (const arg of args) {
+    if (Array.isArray(arg)) {
+      for (let index = 0; index < arg.length; index += 2) {
+        if (String(arg[index]).toLowerCase() === name) return String(arg[index + 1]);
+      }
+    } else if (arg && typeof arg === "object") {
+      for (const [key, value] of Object.entries(arg)) {
+        if (key.toLowerCase() === name) return String(value);
+      }
+    }
+  }
+  return undefined;
+}
+
+function readNodeWriteCallback(
+  encodingOrCallback: unknown,
+  callback: unknown,
+): (() => void) | undefined {
+  if (typeof encodingOrCallback === "function") return encodingOrCallback as () => void;
+  if (typeof callback === "function") return callback as () => void;
+  return undefined;
 }
 
 function toBuffer(chunk: unknown, encoding: unknown): Buffer {
@@ -840,6 +1030,8 @@ async function respondWithErrorOverlay(
   status: number,
   serverTiming: string,
 ): Promise<void> {
+  if (finishAlreadySentResponse(res)) return;
+
   if (error instanceof Error) {
     server.ssrFixStacktrace(error);
   }
@@ -871,6 +1063,19 @@ async function respondWithErrorOverlay(
   res.end(html);
 }
 
+/**
+ * True when the response has already reached the wire, so no error page can
+ * replace it. Writing a second status line throws `ERR_HTTP_HEADERS_SENT`,
+ * which would then be the error the developer sees instead of the real one —
+ * a failure *after* `res.end()` (a rejected body stream, a late throw) is
+ * exactly when that happens.
+ */
+function finishAlreadySentResponse(res: ServerResponse): boolean {
+  if (!res.headersSent && !res.writableEnded) return false;
+  if (!res.writableEnded && !res.destroyed) res.end();
+  return true;
+}
+
 async function handleDevError(
   server: ViteDevServer,
   req: IncomingMessage,
@@ -880,6 +1085,8 @@ async function handleDevError(
   error: unknown,
   base: string,
 ): Promise<void> {
+  if (finishAlreadySentResponse(res)) return;
+
   if (error instanceof Error) {
     server.ssrFixStacktrace(error);
   }
@@ -1074,6 +1281,32 @@ function readRequestHeader(value: string | string[] | undefined): string {
   }
 
   return value ?? "";
+}
+
+/**
+ * Copy a `Response`'s headers onto a Node response the way the production
+ * adapters do.
+ *
+ * `headers.forEach()` yields `set-cookie` once, joined with `, ` — and
+ * `res.setHeader()` replaces rather than appends — so a loader or API route
+ * that sets two cookies used to emit a single corrupted header in dev while
+ * production (see `writeNodeResponseHeaders` in @pracht/adapter-node) sent
+ * both. `getSetCookie()` is the only accessor that keeps them apart.
+ */
+export function writeDevResponseHeaders(res: ServerResponse, headers: Headers): void {
+  const setCookieHeaders =
+    typeof (headers as Headers & { getSetCookie?: () => string[] }).getSetCookie === "function"
+      ? (headers as Headers & { getSetCookie: () => string[] }).getSetCookie()
+      : [];
+
+  headers.forEach((value: string, key: string) => {
+    if (key.toLowerCase() === "set-cookie" && setCookieHeaders.length > 0) return;
+    res.setHeader(key, value);
+  });
+
+  if (setCookieHeaders.length > 0) {
+    res.setHeader("set-cookie", setCookieHeaders);
+  }
 }
 
 function hasKnownAssetExtension(pathname: string): boolean {

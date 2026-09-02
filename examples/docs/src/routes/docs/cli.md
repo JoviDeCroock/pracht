@@ -59,6 +59,8 @@ pracht dev --cache-dir /tmp/pracht-vite-cache
 
 Routes are rendered server-side on each request. Changes to routes, shells, loaders, and components are reflected immediately via HMR.
 
+A failing loader, middleware, or render prints one line to the terminal — phase, route id, request path, and message — alongside the browser error overlay, so failures on a client-side navigation, a `curl`, or a test run are visible server-side too. Set `DEBUG` to include the stack trace.
+
 Vite normally writes its optimizer cache to `node_modules/.vite`. When multiple
 dev servers use the same checkout, pass a distinct `--cache-dir` to each one so
 their atomic cache updates cannot race.

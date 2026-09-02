@@ -372,6 +372,37 @@ The runtime only records timings when the dev middleware passes a collector via
 `HandlePrachtRequestOptions.timings`; production adapters never pass one, so
 production requests skip all timing work.
 
+### Writing the response
+
+The dev middleware hands the runtime's `Response` to Node the same way the
+production Node adapter does (`writeNodeResponseHeaders` in
+`packages/adapter-node/src/node-request.ts`), and for the same reason: a
+difference here only shows up after deploy.
+
+- Headers are copied with `writeDevResponseHeaders()`, which reads `set-cookie`
+  through `getSetCookie()`. `Headers.forEach()` yields that one header
+  comma-joined and `res.setHeader()` replaces rather than appends, so a loader
+  or API route setting two cookies would otherwise emit one broken header.
+- Only a `text/html` body is decoded to text, because that is the one body this
+  middleware rewrites (Vite's HTML transform). Every other body is piped as
+  bytes, so a PDF, an image, or a `Uint8Array` from an API route is
+  byte-identical in dev and production. `text/event-stream` keeps its own
+  earlier branch: it must stream and never buffer.
+- A loader, middleware, or render failure is logged once to
+  `server.config.logger`, with phase, route id, request path, and message. The
+  overlay only reaches a document navigation; a route-state fetch, a `curl`, or
+  a test run would otherwise see a 500 and nothing server-side. Expected 404s
+  are not logged, and the stack is appended only when the failure cannot be
+  attributed to a user module or when `DEBUG` is set.
+- Both error paths check `res.headersSent` first. A failure *after* the
+  response is on the wire would otherwise raise `ERR_HTTP_HEADERS_SENT` on top
+  of the original error, replacing it as the thing the developer sees.
+
+The separate CSS-injection middleware (used by adapter-owned dev servers)
+buffers only responses whose content type is `text/html`, up to
+`MAX_DEV_CSS_BUFFER_BYTES`; anything else keeps its `content-length`, its
+backpressure signal, and its bytes.
+
 ---
 
 ## Build Pipeline
@@ -752,7 +783,9 @@ selection plus the phase and route/loader/shell module paths into the overlay,
 since none is reliably recoverable from a stack trace. A loader module path
 comes from the resolved route as a fallback, so a loader that fails during its
 own import is still linked. Overlay responses retain the phase timings already
-collected for the dev `Server-Timing` header.
+collected for the dev `Server-Timing` header. Every such failure is also logged
+once to the dev terminal (see "Writing the response" above) — the overlay only
+reaches a browser navigating to a document.
 
 Four ergonomics features are built in:
 

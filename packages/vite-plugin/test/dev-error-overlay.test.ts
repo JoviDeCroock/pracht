@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { PassThrough } from "node:stream";
 import { h } from "preact";
 import type { ViteDevServer } from "vite";
 import { describe, expect, it, vi } from "vitest";
@@ -17,25 +18,49 @@ function createRequest(url: string): IncomingMessage {
   } as unknown as IncomingMessage;
 }
 
+/**
+ * A real `ServerResponse` is a writable stream, and the dev middleware pipes
+ * non-HTML bodies into it. Build the fake on a `PassThrough` so the harness
+ * exercises the same code path a browser does.
+ */
 function createResponse() {
-  const headers: Record<string, string> = {};
-  const state = { body: "", headers, statusCode: 0 };
-  const res = {
-    end(body?: unknown) {
-      state.body = String(body ?? "");
-      state.statusCode = res.statusCode;
+  const headers: Record<string, string | string[]> = {};
+  const stream = new PassThrough();
+  const chunks: Buffer[] = [];
+  stream.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+  const finished = new Promise<void>((resolve) => stream.on("end", () => resolve()));
+  const res = Object.assign(stream, {
+    getHeader: (name: string) => headers[name.toLowerCase()],
+    removeHeader: (name: string) => {
+      delete headers[name.toLowerCase()];
     },
     setHeader(name: string, value: unknown) {
-      headers[name.toLowerCase()] = String(value);
+      headers[name.toLowerCase()] = Array.isArray(value) ? value.map(String) : String(value);
+      return res;
     },
     statusCode: 200,
+  }) as unknown as ServerResponse;
+
+  return {
+    finished,
+    res,
+    read() {
+      return {
+        body: Buffer.concat(chunks).toString("utf-8"),
+        bytes: Buffer.concat(chunks),
+        headers,
+        statusCode: res.statusCode,
+      };
+    },
   };
-  return { res: res as unknown as ServerResponse, state };
 }
 
 async function render(
   routeModule: Record<string, unknown>,
-  options: { shellModule?: Record<string, unknown> } = {},
+  options: {
+    request?: IncomingMessage;
+    shellModule?: Record<string, unknown>;
+  } = {},
 ) {
   const routeDefinition = options.shellModule
     ? route("/boom", {
@@ -62,8 +87,9 @@ async function render(
     ),
   };
 
+  const logger = { error: vi.fn(), warn: vi.fn() };
   const server = {
-    config: { base: "/", logger: { warn: vi.fn() }, root: "/tmp/pracht-overlay-test" },
+    config: { base: "/", logger, root: "/tmp/pracht-overlay-test" },
     ssrFixStacktrace: () => {},
     ssrLoadModule: async (id: string) => {
       if (id === "@pracht/core/server") return frameworkServer;
@@ -75,9 +101,17 @@ async function render(
     transformIndexHtml: async (_url: string, html: string) => html,
   } as unknown as ViteDevServer;
 
-  const { res, state } = createResponse();
-  await createDevSSRMiddleware(server)(createRequest("/boom"), res, vi.fn());
-  return state;
+  const { finished, read, res } = createResponse();
+  // A response the middleware declines (a plain 404) falls through to Vite and
+  // never ends, so waiting only on the stream would hang.
+  let fellThrough = () => {};
+  const fallthrough = new Promise<void>((resolve) => {
+    fellThrough = resolve;
+  });
+  const next = vi.fn(() => fellThrough());
+  await createDevSSRMiddleware(server)(options.request ?? createRequest("/boom"), res, next);
+  await Promise.race([finished, fallthrough]);
+  return { ...read(), logger, next };
 }
 
 describe("dev SSR error overlay", () => {
@@ -161,6 +195,83 @@ describe("dev SSR error overlay", () => {
     expect(state.headers["content-type"]).toContain("text/plain");
     expect(state.body).toContain('id="boundary"');
     expect(state.body).not.toContain("pracht error");
+  });
+
+  // Before this, a throwing loader produced a perfect browser overlay and
+  // absolute silence in the terminal running `pracht dev`.
+  it("logs one line per failure to the dev terminal", async () => {
+    const state = await render({
+      loader: () => {
+        throw new Error("loader exploded");
+      },
+      Component: () => null,
+    });
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("loader");
+    expect(line).toContain('"boom"');
+    expect(line).toContain("/boom");
+    expect(line).toContain("loader exploded");
+    // The overlay already prints the stack for a document navigation.
+    expect(line).not.toContain("\n");
+  });
+
+  // A client-side navigation fetches route state; the browser shows its own
+  // error and the terminal is the only place the developer can see the cause.
+  it("logs a route-state failure that never reaches the overlay", async () => {
+    const state = await render(
+      {
+        loader: () => {
+          throw new Error("state exploded");
+        },
+        Component: () => null,
+      },
+      {
+        request: {
+          headers: {
+            accept: "application/json",
+            host: "localhost",
+            "x-pracht-route-state-request": "1",
+          },
+          method: "GET",
+          url: "/boom",
+        } as unknown as IncomingMessage,
+      },
+    );
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    expect((state.logger.error.mock.calls[0] as [string])[0]).toContain("state exploded");
+  });
+
+  // An app-owned ErrorBoundary renders the app's error UI, but the failure is
+  // still a server-side failure the developer needs to see.
+  it("logs exactly once when an ErrorBoundary owns the response", async () => {
+    const state = await render({
+      Component: () => {
+        throw new Error("boundary exploded");
+      },
+      ErrorBoundary: ({ error }: { error: Error }) => h("p", null, error.message),
+    });
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+  });
+
+  // `throw notFound()` without a not-found page is a routing outcome; a thrown
+  // redirect never reaches the error path at all.
+  it("stays quiet for an expected not-found", async () => {
+    const notFound = Object.assign(new Error("Not Found"), {
+      name: "PrachtHttpError",
+      status: 404,
+    });
+    const state = await render({
+      loader: () => {
+        throw notFound;
+      },
+      Component: () => null,
+    });
+
+    expect(state.logger.error).not.toHaveBeenCalled();
   });
 
   // `pracht dev` passes debugErrors unconditionally; the runtime ignores it

@@ -55,7 +55,7 @@ function createServerMod(
 function createStubServer(serverMod: ReturnType<typeof createServerMod>) {
   const warn = vi.fn();
   const server = {
-    config: { logger: { warn }, root: "/tmp/pracht-devtools-test" },
+    config: { logger: { error: vi.fn(), warn }, root: "/tmp/pracht-devtools-test" },
     ssrFixStacktrace: () => {},
     ssrLoadModule: async (id: string) => {
       if (id === "@pracht/core/server") return frameworkServer;
@@ -86,6 +86,9 @@ function createResponse() {
       state.body = String(body ?? "");
       state.ended = true;
       state.statusCode = res.statusCode;
+    },
+    removeHeader(name: string) {
+      delete headers[name.toLowerCase()];
     },
     setHeader(name: string, value: unknown) {
       headers[name.toLowerCase()] = String(value);

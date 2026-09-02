@@ -535,8 +535,11 @@ the default security headers. `createEventStream(request)` from
 the framing alone), and wires disconnect cleanup to both signals a runtime can
 deliver: `request.signal` aborting and the body stream being cancelled. In dev,
 the SSR middleware detects `text/event-stream` and pipes instead of buffering —
-buffering would never terminate. The client half is the `useEventSource()`
-hook. End-to-end example: `examples/basic` (`/live` + `src/api/live.ts`);
+buffering would never terminate. (Since only `text/html` is buffered for Vite's
+HTML transform, every other dev response streams as bytes too; the SSE branch
+stays separate because it must also skip the error-overlay checks.) The client
+half is the `useEventSource()` hook.
+End-to-end example: `examples/basic` (`/live` + `src/api/live.ts`);
 recipe: `examples/docs/src/routes/docs/recipes-streaming.md`.
 
 ---

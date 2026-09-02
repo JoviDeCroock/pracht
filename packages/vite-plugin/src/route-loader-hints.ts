@@ -359,7 +359,15 @@ function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): 
 
   for (const entry of entries) {
     const abs = join(dir, entry);
-    const stat = statSync(abs);
+    // An editor replacing a file, or a stale symlink, makes `statSync` throw
+    // mid-scan. Skipping that entry keeps the rest of the hint table intact;
+    // letting it escape used to discard every hint the scan had collected.
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch {
+      continue;
+    }
     if (stat.isDirectory()) {
       scanRouteFiles(abs, files, extensions);
       continue;
