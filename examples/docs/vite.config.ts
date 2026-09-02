@@ -16,7 +16,18 @@ export default defineConfig({
   plugins: [
     prachtContent({ collections: [docsContent] }),
     prachtImage(),
-    sitemap({ origin: SITE_ORIGIN, routesFile }),
+    sitemap({
+      origin: SITE_ORIGIN,
+      routesFile,
+      // Retired "Agents" pages kept alive as redirects — see src/routes.ts.
+      excludePaths: [
+        "/docs/llms",
+        "/docs/agent-workflow",
+        "/docs/agent-skills",
+        "/docs/mcp",
+        "/docs/remote-mcp",
+      ],
+    }),
     agentSkills({ origin: SITE_ORIGIN, skillsDir }),
     pracht({ adapter: cloudflareAdapter() }),
   ],

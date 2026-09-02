@@ -649,7 +649,7 @@ pracht eval --start "pracht preview"    # add --json for machine-readable CI out
 pracht eval --url http://localhost:3000
 ```
 
-A scenario that sets `"transport": "mcp"` runs the same steps against your app's [remote MCP endpoint](/docs/remote-mcp) instead — a real `initialize` handshake followed by one `tools/call` per step — so an `expose.mcp` capability is tested the way an MCP host would actually reach it, not through the HTTP projection standing in for it.
+A scenario that sets `"transport": "mcp"` runs the same steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead — a real `initialize` handshake followed by one `tools/call` per step — so an `expose.mcp` capability is tested the way an MCP host would actually reach it, not through the HTTP projection standing in for it.
 
 See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for a complete worked example — five capabilities with unit, E2E, and eval coverage over both transports.
 

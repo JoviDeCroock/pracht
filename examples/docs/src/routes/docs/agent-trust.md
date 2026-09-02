@@ -6,8 +6,8 @@ prev:
   href: /docs/capabilities
   title: Capabilities
 next:
-  href: /docs/remote-mcp
-  title: Remote MCP
+  href: /docs/coding-agents
+  title: Coding Agents
 ---
 
 > **Manifest router only.** `defineApp({ agents })` is the configuration seam for Web Bot Auth, confirmation, and remote MCP, so none of it is available to [pages-router](/docs/routing#what-the-pages-router-does-not-have) apps.
@@ -107,7 +107,7 @@ export default defineCapability({
 
 ## OAuth on the Remote MCP Endpoint
 
-Web Bot Auth answers "which agent software is this?". It does not answer "which user is it acting for" — that is an OAuth question, and on the [remote MCP endpoint](/docs/remote-mcp) it has a standard answer.
+Web Bot Auth answers "which agent software is this?". It does not answer "which user is it acting for" — that is an OAuth question, and on the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) it has a standard answer.
 
 `defineApp({ agents: { mcp: { auth } } })` turns `/mcp` into an OAuth 2.0 protected resource: it publishes RFC 9728 metadata at `/.well-known/oauth-protected-resource`, answers unauthenticated calls with the `WWW-Authenticate` challenge MCP hosts follow, and hands the presented token to a `verify` module you supply.
 
@@ -130,13 +130,13 @@ pracht stays the resource server. It does not validate JWTs, fetch JWKS, or issu
 
 `CapabilityAuditEvent` does not yet carry `tokenAuth`, so audited MCP dispatches name the calling software but not the account behind it. Capture the principal in named middleware or capability code while request context is available and send it to the same audit sink until the event gains a field for it.
 
-The full setup — the metadata document, the challenge table, a JWKS `verify` recipe, and the fail-closed rules — is on the [Remote MCP page](/docs/remote-mcp#oauth-letting-a-real-host-connect).
+The full setup — the metadata document, the challenge table, a JWKS `verify` recipe, and the fail-closed rules — is on the [Capabilities page](/docs/capabilities#oauth-letting-a-real-host-connect).
 
 ---
 
 ## Destructive Capabilities: Prepare/Commit
 
-Capabilities declaring `effect: "destructive"` (delete, publish, pay, send) may be exposed over HTTP and over [remote MCP](/docs/remote-mcp#destructive-tools), never as a WebMCP page tool, and every dispatch is confirmation-gated. Set `PRACHT_CONFIRMATION_SECRET` in the server environment; without it, destructive calls fail closed. For Cloudflare local preview, put the value in a gitignored `.dev.vars` file — prefixing `pracht preview` with a host environment variable does not create a Worker binding.
+Capabilities declaring `effect: "destructive"` (delete, publish, pay, send) may be exposed over HTTP and over [remote MCP](/docs/capabilities#destructive-tools), never as a WebMCP page tool, and every dispatch is confirmation-gated. Set `PRACHT_CONFIRMATION_SECRET` in the server environment; without it, destructive calls fail closed. For Cloudflare local preview, put the value in a gitignored `.dev.vars` file — prefixing `pracht preview` with a host environment variable does not create a Worker binding.
 
 The first call never runs the capability — it answers with a short-lived token:
 
@@ -172,7 +172,7 @@ if (confirmationToken) {
 }
 ```
 
-A browser host's approval UX is not a security boundary, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it. Remote MCP is different: the same server-verified exchange happens on `tools/call`, with the token in `_meta["io.pracht/confirmation"]` instead of a header. It stays off by default and needs [two more opt-ins](/docs/remote-mcp#destructive-tools): `agents.mcp.destructive` and a registered approval store, because a token handed to a remote agent has to be consumable exactly once.
+A browser host's approval UX is not a security boundary, so destructive capabilities cannot be exposed over WebMCP — `defineCapability()`, the runtime, and `pracht verify` all enforce it. Remote MCP is different: the same server-verified exchange happens on `tools/call`, with the token in `_meta["io.pracht/confirmation"]` instead of a header. It stays off by default and needs [two more opt-ins](/docs/capabilities#destructive-tools): `agents.mcp.destructive` and a registered approval store, because a token handed to a remote agent has to be consumable exactly once.
 
 Two things a stateless HMAC cannot do on its own: stop a captured token being replayed until it expires, and prove a *person* agreed — the calling agent receives the token and can hand it straight back to itself. Registering an approval store fixes replay; enabling human mode additionally requires a person's decision.
 
@@ -459,7 +459,7 @@ if (import.meta.hot) {
 }
 ```
 
-Both modules are server-only. Import them from an eagerly loaded server module: the configured adapter `createContextFrom` module is one portable option, and a custom server entry can import them directly. Route, API, middleware, and `src/server/` registry modules are lazy, so importing the sink only from an unrelated registered module can miss earlier capability calls. See [Logging and observability](/docs/recipes-logging) for the surrounding request-level tracing setup.
+Both modules are server-only. Import them from an eagerly loaded server module: the configured adapter `createContextFrom` module is one portable option, and a custom server entry can import them directly. Route, API, middleware, and `src/server/` registry modules are lazy, so importing the sink only from an unrelated registered module can miss earlier capability calls. See [Logging and observability](/docs/recipes/logging) for the surrounding request-level tracing setup.
 
 ### Watching Agent Traffic In Dev
 
@@ -551,7 +551,7 @@ pracht eval --url http://localhost:3000
 
 ### The Same Scenario Over Remote MCP
 
-An `expose.mcp` capability is only proven when an MCP host can actually call it. Add one line and the same scenario runs over the [remote MCP endpoint](/docs/remote-mcp) instead: the runner performs a real `initialize` handshake, then issues every step as a `tools/call` with the projected tool name (`notes.search` → `notes_search`).
+An `expose.mcp` capability is only proven when an MCP host can actually call it. Add one line and the same scenario runs over the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead: the runner performs a real `initialize` handshake, then issues every step as a `tools/call` with the projected tool name (`notes.search` → `notes_search`).
 
 ```jsonc [evals/notes-mcp.eval.json]
 {
@@ -575,6 +575,6 @@ An `expose.mcp` capability is only proven when an MCP host can actually call it.
 
 Expectations mean the same thing on both transports — including `status`. `ok` is the tool result's `isError` inverted, `output` matches its `structuredContent`, `errorCode` reads the error metadata the projection attaches to a failed call, and `status` is the **capability dispatch status**, which the projection reports alongside the result. It is deliberately not the JSON-RPC POST status: every answered `tools/call` is a transport-level `200`, so asserting that would let `"status": 200` pass on a call that failed. Scenarios stay portable between transports as a result. A `signAs` identity signs the JSON-RPC POSTs exactly as it signs HTTP requests, so an `agentPolicy: "require"` capability is provable over MCP too. `mcpHeaders.authorization` is sent on `initialize`, the initialized notification, and every tool call; a step-level authorization header overrides it for that call. Keep production tokens out of committed scenarios and inject a test token when CI writes the file.
 
-Transport differences fail loudly rather than quietly. A capability the endpoint does not project — anything without `expose.mcp` — fails the scenario with the tool name it looked for and what to do about it. Destructive confirmation scenarios work when the app enables [`agents.mcp.destructive` and an approval store](/docs/remote-mcp#destructive-tools): the `confirm` token rides in the call's `_meta["io.pracht/confirmation"]` field, since MCP has no per-call header channel. Step `headers` remain limited: the projection forwards only `authorization`, so any other header on an MCP step fails the scenario instead of silently never arriving.
+Transport differences fail loudly rather than quietly. A capability the endpoint does not project — anything without `expose.mcp` — fails the scenario with the tool name it looked for and what to do about it. Destructive confirmation scenarios work when the app enables [`agents.mcp.destructive` and an approval store](/docs/capabilities#destructive-tools): the `confirm` token rides in the call's `_meta["io.pracht/confirmation"]` field, since MCP has no per-call header channel. Step `headers` remain limited: the projection forwards only `authorization`, so any other header on an MCP step fails the scenario instead of silently never arriving.
 
 The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing the full dispatch pipeline with `createCapabilityTestHost()` — including this confirmation flow and simulated agent identities — plus Playwright patterns, faking the WebMCP API, and signing Web Bot Auth requests in tests.

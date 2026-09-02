@@ -22,6 +22,14 @@ export interface SitemapPluginOptions {
   lastmod?: string;
   /** Extra paths to include (e.g. manually-managed sections). */
   extraPaths?: string[];
+  /**
+   * Paths declared in the manifest that must stay out of the sitemap.
+   *
+   * The retired docs URLs are still routed so old links keep working, but they
+   * only 308 to their replacement. Advertising a redirect as a canonical page
+   * would ask every crawler to index a URL that never renders anything.
+   */
+  excludePaths?: string[];
 }
 
 function extractRoutePaths(source: string): string[] {
@@ -73,9 +81,12 @@ function escapeXml(value: string): string {
 
 export function sitemap(options: SitemapPluginOptions): Plugin {
   const origin = options.origin.replace(/\/$/, "");
+  const excluded = new Set(options.excludePaths ?? []);
   const generate = () => {
     const source = readFileSync(options.routesFile, "utf-8");
-    const paths = [...extractRoutePaths(source), ...(options.extraPaths ?? [])];
+    const paths = [...extractRoutePaths(source), ...(options.extraPaths ?? [])].filter(
+      (path) => !excluded.has(path),
+    );
     return buildSitemap(origin, paths, options.lastmod);
   };
 
