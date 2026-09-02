@@ -1266,6 +1266,54 @@ describe("handlePrachtRequest cache variance", () => {
     expect(capturedUrl?.searchParams.has("_data")).toBe(false);
   });
 
+  // `args.url` was cleaned and `args.request.url` was not, so a loader reading
+  // the query through the request saw a parameter the framework had already
+  // decided was not part of the URL — and two loaders on the same route could
+  // disagree about it depending on which one they read.
+  it("strips _data from the request loaders and middleware receive, not just from url", async () => {
+    let capturedUrl: URL | undefined;
+    let capturedRequestUrl: string | undefined;
+    let middlewareRequestUrl: string | undefined;
+    const app = defineApp({
+      middleware: { audit: "./middleware/audit.ts" },
+      routes: [route("/pricing", "./routes/pricing.tsx", { middleware: ["audit"], render: "ssr" })],
+    });
+
+    const response = await handlePrachtRequest({
+      app,
+      registry: {
+        middlewareModules: {
+          "./middleware/audit.ts": async () => ({
+            middleware: (args: { request: Request }, next: () => Promise<Response>) => {
+              middlewareRequestUrl = args.request.url;
+              return next();
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/pricing.tsx": async () => ({
+            Component: () => h("main", null, "test"),
+            loader: async (args: { request: Request; url: URL }) => {
+              capturedUrl = args.url;
+              capturedRequestUrl = args.request.url;
+              return {};
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/pricing?plan=pro&_data=1", {
+        headers: { "sec-fetch-site": "same-origin" },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(capturedRequestUrl).toBe("http://localhost/pricing?plan=pro");
+    expect(capturedRequestUrl).toBe(capturedUrl?.toString());
+    expect(middlewareRequestUrl).toBe(capturedRequestUrl);
+    // The route-state contract itself is unchanged: the param still selects it.
+    expect(response.headers.get("content-type")).toContain("application/json");
+  });
+
   it("encodes middleware redirects as JSON for route-state requests", async () => {
     const app = defineApp({
       middleware: {

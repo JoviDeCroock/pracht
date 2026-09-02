@@ -524,7 +524,13 @@ runtime-context.ts — hydration state reader and Preact runtime provider
     ↑
 runtime-hooks.ts — public browser hooks/components (Link, Form, useRevalidate, etc.)
     ↑
-runtime.ts      — SSR handler and prerendering (static import of app.ts)
+runtime-request.ts — front half of the server pipeline: createRequestContext,
+                     dispatchApi, dispatchAgentSurface (owns HandlePrachtRequestOptions)
+    ↑
+runtime-page.ts — back half: renderPage (middleware → loader → head/headers →
+                  route-state JSON, SPA shell, or server-rendered document)
+    ↑
+runtime.ts      — handlePrachtRequest orchestrator + the public runtime re-exports
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
@@ -578,14 +584,22 @@ The published core package also exposes small browser-oriented entries:
   well — a name missing there is unreachable from the browser, not merely
   untyped.
 
-**Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
-`app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic
-imports inside `prerenderApp` and `collectSSGPaths` — these were a defensive workaround
-against a perceived circular dependency that never actually existed (since `app.ts` only
-imports from `types.ts`). The dynamic imports have been replaced with static imports.
+**Important:** the server pipeline modules import `resolveApp` and
+`buildPathFromSegments` directly from `app.ts` via a static import. Earlier versions used
+`await import("./app.ts")` dynamic imports inside `prerenderApp` and `collectSSGPaths` —
+these were a defensive workaround against a perceived circular dependency that never
+actually existed (since `app.ts` only imports from `types.ts`). The dynamic imports have
+been replaced with static imports.
 
-The only intentional dynamic import in `runtime.ts` is `preact-render-to-string`, which
-is lazy-loaded to keep the SSR-only dependency out of the client bundle.
+The dynamic imports that remain on the server are deliberate and load-bearing:
+`preact-render-to-string` (kept out of the client bundle), and the agent-surface
+runtimes — `runtime-capabilities.ts`, `runtime-mcp.ts`, `runtime-agent-context.ts`,
+`runtime-agent-auth.ts` — which `runtime-request.ts` only reaches behind the
+`__PRACHT_AGENT_SURFACE__` gate. That gate is repeated in `dispatchAgentSurface` even
+though the runtime check there is redundant: the bundler can fold the define, but it
+cannot prove a runtime read off the request context is always null, and without the
+second gate a capability-free app ships the capability dispatch.
+`packages/framework/test/package-tree-shaking.test.ts` holds that line.
 
 The client router intentionally dynamic-imports `prefetch.ts` after router
 initialization. Navigation keeps the small shared cache available synchronously,
