@@ -98,7 +98,58 @@ export function Component() {
 1. `<Form method="post" action="/api/contact">` intercepts the submit event and sends data via `fetch` (no full reload).
 2. The API route handler runs server-side, validates, and returns a `Response`.
 3. `onResponse` receives the raw `Response` — read the body yourself with `await response.json()` — and the component re-renders with the result.
-4. If JavaScript is disabled, the form still works — it falls back to a native form POST.
+4. Without JavaScript the browser performs a native form POST and navigates to whatever the handler returns. The handler above returns JSON, so that lands the visitor on a raw JSON page. See [Working without JavaScript](#working-without-javascript).
+
+---
+
+## Working without JavaScript
+
+`<Form>` degrades to a native form POST, but degrading is not the same as
+working: the browser *navigates to the response*, and a `Response.json()` is a
+page of JSON.
+
+Answer a document post with a redirect instead. Enhanced submissions carry
+`x-pracht-capability-form`, so the handler can tell the two apart — and pracht
+turns a 3xx into a handshake the client router follows, so the redirect branch
+is correct for both:
+
+```ts [src/api/contact.ts]
+import { redirect, type ApiRouteArgs } from "@pracht/core";
+import { CAPABILITY_FORM_REQUEST_HEADER } from "@pracht/capabilities";
+
+export async function POST({ request }: ApiRouteArgs) {
+  const form = await request.formData();
+  const name = String(form.get("name") ?? "").trim();
+  const email = String(form.get("email") ?? "").trim();
+  const message = String(form.get("message") ?? "").trim();
+  const enhanced = request.headers.get(CAPABILITY_FORM_REQUEST_HEADER) !== null;
+
+  const errors: Record<string, string> = {};
+  if (!name) errors.name = "Name is required";
+  if (!email || !email.includes("@")) errors.email = "Valid email is required";
+  if (!message) errors.message = "Message is required";
+
+  if (Object.keys(errors).length > 0) {
+    if (enhanced) {
+      return Response.json({ ok: false, errors, values: { name, email, message } }, {
+        status: 400,
+      });
+    }
+    // No JS to render the errors, so hand them back through the URL and let
+    // the route's loader put them on the page.
+    return redirect(`/contact?invalid=${Object.keys(errors).join(",")}`, { request });
+  }
+
+  await sendContactEmail({ name, email, message });
+  return enhanced ? Response.json({ ok: true, sent: true }) : redirect("/contact/thanks", {
+    request,
+  });
+}
+```
+
+If you do not need the no-JS path, say so and keep the JSON-only handler — an
+API that only ever answers `fetch` is a reasonable choice. What is not
+reasonable is claiming both and shipping one.
 
 ---
 

@@ -358,7 +358,6 @@ Invalidate pending client loads synchronously when any server-backed switch or n
 
 ## 5. Load Translations in Your Loader
 
-<!-- snippet: partial -->
 ```tsx [src/routes/home.tsx]
 import type { HeadArgs, LoaderArgs, RouteComponentProps } from "@pracht/core";
 import { t, tPlural } from "@pracht/i18n";
@@ -417,7 +416,6 @@ Because `messages` is plain JSON, it serializes into route data and the exact sa
 
 `@pracht/i18n` is a thin layer; if you prefer zero dependencies, the original pattern is a page of code. Middleware stashes the locale on the context (or a request header), loaders read it:
 
-<!-- snippet: partial -->
 ```ts [src/i18n/index.ts]
 import en from "./en";
 import fr from "./fr";
@@ -426,7 +424,7 @@ export const translations = { en, fr } as const;
 export const defaultLocale = "en";
 export const supportedLocales = Object.keys(translations);
 
-export function t(locale: string, key: keyof typeof en): string {
+export function t(locale: string, key: keyof typeof en & string): string {
   const dict = (translations as Record<string, Record<string, string>>)[locale];
   return dict?.[key] ?? translations[defaultLocale][key] ?? key;
 }

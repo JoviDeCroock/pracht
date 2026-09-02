@@ -71,7 +71,14 @@ export function createContext({ request }: { request: Request }) {
 Register the context type once so `args.context.logger` is typed everywhere:
 
 ```ts [src/env.d.ts]
-import type { RequestLogger } from "./server/logger";
+import "@pracht/core";
+
+/** Whatever `createRequestLogger()` returns — swap in your logger's type. */
+interface RequestLogger {
+  /** Buffers one structured record; `flush()` ships them. */
+  event(fields: Record<string, unknown>): void;
+  flush(): Promise<void>;
+}
 
 declare module "@pracht/core" {
   interface Register {

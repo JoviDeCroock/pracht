@@ -80,18 +80,37 @@ documentation.
 ### Snippets on the recipe pages are typechecked
 
 `examples/docs/test/recipes-snippets.test.ts` extracts every `ts`/`tsx` fence
-from `recipes-*.md` and compiles it against the real `@pracht/*` sources, one
-TypeScript program per page. The recipes are the pages a reader copies
-verbatim, and nothing else tied them to the framework they document.
+from `recipes-*.md` and compiles it against the real `@pracht/*` sources. The
+recipes are the pages a reader copies verbatim, and nothing else tied them to
+the framework they document.
 
-It reports only what a reader would hit. Unresolved identifiers and modules are
-ignored *unless* a pracht package exports the name (`ApiRouteArgs` unimported is
-an error; an elided `db` helper is not), and `noImplicitAny` is off, because a
-recipe drops annotations on purpose.
+**A page compiles as the app it describes.** A fence labelled
+`[src/i18n/index.ts]` is written to that path, so
+`import { dictionaries } from "../i18n/index.ts"` in the same page's
+`src/routes/home.tsx` fence resolves to the page's own dictionary instead of
+collapsing to `any` — which is what makes `tPlural(messages, "cart.items", n)`
+a real check of the keys the page declares. It is also how a page's
+`src/env.d.ts` `Register` augmentation reaches its other fences, and only its
+own. A page that defines the same path twice (a recipe plus a hand-rolled
+alternative in an appendix) is compiled in layers: each redefinition opens a
+new tree carrying everything before it, and each fence is reported from the
+layer that introduced it.
+
+**It reports only what a reader would hit.** An unresolved identifier is
+ignored unless it names — or is one or two edits from — something a pracht
+package exports. `ApiRouteArgs` unimported is an error and so is
+`useRevalidat()`; an elided `db` helper is not. `noImplicitAny` is off, because
+a recipe drops annotations on purpose. A narrow stand-in for
+`@cloudflare/workers-types` lives in the test so the Cloudflare recipes are
+checked rather than collapsing to `any`; widen it when a recipe needs more.
+
+Two things guard the guard, because this test fails open: a set of cases in
+`describe("the suppression rule")` proves a typo'd export still fails and an
+elided helper still passes, and every `Register` augmentation property must
+resolve to a non-`any` type.
 
 A fence that cannot stand as a module — a bare JSX element, an object-literal
-fragment, a class body, or one whose types come from a module the page elides —
-opts out with a marker on the line above it:
+fragment, a loop body — opts out with a marker on the line above it:
 
 ````md
 <!-- snippet: partial -->
@@ -103,7 +122,10 @@ opts out with a marker on the line above it:
 ````
 
 Reach for the marker last. A missing import is the failure the test exists to
-find, and adding it is the fix; the marker is for fences that were never a file.
+find, and adding it is the fix; the marker is for fences that were never a
+file, not for ones that fail. Nothing else is skipped silently: a `ts` fence
+whose info string the extractor cannot parse fails the suite rather than
+dropping out of the gate.
 
 `PENDING_PAGES` in that test names pages not yet under the gate. A pending page
 that starts typechecking fails the suite, so the list cannot outlive the pages

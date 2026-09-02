@@ -192,7 +192,6 @@ export function GET({ request, context }: BaseRouteArgs<{ env: Env }>) {
 }
 ```
 
-<!-- snippet: partial -->
 ```ts [src/server/chat-room.ts]
 import { DurableObject } from "cloudflare:workers";
 

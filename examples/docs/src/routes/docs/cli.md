@@ -384,10 +384,26 @@ description sits in the agent's system prompt for every session whether the
 skill runs or not. `pracht skills add` is how you take the rest, one at a time.
 Pass `--agent-tools=full` at scaffold time to start with all of them.
 
-Each entry in the index carries a SHA-256 digest, and `add` verifies it before
-writing; a mismatch fails instead of installing. An already-installed skill is
-skipped unless you pass `--force`. `--index <url>` points both subcommands at a
-different catalog, and `--json` gives both machine-readable output.
+The index is treated as untrusted input, because its contents land in the
+directory your coding agent reads instructions from:
+
+- Every entry must carry a 64-character hex SHA-256, and `add` verifies the
+  downloaded body against it. An index missing a digest on any entry is
+  rejected whole, before anything is written.
+- The index and every skill URL must be `https` (plain `http` is allowed only
+  for `localhost`, so you can serve an offline mirror).
+- Skill names must match `[a-z0-9][a-z0-9-]*`, so a name from the index can
+  never resolve outside `.claude/skills/`.
+- If `.claude/skills` is a symlink, `add` refuses rather than writing through
+  it — this repository points its own at the canonical `skills/` sources, and
+  a stray `add` there would rewrite the published catalog. `--force` allows it
+  when the link still resolves inside the project; a link escaping the project
+  is always refused.
+
+An already-installed skill is skipped unless you pass `--force`. `--index <url>`
+points both subcommands at a different catalog, and `--json` gives both
+machine-readable output — `add --json` always reports `installed`, `skipped`,
+and `failed`, and exits non-zero if anything failed.
 
 ---
 
