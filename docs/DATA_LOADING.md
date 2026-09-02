@@ -220,6 +220,86 @@ a correctness bug.
   behind a getter cannot be discovered without eagerly invoking every loader
   getter, so it throws if it reaches serialization unresolved.
 
+### Server-only values — `serverOnly()` and `<StaticHtml>`
+
+Every SSR document carries loader data twice: once as the markup the render
+produced, and once as the JSON in `<script id="pracht-state">` that the client
+hydrates from. For a field whose only purpose was to become that markup, the
+second copy is the same bytes the reader already downloaded.
+
+`serverOnly()` marks the field; `<StaticHtml>` is the boundary that makes it
+readable without it:
+
+```typescript
+export async function loader({ params }: LoaderArgs) {
+  const article = await getArticle(params.slug);
+  return { title: article.title, html: serverOnly(article.html) };
+}
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  return <StaticHtml html={data.html} class="prose" />;
+}
+```
+
+How it fits together:
+
+- **The server render** sees the real value; `<StaticHtml>` unwraps it and
+  emits it through `dangerouslySetInnerHTML`, exactly as a hand-written
+  boundary would.
+- **The inline hydration state** replaces the marker with
+  `{"__prachtServerOnly":true}` — `stripServerOnlyValues()` runs at the single
+  `buildHtmlDocument()` call that carries loader data, next to where
+  `resolveDeferredData()` runs for `defer()`.
+- **Hydration** hands the browser that placeholder, and `<StaticHtml>` renders
+  an empty `dangerouslySetInnerHTML`. Preact does not write into one while
+  hydrating (`diff/index.js` guards the assignment on `!isHydrating`), so the
+  server's DOM is adopted untouched. Re-renders keep passing the same empty
+  string, which the same guard skips — the subtree is never wiped.
+- **Route-state responses** carry the real value: `toJSON()` on the marker
+  returns it, so `?_data=1` and prerendered `_pracht/state/*.json` files are
+  unchanged. A client-side navigation has no server DOM for the page it is
+  moving to, and needs it.
+
+No request moves. A route with a `head()` export or middleware already fetches
+route state on every client-side navigation (`routeNeedsServerFetch()`), so the
+value rides a request that was being made anyway. Only the duplicate in the
+initial document is eliminated.
+
+`@pracht/markdown` generates exactly this shape (see [CONTENT.md](CONTENT.md)):
+the compiled page is the route's `html` loader field, so it is reachable only
+from `loader`, which the client module transform strips.
+
+Rules:
+
+- **A `<StaticHtml>` subtree never hydrates.** Event handlers, hooks, and
+  islands inside it do not run. This is what buys the byte savings; it is not
+  an implementation gap — and it is the deciding question, not a footnote.
+  Markup that embeds interactive components is the wrong shape for this
+  boundary: a page whose Markdown contains custom elements mapped to components
+  (the `preact-markup` pattern) renders the literal custom elements instead,
+  because nothing is left to mount them. Such a page needs a hydrating renderer
+  or `hydration: "islands"`, and pays for its markup twice by design.
+- **The markup is injected raw.** Same trust model as
+  `dangerouslySetInnerHTML` — repo-authored content, or sanitized server-side.
+- **Anything other than `<StaticHtml>` reads a marked value with
+  `readServerOnly()`**, which throws on the browser's placeholder rather than
+  letting a component render a hole only in production. `head()` and
+  `headers()` run on the server and can use it freely.
+- **Return the marker from an enumerable data property.** Same rule and same
+  reason as `defer()`: a marker behind a getter is not discovered, and its
+  `toJSON()` then writes the value into the document as though it were never
+  marked.
+- **Route-state responses are not immutable-cached the way a hashed JS chunk
+  is.** For a content route whose data never changes between deploys,
+  `route({ loaderCache })` puts a `max-age` on them.
+
+One edge worth knowing: the static-export fallback document
+(`buildStaticFallbackHtml()`) copies its `notFoundData` out of the already
+rendered `404.html` state, so a marked field arrives there as a placeholder
+with no DOM to adopt. That document renders an empty body for every route by
+design and the client re-fetches route state immediately, so the boundary fills
+in on the same pass the rest of the page does.
+
 ### Redirecting from a loader
 
 A loader can answer with a `Response` instead of data — most often a redirect.

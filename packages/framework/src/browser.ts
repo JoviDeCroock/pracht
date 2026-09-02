@@ -119,6 +119,18 @@ export { Script } from "./script.ts";
 export type { ScriptProps, ScriptStrategy } from "./script.ts";
 export { defer, use } from "./defer.ts";
 export type { Deferred } from "./defer.ts";
+// All three are real here, `serverOnly()` included, even though marking a
+// value in a browser could not mean anything. This entry is not only the
+// browser's: edge adapters build their server bundle with `ssr.target:
+// "webworker"`, whose condition list includes `browser`, so a Cloudflare
+// server render resolves `@pracht/core` to this file. A loud stub would
+// therefore throw during SSR on exactly the adapters that use it most — every
+// Markdown route on Cloudflare calls `serverOnly()` while rendering. The cost
+// of keeping it is a few dozen bytes that tree-shake away unused.
+export { readServerOnly, serverOnly } from "./server-only.ts";
+export type { ServerOnly } from "./server-only.ts";
+export { StaticHtml } from "./static-html.ts";
+export type { StaticHtmlProps } from "./static-html.ts";
 export { lazy, Suspense } from "./suspense.ts";
 export { ErrorBoundary } from "./error-boundary.ts";
 export type { ErrorBoundaryComponentProps } from "./error-boundary.ts";

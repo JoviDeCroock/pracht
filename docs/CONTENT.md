@@ -87,6 +87,39 @@ Vite resource queries such as `?raw`, `?url`, `?url&inline`,
 `?url&no-inline`, `?worker`, and `?sharedworker` also retain their normal Vite
 semantics instead of being claimed by the collection route-module transform.
 
+### Generated route module shape
+
+A compiled document becomes a route module with four exports:
+
+```js
+export const markdown = "…raw source…";           // Accept: text/markdown, llms.txt
+export function head() { … }                       // frontmatter title by default
+export function loader() {                         // the compiled page
+  return { html: serverOnly(__prachtHtml) };
+}
+export function Component({ data }) {
+  return h(StaticHtml, { class: "pracht-markdown", html: data ? data.html : "" });
+}
+```
+
+`markdown`, `head`, and `loader` are all in the client module transform's
+server-only export list, so the compiled page and the raw source are pruned out
+of client builds along with them — the browser receives a route chunk of a
+couple of hundred bytes and adopts the prose the document already contains. The
+markup still reaches client-side navigations through the route-state response
+these routes already fetch for `head()`. See
+[DATA_LOADING.md](DATA_LOADING.md) for `serverOnly()` and `<StaticHtml>`.
+
+Two consequences worth knowing:
+
+- `useRouteData()` on a Markdown route returns `{ html: ServerOnly<string> }`
+  rather than `undefined`. Reading it needs `readServerOnly()` or a
+  `<StaticHtml>` boundary.
+- Relative-image assets are now discovered only during the server build, since
+  the imports live behind `loader`. `prachtImage()` already publishes
+  server-discovered static variants into the client directory from
+  `writeBundle()` — the same path `hydration: "none"` routes use.
+
 ## Registry and paths
 
 `defineCollection()` accepts an absolute `root`. It recursively discovers

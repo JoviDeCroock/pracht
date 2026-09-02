@@ -501,12 +501,18 @@ importers:
       '@pracht/content':
         specifier: workspace:*
         version: link:../content
+      '@pracht/core':
+        specifier: workspace:^
+        version: link:../framework
       '@pracht/image':
         specifier: workspace:*
         version: link:../image
       marked:
         specifier: ^18.0.0
         version: 18.0.0
+      preact:
+        specifier: ^10.0.0 || ^11.0.0-0
+        version: 10.29.1
 
   packages/openapi:
     dependencies:

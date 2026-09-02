@@ -105,7 +105,21 @@ describe("defineMarkdownCollection", () => {
 
     const module = await collection.renderModule(source);
     expect(module).toContain("const __prachtHtml = renderMarkdownImages(");
-    expect(module).toContain("__html: __prachtHtml");
+    expect(module).toContain("serverOnly(__prachtHtml)");
+  });
+
+  it("serves the compiled markup as a server-only loader field", async () => {
+    const { collection, source } = await fixture("# Title\n\nBody text.");
+
+    const module = await collection.renderModule(source);
+    // The markup is reachable only from `loader`, which the client transform
+    // strips: the browser gets the prose as HTML, not a second time as JS.
+    expect(module).toContain("export function loader() {");
+    expect(module).toContain("return { html: serverOnly(__prachtHtml) };");
+    expect(module).toContain(
+      'return h(StaticHtml, { class: "pracht-markdown", html: data ? data.html : "" });',
+    );
+    expect(module).not.toContain("dangerouslySetInnerHTML");
   });
 
   it("rejects local query strings instead of ambiguously merging Vite queries", async () => {
