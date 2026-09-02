@@ -174,10 +174,30 @@ describe("the request signal handed to loaders and API handlers", () => {
 });
 
 describe("defineApp({ loaderTimeoutMs })", () => {
-  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("rejects %s", (value) => {
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("rejects %s at author time", (value) => {
     expect(() => defineApp({ loaderTimeoutMs: value, routes: [] })).toThrow(
       /positive number of milliseconds/,
     );
+  });
+
+  // That check is dev-only: it sits in `defineApp`, which the client build
+  // compiles too, and the client never reads this option. The server does, so
+  // the server re-checks — otherwise a value that only ever reaches a
+  // production build becomes `AbortSignal.timeout(NaN)` and aborts every
+  // request with nothing naming the cause.
+  it.each([0, -1, Number.NaN])("rejects %s again when the server reads it", async (value) => {
+    const app = defineApp({ routes: [route("/", "./routes/home.tsx")] });
+    (app as { loaderTimeoutMs?: number }).loaderTimeoutMs = value;
+
+    await expect(
+      handlePrachtRequest({
+        app,
+        registry: {
+          routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+        },
+        request: new Request("http://localhost/"),
+      }),
+    ).rejects.toThrow(/positive number of milliseconds/);
   });
 });
 

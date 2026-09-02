@@ -144,7 +144,7 @@ export function group(meta: GroupMeta, routes: RouteTreeNode[]): GroupDefinition
 }
 
 export function defineApp(config: PrachtAppConfig): PrachtApp {
-  assertLoaderTimeoutMs(config.loaderTimeoutMs);
+  if (VALIDATE_MANIFEST) assertLoaderTimeoutMs(config.loaderTimeoutMs);
   return {
     shells: resolveModuleRefRecord(config.shells ?? {}),
     middleware: resolveModuleRefRecord(config.middleware ?? {}),
@@ -163,21 +163,19 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
 export const DEFAULT_LOADER_TIMEOUT_MS = 30_000;
 
 /**
- * Deliberately OUTSIDE the `VALIDATE_MANIFEST` guard, for the same reason the
- * agent-policy check in `resolveApp` is: a bad value only reachable in a
- * production bundle would abort every request the moment it started, and
- * `AbortSignal.timeout(NaN)` gives no hint about where that came from. Only
- * the explanation is dev-only — `import.meta.env.DEV` folds to `false` in a
- * production client build, so shipping apps carry the short form.
+ * Dev-time manifest validation, so an author sees the mistake where they made
+ * it. The check that always runs lives on the server, in `runtime.ts`: only
+ * the server reads `loaderTimeoutMs`, and putting an unconditional check here
+ * would ship it in the client bundle of every app — `src/routes.ts` is the one
+ * module both environments compile.
  */
 function assertLoaderTimeoutMs(value: number | undefined): void {
   if (value === undefined) return;
-  if (Number.isFinite(value) && value > 0) return;
-  throw new TypeError(
-    import.meta.env?.DEV
-      ? `defineApp({ loaderTimeoutMs }) must be a positive number of milliseconds, received ${JSON.stringify(value)}.`
-      : `Invalid loaderTimeoutMs: ${String(value)}`,
-  );
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new TypeError(
+      `defineApp({ loaderTimeoutMs }) must be a positive number of milliseconds, received ${JSON.stringify(value)}.`,
+    );
+  }
 }
 
 function resolveNotFoundDefinition(

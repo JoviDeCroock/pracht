@@ -338,22 +338,33 @@ describe("published package tree shaking", () => {
     });
   });
 
-  // `src/routes.ts` is the one module both environments compile, so most of
-  // `defineApp`'s validation folds away in a production client build. The
-  // `loaderTimeoutMs` check must not: a bad value there aborts every request
-  // the moment it starts, and `AbortSignal.timeout(NaN)` names nothing.
-  describe("defineApp validation in a production bundle", () => {
+  // `src/routes.ts` is the one module both environments compile, so a check
+  // written next to the option in `defineApp()` is paid for by every page.
+  // Only the server reads `loaderTimeoutMs`, so that is where the check that
+  // always runs lives — a bad value reaching production must still fail loudly
+  // rather than turning into `AbortSignal.timeout(NaN)`.
+  describe("loaderTimeoutMs validation", () => {
     const production = { define: { "import.meta.env.DEV": "false" } };
 
-    it("keeps the loaderTimeoutMs check after dev-only validation is folded out", async () => {
-      const { code } = await bundleExport("defineApp", production);
+    it("survives on the server after dev-only manifest validation folds out", async () => {
+      const { code } = await bundleExport("handlePrachtRequest", {
+        ...production,
+        entry: serverEntry,
+      });
 
-      expect(code).toContain("Invalid loaderTimeoutMs");
-      // The explanation is dev-only; only the short form ships.
-      expect(code).not.toContain("positive number of milliseconds");
+      expect(code).toContain("must be a positive number of milliseconds");
     });
 
-    it("drops the manifest validation that is dev-only", async () => {
+    it("costs a production client bundle nothing", async () => {
+      const { code } = await bundleExport("defineApp", production);
+
+      // The manifest still carries the value through to the server; what must
+      // not ship is the check and the sentence explaining it.
+      expect(code).not.toContain("positive number of milliseconds");
+      expect(code).not.toContain("isFinite");
+    });
+
+    it("drops the rest of the manifest validation from the client too", async () => {
       const { code } = await bundleExport("defineApp", production);
 
       expect(code).not.toContain("is not a registered");

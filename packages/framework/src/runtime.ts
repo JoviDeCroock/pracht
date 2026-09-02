@@ -182,6 +182,23 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
 /**
+ * The request budget, validated at the point the server actually uses it.
+ *
+ * `defineApp()` checks the same value, but only under dev-time manifest
+ * validation: that call site is compiled into the client bundle too, and the
+ * client never reads this option. A bad value that only reaches a production
+ * build would otherwise become `AbortSignal.timeout(NaN)` — every request
+ * aborting instantly, with nothing in the failure naming the cause.
+ */
+function resolveLoaderTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_LOADER_TIMEOUT_MS;
+  if (Number.isFinite(value) && value > 0) return value;
+  throw new TypeError(
+    `defineApp({ loaderTimeoutMs }) must be a positive number of milliseconds, received ${JSON.stringify(value)}.`,
+  );
+}
+
+/**
  * The `AbortSignal` handed to middleware, loaders, and API route handlers.
  *
  * Two independent reasons to stop the work are folded into one signal: the
@@ -465,7 +482,7 @@ export async function handlePrachtRequest<TContext>(
   // no dynamic pattern can consume the synthetic request, and passes the real
   // table separately so the shell's links still build.
   const hrefRoutes = resolvedApp.hrefRoutes ?? resolvedApp.routes;
-  const loaderTimeoutMs = resolvedApp.loaderTimeoutMs ?? DEFAULT_LOADER_TIMEOUT_MS;
+  const loaderTimeoutMs = resolveLoaderTimeoutMs(resolvedApp.loaderTimeoutMs);
   // The route-state endpoint returns loader output as JSON. Two entry
   // points into it: the explicit header (only settable via fetch, so the
   // browser forces CORS preflight cross-origin) and the `_data=1` query
