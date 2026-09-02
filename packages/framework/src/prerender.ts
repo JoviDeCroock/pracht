@@ -165,7 +165,7 @@ export async function prerenderApp(
                 `document request returned status ${response.status}. ` +
                 "Fix the loader, shell, or middleware that failed — the route would otherwise " +
                 "fall back to a live render and return the same error to every visitor." +
-                describeRenderError(renderError),
+                describeRenderError(renderError, options.app.loaderTimeoutMs),
               renderError === undefined ? undefined : { cause: renderError },
             );
           }

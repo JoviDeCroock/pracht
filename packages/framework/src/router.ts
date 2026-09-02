@@ -36,6 +36,7 @@ import {
   normalizeSpeculation,
   supportsSpeculationRules,
 } from "./runtime-speculation.ts";
+import { MAX_REDIRECT_HOPS, resolveRedirectTarget } from "./router-redirects.ts";
 import {
   createScrollPositionStore,
   generateScrollKey,
@@ -158,19 +159,11 @@ interface InternalNavigateOptions extends NavigateOptions {
   _staticFallback?: boolean;
   /**
    * How many loader redirects this navigation has already followed. Chains
-   * longer than {@link MAX_REDIRECT_HOPS} stop with an error instead of
-   * recursing forever, matching how the browser bounds a document redirect
-   * chain.
+   * longer than `MAX_REDIRECT_HOPS` stop with an error instead of recursing
+   * forever, matching how the browser bounds a document redirect chain.
    */
   _redirectHop?: number;
 }
-
-/**
- * Redirect hops one client navigation may follow before giving up. Twenty is
- * the limit browsers apply to document redirects, so a chain a full page load
- * would survive is a chain client navigation survives too.
- */
-const MAX_REDIRECT_HOPS = 20;
 
 interface InternalNavigateFn {
   (to: string, options?: InternalNavigateOptions): Promise<void>;
@@ -238,10 +231,27 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   let updateRouteState: ((state: StateUpdater<RouteRenderState>) => void) | null = null;
   let routeStateVersion = 0;
   let activeRouteStateVersion = 0;
+
+  // Which navigation is the live one. `latestNavigationId` is compared at every
+  // await point in `navigate()` — a superseded navigation must not commit — and
+  // the controller aborts the route-state fetch the one it replaced started.
   let latestNavigationId = 0;
   let activeNavigationAbort: AbortController | null = null;
 
-  // --- Scroll restoration -------------------------------------------------
+  // --- History-entry bookkeeping -------------------------------------------
+  // Four values that have to stay in step: the scroll key of the entry on
+  // screen, that entry's monotonic index, the path+query the router has
+  // rendered, and the path+query+fragment a navigation guard is told it is
+  // leaving. Every one of them used to be written inline at five call sites,
+  // which is how a popstate ends up restoring the wrong scroll position or a
+  // guard gets told the wrong "from". They are written only through the named
+  // operations below.
+  //
+  // They stay closure locals rather than moving to a module behind an object:
+  // a minifier renames a local to one character and cannot rename a property,
+  // and this is the client bundle's critical path — the same reason the
+  // defines above are declared in this file.
+  //
   // The router owns scrolling: positions are keyed per history entry (via a
   // key stored on `history.state`) and persisted in sessionStorage so they
   // survive reloads and back-navigation from external documents.
@@ -272,12 +282,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  function saveScrollPosition(): void {
-    scrollStore.set(currentScrollKey, { x: window.scrollX, y: window.scrollY });
-  }
-
-  window.addEventListener("pagehide", saveScrollPosition);
-
   // The document (path + query) the router currently has rendered. Used on
   // popstate to tell a same-document fragment navigation apart from a
   // traversal that needs the route re-resolved.
@@ -288,6 +292,48 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   let currentBrowserHref = BLOCKER_ENABLED
     ? window.location.pathname + window.location.search + window.location.hash
     : "";
+
+  function saveScrollPosition(): void {
+    scrollStore.set(currentScrollKey, { x: window.scrollX, y: window.scrollY });
+  }
+
+  window.addEventListener("pagehide", saveScrollPosition);
+
+  /**
+   * Push a new entry with a fresh scroll key and the next index.
+   *
+   * `tolerateFailure` is for the caller that can still do something useful
+   * when an embedder restricts history mutation — the fragment scroll lands,
+   * the entry just is not recorded. A navigation cannot: it would commit a
+   * route the URL bar disagrees with, so the throw propagates.
+   */
+  function pushHistoryEntry(url: string, tolerateFailure?: boolean): void {
+    const nextScrollKey = generateScrollKey();
+    let entryState = withScrollKeyInHistoryState(null, nextScrollKey);
+    if (BLOCKER_ENABLED) {
+      currentHistoryIndex = (currentHistoryIndex ?? 0) + 1;
+      entryState = withHistoryIndex(entryState, currentHistoryIndex);
+    }
+    try {
+      history.pushState(entryState, "", url);
+      currentScrollKey = nextScrollKey;
+    } catch (error: unknown) {
+      if (!tolerateFailure) throw error;
+    }
+  }
+
+  /**
+   * Entry indices the router is traversing back to after a guard refused a
+   * traversal. The browser fires `popstate` for that correction too, and it is
+   * not a navigation.
+   *
+   * Keyed by index rather than a single "skip the next one" flag: two rapid
+   * back/forward presses put two popstates in the queue ahead of the
+   * correction, so a positional flag was spent on whichever arrived first —
+   * swallowing a real traversal and then processing the router's own
+   * correction as one.
+   */
+  const pendingTraversalCorrections = BLOCKER_ENABLED ? new Set<number>() : null;
 
   function restoreOrResetScroll(
     opts: InternalNavigateOptions | undefined,
@@ -360,19 +406,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     if (url.href !== previousUrl) {
       // The entry being left keeps the position it was actually at.
       saveScrollPosition();
-      const nextScrollKey = generateScrollKey();
-      try {
-        let entryState = withScrollKeyInHistoryState(null, nextScrollKey);
-        if (BLOCKER_ENABLED) {
-          currentHistoryIndex = (currentHistoryIndex ?? 0) + 1;
-          entryState = withHistoryIndex(entryState, currentHistoryIndex);
-        }
-        history.pushState(entryState, "", url.pathname + url.search + url.hash);
-        currentScrollKey = nextScrollKey;
-      } catch {
-        // History mutation restricted — the scroll below still lands, the
-        // entry just is not recorded.
-      }
+      pushHistoryEntry(url.pathname + url.search + url.hash, true);
     }
     currentDocumentPath = url.pathname + url.search;
     if (BLOCKER_ENABLED) currentBrowserHref = url.pathname + url.search + url.hash;
@@ -526,43 +560,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       routeId: match.route.id ?? "",
       url: currentUrl,
       version: ++routeStateVersion,
-    };
-  }
-
-  function resolveRedirectTarget(location: string): {
-    documentUrl?: string;
-    externalUrl?: string;
-    internalPath?: string;
-    isCurrentLocation: boolean;
-    unsafe?: boolean;
-  } {
-    const targetUrl = parseSafeNavigationUrl(location, window.location.href);
-    if (!targetUrl) {
-      return { isCurrentLocation: false, unsafe: true };
-    }
-    const fullInternalTarget = targetUrl.pathname + targetUrl.search + targetUrl.hash;
-    const internalPath = targetUrl.pathname + targetUrl.search;
-    const currentPath = window.location.pathname + window.location.search + window.location.hash;
-    const isCurrentLocation =
-      targetUrl.origin === window.location.origin && fullInternalTarget === currentPath;
-
-    if (targetUrl.origin !== window.location.origin) {
-      return {
-        externalUrl: targetUrl.toString(),
-        isCurrentLocation: false,
-      };
-    }
-
-    if (targetUrl.hash) {
-      return {
-        documentUrl: targetUrl.toString(),
-        isCurrentLocation,
-      };
-    }
-
-    return {
-      internalPath,
-      isCurrentLocation,
     };
   }
 
@@ -762,14 +759,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           }
           history.replaceState(entryState, "", target.browserUrl);
         } else {
-          const nextScrollKey = generateScrollKey();
-          let entryState = withScrollKeyInHistoryState(null, nextScrollKey);
-          if (BLOCKER_ENABLED) {
-            currentHistoryIndex = (currentHistoryIndex ?? 0) + 1;
-            entryState = withHistoryIndex(entryState, currentHistoryIndex);
-          }
-          history.pushState(entryState, "", target.browserUrl);
-          currentScrollKey = nextScrollKey;
+          pushHistoryEntry(target.browserUrl);
         }
         const hashIndex = target.browserUrl.indexOf("#");
         currentDocumentPath =
@@ -802,6 +792,165 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     } finally {
       settleNavigation(navigationToken);
     }
+  }
+
+  /**
+   * Decide what a click on an anchor means: a navigation the browser keeps, an
+   * in-page fragment commit, or a client navigation.
+   */
+  function handleLinkClick(e: MouseEvent): void {
+    const anchor = (e.target as Element).closest?.("a");
+    if (!anchor) return;
+
+    // Skip modified clicks (new tab, etc.)
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (e.defaultPrevented) return;
+    if (e.button !== 0) return;
+
+    // Skip if target opens a new window
+    const target = anchor.getAttribute("target");
+    if (target && target !== "_self") return;
+
+    // Skip download links
+    if (anchor.hasAttribute("download")) return;
+
+    const href = anchor.getAttribute("href");
+    if (!href) return;
+
+    // Resolve relative URLs against the current document, matching native
+    // anchor behavior. This also keeps `href="about"` and query-only links
+    // inside a sub-path deploy base.
+    const isFragmentHref = href.startsWith("#");
+    let url: URL;
+    try {
+      url = new URL(href, window.location.href);
+    } catch {
+      return;
+    }
+
+    // Skip external origins
+    if (url.origin !== window.location.origin) return;
+
+    // In-page fragment navigation: same document, only the fragment differs.
+    // Handled before the speculation check below because no document is
+    // fetched here, so prerendering has nothing to activate.
+    const isSameDocument =
+      url.pathname + url.search === window.location.pathname + window.location.search;
+    if (isSameDocument && (url.hash !== "" || isFragmentHref)) {
+      e.preventDefault();
+      commitFragmentNavigation(url, anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE));
+      return;
+    }
+
+    // If the destination route opted into `prerender` speculation rules, let
+    // the browser perform a normal navigation so it can activate the
+    // prerendered document. Intercepting here would cancel the activation
+    // and force a redundant SPA fetch of the route-state JSON. Anchors the
+    // rules exclude (`rel="nofollow"`, `data-pracht-speculate="off"`) have no
+    // prerendered document to activate, so they stay on the SPA path.
+    const targetMatch = matchResolvedRoute(app, stripBase(url.pathname) ?? url.pathname);
+    if (targetMatch && supportsSpeculationRules() && !isSpeculationSuppressed(anchor)) {
+      const spec = normalizeSpeculation(targetMatch.route.speculation);
+      if (spec?.mode === "prerender") return;
+    }
+
+    e.preventDefault();
+    const navOptions: NavigateOptions = {};
+    if (anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE)) navOptions.preserveScroll = true;
+    if (anchor.hasAttribute(VIEW_TRANSITION_ATTRIBUTE)) navOptions.viewTransition = true;
+    navigate(url.pathname + url.search + url.hash, navOptions);
+  }
+
+  function handlePopstate(): void {
+    const traversedToIndex = BLOCKER_ENABLED ? readHistoryIndex(history.state) : null;
+
+    if (traversedToIndex !== null && pendingTraversalCorrections?.delete(traversedToIndex)) {
+      // The router put this entry back itself. Re-adopting the index keeps the
+      // cursor honest when several traversals raced the correction.
+      currentHistoryIndex = traversedToIndex;
+      return;
+    }
+
+    // An entry with no index was not created by this router, so how far the
+    // browser moved is unknown — and a traversal whose distance cannot be
+    // measured cannot be put back. Those pass unguarded rather than being
+    // blocked into a history position nobody asked for.
+    if (traversedToIndex !== null && currentHistoryIndex !== null) {
+      const currentIndex = currentHistoryIndex;
+      const delta = traversedToIndex - currentIndex;
+      if (
+        delta !== 0 &&
+        isBlocked(currentBrowserHref, window.location.href, "pop", () => {
+          history.go(delta);
+        })
+      ) {
+        pendingTraversalCorrections?.add(currentIndex);
+        history.go(-delta);
+        return;
+      }
+    }
+
+    // Adopted here rather than at the bottom so the same-document fragment
+    // branch below, which returns early, does not leave the router pointing at
+    // the index of an entry it is no longer on.
+    if (BLOCKER_ENABLED) currentHistoryIndex = traversedToIndex;
+
+    // The history entry already changed, but the on-screen scroll position
+    // still belongs to the entry we are leaving — save it under its key
+    // before adopting the new entry's key. A same-document fragment
+    // navigation fires popstate *before* the browser scrolls to the fragment,
+    // so this still records where the outgoing entry actually was.
+    saveScrollPosition();
+
+    let nextScrollKey = readScrollKeyFromHistoryState(history.state);
+    const nextDocumentPath = window.location.pathname + window.location.search;
+    // A fragment navigation the router did not commit itself — `location.hash
+    // = "…"`, or an anchor click it never saw — fires popstate for a brand new
+    // entry rather than a traversal. Two signals separate the cases: the router
+    // stamps a scroll key into `history.state` for every entry it creates, so a
+    // missing key means this entry came from somewhere else; and a fragment
+    // navigation cannot change the path or query. Requiring both means an
+    // entry whose state was wiped by app code (a stray
+    // `history.replaceState(null, …)`) is still re-resolved when the route
+    // really did change.
+    //
+    // Link clicks no longer reach this branch: they are committed in the click
+    // handler, because a repeat click on the fragment you are already at reuses
+    // the entry and so arrives here indistinguishable from a traversal.
+    const isFragmentNavigation = !nextScrollKey && nextDocumentPath === currentDocumentPath;
+
+    if (!nextScrollKey) {
+      nextScrollKey = generateScrollKey();
+      try {
+        history.replaceState(
+          withScrollKeyInHistoryState(history.state, nextScrollKey),
+          "",
+          window.location.href,
+        );
+      } catch {
+        // History mutation restricted — restoration degrades to scroll-to-top.
+      }
+    }
+    currentScrollKey = nextScrollKey;
+
+    if (isFragmentNavigation) {
+      // The same route is already rendered, so there is nothing to
+      // re-resolve, and this entry has no saved position to restore. The
+      // browser's own scroll to the fragment is about to happen — treating
+      // this as a traversal would undo it. Focus still needs help: see
+      // `focusFragmentTarget`.
+      const fragmentTarget = findFragmentTarget(document, window.location.hash);
+      if (fragmentTarget) focusFragmentTarget(fragmentTarget);
+      return;
+    }
+
+    currentDocumentPath = nextDocumentPath;
+    if (BLOCKER_ENABLED) {
+      currentBrowserHref = window.location.pathname + window.location.search + window.location.hash;
+    }
+    navigate(window.location.pathname + window.location.search + window.location.hash, {
+      _popstate: true,
+    });
   }
 
   // Static-export SPA fallback document (200.html): the host serves it for
@@ -968,161 +1117,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  document.addEventListener("click", (e: MouseEvent) => {
-    const anchor = (e.target as Element).closest?.("a");
-    if (!anchor) return;
+  document.addEventListener("click", handleLinkClick);
 
-    // Skip modified clicks (new tab, etc.)
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    if (e.defaultPrevented) return;
-    if (e.button !== 0) return;
-
-    // Skip if target opens a new window
-    const target = anchor.getAttribute("target");
-    if (target && target !== "_self") return;
-
-    // Skip download links
-    if (anchor.hasAttribute("download")) return;
-
-    const href = anchor.getAttribute("href");
-    if (!href) return;
-
-    // Resolve relative URLs against the current document, matching native
-    // anchor behavior. This also keeps `href="about"` and query-only links
-    // inside a sub-path deploy base.
-    const isFragmentHref = href.startsWith("#");
-    let url: URL;
-    try {
-      url = new URL(href, window.location.href);
-    } catch {
-      return;
-    }
-
-    // Skip external origins
-    if (url.origin !== window.location.origin) return;
-
-    // In-page fragment navigation: same document, only the fragment differs.
-    // Handled before the speculation check below because no document is
-    // fetched here, so prerendering has nothing to activate.
-    const isSameDocument =
-      url.pathname + url.search === window.location.pathname + window.location.search;
-    if (isSameDocument && (url.hash !== "" || isFragmentHref)) {
-      e.preventDefault();
-      commitFragmentNavigation(url, anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE));
-      return;
-    }
-
-    // If the destination route opted into `prerender` speculation rules, let
-    // the browser perform a normal navigation so it can activate the
-    // prerendered document. Intercepting here would cancel the activation
-    // and force a redundant SPA fetch of the route-state JSON. Anchors the
-    // rules exclude (`rel="nofollow"`, `data-pracht-speculate="off"`) have no
-    // prerendered document to activate, so they stay on the SPA path.
-    const targetMatch = matchResolvedRoute(app, stripBase(url.pathname) ?? url.pathname);
-    if (targetMatch && supportsSpeculationRules() && !isSpeculationSuppressed(anchor)) {
-      const spec = normalizeSpeculation(targetMatch.route.speculation);
-      if (spec?.mode === "prerender") return;
-    }
-
-    e.preventDefault();
-    const navOptions: NavigateOptions = {};
-    if (anchor.hasAttribute(PRESERVE_SCROLL_ATTRIBUTE)) navOptions.preserveScroll = true;
-    if (anchor.hasAttribute(VIEW_TRANSITION_ATTRIBUTE)) navOptions.viewTransition = true;
-    navigate(url.pathname + url.search + url.hash, navOptions);
-  });
-
-  // Set while the router is undoing a traversal a guard refused; the browser
-  // fires `popstate` for that correction too and it is not a navigation.
-  let suppressNextPopstate = false;
-
-  window.addEventListener("popstate", () => {
-    if (BLOCKER_ENABLED && suppressNextPopstate) {
-      suppressNextPopstate = false;
-      return;
-    }
-
-    const traversedToIndex = BLOCKER_ENABLED ? readHistoryIndex(history.state) : null;
-    // An entry with no index was not created by this router, so how far the
-    // browser moved is unknown — and a traversal whose distance cannot be
-    // measured cannot be put back. Those pass unguarded rather than being
-    // blocked into a history position nobody asked for.
-    if (traversedToIndex !== null && currentHistoryIndex !== null) {
-      const delta = traversedToIndex - currentHistoryIndex;
-      if (
-        delta !== 0 &&
-        isBlocked(currentBrowserHref, window.location.href, "pop", () => {
-          history.go(delta);
-        })
-      ) {
-        suppressNextPopstate = true;
-        history.go(-delta);
-        return;
-      }
-    }
-
-    // Adopted here rather than at the bottom so the same-document fragment
-    // branch below, which returns early, does not leave the router pointing at
-    // the index of an entry it is no longer on.
-    if (BLOCKER_ENABLED) currentHistoryIndex = traversedToIndex;
-
-    // The history entry already changed, but the on-screen scroll position
-    // still belongs to the entry we are leaving — save it under its key
-    // before adopting the new entry's key. A same-document fragment
-    // navigation fires popstate *before* the browser scrolls to the fragment,
-    // so this still records where the outgoing entry actually was.
-    saveScrollPosition();
-
-    let nextScrollKey = readScrollKeyFromHistoryState(history.state);
-    const nextDocumentPath = window.location.pathname + window.location.search;
-
-    // A fragment navigation the router did not commit itself — `location.hash
-    // = "…"`, or an anchor click it never saw — fires popstate for a brand new
-    // entry rather than a traversal. Two signals separate the cases: the router
-    // stamps a scroll key into `history.state` for every entry it creates, so a
-    // missing key means this entry came from somewhere else; and a fragment
-    // navigation cannot change the path or query. Requiring both means an
-    // entry whose state was wiped by app code (a stray
-    // `history.replaceState(null, …)`) is still re-resolved when the route
-    // really did change.
-    //
-    // Link clicks no longer reach this branch: they are committed in the click
-    // handler, because a repeat click on the fragment you are already at reuses
-    // the entry and so arrives here indistinguishable from a traversal.
-    const isFragmentNavigation = !nextScrollKey && nextDocumentPath === currentDocumentPath;
-
-    if (!nextScrollKey) {
-      nextScrollKey = generateScrollKey();
-      try {
-        history.replaceState(
-          withScrollKeyInHistoryState(history.state, nextScrollKey),
-          "",
-          window.location.href,
-        );
-      } catch {
-        // History mutation restricted — restoration degrades to scroll-to-top.
-      }
-    }
-    currentScrollKey = nextScrollKey;
-
-    if (isFragmentNavigation) {
-      // The same route is already rendered, so there is nothing to
-      // re-resolve, and this entry has no saved position to restore. The
-      // browser's own scroll to the fragment is about to happen — treating
-      // this as a traversal would undo it. Focus still needs help: see
-      // `focusFragmentTarget`.
-      const fragmentTarget = findFragmentTarget(document, window.location.hash);
-      if (fragmentTarget) focusFragmentTarget(fragmentTarget);
-      return;
-    }
-
-    currentDocumentPath = nextDocumentPath;
-    if (BLOCKER_ENABLED) {
-      currentBrowserHref = window.location.pathname + window.location.search + window.location.hash;
-    }
-    navigate(window.location.pathname + window.location.search + window.location.hash, {
-      _popstate: true,
-    });
-  });
+  window.addEventListener("popstate", handlePopstate);
 
   window.__PRACHT_NAVIGATE__ = navigate;
 
