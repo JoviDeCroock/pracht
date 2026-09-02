@@ -1,12 +1,44 @@
 import { describe, expect, it } from "vitest";
+import { parseAst } from "vite";
 
 import {
   evaluateLiteral,
+  hasNamedMiddlewareExport,
   extractCapabilityProjection,
   extractCapabilityRegistrations,
   extractDefineCapabilityArgs,
   scanTopLevelProperties,
 } from "../src/static.ts";
+
+describe("middleware export syntax", () => {
+  it.each([
+    ["export const middleware = 1;", true],
+    ["export function middleware() {}", true],
+    ["export const helper = 1, middleware = createMiddleware();", true],
+    ["export const { middleware } = createMiddleware();", true],
+    ["const handler = createMiddleware(); export { handler as middleware };", true],
+    ['export { handler as "middleware" } from "./handler.ts";', true],
+    ['export * from "./handler.ts";', true],
+    ['export * as middleware from "./handler.ts";', true],
+    ['export type * from "./handler.ts";', false],
+    ['export { type Handler as middleware } from "./handler.ts";', false],
+    ["type Handler = () => void; export { Handler as middleware };", false],
+    ["interface Handler {} export { Handler as middleware };", false],
+    ["declare const handler: unknown; export { handler as middleware };", false],
+    ['import type { Handler } from "./handler.ts"; export { Handler as middleware };', false],
+    ['import { type Handler } from "./handler.ts"; export { Handler as middleware };', false],
+    ['export import type middleware = require("./handler.cjs");', false],
+    ["const type = createMiddleware(); export { type as middleware };", true],
+    ["interface Handler {} function Handler() {} export { Handler as middleware };", true],
+    [
+      "type Handler = () => void; { var Handler = createMiddleware(); } export { Handler as middleware };",
+      true,
+    ],
+    ["export default createMiddleware();", false],
+  ])("classifies %j as %s", (source, expected) => {
+    expect(hasNamedMiddlewareExport(parseAst(source, { lang: "ts" }))).toBe(expected);
+  });
+});
 
 describe("capability static extraction", () => {
   it("ignores defineCapability examples in comments and strings", () => {

@@ -1,6 +1,6 @@
 ---
 name: pracht-scaffold
-version: 1.2.0
+version: 1.3.0
 description: |
   Scaffold pracht code with the native generators (`pracht generate
   route|shell|middleware|api`), falling back to manual edits only when the CLI
@@ -57,6 +57,11 @@ agent or tool consumes the output. When the pracht MCP server is registered
 
 - `--shell`/`--middleware` names must already be registered or the CLI errors.
   Generate the shell or middleware first, then the route referencing it.
+- Pages-router apps have one middleware seam: `pracht generate middleware
+  --name _middleware` scaffolds the root `src/pages/_middleware.ts`, which runs
+  on every page route (API routes are not wrapped). Other names error in pages
+  mode, pure static exports cannot use request middleware, and `generate shell`
+  stays manifest-only (`_app.tsx` is the pages shell).
 - `generate route` also emits a Playwright smoke test in `e2e/` when the app
   has a Playwright setup (`playwright.config.*` or an `e2e/` directory);
   `--no-test` skips it, `--test` forces it. The test imports

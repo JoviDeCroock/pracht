@@ -1,8 +1,9 @@
-import { dirname, resolve } from "node:path";
+import { dirname, extname, relative, resolve } from "node:path";
 import { existsSync, readFileSync, statSync } from "node:fs";
 
 import { formatBytes } from "./bundle-report.js";
-import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { hasNamedMiddlewareExport } from "@pracht/capabilities/static";
+import { parseAst } from "vite";
 
 import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
 import {
@@ -33,6 +34,7 @@ import {
   collectDuplicateRoutePaths,
   describePagesFile,
   scanPagesDirectory,
+  type PagesFile,
   type PagesRoute,
 } from "./verification-pages.js";
 
@@ -116,6 +118,13 @@ export function collectManifestVerification(
         ),
       );
       collectMiddlewareExportChecks(checks, manifestPath, middlewareEntries);
+      collectMiddlewareClientBoundaryChecks(
+        project,
+        checks,
+        manifestPath,
+        source,
+        middlewareEntries,
+      );
     }
 
     const missingModules = relativeModules
@@ -160,155 +169,33 @@ export function collectManifestVerification(
   );
 }
 
-/**
- * Whether `source` exports a binding *named* `middleware`.
- *
- * Comments and string literals are masked first, and the `export { … }` clause
- * is read for the exported name rather than pattern-matched: `export
- * { middleware as default }` mentions the word but exports nothing called
- * `middleware`, and that is exactly the mistake this check exists to catch.
- * A re-export (`export * from`) is treated as a match because its names cannot
- * be known without resolving the other module — better to miss one than to
- * fail a working app.
- */
-/**
- * Whether a destructuring pattern binds a variable named `middleware`.
- *
- * `{ middleware }` and `[middleware]` do; `{ middleware: mw }` binds `mw`, and
- * `{ mw: middleware }` binds `middleware`. Renames are the whole point, so the
- * check reads which side of the `:` each name sits on.
- */
-function bindsMiddleware(pattern: string): boolean {
-  const parts = splitTopLevel(pattern.slice(1, -1));
+type MiddlewareParserLanguage = "js" | "jsx" | "ts" | "tsx";
 
-  if (pattern.startsWith("[")) {
-    return parts.some((element) => bindsName(element));
+/** Whether `source` explicitly exports, or may re-export, `middleware`. */
+export function exportsMiddleware(source: string, file = "middleware.ts"): boolean {
+  try {
+    return hasNamedMiddlewareExport(parseAst(source, { lang: middlewareParserLanguage(file) }));
+  } catch {
+    return false;
   }
-
-  return parts.some((property) => {
-    const separator = topLevelIndexOf(property, ":");
-    // `{ auth: { middleware } }` binds `middleware`; `{ middleware: { inner } }`
-    // does not. Only the value side can bind, so only it is inspected.
-    return bindsName(separator === -1 ? property : property.slice(separator + 1));
-  });
 }
 
-function bindsName(text: string): boolean {
-  const bound = text
-    .trim()
-    .replace(/^\.\.\./, "")
-    .replace(/\s*=.*$/, "")
-    .trim();
-  if (bound.startsWith("{") || bound.startsWith("[")) return bindsMiddleware(bound);
-  return bound === "middleware";
-}
-
-/** Split on commas that are not inside a nested `{}` / `[]` / `()`. */
-function splitTopLevel(text: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    else if (char === "}" || char === "]" || char === ")") depth -= 1;
-    else if (char === "," && depth === 0) {
-      parts.push(text.slice(start, index));
-      start = index + 1;
-    }
+function middlewareParserLanguage(file: string): MiddlewareParserLanguage {
+  switch (extname(file).toLowerCase()) {
+    case ".js":
+      return "js";
+    case ".jsx":
+      return "jsx";
+    case ".tsx":
+      return "tsx";
+    default:
+      return "ts";
   }
-  parts.push(text.slice(start));
-  return parts;
-}
-
-/** Index of the first `needle` at nesting depth 0, or -1. */
-function topLevelIndexOf(text: string, needle: string): number {
-  let depth = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    else if (char === "}" || char === "]" || char === ")") depth -= 1;
-    else if (char === needle && depth === 0) return index;
-  }
-  return -1;
 }
 
 /**
- * Every destructuring pattern in an `export const|let|var` declaration.
- *
- * Scanned with a delimiter counter rather than a regex: a non-greedy match
- * stops at the first `}`, truncating a nested pattern
- * (`{ auth: { middleware } }`), and the optional type annotation between the
- * pattern and `=` is easier to skip explicitly than to express.
- */
-function destructuredExportPatterns(code: string): string[] {
-  const patterns: string[] = [];
-
-  for (const match of code.matchAll(/export\s+(?:const|let|var)\s*(?=[{[])/g)) {
-    const open = (match.index ?? 0) + match[0].length;
-    const close = matchingDelimiter(code, open);
-    if (close === -1) continue;
-
-    // Skip an optional `: Type` annotation, then require the `=` that makes
-    // this a declaration.
-    if (!/^\s*(?::[^=]*)?=/.test(code.slice(close + 1))) continue;
-
-    patterns.push(code.slice(open, close + 1));
-  }
-
-  return patterns;
-}
-
-/** Index of the delimiter closing the one at `open`, or -1. */
-function matchingDelimiter(code: string, open: number): number {
-  let depth = 0;
-  for (let index = open; index < code.length; index += 1) {
-    const char = code[index];
-    if (char === "{" || char === "[" || char === "(") depth += 1;
-    else if (char === "}" || char === "]" || char === ")") {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-export function exportsMiddleware(source: string): boolean {
-  const code = maskCommentsAndStrings(source);
-
-  // export const/let/var/function/async function middleware
-  if (/export\s+(?:async\s+)?(?:function|const|let|var)\s+middleware\b/.test(code)) return true;
-
-  // export const { middleware } = …  /  export const [middleware] = …
-  // The *bound* name has to be `middleware`: `{ middleware: mw }` binds `mw`
-  // and exports nothing called `middleware`, the same trap as
-  // `export { middleware as default }`.
-  for (const pattern of destructuredExportPatterns(code)) {
-    if (bindsMiddleware(pattern)) return true;
-  }
-
-  // Names cannot be resolved without the other module; assume the best.
-  if (/export\s*\*\s*from/.test(code)) return true;
-
-  for (const clause of code.matchAll(/export\s*\{([^}]*)\}/g)) {
-    for (const specifier of clause[1].split(",")) {
-      const parts = specifier.trim().split(/\s+as\s+/);
-      if (parts.length === 0 || parts[0] === "") continue;
-      // `a as b` exports `b`; a bare `a` exports `a`.
-      const exported = (parts.length > 1 ? parts[parts.length - 1] : parts[0]).trim();
-      if (exported === "middleware") return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * A registered middleware module that does not export `middleware` used to be
- * skipped at runtime, so an auth gate could be wired in the manifest and
- * absent in production while every check here passed. The runtime now refuses
- * to serve such a route; this check reports the same mistake before a request
- * ever reaches it.
+ * Check the statically decidable part of the contract: the module must name a
+ * `middleware` export. The runtime remains authoritative for callability.
  */
 function collectMiddlewareExportChecks(
   checks: Check[],
@@ -321,7 +208,7 @@ function collectMiddlewareExportChecks(
   for (const entry of entries) {
     const file = resolve(manifestDir, entry.path);
     if (!existsSync(file)) continue; // already reported by the module-path check
-    if (!exportsMiddleware(readFileSync(file, "utf-8"))) {
+    if (!exportsMiddleware(readFileSync(file, "utf-8"), file)) {
       missing.push(`${entry.name} (${entry.path})`);
     }
   }
@@ -337,8 +224,71 @@ function collectMiddlewareExportChecks(
     createCheck(
       "error",
       `Middleware module(s) without a \`middleware\` export: ${missing.join(", ")}. ` +
-        "Middleware must `export const middleware: MiddlewareFn = (args, next) => …` " +
-        "(a default export is not used); routes referencing them fail at request time.",
+        "Middleware must declare a named value export such as " +
+        "`export const middleware: MiddlewareFn = (args, next) => …` (a default export is not " +
+        "used). The runtime validates that the exported value is callable.",
+    ),
+  );
+}
+
+/** The marker an ejected pages manifest keeps so the build preserves its
+ * server-only boundaries. Written by `generateRoutesFile`. */
+const EJECTED_PAGES_LAYOUT_RE =
+  /export\s+const\s+__PRACHT_EJECTED_PAGES_LAYOUT__\s*(?::[^=]+)?=\s*true/;
+
+/**
+ * Middleware is server-only, but the client route and shell registries glob
+ * whole directories. A middleware module inside one of those directories is
+ * emitted into the browser bundle unless the build excludes it, and the only
+ * exclusion outside pages mode is the underscore reservation an ejected pages
+ * manifest opts into with `__PRACHT_EJECTED_PAGES_LAYOUT__`. Dropping that
+ * marker (or co-locating middleware with routes in the first place) publishes
+ * the middleware source, so say so instead of letting it happen quietly.
+ */
+function collectMiddlewareClientBoundaryChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  manifestPath: string,
+  manifestSource: string,
+  entries: { name: string; path: string }[],
+): void {
+  const manifestDir = dirname(manifestPath);
+  const registries = [
+    { dir: resolveProjectPath(project.root, project.routesDir), label: "routesDir" },
+    { dir: resolveProjectPath(project.root, project.shellsDir), label: "shellsDir" },
+  ];
+  const declaresPagesLayout = EJECTED_PAGES_LAYOUT_RE.test(manifestSource);
+  const exposed: string[] = [];
+
+  for (const entry of entries) {
+    const file = resolve(manifestDir, entry.path);
+    if (!existsSync(file)) continue; // already reported by the module-path check
+
+    const registry = registries.find((candidate) => isWithinDirectory(file, candidate.dir));
+    if (!registry) continue;
+
+    // The ejected pages layout reserves underscore-prefixed files and trees,
+    // so the build already keeps those out of the client registries.
+    const underscoreReserved = relative(registry.dir, file)
+      .split(/[/\\]/)
+      .some((segment) => segment.startsWith("_"));
+    if (declaresPagesLayout && underscoreReserved) continue;
+
+    exposed.push(`${entry.name} (${displayPath(project.root, file)}, inside ${registry.label})`);
+  }
+
+  if (exposed.length === 0) return;
+
+  checks.push(
+    createCheck(
+      "warning",
+      `Middleware module(s) inside a client registry directory: ${exposed.join(", ")}. ` +
+        "The client route and shell registries glob these directories, so the middleware " +
+        "source is emitted into the browser bundle. Move the module out of the route and shell " +
+        "directories, or — for an ejected pages layout — restore the " +
+        "`export const __PRACHT_EJECTED_PAGES_LAYOUT__ = true` marker in the manifest, which " +
+        "reserves underscore-prefixed files and trees as server-only. Ignore this when the " +
+        "module is deliberately a route component as well.",
     ),
   );
 }
@@ -527,6 +477,21 @@ export function collectPagesVerification(
     }
   }
 
+  for (const page of pages) {
+    if (page.kind !== "nested-shell") continue;
+    checks.push(
+      createCheck(
+        "error",
+        `Nested pages \`_app\` shell ${JSON.stringify(displayPath(project.root, page.file))} is ` +
+          "not supported. Only a root-level `_app` in the pages directory is registered as the " +
+          "app shell. Move the shell there, or eject to an explicit manifest for per-group " +
+          "shells.",
+      ),
+    );
+  }
+
+  const validMiddlewareFiles = collectPagesMiddlewareChecks(project, checks, pages, scope);
+
   if (scope === "full") {
     checks.push(createCheck("ok", `Found pages directory at ${project.pagesDir}.`));
 
@@ -549,7 +514,7 @@ export function collectPagesVerification(
       checks.push(createCheck("ok", "Found a pages-router not-found page."));
     }
   } else {
-    collectChangedPagesChecks(project, checks, pagesDir, changedFiles);
+    collectChangedPagesChecks(project, checks, pagesDir, changedFiles, validMiddlewareFiles);
   }
 
   // Both scopes: adding a Markdown page and running `verify --changed` is the
@@ -594,6 +559,113 @@ export function collectPagesVerification(
       ),
     );
   }
+}
+
+/**
+ * Pages middleware mirrors the build's rules: exactly one root-level
+ * `_middleware.{ts,tsx,js,jsx}` that exports `middleware`. A nested file and a
+ * missing export are both fail-open shapes — the file looks like an auth gate
+ * while the build ignores it or the runtime refuses to serve — so they are
+ * errors in both scopes, exactly like the REVALIDATE checks above.
+ */
+function collectPagesMiddlewareChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  pages: PagesFile[],
+  scope: string,
+): Set<string> {
+  const validMiddlewareFiles = new Set<string>();
+  const middlewareFiles = pages.filter((page) => page.kind === "middleware");
+  const directoryShaped = middlewareFiles.filter((page) => page.shape === "directory");
+  const unsupportedExtension = middlewareFiles.filter(
+    (page) => page.shape === "unsupported-extension",
+  );
+  const nested = middlewareFiles.filter((page) => page.shape === "file" && page.nested);
+  const rootFiles = middlewareFiles.filter((page) => page.shape === "file" && !page.nested);
+
+  for (const page of directoryShaped) {
+    checks.push(
+      createCheck(
+        "error",
+        `A \`_middleware\` directory is not supported (${JSON.stringify(displayPath(project.root, page.file))}). ` +
+          "Pages middleware is a single root-level `_middleware.ts` file in the pages directory " +
+          "(it runs on every page route). Move the logic there, or eject to an explicit " +
+          "manifest for per-group middleware.",
+      ),
+    );
+  }
+
+  for (const page of unsupportedExtension) {
+    const extension = extname(page.file);
+    checks.push(
+      createCheck(
+        "error",
+        `Pages middleware ${JSON.stringify(displayPath(project.root, page.file))} cannot use the ` +
+          `\`${extension}\` extension. The middleware registry loads ` +
+          "`.ts`, `.tsx`, `.js`, and `.jsx` modules only — rename the file to `_middleware.ts`.",
+      ),
+    );
+  }
+
+  for (const page of nested) {
+    checks.push(
+      createCheck(
+        "error",
+        `Nested pages middleware ${JSON.stringify(displayPath(project.root, page.file))} is not ` +
+          "supported. Only a root-level `_middleware.ts` in the pages directory is applied (it " +
+          "runs on every page route). Move the logic there, or eject to an explicit manifest " +
+          "for per-group middleware.",
+      ),
+    );
+  }
+
+  if (rootFiles.length > 1) {
+    checks.push(
+      createCheck(
+        "error",
+        `Multiple pages middleware files resolve to the same registration: ${rootFiles
+          .map((page) => JSON.stringify(displayPath(project.root, page.file)))
+          .join(", ")}. Keep exactly one root-level \`_middleware\` file.`,
+      ),
+    );
+    return validMiddlewareFiles;
+  }
+
+  if (directoryShaped.length > 0 || unsupportedExtension.length > 0 || nested.length > 0) {
+    return validMiddlewareFiles;
+  }
+
+  const middleware = rootFiles[0];
+  if (!middleware) return validMiddlewareFiles;
+
+  if (!exportsMiddleware(readFileSync(middleware.file, "utf-8"), middleware.file)) {
+    checks.push(
+      createCheck(
+        "error",
+        `Pages middleware ${JSON.stringify(displayPath(project.root, middleware.file))} does not ` +
+          "export `middleware`. It must `export const middleware: MiddlewareFn = (args, next) " +
+          "=> …` (a default export is not used); page routes fail at request time.",
+      ),
+    );
+    return validMiddlewareFiles;
+  }
+
+  validMiddlewareFiles.add(middleware.file);
+
+  // On a pure static export the route-level static check already reports that
+  // request middleware cannot be enforced. Reporting "it runs on every page
+  // route" alongside that error would contradict it.
+  if (scope === "full" && detectAdapterTarget(project) !== "static") {
+    checks.push(
+      createCheck(
+        "ok",
+        "Found pages middleware `_middleware`; it runs on every page route (API routes are " +
+          "not wrapped).",
+      ),
+    );
+  }
+
+  return validMiddlewareFiles;
 }
 
 const MARKDOWN_PAGE_RE = /\.(?:mdx?|markdown)$/;
@@ -657,6 +729,7 @@ function collectChangedPagesChecks(
   checks: Check[],
   pagesDir: string,
   changedFiles: string[],
+  validMiddlewareFiles: ReadonlySet<string>,
 ): void {
   for (const file of changedFiles) {
     if (!isWithinDirectory(file, pagesDir)) continue;
@@ -681,6 +754,27 @@ function collectChangedPagesChecks(
           `Changed pages shell ${JSON.stringify(display)} will wrap auto-discovered routes.`,
         ),
       );
+      continue;
+    }
+
+    if (page.kind === "middleware") {
+      // Broken shapes (nested files, `_middleware/` directories, `.tsrx`) are
+      // reported as errors by the middleware checks that run in every scope;
+      // only the working shape gets an ok here.
+      if (page.shape === "file" && !page.nested && validMiddlewareFiles.has(page.file)) {
+        checks.push(
+          createCheck(
+            "ok",
+            `Changed pages middleware ${JSON.stringify(display)} runs on every page route.`,
+          ),
+        );
+      }
+      continue;
+    }
+
+    if (page.kind === "nested-shell") {
+      // Already reported as an error by the shell checks that run in every
+      // scope; do not also claim it resolves to a route.
       continue;
     }
 

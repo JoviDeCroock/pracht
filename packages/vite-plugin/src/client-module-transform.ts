@@ -27,14 +27,34 @@ export {
 
 const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths", "markdown"]);
 
+export interface StripServerOnlyExportsOptions {
+  /** Strip the dedicated pages-router middleware module from the client graph. */
+  middleware?: boolean;
+}
+
 export function stripServerOnlyExportsForClient(
   code: string,
   id = "pracht-client-route.tsx",
+  options: StripServerOnlyExportsOptions = {},
 ): string {
   const program = parseAst(code, { lang: getRolldownLang(id) }) as OxcNode;
   const states = createStatementStates(program);
+
+  if (options.middleware === true) {
+    // `_middleware` is a dedicated server-only module. Removing only its named
+    // export still leaves module initialization, side-effect imports, or an
+    // unrelated default export in a direct browser import. Erase the complete
+    // module so none of those server-only effects can enter the client graph.
+    for (const state of states) state.removed = true;
+    return renderProgram(code, states);
+  }
+
   const initialBindingNames = collectCurrentTopLevelBindingNames(states);
-  const { changed, candidates } = removeServerOnlyExports(states, initialBindingNames);
+  const { changed, candidates } = removeServerOnlyExports(
+    states,
+    initialBindingNames,
+    SERVER_ONLY_EXPORTS,
+  );
 
   if (!changed) return code;
 
@@ -45,6 +65,7 @@ export function stripServerOnlyExportsForClient(
 function removeServerOnlyExports(
   states: StatementState[],
   initialBindingNames: Set<string>,
+  serverOnlyExports: ReadonlySet<string>,
 ): { candidates: Set<string>; changed: boolean } {
   let changed = false;
   const candidates = new Set<string>();
@@ -58,7 +79,7 @@ function removeServerOnlyExports(
     const declaration = statement.declaration as OxcNode | null;
     if (declaration?.type === "FunctionDeclaration") {
       const name = declaration.id?.name as string | undefined;
-      if (!name || !SERVER_ONLY_EXPORTS.has(name)) continue;
+      if (!name || !serverOnlyExports.has(name)) continue;
 
       changed = true;
       state.removed = true;
@@ -72,7 +93,7 @@ function removeServerOnlyExports(
     if (declaration?.type === "VariableDeclaration") {
       const removable = getRemainingDeclaratorIndices(state).filter((index) =>
         collectBindingNamesFromPattern(declaration.declarations[index].id).some((name) =>
-          SERVER_ONLY_EXPORTS.has(name),
+          serverOnlyExports.has(name),
         ),
       );
 
@@ -107,9 +128,7 @@ function removeServerOnlyExports(
 
       const localName = getIdentifierName(specifier.local as OxcNode | null);
       const exportedName = getIdentifierName(specifier.exported as OxcNode | null);
-      return (
-        SERVER_ONLY_EXPORTS.has(localName ?? "") || SERVER_ONLY_EXPORTS.has(exportedName ?? "")
-      );
+      return serverOnlyExports.has(localName ?? "") || serverOnlyExports.has(exportedName ?? "");
     });
 
     if (removableSpecifiers.length === 0) continue;

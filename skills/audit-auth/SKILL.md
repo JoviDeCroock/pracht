@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.2.4
+version: 1.3.0
 description: |
   Find pracht routes that look protected but aren't: missing auth middleware,
   middleware that augments context but never gates, client-only checks, and
@@ -40,11 +40,22 @@ MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
-Middleware is registered by name in the app manifest —
-`defineApp({ middleware: { auth: () => import("./middleware/auth.ts") } })` —
-and `inspect` reports those names, not files. Read the name→file map from
-`src/routes.ts` (or the configured manifest) to resolve each name, then read
-each middleware file and classify it:
+`inspect` reports middleware names, not files. Resolve them according to the
+app's router mode, then read each middleware file and classify it:
+
+- **Manifest router:** read the name→file map from `src/routes.ts` (or the
+  configured manifest), where middleware is registered through
+  `defineApp({ middleware: { auth: () => import("./middleware/auth.ts") } })`.
+- **Pages router:** when the Vite config sets `pagesDir`, the generated name
+  `"pages"` resolves to the root `<pagesDir>/_middleware.ts` (or `.tsx`, `.js`,
+  or `.jsx`). It applies to every page route and never wraps API routes. There
+  is no `src/routes.ts` manifest to inspect unless the app has ejected. Follow
+  imports and re-exports into underscore-reserved helpers such as
+  `<pagesDir>/_server/auth.ts`; Pracht excludes those helpers from client
+  route/shell registries, but a direct import from client code still bundles
+  them and should be treated as a server-code leak.
+
+Then classify each resolved middleware module:
 
 - **Gate** — on auth failure, returns a short-circuit `Response`
   (`redirect("/login", { request })`, or a 401/403 `Response`) WITHOUT calling
@@ -80,6 +91,13 @@ For each expected-protected route:
 3. Confirm the gate runs **before** any other middleware that depends on
    identity (order matters).
 4. If only an Augmenter is present, mark as `augmented-only`.
+5. For pages-router routes, inspect `render` too. A root pages Gate on an
+   `ssg` or `isg` route does not protect the static document per visitor:
+   document middleware runs during build/revalidation with a sanitized request,
+   while later route-state requests are separate live requests. Unless an
+   independently verified platform/CDN edge gate protects the document, report
+   the route as `error` / `unprotected-static` and recommend `ssr`/`spa` for
+   session-gated pages.
 
 ## Step 4: Check the API surface
 
@@ -151,6 +169,8 @@ Severity is the primary scale; the verdict is a secondary domain label:
 - `error` / `unprotected` — no auth middleware on a route the user expects
   protected.
 - `error` / `inconsistent` — UI route is gated; sibling API is not.
+- `error` / `unprotected-static` — a pages-router SSG/ISG document relies on
+  request/session middleware without an independent per-request edge gate.
 - `warn` / `augmented-only` — middleware reads session but never blocks;
   loader must handle null user.
 - `warn` / `client-only` — server allows; client hides UI.

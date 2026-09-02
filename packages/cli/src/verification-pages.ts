@@ -1,15 +1,27 @@
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { readFileSync } from "node:fs";
-import { basename, relative } from "node:path";
+import { basename, extname, relative } from "node:path";
 
-import { hasPagesAppShell, listFilesRecursively } from "./project.js";
+import { hasPagesAppShell, listDirectoriesRecursively, listFilesRecursively } from "./project.js";
 import { isPageSource, normalizeRoutePath } from "./verification-helpers.js";
 
 export type PagesFile =
   | { file: string; kind: "shell"; hasRevalidateExport: boolean }
   | { file: string; kind: "not-found"; hasRevalidateExport: boolean }
+  | {
+      file: string;
+      kind: "middleware";
+      nested: boolean;
+      shape: "directory" | "file" | "unsupported-extension";
+    }
+  | { file: string; kind: "nested-shell" }
   | { file: string; kind: "ignored" }
   | PagesRoute;
+
+// Mirrors the vite plugin's pages middleware extensions (and the
+// `middlewareDir` registry glob). Every exact `_middleware` basename using a
+// different extension is an error rather than a silently ignored auth gate.
+const PAGES_MIDDLEWARE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
 
 export interface PagesRoute {
   file: string;
@@ -26,9 +38,23 @@ export function scanPagesDirectory(
   pagesDir: string,
   additionalExtensions: string[] = [],
 ): PagesFile[] {
-  return listFilesRecursively(pagesDir)
-    .filter((file) => isPageSource(file, additionalExtensions))
+  const middlewareDirectories: PagesFile[] = listDirectoriesRecursively(pagesDir)
+    .filter((directory) => basename(directory) === "_middleware")
+    .map((directory) => ({
+      file: directory,
+      kind: "middleware",
+      nested: relative(pagesDir, directory).replace(/\\/g, "/").includes("/"),
+      shape: "directory",
+    }));
+  const files = listFilesRecursively(pagesDir)
+    .filter(
+      (file) =>
+        !isInsideMiddlewareDirectory(pagesDir, file) &&
+        (isPageSource(file, additionalExtensions) ||
+          basename(file, extname(file)) === "_middleware"),
+    )
     .map((file) => describePagesFile(pagesDir, file, additionalExtensions));
+  return [...middlewareDirectories, ...files];
 }
 
 export function describePagesFile(
@@ -40,10 +66,46 @@ export function describePagesFile(
   const extensionIndex = relativePath.lastIndexOf(".");
   const routePath = extensionIndex === -1 ? relativePath : relativePath.slice(0, extensionIndex);
   const name = basename(routePath);
+  const parentSegments = relativePath.split("/").slice(0, -1);
+
+  // Files inside a `_middleware/` directory are middleware-shaped too: without
+  // this, `_middleware/index.ts` silently becomes a page route at
+  // `/_middleware` while looking like an auth gate.
+  if (parentSegments.includes("_middleware")) {
+    return { file, kind: "middleware", nested: true, shape: "directory" };
+  }
+
+  // Check middleware-shaped files before ignoring reserved parent directories.
+  // Build-time discovery scans every file for this basename, so a file such as
+  // `_components/_middleware.ts` must remain a nested-middleware error here too.
+  if (name === "_middleware" && PAGES_MIDDLEWARE_SOURCE_RE.test(file)) {
+    return { file, kind: "middleware", nested: relativePath.includes("/"), shape: "file" };
+  }
+
+  if (name === "_middleware") {
+    return {
+      file,
+      kind: "middleware",
+      nested: relativePath.includes("/"),
+      shape: "unsupported-extension",
+    };
+  }
+
+  // The underscore prefix reserves whole directories as well as individual
+  // files. Keep implementation helpers such as `_components/button.tsx` out
+  // of the route graph, while the `_middleware/` case above remains a hard
+  // error because silently ignoring an auth-looking directory would fail open.
+  if (parentSegments.some((segment) => segment.startsWith("_"))) {
+    return { file, kind: "ignored" };
+  }
+
   const source = readFileSync(file, "utf-8");
   const analysisSource = maskMarkdownFences(source, relativePath);
 
   if (hasPagesAppShell(file, additionalExtensions)) {
+    // Only a root-level `_app` is registered as the shell. A nested one is
+    // never applied, so reporting it beats silently dropping the shell.
+    if (relativePath.includes("/")) return { file, kind: "nested-shell" };
     return {
       file,
       kind: "shell",
@@ -85,6 +147,14 @@ export function describePagesFile(
     renderMode: extractQuotedExport(analysisSource, "RENDER_MODE"),
     revalidate: extractRevalidate(analysisSource),
   };
+}
+
+function isInsideMiddlewareDirectory(pagesDir: string, file: string): boolean {
+  return relative(pagesDir, file)
+    .replace(/\\/g, "/")
+    .split("/")
+    .slice(0, -1)
+    .includes("_middleware");
 }
 
 function extractQuotedExport(source: string, name: string): string | undefined {

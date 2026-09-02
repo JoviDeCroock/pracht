@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, readlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -25,6 +26,29 @@ const NODE_ADAPTER = {
 };
 
 describe("create-pracht", () => {
+  it("describes root middleware support in the pages router prompt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-router-prompt-"));
+    const prompt = execFileSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../bin/create-pracht.js", import.meta.url)),
+        join(root, "my-pages-app"),
+        "--adapter=node",
+        "--template=minimal",
+        "--no-agent-tools",
+        "--dry-run",
+        "--skip-install",
+        "--no-git",
+      ],
+      { encoding: "utf-8", input: "2\n" },
+    );
+
+    expect(prompt).toContain("plus one root");
+    expect(prompt).toContain("_middleware.ts on server adapters");
+    expect(prompt).toContain("no per-route middleware");
+    expect(prompt).not.toContain("pages and API routes only");
+  });
+
   it("detects the package manager from the npm user agent", () => {
     expect(getPackageManager("pnpm/10.0.0 npm/? node/? darwin x64")).toBe("pnpm");
     expect(getPackageManager("yarn/4.7.0 npm/? node/? darwin x64")).toBe("yarn");
@@ -517,6 +541,7 @@ describe("create-pracht", () => {
     expect(existsSync(join(targetDir, "src/routes.ts"))).toBe(false);
     expect(readme).toContain("src/pages/");
     expect(readme).toContain("The pages router has no manifest");
+    expect(readme).toContain("pure static exports cannot use request middleware");
     expect(readme).toContain("export const REVALIDATE = 3600");
 
     // AGENTS.md is only seeded with agent tooling, so the README — which every
@@ -539,7 +564,9 @@ describe("create-pracht", () => {
     expect(agents).toContain("pages routing");
     expect(agents).toContain("src/pages/");
     expect(agents).toContain("The pages router has no manifest");
+    expect(agents).toContain("pure static exports cannot use request middleware");
     expect(agents).toContain("export const REVALIDATE = 3600");
+    expect(agents).toContain("pracht generate middleware --name _middleware");
   });
 
   it("seeds pnpm edge build policy for every router and template permutation", async () => {

@@ -154,6 +154,20 @@ export async function prerenderApp(
               renderError === undefined ? undefined : { cause: renderError },
             );
           }
+          // A 5xx is never a routing decision. Skipping it ships a build whose
+          // pages fall back to a live render that fails the same way for every
+          // visitor — a broken middleware module turns the whole app into 500s
+          // behind a green build.
+          if (response.status >= 500) {
+            throw new Error(
+              `Failed to prerender ${item.render.toUpperCase()} route "${item.pathname}": ` +
+                `document request returned status ${response.status}. ` +
+                "Fix the loader, shell, or middleware that failed — the route would otherwise " +
+                "fall back to a live render and return the same error to every visitor." +
+                describeRenderError(renderError),
+              renderError === undefined ? undefined : { cause: renderError },
+            );
+          }
           console.warn(
             `  Warning: ${item.render.toUpperCase()} route "${item.pathname}" returned status ${response.status}, skipping.`,
           );

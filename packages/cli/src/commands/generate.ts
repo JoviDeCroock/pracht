@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, extname, resolve } from "node:path";
 
 import { defineCommand } from "citty";
+import { loadConfigFromFile } from "vite";
 
 import {
   ensureTrailingNewline,
@@ -22,6 +23,8 @@ import {
 import {
   assertFileExists,
   displayPath,
+  listDirectoriesRecursively,
+  listFilesRecursively,
   readProjectConfig,
   resolveApiModulePath,
   resolvePagesRouteModulePath,
@@ -119,7 +122,7 @@ const middlewareCommand = defineCommand({
   async run({ args }) {
     try {
       const project = readProjectConfig(process.cwd());
-      outputResult(generateMiddleware(args.name, project), Boolean(args.json));
+      outputResult(await generateMiddleware(args.name, project), Boolean(args.json));
     } catch (error) {
       handleCliError(error, { json: Boolean(args.json) });
     }
@@ -457,11 +460,59 @@ export function generateShell(name: string, project: ProjectConfig): GenerateRes
   };
 }
 
-export function generateMiddleware(name: string, project: ProjectConfig): GenerateResult {
+export async function generateMiddleware(
+  name: string,
+  project: ProjectConfig,
+): Promise<GenerateResult> {
   if (project.mode === "pages") {
-    throw new Error(
-      "Pages router apps do not use manifest middleware registration. `pracht generate middleware` is only available for manifest apps.",
-    );
+    // Pages router apps have exactly one middleware seam: a root-level
+    // `_middleware.ts` applied to every page route. The requested name is a
+    // manifest concept, so anything else would silently generate an ignored
+    // `_`-prefixed file.
+    if (name !== "_middleware") {
+      throw new Error(
+        "Pages router apps register middleware through a single root-level `_middleware.ts` " +
+          "applied to every page route. Run `pracht generate middleware --name _middleware`, or " +
+          "eject to an explicit manifest for named per-route middleware.",
+      );
+    }
+
+    const pagesDir = resolveProjectPath(project.root, project.pagesDir);
+    const existingMiddlewarePaths = existsSync(pagesDir)
+      ? [
+          ...listDirectoriesRecursively(pagesDir).filter(
+            (directory) => basename(directory) === "_middleware",
+          ),
+          ...listFilesRecursively(pagesDir).filter(
+            (file) => basename(file, extname(file)) === "_middleware",
+          ),
+        ]
+      : [];
+    if (existingMiddlewarePaths.length > 0) {
+      throw new Error(
+        `Refusing to create pages middleware because ${existingMiddlewarePaths
+          .map((file) => JSON.stringify(displayPath(project.root, file)))
+          .join(
+            ", ",
+          )} already exists. Pages apps support exactly one root-level \`_middleware\` file.`,
+      );
+    }
+
+    if (await usesStaticAdapter(project)) {
+      throw new Error(
+        "Pure static exports cannot use request middleware. Use a serverful adapter before " +
+          "generating pages `_middleware.ts`.",
+      );
+    }
+
+    const middlewareFile = resolveScopedFile(project.root, project.pagesDir, "_middleware.ts");
+    writeGeneratedFile(middlewareFile, buildMiddlewareModuleSource());
+
+    return {
+      created: [displayPath(project.root, middlewareFile)],
+      kind: "middleware",
+      updated: [],
+    };
   }
 
   const manifestPath = resolveProjectPath(project.root, project.appFile);
@@ -483,6 +534,58 @@ export function generateMiddleware(name: string, project: ProjectConfig): Genera
     kind: "middleware",
     updated: [displayPath(project.root, manifestPath)],
   };
+}
+
+type PrachtPluginApi = {
+  pracht?: {
+    staticTarget?: unknown;
+  };
+};
+
+async function flattenPlugins(value: unknown): Promise<unknown[]> {
+  const resolved = await value;
+  if (Array.isArray(resolved)) {
+    return (await Promise.all(resolved.map((plugin) => flattenPlugins(plugin)))).flat();
+  }
+  return resolved === false || resolved == null ? [] : [resolved];
+}
+
+/** Load the actual Vite config and inspect the adapter selected by the Pracht plugin. */
+async function usesStaticAdapter(
+  project: Pick<ProjectConfig, "configFile" | "root">,
+): Promise<boolean> {
+  if (!project.configFile) throw incompatiblePagesMiddlewarePluginError();
+
+  const loaded = await loadConfigFromFile(
+    { command: "build", isPreview: false, isSsrBuild: true, mode: "production" },
+    project.configFile,
+    project.root,
+    "silent",
+  );
+  if (!loaded) throw incompatiblePagesMiddlewarePluginError();
+
+  const plugins = await flattenPlugins(loaded.config.plugins);
+  const prachtPlugins = plugins.flatMap((plugin) => {
+    if (!plugin || typeof plugin !== "object") return [];
+    const candidate = plugin as { api?: PrachtPluginApi; name?: unknown };
+    return candidate.name === "pracht" ? [candidate] : [];
+  });
+  const compatiblePlugins = prachtPlugins.filter(
+    (plugin) => typeof plugin.api?.pracht?.staticTarget === "boolean",
+  );
+  if (compatiblePlugins.length === 0) {
+    throw incompatiblePagesMiddlewarePluginError();
+  }
+
+  return compatiblePlugins.some((plugin) => plugin.api?.pracht?.staticTarget === true);
+}
+
+function incompatiblePagesMiddlewarePluginError(): Error {
+  return new Error(
+    "Cannot generate pages `_middleware.ts` because the loaded Vite config does not expose " +
+      "compatible Pracht plugin metadata. Upgrade `@pracht/vite-plugin` to a version that " +
+      "supports pages middleware, then retry.",
+  );
 }
 
 export interface CapabilityArgs {

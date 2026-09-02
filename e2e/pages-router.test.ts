@@ -35,6 +35,19 @@ test("@-prefixed static routes render in dev", async ({ page }) => {
   await expect(page.locator("h1")).toContainText("@alice");
 });
 
+test("underscore-prefixed directories can provide helpers without becoming routes", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".page-note")).toContainText(
+    "Underscore directories can hold helpers without creating routes.",
+  );
+
+  const response = await request.get("/_components/page-note");
+  expect(response.status()).toBe(404);
+});
+
 // ---------------------------------------------------------------------------
 // _app.tsx shell wraps all pages
 // ---------------------------------------------------------------------------
@@ -251,6 +264,49 @@ test("GET /api/me with session cookie returns user", async ({ request }) => {
 
   const json = await response.json();
   expect(json).toMatchObject({ user: "Alice" });
+});
+
+// ---------------------------------------------------------------------------
+// Root _middleware.ts
+// ---------------------------------------------------------------------------
+
+test("root _middleware runs on every page route", async ({ request }) => {
+  const home = await request.get("/");
+  expect(home.status()).toBe(200);
+  expect(home.headers()["x-pages-middleware"]).toBe("ran");
+
+  const about = await request.get("/about");
+  expect(about.status()).toBe(200);
+  expect(about.headers()["x-pages-middleware"]).toBe("ran");
+
+  const blog = await request.get("/blog/hello-world");
+  expect(blog.status()).toBe(200);
+  expect(blog.headers()["x-pages-middleware"]).toBe("ran");
+});
+
+test("root _middleware can redirect before the page renders", async ({ request }) => {
+  const response = await request.get("/legacy", { maxRedirects: 0 });
+  expect(response.status()).toBe(302);
+  expect(response.headers()["location"]).toBe("/about");
+});
+
+test("root _middleware does not wrap API routes", async ({ request }) => {
+  const response = await request.get("/api/health");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["x-pages-middleware"]).toBeUndefined();
+});
+
+test("_middleware is not routable and appears in the app graph", async ({ request }) => {
+  const notARoute = await request.get("/_middleware", { maxRedirects: 0 });
+  expect(notARoute.status()).toBe(404);
+
+  const response = await request.get("/_pracht.json");
+  const graph = await response.json();
+  const routePaths = graph.routes.map((route: { path: string }) => route.path);
+  expect(routePaths).not.toContain("/_middleware");
+  for (const route of graph.routes) {
+    expect(route.middleware).toContain("pages");
+  }
 });
 
 // ---------------------------------------------------------------------------

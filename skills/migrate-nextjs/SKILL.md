@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.3.0
+version: 1.4.0
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -53,7 +53,16 @@ automatic**:
    default). For time-revalidated pages export `RENDER_MODE = "isg"` plus a
    positive integer `REVALIDATE` in seconds; webhook policies require ejecting
    to a manifest.
-5. Run the dev server, iterate, and optionally eject later with
+5. `middleware.ts` → a root-level `src/pages/_middleware.ts` exporting a
+   pracht `MiddlewareFn` (Phase 6). It runs on every page route; API routes are
+   not wrapped. Move `config.matcher` checks into the function body and compare
+   `stripBase(url.pathname)`. A nested `_middleware` file, a `_middleware/`
+   directory, and a missing `middleware` export are all build/doctor/verify
+   errors — per-route middleware still requires ejecting to a manifest.
+6. Other `_`-prefixed files and directories are reserved implementation
+   details: pracht ignores the whole subtree, so move any intended page out of
+   it.
+7. Run the dev server, iterate, and optionally eject later with
    `generateRoutesFile`.
 
 ## Concept mapping
@@ -66,7 +75,7 @@ automatic**:
 | `app/loading.tsx`               | `Loading` export on the shell                                   | SSR placeholder for SPA routes until the client router takes over     |
 | `app/error.tsx`                 | `ErrorBoundary` export in route module                          | Same concept, different wiring                                        |
 | `app/not-found.tsx`             | `notFound:` in `defineApp` (or `pages/404.tsx` in pagesDir mode) | Not a route — never matches a URL, so it cannot shadow static assets  |
-| `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp`             | Named, applied per route/group                                        |
+| `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp` (or `src/pages/_middleware.ts` in pagesDir mode) | Named, applied per route/group; the pages-mode file runs on every page route |
 | `app/api/*/route.ts`            | `src/api/*.ts` with `GET`/`POST` exports                        | Auto-discovered, no manifest entry                                    |
 | `generateStaticParams`          | `getStaticPaths()` export                                       | Returns `RouteParams[]` of param objects                              |
 | `generateMetadata`              | `head()` export                                                 | Returns `{ title, meta }`                                             |
@@ -203,6 +212,15 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 `group({ middleware: ["auth"] }, [route("/dashboard", …)])`. Pracht middleware
 is wrap-around (Hono/Koa/Astro shape), so you can `await next()` and observe
 the response — useful for tracing.
+
+In `pagesDir` mode the same `MiddlewareFn` goes in a root-level
+`src/pages/_middleware.ts`; it is registered automatically and runs on every
+page route (API routes stay unwrapped). Do not migrate a Next.js per-request
+auth matcher onto a pracht `ssg`/`isg` page and call it protected: the static
+document runs middleware only at build/revalidation with a sanitized request
+and is already public before the visitor's live route-state request. Keep those
+pages `ssr`/`spa`, or retain a separately verified platform/CDN edge gate. A
+pure static export has no request runtime and cannot use middleware at all.
 
 ## Phase 7: Route manifest
 

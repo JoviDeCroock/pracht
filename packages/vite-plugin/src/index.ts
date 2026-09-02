@@ -48,6 +48,7 @@ import {
   createRouteLoaderHintsForVirtualModules,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
+  isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
 import {
   createDevCssInjectionMiddleware,
@@ -117,6 +118,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     resolved.additionalExtensions,
   );
   let capabilityModulePaths = new Set<string>();
+  let usesEjectedPagesLayout = false;
 
   if (isPagesMode && options.appFile) {
     console.warn(
@@ -135,8 +137,15 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     // Vite resolved for the production server build. Dev virtual-module
     // metadata is evaluated with `command: "serve"`, so it cannot answer
     // honestly when a config callback enables llms.txt only for builds.
+    //
+    // The nested `pracht` bag carries the same kind of inter-plugin metadata
+    // for tooling that executes the Vite config and needs the adapter Pracht
+    // actually selected, without reinterpreting the config source.
     api: {
       llmsTxtEnabled: Boolean(resolved.llmsTxt),
+      pracht: {
+        staticTarget: resolved.adapter.staticTarget === true,
+      },
     },
 
     config(_config, env) {
@@ -310,6 +319,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       capabilityModulePaths = new Set(
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
+      usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
     },
 
     resolveId(id, importer, resolveIdOptions) {
@@ -638,12 +648,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         );
       }
 
+      const isPagesMiddlewareModule =
+        !transformOptions?.ssr &&
+        (isPagesMode || usesEjectedPagesLayout) &&
+        isRootMiddlewareModule(id, root, resolved);
       const shouldStrip =
         isPrachtClientModuleId(id) ||
-        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions));
+        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions)) ||
+        isPagesMiddlewareModule;
       if (!shouldStrip) return null;
 
-      const transformed = stripServerOnlyExportsForClient(code, id);
+      const transformed = stripServerOnlyExportsForClient(code, id, {
+        middleware: isPagesMiddlewareModule,
+      });
       if (transformed === code) return null;
       return { code: transformed, map: null };
     },
@@ -1047,6 +1064,24 @@ function isCapabilityModule(id: string, capabilityModulePaths: Set<string>): boo
   const path = queryStart === -1 ? id : id.slice(0, queryStart);
   if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
   return capabilityModulePaths.has(canonicalFilePath(path));
+}
+
+function isRootMiddlewareModule(
+  id: string,
+  root: string,
+  resolved: ResolvedPrachtPluginOptions,
+): boolean {
+  const queryStart = id.indexOf("?");
+  const path = queryStart === -1 ? id : id.slice(0, queryStart);
+  if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
+
+  const middlewareDir = resolved.pagesDir || resolved.middlewareDir;
+  const modulePath = canonicalFilePath(path);
+  return [".ts", ".tsx", ".js", ".jsx"].some(
+    (extension) =>
+      modulePath ===
+      canonicalFilePath(resolveConfigPath(root, `${middlewareDir}/_middleware${extension}`)),
+  );
 }
 
 /**
