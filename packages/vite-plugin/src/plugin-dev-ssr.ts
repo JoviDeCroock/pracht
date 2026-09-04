@@ -254,6 +254,15 @@ export function createDevSSRMiddleware(
             path: requestUrl.pathname,
           });
         },
+        onApiError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+          reportedError = error;
+          hasReportedError = true;
+          logDevRequestError(server, {
+            context,
+            error,
+            path: requestUrl.pathname,
+          });
+        },
         clientEntryUrl: withDevBase(CLIENT_BROWSER_PATH),
         islandsEntryUrl: withDevBase(ISLANDS_CLIENT_BROWSER_PATH),
         islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
@@ -442,7 +451,9 @@ function logDevRequestError(
     // context — it happened before anything matched — so without this a route
     // file's syntax error names no file at all on a route-state poll, where
     // there is no overlay to fall back on.
-    file: describeAnnotatedUserModule(error, server.config.root),
+    file:
+      describeAnnotatedUserModule(error, server.config.root) ??
+      describeContextUserModule(options.context),
     message: error instanceof Error ? error.message : String(error),
     path: options.path,
     phase: options.context?.phase,
@@ -460,6 +471,16 @@ function logDevRequestError(
   server.config.logger.error(wantsStack && stack ? `${line}\n${stack}` : line, {
     timestamp: true,
   });
+}
+
+/** Source modules the runtime matched before a handled request failure. */
+function describeContextUserModule(context: RouteErrorContext | undefined): string | undefined {
+  if (!context) return undefined;
+  if (context.phase === "middleware" && context.middlewareFiles?.length) {
+    return context.middlewareFiles.join(", ");
+  }
+  if (context.phase === "loader" && context.loaderFile) return context.loaderFile;
+  return context.routeFile;
 }
 
 /**

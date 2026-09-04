@@ -79,6 +79,15 @@ export const app = defineApp({
 
 API middleware runs before the handler, just like page middleware runs before loaders.
 
+## Development Errors
+
+When an API handler or API middleware throws during `pracht dev`, the request
+still receives the normal API error response, and the terminal logs the raw
+failure once. The log identifies the `api` or `middleware` phase together with
+the matched API route or middleware source file, so failures from `fetch()`,
+`curl`, and tests remain visible even though API responses do not use the page
+error overlay.
+
 ---
 
 ## Same-Origin Protection (CSRF)

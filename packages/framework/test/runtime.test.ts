@@ -165,6 +165,93 @@ describe("handlePrachtRequest API middleware", () => {
     await expect(response.text()).resolves.not.toContain("reached");
   });
 
+  it("reports thrown handlers with API route attribution", async () => {
+    const app = defineApp({
+      api: { middleware: ["apiAuth"] },
+      middleware: { apiAuth: "./middleware/api-auth.ts" },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const failure = new Error("handler exploded");
+    let captured: unknown;
+    let context: Record<string, unknown> | undefined;
+
+    const response = await handlePrachtRequest({
+      apiRoutes: resolveApiRoutes(["/src/api/users/[id].ts"]),
+      app,
+      registry: {
+        apiModules: {
+          "/src/api/users/[id].ts": async () => ({
+            GET: async () => {
+              throw failure;
+            },
+          }),
+        },
+        middlewareModules: {
+          "./middleware/api-auth.ts": async () => ({
+            middleware: (_args: unknown, next: () => Promise<Response>) => next(),
+          }),
+        },
+      },
+      request: new Request("http://localhost/api/users/42?source=test"),
+      onApiError: (error, requestPath, apiContext) => {
+        captured = { error, requestPath };
+        context = apiContext as unknown as Record<string, unknown>;
+      },
+    });
+
+    expect(response.status).toBe(500);
+    expect(captured).toEqual({ error: failure, requestPath: "/api/users/42?source=test" });
+    expect(context).toEqual({
+      middlewareFiles: ["./middleware/api-auth.ts"],
+      phase: "api",
+      routeFile: "/src/api/users/[id].ts",
+      routePath: "/api/users/:id",
+    });
+  });
+
+  it("reports API middleware failures with middleware attribution", async () => {
+    const app = defineApp({
+      api: { middleware: ["apiAuth"] },
+      middleware: { apiAuth: "./middleware/api-auth.ts" },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const failure = new Error("middleware exploded");
+    let captured: unknown;
+    let context: Record<string, unknown> | undefined;
+
+    const response = await handlePrachtRequest({
+      apiRoutes: resolveApiRoutes(["/src/api/health.ts"]),
+      app,
+      registry: {
+        apiModules: {
+          "/src/api/health.ts": async () => ({ GET: async () => Response.json({ ok: true }) }),
+        },
+        middlewareModules: {
+          "./middleware/api-auth.ts": async () => ({
+            middleware: async (_args: unknown, next: () => Promise<Response>) => {
+              await next();
+              throw failure;
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/api/health"),
+      onApiError: (error, _requestPath, apiContext) => {
+        captured = error;
+        context = apiContext as unknown as Record<string, unknown>;
+      },
+    });
+
+    expect(response.status).toBe(500);
+    expect(captured).toBe(failure);
+    expect(context).toEqual({
+      middlewareFiles: ["./middleware/api-auth.ts"],
+      phase: "middleware",
+      routeFile: "/src/api/health.ts",
+      routePath: "/api/health",
+    });
+  });
+
   it("uses 303 for API middleware redirects on unsafe methods", async () => {
     const app = defineApp({
       api: {

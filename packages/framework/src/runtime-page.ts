@@ -709,6 +709,9 @@ export async function renderPage<TContext>(
       signal: requestSignal,
       url: ctx.url,
       terminal,
+      onMiddlewareError: () => {
+        job.phase = "middleware";
+      },
     });
     if (timings) {
       timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
