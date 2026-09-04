@@ -54,6 +54,7 @@ async function request(
   options: {
     apiResponse?: () => Response;
     loaderCookies?: string[];
+    method?: string;
     url?: string;
   } = {},
 ) {
@@ -66,6 +67,9 @@ async function request(
           GET: () =>
             options.apiResponse?.() ??
             new Response("ok", { headers: { "content-type": "text/plain" } }),
+          HEAD: () =>
+            options.apiResponse?.() ??
+            new Response(null, { headers: { "content-type": "text/plain" } }),
         }),
       },
       routeModules: {
@@ -101,7 +105,7 @@ async function request(
   const response = createResponse();
   const req = {
     headers: { accept: "*/*", host: "localhost" },
-    method: "GET",
+    method: options.method ?? "GET",
     url: options.url ?? "/api/download",
   } as unknown as IncomingMessage;
 
@@ -142,6 +146,24 @@ describe("writeDevResponseHeaders", () => {
 });
 
 describe("dev SSR response body", () => {
+  it.each([
+    ["HEAD", 200],
+    ["GET", 204],
+    ["GET", 205],
+    ["GET", 304],
+  ])("strips content-length from a null-body %s %s response", async (method, status) => {
+    const response = await request({
+      apiResponse: () =>
+        new Response(null, { status, headers: { "content-length": "42", "x-test": "kept" } }),
+      method,
+    });
+
+    expect(response.res.statusCode).toBe(status);
+    expect(response.headers["content-length"]).toBeUndefined();
+    expect(response.headers["x-test"]).toBe("kept");
+    expect(response.bytes.length).toBe(0);
+  });
+
   it("forwards a binary API body byte for byte", async () => {
     const response = await request({
       apiResponse: () =>

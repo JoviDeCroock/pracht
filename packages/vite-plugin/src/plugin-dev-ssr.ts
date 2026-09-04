@@ -11,7 +11,11 @@ import type {
   ResolvedRoute,
   RouteErrorContext,
 } from "@pracht/core";
-import { applyDefaultSecurityHeaders, resolveRegistryModule } from "@pracht/core";
+import {
+  applyDefaultSecurityHeaders,
+  normalizeResponseHeaders,
+  resolveRegistryModule,
+} from "@pracht/core";
 import type { AgentTrafficBuffer } from "./agent-traffic.ts";
 import { createAgentTrafficBuffer } from "./agent-traffic.ts";
 import {
@@ -237,39 +241,41 @@ export function createDevSSRMiddleware(
       // otherwise fall through to the plain-text fallback.
       let capturedRouteError = false;
       let routeErrorContext: RouteErrorContext | undefined;
-      const response = await framework.handlePrachtRequest({
-        app: serverMod.resolvedApp,
-        registry: serverMod.registry,
-        request: webRequest,
-        debugErrors: true,
-        onRouteError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
-          capturedRouteError = true;
-          routeError = error;
-          routeErrorContext = context;
-          reportedError = error;
-          hasReportedError = true;
-          logDevRequestError(server, {
-            context,
-            error,
-            path: requestUrl.pathname,
-          });
-        },
-        onApiError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
-          reportedError = error;
-          hasReportedError = true;
-          logDevRequestError(server, {
-            context,
-            error,
-            path: requestUrl.pathname,
-          });
-        },
-        clientEntryUrl: withDevBase(CLIENT_BROWSER_PATH),
-        islandsEntryUrl: withDevBase(ISLANDS_CLIENT_BROWSER_PATH),
-        islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
-        apiRoutes: serverMod.apiRoutes,
-        timings,
-        onCapabilityAudit: agentTraffic.record,
-      });
+      const response = normalizeResponseHeaders(
+        await framework.handlePrachtRequest({
+          app: serverMod.resolvedApp,
+          registry: serverMod.registry,
+          request: webRequest,
+          debugErrors: true,
+          onRouteError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+            capturedRouteError = true;
+            routeError = error;
+            routeErrorContext = context;
+            reportedError = error;
+            hasReportedError = true;
+            logDevRequestError(server, {
+              context,
+              error,
+              path: requestUrl.pathname,
+            });
+          },
+          onApiError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+            reportedError = error;
+            hasReportedError = true;
+            logDevRequestError(server, {
+              context,
+              error,
+              path: requestUrl.pathname,
+            });
+          },
+          clientEntryUrl: withDevBase(CLIENT_BROWSER_PATH),
+          islandsEntryUrl: withDevBase(ISLANDS_CLIENT_BROWSER_PATH),
+          islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
+          apiRoutes: serverMod.apiRoutes,
+          timings,
+          onCapabilityAudit: agentTraffic.record,
+        }),
+      );
 
       // A 404 from the runtime normally falls through to Vite (which has
       // already had its shot at static files, since this middleware is

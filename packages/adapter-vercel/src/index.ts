@@ -9,6 +9,7 @@ import {
   jsonResponse,
   classifyRevalidationSkip,
   matchAppRoute,
+  normalizeResponseHeaders,
   preventHeuristicCaching,
   type ModuleRegistry,
   PRACHT_REVALIDATE_ENDPOINT,
@@ -252,6 +253,7 @@ function prepareVercelISGResponse(request: Request, response: Response): Respons
 }
 
 async function writeNodeResponse(res: VercelNodeResponse, response: Response): Promise<void> {
+  response = normalizeResponseHeaders(response);
   res.statusCode = response.status;
   if (response.statusText) res.statusMessage = response.statusText;
 

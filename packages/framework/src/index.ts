@@ -200,6 +200,7 @@ export {
   formatServerTimingHeader,
   Link,
   handlePrachtRequest,
+  normalizeResponseHeaders,
   readHydrationState,
   startApp,
   useBlocker,
