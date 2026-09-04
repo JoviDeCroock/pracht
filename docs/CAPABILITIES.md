@@ -106,6 +106,10 @@ owns the registered tools' lifetime; abort it when an SPA scope unmounts or is
 replaced. The public setup guide lives at
 <https://pracht.resynapse.dev/docs/standalone-capabilities>.
 
+Standalone capability modules follow the same typing rule as framework-hosted
+ones: annotate `run()` with `CapabilityRunArgs<Input>` to type its input while
+preserving inference for the concrete output.
+
 Skipping this is not a quiet failure but it *is* a confusing one: capability
 dispatch answers `500 internal_error`, and because the modules cannot be
 loaded, every inspection surface reads their metadata as unknown — the dev

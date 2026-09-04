@@ -8,7 +8,12 @@ class (`read` / `write` / `destructive`), named middleware, and a server-only
 endpoint, a remote MCP tool, and a WebMCP page tool for in-browser agents.
 
 ```ts
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
+
+interface SearchInput {
+  query: string;
+  limit: number;
+}
 
 export default defineCapability({
   title: "Search notes",
@@ -29,7 +34,7 @@ export default defineCapability({
   },
   effect: "read",
   expose: { http: true, webmcp: true },
-  async run({ input, context, request, signal }) {
+  async run({ input, context, request, signal }: CapabilityRunArgs<SearchInput>) {
     return { notes: await searchNotes(input.query, input.limit) };
   },
 });

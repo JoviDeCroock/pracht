@@ -25,7 +25,11 @@ npm install @pracht/capabilities
 Wrap an existing service function with the same contract a Pracht app uses:
 
 ```ts [capabilities/notes-search.ts]
-import { defineCapability } from "@pracht/capabilities";
+import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
+
+interface SearchInput {
+  query: string;
+}
 
 export default defineCapability({
   title: "Search notes",
@@ -43,11 +47,13 @@ export default defineCapability({
   },
   effect: "read",
   expose: { http: true, mcp: true },
-  async run({ input }) {
+  async run({ input }: CapabilityRunArgs<SearchInput>) {
     return { notes: await searchNotes(input.query) };
   },
 });
 ```
+
+Annotating `run()` with `CapabilityRunArgs<Input>` types the input while preserving inference for the concrete output. The standalone host uses the same capability object and typing rule as a Pracht app.
 
 ## Mount the Host
 
