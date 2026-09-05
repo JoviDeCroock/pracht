@@ -490,6 +490,19 @@ describe("fonts through head merge and document rendering", () => {
     expect(head.fontNonce).toBe("route");
   });
 
+  it("prefers a route style nonce and uses it for generated font CSS", async () => {
+    const head = await mergeHeadMetadata(
+      { Shell: () => null, head: () => ({ styleNonce: "shell" }) },
+      { default: () => null, head: () => ({ fonts: [inter], styleNonce: "route" }) },
+      makeRouteArgs(),
+      undefined,
+    );
+    expect(head.styleNonce).toBe("route");
+    expect(buildHtmlDocument({ head, body: "" })).toContain(
+      '<style data-pracht-fonts nonce="route">',
+    );
+  });
+
   it("emits one preload and one @font-face when shell and route register the same font", async () => {
     const head = await mergeHeadMetadata(
       {

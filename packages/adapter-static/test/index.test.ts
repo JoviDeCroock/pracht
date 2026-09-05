@@ -46,6 +46,7 @@ describe("staticAdapter", () => {
     expect(source).toContain("notFoundData: notFoundState?.data,");
     expect(source).toContain("notFoundError: notFoundState?.error ?? null,");
     expect(source).toContain("createStaticPreviewHandler");
+    expect(source).toContain("cssContentManifest,");
   });
 
   it("defaults to no fallback document", () => {

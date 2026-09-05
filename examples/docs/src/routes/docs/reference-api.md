@@ -201,6 +201,14 @@ See [Environment Variables](/docs/env).
 
 ---
 
+## Performance
+
+| Export | Description |
+| --- | --- |
+| `useWebVitals(reporter)` | Lazily report CLS, FCP, INP, LCP, and TTFB from a client component. See [Performance](/docs/performance#real-user-web-vitals) |
+
+---
+
 ## Sessions
 
 From `@pracht/session`. WebCrypto only, so the same build runs on every

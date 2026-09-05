@@ -165,6 +165,7 @@ function mergeHeadValues(shellHead: HeadMetadata, routeHead: HeadMetadata): Head
     meta: [...(shellHead.meta ?? []), ...(routeHead.meta ?? [])],
     link: [...(shellHead.link ?? []), ...(routeHead.link ?? [])],
     script: [...(shellHead.script ?? []), ...(routeHead.script ?? [])],
+    styleNonce: routeHead.styleNonce ?? shellHead.styleNonce,
     fontNonce: routeHead.fontNonce ?? shellHead.fontNonce,
     // Duplicate registrations (e.g. shell and route both list the same font)
     // are collapsed by the head renderer, not here, so the merge stays a

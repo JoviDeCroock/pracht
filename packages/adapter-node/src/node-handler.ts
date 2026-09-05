@@ -78,6 +78,7 @@ export interface NodeAdapterOptions<TContext = unknown> {
   islandsEntryUrl?: string;
   islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
+  cssContentManifest?: Record<string, string>;
   jsManifest?: Record<string, string[]>;
   headersManifest?: HeadersManifest;
   /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
@@ -288,6 +289,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       islandsEntryUrl: options.islandsEntryUrl,
       islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
+      cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
 

@@ -31,6 +31,13 @@ stylesheet links to the initial HTML before the client entry. Apps should only
 need to import their CSS from a route, shell, or one of their dependencies — a
 development-only `<link>` in `head()` is unnecessary.
 
+Production links these route-scoped files by default. For small stylesheets,
+`pracht({ inlineCss: true })` instead places the complete matched route and
+shell CSS in the initial document. This removes the parser-blocking stylesheet
+request but repeats shared CSS in every HTML response; see
+[PERFORMANCE.md](PERFORMANCE.md#inlining-route-css) for the trade-off and CSP
+requirements. It does not extract styles produced at render time by CSS-in-JS.
+
 ---
 
 ## CSS-in-JS

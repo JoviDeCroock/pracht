@@ -550,8 +550,14 @@ export function createPrachtServerModuleSource(
   const routeHeadHints = routeHints.head;
   const routeStaticPathsHints = routeHints.staticPaths;
   const clientBuild = buildOptions.isBuild
-    ? readClientBuildAssets(buildOptions.root, buildOptions.base ?? "/")
-    : { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
+    ? readClientBuildAssets(buildOptions.root, buildOptions.base ?? "/", resolved.inlineCss)
+    : {
+        clientEntryUrl: null,
+        islandsEntryUrl: null,
+        cssManifest: {},
+        cssContentManifest: {},
+        jsManifest: {},
+      };
   const adapter = resolved.adapter;
   const llmsTxtConfig = resolveLlmsTxtConfig(resolved, buildOptions.root);
   const islandsBootstrapRequired = hasWebmcpCapabilities(resolved, buildOptions.root);
@@ -620,6 +626,7 @@ export function createPrachtServerModuleSource(
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
     `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,
+    `export const cssContentManifest = ${JSON.stringify(clientBuild.cssContentManifest)};`,
     `export const jsManifest = ${JSON.stringify(clientBuild.jsManifest)};`,
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,
     `export const budgets = ${JSON.stringify(resolved.budgets)};`,

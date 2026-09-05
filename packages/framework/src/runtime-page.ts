@@ -36,7 +36,7 @@ import {
   ISLANDS_ENTRY_MANIFEST_KEY,
   mergeEntryPreloadUrls,
   resolveManifestEntries,
-  resolvePageCssUrls,
+  resolvePageCssAssets,
   resolvePageJsUrls,
   resolveDataFunctions,
   resolveRegistryModule,
@@ -342,13 +342,18 @@ async function resolvePageDocumentMetadata<TContext>(
 
 /** Stylesheet and modulepreload URLs for this route's document. */
 function resolvePageAssets<TContext>(job: PageRenderJob<TContext>): {
-  cssUrls: string[];
+  cssAssets: Array<{ content?: string; href: string }>;
   modulePreloadUrls: string[];
 } {
   const { options } = job.ctx;
   const { route } = job.match;
   return {
-    cssUrls: resolvePageCssUrls(options.cssManifest, route.shellFile, route.file),
+    cssAssets: resolvePageCssAssets(
+      options.cssManifest,
+      options.cssContentManifest,
+      route.shellFile,
+      route.file,
+    ),
     modulePreloadUrls: mergeEntryPreloadUrls(
       options.jsManifest,
       CLIENT_ENTRY_MANIFEST_KEY,
@@ -368,7 +373,7 @@ async function renderSpaDocument<TContext>(
   hasLoader: boolean,
 ): Promise<Response> {
   const { ctx, match, pageOptions } = job;
-  const { cssUrls, modulePreloadUrls } = resolvePageAssets(job);
+  const { cssAssets, modulePreloadUrls } = resolvePageAssets(job);
   // The generated hasLoader hint can be absent for direct runtime
   // callers, but the resolved loader is authoritative here. Route
   // middleware also participates in the route-state request.
@@ -419,7 +424,7 @@ async function renderSpaDocument<TContext>(
         pending: needsRouteState,
       },
       clientEntryUrl: ctx.options.clientEntryUrl,
-      cssUrls,
+      cssAssets,
       modulePreloadUrls,
       // Routes with loader/middleware state preload it. Static exports
       // point this at a serialized file; other adapters use `_data=1`.
@@ -447,7 +452,7 @@ async function renderServerDocument<TContext>(
 ): Promise<Response> {
   const { ctx, match, pageOptions } = job;
   const routeModule = job.routeModule!;
-  const { cssUrls, modulePreloadUrls } = resolvePageAssets(job);
+  const { cssAssets, modulePreloadUrls } = resolvePageAssets(job);
 
   const DefaultComponent =
     typeof routeModule.default === "function" ? routeModule.default : undefined;
@@ -552,7 +557,7 @@ async function renderServerDocument<TContext>(
         head: withCapturedScripts(head, scriptCapture),
         body: ssrContent,
         clientEntryUrl: islandsEntryUrl,
-        cssUrls,
+        cssAssets,
         modulePreloadUrls: islandsEntryUrl
           ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
               ...islandPreloadUrls,
@@ -577,7 +582,7 @@ async function renderServerDocument<TContext>(
         error: null,
       },
       clientEntryUrl: ctx.options.clientEntryUrl,
-      cssUrls,
+      cssAssets,
       modulePreloadUrls,
       speculationRules: getAppSpeculationRules(ctx.resolvedApp),
     }),

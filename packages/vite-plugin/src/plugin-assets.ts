@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { stripPrachtClientModuleQuery } from "./client-module-query.ts";
 
 export const PRACHT_CLIENT_MODULE_ID = "virtual:pracht/client";
@@ -26,6 +26,7 @@ export interface ClientBuildAssets {
   clientEntryUrl: string | null;
   islandsEntryUrl: string | null;
   cssManifest: Record<string, string[]>;
+  cssContentManifest: Record<string, string>;
   jsManifest: Record<string, string[]>;
 }
 
@@ -38,12 +39,22 @@ function assetUrl(file: string, base: string): string {
   return `${base}${file}`;
 }
 
-export function readClientBuildAssets(root = process.cwd(), base = "/"): ClientBuildAssets {
+export function readClientBuildAssets(
+  root = process.cwd(),
+  base = "/",
+  inlineCss = false,
+): ClientBuildAssets {
   const manifestPath = ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"]
     .map((candidate) => resolve(root, candidate))
     .find((candidate) => existsSync(candidate));
   if (!manifestPath) {
-    return { clientEntryUrl: null, islandsEntryUrl: null, cssManifest: {}, jsManifest: {} };
+    return {
+      clientEntryUrl: null,
+      islandsEntryUrl: null,
+      cssManifest: {},
+      cssContentManifest: {},
+      jsManifest: {},
+    };
   }
 
   const rawManifest = readFileSync(manifestPath, "utf-8");
@@ -52,13 +63,21 @@ export function readClientBuildAssets(root = process.cwd(), base = "/"): ClientB
   const islandsEntry = manifest[PRACHT_ISLANDS_CLIENT_MODULE_ID];
 
   const cssManifest: Record<string, string[]> = {};
+  const cssContentManifest: Record<string, string> = {};
   const jsManifest: Record<string, string[]> = {};
+  const clientOutDir = dirname(dirname(manifestPath));
   for (const [key, entry] of Object.entries(manifest)) {
     if (!entry.src) continue;
     const deps = collectTransitiveDeps(manifest, key);
     const manifestKey = stripPrachtClientModuleQuery(entry.src);
     if (deps.css.length > 0) {
       cssManifest[manifestKey] = deps.css.map((f) => assetUrl(f, base));
+      if (inlineCss) {
+        for (const file of deps.css) {
+          const url = assetUrl(file, base);
+          cssContentManifest[url] ??= readFileSync(resolve(clientOutDir, file), "utf-8");
+        }
+      }
     }
     if (deps.js.length > 0) {
       jsManifest[manifestKey] = deps.js.map((f) => assetUrl(f, base));
@@ -77,6 +96,7 @@ export function readClientBuildAssets(root = process.cwd(), base = "/"): ClientB
     clientEntryUrl: clientEntry ? assetUrl(clientEntry.file, base) : null,
     islandsEntryUrl: islandsEntry ? assetUrl(islandsEntry.file, base) : null,
     cssManifest,
+    cssContentManifest,
     jsManifest,
   };
 }

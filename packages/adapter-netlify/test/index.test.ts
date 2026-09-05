@@ -54,6 +54,7 @@ describe("createNetlifyServerEntryModule", () => {
     expect(source).not.toContain('from "@netlify/functions"');
     expect(source).toContain('"staleWhileRevalidate":60');
     expect(source).toContain("islandsBootstrapRequired");
+    expect(source).toContain("cssContentManifest,");
     expect(source).toContain("finalizePrachtBuild");
     expect(source).toContain("finalizeNetlifyBuild(root,");
     expect(source).toContain("buildBase");

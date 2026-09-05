@@ -92,6 +92,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     "    islandsEntryUrl: islandsEntryUrl ?? undefined,",
     "    islandsBootstrapRequired,",
     "    cssManifest,",
+    "    cssContentManifest,",
     "    jsManifest,",
     "    onRouteError: (error) => {",
     "      renderError = error;",

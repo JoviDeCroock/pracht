@@ -588,6 +588,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
       islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
       cssManifest,
+      cssContentManifest: serverMod.cssContentManifest,
       jsManifest,
       registry: serverMod.registry,
       withISGManifest: true,

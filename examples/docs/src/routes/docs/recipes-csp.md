@@ -63,6 +63,28 @@ export function headers() {
 Avoid `'unsafe-eval'`. Avoid `'unsafe-inline'` unless an audited integration
 requires it and the exception is documented.
 
+## Framework-Generated Styles
+
+`defineFont()` and `pracht({ inlineCss: true })` emit inline style elements.
+For SSR, return a request-specific `styleNonce` from the shell head and use the
+same value in `style-src`:
+
+```ts [src/shells/public.tsx]
+export function head({ context }) {
+  return { fonts: [inter], styleNonce: context.cspNonce };
+}
+
+export function headers({ context }) {
+  return {
+    "content-security-policy": `default-src 'self'; style-src 'self' 'nonce-${context.cspNonce}'; font-src 'self'`,
+  };
+}
+```
+
+`fontNonce` remains available as a backwards-compatible font-only override.
+SSG/ISG output cannot safely reuse a request nonce; keep linked CSS and use a
+stable hash or external stylesheet policy for static documents.
+
 ## Inline Script Entries
 
 Pracht does not require app-authored executable inline scripts for normal page

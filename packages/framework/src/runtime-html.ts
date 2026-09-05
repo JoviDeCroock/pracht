@@ -111,7 +111,11 @@ export function buildHtmlDocument(options: {
    */
   hydrationState?: PrachtHydrationState;
   clientEntryUrl?: string;
+  /** Ordered route CSS assets, optionally carrying content to inline. */
+  cssAssets?: Array<{ content?: string; href: string }>;
   cssUrls?: string[];
+  /** Build-time route CSS to place directly in the document head. */
+  inlineCss?: string[];
   modulePreloadUrls?: string[];
   routeStatePreloadUrl?: string;
   speculationRules?: SpeculationRulesDocument | null;
@@ -123,7 +127,9 @@ export function buildHtmlDocument(options: {
     body,
     hydrationState,
     clientEntryUrl,
+    cssAssets,
     cssUrls = [],
+    inlineCss = [],
     modulePreloadUrls = [],
     routeStatePreloadUrl,
     speculationRules,
@@ -156,9 +162,10 @@ export function buildHtmlDocument(options: {
         .map((attrs) => `<link data-pracht-font-preload ${attrs}>`)
         .join("\n    ")
     : "";
+  const fontNonce = head.fontNonce ?? head.styleNonce;
   const fontStyleTag =
-    fontFragments?.css || head.fontNonce
-      ? `<style data-pracht-fonts${head.fontNonce ? ` nonce="${escapeHtml(head.fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
+    fontFragments?.css || fontNonce
+      ? `<style data-pracht-fonts${fontNonce ? ` nonce="${escapeHtml(fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
       : "";
 
   const scriptTags = (head.script ?? [])
@@ -169,9 +176,44 @@ export function buildHtmlDocument(options: {
     })
     .join("\n    ");
 
-  const cssTags = cssUrls
-    .map((url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`)
-    .join("\n    ");
+  // CSS assets are trusted build output, but <style> is a raw-text element:
+  // even a CSS string or URL containing `</style` would otherwise terminate
+  // it at the HTML parser. Escaping the slash preserves the CSS token while
+  // making the closing tag impossible.
+  const renderInlineCss = (css: string[]): string => {
+    const text = css.join("\n").replace(/<\/style/gi, "<\\/style");
+    return text
+      ? `<style data-pracht-inline-css${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${text}</style>`
+      : "";
+  };
+  const cssTags = (() => {
+    if (!cssAssets) {
+      return [
+        renderInlineCss(inlineCss),
+        ...cssUrls.map((url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`),
+      ]
+        .filter(Boolean)
+        .join("\n    ");
+    }
+
+    const tags: string[] = [];
+    let pendingInline: string[] = [];
+    const flushInline = () => {
+      const tag = renderInlineCss(pendingInline);
+      if (tag) tags.push(tag);
+      pendingInline = [];
+    };
+    for (const asset of cssAssets) {
+      if (asset.content !== undefined) {
+        pendingInline.push(asset.content);
+      } else {
+        flushInline();
+        tags.push(`<link rel="stylesheet" href="${escapeHtml(asset.href)}">`);
+      }
+    }
+    flushInline();
+    return tags.join("\n    ");
+  })();
 
   const modulePreloadTags = modulePreloadUrls
     .map((url) => `<link rel="modulepreload" href="${escapeHtml(url)}">`)

@@ -14,6 +14,7 @@ describe("createDefaultNodeAdapter", () => {
     );
     expect(source).toContain("headersManifest,");
     expect(source).toContain("markdownManifest,");
+    expect(source).toContain("cssContentManifest,");
     expect(source).toContain("createNodeRequestHandler");
   });
 });
