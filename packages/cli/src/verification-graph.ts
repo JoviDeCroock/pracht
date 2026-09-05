@@ -101,9 +101,54 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
     );
   }
   collectMcpRouteCollisionChecks(live, checks);
+  collectWebmcpRouteChecks(live, checks);
   collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
   collectConstraintChecks(project, live, checks);
   collectSnapshotChecks(project, live, checks, snapshotExists);
+}
+
+/** Every route declaration must point at a capability eligible for WebMCP. */
+export function collectWebmcpRouteChecks(live: GraphSnapshot, checks: Check[]): void {
+  const byName = new Map(live.capabilities.map((capability) => [capability.name, capability]));
+  const active = new Set<string>();
+  let invalid = 0;
+
+  for (const route of live.routes) {
+    for (const name of route.capabilities ?? []) {
+      active.add(name);
+      const capability = byName.get(name);
+      if (!capability?.transports.includes("webmcp")) {
+        invalid += 1;
+        checks.push(
+          createCheck(
+            "error",
+            `Route ${JSON.stringify(route.path)} activates capability ${JSON.stringify(name)} as ` +
+              "a page tool, but that capability does not set expose.webmcp with expose.http.",
+          ),
+        );
+      }
+    }
+  }
+
+  for (const capability of live.capabilities) {
+    if (!capability.transports.includes("webmcp") || active.has(capability.name)) continue;
+    checks.push(
+      createCheck(
+        "warning",
+        `Capability ${JSON.stringify(capability.name)} sets expose.webmcp but no route activates ` +
+          "it. Add the capability name to a route's capabilities list (or export CAPABILITIES from a pages route).",
+      ),
+    );
+  }
+
+  if (active.size > 0 && invalid === 0) {
+    checks.push(
+      createCheck(
+        "ok",
+        `Resolved ${active.size} route-scoped WebMCP page tool${active.size === 1 ? "" : "s"}.`,
+      ),
+    );
+  }
 }
 
 /** Explicit API dispatch must not shadow the remote MCP security boundary. */
@@ -295,7 +340,19 @@ function manifestDeclaresConstraints(project: ProjectConfig): boolean {
 }
 
 function manifestDeclaresCapabilities(project: ProjectConfig): boolean {
-  if (project.mode !== "manifest") return false;
+  if (project.mode === "pages") {
+    const pagesDir = resolveProjectPath(project.root, project.pagesDir);
+    return (
+      existsSync(pagesDir) &&
+      listFilesRecursively(pagesDir).some(
+        (file) =>
+          MODULE_SOURCE_RE.test(file) &&
+          /\bexport\s+const\s+CAPABILITIES\b/.test(
+            maskCommentsAndStrings(readFileSync(file, "utf-8")),
+          ),
+      )
+    );
+  }
   const manifestPath = resolveProjectPath(project.root, project.appFile);
   if (!existsSync(manifestPath)) return false;
   const source = readFileSync(manifestPath, "utf-8");

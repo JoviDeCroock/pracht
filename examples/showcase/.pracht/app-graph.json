@@ -1,5 +1,5 @@
 {
-  "prachtGraphVersion": 1,
+  "prachtGraphVersion": 2,
   "mode": "manifest",
   "routes": [
     {
@@ -33,6 +33,7 @@
       "speculation": null
     },
     {
+      "capabilities": ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
       "file": "./routes/dashboard.tsx",
       "hydration": null,
       "id": "dashboard",
@@ -48,6 +49,7 @@
       "speculation": null
     },
     {
+      "capabilities": ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
       "file": "./routes/approvals.tsx",
       "hydration": null,
       "id": "approvals",
@@ -63,6 +65,7 @@
       "speculation": null
     },
     {
+      "capabilities": ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
       "file": "./routes/audit.tsx",
       "hydration": null,
       "id": "audit",
@@ -78,6 +81,7 @@
       "speculation": null
     },
     {
+      "capabilities": ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
       "file": "./routes/project.tsx",
       "hydration": null,
       "id": "project",
@@ -93,6 +97,7 @@
       "speculation": null
     },
     {
+      "capabilities": ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
       "file": "./routes/settings.tsx",
       "hydration": null,
       "id": "settings",
@@ -123,6 +128,7 @@
       "speculation": null
     },
     {
+      "capabilities": ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
       "file": "./routes/playground.tsx",
       "hydration": null,
       "id": "playground",
@@ -257,7 +263,15 @@
       },
       "source": "./capabilities/agent-whoami.ts",
       "title": "Who am I",
-      "transports": ["http", "mcp", "webmcp"]
+      "transports": ["http", "mcp", "webmcp"],
+      "webmcpRoutes": [
+        "/playground",
+        "/app",
+        "/app/projects/:projectId",
+        "/app/approvals",
+        "/app/audit",
+        "/app/settings"
+      ]
     },
     {
       "agentPolicy": null,
@@ -368,7 +382,15 @@
       },
       "source": "./capabilities/projects-create.ts",
       "title": "Create project",
-      "transports": ["http", "mcp", "webmcp"]
+      "transports": ["http", "mcp", "webmcp"],
+      "webmcpRoutes": [
+        "/playground",
+        "/app",
+        "/app/projects/:projectId",
+        "/app/approvals",
+        "/app/audit",
+        "/app/settings"
+      ]
     },
     {
       "agentPolicy": null,
@@ -415,7 +437,15 @@
       },
       "source": "./capabilities/projects-deploy.ts",
       "title": "Deploy project",
-      "transports": ["http", "mcp", "webmcp"]
+      "transports": ["http", "mcp", "webmcp"],
+      "webmcpRoutes": [
+        "/playground",
+        "/app",
+        "/app/projects/:projectId",
+        "/app/approvals",
+        "/app/audit",
+        "/app/settings"
+      ]
     },
     {
       "agentPolicy": null,
@@ -498,10 +528,20 @@
       },
       "source": "./capabilities/projects-search.ts",
       "title": "Search projects",
-      "transports": ["http", "mcp", "webmcp"]
+      "transports": ["http", "mcp", "webmcp"],
+      "webmcpRoutes": [
+        "/playground",
+        "/app",
+        "/app/projects/:projectId",
+        "/app/approvals",
+        "/app/audit",
+        "/app/settings"
+      ]
     }
   ],
   "mcpEndpoint": "/mcp",
+  "mcpAuthenticated": false,
+  "mcpAuth": null,
   "constraints": [
     {
       "kind": "require-middleware",

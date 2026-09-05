@@ -115,6 +115,8 @@ export function buildHtmlDocument(options: {
   modulePreloadUrls?: string[];
   routeStatePreloadUrl?: string;
   speculationRules?: SpeculationRulesDocument | null;
+  /** Page-scoped WebMCP tools consumed by the islands bootstrap. */
+  webmcpCapabilities?: readonly string[];
 }): string {
   const {
     head,
@@ -125,6 +127,7 @@ export function buildHtmlDocument(options: {
     modulePreloadUrls = [],
     routeStatePreloadUrl,
     speculationRules,
+    webmcpCapabilities = [],
   } = options;
 
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
@@ -186,7 +189,11 @@ export function buildHtmlDocument(options: {
     ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`
     : "";
   const entryScript = clientEntryUrl
-    ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"></script>`
+    ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"${
+        webmcpCapabilities.length > 0
+          ? ` data-pracht-webmcp-tools="${escapeHtml(webmcpCapabilities.join(","))}"`
+          : ""
+      }></script>`
     : "";
 
   // Empty slots are dropped rather than interpolated: otherwise every document

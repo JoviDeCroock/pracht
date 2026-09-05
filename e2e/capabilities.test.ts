@@ -296,6 +296,56 @@ test("webmcp shim registers page tools and execute() round-trips over HTTP", asy
   expect(envelope.data.notes[0].title).toBe("Capabilities");
 });
 
+test("webmcp tools follow committed client-route navigation", async ({ page }) => {
+  await page.addInitScript(() => {
+    const active = new Map<string, unknown>();
+    (window as unknown as { __activeWebmcpTools: Map<string, unknown> }).__activeWebmcpTools =
+      active;
+    (document as unknown as { modelContext: unknown }).modelContext = {
+      registerTool(tool: { name: string }, options?: { signal?: AbortSignal }) {
+        active.set(tool.name, tool);
+        options?.signal?.addEventListener(
+          "abort",
+          () => {
+            if (active.get(tool.name) === tool) active.delete(tool.name);
+          },
+          { once: true },
+        );
+        return Promise.resolve();
+      },
+    };
+  });
+
+  await page.goto("/notes");
+  await page.waitForFunction(() =>
+    (window as unknown as { __activeWebmcpTools: Map<string, unknown> }).__activeWebmcpTools.has(
+      "notes.search",
+    ),
+  );
+
+  await page.evaluate(() =>
+    (
+      window as unknown as { __PRACHT_NAVIGATE__: (href: string) => Promise<void> }
+    ).__PRACHT_NAVIGATE__("/"),
+  );
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { __activeWebmcpTools: Map<string, unknown> }).__activeWebmcpTools
+        .size === 0,
+  );
+
+  await page.evaluate(() =>
+    (
+      window as unknown as { __PRACHT_NAVIGATE__: (href: string) => Promise<void> }
+    ).__PRACHT_NAVIGATE__("/notes"),
+  );
+  await page.waitForFunction(() =>
+    (window as unknown as { __activeWebmcpTools: Map<string, unknown> }).__activeWebmcpTools.has(
+      "notes.search",
+    ),
+  );
+});
+
 test("webmcp execute() aborts its capability request when the host cancels", async ({ page }) => {
   await page.addInitScript(() => {
     const registered: unknown[] = [];

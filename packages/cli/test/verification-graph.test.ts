@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { GraphSnapshot } from "../src/graph-snapshot.ts";
-import { collectMcpRouteCollisionChecks } from "../src/verification-graph.ts";
+import {
+  collectMcpRouteCollisionChecks,
+  collectWebmcpRouteChecks,
+} from "../src/verification-graph.ts";
 import type { Check } from "../src/verification-helpers.ts";
 
 function graph(overrides: Partial<GraphSnapshot> = {}): GraphSnapshot {
@@ -84,4 +87,67 @@ describe("collectMcpRouteCollisionChecks", () => {
       ]);
     },
   );
+});
+
+describe("collectWebmcpRouteChecks", () => {
+  const capability = (name: string, transports: string[]) =>
+    ({ name, transports }) as GraphSnapshot["capabilities"][number];
+
+  it("accepts route-scoped WebMCP capabilities", () => {
+    const checks: Check[] = [];
+    collectWebmcpRouteChecks(
+      graph({
+        capabilities: [capability("notes.search", ["http", "webmcp"])],
+        routes: [
+          {
+            ...({ path: "/notes" } as GraphSnapshot["routes"][number]),
+            capabilities: ["notes.search"],
+          },
+        ],
+      }),
+      checks,
+    );
+
+    expect(checks).toEqual([
+      expect.objectContaining({ message: expect.stringContaining("route-scoped"), status: "ok" }),
+    ]);
+  });
+
+  it("rejects page-tool activation for a capability without WebMCP exposure", () => {
+    const checks: Check[] = [];
+    collectWebmcpRouteChecks(
+      graph({
+        capabilities: [capability("notes.search", ["http"])],
+        routes: [
+          {
+            ...({ path: "/notes" } as GraphSnapshot["routes"][number]),
+            capabilities: ["notes.search"],
+          },
+        ],
+      }),
+      checks,
+    );
+
+    expect(checks).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("does not set expose.webmcp"),
+        status: "error",
+      }),
+    ]);
+  });
+
+  it("warns when a WebMCP capability is not active on any route", () => {
+    const checks: Check[] = [];
+    collectWebmcpRouteChecks(
+      graph({ capabilities: [capability("notes.search", ["http", "webmcp"])] }),
+      checks,
+    );
+
+    expect(checks).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("no route activates"),
+        status: "warning",
+      }),
+    ]);
+  });
 });

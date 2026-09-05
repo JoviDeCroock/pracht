@@ -595,6 +595,9 @@ describe("createPrachtWebmcpModuleSource", () => {
     expect(source).toContain("registrationController?.abort()");
     expect(source).toContain("{ signal: registrationController.signal }");
     expect(source).toContain("import.meta.hot.dispose");
+    expect(source).toContain("export function registerPrachtWebmcpTools(names)");
+    expect(source).toContain("activeNames.flatMap");
+    expect(source).not.toContain("registerPrachtWebmcpTools();");
     // The host serializes the returned value itself; MCP-style content blocks
     // would reach the agent double-encoded.
     expect(source).not.toContain("content:");
@@ -624,9 +627,13 @@ describe("client entry integration", () => {
     expect(createPrachtClientModuleSource({}, { root: withWebmcp })).toContain(
       'import("virtual:pracht/webmcp")',
     );
-    expect(createPrachtIslandsClientModuleSource({}, { root: withWebmcp })).toContain(
-      'import("virtual:pracht/webmcp")',
-    );
+    const clientSource = createPrachtClientModuleSource({}, { root: withWebmcp });
+    expect(clientSource).toContain("onRouteChange: syncPrachtWebmcpTools");
+    expect(clientSource).toContain("module.registerPrachtWebmcpTools(capabilities)");
+
+    const islandsSource = createPrachtIslandsClientModuleSource({}, { root: withWebmcp });
+    expect(islandsSource).toContain('import("virtual:pracht/webmcp")');
+    expect(islandsSource).toContain("script[data-pracht-webmcp-tools]");
     expect(createPrachtServerModuleSource({}, { root: withWebmcp })).toContain(
       "export const islandsBootstrapRequired = true;",
     );

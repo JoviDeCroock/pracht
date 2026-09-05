@@ -67,6 +67,7 @@ export {
   serializeApiRoutesStatic,
   serializeAppRoutes,
   serializeCapabilities,
+  withWebmcpRoutes,
 } from "./app-graph.ts";
 export type {
   ApiRouteExports,

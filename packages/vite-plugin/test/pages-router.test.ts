@@ -114,6 +114,38 @@ describe("scanPagesDirectory", () => {
     expect(pages.find((page) => page.routePath === "/")?.hasHead).toBe(false);
   });
 
+  it("compiles page CAPABILITIES exports into route metadata", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      'export const CAPABILITIES = ["notes.search", "notes.search", "notes.create"];\n',
+    );
+
+    const pages = scanPagesDirectory(pagesDir);
+    expect(pages[0]?.capabilities).toEqual(["notes.search", "notes.create"]);
+    expect(generatePagesManifestSource(pages, { pagesDir })).toContain(
+      'capabilities: ["notes.search","notes.create"]',
+    );
+  });
+
+  it("rejects non-literal page CAPABILITIES exports", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(
+      join(pagesDir, "index.tsx"),
+      'const tools = ["notes.search"];\nexport const CAPABILITIES = tools;\n',
+    );
+
+    expect(() => scanPagesDirectory(pagesDir)).toThrow(/inline array of capability names/);
+  });
+
+  it("rejects CAPABILITIES on the pages app shell", () => {
+    const pagesDir = makeTempPagesDir();
+    writeFileSync(join(pagesDir, "index.tsx"), "export function Component() {}\n");
+    writeFileSync(join(pagesDir, "_app.tsx"), 'export const CAPABILITIES = ["notes.search"];\n');
+
+    expect(() => scanPagesDirectory(pagesDir)).toThrow(/page tools are route-scoped/);
+  });
+
   it("detects named and re-exported head exports for navigation hints", () => {
     const pagesDir = makeTempPagesDir();
     writeFileSync(

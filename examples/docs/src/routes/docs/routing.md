@@ -68,13 +68,14 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 | ----- | --------- | ----------------------------------------------------- |
 | path  | string    | URL pattern, e.g. `/blog/:slug`                       |
 | file  | string    | Relative path to the route module                     |
-| meta  | RouteMeta | Optional render mode, shell, middleware, Markdown capability, revalidation |
+| meta  | RouteMeta | Optional render mode, shell, middleware, WebMCP tools, Markdown capability, revalidation |
 
 `RouteMeta` fields:
 
 | Field         | Type                                     | Description                                                                                        |
 | ------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `id`          | string                                   | Stable route id for typed routes and `<Link route>`. Generated from the path when omitted           |
+| `capabilities` | string[]                                | Registered [WebMCP page tools](/docs/capabilities#webmcp-tools-for-in-browser-agents) active while this route is current |
 | `render`      | `"ssr" \| "ssg" \| "isg" \| "spa"`       | [Render mode](/docs/rendering). Defaults to `"ssr"`                                                |
 | `hydration`   | `"full" \| "islands" \| "none"`          | How much of the page hydrates. See [Islands](/docs/islands)                                        |
 | `shell`       | string                                   | Named shell that wraps this route                                                                  |
@@ -333,6 +334,8 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 ]);
 ```
 
+`capabilities` also inherits through groups, but unlike scalar settings it is additive: a route keeps the group's names and adds its own, with duplicates removed. Initial hydration registers the matched route's tools; after client navigation commits, pracht replaces them with the destination route's set. `hydration: "none"` routes cannot activate page tools.
+
 ---
 
 ## Pages Router (Auto-Discovery)
@@ -345,7 +348,7 @@ Auto-discovery replaces the manifest, so everything a manifest registers by name
 
 | Feature | Pages router |
 | --- | --- |
-| Render and hydration modes, dynamic/catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports on the page file |
+| Render and hydration modes, route-scoped WebMCP tools, dynamic/catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` / `CAPABILITIES` exports on the page file |
 | Shells | `_app.tsx` per directory — [`pages`, `pages:blog`, …](#directory-scoped-shells). The nearest one wins and replaces its parent |
 | [Route middleware](/docs/middleware) | one root [`_middleware.ts`](#middleware-via-middlewarets) on serverful adapters, applied to every page route |
 | [Capabilities](/docs/capabilities) | every module in [`src/capabilities/`](#capabilities-via-srccapabilities) — HTTP endpoints, [WebMCP page tools](/docs/agents), [remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), `<Form capability>`, typed clients, and `pracht eval` all work |
@@ -355,7 +358,7 @@ What still requires an explicit manifest — the things whose whole point is tha
 
 - **Per-route middleware assignment.** `_middleware.ts` runs on every page route. Gating only `/app/**` means [ejecting](#ejecting-to-explicit-manifest) and using `group({ middleware: [...] })`, or branching on `stripBase(url.pathname)` inside the one file.
 - **Per-route shell overrides.** A shell is chosen by directory. One page opting out of its directory's shell needs a manifest.
-- **Named middleware beyond the one file**, and `capabilities` registered from outside `src/capabilities/`.
+- **Named middleware beyond the one file**, and capabilities registered from outside `src/capabilities/`.
 - **Path prefixes and route ids** — `group({ pathPrefix })` and explicit `route(..., { id })` have no file-system spelling.
 - **Webhook and combined ISG policies.** Pages ISG is time-based only.
 
@@ -525,7 +528,13 @@ export default defineCapability({
 
 **Naming.** The name comes from `defineCapability({ name })`. Without one it is the file stem, so `src/capabilities/ping.ts` registers `ping`. A declared name must map back to its own file with dots written as hyphens — `notes.search` ↔ `notes-search.ts` — so the file a name resolves to is readable from the name alone. A mismatch, an unusable file name, and two modules claiming the same name are all build, `doctor`, and `verify` errors.
 
-Everything downstream is the manifest router's, unchanged: the HTTP endpoint at `/api/capabilities/notes/search`, WebMCP page tools, the remote MCP projection, `pracht eval` scenarios, `<Form capability>`, and the typed client `pracht typegen` generates.
+Everything downstream is the manifest router's, unchanged: the HTTP endpoint at `/api/capabilities/notes/search`, the remote MCP projection, `pracht eval` scenarios, `<Form capability>`, and the typed client `pracht typegen` generates. WebMCP activation is route-scoped, so each page that should expose a tool exports an inline list:
+
+```ts [src/pages/notes.tsx]
+export const CAPABILITIES = ["notes.search"];
+```
+
+The export is compiled into the same `capabilities` route metadata an explicit manifest uses. It must contain only non-empty registered capability names and belongs on a page, not `_app.tsx` or `404.tsx`. It cannot be combined with `HYDRATION = "none"`. Navigating away removes these tools; the destination page then registers its own list.
 
 Capability modules are server-only. They are not routes, they never enter a client bundle, and `pracht verify` checks the same contract rules a manifest app gets — an exposed capability needs a full contract, and a `destructive` one still needs the confirmation secret.
 

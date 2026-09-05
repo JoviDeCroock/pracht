@@ -41,7 +41,7 @@ The example registers five capabilities (`src/capabilities/`) around an
 in-memory notes store, demoed by the `/notes` route and advertised in the
 generated `/llms.txt`:
 
-- `notes.search` — read, exposed over HTTP, remote MCP, and as a WebMCP page tool
+- `notes.search` — read, exposed over HTTP and remote MCP, and active as a WebMCP page tool on `/notes` and `/agent-tools`
 - `notes.create` — write, exposed over HTTP and remote MCP
 - `notes.purge` — destructive, HTTP with the prepare/commit confirmation flow
 - `agent.whoami` — read, echoes the verified Web Bot Auth identity

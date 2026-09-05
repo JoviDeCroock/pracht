@@ -313,7 +313,9 @@ export async function renderRouteErrorResponse<TContext>(options: {
     let islandsEntryUrl: string | undefined;
     const needsIslandsBootstrap =
       hydration === "islands" &&
-      (islandFiles.length > 0 || options.options.islandsBootstrapRequired === true);
+      (islandFiles.length > 0 ||
+        (options.options.islandsBootstrapRequired === true &&
+          (options.routeArgs.route.capabilities?.length ?? 0) > 0));
     if (needsIslandsBootstrap) {
       islandsEntryUrl = options.options.islandsEntryUrl ?? getIslandsClientEntryUrl();
       if (!islandsEntryUrl) {
@@ -352,6 +354,8 @@ export async function renderRouteErrorResponse<TContext>(options: {
               ...islandPreloadUrls,
             ])
           : [...islandPreloadUrls],
+        webmcpCapabilities:
+          hydration === "islands" ? options.routeArgs.route.capabilities : undefined,
       }),
       routeErrorWithDiagnostics.status,
       documentHeaders,

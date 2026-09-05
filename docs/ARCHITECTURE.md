@@ -321,6 +321,7 @@ User clicks <a> or calls navigate()
     with no-store by default or the route's private loaderCache duration
   → Client updates component tree with new data + loaded modules
   → Update URL via history.pushState
+  → After the destination commits, replace WebMCP registrations with that route's capabilities
 ```
 
 Module imports are cached so repeated navigations to the same shell skip the import.
@@ -347,8 +348,9 @@ exist at all (they 404), rather than existing and reporting nothing.
   its own — same approach as the error overlay in
   `packages/framework/src/error-overlay.ts`) listing every page route (pattern,
   render mode, shell, middleware chain, source file) and API route (path, methods,
-  source file), with links to navigable routes. Apps that register capabilities
-  additionally get a Capabilities table and an Agents traffic log.
+  source file), with links to navigable routes. The page-route table includes
+  each route's active WebMCP tools. Apps that register capabilities additionally
+  get a Capabilities table with the inverse route mapping and an Agents traffic log.
 - `GET /_pracht.json` serves the same data as JSON, plus the `agentTraffic` field
   described below.
 - The static part of both is built from the shared app-graph helpers in

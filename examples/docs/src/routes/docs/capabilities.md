@@ -18,7 +18,7 @@ A capability is a typed, protocol-neutral application operation: JSON Schema inp
 
 - **Direct server invocation** — `invokeCapability()` from loaders, API routes, and middleware.
 - **An HTTP endpoint** — `POST /api/capabilities/<name>` when `expose.http` is set.
-- **A WebMCP page tool** — registered for in-browser agents when `expose.webmcp` is set.
+- **A WebMCP page tool** — eligible for route-scoped browser registration when `expose.webmcp` is set.
 - **A remote MCP tool** — served at your app's own endpoint when `expose.mcp` is set, for agents that never open a browser. See [Remote MCP](#remote-mcp-tools-for-agents-without-a-browser).
 
 Every projection runs the same pipeline, so business rules never diverge between transports:
@@ -31,27 +31,44 @@ input validation → middleware chain → run() → output validation → audit 
 
 ## Register capabilities
 
-Capabilities are registered in `defineApp()`, exactly like shells and middleware. Registration is deliberately opt-in — no API route or loader is ever inferred as a capability.
+Capabilities are registered in `defineApp()`, exactly like shells and middleware. Registration is deliberately opt-in — no API route or loader is ever inferred as a capability. Registration and WebMCP activation are separate: `expose.webmcp` makes a capability eligible to be a page tool, while each route lists which eligible tools exist on that page. When client navigation commits, pracht removes the previous route's tools and registers the destination route's set.
 
-With the pages router, every module in `src/capabilities/` is registered automatically. Name it with `defineCapability({ name })` or let its filename provide the name (`notes-search.ts` becomes `notes.search`). A root `src/pages/_app.config.ts` can export `agents` and `constraints`, so capability HTTP endpoints, WebMCP, remote MCP, typed clients, and `pracht eval` work in both router modes. See [Pages Router](/docs/routing#capabilities-via-srccapabilities).
+With the pages router, every module in `src/capabilities/` is registered automatically. Name it with `defineCapability({ name })` or let its filename provide the name (`notes-search.ts` becomes `notes.search`). A page opts into its tools with `export const CAPABILITIES = ["notes.search"]`. A root `src/pages/_app.config.ts` can export `agents` and `constraints`, so capability HTTP endpoints, WebMCP, remote MCP, typed clients, and `pracht eval` work in both router modes. See [Pages Router](/docs/routing#capabilities-via-srccapabilities).
 
-On `hydration: "islands"` routes, Pracht retains the page bootstrap whenever WebMCP is exposed, even when a response renders zero island components. Conditional UI therefore cannot make the agent tools silently appear or disappear. `hydration: "none"` remains deliberately zero-JavaScript and cannot expose in-page WebMCP tools.
+On `hydration: "islands"` routes, Pracht retains the page bootstrap whenever that route activates a WebMCP tool, even when a response renders zero island components. Routes with no active tools do not retain it. `hydration: "none"` remains deliberately zero-JavaScript and cannot activate in-page WebMCP tools.
 
 ```ts [src/routes.ts]
+import { defineApp, route } from "@pracht/core";
+
 export const app = defineApp({
   capabilities: {
     "notes.search": () => import("./capabilities/notes-search.ts"),
     "notes.create": () => import("./capabilities/notes-create.ts"),
   },
-  // shells, middleware, routes...
+  routes: [
+    route("/", "./routes/home.tsx"),
+    route("/notes", "./routes/notes.tsx", {
+      capabilities: ["notes.search", "notes.create"],
+    }),
+  ],
 });
 ```
+
+Group declarations are additive: `group({ capabilities: ["notes.search"] }, routes)` adds that tool to every child, while route-level names add to and de-duplicate the inherited set. `pracht verify` rejects activation of unknown capabilities, capabilities without `expose.webmcp`, and tools on `hydration: "none"` routes.
+
+```ts [src/pages/notes.tsx]
+export const CAPABILITIES = ["notes.search", "notes.create"];
+```
+
+Pages-router `CAPABILITIES` must be an inline array of non-empty names. Put it on the page itself, not `_app.tsx` or `404.tsx`.
 
 ```ts [src/capabilities/notes-search.ts]
 import { defineCapability } from "@pracht/capabilities";
 
 export default defineCapability({
   name: "notes.search",
+  title: "Search notes",
+  description: "Find notes whose title or body matches the query.",
   effect: "read",
   input: { type: "object", properties: {}, additionalProperties: false },
   output: { type: "object", properties: {}, additionalProperties: false },
@@ -227,7 +244,7 @@ Runtime validation is unchanged either way, and it is the runtime — not the co
 
 ## WebMCP: Tools for In-Browser Agents
 
-With `expose.webmcp: true`, the client runtime registers the capability as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool via `document.modelContext.registerTool()`. The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side. If the WebMCP host cancels execution, its `AbortSignal` aborts the capability's HTTP request too, and the returned value is the capability envelope itself (`{ ok, data }` or `{ ok: false, error }`) — the host serializes it per the spec, so there is no extra wrapping for an agent to unpick.
+With `expose.webmcp: true`, the client runtime can register the capability as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool via `document.modelContext.registerTool()` on routes that activate its name. Initial hydration installs only the matched route's set. After each SPA navigation commits, pracht aborts the old registrations and installs the destination set; navigating to a route with no tools clears them. The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side. If the WebMCP host cancels execution, its `AbortSignal` aborts the capability's HTTP request too, and the returned value is the capability envelope itself (`{ ok, data }` or `{ ok: false, error }`) — the host serializes it per the spec, so there is no extra wrapping for an agent to unpick.
 
 The registered descriptor carries the capability's `title` (hosts show it in their tool UI; statically extracted, so keep it an inline literal), its `description`, the input JSON Schema, and WebMCP's effect-derived `readOnlyHint`. Remote MCP derives its additional `destructiveHint` and `idempotentHint` separately because those annotations are not part of WebMCP. Capabilities whose results include user-generated or third-party content can advertise `untrustedContentHint` with the options form:
 
@@ -240,7 +257,7 @@ expose: {
 
 (The options form opts into WebMCP exactly like `webmcp: true` — an empty object or `untrustedContent: false` still registers the tool.)
 
-The shim ships as its own chunk behind feature detection: browsers without the API never download it, apps without webmcp-exposed capabilities never reference it, and it works in both full-hydration and islands modes.
+The shim ships as its own chunk behind feature detection: browsers without the API never download it, apps without webmcp-exposed capabilities never reference it, routes with no active page tools do not load it, and it works in both full-hydration and islands modes.
 
 ### Hosts and the origin trial
 
@@ -635,7 +652,7 @@ The client stays opt-in too. Capability metadata only reaches the browser throug
 
 ## Inspect the Graph
 
-The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the [`pracht dev-mcp`](/docs/coding-agents#the-authoring-mcp-server) server, and the static checks in `pracht verify`. Runtime-backed devtools label a blocked declaration `mcp(unserved)`. Graph-only CLI inspection labels it `mcp(unverified)` when the unmet precondition may instead be registered by the skipped adapter server entry. Destructive declarations without `agents.mcp.destructive` remain `mcp(unserved)`. JSON inspection always includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`, so automation can distinguish declared exposure, verified runtime failure, and incomplete inspection.
+The capability graph feeds every inspection surface: the `pracht dev` startup banner, `pracht inspect capabilities [--json]`, the `/_pracht` devtools page, the `inspect_capabilities` and `inspect_agents` tools on the [`pracht dev-mcp`](/docs/coding-agents#the-authoring-mcp-server) server, and the static checks in `pracht verify`. Capability rows include their `webmcpRoutes`; `pracht inspect routes` and the devtools route table show the active tool names from the other direction. Runtime-backed devtools label a blocked declaration `mcp(unserved)`. Graph-only CLI inspection labels it `mcp(unverified)` when the unmet precondition may instead be registered by the skipped adapter server entry. Destructive declarations without `agents.mcp.destructive` remain `mcp(unserved)`. JSON inspection always includes `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons`, so automation can distinguish declared exposure, verified runtime failure, and incomplete inspection.
 
 ```sh
 pracht inspect capabilities

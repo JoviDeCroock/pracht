@@ -60,6 +60,7 @@ const VALIDATE_META_KEYS = import.meta.env?.SSR !== false;
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
 interface InheritedRouteConfig {
+  capabilities: string[];
   pathPrefix: string;
   shell?: string;
   render?: ResolvedRoute["render"];
@@ -221,6 +222,7 @@ function resolveModuleRefRecord(record: Record<string, ModuleRef>): Record<strin
 export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
   const routes: ResolvedRoute[] = [];
   const inherited: InheritedRouteConfig = {
+    capabilities: [],
     pathPrefix: "/",
     middleware: [],
   };
@@ -345,6 +347,7 @@ function flattenRouteNode(
       assertValidLoaderCache(node.meta.loaderCache, `group at "${pathPrefix}"`);
     }
     const nextInherited: InheritedRouteConfig = {
+      capabilities: mergeCapabilityNames(inherited.capabilities, node.meta.capabilities),
       pathPrefix,
       shell: node.meta.shell ?? inherited.shell,
       render: node.meta.render ?? inherited.render,
@@ -370,6 +373,7 @@ function flattenRouteNode(
     assertKnownMetaKeys(node, ROUTE_NODE_KEYS, `route "${fullPath}"`);
   }
   const shell = node.shell ?? inherited.shell;
+  const capabilities = mergeCapabilityNames(inherited.capabilities, node.capabilities);
   const middleware = [...inherited.middleware, ...(node.middleware ?? [])];
   const render = node.render ?? inherited.render;
   const hydration = node.hydration ?? inherited.hydration;
@@ -386,6 +390,26 @@ function flattenRouteNode(
       );
     }
 
+    if (capabilities.length > 0 && hydration === "none") {
+      throw new Error(
+        `Route "${fullPath}" declares WebMCP capabilities with hydration: "none". ` +
+          'Page tools require browser JavaScript — use hydration: "full" or "islands", or remove the route capabilities.',
+      );
+    }
+
+    for (const capability of capabilities) {
+      if (!hasOwnEntry(app.capabilities ?? {}, capability)) {
+        throw new Error(
+          formatUnknownNameError({
+            kind: "capability",
+            name: capability,
+            registered: Object.keys(app.capabilities ?? {}),
+            context: `route "${fullPath}"`,
+          }),
+        );
+      }
+    }
+
     if (shell !== undefined && !hasOwnEntry(app.shells, shell)) {
       throw new Error(
         formatUnknownNameError({
@@ -399,6 +423,7 @@ function flattenRouteNode(
   }
 
   routes.push({
+    capabilities,
     id: node.id ?? createRouteId(fullPath),
     path: fullPath,
     file: node.file,
@@ -434,6 +459,19 @@ function flattenRouteNode(
   });
 }
 
+function mergeCapabilityNames(inherited: readonly string[], own: unknown): string[] {
+  if (own === undefined) return [...inherited];
+  if (
+    VALIDATE_META_KEYS &&
+    (!Array.isArray(own) || own.some((name) => typeof name !== "string" || name.length === 0))
+  ) {
+    throw new Error(
+      "Route capabilities must be an array of non-empty registered capability names.",
+    );
+  }
+  return [...new Set([...inherited, ...(own as string[])])];
+}
+
 function assertValidLoaderCache(loaderCache: ResolvedRoute["loaderCache"], context: string): void {
   if (
     loaderCache !== undefined &&
@@ -452,6 +490,7 @@ function hasOwnEntry(record: Record<string, string>, name: string): boolean {
 }
 
 const ROUTE_META_KEYS = [
+  "capabilities",
   "hasHead",
   "hasLoader",
   "hasStaticPaths",
@@ -468,6 +507,7 @@ const ROUTE_META_KEYS = [
 ];
 const ROUTE_NODE_KEYS = [...ROUTE_META_KEYS, "file", "kind", "loaderFile", "path"];
 const GROUP_META_KEYS = [
+  "capabilities",
   "hydration",
   "loaderCache",
   "middleware",

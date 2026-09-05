@@ -8,6 +8,7 @@ import {
   serializeApiRoutesStatic,
   serializeCapabilities,
   servesDestructiveMcpTools,
+  withWebmcpRoutes,
 } from "@pracht/core";
 import type {
   AppGraphCapability,
@@ -122,13 +123,16 @@ export async function collectCapabilityAppGraph(
   serverModule: Record<string, any>,
   options: { appFile?: string; strict?: boolean } = {},
 ): Promise<CapabilityAppGraph> {
-  const capabilities = await serializeCapabilities(
-    serverModule.resolvedApp.capabilities,
-    {
-      loadModule: capabilityModuleLoader(server, serverModule),
-      readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
-    },
-    { strict: options.strict ?? false },
+  const capabilities = withWebmcpRoutes(
+    await serializeCapabilities(
+      serverModule.resolvedApp.capabilities,
+      {
+        loadModule: capabilityModuleLoader(server, serverModule),
+        readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
+      },
+      { strict: options.strict ?? false },
+    ),
+    serverModule.resolvedApp.routes,
   );
   const mcpEndpoint = resolveMcpEndpoint(serverModule.resolvedApp.agents);
   const capabilityFailures =

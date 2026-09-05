@@ -65,6 +65,7 @@ describe("@pracht/cli inspect agents", () => {
         agentPolicy: null,
         transports: ["http", "mcp", "webmcp"],
         httpPath: "/api/capabilities/notes/search",
+        webmcpRoutes: ["/"],
       },
       {
         name: "notes.set-status",
@@ -72,6 +73,7 @@ describe("@pracht/cli inspect agents", () => {
         agentPolicy: null,
         transports: [],
         httpPath: null,
+        webmcpRoutes: [],
       },
       {
         name: "notes.purge",
@@ -79,6 +81,7 @@ describe("@pracht/cli inspect agents", () => {
         agentPolicy: null,
         transports: ["http"],
         httpPath: "/api/capabilities/notes/purge",
+        webmcpRoutes: [],
       },
       {
         name: "notes.stats",
@@ -86,6 +89,7 @@ describe("@pracht/cli inspect agents", () => {
         agentPolicy: null,
         transports: ["http"],
         httpPath: "/api/capabilities/notes/stats",
+        webmcpRoutes: [],
       },
     ]);
 
@@ -109,6 +113,7 @@ describe("@pracht/cli inspect agents", () => {
     expect(stdout).toContain("llmsTxt=on");
     expect(stdout).toContain("exposure  http=3  webmcp=1  mcp=1  private=1");
     expect(stdout).toContain("notes.search  effect=read  transports=http,mcp,webmcp");
+    expect(stdout).toContain("webmcpRoutes=[/]");
     // A capability with no override inherits the app-wide policy — say so
     // rather than printing a bare "null".
     expect(stdout).toContain("policy=require (inherited)");
