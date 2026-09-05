@@ -369,3 +369,34 @@ to regress:
 ## Later (Phase 2 remaining)
 
 No Phase 2 adapter ISG items are currently tracked here.
+
+## Publishing the public docs
+
+The `Publish docs` workflow deploys `examples/docs` to the `pracht-docs`
+Cloudflare Worker after the `CI` workflow succeeds for a push to `main`.
+It checks out the verified commit and skips deployment if `main` has advanced.
+A manual run is available on `main` for retrying a failed publication.
+Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the GitHub
+`docs` environment (repository secrets also work). The token must be able to
+deploy the existing Worker to that account. The public domain remains
+`https://pracht.resynapse.dev`.
+
+Publication builds the workspace and docs, then writes
+`dist/client/.well-known/pracht-build.json` with the commit SHA and SHA-256
+hashes of the generated HTML, `llms.txt`, and agent-skills assets. After
+`wrangler deploy`, the workflow fetches the public revision marker and compares
+live content with the local build inventory. Missing pages, stale content, and
+an old deployment fail the job, even if the deploy command succeeded.
+
+To prepare and inspect the same release locally, from the repository root:
+
+```sh
+pnpm build
+pnpm --filter @pracht/example-docs build
+pnpm --dir examples/docs exec node scripts/docs-release.mjs write "$(git rev-parse HEAD)"
+pnpm --dir examples/docs exec node scripts/docs-release.mjs check
+```
+
+The final command checks production; it does not publish. Pass another origin
+to `check` to verify a preview deployment. Redirect/fallback documents
+`404.html` and `200.html` are excluded from the successful-page inventory.

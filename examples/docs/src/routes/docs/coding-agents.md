@@ -377,3 +377,12 @@ jobs:
 With that in place the review contract is simple: constraints hold (verify passed), the snapshot is fresh (verify passed), and the intent-level diff is sitting in the PR thread. The human review can spend its attention on whether the change is a good idea — the machine already checked whether it is the change it claims to be.
 
 If the app exposes [capabilities](/docs/capabilities), add [`pracht eval`](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) to the same workflow. `plan` tells you the agent surface changed; `eval` tells you it still works.
+
+### Published docs revision
+
+The docs site exposes its source commit and content hashes at
+[`.well-known/pracht-build.json`](/.well-known/pracht-build.json).
+Use the revision to check which framework checkout the published guidance
+comes from. Publication verifies the live pages, `llms.txt`, and skill assets
+against the build, so a successful deployment includes the matching agent
+reference material.
