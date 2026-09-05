@@ -16,6 +16,7 @@ export type {
   CapabilityHttpExposure,
   CapabilityRunArgs,
   CapabilityValidationResult,
+  CapabilityValidation,
   CapabilityWebmcpOptions,
 } from "./capability.ts";
 export {

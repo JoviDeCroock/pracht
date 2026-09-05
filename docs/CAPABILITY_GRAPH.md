@@ -668,8 +668,16 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
 
 ### Answers to the spike questions
 
-1. **JSON Schema-first, no schema library.** Schemas are plain JSON Schema
-   objects checked by a dependency-free subset validator; keywords outside the
+1. **JSON Schema-first, with optional Standard JSON Schema derivation.** The
+   original release accepted plain JSON Schema objects checked by a
+   dependency-free subset validator. Since 2026-09-04, a capability may instead
+   receive a Standard Schema validator that also implements Standard JSON
+   Schema. Pracht derives the serializable contract, retains the same supported
+   keyword subset, and runs the original validator during dispatch. This lets
+   API routes, forms, loader-side application validation, and capabilities
+   share one schema. The capability projection itself emits only derived JSON;
+   a form that imports the validator still includes it in its client bundle.
+   Keywords outside the
    subset make `defineCapability()` throw and `pracht verify` fail, so a
    silently ignored keyword can never widen an exposed contract. The proposal's
    `jsonSchema()` helper was dropped. TypeScript inference is generated rather

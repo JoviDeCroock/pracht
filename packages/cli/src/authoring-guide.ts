@@ -144,9 +144,11 @@ Rules that are enforced, not advisory:
   (\`setCapabilityApprovalStore()\`), or the endpoint fails closed.
   Never downgrade an effect class to make a call easier — that is a policy
   change a human must approve.
-- **\`expose\`, \`effect\`, and \`input\` must be inline literals.** The browser
-  projection is built by static analysis; imported constants and spreads fail
-  the build.
+- **\`expose\` and \`effect\` must be inline literals.** They define the browser
+  endpoint table, so imported constants and spreads fail the build. \`input\`
+  and \`output\` may be imported Standard Schema validators when they also
+  implement Standard JSON Schema (Zod 4 does); pracht derives the JSON contract
+  server-side and never bundles the validator into WebMCP.
 - **Exposed capabilities need a full contract** — description, input schema,
   output schema, effect — or \`pracht verify\` fails.
 - **WebMCP tools are route-scoped.** \`pracht verify\` rejects a route tool that

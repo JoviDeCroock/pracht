@@ -960,6 +960,7 @@ export type {
   CapabilityHttpExposure,
   CapabilityIssue,
   CapabilityRunArgs,
+  CapabilityValidation,
   CapabilityValidationResult,
   PrachtAgentIdentity,
 } from "@pracht/capabilities";

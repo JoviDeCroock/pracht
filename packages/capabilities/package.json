@@ -57,5 +57,8 @@
   "scripts": {
     "build": "tsdown",
     "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0"
   }
 }

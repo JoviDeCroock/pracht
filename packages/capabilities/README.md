@@ -61,8 +61,10 @@ Capabilities are private by default; `expose.http` serves them at
 `POST /api/capabilities/<name-with-dots-as-slashes>` with a typed
 `{ ok, data | error }` envelope, and `expose.webmcp` registers them as WebMCP
 page tools that dispatch through the HTTP projection so all enforcement stays
-server-side. Validation uses a dependency-free JSON Schema subset — no ajv or
-zod in your bundles.
+server-side. Validation accepts the dependency-free JSON Schema subset shown
+above, or a Standard Schema validator with Standard JSON Schema support (such
+as Zod 4). The capability projection emits only the derived JSON contract to
+WebMCP; it never adds the validator itself to that client chunk.
 
 See the [Capabilities](https://pracht.resynapse.dev/docs/capabilities) and
 [Standalone Capabilities](https://pracht.resynapse.dev/docs/standalone-capabilities)

@@ -114,9 +114,42 @@ export default defineCapability({
 });
 ```
 
-Schemas are validated by a dependency-free JSON Schema subset validator — no ajv or zod in your bundles. Unsupported keywords (`oneOf`, `$ref`, `pattern`, …) are rejected at definition time and by `pracht verify`, so an exposed capability can never silently accept more than its schema says.
+Plain JSON Schema uses Pracht's dependency-free subset validator. Unsupported keywords (`oneOf`, `$ref`, `pattern`, …) are rejected at definition time and by `pracht verify`, so an exposed capability can never silently accept more than its schema says.
 
-Annotate `run()` with `CapabilityRunArgs<Input>` to type its input while letting TypeScript infer the concrete output. That preserves both types when the capability is passed to `createCapabilityTestHost()`. Avoid supplying only `defineCapability<Input>` — TypeScript then uses the default `unknown` output instead of inferring it. Use `defineCapability<Input, Output>` when you prefer to state both explicitly.
+If your app already has a validator for `defineApi()`, `<Form schema>`, or loader-side validation, reuse it directly when it also implements Standard JSON Schema. Zod 4 does:
+
+```ts [src/schemas/notes.ts]
+import * as z from "zod";
+
+export const searchInput = z.object({
+  query: z.string().trim().min(1),
+  limit: z.number().int().min(1).max(20).default(10),
+});
+export const searchOutput = z.object({ notes: z.array(z.string()) });
+```
+
+```ts [src/capabilities/notes-search.ts]
+import { defineCapability } from "@pracht/capabilities";
+import { searchInput, searchOutput } from "../schemas/notes.ts";
+import { searchNotes } from "../server/notes-store.ts";
+
+export default defineCapability({
+  title: "Search notes",
+  description: "Find notes whose title or body matches the query.",
+  input: searchInput,
+  output: searchOutput,
+  effect: "read",
+  expose: { http: true, webmcp: true },
+  async run({ input }) {
+    // Typed, defaulted, transformed, and validated by searchInput.
+    return { notes: await searchNotes(input.query, input.limit) };
+  },
+});
+```
+
+Pracht derives draft-07 input/output schemas for the graph and agent protocols, then runs the original Standard Schema validator during dispatch. Async validation, transforms, defaults, and issue paths are preserved. The capability projection adds only the derived JSON object to WebMCP; if `<Form>` also imports the validator for client-side feedback, that form import still follows the normal client bundle. A validator without Standard JSON Schema support cannot be used as a capability contract.
+
+Standard JSON Schema supplies `run()`'s validated input type directly. With plain JSON Schema, annotate `run()` with `CapabilityRunArgs<Input>` while letting TypeScript infer the concrete output. That preserves both types when the capability is passed to `createCapabilityTestHost()`. Avoid supplying only `defineCapability<Input>` — TypeScript then uses the default `unknown` output instead of inferring it. Use `defineCapability<Input, Output>` when you prefer to state both explicitly.
 
 ---
 
@@ -246,7 +279,9 @@ Runtime validation is unchanged either way, and it is the runtime — not the co
 
 With `expose.webmcp: true`, the client runtime can register the capability as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool via `document.modelContext.registerTool()` on routes that activate its name. Initial hydration installs only the matched route's set. After each SPA navigation commits, pracht aborts the old registrations and installs the destination set; navigating to a route with no tools clears them. The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side. If the WebMCP host cancels execution, its `AbortSignal` aborts the capability's HTTP request too, and the returned value is the capability envelope itself (`{ ok, data }` or `{ ok: false, error }`) — the host serializes it per the spec, so there is no extra wrapping for an agent to unpick.
 
-The registered descriptor carries the capability's `title` (hosts show it in their tool UI; statically extracted, so keep it an inline literal), its `description`, the input JSON Schema, and WebMCP's effect-derived `readOnlyHint`. Remote MCP derives its additional `destructiveHint` and `idempotentHint` separately because those annotations are not part of WebMCP. Capabilities whose results include user-generated or third-party content can advertise `untrustedContentHint` with the options form:
+The registered descriptor carries the capability's `title` (hosts show it in their tool UI), its `description`, the input JSON Schema, and WebMCP's effect-derived `readOnlyHint`. Inline JSON Schema stays the non-executing build fast path. Imported and builder-produced Standard JSON Schemas are derived by loading the server-only capability module during code generation; only the resulting JSON is emitted. Keep `expose` and `effect` inline because they still determine the browser endpoint table statically. If a capability module imports an edge-only runtime at the top level, move that import inside `run()` or keep its WebMCP input inline.
+
+Remote MCP derives its additional `destructiveHint` and `idempotentHint` separately because those annotations are not part of WebMCP. Capabilities whose results include user-generated or third-party content can advertise `untrustedContentHint` with the options form:
 
 ```ts
 expose: {

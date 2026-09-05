@@ -36,6 +36,12 @@ Schemas can validate `body`, `query`, and route `params`. Query and param values
 strings, so numeric inputs need coercion or a transform. Generated calls reject concrete query or
 params schema keys that cannot accept strings. Repeated query keys arrive as string arrays.
 
+When the validator also implements Standard JSON Schema (Zod 4 does), the same object can be a
+capability `input` or `output`. The API route and capability each run the original validator; Pracht
+derives the agent-facing JSON Schema and keeps the validator out of the WebMCP client chunk. This is
+the shortest path from an existing validated form/API operation to an agent contract without
+maintaining a second schema.
+
 Handlers can return JSON-safe values directly. Use `json(value, init)` when you need a custom status
 or headers without losing the response payload type. Values that change during JSON serialization —
 such as `Date`, `BigInt`, `undefined`, class instances, sparse arrays, and `NaN` — are rejected. Convert

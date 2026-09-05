@@ -149,7 +149,8 @@ Typed, protocol-neutral application operations registered in the manifest via
 `defineApp({ capabilities: { ... } })` and defined with `defineCapability()`
 from `@pracht/capabilities`:
 
-- One contract (JSON Schema input/output, effect class, named middleware,
+- One contract (JSON Schema input/output — handwritten or derived from a shared
+  Standard JSON Schema validator — effect class, named middleware,
   server-only `run()`), projected to direct server invocation
   (`invokeCapability()`), a generated HTTP endpoint (`expose.http`), and a
   WebMCP page tool for in-browser agents (`expose.webmcp`).

@@ -304,6 +304,7 @@ export type {
   CapabilityOutputFor,
   NonDestructiveCapabilityName,
   CapabilityRunArgs,
+  CapabilityValidation,
   CapabilityValidationResult,
   HasRegisteredCapabilities,
   HttpCapabilityName,

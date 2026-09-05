@@ -69,11 +69,9 @@ pracht generate capability --name notes.search --effect read --expose http,webmc
   --description "Find notes whose title or body matches the query."
 ```
 
-The generator writes `src/capabilities/notes-search.ts` with `expose`,
-`effect`, and `input` as inline literals and registers the name in the
-manifest. `--description` is required whenever `--expose` is set — that text is
-the contract an agent reads. It refuses the combinations the runtime rejects
-anyway. The MCP `generate_capability` tool does the same thing.
+The generator writes and registers `src/capabilities/notes-search.ts`.
+`--description` is required with `--expose`; the MCP `generate_capability` tool
+has the same contract.
 
 If dispatch answers `500 internal_error` and `pracht inspect capabilities`
 prints capabilities as `unreadable`, the package is missing — that is the
@@ -132,9 +130,10 @@ Schema rules that bite:
   could widen what an exposed capability accepts.
 - Inputs and outputs are JSON data only. `File`, `Blob`, `Date`, `Map`,
   `undefined`, and cycles are rejected — keep uploads in API routes.
-- `expose`, `effect`, and (for webmcp) `input` must be **inline literals**: the
-  browser projection is built by static analysis, and an imported constant or
-  spread fails the build.
+- `expose` and `effect` must be **inline literals**. `input` and `output` may be
+  Standard Schema + Standard JSON Schema validators such as Zod 4. Pracht
+  derives the supported JSON subset server-side and runs the validator; async
+  validation, defaults, and transforms work without adding it to WebMCP.
 - MCP exposure additionally requires both schemas rooted at `type: "object"`.
 - Annotate `run()` with `CapabilityRunArgs<Input>` so TypeScript still infers
   the output; `defineCapability<Input>` alone leaves the output `unknown`.
@@ -402,7 +401,8 @@ To audit what the whole agent surface exposes, run `/audit-agent-surface`.
 2. Never widen a schema (drop `required`, open `additionalProperties`, raise a
    `maximum`) without saying so — `pracht plan` reports it as a widening of the
    agent-reachable surface for a reason.
-3. Keep `expose`, `effect`, and `input` as inline literals.
+3. Keep `expose` and `effect` inline; reuse a Standard JSON Schema validator for
+   `input`/`output` when the app already has one.
 4. Treat `expose.webmcp` as eligibility, not activation. Add the capability to
    only the manifest routes/groups or Pages `CAPABILITIES` exports where an
    in-page agent should see it.

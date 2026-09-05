@@ -1221,7 +1221,7 @@ function collectSingleCapabilityChecks(
       checks.push(
         createCheck(
           "warning",
-          `${label}: the "${field}" schema is not an inline object literal, so its JSON Schema subset could not be verified statically.`,
+          `${label}: the "${field}" schema is not an inline object literal, so it could not be verified statically; its derived JSON Schema subset is verified when the server module loads.`,
         ),
       );
       continue;

@@ -11,6 +11,13 @@ carry that description through the resolved app graph, `pracht inspect`, the
 development graph, and generated `llms.txt`. Preserve the loader runtime
 unchanged.
 
+**2026-09-04 addendum:** Capabilities may now consume a shared Standard JSON
+Schema validator directly. An application can validate loader data with the
+same schema it supplies as a capability output, without making the loader a
+capability or changing loader execution. The non-goal below still rules out
+automatic loader output inference and framework-level loader validation; this
+is contract reuse across two explicit surfaces.
+
 ---
 
 ## The observation

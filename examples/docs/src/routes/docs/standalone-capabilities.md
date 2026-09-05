@@ -55,6 +55,14 @@ export default defineCapability({
 
 Annotating `run()` with `CapabilityRunArgs<Input>` types the input while preserving inference for the concrete output. The standalone host uses the same capability object and typing rule as a Pracht app.
 
+If the application already validates this operation with a Standard Schema
+that also implements Standard JSON Schema, pass that validator directly as
+`input` or `output`. Zod 4 schemas work without conversion glue. The host runs
+the original validator — including async checks, defaults, and transforms —
+while projecting the derived JSON Schema to MCP and WebMCP. The embedding app
+keeps its schema library server-side; only the JSON descriptor belongs in a
+browser registration.
+
 ## Mount the Host
 
 `createCapabilityHost()` registers capability objects at runtime. Its `fetch()` method returns a response for a capability HTTP path, the configured MCP path, or OAuth protected-resource metadata. It returns `null` for unrelated URLs, without creating application context or verifying agent signatures, so it is safe to place before the rest of a wildcard router.

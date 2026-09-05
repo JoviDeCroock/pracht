@@ -321,7 +321,7 @@ async function runCapabilityPipeline<TContext>(
 ): Promise<CapabilityPipelineOutcome> {
   const { capability, name, middlewareFiles } = options.resolved;
 
-  const validatedInput = capability.validateInput(options.input);
+  const validatedInput = await capability.validateInput(options.input);
   if (!validatedInput.ok) {
     const envelope = errorEnvelope({
       code: "invalid_input",
@@ -372,7 +372,7 @@ async function runCapabilityPipeline<TContext>(
       return terminalResponse;
     }
 
-    const validatedOutput = capability.validateOutput(output);
+    const validatedOutput = await capability.validateOutput(output);
     if (!validatedOutput.ok) {
       // Invalid output is a server bug — never return the raw value.
       holder.settled = {
@@ -658,7 +658,7 @@ async function revalidateMcpSuccessEnvelope<TContext>(
     return dispatched;
   }
 
-  const validatedOutput = options.match.capability.validateOutput(
+  const validatedOutput = await options.match.capability.validateOutput(
     (parsed as { data: unknown }).data,
   );
   const headers = new Headers(dispatched.response.headers);

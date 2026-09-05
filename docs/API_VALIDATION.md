@@ -57,6 +57,12 @@ export const GET = defineApi({
 | `query`  | Query string             | Record with one string per key; repeated keys (`?tag=a&tag=b`) become string arrays                            |
 | `params` | Route params (`[id]` …)  | The raw string param record                                                                                     |
 
+When a validator also implements Standard JSON Schema (Zod 4 does), the same
+object can be used as a capability `input` or `output`. `defineApi()` runs its
+Standard Schema validation, while `defineCapability()` derives the
+agent-facing JSON Schema and runs that same validator in the capability
+pipeline. Imported validators remain server-only during WebMCP codegen.
+
 The handler receives the regular `ApiRouteArgs` (request, context, url,
 signal, route) plus the **validated** `body` and `query` values, with `params`
 replaced by the params schema's output when one is given. Schema output types
