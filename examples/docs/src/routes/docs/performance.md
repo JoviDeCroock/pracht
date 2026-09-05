@@ -43,6 +43,18 @@ route's chunk list. And
 0.3 KB — small, but it is the entire cost of a feature an app either uses or
 does not.
 
+### Link-heavy server rendering
+
+Typed links do not scan the route list on every server render. The first
+`<Link>` for an app compiles its immutable route table into an id index;
+subsequent links use an O(1) lookup. Static route paths are reused whole, and
+dynamic links validate and substitute their parameters without rebuilding
+intermediate segment arrays, sets, and objects for each link. The same resolver
+backs generated `href()`, typed navigation, and typed prefetch targets.
+
+This optimization is deliberately server-only. Browser builds keep the smaller
+resolver, so faster SSR does not add client JavaScript to hydrated pages.
+
 ### How these numbers are measured
 
 They come from `pnpm bench`, which lives in the repository and anyone can run:
