@@ -700,6 +700,7 @@ async function handleToolsCall<TContext>(
       agents: options.agents,
       agent: options.agent ?? null,
       transport: "mcp",
+      tokenPrincipal: options.tokenPrincipal,
       onAudit: options.onAudit,
     });
   } finally {

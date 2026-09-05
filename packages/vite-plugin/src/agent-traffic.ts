@@ -26,6 +26,7 @@ interface AuditEventLike {
   outcome: string;
   status: number;
   durationMs: number;
+  tokenAuth?: { subject: string; clientId?: string | null } | null;
   agent: { agentDomain: string | null; keyId: string } | null;
 }
 
@@ -57,6 +58,9 @@ export function createAgentTrafficBuffer(limit: number = AGENT_TRAFFIC_LIMIT): A
         outcome: event.outcome,
         status: event.status,
         durationMs: event.durationMs,
+        tokenAuth: event.tokenAuth
+          ? { subject: event.tokenAuth.subject, clientId: event.tokenAuth.clientId ?? null }
+          : null,
         // Copied rather than referenced: the audit event's frozen identity is
         // request-scoped, and the panel outlives the request.
         agent: event.agent

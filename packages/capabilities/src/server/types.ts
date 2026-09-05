@@ -336,6 +336,10 @@ export interface CapabilityAuditEvent {
   /** HTTP status the envelope maps to (also set for server-side invocation). */
   readonly status: number;
   readonly durationMs: number;
+  /** Verified OAuth subject and client, or null outside authenticated MCP dispatch.
+   * Tokens, scopes and arbitrary claims are deliberately excluded from audit events.
+   */
+  readonly tokenAuth: Readonly<Pick<McpTokenPrincipal, "subject" | "clientId">> | null;
   /** Verified agent identity, `null` when unsigned/unverified or Web Bot Auth is off. */
   readonly agent: PrachtAgentIdentity | null;
 }

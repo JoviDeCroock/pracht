@@ -15,7 +15,12 @@ import {
   mcpResourceMetadataUrl,
 } from "../src/mcp-config.ts";
 import { loadMcpTokenVerifier } from "../src/runtime-mcp-auth.ts";
-import type { McpAuthConfig, McpTokenVerifier, ModuleRegistry } from "../src/types.ts";
+import type {
+  CapabilityAuditEvent,
+  McpAuthConfig,
+  McpTokenVerifier,
+  ModuleRegistry,
+} from "../src/types.ts";
 
 const ORIGIN = "https://app.example";
 const METADATA_PATH = "/.well-known/oauth-protected-resource/mcp";
@@ -159,6 +164,7 @@ function createHarness(options: HarnessOptions = {}) {
 }
 
 interface CallOptions extends HarnessOptions {
+  onAudit?: (event: CapabilityAuditEvent) => void;
   headers?: Record<string, string>;
   method?: string;
   path?: string;
@@ -180,6 +186,7 @@ async function call(body: unknown, options: CallOptions = {}) {
   const response = await handlePrachtRequest({
     app,
     context: options.context,
+    onCapabilityAudit: options.onAudit,
     registry,
     request,
   });
@@ -1095,5 +1102,58 @@ describe("under a deploy base", () => {
     });
     expect(authorized.status).toBe(200);
     expect((await authorized.json()).result.structuredContent).toEqual({ subject: "user-1" });
+  });
+});
+
+describe("OAuth audit attribution", () => {
+  it("attributes nested and outer calls to the verified account without leaking claims", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    await call(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "token_compose", arguments: {} },
+      },
+      {
+        composition: true,
+        headers: { authorization: "Bearer good" },
+        verify: () => ({
+          subject: "user-1",
+          clientId: "assistant-app",
+          scopes: ["notes.read"],
+          claims: { secret: "private" },
+        }),
+        onAudit: (event) => events.push(event),
+      },
+    );
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.tokenAuth)).toEqual([
+      { subject: "user-1", clientId: "assistant-app" },
+      { subject: "user-1", clientId: "assistant-app" },
+    ]);
+    expect(events.map((event) => event.outcome)).toEqual(["ok", "ok"]);
+    expect(Object.isFrozen(events[0].tokenAuth)).toBe(true);
+    expect(Reflect.set(events[0].tokenAuth!, "subject", "forged")).toBe(false);
+    expect(JSON.stringify(events)).not.toContain("private");
+  });
+
+  it("does not attribute an unprotected MCP call to an application-supplied principal", async () => {
+    const events: CapabilityAuditEvent[] = [];
+    await call(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "token_probe", arguments: {} },
+      },
+      {
+        auth: null,
+        context: { tokenAuth: { subject: "spoofed" } },
+        onAudit: (event) => events.push(event),
+      },
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].tokenAuth).toBeNull();
   });
 });

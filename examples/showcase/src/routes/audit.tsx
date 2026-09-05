@@ -24,6 +24,7 @@ export async function loader(_args: LoaderArgs) {
       status: event.status,
       durationMs: Math.round(event.durationMs),
       agent: event.agent ? (event.agent.agentDomain ?? event.agent.keyId) : null,
+      subject: event.tokenAuth?.subject ?? null,
       ago: Math.max(0, Math.round((now - event.at) / 1000)),
     })),
   };
@@ -67,6 +68,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
                 <th>Outcome</th>
                 <th>Status</th>
                 <th>Agent</th>
+                <th>Account</th>
                 <th>Latency</th>
                 <th>When</th>
               </tr>
@@ -88,6 +90,9 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
                   </td>
                   <td>{event.status}</td>
                   <td>{event.agent ? <code>{event.agent}</code> : <span class="dim">—</span>}</td>
+                  <td>
+                    {event.subject ? <code>{event.subject}</code> : <span class="dim">—</span>}
+                  </td>
                   <td>{event.durationMs} ms</td>
                   <td class="dim">{event.ago}s ago</td>
                 </tr>

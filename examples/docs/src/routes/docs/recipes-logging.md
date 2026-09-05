@@ -265,6 +265,7 @@ const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
       status: event.status,
       durationMs: Math.round(event.durationMs),
       agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
+      account: event.tokenAuth,
     }),
   );
 });

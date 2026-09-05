@@ -549,6 +549,12 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
   const snapshot = Object.freeze({
     ...event,
     agent: snapshotAgentIdentity(event.agent),
+    tokenAuth: event.tokenAuth
+      ? Object.freeze({
+          subject: event.tokenAuth.subject,
+          clientId: event.tokenAuth.clientId ?? null,
+        })
+      : null,
   });
   // Snapshot every process-wide registration before invoking user code. The
   // single-slot hook can add, replace, or remove an additive sink too; those
@@ -580,6 +586,8 @@ export interface HandleCapabilityRequestOptions<TContext> {
   agent?: PrachtAgentIdentity | null;
   /** Trusted transport selected by an internal framework projection. */
   transport?: "mcp";
+  /** Principal supplied by the authenticated MCP transport, never inferred from app context. */
+  tokenPrincipal?: McpTokenPrincipal;
   onAudit?: CapabilityAuditHook;
 }
 
@@ -615,6 +623,7 @@ export async function handleCapabilityRequest<TContext>(
       status: responseWithEffect.status,
       durationMs: performance.now() - started,
       agent: options.agent ?? null,
+      tokenAuth: options.transport === "mcp" ? (options.tokenPrincipal ?? null) : null,
     },
     options.onAudit,
   );
@@ -1452,6 +1461,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
         status: 500,
         durationMs: performance.now() - started,
         agent: capabilityHostAgent(host, context),
+        tokenAuth: host.via === "mcp" ? (host.tokenAuth ?? null) : null,
       },
       host.onAudit,
     );
@@ -1476,6 +1486,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
       status,
       durationMs: performance.now() - started,
       agent,
+      tokenAuth: host.via === "mcp" ? (host.tokenAuth ?? null) : null,
     },
     host.onAudit,
   );

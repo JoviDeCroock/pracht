@@ -669,3 +669,41 @@ describe("createCapabilityHost composition", () => {
     await expect(response?.json()).resolves.toEqual({ ok: true, data: { notes: ["match:a"] } });
   });
 });
+
+it("audits standalone MCP successes and denials with the verified principal", async () => {
+  const events: { tokenAuth: unknown; outcome: string }[] = [];
+  const host = createCapabilityHost({
+    capabilities: { "notes.search": searchCapability({ expose: { http: true, mcp: true } }) },
+    onAudit: (event) => events.push(event),
+    agents: {
+      mcp: {
+        auth: {
+          resource: `${ORIGIN}/mcp`,
+          authorizationServers: ["https://auth.example"],
+          verify: async () => ({ subject: "user-2", claims: { token: "secret" } }),
+        },
+      },
+    },
+  });
+  for (const query of ["valid", ""]) {
+    await host.fetch(
+      post(
+        "/mcp",
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "notes_search", arguments: { query } },
+        },
+        { authorization: "Bearer good" },
+      ),
+    );
+  }
+  expect(events.map((event) => event.tokenAuth)).toEqual([
+    { subject: "user-2", clientId: null },
+    { subject: "user-2", clientId: null },
+  ]);
+  expect(events.map((event) => event.outcome)).toEqual(["ok", "invalid_input"]);
+  await host.fetch(post("/api/capabilities/notes/search", { query: "http" }));
+  expect(events[2].tokenAuth).toBeNull();
+});
