@@ -5,6 +5,22 @@ that promise honest as an app grows: `pracht build --analyze` (visibility),
 per-route client-JS budgets (enforcement), and `pracht({ client })` for
 compiling out router features the app does not use.
 
+## Server-rendered typed links
+
+Server builds compile each immutable href route table on first use. The
+compiled table indexes route ids, records dynamic parameter names, and keeps a
+complete based path for static routes. Subsequent `<Link>` renders,
+`createHref()` calls, typed `navigate()` calls, and typed `prefetch()` calls use
+the same O(1) lookup; static links return their cached path, while dynamic links
+substitute parameters without allocating filtered segment arrays, sets, or a
+normalized parameter object per call. The cache is weakly keyed by the route
+array so short-lived generated or test tables remain collectible.
+
+This compilation is server-only. Browser builds retain the smaller linear
+resolver because route tables there are normally small and the client-byte
+budget is the more important constraint. Keep new typed URL surfaces on the
+shared href builder so they inherit both execution paths.
+
 ## Tree-shaking framework imports
 
 `@pracht/core` is published as unbundled ESM so downstream bundlers can follow
