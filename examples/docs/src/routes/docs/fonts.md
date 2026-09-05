@@ -180,15 +180,19 @@ Pracht deliberately does not read the font binary at build time, so these stay e
 Everything interpolated into the generated CSS is escaped or validated: family names and URLs are CSS-string-escaped (including `<`, so the inline `<style>` can never be closed early), and descriptor values like `weight`, `display`, `unicodeRange`, and the metric overrides are validated against strict grammars — invalid values throw at `defineFont()` time rather than reaching the document.
 
 For a nonce-based Content Security Policy, return the request-specific nonce as
-`fontNonce` from a shared shell `head()` and include the same nonce in
+`styleNonce` from a shared shell `head()` and include the same nonce in
 `style-src`. Pracht places it on the generated font style and preserves that
 style element across client navigation:
 
 ```ts
 export function head({ context }) {
-  return { fonts: [inter], fontNonce: context.cspNonce };
+  return { fonts: [inter], styleNonce: context.cspNonce };
 }
 ```
+
+The older `fontNonce` field remains a font-only override for backwards
+compatibility. Use `styleNonce` in new code so the same nonce also covers
+`pracht({ inlineCss: true })`.
 
 Use `font.className` rather than `font.style` under a strict policy, because
 inline style attributes need a separate CSP allowance. Static SSG/ISG output

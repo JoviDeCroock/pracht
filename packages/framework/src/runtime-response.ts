@@ -21,7 +21,7 @@ import {
   ISLANDS_ENTRY_MANIFEST_KEY,
   mergeEntryPreloadUrls,
   resolveManifestEntries,
-  resolvePageCssUrls,
+  resolvePageCssAssets,
   resolvePageJsUrls,
   resolveRegistryModule,
 } from "./runtime-manifest.ts";
@@ -75,6 +75,7 @@ interface HandleRequestOptionsLike {
   islandsEntryUrl?: string;
   islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
+  cssContentManifest?: Record<string, string>;
   jsManifest?: Record<string, string[]>;
   registry?: import("./types.ts").ModuleRegistry;
 }
@@ -261,8 +262,9 @@ export async function renderRouteErrorResponse<TContext>(options: {
     options.routeArgs,
     undefined,
   );
-  const cssUrls = resolvePageCssUrls(
+  const cssAssets = resolvePageCssAssets(
     options.options.cssManifest,
+    options.options.cssContentManifest,
     options.shellFile,
     options.routeArgs.route.file,
   );
@@ -346,7 +348,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
         head,
         body,
         clientEntryUrl: islandsEntryUrl,
-        cssUrls,
+        cssAssets,
         modulePreloadUrls: islandsEntryUrl
           ? mergeEntryPreloadUrls(options.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
               ...islandPreloadUrls,
@@ -369,7 +371,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
         error: routeErrorWithDiagnostics,
       },
       clientEntryUrl: options.options.clientEntryUrl,
-      cssUrls,
+      cssAssets,
       modulePreloadUrls,
     }),
     routeErrorWithDiagnostics.status,

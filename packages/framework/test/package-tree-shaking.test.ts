@@ -108,6 +108,11 @@ async function bundleExport(
           /^preact\//,
           "preact-render-to-string",
           "preact-suspense",
+          // The harness copies @pracht/core's dist files into a temporary
+          // directory without installing package dependencies beside them.
+          // Apps receive web-vitals through @pracht/core; keep the lazy import
+          // external here so unrelated export checks model that resolution.
+          "web-vitals",
         ],
         input: publicId,
       },
@@ -163,6 +168,13 @@ describe("published package tree shaking", () => {
     ["Script", 2_400],
   ])("keeps a named %s import below %i gzip bytes", async (exportName, maxGzipBytes) => {
     expect((await bundleExport(exportName)).gzipBytes).toBeLessThanOrEqual(maxGzipBytes);
+  });
+
+  it("drops Web Vitals when another browser export is used", async () => {
+    const { code } = await bundleExport("createHref");
+
+    expect(code).not.toContain("web-vitals");
+    expect(code).not.toContain("onCLS");
   });
 
   // The generated client entry (`@pracht/core/client`) is what every hydrating

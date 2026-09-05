@@ -169,53 +169,26 @@ slowest loaders (cross-reference with `audit-bundles` perf hotspots).
 
 ## Step 4: Web Vitals on the client
 
-```bash
-pnpm add web-vitals
-```
-
-Create `src/client/vitals.ts` — export a function, **no module-level
-side effects**:
-
-```ts
-import { onCLS, onINP, onLCP, onFCP, onTTFB, type Metric } from "web-vitals";
-
-function send(metric: Metric) {
-  navigator.sendBeacon?.(
-    "/api/telemetry/vitals",
-    JSON.stringify({ name: metric.name, value: metric.value, id: metric.id, path: location.pathname }),
-  );
-}
-
-export function reportVitals() {
-  onCLS(send);
-  onINP(send);
-  onLCP(send);
-  onFCP(send);
-  onTTFB(send);
-}
-```
-
-Do NOT import this statically from a shell: shells render on the **server**
-too, so module-level `onCLS(...)` calls would execute during SSR. The primary
-pattern is a lazy `import()` inside an effect, guarded by `useIsHydrated`
-(exported from `@pracht/core`), placed in a shell or top-level component:
+Use the framework hook from a component mounted by a shared shell:
 
 ```tsx
-import { useIsHydrated } from "@pracht/core";
-import { useEffect } from "preact/hooks";
+import { useWebVitals } from "@pracht/core";
 
 export function Vitals() {
-  const hydrated = useIsHydrated();
-  useEffect(() => {
-    if (!hydrated) return;
-    void import("../client/vitals").then((m) => m.reportVitals());
-  }, [hydrated]);
+  useWebVitals((metric) => {
+    navigator.sendBeacon?.(
+      "/api/telemetry/vitals",
+      JSON.stringify({ name: metric.name, value: metric.value, id: metric.id, path: location.pathname }),
+    );
+  });
   return null;
 }
 ```
 
-This keeps `web-vitals` out of the critical bundle (lazy chunk) and only
-starts observers after hydration has fully settled.
+The hook is safe during SSR, lazy-loads `web-vitals` after mount, and shares a
+single observer set across callers. No separate dependency, hydration guard,
+or client-only module is needed, and apps that never call it ship no metrics
+runtime.
 
 ## Step 5: Beacon endpoint
 

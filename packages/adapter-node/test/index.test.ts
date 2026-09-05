@@ -88,6 +88,7 @@ describe("createNodeServerEntryModule", () => {
     expect(source).toContain(
       'import { createContext as createPrachtContext } from "/src/server/context.ts";',
     );
+    expect(source).toContain("cssContentManifest,");
     expect(source).toContain("createContext: createPrachtContext");
     expect(source).toContain("maxBodySize: 10485760");
     expect(source).toContain("islandsEntryUrl: islandsEntryUrl ?? undefined");

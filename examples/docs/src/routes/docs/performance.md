@@ -202,6 +202,61 @@ critical path.
 
 pracht builds a CSS manifest that maps each source file to its transitive CSS dependencies. At request time, only the CSS needed for the matched route and shell is injected as `<link rel="stylesheet">` tags — no unused CSS is sent.
 
+For a small site, opt into inlining those complete route-scoped files:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [pracht({ inlineCss: true })],
+});
+```
+
+Production HTML then contains `<style data-pracht-inline-css>` instead of the
+matched stylesheet links. This works for the manifest and pages routers, every
+render/hydration mode, error boundaries, prerendering, and every built-in
+adapter. Development keeps links so Vite HMR works normally.
+
+Inlining saves a render-blocking request but enlarges every HTML response and
+repeats shared CSS instead of letting one stylesheet cache serve many pages.
+It is whole-file route CSS inlining, not selector-level extraction or runtime
+CSS-in-JS collection. Measure both variants before choosing it.
+
+Under a nonce-based CSP, return `styleNonce` from `head()` and place the same
+nonce in `style-src`. Prefer linked CSS for SSG/ISG pages unless a stable hash
+policy covers the emitted inline block.
+
+---
+
+## Real-User Web Vitals
+
+Mount a small component in a shared shell to receive CLS, FCP, INP, LCP, and
+TTFB:
+
+```tsx [src/components/vitals.tsx]
+import { useWebVitals } from "@pracht/core";
+
+export function Vitals() {
+  useWebVitals((metric) => {
+    navigator.sendBeacon(
+      "/api/telemetry/vitals",
+      JSON.stringify({
+        name: metric.name,
+        value: metric.value,
+        rating: metric.rating,
+        id: metric.id,
+        path: location.pathname,
+      }),
+    );
+  });
+  return null;
+}
+```
+
+The hook is SSR-safe: it starts from an effect and lazy-loads the measurement
+chunk after mount. Multiple callers share one observer set, callbacks can
+change across renders, and apps that never use the hook ship none of that code.
+The browser API may report some metrics only after interaction, visibility
+changes, or page exit, so use `sendBeacon()` or another unload-safe transport.
+
 ---
 
 ## Error Overlay in Dev

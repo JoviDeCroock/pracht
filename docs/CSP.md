@@ -84,15 +84,16 @@ style-src 'self'; style-src-attr 'unsafe-inline'
 Keep `data:` in `img-src` (the starter policy includes it) so the browser may
 load the inline blur image.
 
-## Generated Font Styles
+## Framework-Generated Styles
 
-`defineFont()` emits one inline `<style data-pracht-fonts>` block. For SSR,
-generate a fresh nonce per response, expose it through request context, return
-it from a shared shell head, and include the same value in the response CSP:
+`defineFont()` emits `<style data-pracht-fonts>`, and `pracht({ inlineCss: true })`
+emits `<style data-pracht-inline-css>`. For SSR, generate a fresh nonce per
+response, expose it through request context, return it from a shared shell head,
+and include the same value in the response CSP:
 
 ```ts
 export function head({ context }) {
-  return { fonts: [inter], fontNonce: context.cspNonce };
+  return { fonts: [inter], styleNonce: context.cspNonce };
 }
 
 export function headers({ context }) {
@@ -102,7 +103,9 @@ export function headers({ context }) {
 }
 ```
 
-Pracht keeps the nonce-bearing style element in place when client navigation
+`fontNonce` remains a backwards-compatible font-only override; new code should
+use `styleNonce` so one value covers every framework-generated style. Pracht
+keeps the nonce-bearing font style element in place when client navigation
 updates route fonts. Prefer `font.className` under this policy: `font.style`
 creates a style attribute, which requires a separate CSP allowance. SSG and ISG
 documents cannot safely share a request nonce; use a stable hash that covers the

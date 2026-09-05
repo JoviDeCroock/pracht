@@ -161,6 +161,37 @@ Targeted groups compose cleanly; measured on preact-www, pracht kept its vendor
 chunk while the app's own `manualChunks` function ran for everything else, with
 critical CSS still linked.
 
+## Inlining route CSS
+
+Production documents link the matched route and shell's emitted stylesheets by
+default. Small sites can remove those render-blocking requests by opting into
+full route-CSS inlining:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [pracht({ inlineCss: true })],
+});
+```
+
+The client build's CSS manifest remains the source of truth. The plugin embeds
+the emitted asset contents in the generated server module; the request runtime
+resolves the same route/shell URL set as before and writes it into
+`<style data-pracht-inline-css>`. This one path covers manifest and pages
+routers, SPA shell documents, SSR, SSG/ISG prerendering, error boundaries,
+islands, hydration-none pages, and every built-in adapter. Development keeps
+using Vite-served stylesheet links so HMR is unchanged.
+
+This is whole-file route CSS inlining, not selector-level extraction and not a
+CSS-in-JS render hook. It trades a request for larger HTML and repeats shared
+CSS in every document, so use it for small route styles and measure the result.
+Custom server entries can pass both `cssManifest` and `cssContentManifest`;
+missing content entries deliberately fall back to normal stylesheet links.
+
+With a nonce-based CSP, return `styleNonce` from the active shell or route
+`head()` and include the same nonce in `style-src`. Static SSG/ISG output cannot
+safely reuse a request nonce; prefer linked CSS or a stable hash there.
+
 ## `pracht build --analyze`
 
 After a successful production build, `--analyze` prints a per-route report of
@@ -289,6 +320,37 @@ When a route blows its budget, the usual levers, in order of impact:
    shell; a heavy dependency imported in a shell taxes every page.
 4. **Audit the vendor chunk** — see the `audit-bundles` skill for a guided
    deep-dive into fan-in, heavy dependencies, and prefetch tuning.
+
+## Measuring real-user Web Vitals
+
+`useWebVitals()` reports CLS, FCP, INP, LCP, and TTFB from a client component:
+
+```tsx
+import { useWebVitals } from "@pracht/core";
+
+export function Vitals() {
+  useWebVitals((metric) => {
+    navigator.sendBeacon(
+      "/api/telemetry/vitals",
+      JSON.stringify({
+        name: metric.name,
+        value: metric.value,
+        rating: metric.rating,
+        id: metric.id,
+        path: location.pathname,
+      }),
+    );
+  });
+  return null;
+}
+```
+
+The hook registers from an effect, dynamically imports `web-vitals`, and shares
+one observer set across every mounted caller. It is safe to render on the
+server, does not require `useIsHydrated()`, and adds no metrics code to apps
+that never import the hook. The callback reference stays current across
+re-renders. Mount it once in a shared shell and keep the receiving API route
+small and non-blocking.
 
 ## The benchmark harness
 

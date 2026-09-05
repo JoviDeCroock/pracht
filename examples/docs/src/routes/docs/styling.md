@@ -41,6 +41,12 @@ See [Performance → CSS Per Page](/docs/performance) for how pracht maps routes
 
 The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`.
 
+Production uses route-scoped links by default. For small emitted stylesheets,
+`pracht({ inlineCss: true })` puts the complete matched route and shell CSS in
+the document instead. That removes a render-blocking request but repeats shared
+CSS in every HTML response, so [measure the trade-off](/docs/performance#css-per-page).
+It does not collect runtime CSS-in-JS output.
+
 ---
 
 ## CSS-in-JS — Use With Care

@@ -187,6 +187,8 @@ export {
 } from "./event-source-hook.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
+export { useWebVitals } from "./web-vitals-hook.ts";
+export type { WebVitalsMetric, WebVitalsReporter } from "./web-vitals-hook.ts";
 export { Script } from "./script.ts";
 export type { ScriptProps, ScriptStrategy } from "./script.ts";
 export { defer, use } from "./defer.ts";
