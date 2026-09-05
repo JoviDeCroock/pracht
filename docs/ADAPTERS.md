@@ -1461,6 +1461,28 @@ segments to the same filesystem spelling used by static-export page output.
 
 ---
 
+## Null-body response framing
+
+`normalizeResponseHeaders()` from `@pracht/core/server` removes
+`Content-Length` whenever a Fetch `Response` has a null body. The core response
+decorators, `pracht dev`, and the first-party production response writers all
+apply this policy, so an explicit nonzero length cannot survive on HEAD, 204,
+205, or 304 responses that carry no representation bytes. Node may emit its own
+`Content-Length: 0` for a 205 after normalization; it never forwards the
+application's nonzero value.
+
+The check follows `Response.body`, not the request method alone. A HEAD
+response that still carries the corresponding GET representation in its Fetch
+`Response` keeps valid representation metadata such as a computed compressed
+`Content-Length`; the HTTP transport suppresses those bytes. Protocol-switch
+responses are returned untouched so Cloudflare's nonstandard `webSocket`
+handle is preserved.
+
+Custom adapter response writers should call `normalizeResponseHeaders()` at
+their final Web-to-platform boundary as well. This covers adapter-owned
+responses in addition to the responses already normalized by
+`handlePrachtRequest()`.
+
 ## Default `Cache-Control`
 
 Every adapter stamps `Cache-Control: private, no-cache` on `GET`/`HEAD`

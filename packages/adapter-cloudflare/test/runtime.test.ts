@@ -236,6 +236,42 @@ describe("createCloudflareFetchHandler under a deploy base", () => {
   });
 });
 
+describe("null-body response headers", () => {
+  it.each([
+    ["HEAD", 200],
+    ["GET", 204],
+    ["GET", 205],
+    ["GET", 304],
+  ])("strips content-length from a null-body %s %s response", async (method, status) => {
+    const respond = () =>
+      new Response(null, {
+        status,
+        headers: { "content-length": "42", "x-test": "kept" },
+      });
+    const handler = createCloudflareFetchHandler({
+      apiRoutes: resolveApiRoutes(["/src/api/empty.ts"]),
+      app: defineApp({ routes: [] }),
+      registry: {
+        apiModules: {
+          "/src/api/empty.ts": async () => ({ GET: respond, HEAD: respond }),
+        },
+      },
+    });
+    const { executionContext } = createExecutionContext();
+
+    const response = await handler(
+      new Request("https://example.com/api/empty", { method }),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("x-test")).toBe("kept");
+    expect(response.body).toBeNull();
+  });
+});
+
 describe("createCloudflareFetchHandler ISG", () => {
   it("serves OAuth metadata before a colliding asset", async () => {
     const fetchAsset = vi.fn(async () => new Response("stale metadata"));

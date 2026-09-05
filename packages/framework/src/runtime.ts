@@ -1,6 +1,10 @@
 import { matchAppRoute } from "./app.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
-import { withDefaultSecurityHeaders, withRouteResponseHeaders } from "./runtime-headers.ts";
+import {
+  normalizeResponseHeaders,
+  withDefaultSecurityHeaders,
+  withRouteResponseHeaders,
+} from "./runtime-headers.ts";
 import {
   createNotFoundMatch,
   renderPage,
@@ -31,6 +35,12 @@ export type { HandlePrachtRequestOptions };
  *   4. The page router.
  */
 export async function handlePrachtRequest<TContext>(
+  options: HandlePrachtRequestOptions<TContext>,
+): Promise<Response> {
+  return normalizeResponseHeaders(await handlePrachtRequestPipeline(options));
+}
+
+async function handlePrachtRequestPipeline<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
   const prepared = await createRequestContext(options);
@@ -94,6 +104,7 @@ export {
 export {
   applyDefaultSecurityHeaders,
   isProtocolSwitchResponse,
+  normalizeResponseHeaders,
   preventHeuristicCaching,
 } from "./runtime-headers.ts";
 export { formatServerTimingHeader, type PrachtPhaseTimings } from "./runtime-timing.ts";

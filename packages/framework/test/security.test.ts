@@ -4,6 +4,7 @@ import {
   buildPathFromSegments,
   defineApp,
   handlePrachtRequest,
+  normalizeResponseHeaders,
   redirect,
   resolveApiRoutes,
   resolveApp,
@@ -12,6 +13,31 @@ import {
 import { applyHeaders, assertSafeHeaderValue } from "../src/runtime-headers.ts";
 import { buildRedirectResponse } from "../src/runtime-middleware.ts";
 import { shouldExposeServerErrors } from "../src/runtime-errors.ts";
+
+describe("normalizeResponseHeaders", () => {
+  it.each([
+    ["HEAD", 200],
+    ["204", 204],
+    ["205", 205],
+    ["304", 304],
+  ])("removes content-length from a null-body %s response", (_label, status) => {
+    const response = normalizeResponseHeaders(
+      new Response(null, { status, headers: { "content-length": "42", "x-test": "kept" } }),
+    );
+
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("x-test")).toBe("kept");
+    expect(response.body).toBeNull();
+  });
+
+  it("preserves representation metadata when the Response carries a body", () => {
+    const response = normalizeResponseHeaders(
+      new Response("representation", { headers: { "content-length": "14" } }),
+    );
+
+    expect(response.headers.get("content-length")).toBe("14");
+  });
+});
 
 describe("buildRedirectResponse", () => {
   const baseUrl = "http://localhost/page";

@@ -1248,4 +1248,38 @@ describe("default cache-control (shared with the Cloudflare and Vercel adapters)
     expect(response.status).toBe(200);
     expect(response.headers.has("cache-control")).toBe(false);
   });
+
+  it.each([
+    ["HEAD", 200],
+    ["GET", 204],
+    ["GET", 205],
+    ["GET", 304],
+  ])("strips content-length from a null-body %s %s response", async (method, status) => {
+    const respond = () =>
+      new Response(null, {
+        status,
+        headers: { "content-length": "42", "x-test": "kept" },
+      });
+    const response = await serve(
+      {
+        apiRoutes: resolveApiRoutes(["/src/api/empty.ts"]),
+        app: defineApp({ routes: [] }),
+        canonicalOrigin: "https://app.test",
+        registry: {
+          apiModules: {
+            "/src/api/empty.ts": async () => ({ GET: respond, HEAD: respond }),
+          },
+        },
+      },
+      "/api/empty",
+      { method },
+    );
+
+    expect(response.status).toBe(status);
+    // Node adds its own explicit zero length for 205; the application-provided
+    // non-zero framing must never survive.
+    expect([null, "0"]).toContain(response.headers.get("content-length"));
+    expect(response.headers.get("x-test")).toBe("kept");
+    expect(await response.text()).toBe("");
+  });
 });

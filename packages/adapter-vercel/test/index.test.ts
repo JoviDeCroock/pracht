@@ -52,6 +52,37 @@ describe("createVercelEdgeHandler under a deploy base", () => {
   });
 });
 
+describe("createVercelEdgeHandler null-body response headers", () => {
+  it.each([
+    ["HEAD", 200],
+    ["GET", 204],
+    ["GET", 205],
+    ["GET", 304],
+  ])("strips content-length from a null-body %s %s response", async (method, status) => {
+    const respond = () =>
+      new Response(null, {
+        status,
+        headers: { "content-length": "42", "x-test": "kept" },
+      });
+    const handler = createVercelEdgeHandler({
+      apiRoutes: resolveApiRoutes(["/src/api/empty.ts"]),
+      app: defineApp({ routes: [] }),
+      registry: {
+        apiModules: {
+          "/src/api/empty.ts": async () => ({ GET: respond, HEAD: respond }),
+        },
+      },
+    });
+
+    const response = await handler(new Request("https://example.com/api/empty", { method }), {});
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(response.headers.get("x-test")).toBe("kept");
+    expect(response.body).toBeNull();
+  });
+});
+
 describe("createVercelNodeListener", () => {
   it("provides waitUntil and drains registered work", async () => {
     let releaseTask: (() => void) | undefined;
@@ -186,6 +217,26 @@ describe("createVercelNodeListener", () => {
     expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("uncacheable"));
 
     consoleWarn.mockRestore();
+  });
+
+  it.each([
+    ["HEAD", 200],
+    ["GET", 204],
+    ["GET", 205],
+    ["GET", 304],
+  ])("strips content-length from a null-body %s %s response", async (method, status) => {
+    const { body, headers } = await invokeListener(
+      () =>
+        new Response(null, {
+          status,
+          headers: { "content-length": "42", "x-test": "kept" },
+        }),
+      { headers: { host: "example.com" }, method, url: "/pricing" },
+    );
+
+    expect(headers["content-length"]).toBeUndefined();
+    expect(headers["x-test"]).toBe("kept");
+    expect(body).toBe("");
   });
 });
 

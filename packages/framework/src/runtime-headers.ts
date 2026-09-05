@@ -113,6 +113,45 @@ export function isProtocolSwitchResponse(response: Response): boolean {
 }
 
 /**
+ * Remove representation framing from a response that has no representation.
+ *
+ * Fetch permits callers to pair a null body with an explicit
+ * `Content-Length`, including for 204, 205, and 304 responses. Forwarding a
+ * non-zero value to an HTTP transport can leave a client waiting for bytes
+ * that will never arrive (205 is especially easy for generic HTTP parsers to
+ * frame from the header). Keep this at the shared response boundary so dev and
+ * every production adapter make the same choice.
+ *
+ * A HEAD response whose `Response` still carries the corresponding GET body is
+ * intentionally left alone. Its Content-Length is representation metadata,
+ * and the HTTP transport suppresses the body. Only an actually null Fetch body
+ * is normalized here.
+ */
+export function normalizeResponseHeaders(response: Response): Response {
+  if (
+    isProtocolSwitchResponse(response) ||
+    response.body !== null ||
+    !response.headers.has("content-length")
+  ) {
+    return response;
+  }
+
+  try {
+    response.headers.delete("content-length");
+    return response;
+  } catch {
+    // Responses returned by fetch() can carry an immutable header guard.
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    return new Response(null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+}
+
+/**
  * Headers that already express a CDN caching policy. Any of them means the
  * author has decided; pracht adds nothing.
  */
@@ -142,29 +181,30 @@ const CDN_CACHE_CONTROL_HEADERS = [
  * route-state JSON, static assets, and user `headers()` exports or middleware.
  */
 export function preventHeuristicCaching(request: Request, response: Response): Response {
-  if (request.method !== "GET" && request.method !== "HEAD") return response;
+  const normalized = normalizeResponseHeaders(response);
+  if (request.method !== "GET" && request.method !== "HEAD") return normalized;
   // A WebSocket handshake carries no cacheable body, and the fallback branch
   // below would destroy it: reconstructing the response drops the `webSocket`
   // handle and the constructor rejects status 101 outright.
-  if (isProtocolSwitchResponse(response)) return response;
+  if (isProtocolSwitchResponse(normalized)) return normalized;
   // Any CDN-targeted policy counts as "the author decided". Honouring only
   // Cloudflare's proprietary header would stamp `private, no-cache` on a
   // response whose author deliberately set the vendor-neutral
   // `CDN-Cache-Control` (RFC 9213) and left `Cache-Control` off on purpose.
   for (const header of CDN_CACHE_CONTROL_HEADERS) {
-    if (response.headers.has(header)) return response;
+    if (normalized.headers.has(header)) return normalized;
   }
 
   try {
-    response.headers.set("cache-control", "private, no-cache");
-    return response;
+    normalized.headers.set("cache-control", "private, no-cache");
+    return normalized;
   } catch {
     // Immutable headers (e.g. a response passed through from `fetch`).
-    const headers = new Headers(response.headers);
+    const headers = new Headers(normalized.headers);
     headers.set("cache-control", "private, no-cache");
-    return new Response(response.body, {
-      status: response.status,
-      statusText: response.statusText,
+    return new Response(normalized.body, {
+      status: normalized.status,
+      statusText: normalized.statusText,
       headers,
     });
   }
@@ -175,11 +215,13 @@ export function withDefaultSecurityHeaders(response: Response): Response {
 
   const headers = new Headers(response.headers);
   applySecurityAndRouteHeaders(headers);
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  return normalizeResponseHeaders(
+    new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }),
+  );
 }
 
 /**
@@ -228,11 +270,13 @@ export function withRouteResponseHeaders(
 
   const headers = new Headers(response.headers);
   applySecurityAndRouteHeaders(headers, options);
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+  return normalizeResponseHeaders(
+    new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }),
+  );
 }
 
 function getRouteStateCacheControl(loaderCache: LoaderCache | undefined): string {

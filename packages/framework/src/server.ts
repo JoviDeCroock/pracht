@@ -55,6 +55,7 @@ export {
   formatServerTimingHeader,
   handlePrachtRequest,
   isProtocolSwitchResponse,
+  normalizeResponseHeaders,
   preventHeuristicCaching,
   PrachtRuntimeProvider,
 } from "./runtime.ts";

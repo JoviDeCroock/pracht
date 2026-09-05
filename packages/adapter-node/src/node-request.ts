@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import { normalizeResponseHeaders } from "@pracht/core/server";
 
 import {
   COMPRESSION_MIN_SIZE,
@@ -250,6 +251,7 @@ export async function writeWebResponse(
   response: Response,
   compression?: CompressionState,
 ): Promise<void> {
+  response = normalizeResponseHeaders(response);
   res.statusCode = response.status;
   res.statusMessage = response.statusText;
 
