@@ -107,6 +107,7 @@ interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
   ErrorBoundaries: readonly [FunctionComponent | null, FunctionComponent | null];
+  capabilities: readonly string[];
   componentProps: Record<string, unknown>;
   data: unknown;
   params: RouteParams;
@@ -217,10 +218,12 @@ export interface InitClientRouterOptions {
   initialState: PrachtHydrationState;
   root: HTMLElement;
   findModuleKey: (modules: ModuleMap, file: string) => string | null;
+  /** @internal Synchronize page-scoped projections after a route commits. */
+  onRouteChange?: (capabilities: readonly string[]) => void;
 }
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
-  const { app, routeModules, shellModules, root, findModuleKey } = options;
+  const { app, routeModules, shellModules, root, findModuleKey, onRouteChange } = options;
 
   const moduleCache = new Map<string, Promise<unknown>>();
 
@@ -478,6 +481,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       Shell,
       Component,
       ErrorBoundaries,
+      capabilities,
       componentProps,
       data,
       params,
@@ -489,11 +493,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     activeRouteStateVersion = version;
 
     useLayoutEffect(() => {
+      onRouteChange?.(capabilities);
       if (!afterCommitCallback) return;
       const callback = afterCommitCallback;
       afterCommitCallback = null;
       callback();
-    }, [version]);
+    }, [capabilities, version]);
     const routeElement = h(RouteComponent, { Component, componentProps });
     const guardedRouteElement = RouteBoundary
       ? h(RouteErrorBoundary, {
@@ -575,6 +580,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       Shell,
       Component,
       ErrorBoundaries: state.error ? [null, null] : [RouteBoundary ?? null, ShellBoundary ?? null],
+      capabilities: match.route.capabilities ?? [],
       componentProps,
       data: state.data,
       params: match.params,
@@ -601,6 +607,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       Shell,
       Component: Loading ?? (() => null),
       ErrorBoundaries: [null, null],
+      capabilities: match.route.capabilities ?? [],
       componentProps: {},
       data: undefined,
       params: match.params,

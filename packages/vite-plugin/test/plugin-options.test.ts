@@ -64,6 +64,18 @@ describe("resolveOptions client", () => {
   });
 });
 
+describe("resolveOptions inlineCss", () => {
+  it("defaults to linked stylesheets and accepts explicit inlining", () => {
+    expect(resolveOptions({}).inlineCss).toBe(false);
+    expect(resolveOptions({ inlineCss: true }).inlineCss).toBe(true);
+  });
+
+  it("rejects non-boolean values", () => {
+    // @ts-expect-error — inlineCss is a boolean.
+    expect(() => resolveOptions({ inlineCss: "yes" })).toThrow(/inlineCss.*expects a boolean/);
+  });
+});
+
 describe("resolveOptions budgets", () => {
   it("defaults to no budgets", () => {
     expect(resolveOptions({}).budgets).toEqual({});

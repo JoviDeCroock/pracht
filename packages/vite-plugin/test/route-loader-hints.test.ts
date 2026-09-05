@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createRouteHeadersHints,
+  createRouteHints,
   createRouteLoaderHints,
   createRouteStaticPathsHints,
   detectHeadersExport,
@@ -145,6 +146,19 @@ describe("createRouteLoaderHints", () => {
     ).toEqual({
       "./dashboard.tsrx": false,
       "/src/routes/dashboard.tsrx": false,
+    });
+  });
+
+  it("tracks literal Pages capability exports for client-entry HMR", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-capability-hints-"));
+    tempDirs.push(routesDir);
+    writeFileSync(
+      join(routesDir, "notes.tsx"),
+      'export const CAPABILITIES = ["notes.search", "notes.create"] as const;\n',
+    );
+
+    expect(createRouteHints(routesDir, { rootRelativePrefix: "/src/pages" }).capabilities).toEqual({
+      "/src/pages/notes.tsx": ["notes.search", "notes.create"],
     });
   });
 

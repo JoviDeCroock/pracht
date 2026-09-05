@@ -236,7 +236,7 @@ test("built Cloudflare worker bootstraps WebMCP on a zero-island route", async (
     const html = await response.text();
     expect(html).not.toContain("<pracht-island");
     expect(html).toMatch(
-      /<script type="module" src="\/assets\/islands-client-[^"]+\.js"><\/script>/,
+      /<script type="module" src="\/assets\/islands-client-[^"]+\.js" data-pracht-webmcp-tools="notes.search"><\/script>/,
     );
   } finally {
     rmSync(tempDir, { force: true, recursive: true });

@@ -53,6 +53,7 @@ app already follows, so most apps pass only an `adapter`.
 | --- | --- | --- |
 | `prerenderConcurrency` | `10` | Maximum SSG/ISG pages rendered in parallel by `pracht build` |
 | `maxBodySize` | `1048576` (1 MiB) | Largest request body the dev SSR middleware accepts |
+| `inlineCss` | `false` | Inline the complete matched route/shell production CSS in each HTML document instead of linking it. See [Performance](/docs/performance#css-per-page) |
 | `budgets` | `{}` | Per-route gzip client-JS budgets, e.g. `{ "*": "120kb", "/dashboard": "200kb" }`. `"*"` applies everywhere; explicit paths override it. Exceeding one fails the build unless you pass `pracht build --no-budget-fail` |
 | `precompileSsrJsx` | `false` | Precompile safe Preact JSX DOM subtrees in SSR/SSG server bundles. Client bundles keep the normal transform for hydration |
 | `envSafety` | `{}` (enabled) | Fail the build when a production client chunk references a non-public env var. `{ allow: ["NAME"] }` permits specific ones; `false` disables the check. See [Environment Variables](/docs/env) |

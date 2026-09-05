@@ -518,3 +518,19 @@ describe("streaming route validation", () => {
     expect(chunks.join("")).toContain("loading");
   });
 });
+
+it("flushes the same ordered critical CSS assets as buffered SSR", async () => {
+  const response = await handlePrachtRequest({
+    app: streamingApp(),
+    registry: { routeModules: { "./routes/product.tsx": streamingRoute() } },
+    request: new Request("http://localhost/product"),
+    cssManifest: { "./routes/product.tsx": ["/first.css", "/external.css", "/last.css"] },
+    cssContentManifest: { "/first.css": "h1{color:red}", "/last.css": "p{color:blue}" },
+  });
+  const reader = response.body!.getReader();
+  const prefix = new TextDecoder().decode((await reader.read()).value);
+  expect(prefix).toContain("h1{color:red}");
+  expect(prefix.indexOf("h1{color:red}")).toBeLessThan(prefix.indexOf('href="/external.css"'));
+  expect(prefix.indexOf('href="/external.css"')).toBeLessThan(prefix.indexOf("p{color:blue}"));
+  await reader.cancel();
+});

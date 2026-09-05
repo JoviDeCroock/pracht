@@ -54,6 +54,8 @@ export interface PrerenderAppOptions {
   islandsBootstrapRequired?: boolean;
   /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
+  /** Per-public-URL CSS content emitted when route CSS inlining is enabled. */
+  cssContentManifest?: Record<string, string>;
   /** Per-source-file JS map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
   /** Maximum number of pages rendered concurrently. Defaults to 10. */
@@ -135,6 +137,7 @@ export async function prerenderApp(
             islandsEntryUrl: options.islandsEntryUrl,
             islandsBootstrapRequired: options.islandsBootstrapRequired,
             cssManifest: options.cssManifest,
+            cssContentManifest: options.cssContentManifest,
             jsManifest: options.jsManifest,
             onRouteError: (error) => {
               renderError = error;

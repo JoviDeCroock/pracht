@@ -218,6 +218,50 @@ describe("initClientRouter", () => {
     expect(root.textContent).toContain("Hello Jovi");
   });
 
+  it("publishes route capabilities only after the active route commits", async () => {
+    const observed: string[][] = [];
+    const app = resolveApp(
+      defineApp({
+        capabilities: {
+          "notes.search": "./capabilities/notes-search.ts",
+          "account.update": "./capabilities/account-update.ts",
+        },
+        routes: [
+          route("/", "./routes/home.tsx", {
+            capabilities: ["notes.search"],
+            id: "home",
+            render: "ssr",
+          }),
+          route("/account", "./routes/account.tsx", {
+            capabilities: ["account.update"],
+            id: "account",
+            render: "ssr",
+          }),
+        ],
+      }),
+    );
+
+    root.innerHTML = "<main>Home</main>";
+    fetchSpy.mockResolvedValue(createJsonResponse({ data: null }));
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
+        "./routes/account.tsx": async () => ({ default: () => h("main", null, "Account") }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "home", url: "/" },
+      root,
+      findModuleKey: (_modules, file) => file,
+      onRouteChange: (capabilities) => observed.push([...capabilities]),
+    });
+
+    expect(observed).toEqual([["notes.search"]]);
+    await window.__PRACHT_NAVIGATE__!("/account");
+    await flush();
+    expect(observed.at(-1)).toEqual(["account.update"]);
+  });
+
   it("publishes the visitor query after hydrating with prerendered route state", async () => {
     history.replaceState(null, "", "/products?lang=zh&example=router#details");
     const observedLanguages: Array<string | null> = [];

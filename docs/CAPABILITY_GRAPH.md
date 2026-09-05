@@ -322,8 +322,12 @@ Chrome 156) can call while the user watches. For a *web* framework this may be t
 it is the only emerging standard where the website itself is the tool surface, and no framework
 integrates it yet.
 
-With `expose.webmcp` enabled, the client runtime registers the capability as a page tool on routes
-that declare it, reusing the same JSON Schema for parameters. The browser-side tool implementation
+With `expose.webmcp` enabled, a manifest route declares the page tool with
+`route(path, file, { capabilities: ["projects.search"] })`; a pages route exports
+`CAPABILITIES = ["projects.search"]`. Group declarations are additive. The client runtime registers
+the capability only while one of those routes is active, reusing the same JSON Schema for parameters.
+Initial hydration installs the matched route's set, and every committed client navigation aborts the
+old registrations before installing the destination set. The browser-side tool implementation
 is thin: it calls the generated HTTP endpoint, so validation, middleware, policy, and `run()` all
 stay server-side. The user's existing session authenticates the call — which is correct for
 WebMCP's model (the agent acts *as the signed-in user, in their tab*) and exactly wrong for remote
@@ -349,7 +353,8 @@ inspected without executing operations:
       "title": "Search projects",
       "effect": "read",
       "middleware": ["auth"],
-      "transports": ["http", "mcp"],
+      "transports": ["http", "mcp", "webmcp"],
+      "webmcpRoutes": ["/projects"],
       "hasUi": true,
       "source": "/src/capabilities/projects-search.ts"
     }
@@ -566,7 +571,7 @@ particular transport.
 
 Read-only capabilities should be the first supported production profile.
 
-### Stage 2b: WebMCP projection
+### Stage 2b: WebMCP projection (delivered)
 
 - client-side tool registration shim behind `expose.webmcp`, active only on routes that opt in;
 - shared JSON Schema reuse for tool parameters; calls dispatch through the generated HTTP endpoint
@@ -704,9 +709,11 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
    hardening](AGENT_TRUST.md#operational-hardening-what-the-framework-does-not-do-yet)).
 8. **The WebMCP shim shares `callCapability` and ships zero dead code.** It
    lives in its own chunk (`virtual:pracht/webmcp`) behind feature detection:
-   browsers without the API never download it, pages without webmcp-exposed
-   capabilities never reference it, and it targets `document.modelContext`
-   (Chrome 150+) with the deprecated `navigator.modelContext` as fallback.
+   browsers without the API never download it, routes without active page tools
+   do not load it, and it targets `document.modelContext` (Chrome 150+) without
+   the deprecated `navigator.modelContext` fallback. Initial hydration uses the
+   matched route's tool set; each committed SPA navigation aborts the old
+   registrations and replaces them with the destination route's set.
 9. **Web Bot Auth verification runs once per request in
    `handlePrachtRequest()`**, shared by every adapter because it uses only Web
    platform APIs (`Headers`, `fetch`, `crypto.subtle`). The verified identity

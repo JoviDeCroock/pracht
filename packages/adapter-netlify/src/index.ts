@@ -83,6 +83,7 @@ export interface NetlifyHandlerOptions<
   islandsEntryUrl?: string;
   islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
+  cssContentManifest?: Record<string, string>;
   jsManifest?: Record<string, string[]>;
   staticDir?: string;
   isgManifest?: Record<string, ISGManifestEntry>;
@@ -237,6 +238,7 @@ export function createNetlifyHandler<
       islandsEntryUrl: options.islandsEntryUrl,
       islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
+      cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
@@ -318,6 +320,7 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "  islandsEntryUrl: islandsEntryUrl ?? undefined,",
     "  islandsBootstrapRequired,",
     "  cssManifest,",
+    "  cssContentManifest,",
     "  jsManifest,",
     "  staticDir,",
     "  isgManifest,",

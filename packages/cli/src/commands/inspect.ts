@@ -113,6 +113,7 @@ export interface InspectAgents {
     agentPolicy: string | null;
     transports: string[];
     httpPath: string | null;
+    webmcpRoutes: string[];
   }[];
   /** How many capabilities each transport exposes; `private` means none. */
   exposure: { http: number; webmcp: number; mcp: number; private: number };
@@ -274,6 +275,7 @@ export function summarizeAgentSurface(
       agentPolicy: capability.agentPolicy,
       transports: capability.transports,
       httpPath: capability.httpPath,
+      webmcpRoutes: capability.webmcpRoutes ?? [],
     })),
     exposure,
   };
@@ -325,7 +327,8 @@ function printInspectReport(report: InspectReport): void {
       console.log(
         `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  hydration=${route.hydration ?? "full"}` +
           `  streaming=${route.streaming === true ? "true" : "false"}` +
-          `  shell=${route.shell ?? "none"}  middleware=[${route.middleware.join(", ")}]  file=${route.file}`,
+          `  shell=${route.shell ?? "none"}  middleware=[${route.middleware.join(", ")}]` +
+          `  webmcp=[${route.capabilities?.join(", ") ?? ""}]  file=${route.file}`,
       );
     }
 
@@ -363,7 +366,8 @@ function printInspectReport(report: InspectReport): void {
         const transports = formatCapabilityTransports(capability, report);
         console.log(
           `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
-            `http=${capability.httpPath ?? "n/a"}  file=${capability.source}`,
+            `http=${capability.httpPath ?? "n/a"}  webmcpRoutes=[${capability.webmcpRoutes?.join(", ") ?? ""}]  ` +
+            `file=${capability.source}`,
         );
         // Effect and exposure above came from static analysis; the schemas
         // could not be read. Say so rather than presenting a partial contract
@@ -424,7 +428,7 @@ function printInspectReport(report: InspectReport): void {
         console.log(
           `  ${capability.name}  effect=${capability.effect ?? "n/a"}  transports=${transports}  ` +
             `policy=${capability.agentPolicy ?? `${agents.webBotAuth.policy} (inherited)`}  ` +
-            `http=${capability.httpPath ?? "n/a"}`,
+            `http=${capability.httpPath ?? "n/a"}  webmcpRoutes=[${capability.webmcpRoutes.join(", ")}]`,
         );
       }
     }

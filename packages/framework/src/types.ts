@@ -491,6 +491,8 @@ export type SpeculationOption = SpeculationMode | SpeculationConfig;
 
 export interface RouteMeta {
   id?: string;
+  /** WebMCP page tools active while this route is displayed. */
+  capabilities?: string[];
   shell?: string;
   render?: RenderMode;
   hydration?: HydrationMode;
@@ -523,6 +525,8 @@ export interface RouteMeta {
 }
 
 export interface GroupMeta {
+  /** WebMCP page tools inherited by every route in this group. */
+  capabilities?: string[];
   shell?: string;
   render?: RenderMode;
   hydration?: HydrationMode;
@@ -805,8 +809,13 @@ export interface HeadMetadata {
    */
   fonts?: PrachtFont[];
   /**
-   * CSP nonce for the generated font `<style>`. Put a request-specific nonce
-   * on a shared shell head when using `style-src 'nonce-…'`.
+   * CSP nonce for framework-generated inline styles, including build-time CSS
+   * emitted by `pracht({ inlineCss: true })` and generated font CSS.
+   */
+  styleNonce?: string;
+  /**
+   * CSP nonce for the generated font `<style>`. Prefer `styleNonce`, which
+   * also covers opt-in inlined build CSS. Kept for backwards compatibility.
    */
   fontNonce?: string;
 }

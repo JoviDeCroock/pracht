@@ -61,6 +61,49 @@ describe("resolveApp", () => {
     expect(resolved.routes[1].loaderCache).toBe(false);
   });
 
+  it("inherits and de-duplicates route-scoped capabilities", () => {
+    const app = defineApp({
+      capabilities: {
+        "notes.search": "./capabilities/notes-search.ts",
+        "notes.create": "./capabilities/notes-create.ts",
+      },
+      routes: [
+        group({ capabilities: ["notes.search"] }, [
+          route("/notes", "./routes/notes.tsx", {
+            capabilities: ["notes.search", "notes.create"],
+          }),
+        ]),
+      ],
+    });
+
+    expect(resolveApp(app).routes[0]?.capabilities).toEqual(["notes.search", "notes.create"]);
+  });
+
+  it("rejects unknown route-scoped capabilities with a suggestion", () => {
+    const app = defineApp({
+      capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+      routes: [route("/notes", "./routes/notes.tsx", { capabilities: ["notes.serach"] })],
+    });
+
+    expect(() => resolveApp(app)).toThrow(
+      'Unknown capability "notes.serach" for route "/notes". Did you mean "notes.search"?',
+    );
+  });
+
+  it("rejects route-scoped capabilities on hydration none routes", () => {
+    const app = defineApp({
+      capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+      routes: [
+        route("/notes", "./routes/notes.tsx", {
+          capabilities: ["notes.search"],
+          hydration: "none",
+        }),
+      ],
+    });
+
+    expect(() => resolveApp(app)).toThrow(/Page tools require browser JavaScript/);
+  });
+
   it("rejects unknown route meta keys with a suggestion", () => {
     const app = defineApp({
       middleware: { auth: "./middleware/auth.ts" },

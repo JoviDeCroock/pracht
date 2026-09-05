@@ -117,10 +117,16 @@ export interface HtmlDocumentOptions {
   clientEntryAtEnd?: boolean;
   /** Internal inline bootstrap emitted after state and before the client entry. */
   inlineBootstrapScript?: { source: string; nonce?: string };
+  /** Ordered route CSS assets, optionally carrying content to inline. */
+  cssAssets?: Array<{ content?: string; href: string }>;
   cssUrls?: string[];
+  /** Build-time route CSS to place directly in the document head. */
+  inlineCss?: string[];
   modulePreloadUrls?: string[];
   routeStatePreloadUrl?: string;
   speculationRules?: SpeculationRulesDocument | null;
+  /** Page-scoped WebMCP tools consumed by the islands bootstrap. */
+  webmcpCapabilities?: readonly string[];
 }
 
 /**
@@ -147,10 +153,13 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     clientEntryAsync = false,
     clientEntryAtEnd = false,
     inlineBootstrapScript,
+    cssAssets,
     cssUrls = [],
+    inlineCss = [],
     modulePreloadUrls = [],
     routeStatePreloadUrl,
     speculationRules,
+    webmcpCapabilities = [],
   } = options;
 
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
@@ -179,9 +188,10 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
         .map((attrs) => `<link data-pracht-font-preload ${attrs}>`)
         .join("\n    ")
     : "";
+  const fontNonce = head.fontNonce ?? head.styleNonce;
   const fontStyleTag =
-    fontFragments?.css || head.fontNonce
-      ? `<style data-pracht-fonts${head.fontNonce ? ` nonce="${escapeHtml(head.fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
+    fontFragments?.css || fontNonce
+      ? `<style data-pracht-fonts${fontNonce ? ` nonce="${escapeHtml(fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
       : "";
 
   const scriptTags = (head.script ?? [])
@@ -192,9 +202,44 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     })
     .join("\n    ");
 
-  const cssTags = cssUrls
-    .map((url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`)
-    .join("\n    ");
+  // CSS assets are trusted build output, but <style> is a raw-text element:
+  // even a CSS string or URL containing `</style` would otherwise terminate
+  // it at the HTML parser. Escaping the slash preserves the CSS token while
+  // making the closing tag impossible.
+  const renderInlineCss = (css: string[]): string => {
+    const text = css.join("\n").replace(/<\/style/gi, "<\\/style");
+    return text
+      ? `<style data-pracht-inline-css${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${text}</style>`
+      : "";
+  };
+  const cssTags = (() => {
+    if (!cssAssets) {
+      return [
+        renderInlineCss(inlineCss),
+        ...cssUrls.map((url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`),
+      ]
+        .filter(Boolean)
+        .join("\n    ");
+    }
+
+    const tags: string[] = [];
+    let pendingInline: string[] = [];
+    const flushInline = () => {
+      const tag = renderInlineCss(pendingInline);
+      if (tag) tags.push(tag);
+      pendingInline = [];
+    };
+    for (const asset of cssAssets) {
+      if (asset.content !== undefined) {
+        pendingInline.push(asset.content);
+      } else {
+        flushInline();
+        tags.push(`<link rel="stylesheet" href="${escapeHtml(asset.href)}">`);
+      }
+    }
+    flushInline();
+    return tags.join("\n    ");
+  })();
 
   const modulePreloadTags = modulePreloadUrls
     .map((url) => `<link rel="modulepreload" href="${escapeHtml(url)}">`)
@@ -215,7 +260,11 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     ? `<script${inlineBootstrapScript.nonce ? ` nonce="${escapeHtml(inlineBootstrapScript.nonce)}"` : ""}>${escapeScriptChildren(inlineBootstrapScript.source)}</script>`
     : "";
   const entryScript = clientEntryUrl
-    ? `<script type="module"${clientEntryAsync ? " async" : ""} src="${escapeHtml(clientEntryUrl)}"></script>`
+    ? `<script type="module"${clientEntryAsync ? " async" : ""} src="${escapeHtml(clientEntryUrl)}"${
+        webmcpCapabilities.length > 0
+          ? ` data-pracht-webmcp-tools="${escapeHtml(webmcpCapabilities.join(","))}"`
+          : ""
+      }></script>`
     : "";
 
   // Empty slots are dropped rather than interpolated: otherwise every document

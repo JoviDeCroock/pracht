@@ -116,11 +116,21 @@ export default defineCapability({
 \`pracht generate capability --name notes.search --effect read --expose http,webmcp\`
 writes this skeleton and registers it for you.
 
-Register it in the manifest, like shells and middleware:
+Register it in the manifest, like shells and middleware. WebMCP exposure only
+makes a tool eligible; activate it on the routes where an in-page agent should
+see it:
 
 \`\`\`ts
-defineApp({ capabilities: { "notes.search": "./capabilities/notes-search.ts" } })
+defineApp({
+  capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+  routes: [route("/notes", "./routes/notes.tsx", { capabilities: ["notes.search"] })],
+})
 \`\`\`
+
+Pages apps auto-register \`src/capabilities/\`; each page activates its tools
+with an inline \`export const CAPABILITIES = ["notes.search"]\`. Initial hydration
+uses the matched route's set, and each committed client navigation replaces it.
+Group capability lists are additive; \`hydration: "none"\` cannot activate tools.
 
 Rules that are enforced, not advisory:
 
@@ -139,6 +149,9 @@ Rules that are enforced, not advisory:
   the build.
 - **Exposed capabilities need a full contract** — description, input schema,
   output schema, effect — or \`pracht verify\` fails.
+- **WebMCP tools are route-scoped.** \`pracht verify\` rejects a route tool that
+  is unknown or lacks \`expose.webmcp\`; it warns when an eligible tool is never
+  activated. Inspect routes and capabilities to see both sides of the mapping.
 - **Schemas are a JSON Schema subset.** \`oneOf\`/\`anyOf\`/\`allOf\`/\`$ref\`/
   \`pattern\`/\`format\` are rejected at definition time.
 - Remote MCP additionally needs \`defineApp({ agents: { mcp: {} } })\`, and both

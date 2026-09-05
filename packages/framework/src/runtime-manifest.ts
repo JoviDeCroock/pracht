@@ -70,6 +70,26 @@ export function resolvePageCssUrls(
   return resolvePageUrlsFromManifest(cssManifest, shellFile, routeFile);
 }
 
+/**
+ * Split a page's ordered stylesheets into inline payloads and linked fallbacks.
+ * Generated builds populate every URL when inlining is enabled; the fallback
+ * keeps custom server entries safe when their content map is partial or stale.
+ */
+export function resolvePageCssAssets(
+  cssManifest: Record<string, string[]> | undefined,
+  cssContentManifest: Record<string, string> | undefined,
+  shellFile: string | undefined,
+  routeFile: string,
+): Array<{ content?: string; href: string }> {
+  const pageUrls = resolvePageCssUrls(cssManifest, shellFile, routeFile);
+  return pageUrls.map((href) => ({
+    href,
+    ...(cssContentManifest && Object.hasOwn(cssContentManifest, href)
+      ? { content: cssContentManifest[href] }
+      : {}),
+  }));
+}
+
 export function resolvePageJsUrls(
   jsManifest: Record<string, string[]> | undefined,
   shellFile: string | undefined,

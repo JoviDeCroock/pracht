@@ -99,7 +99,8 @@
   },
   "dependencies": {
     "@pracht/capabilities": "workspace:*",
-    "@standard-schema/spec": "^1.0.0"
+    "@standard-schema/spec": "^1.0.0",
+    "web-vitals": "^6.2.1"
   },
   "peerDependencies": {
     "preact": "^10.0.0 || ^11.0.0-0",

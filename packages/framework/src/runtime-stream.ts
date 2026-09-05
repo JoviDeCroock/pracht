@@ -7,8 +7,8 @@
  *
  * Write order:
  *
- * 1. `prefix` — everything through `<div id="pracht-root">`. Flushed before the
- *    render starts, so `<head>` reaches the browser immediately and preloads
+ * 1. `prefix` — everything through `<div id="pracht-root">`. Flushed before deferred
+ *    subtrees settle, so `<head>` reaches the browser immediately and preloads
  *    begin while deferred loader work is still running.
  * 2. the renderer's first chunk — the shell, i.e. the tree with every
  *    unresolved `<Suspense>` boundary rendered as its fallback.

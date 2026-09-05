@@ -46,6 +46,7 @@ export interface VercelAdapterOptions<
   islandsEntryUrl?: string;
   islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
+  cssContentManifest?: Record<string, string>;
   jsManifest?: Record<string, string[]>;
   createContext?: (args: VercelContextArgs<TVercelContext>) => TContext | Promise<TContext>;
 }
@@ -102,6 +103,7 @@ export function createVercelEdgeHandler<
       islandsEntryUrl: options.islandsEntryUrl,
       islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
+      cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
@@ -308,6 +310,7 @@ export function createVercelServerEntryModule(
     "    islandsEntryUrl: islandsEntryUrl ?? undefined,",
     "    islandsBootstrapRequired,",
     "    cssManifest,",
+    "    cssContentManifest,",
     "    jsManifest,",
     "    createContext: createPrachtContext,",
     "  });",

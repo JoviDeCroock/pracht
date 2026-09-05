@@ -21,10 +21,10 @@ thing changed each time.
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
 | `hydration: "islands"` | **7.5 KB** | 16.7 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "full"` | **17.3 KB** | 42.3 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **15.8 KB** | 41.3 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **17.1 KB** | 41.4 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"` + `preact/compat` | **18.1 KB** | 44.6 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "full"` | **17.4 KB** | 42.6 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **15.9 KB** | 41.6 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **17.2 KB** | 41.7 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"` + `preact/compat` | **18.2 KB** | 44.9 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load — the route's chunks plus the one the router fetches after
 hydration. Raw is the route's chunks. Both come straight from
@@ -201,6 +201,61 @@ critical path.
 ## CSS Per Page
 
 pracht builds a CSS manifest that maps each source file to its transitive CSS dependencies. At request time, only the CSS needed for the matched route and shell is injected as `<link rel="stylesheet">` tags — no unused CSS is sent.
+
+For a small site, opt into inlining those complete route-scoped files:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [pracht({ inlineCss: true })],
+});
+```
+
+Production HTML then contains `<style data-pracht-inline-css>` instead of the
+matched stylesheet links. This works for the manifest and pages routers, every
+render/hydration mode, error boundaries, prerendering, and every built-in
+adapter. Development keeps links so Vite HMR works normally.
+
+Inlining saves a render-blocking request but enlarges every HTML response and
+repeats shared CSS instead of letting one stylesheet cache serve many pages.
+It is whole-file route CSS inlining, not selector-level extraction or runtime
+CSS-in-JS collection. Measure both variants before choosing it.
+
+Under a nonce-based CSP, return `styleNonce` from `head()` and place the same
+nonce in `style-src`. Prefer linked CSS for SSG/ISG pages unless a stable hash
+policy covers the emitted inline block.
+
+---
+
+## Real-User Web Vitals
+
+Mount a small component in a shared shell to receive CLS, FCP, INP, LCP, and
+TTFB:
+
+```tsx [src/components/vitals.tsx]
+import { useWebVitals } from "@pracht/core";
+
+export function Vitals() {
+  useWebVitals((metric) => {
+    navigator.sendBeacon(
+      "/api/telemetry/vitals",
+      JSON.stringify({
+        name: metric.name,
+        value: metric.value,
+        rating: metric.rating,
+        id: metric.id,
+        path: location.pathname,
+      }),
+    );
+  });
+  return null;
+}
+```
+
+The hook is SSR-safe: it starts from an effect and lazy-loads the measurement
+chunk after mount. Multiple callers share one observer set, callbacks can
+change across renders, and apps that never use the hook ship none of that code.
+The browser API may report some metrics only after interaction, visibility
+changes, or page exit, so use `sendBeacon()` or another unload-safe transport.
 
 ---
 

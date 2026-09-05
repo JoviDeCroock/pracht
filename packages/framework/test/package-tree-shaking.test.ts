@@ -111,6 +111,11 @@ async function bundleExport(
           // The streaming renderer is a subpath import (`/stream`), so the
           // bare specifier alone does not externalize it.
           /^preact-render-to-string\//,
+          // The harness copies @pracht/core's dist files into a temporary
+          // directory without installing package dependencies beside them.
+          // Apps receive web-vitals through @pracht/core; keep the lazy import
+          // external here so unrelated export checks model that resolution.
+          "web-vitals",
         ],
         input: publicId,
       },
@@ -172,6 +177,13 @@ describe("published package tree shaking", () => {
     expect((await bundleExport(exportName)).gzipBytes).toBeLessThanOrEqual(maxGzipBytes);
   });
 
+  it("drops Web Vitals when another browser export is used", async () => {
+    const { code } = await bundleExport("createHref");
+
+    expect(code).not.toContain("web-vitals");
+    expect(code).not.toContain("onCLS");
+  });
+
   // The generated client entry (`@pracht/core/client`) is what every hydrating
   // app loads, so anything reachable from it is unconditional. Two features
   // used to be: Suspense hydration tracking and capability revalidation. Both
@@ -201,10 +213,10 @@ describe("published package tree shaking", () => {
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,200 gzip bytes", async () => {
+    it("keeps the router runtime below 10,250 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_200);
+      expect(gzipBytes).toBeLessThanOrEqual(10_250);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -350,7 +362,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_910);
+      expect(gzipBytes).toBeLessThanOrEqual(9_960);
     });
 
     it("keeps guards when the feature is enabled", async () => {

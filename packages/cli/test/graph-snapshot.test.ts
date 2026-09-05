@@ -261,6 +261,20 @@ function diffCapability(overrides: Record<string, unknown>) {
 }
 
 describe("capability diff", () => {
+  it("flags adding a WebMCP tool to a route as an agent-surface widening", () => {
+    const diff = diffGraphSnapshots(
+      makeSnapshot({ routes: [makeRoute("/notes")] }),
+      makeSnapshot({ routes: [makeRoute("/notes", { capabilities: ["notes.search"] })] }),
+    );
+
+    expect(diff.changedRoutes[0]?.changes).toContainEqual({
+      field: "capabilities",
+      from: null,
+      to: ["notes.search"],
+    });
+    expect(diff.widensAgentSurface).toBe(true);
+  });
+
   it("flags enabling the MCP endpoint as an agent-surface widening", () => {
     const capability = makeCapability({ transports: ["mcp"], httpPath: null });
     const diff = diffGraphSnapshots(

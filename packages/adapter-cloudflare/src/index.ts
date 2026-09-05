@@ -237,6 +237,7 @@ export function createCloudflareServerEntryModule(
     "    islandsEntryUrl: islandsEntryUrl ?? undefined,",
     "    islandsBootstrapRequired,",
     "    cssManifest,",
+    "    cssContentManifest,",
     "    jsManifest,",
     `    assetsBinding: ${JSON.stringify(assetsBinding)},`,
     "    assetsBindingUsesPublicBase: import.meta.env.DEV,",

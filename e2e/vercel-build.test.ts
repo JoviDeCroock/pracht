@@ -162,7 +162,7 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     const agentToolsHtml = await agentToolsResponse.text();
     expect(agentToolsHtml).not.toContain("<pracht-island");
     expect(agentToolsHtml).toMatch(
-      /<script type="module" src="\/assets\/islands-client-[^"]+\.js"><\/script>/,
+      /<script type="module" src="\/assets\/islands-client-[^"]+\.js" data-pracht-webmcp-tools="notes.search"><\/script>/,
     );
 
     // The prerender function runs on Node with the same Web-API-only bundle the

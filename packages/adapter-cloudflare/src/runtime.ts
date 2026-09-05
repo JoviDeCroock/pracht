@@ -76,6 +76,7 @@ export interface CloudflareAdapterOptions<
   islandsEntryUrl?: string;
   islandsBootstrapRequired?: boolean;
   cssManifest?: Record<string, string[]>;
+  cssContentManifest?: Record<string, string>;
   jsManifest?: Record<string, string[]>;
   assetsBinding?: string;
   /** @internal Dev asset bindings already return public, base-prefixed redirects. */
@@ -143,6 +144,7 @@ export function createCloudflareFetchHandler<
         islandsEntryUrl: options.islandsEntryUrl,
         islandsBootstrapRequired: options.islandsBootstrapRequired,
         cssManifest: options.cssManifest,
+        cssContentManifest: options.cssContentManifest,
         jsManifest: options.jsManifest,
       } satisfies HandlePrachtRequestOptions<TContext>);
     };
@@ -228,6 +230,7 @@ export function createCloudflareFetchHandler<
       islandsEntryUrl: options.islandsEntryUrl,
       islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
+      cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
     } satisfies HandlePrachtRequestOptions<TContext>);
 

@@ -1,9 +1,9 @@
 ---
 name: add-capabilities
-version: 1.2.0
+version: 1.3.0
 description: |
   Expose an app operation as a typed pracht capability — one contract projected
-  into direct server calls, an HTTP endpoint, a WebMCP page tool, and a remote MCP
+  into direct server calls, an HTTP endpoint, a route-scoped WebMCP page tool, and a remote MCP
   tool — plus `defineApp({ agents })` trust config, typed clients,
   `<Form capability>`, and `pracht eval` scenarios.
   Use for "add a capability", "expose this to agents", "add an MCP tool", "add
@@ -143,6 +143,8 @@ Schema rules that bite:
 
 ```ts
 // src/routes.ts
+import { defineApp, route } from "@pracht/core";
+
 export const app = defineApp({
   capabilities: {
     "notes.search": () => import("./capabilities/notes-search.ts"),
@@ -155,13 +157,30 @@ export const app = defineApp({
     // Remote MCP endpoint; without this, `expose.mcp` serves nothing.
     mcp: { serverInfo: { name: "notes", version: "1.0.0" }, instructions: "…" },
   },
-  routes: [/* … */],
+  routes: [
+    route("/notes", "./routes/notes.tsx", {
+      // expose.webmcp makes it eligible; this makes it active on this page.
+      capabilities: ["notes.search"],
+    }),
+  ],
 });
 ```
 
 Pages apps have no manifest: the same `capabilities` come from
 `src/capabilities/` and the same `agents` object is `export const agents` in
-`src/pages/_app.config.ts`.
+`src/pages/_app.config.ts`. Activate WebMCP tools on each page that needs them:
+
+```ts
+// src/pages/notes.tsx
+export const CAPABILITIES = ["notes.search"];
+```
+
+`CAPABILITIES` must be an inline array of non-empty registered names and cannot
+appear on `_app` or `404`. In a manifest, group capability lists are additive.
+Unknown names, capabilities without `expose.webmcp`, and activation on
+`hydration: "none"` routes are rejected. Initial hydration registers the matched
+route's set; every committed client navigation replaces it, so never assume a
+tool exposed on one page persists globally.
 
 Each `agents` sub-option is independent — add only what the app uses. Web Bot
 Auth `policy: "require"` gates capability HTTP endpoints (not pages or API
@@ -224,30 +243,14 @@ Rules to hold the user to:
   body that MCP dispatch reads next.
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
-  and `run()` for per-user authorization; the framework only authenticates. It
-  lives on a fresh request-local overlay, leaving an adapter's reused base
-  context unchanged. Frozen and sealed ordinary contexts work; native built-ins
-  such as `Map` and `Date` must be wrapped in an ordinary context. `claims` is
-  frozen shallowly, but the complete principal is request-local so nested
-  mutations cannot become stale auth on a later request. The capability audit
-  event does not carry it yet, so capture it in named middleware or capability
-  code and send it to the same audit sink if MCP calls must be attributable to
-  an account. Nested capability calls rebind this field to the transport-verified
-  principal, so caller-supplied composition context cannot replace it.
+  and `run()` for authorization; the framework only authenticates. Nested calls
+  retain the transport-verified principal. Capture it separately when audit
+  events must identify the account.
 - `resource` must be the endpoint's **real deployed URL**: absolute, free of
-  query/fragment, free of a non-root trailing slash, and exactly matching the
-  served endpoint's public path — deploy base included, e.g.
-  `https://app.example.com/app/mcp` for an app mounted at `/app/`.
-  `resolveApp()` and `pracht verify` reject otherwise. The metadata document
-  then lands at the origin root with the base inside the suffix
-  (`/.well-known/oauth-protected-resource/app/mcp`); pracht derives it. Require
-  HTTPS outside loopback development, and reject authorization-server issuers
-  with query strings or fragments. For `mcp.path: "/"`, the resource is the
-  deployed app root, including its base; at the origin root use slashless
-  `https://app.example.com`. Authenticated requests whose URL is not
-  exactly this identifier are redirected to it with `308` before token
-  verification. Scope values must use OAuth's printable ASCII grammar (no
-  spaces, controls, non-ASCII, quotes, or backslashes).
+  query/fragment and exactly matching the deployed MCP path, including the app
+  base (`https://app.example.com/app/mcp`). Use HTTPS outside loopback.
+  `resolveApp()` and `pracht verify` reject malformed values and scope strings;
+  mismatched authenticated request URLs redirect to the canonical resource.
 - The bare `/.well-known/oauth-protected-resource` path is reserved for
   discovery and cannot be used as `mcp.path`. Production adapters route both
   metadata forms ahead of copied static files.
@@ -400,15 +403,18 @@ To audit what the whole agent surface exposes, run `/audit-agent-surface`.
    `maximum`) without saying so — `pracht plan` reports it as a widening of the
    agent-reachable surface for a reason.
 3. Keep `expose`, `effect`, and `input` as inline literals.
-4. Put authentication, authorization, and rate limiting in named middleware —
+4. Treat `expose.webmcp` as eligibility, not activation. Add the capability to
+   only the manifest routes/groups or Pages `CAPABILITIES` exports where an
+   in-page agent should see it.
+5. Put authentication, authorization, and rate limiting in named middleware —
    the framework ships no rate limiting, no write-idempotency helper, and no
    result-size budget. Bound outputs with a `limit` input and a schema
    `maximum`.
-5. Design `write` inputs to be safely repeatable; agents retry, and only
+6. Design `write` inputs to be safely repeatable; agents retry, and only
    `destructive` calls are token-gated.
-6. Never register an app-wide approval endpoint or UI without your own
+7. Never register an app-wide approval endpoint or UI without your own
    authorization — who may approve is an application decision.
-7. Re-run `pracht typegen` after changing a schema, name, or exposure, and
+8. Re-run `pracht typegen` after changing a schema, name, exposure, or route activation, and
    `pracht verify` before committing.
 
 $ARGUMENTS

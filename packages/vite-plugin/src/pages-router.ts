@@ -1,4 +1,5 @@
 import {
+  evaluateLiteral,
   readPageStringExport,
   readPageRevalidation,
   PAGES_APP_CONFIG_EXPORTS,
@@ -9,6 +10,8 @@ import {
   hasNamedValueExport,
   hasValueStarExport,
   readPageStreaming,
+  maskCommentsAndStrings,
+  readNamedExportInitializer,
   resolvePagesCapabilityName,
 } from "@pracht/capabilities/static";
 export {
@@ -31,6 +34,7 @@ import {
 
 export interface ScannedPage {
   absolutePath: string;
+  capabilities: string[];
   relativePath: string;
   routePath: string;
   isIndex: boolean;
@@ -388,6 +392,12 @@ export function scanPagesDirectory(
         "but app shells are not ISG routes. Declare the policy on each ISG page instead.",
     );
   }
+  if ((appShell?.capabilities.length ?? 0) > 0) {
+    throw new Error(
+      `[pracht] Pages app shell ${JSON.stringify(appShell!.relativePath)} exports CAPABILITIES, ` +
+        "but page tools are route-scoped. Declare CAPABILITIES on each page that should expose them.",
+    );
+  }
   return sortRoutes(pages);
 }
 
@@ -443,6 +453,7 @@ function scan(
       );
     if (streaming !== undefined && (isRootApp || routePath === "/404"))
       throw new Error(`[pracht] STREAMING belongs on a pages route, not ${JSON.stringify(rel)}.`);
+    const capabilities = extractPageCapabilities(analysisSource, rel);
     const revalidate = extractRevalidateSeconds(analysisSource, rel);
     const hasLoader = detectLoaderExport(analysisSource);
     const hasHead =
@@ -458,6 +469,7 @@ function scan(
 
     pages.push({
       absolutePath: abs,
+      capabilities,
       relativePath: rel,
       routePath,
       isIndex: name === "index",
@@ -473,6 +485,31 @@ function scan(
       hasHeaders,
     });
   }
+}
+
+function extractPageCapabilities(source: string, relativePath: string): string[] {
+  const initializer = readNamedExportInitializer(source, "CAPABILITIES");
+  if (initializer === null) {
+    if (/\bexport\s+const\s+CAPABILITIES\b/.test(maskCommentsAndStrings(source))) {
+      throw new Error(
+        `[pracht] Pages route ${JSON.stringify(relativePath)} must export CAPABILITIES as an ` +
+          'inline array of capability names (for example, `export const CAPABILITIES = ["notes.search"]`).',
+      );
+    }
+    return [];
+  }
+
+  const value = evaluateLiteral(initializer);
+  if (
+    !Array.isArray(value) ||
+    value.some((name) => typeof name !== "string" || name.length === 0)
+  ) {
+    throw new Error(
+      `[pracht] Pages route ${JSON.stringify(relativePath)} must export CAPABILITIES as an ` +
+        "inline array of non-empty capability names.",
+    );
+  }
+  return [...new Set(value as string[])];
 }
 
 export function filePathToRoutePath(relativePath: string): string {
@@ -656,6 +693,12 @@ export function generatePagesManifestSource(
         "REVALIDATE, but not-found responses are never ISG routes.",
     );
   }
+  if ((notFoundPage?.capabilities.length ?? 0) > 0) {
+    throw new Error(
+      `[pracht] Pages not-found module ${JSON.stringify(notFoundPage!.relativePath)} exports ` +
+        "CAPABILITIES, but the not-found page does not participate in route-scoped WebMCP activation.",
+    );
+  }
 
   for (const page of pages) {
     if (page === notFoundPage) continue;
@@ -686,6 +729,9 @@ export function generatePagesManifestSource(
       `hasHead: ${page.hasHead ? "true" : "false"}`,
     ];
     if (page.streaming !== undefined) metaParts.push(`streaming: ${page.streaming}`);
+    if (page.capabilities.length > 0) {
+      metaParts.push(`capabilities: ${JSON.stringify(page.capabilities)}`);
+    }
     if (page.hydrationMode) {
       metaParts.push(`hydration: ${JSON.stringify(page.hydrationMode)}`);
     }

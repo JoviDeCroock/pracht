@@ -74,6 +74,7 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  islandsEntryUrl: islandsEntryUrl ?? undefined,",
     "  islandsBootstrapRequired,",
     "  cssManifest,",
+    "  cssContentManifest,",
     "  jsManifest,",
     `  canonicalOrigin: ${JSON.stringify(canonicalOrigin ?? undefined)},`,
     `  basePathStripped: ${JSON.stringify(options.basePathStripped ?? undefined)},`,

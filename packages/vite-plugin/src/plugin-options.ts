@@ -89,6 +89,12 @@ export interface PrachtPluginOptions {
    * Preact merged into its own chunks.
    */
   vendorChunk?: boolean;
+  /**
+   * Inline the matched route and shell's emitted production CSS in the HTML
+   * head instead of linking those assets. Defaults to `false`; enable it for
+   * small critical stylesheets after accounting for HTML/cache duplication.
+   */
+  inlineCss?: boolean;
   appFile?: string;
   routesDir?: string;
   shellsDir?: string;
@@ -160,6 +166,7 @@ export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
 const DEFAULTS: ResolvedPrachtPluginOptions = {
   client: CLIENT_FEATURE_DEFAULTS,
   vendorChunk: true,
+  inlineCss: false,
   appFile: "/src/routes.ts",
   middlewareDir: "/src/middleware",
   routesDir: "/src/routes",
@@ -194,6 +201,11 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   if (typeof resolved.vendorChunk !== "boolean") {
     throw new Error(
       `pracht({ vendorChunk }) expects a boolean, got ${JSON.stringify(resolved.vendorChunk)}.`,
+    );
+  }
+  if (typeof resolved.inlineCss !== "boolean") {
+    throw new Error(
+      `pracht({ inlineCss }) expects a boolean, got ${JSON.stringify(resolved.inlineCss)}.`,
     );
   }
   resolved.additionalExtensions = normalizeAdditionalExtensions(resolved.additionalExtensions);

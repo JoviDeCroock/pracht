@@ -1,6 +1,7 @@
 import { h } from "preact";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { defineCapability } from "../../capabilities/src/index.ts";
 import { defineApp, group, handlePrachtRequest, resolveApp, route } from "../src/index.ts";
 import {
   _resetIslandsForTesting,
@@ -29,7 +30,20 @@ function registerTestIslands(): void {
   setIslandsClientEntryUrl("/assets/islands-client-test.js");
 }
 
+const testWebmcpCapability = defineCapability({
+  title: "Search notes",
+  description: "Find matching notes.",
+  input: { type: "object" },
+  output: { type: "object" },
+  effect: "read",
+  expose: { http: true, webmcp: true },
+  async run() {
+    return {};
+  },
+});
+
 interface RenderRouteOptions {
+  capabilities?: string[];
   Component: (props: any) => any;
   ErrorBoundary?: (props: any) => any;
   hydration?: "full" | "islands" | "none";
@@ -41,8 +55,12 @@ interface RenderRouteOptions {
 
 async function renderRoute(options: RenderRouteOptions): Promise<string> {
   const app = defineApp({
+    capabilities: options.capabilities?.length
+      ? Object.fromEntries(options.capabilities.map((name) => [name, `./capabilities/${name}.ts`]))
+      : undefined,
     routes: [
       route("/", "./routes/page.tsx", {
+        capabilities: options.capabilities,
         render: "ssr",
         ...(options.hydration ? { hydration: options.hydration } : {}),
         ...(options.speculation ? { speculation: options.speculation } : {}),
@@ -60,6 +78,14 @@ async function renderRoute(options: RenderRouteOptions): Promise<string> {
           ...(options.loader ? { loader: options.loader } : {}),
         }),
       },
+      capabilityModules: options.capabilities?.length
+        ? Object.fromEntries(
+            options.capabilities.map((name) => [
+              `./capabilities/${name}.ts`,
+              async () => ({ default: testWebmcpCapability }),
+            ]),
+          )
+        : undefined,
     },
     request: new Request("http://localhost/"),
     debugErrors: true,
@@ -161,11 +187,12 @@ describe("islands server rendering", () => {
     expect(html).toContain('<script type="speculationrules">');
   });
 
-  it("skips the bootstrap script when an islands route renders no islands", async () => {
+  it("skips the app-level WebMCP bootstrap when the route activates no tools", async () => {
     registerTestIslands();
 
     const html = await renderRoute({
       hydration: "islands",
+      islandsBootstrapRequired: true,
       Component: () => h("main", null, "no islands here"),
     });
 
@@ -177,13 +204,16 @@ describe("islands server rendering", () => {
     registerTestIslands();
 
     const html = await renderRoute({
+      capabilities: ["notes.search"],
       hydration: "islands",
       islandsBootstrapRequired: true,
       Component: () => h("main", null, "agent tools without UI islands"),
     });
 
     expect(html).not.toContain("<pracht-island");
-    expect(html).toContain('<script type="module" src="/assets/islands-client-test.js"></script>');
+    expect(html).toContain(
+      '<script type="module" src="/assets/islands-client-test.js" data-pracht-webmcp-tools="notes.search"></script>',
+    );
   });
 
   it("keeps hydration none script-free even when another projection needs the islands entry", async () => {
@@ -200,6 +230,7 @@ describe("islands server rendering", () => {
 
   it("fails closed when a required zero-island bootstrap URL is missing", async () => {
     const html = await renderRoute({
+      capabilities: ["notes.search"],
       hydration: "islands",
       islandsBootstrapRequired: true,
       Component: () => h("main", null, "agent tools"),
@@ -214,6 +245,7 @@ describe("islands server rendering", () => {
     setIslandsClientEntryUrl("/assets/global-should-not-win.js");
     const [agentHtml, staticHtml] = await Promise.all([
       renderRoute({
+        capabilities: ["notes.search"],
         hydration: "islands",
         islandsBootstrapRequired: true,
         islandsEntryUrl: "/assets/app-a-agent.js",
@@ -337,6 +369,7 @@ describe("islands server rendering", () => {
   it("keeps the bootstrap for zero-island error boundaries with a page-level projection", async () => {
     registerTestIslands();
     const html = await renderRoute({
+      capabilities: ["notes.search"],
       hydration: "islands",
       islandsBootstrapRequired: true,
       loader: () => {

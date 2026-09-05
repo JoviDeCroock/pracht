@@ -8,6 +8,7 @@ import {
   serializeAppRoutes,
   serializeCapabilities,
   servesDestructiveMcpTools,
+  withWebmcpRoutes,
 } from "@pracht/core";
 import type {
   AppGraphApiRoute,
@@ -87,13 +88,16 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
       },
       { strict: true },
     );
-    const capabilities = await serializeCapabilities(
-      serverModule.resolvedApp.capabilities,
-      {
-        loadModule: capabilityModuleLoader(server, serverModule),
-        readSource: createSourceReader(root, project.appFile),
-      },
-      { strict: true },
+    const capabilities = withWebmcpRoutes(
+      await serializeCapabilities(
+        serverModule.resolvedApp.capabilities,
+        {
+          loadModule: capabilityModuleLoader(server, serverModule),
+          readSource: createSourceReader(root, project.appFile),
+        },
+        { strict: true },
+      ),
+      resolvedRoutes,
     );
 
     return {
@@ -369,6 +373,7 @@ export interface GraphDiff {
 }
 
 const ROUTE_DIFF_FIELDS = [
+  "capabilities",
   "render",
   "hydration",
   "shell",
@@ -459,6 +464,18 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     mcpAuthChanges.length === 0 &&
     capabilityChanges.length === 0;
 
+  const widensWebmcpRoutes =
+    routeDiff.added.some((route) => (route.capabilities?.length ?? 0) > 0) ||
+    routeDiff.changed.some((route) =>
+      route.changes.some(
+        (change) =>
+          change.field === "capabilities" &&
+          ((change.to as string[] | null) ?? []).some(
+            (name) => !((change.from as string[] | null) ?? []).includes(name),
+          ),
+      ),
+    );
+
   return {
     addedApi: apiDiff.added,
     addedConstraints,
@@ -475,6 +492,7 @@ export function diffGraphSnapshots(base: GraphSnapshot, head: GraphSnapshot): Gr
     removedConstraints,
     removedRoutes: routeDiff.removed,
     widensAgentSurface:
+      widensWebmcpRoutes ||
       capabilityChanges.some((change) => change.severity === "warn") ||
       (baseMcpEndpoint === null && headMcpEndpoint !== null) ||
       (!baseMcpDestructive && headMcpDestructive) ||
@@ -955,6 +973,9 @@ function describeRoute(route: AppGraphRoute): string {
   if (route.streaming) parts.push("streaming=true");
   parts.push(`shell=${route.shell ?? "none"}`);
   parts.push(`middleware=[${route.middleware.join(", ")}]`);
+  if (route.capabilities?.length) {
+    parts.push(`capabilities=[${route.capabilities.join(", ")}]`);
+  }
   if (route.markdown) parts.push("markdown=true");
   if (route.loaderFile) parts.push(`loader=${route.loaderFile}`);
   if (route.revalidate) parts.push(`revalidate=${JSON.stringify(route.revalidate)}`);

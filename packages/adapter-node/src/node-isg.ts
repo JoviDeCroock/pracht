@@ -76,6 +76,7 @@ export async function regenerateISGPage<TContext>(
       islandsEntryUrl: options.islandsEntryUrl,
       islandsBootstrapRequired: options.islandsBootstrapRequired,
       cssManifest: options.cssManifest,
+      cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
     });
 

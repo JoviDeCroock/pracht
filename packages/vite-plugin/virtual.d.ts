@@ -243,8 +243,8 @@ declare module "virtual:pracht/capabilities" {
 }
 
 declare module "virtual:pracht/webmcp" {
-  /** Registers WebMCP page tools; returns false when the API is unavailable. */
-  export function registerPrachtWebmcpTools(): boolean;
+  /** Replaces the active route's WebMCP page tools; returns false when the API is unavailable. */
+  export function registerPrachtWebmcpTools(capabilities: readonly string[]): boolean;
 }
 
 // Preserve the ambient declaration shipped with Pracht's compatibility-level

@@ -105,6 +105,8 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
   islandsBootstrapRequired?: boolean;
   /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
+  /** Per-public-URL CSS content emitted when the vite plugin inlines route CSS. */
+  cssContentManifest?: Record<string, string>;
   /** Per-source-file JS chunk map produced by the vite plugin for modulepreload hints. */
   jsManifest?: Record<string, string[]>;
   apiRoutes?: ResolvedApiRoute[];
