@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import { defineCapability } from "../src/index.ts";
 
@@ -24,6 +24,126 @@ const baseDefinition = {
 };
 
 describe("defineCapability", () => {
+  it("derives schemas and handler types from Standard JSON Schema", async () => {
+    const input = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test",
+        types: {} as { input: { query: string }; output: { query: string } },
+        validate: (value: unknown) => {
+          const query = (value as { query: string }).query.trim();
+          return query
+            ? { value: { query } }
+            : { issues: [{ path: ["query"], message: "Required" }] };
+        },
+        jsonSchema: {
+          input: () => ({
+            $schema: "http://json-schema.org/draft-07/schema#",
+            type: "object",
+            properties: { query: { type: "string", minLength: 1 } },
+            required: ["query"],
+          }),
+          output: () => ({ type: "object" }),
+        },
+      },
+    };
+    const output = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test",
+        types: {} as { input: { notes: string[] }; output: { notes: string[] } },
+        validate: (value: unknown) => ({ value }),
+        jsonSchema: {
+          input: () => ({ type: "object" }),
+          output: () => ({
+            $schema: "http://json-schema.org/draft-07/schema#",
+            type: "object",
+            properties: { notes: { type: "array", items: { type: "string" } } },
+            required: ["notes"],
+          }),
+        },
+      },
+    };
+
+    const capability = defineCapability({
+      title: "Search notes",
+      description: "Find notes.",
+      input,
+      output,
+      effect: "read",
+      run: ({ input: value }) => {
+        expectTypeOf(value).toEqualTypeOf<{ query: string }>();
+        return { notes: [value.query] };
+      },
+    });
+
+    expect(capability.input).toEqual({
+      type: "object",
+      properties: { query: { type: "string", minLength: 1 } },
+      required: ["query"],
+    });
+    expect(capability.output).toEqual({
+      type: "object",
+      properties: { notes: { type: "array", items: { type: "string" } } },
+      required: ["notes"],
+    });
+    expectTypeOf(capability.run).returns.toEqualTypeOf<
+      { notes: string[] } | Promise<{ notes: string[] }>
+    >();
+    await expect(capability.validateInput({ query: "  roadmap  " })).resolves.toEqual({
+      ok: true,
+      value: { query: "roadmap" },
+    });
+    await expect(capability.validateInput({ query: " " })).resolves.toEqual({
+      ok: false,
+      issues: [{ path: "/query", message: "Required" }],
+    });
+  });
+
+  it("names Standard JSON Schema conversion failures", () => {
+    expect(() =>
+      defineCapability({
+        ...baseDefinition,
+        input: {
+          "~standard": {
+            version: 1 as const,
+            vendor: "test",
+            jsonSchema: {
+              input: () => {
+                throw new Error("cannot represent transform");
+              },
+              output: () => ({}),
+            },
+          },
+        },
+      }),
+    ).toThrow(/"input" Standard JSON Schema conversion failed: cannot represent transform/);
+  });
+
+  it("keeps Standard Schema transforms inside the JSON data model", async () => {
+    const nonJson = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test",
+        validate: () => ({ value: new Date(0) }),
+        jsonSchema: {
+          input: () => ({ type: "string" }),
+          output: () => ({ type: "string" }),
+        },
+      },
+    };
+    const capability = defineCapability({
+      ...baseDefinition,
+      input: nonJson,
+      run: () => ({ notes: [] }),
+    });
+
+    await expect(capability.validateInput("1970-01-01")).resolves.toEqual({
+      ok: false,
+      issues: [{ path: "", message: "must be JSON-serializable, got object" }],
+    });
+  });
+
   it("normalizes the definition and defaults middleware/expose", () => {
     const capability = defineCapability(baseDefinition);
 

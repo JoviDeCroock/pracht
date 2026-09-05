@@ -254,6 +254,17 @@ export async function POST({ request }: ApiRouteArgs) {
 
 ---
 
+## Share One Validation Contract
+
+`<Form schema>` accepts any Standard Schema for client-side feedback. Share the
+same object with `defineApi({ body })` so the server remains authoritative. If
+that validator also implements Standard JSON Schema (Zod 4 does), it can be the
+`input` of a Pracht capability too: the form, API route, and agent tool then use
+one validation contract, while Pracht emits only derived JSON Schema to
+WebMCP. See [Capabilities](/docs/capabilities#define-the-contract).
+
+---
+
 ## File Uploads
 
 <!-- snippet: partial -->

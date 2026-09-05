@@ -201,6 +201,7 @@ export type {
   CapabilityIssue,
   CapabilityModule,
   CapabilityRunArgs,
+  CapabilityValidation,
   CapabilityValidationResult,
   PrachtCapability,
   PrachtContextExtensions,

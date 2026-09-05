@@ -7,14 +7,18 @@
  * capability sources — the same approach the plugin already uses for
  * hydration-mode excludes. Only serializable metadata crosses the boundary:
  * capability names, HTTP endpoints, effects, and (for WebMCP tools)
- * description and input schema.
+ * description and input schema. Inline JSON Schema remains a zero-execution
+ * fast path; imported Standard JSON Schemas are resolved by loading the
+ * server-only capability module during WebMCP code generation and serializing
+ * only the converted schema.
  *
  * The static analyzer itself lives in `@pracht/capabilities/static` and is
  * shared with `pracht verify`, so the build and verification can never
- * disagree about what is analyzable. Constraint it imposes: a capability's
- * `expose`, HTTP-projected `effect`, and WebMCP `input` values must be inline
- * literals (no imported constants or spreads) — the extractor parses the
- * literal text as data.
+ * disagree about what is analyzable. A capability's `expose` and
+ * HTTP-projected `effect` stay inline literals because they decide which
+ * client endpoints exist. WebMCP `input` may instead be a Standard JSON
+ * Schema: codegen resolves it through the server module without putting the
+ * validator or capability implementation in the client graph.
  * Extraction failures fail the build with a pointer to the offending file
  * rather than silently dropping an endpoint.
  */
@@ -22,6 +26,7 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
+import { runnerImport, type InlineConfig } from "vite";
 import {
   CAPABILITY_SETTLED_EVENT,
   CAPABILITY_TRANSPORT_HEADER,
@@ -94,6 +99,7 @@ export interface ExtractedCapability {
   httpPath: string | null;
   webmcp: boolean;
   webmcpUntrustedContent: boolean;
+  /** Inline input schema, or `null` when WebMCP codegen loads the server module to derive it. */
   inputSchema: Record<string, unknown> | null;
 }
 
@@ -487,11 +493,95 @@ export function createPrachtWebmcpModuleSource(
   const capabilities = extractCapabilities(options, buildOptions.root).filter(
     (capability) => capability.webmcp,
   );
+  const unresolved = capabilities.find((capability) => !capability.inputSchema);
+  if (unresolved) {
+    throw new Error(
+      `[pracht] Capability ${JSON.stringify(unresolved.name)} (${unresolved.file}) uses a ` +
+        "non-literal WebMCP input schema. Vite resolves it from the server module during normal " +
+        "codegen; callers of createPrachtWebmcpModuleSource() must supply inline JSON Schema.",
+    );
+  }
+  return buildPrachtWebmcpModuleSource(capabilities.map(webmcpTool));
+}
 
-  const tools = capabilities.map((capability) => ({
+export async function createPrachtWebmcpModuleSourceAsync(
+  options: PrachtPluginOptions = {},
+  buildOptions: {
+    root?: string;
+    loadCapability?: (file: string) => Promise<unknown>;
+    runnerConfig?: InlineConfig;
+  } = {},
+): Promise<string> {
+  const capabilities = extractCapabilities(options, buildOptions.root).filter(
+    (capability) => capability.webmcp,
+  );
+
+  const root = buildOptions.root ?? process.cwd();
+  const resolved = resolveOptions(options);
+  const appDir = appManifestDir(resolved, root);
+  const loadCapability =
+    buildOptions.loadCapability ??
+    (async (file: string): Promise<unknown> => {
+      const loaded = await runnerImport<Record<string, unknown>>(file, {
+        ...buildOptions.runnerConfig,
+        root,
+        logLevel: "silent",
+      });
+      return loaded.module.default;
+    });
+
+  const tools = await Promise.all(
+    capabilities.map(async (capability) => {
+      let title = capability.title;
+      let description = capability.description;
+      let inputSchema = capability.inputSchema;
+
+      if (!inputSchema) {
+        const file = capability.file.startsWith("/")
+          ? resolve(root, capability.file.replace(/^\//, ""))
+          : resolve(appDir, capability.file);
+        let loaded: unknown;
+        try {
+          loaded = await loadCapability(file);
+        } catch (error) {
+          throw new Error(
+            `[pracht] Capability ${JSON.stringify(capability.name)} (${capability.file}) uses a ` +
+              "non-literal WebMCP input schema, but its server module could not be loaded to " +
+              `derive that schema: ${error instanceof Error ? error.message : String(error)}. ` +
+              "Keep the input as inline JSON Schema, or make the schema module loadable in the " +
+              "Node build environment.",
+          );
+        }
+        if (!loaded || typeof loaded !== "object" || Array.isArray(loaded)) {
+          throw new Error(
+            `[pracht] Capability ${JSON.stringify(capability.name)} (${capability.file}) did not ` +
+              "default-export a capability object while deriving its WebMCP input schema.",
+          );
+        }
+        const runtime = loaded as Record<string, unknown>;
+        if (!runtime.input || typeof runtime.input !== "object" || Array.isArray(runtime.input)) {
+          throw new Error(
+            `[pracht] Capability ${JSON.stringify(capability.name)} (${capability.file}) did not ` +
+              "resolve its WebMCP input to a JSON Schema object.",
+          );
+        }
+        inputSchema = runtime.input as Record<string, unknown>;
+        if (typeof runtime.title === "string") title = runtime.title;
+        if (typeof runtime.description === "string") description = runtime.description;
+      }
+
+      return webmcpTool({ ...capability, title, description, inputSchema });
+    }),
+  );
+
+  return buildPrachtWebmcpModuleSource(tools);
+}
+
+function webmcpTool(capability: ExtractedCapability): Record<string, unknown> {
+  return {
     name: capability.name,
     // The spec's optional `title` feeds host UI (e.g. ChatGPT's "Site tools"
-    // list). Omitted when not statically extractable rather than guessed.
+    // list). Omitted when unavailable rather than guessed.
     ...(capability.title ? { title: capability.title } : {}),
     description: capability.description,
     inputSchema: capability.inputSchema,
@@ -499,8 +589,10 @@ export function createPrachtWebmcpModuleSource(
     // effect class. (destructive never reaches WebMCP.)
     ...(capability.effect ? { effect: capability.effect } : {}),
     ...(capability.webmcpUntrustedContent ? { untrustedContent: true } : {}),
-  }));
+  };
+}
 
+function buildPrachtWebmcpModuleSource(tools: Record<string, unknown>[]): string {
   return [
     "// Generated by @pracht/vite-plugin — WebMCP page-tool registration shim.",
     `import { registerWebmcpTools } from ${JSON.stringify(resolveWebmcpRegistrarSpecifier())};`,

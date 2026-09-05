@@ -34,6 +34,7 @@ import {
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
+  createPrachtWebmcpModuleSourceAsync,
   hasAgentSurface,
   hasWebmcpCapabilities,
   resolveCapabilityModulePaths,
@@ -104,6 +105,7 @@ export {
 export {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
+  createPrachtWebmcpModuleSourceAsync,
   extractCapabilities,
 } from "./plugin-capabilities.ts";
 export {
@@ -138,6 +140,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     resolved.additionalExtensions,
   );
   let capabilityModulePaths = new Set<string>();
+  let capabilityRunnerConfig: UserConfig = {};
   let usesEjectedPagesLayout = false;
 
   if (isPagesMode && options.appFile) {
@@ -340,6 +343,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
       usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
+      // Non-literal WebMCP schemas are evaluated in a short-lived server
+      // module runner. Preserve app aliases without reloading the Vite config
+      // (which would recursively instantiate this plugin).
+      capabilityRunnerConfig = {
+        resolve: {
+          alias: config.resolve?.alias,
+        },
+      };
     },
 
     resolveId(id, importer, resolveIdOptions) {
@@ -395,7 +406,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtCapabilitiesClientModuleSource(resolved, { root });
       }
       if (isWebmcpModule(id)) {
-        return createPrachtWebmcpModuleSource(resolved, { root });
+        return createPrachtWebmcpModuleSourceAsync(resolved, {
+          root,
+          runnerConfig: capabilityRunnerConfig,
+        });
       }
       return null;
     },

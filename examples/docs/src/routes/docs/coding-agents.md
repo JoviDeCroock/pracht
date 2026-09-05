@@ -101,7 +101,7 @@ Every tool accepts an optional `cwd` (absolute path to the app root). When omitt
 | `generate_api` | `cwd?`, `path`, `methods?` (defaults to `["GET"]`) |
 | `generate_capability` | `cwd?`, `name`, `effect?`, `expose?`, `title?`, `description?` — manifest apps only |
 
-Each returns the files created and updated as `{ kind, created, updated }`. `generate_route` emits a Playwright smoke test in `e2e/` when the app has a Playwright setup, which `test` overrides either way. `generate_capability` keeps `expose`, `effect`, and `input` as inline literals because the browser projection's static analysis requires it — edit the schemas and the `run()` body afterwards, not the shape.
+Each returns the files created and updated as `{ kind, created, updated }`. `generate_route` emits a Playwright smoke test in `e2e/` when the app has a Playwright setup, which `test` overrides either way. `generate_capability` starts with dependency-free inline JSON Schema. You may replace `input` and `output` with imported Standard JSON Schema validators (including a Zod 4 schema shared with `defineApi()` or `<Form schema>`); keep `expose` and `effect` inline because those still define the browser endpoint table statically.
 
 ### Error Handling
 

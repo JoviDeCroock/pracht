@@ -135,6 +135,68 @@ describe("createCapabilityHost HTTP dispatch", () => {
     expect(envelope.error.code).toBe("invalid_input");
   });
 
+  it("awaits Standard Schema input and output validation and keeps their transforms", async () => {
+    const inputSchema = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test",
+        async validate(value: unknown) {
+          await Promise.resolve();
+          const query = (value as { query: string }).query.trim();
+          return query
+            ? { value: { query } }
+            : { issues: [{ path: ["query"], message: "Required" }] };
+        },
+        jsonSchema: {
+          input: () => ({
+            type: "object",
+            properties: { query: { type: "string", minLength: 1 } },
+            required: ["query"],
+          }),
+          output: () => ({ type: "object" }),
+        },
+      },
+    };
+    const outputSchema = {
+      "~standard": {
+        version: 1 as const,
+        vendor: "test",
+        async validate(value: unknown) {
+          await Promise.resolve();
+          return { value: { query: (value as { query: string }).query.toUpperCase() } };
+        },
+        jsonSchema: {
+          input: () => ({ type: "object" }),
+          output: () => ({
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+          }),
+        },
+      },
+    };
+    const capability = defineCapability({
+      title: "Search notes",
+      description: "Find notes.",
+      input: inputSchema,
+      output: outputSchema,
+      effect: "read",
+      expose: { http: true },
+      run: ({ input }) => input,
+    });
+    const host = createCapabilityHost({ capabilities: { "notes.search": capability } });
+
+    const response = await host.fetch(
+      post("/api/capabilities/notes/search", { query: "  roadmap  " }),
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toEqual({
+      ok: true,
+      data: { query: "ROADMAP" },
+    });
+  });
+
   it("rejects cross-origin browser posts by default", async () => {
     const host = createCapabilityHost({
       capabilities: { "notes.search": searchCapability() },

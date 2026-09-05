@@ -6,10 +6,10 @@
  * verification, and type generation can never disagree about what is
  * statically analyzable.
  *
- * Constraint this imposes on capability authors: values the tools need
- * (`expose`, `effect`, `input`, string fields) must be inline literals — no
- * imported constants or spreads. `evaluateLiteral()` parses the literal text
- * as data and returns `undefined` for anything else.
+ * Exposure and HTTP effect metadata must be inline because they decide which
+ * browser endpoints exist. Other opaque values remain `undefined`/`null` for
+ * callers to report or resolve from the server-only module; `evaluateLiteral()`
+ * never executes them.
  */
 
 import {
@@ -33,6 +33,7 @@ export interface CapabilityProjection {
   webmcp: boolean;
   /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is `false`. */
   webmcpUntrustedContent: boolean;
+  /** Inline input schema, or `null` when a server-module pass must derive it. */
   inputSchema: Record<string, unknown> | null;
   /**
    * Remote MCP exposure. Not part of the browser projection — the client
@@ -575,15 +576,11 @@ export function extractCapabilityProjection(
   if (webmcp) {
     const inputText = properties.get("input");
     const value = inputText ? evaluateLiteral(inputText) : undefined;
-    if (!isPlainObject(value)) {
-      throw new Error(
-        describe(
-          'is exposed via WebMCP, but its "input" schema could not be extracted at build time. ' +
-            "WebMCP-exposed capabilities must declare their input schema as an inline object literal.",
-        ),
-      );
-    }
-    inputSchema = value;
+    // Imported and builder-produced schemas are resolved by the Vite plugin
+    // from the server-only capability module. Keep this pass non-executing:
+    // callers that cannot load the module receive null and can report the
+    // same conservative unknown state they use for other opaque metadata.
+    if (isPlainObject(value)) inputSchema = value;
   }
 
   return {

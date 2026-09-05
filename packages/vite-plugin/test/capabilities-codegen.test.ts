@@ -7,6 +7,7 @@ import type { CapabilityErrorPayload } from "virtual:pracht/capabilities";
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
+  createPrachtWebmcpModuleSourceAsync,
   extractCapabilities,
 } from "../src/plugin-capabilities.ts";
 import {
@@ -182,7 +183,7 @@ describe("extractCapabilities", () => {
     expect(extractCapabilities({}, root)).toEqual([]);
   });
 
-  it("fails loudly when a webmcp capability schema is not an inline literal", () => {
+  it("defers a non-literal WebMCP schema without executing it", () => {
     const root = createFixture({
       capabilities: {
         "notes-search.ts": SEARCH_CAPABILITY.replace(
@@ -192,7 +193,9 @@ describe("extractCapabilities", () => {
       },
     });
 
-    expect(() => extractCapabilities({}, root)).toThrow(/inline object literal/);
+    expect(
+      extractCapabilities({}, root).find((entry) => entry.name === "notes.search"),
+    ).toMatchObject({ inputSchema: null, webmcp: true });
   });
 
   it("fails when an HTTP capability effect is not an inline literal", () => {
@@ -232,7 +235,9 @@ describe("extractCapabilities", () => {
     });
 
     try {
-      expect(() => extractCapabilities({}, root)).toThrow(/inline object literal/);
+      expect(
+        extractCapabilities({}, root).find((entry) => entry.name === "notes.search"),
+      ).toMatchObject({ inputSchema: null });
       expect((globalThis as Record<string, unknown>)[marker]).toBeUndefined();
     } finally {
       delete (globalThis as Record<string, unknown>)[marker];
@@ -563,7 +568,7 @@ describe("createPrachtCapabilitiesClientModuleSource", () => {
 });
 
 describe("createPrachtWebmcpModuleSource", () => {
-  it("registers one tool per webmcp capability with its input schema", () => {
+  it("registers one tool per webmcp capability with its input schema", async () => {
     const root = createFixture({
       capabilities: {
         "notes-search.ts": SEARCH_CAPABILITY,
@@ -603,7 +608,76 @@ describe("createPrachtWebmcpModuleSource", () => {
     expect(source).not.toContain("content:");
   });
 
-  it("advertises untrustedContentHint for expose.webmcp.untrustedContent", () => {
+  it("derives a non-literal schema from the server-only capability module", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY.replace(
+          /input: \{[\s\S]*?\n  \},/,
+          "input: sharedSchema,",
+        ),
+      },
+    });
+
+    const loadedFiles: string[] = [];
+    const source = await createPrachtWebmcpModuleSourceAsync(
+      {},
+      {
+        root,
+        loadCapability: async (file) => {
+          loadedFiles.push(file);
+          return {
+            kind: "capability",
+            title: "Search notes",
+            description: "Find notes from a shared validator.",
+            input: {
+              type: "object",
+              properties: { query: { type: "string", minLength: 1 } },
+              required: ["query"],
+            },
+          };
+        },
+      },
+    );
+
+    expect(loadedFiles).toEqual([join(root, "src/capabilities/notes-search.ts")]);
+    expect(source).toContain('"description":"Find notes from a shared validator."');
+    expect(source).toContain(
+      '"inputSchema":{"type":"object","properties":{"query":{"type":"string","minLength":1}},"required":["query"]}',
+    );
+  });
+
+  it("loads a portable server module to derive its non-literal schema", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": `
+          const sharedSchema = {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+          };
+          function defineCapability(definition) { return definition; }
+          export default defineCapability({
+            title: "Search notes",
+            description: "Loaded from the server module.",
+            input: sharedSchema,
+            output: { type: "object" },
+            effect: "read",
+            expose: { http: true, webmcp: true },
+            run() { return {}; },
+          });
+        `,
+      },
+    });
+
+    const source = await createPrachtWebmcpModuleSourceAsync({}, { root });
+
+    expect(source).toContain('"description":"Loaded from the server module."');
+    expect(source).toContain(
+      '"inputSchema":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}',
+    );
+  });
+
+  it("advertises untrustedContentHint for expose.webmcp.untrustedContent", async () => {
     const root = createFixture({
       capabilities: {
         "notes-search.ts": SEARCH_CAPABILITY.replace(

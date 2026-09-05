@@ -1,3 +1,5 @@
+import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
+
 import {
   isValidCapabilityHttpPath,
   isValidCapabilityName,
@@ -109,10 +111,10 @@ export interface CapabilityDefinition<
   name?: string;
   title: string;
   description: string;
-  /** JSON Schema (supported subset) for the capability input. */
-  input: JsonSchema;
-  /** JSON Schema (supported subset) for the capability output. */
-  output: JsonSchema;
+  /** JSON Schema (supported subset), or a Standard JSON Schema, for the capability input. */
+  input: JsonSchema | StandardJSONSchemaV1<unknown, TInput>;
+  /** JSON Schema (supported subset), or a Standard JSON Schema, for the capability output. */
+  output: JsonSchema | StandardJSONSchemaV1<unknown, TOutput>;
   effect: CapabilityEffect;
   /** Named middleware from the app manifest, run before the handler. */
   middleware?: string[];
@@ -126,6 +128,10 @@ export interface CapabilityDefinition<
 export type CapabilityValidationResult<T = unknown> =
   | { ok: true; value: T }
   | { ok: false; issues: CapabilityIssue[] };
+
+export type CapabilityValidation<T = unknown> =
+  | CapabilityValidationResult<T>
+  | Promise<CapabilityValidationResult<T>>;
 
 /**
  * The object `defineCapability()` returns. The validation methods are
@@ -144,8 +150,8 @@ export interface Capability<TInput = unknown, TOutput = unknown, TContext = Capa
   agentPolicy?: CapabilityAgentPolicy;
   run: (args: CapabilityRunArgs<TInput, TContext>) => TOutput | Promise<TOutput>;
   /** Apply input defaults and validate. Returns the defaulted value on success. */
-  validateInput: (value: unknown) => CapabilityValidationResult<TInput>;
-  validateOutput: (value: unknown) => CapabilityValidationResult<TOutput>;
+  validateInput: (value: unknown) => CapabilityValidation<TInput>;
+  validateOutput: (value: unknown) => CapabilityValidation<TOutput>;
 }
 
 /** Result/error envelope shared by HTTP, WebMCP, and direct server invocation. */
@@ -205,7 +211,15 @@ export const MCP_SCHEMA_ROOT_ERROR =
 export function defineCapability<TInput = unknown, TOutput = unknown, TContext = CapabilityContext>(
   definition: CapabilityDefinition<TInput, TOutput, TContext>,
 ): Capability<TInput, TOutput, TContext> {
-  assertDefinition(definition);
+  const schemas = resolveDefinitionSchemas(definition);
+  const inputValidator = standardSchemaValidator(definition.input);
+  const outputValidator = standardSchemaValidator(definition.output);
+  const resolvedDefinition = {
+    ...definition,
+    input: schemas.input,
+    output: schemas.output,
+  };
+  assertDefinition(resolvedDefinition);
 
   const expose = normalizeExposure(definition.expose);
 
@@ -218,7 +232,7 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
         "WebMCP page tools dispatch through the HTTP projection so all enforcement stays server-side.",
     );
   }
-  if (expose?.mcp && (definition.input.type !== "object" || definition.output.type !== "object")) {
+  if (expose?.mcp && (schemas.input.type !== "object" || schemas.output.type !== "object")) {
     throw new Error(`defineCapability("${definition.title}"): ${MCP_SCHEMA_ROOT_ERROR}.`);
   }
 
@@ -226,25 +240,131 @@ export function defineCapability<TInput = unknown, TOutput = unknown, TContext =
     kind: "capability",
     title: definition.title,
     description: definition.description,
-    input: definition.input,
-    output: definition.output,
+    input: schemas.input,
+    output: schemas.output,
     effect: definition.effect,
     middleware: definition.middleware ?? [],
     expose,
     agentPolicy: definition.agentPolicy,
     run: definition.run,
-    validateInput(value: unknown): CapabilityValidationResult<TInput> {
-      const withDefaults = applySchemaDefaults(definition.input, value === undefined ? {} : value);
-      const issues = validateAgainstSchema(definition.input, withDefaults);
+    validateInput(value: unknown): CapabilityValidation<TInput> {
+      const withDefaults = applySchemaDefaults(schemas.input, value === undefined ? {} : value);
+      if (inputValidator) return validateWithStandardSchema(inputValidator, withDefaults);
+      const issues = validateAgainstSchema(schemas.input, withDefaults);
       if (issues.length > 0) return { ok: false, issues };
       return { ok: true, value: withDefaults as TInput };
     },
-    validateOutput(value: unknown): CapabilityValidationResult<TOutput> {
-      const issues = validateAgainstSchema(definition.output, value);
+    validateOutput(value: unknown): CapabilityValidation<TOutput> {
+      if (outputValidator) return validateWithStandardSchema(outputValidator, value);
+      const issues = validateAgainstSchema(schemas.output, value);
       if (issues.length > 0) return { ok: false, issues };
       return { ok: true, value: value as TOutput };
     },
   };
+}
+
+function standardSchemaValidator(
+  schema: JsonSchema | StandardJSONSchemaV1,
+): StandardSchemaV1["~standard"]["validate"] | null {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return null;
+  const standard = (schema as { "~standard"?: unknown })["~standard"];
+  if (!standard || typeof standard !== "object" || Array.isArray(standard)) return null;
+  const validate = (standard as { validate?: unknown }).validate;
+  return typeof validate === "function"
+    ? (validate.bind(standard) as StandardSchemaV1["~standard"]["validate"])
+    : null;
+}
+
+async function validateWithStandardSchema<T>(
+  validate: StandardSchemaV1["~standard"]["validate"],
+  value: unknown,
+): Promise<CapabilityValidationResult<T>> {
+  const result = await validate(value);
+  if (!result.issues) {
+    // A Standard Schema may transform JSON input into a JavaScript-only value
+    // (Date, bigint, class instance, undefined). Capability boundaries remain
+    // JSON-only regardless of the validator, so keep the invariant after the
+    // transform as well as on the advertised wire schema.
+    const jsonIssues = validateAgainstSchema({}, result.value);
+    if (jsonIssues.length > 0) return { ok: false, issues: jsonIssues };
+    return { ok: true, value: result.value as T };
+  }
+  return {
+    ok: false,
+    issues: result.issues.map((issue) => ({
+      path: standardIssuePath(issue.path),
+      message: issue.message,
+    })),
+  };
+}
+
+function standardIssuePath(path: StandardSchemaV1.Issue["path"]): string {
+  if (!path) return "";
+  return path
+    .map((segment) => (typeof segment === "object" && segment !== null ? segment.key : segment))
+    .map((segment) => String(segment).replaceAll("~", "~0").replaceAll("/", "~1"))
+    .map((segment) => `/${segment}`)
+    .join("");
+}
+
+function resolveDefinitionSchemas<TInput, TOutput, TContext>(
+  definition: CapabilityDefinition<TInput, TOutput, TContext>,
+): { input: JsonSchema; output: JsonSchema } {
+  const label = typeof definition?.title === "string" ? definition.title : "<untitled>";
+  return {
+    input: resolveDefinitionSchema(definition?.input, "input", "input", label),
+    output: resolveDefinitionSchema(definition?.output, "output", "output", label),
+  };
+}
+
+function resolveDefinitionSchema(
+  schema: JsonSchema | StandardJSONSchemaV1 | undefined,
+  field: "input" | "output",
+  direction: "input" | "output",
+  label: string,
+): JsonSchema {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return schema as JsonSchema;
+  }
+
+  const standard = (schema as { "~standard"?: unknown })["~standard"];
+  if (!standard || typeof standard !== "object" || Array.isArray(standard)) {
+    return schema as JsonSchema;
+  }
+  const jsonSchema = (standard as { jsonSchema?: unknown }).jsonSchema;
+  if (!jsonSchema || typeof jsonSchema !== "object" || Array.isArray(jsonSchema)) {
+    throw new Error(
+      `defineCapability("${label}"): "${field}" implements Standard Schema but not Standard JSON Schema. ` +
+        "Use a validator with Standard JSON Schema support or pass a plain JSON Schema object.",
+    );
+  }
+  const convert = (jsonSchema as Record<string, unknown>)[direction];
+  if (typeof convert !== "function") {
+    throw new Error(
+      `defineCapability("${label}"): "${field}" Standard JSON Schema is missing its ${direction} converter.`,
+    );
+  }
+
+  let converted: unknown;
+  try {
+    converted = convert.call(jsonSchema, { target: "draft-07" });
+  } catch (error) {
+    throw new Error(
+      `defineCapability("${label}"): "${field}" Standard JSON Schema conversion failed: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
+  if (!converted || typeof converted !== "object" || Array.isArray(converted)) {
+    throw new Error(
+      `defineCapability("${label}"): "${field}" Standard JSON Schema converter did not return a schema object.`,
+    );
+  }
+
+  // Draft converters commonly include this root declaration. Pracht already
+  // chooses the requested draft and validates a deliberate keyword subset, so
+  // retaining it would make an otherwise compatible schema look unsupported.
+  const portable = { ...(converted as Record<string, unknown>) };
+  delete portable.$schema;
+  return portable;
 }
 
 function assertDefinition(definition: CapabilityDefinition<never, unknown, never>): void {
