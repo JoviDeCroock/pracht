@@ -87,6 +87,7 @@ export const app = defineApp({
       // per request.
       route("/playground", () => import("./routes/playground.tsx"), {
         id: "playground",
+        capabilities: ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
         render: "ssr",
       }),
       route("/blog/:slug", () => import("./routes/blog-post.tsx"), {
@@ -103,29 +104,36 @@ export const app = defineApp({
     ]),
 
     // Authenticated app — personalized, interactive
-    group({ shell: "app", middleware: ["auth"] }, [
-      route("/app", () => import("./routes/dashboard.tsx"), {
-        id: "dashboard",
-        render: "ssr",
-      }),
-      route("/app/projects/:projectId", () => import("./routes/project.tsx"), {
-        id: "project",
-        render: "ssr",
-      }),
-      route("/app/approvals", () => import("./routes/approvals.tsx"), {
-        id: "approvals",
-        render: "ssr",
-      }),
-      route("/app/audit", () => import("./routes/audit.tsx"), {
-        id: "audit",
-        render: "ssr",
-      }),
+    group(
+      {
+        shell: "app",
+        middleware: ["auth"],
+        capabilities: ["projects.search", "projects.create", "projects.deploy", "agent.whoami"],
+      },
+      [
+        route("/app", () => import("./routes/dashboard.tsx"), {
+          id: "dashboard",
+          render: "ssr",
+        }),
+        route("/app/projects/:projectId", () => import("./routes/project.tsx"), {
+          id: "project",
+          render: "ssr",
+        }),
+        route("/app/approvals", () => import("./routes/approvals.tsx"), {
+          id: "approvals",
+          render: "ssr",
+        }),
+        route("/app/audit", () => import("./routes/audit.tsx"), {
+          id: "audit",
+          render: "ssr",
+        }),
 
-      // Settings is pure client UI — no SEO, no server rendering needed
-      route("/app/settings", () => import("./routes/settings.tsx"), {
-        id: "settings",
-        render: "spa",
-      }),
-    ]),
+        // Settings is pure client UI — no SEO, no server rendering needed
+        route("/app/settings", () => import("./routes/settings.tsx"), {
+          id: "settings",
+          render: "spa",
+        }),
+      ],
+    ),
   ],
 });

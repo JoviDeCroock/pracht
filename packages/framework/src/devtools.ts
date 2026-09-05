@@ -87,6 +87,7 @@ export function buildDevtoolsHtml(
         <td>${escapeHtml(route.render ?? "ssr")}</td>
         <td>${escapeHtml(route.shell ?? "—")}</td>
         <td>${escapeHtml(route.middleware.length > 0 ? route.middleware.join(" → ") : "—")}</td>
+        <td>${escapeHtml(route.capabilities?.length ? route.capabilities.join(", ") : "—")}</td>
         <td class="file">${escapeHtml(route.file)}</td>
       </tr>`,
     )
@@ -98,6 +99,7 @@ export function buildDevtoolsHtml(
         <td>404</td>
         <td>${escapeHtml(graph.notFound.shell ?? "—")}</td>
         <td>${escapeHtml(graph.notFound.middleware.length > 0 ? graph.notFound.middleware.join(" → ") : "—")}</td>
+        <td>—</td>
         <td class="file">${escapeHtml(graph.notFound.file)}</td>
       </tr>`
     : "";
@@ -131,6 +133,7 @@ export function buildDevtoolsHtml(
         <td>${escapeHtml(transports.length > 0 ? transports.join(", ") : "private")}</td>
         <td>${escapeHtml(capability.httpPath ?? "—")}</td>
         <td>${escapeHtml(capability.middleware.length > 0 ? capability.middleware.join(" → ") : "—")}</td>
+        <td>${escapeHtml(capability.webmcpRoutes?.length ? capability.webmcpRoutes.join(", ") : "—")}</td>
         <td class="file">${escapeHtml(capability.source)}</td>
       </tr>`;
     })
@@ -149,7 +152,7 @@ export function buildDevtoolsHtml(
         : ""
     }
     <table>
-      <thead><tr><th>Name</th><th>Effect</th><th>Transports</th><th>HTTP path</th><th>Middleware</th><th>Source</th></tr></thead>
+      <thead><tr><th>Name</th><th>Effect</th><th>Transports</th><th>HTTP path</th><th>Middleware</th><th>WebMCP routes</th><th>Source</th></tr></thead>
       <tbody>
 ${capabilityRows}
       </tbody>
@@ -369,7 +372,7 @@ ${apiRows}
     </div>
     <h2>Page routes</h2>
     <table>
-      <thead><tr><th>Route</th><th>Render</th><th>Shell</th><th>Middleware</th><th>Source</th></tr></thead>
+      <thead><tr><th>Route</th><th>Render</th><th>Shell</th><th>Middleware</th><th>WebMCP tools</th><th>Source</th></tr></thead>
       <tbody>
 ${routeRows}
 ${notFoundRow}

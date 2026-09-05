@@ -204,8 +204,8 @@ export const app = defineApp({
 
 /**
  * `agents: true` additionally configures the app-level agent surface (Web Bot
- * Auth, confirmation, remote MCP, llms.txt) and widens `notes.search` onto
- * every transport. Off by default so the typegen fixtures it is shared with
+ * Auth, confirmation, remote MCP, llms.txt), widens `notes.search` onto every
+ * transport, and activates its WebMCP tool on the home route. Off by default so the typegen fixtures it is shared with
  * keep producing byte-identical output.
  */
 export function writeTypedManifestApp(
@@ -285,7 +285,9 @@ ${
 `
         : ""
     }  routes: [
-    route("/", "./routes/home.tsx", { id: "home", render: "ssg" }),
+    route("/", "./routes/home.tsx", { id: "home", render: "ssg"${
+      agents && capabilities ? ', capabilities: ["notes.search"]' : ""
+    } }),
     route("/products/:id", "./routes/product.tsx", { id: "product", render: "ssr" }),
     route("/dashboard", {
       component: "./routes/dashboard.tsx",

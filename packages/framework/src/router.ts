@@ -105,6 +105,7 @@ const BLOCKER_ENABLED =
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
+  capabilities: readonly string[];
   componentProps: Record<string, unknown>;
   data: unknown;
   params: RouteParams;
@@ -195,10 +196,12 @@ export interface InitClientRouterOptions {
   initialState: PrachtHydrationState;
   root: HTMLElement;
   findModuleKey: (modules: ModuleMap, file: string) => string | null;
+  /** @internal Synchronize page-scoped projections after a route commits. */
+  onRouteChange?: (capabilities: readonly string[]) => void;
 }
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
-  const { app, routeModules, shellModules, root, findModuleKey } = options;
+  const { app, routeModules, shellModules, root, findModuleKey, onRouteChange } = options;
 
   if (import.meta.env?.DEV) {
     installHydrationMismatchWarning();
@@ -456,15 +459,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     updateRouteState = setRouteState;
     const navigateValue = useMemo(() => navigate, []);
 
-    const { Shell, Component, componentProps, data, params, routeId, url, version } = routeState;
+    const { Shell, Component, capabilities, componentProps, data, params, routeId, url, version } =
+      routeState;
     activeRouteStateVersion = version;
 
     useLayoutEffect(() => {
+      onRouteChange?.(capabilities);
       if (!afterCommitCallback) return;
       const callback = afterCommitCallback;
       afterCommitCallback = null;
       callback();
-    }, [version]);
+    }, [capabilities, version]);
     const routeElement = h(RouteComponent, { Component, componentProps });
     const componentTree = Shell
       ? h(Shell as FunctionComponent<Record<string, unknown>>, null, routeElement)
@@ -529,6 +534,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component,
+      capabilities: match.route.capabilities ?? [],
       componentProps,
       data: state.data,
       params: match.params,
@@ -554,6 +560,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component: Loading ?? (() => null),
+      capabilities: match.route.capabilities ?? [],
       componentProps: {},
       data: undefined,
       params: match.params,

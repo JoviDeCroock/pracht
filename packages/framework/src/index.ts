@@ -97,6 +97,7 @@ export {
   serializeAppRoutes,
   serializeCapabilities,
   servesDestructiveMcpTools,
+  withWebmcpRoutes,
 } from "./app-graph.ts";
 export type {
   ApiRouteExports,

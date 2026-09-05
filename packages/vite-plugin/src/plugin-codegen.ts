@@ -154,6 +154,7 @@ export function createPrachtClientModuleSource(
   const routeLoaderHints = routeHints.loader;
   const routeHeadHints = routeHints.head;
   const routeStaticPathsHints = routeHints.staticPaths;
+  const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root, "client")
@@ -300,6 +301,7 @@ export function createPrachtClientModuleSource(
     "  return null;",
     "}",
     "",
+    ...(webmcpEnabled ? createWebmcpBootstrapSource() : []),
     "const state = readHydrationState();",
     'const root = document.getElementById("pracht-root");',
     "if (state && root) {",
@@ -310,6 +312,7 @@ export function createPrachtClientModuleSource(
     "    initialState: state,",
     "    root,",
     "    findModuleKey,",
+    ...(webmcpEnabled ? ["    onRouteChange: syncPrachtWebmcpTools,"] : []),
     "  });",
     "}",
     "",
@@ -325,9 +328,6 @@ export function createPrachtClientModuleSource(
     "  import.meta.hot.on(DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData);",
     "}",
     "",
-    // WebMCP page-tool registration — only emitted when at least one
-    // capability opts in, so apps without WebMCP exposure ship zero extra bytes.
-    ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
   ].join("\n");
 }
 
@@ -510,6 +510,7 @@ export function createPrachtIslandsClientModuleSource(
 ): string {
   const resolved = resolveOptions(options);
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
+  const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
 
   return [
     'import { hydrateIslands } from "@pracht/core/islands-client";',
@@ -520,7 +521,15 @@ export function createPrachtIslandsClientModuleSource(
     "",
     // Islands pages skip the full client runtime, so the bootstrap pulls in
     // the WebMCP shim itself when a capability opts in.
-    ...(hasWebmcpCapabilities(resolved, buildOptions.root) ? createWebmcpBootstrapSource() : []),
+    ...(webmcpEnabled
+      ? [
+          ...createWebmcpBootstrapSource(),
+          'const webmcpEntry = document.querySelector("script[data-pracht-webmcp-tools]");',
+          'const webmcpCapabilities = webmcpEntry?.getAttribute("data-pracht-webmcp-tools")?.split(",").filter(Boolean) ?? [];',
+          "syncPrachtWebmcpTools(webmcpCapabilities);",
+          "",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -773,6 +782,7 @@ export function createRouteHintsForVirtualModules(
       ];
 
   const hints: RouteHints = {
+    capabilities: {},
     head: {},
     headers: {},
     incomplete: false,

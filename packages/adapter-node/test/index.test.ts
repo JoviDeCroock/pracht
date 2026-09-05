@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { once } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { defineCapability } from "../../capabilities/src/index.ts";
 import {
   defineApp,
   resolveApiRoutes,
@@ -467,11 +468,13 @@ describe("createNodeRequestHandler", () => {
 
     const createContextCalls: string[] = [];
     const app = defineApp({
+      capabilities: { "notes.search": "./capabilities/notes-search.ts" },
       routes: [
         route("/isg", "./routes/isg.tsx", {
           render: "isg",
           revalidate: timeRevalidate(1),
           hydration: "islands",
+          capabilities: ["notes.search"],
         }),
       ],
     });
@@ -496,6 +499,21 @@ describe("createNodeRequestHandler", () => {
             Component: ({ data }) => `<main>${(data as { tenant: string }).tenant}</main>`,
             loader: async ({ context }) => ({
               tenant: (context as { tenant?: string }).tenant ?? "missing",
+            }),
+          }),
+        },
+        capabilityModules: {
+          "./capabilities/notes-search.ts": async () => ({
+            default: defineCapability({
+              title: "Search notes",
+              description: "Find matching notes.",
+              input: { type: "object" },
+              output: { type: "object" },
+              effect: "read",
+              expose: { http: true, webmcp: true },
+              async run() {
+                return {};
+              },
             }),
           }),
         },

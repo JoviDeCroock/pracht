@@ -181,6 +181,10 @@ describe("buildDevtoolsHtml", () => {
   it("renders the capabilities table when capabilities are registered", () => {
     const html = buildDevtoolsHtml({
       ...graphFixture,
+      routes: [
+        { ...graphFixture.routes[0], capabilities: ["notes.search"] },
+        graphFixture.routes[1],
+      ],
       capabilities: [
         {
           agentPolicy: null,
@@ -195,6 +199,7 @@ describe("buildDevtoolsHtml", () => {
           source: "./capabilities/notes-search.ts",
           title: "Search notes",
           transports: ["http", "webmcp"],
+          webmcpRoutes: ["/"],
         },
         {
           agentPolicy: null,
@@ -217,6 +222,8 @@ describe("buildDevtoolsHtml", () => {
     expect(html).toContain("notes.search");
     expect(html).toContain("http, webmcp");
     expect(html).toContain("/api/capabilities/notes/search");
+    expect(html).toContain("WebMCP tools");
+    expect(html).toContain("WebMCP routes");
     // Unexposed capabilities are labeled private.
     expect(html).toContain("private");
   });
@@ -714,6 +721,40 @@ describe("buildDevtoolsHtml — agent traffic", () => {
 });
 
 describe("buildAppGraph", () => {
+  it("maps WebMCP capabilities to the routes that activate them", async () => {
+    const capability = defineCapability({
+      title: "Search notes",
+      description: "Find notes matching a query.",
+      input: { type: "object" },
+      output: { type: "object" },
+      effect: "read",
+      expose: { http: true, webmcp: true },
+      async run() {
+        return {};
+      },
+    });
+    const app = resolveApp(
+      defineApp({
+        capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+        routes: [
+          route("/", "./routes/home.tsx"),
+          route("/notes", "./routes/notes.tsx", { capabilities: ["notes.search"] }),
+        ],
+      }),
+    );
+
+    const graph = await buildAppGraph({
+      app,
+      loadModule: async () => ({ default: capability }),
+      readSource: () => "",
+    });
+
+    expect(graph.routes.find((entry) => entry.path === "/notes")?.capabilities).toEqual([
+      "notes.search",
+    ]);
+    expect(graph.capabilities[0]?.webmcpRoutes).toEqual(["/notes"]);
+  });
+
   it("fails a strict API graph read with the route, file, and original module error", async () => {
     await expect(
       serializeApiRoutes(

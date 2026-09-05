@@ -8,7 +8,7 @@ Today those surfaces are:
 - **direct server invocation** — `invokeCapability()` from loaders, API
   routes, and middleware;
 - **an HTTP endpoint** — generated `POST` dispatch when `expose.http` is set;
-- **a WebMCP page tool** — registered in the browser for in-page agents when
+- **a WebMCP page tool** — eligible for route-scoped browser registration when
   `expose.webmcp` is set (ChatGPT desktop browser; Chrome/Edge origin trial);
 - **a remote MCP tool** — served at one Streamable HTTP endpoint when
   `expose.mcp` is set and the app configures `agents.mcp`, for agents that
@@ -31,31 +31,52 @@ contracts.
 
 Capabilities are registered in the app manifest, exactly like shells and
 middleware. Registration is deliberately opt-in: no API route or loader is
-ever inferred as a capability.
+ever inferred as a capability. Registration and WebMCP activation are separate:
+`expose.webmcp` makes a capability eligible to be a page tool, while each route
+lists the eligible tools that should exist on that page. Navigating between
+routes replaces the registered tool set after the destination commits.
 
 On `hydration: "islands"` routes, Pracht retains the islands bootstrap whenever
-WebMCP is exposed, even if a particular response renders zero island
-components. This keeps the agent projection stable across conditional UI.
-`hydration: "none"` intentionally remains zero-JS and cannot expose WebMCP.
+that route activates a WebMCP tool, even if a particular response renders zero
+island components. Routes that activate no tools do not retain it.
+`hydration: "none"` intentionally remains zero-JS and cannot activate WebMCP.
 
 ```ts
 // src/routes.ts
-import { defineApp } from "@pracht/core";
+import { defineApp, route } from "@pracht/core";
 
 export const app = defineApp({
   capabilities: {
     "notes.search": () => import("./capabilities/notes-search.ts"),
     "notes.create": () => import("./capabilities/notes-create.ts"),
   },
-  // shells, middleware, routes...
+  routes: [
+    route("/", "./routes/home.tsx"),
+    route("/notes", "./routes/notes.tsx", {
+      capabilities: ["notes.search", "notes.create"],
+    }),
+  ],
 });
 ```
+
+`group({ capabilities: [...] }, routes)` adds those tools to every child;
+route-level names are additive and de-duplicated. Pracht rejects unknown names,
+page-tool activation without `expose.webmcp`, and activation on
+`hydration: "none"` routes.
 
 Capability modules live in `src/capabilities/` by default (configurable via
 the `capabilitiesDir` plugin option). Names are dot-separated segments of
 letters, numbers, hyphens, and underscores. In pages mode, every module in
 `capabilitiesDir` is registered automatically; its `defineCapability({ name })`
-must map back to the filename, with dots written as hyphens.
+must map back to the filename, with dots written as hyphens. A page activates
+tools with a statically analyzable export:
+
+```ts
+export const CAPABILITIES = ["notes.search"];
+```
+
+The export belongs on a page, not `_app` or `404`, and must be an inline array
+of non-empty capability names.
 
 ## Scaffolding
 
@@ -553,7 +574,8 @@ at all: `callCapability("notes.stats")`.
 ## WebMCP
 
 With `expose.webmcp: true` (which requires `expose.http`), the client runtime
-registers the capability as a WebMCP page tool for in-browser agents. The
+can register the capability as a WebMCP page tool for in-browser agents on
+routes that activate its name. The
 shim targets the CG draft API — `document.modelContext.registerTool()` — with
 no `navigator.modelContext` fallback: within the 149–156 origin trial the
 `document` getter landed in Chromium 150 and the deprecated alias was removed
@@ -580,10 +602,13 @@ token in the page head — see the site docs for the `head()` recipe):
   fetches, so every call would 401), and warns when descriptions exceed the
   published agent-legibility budgets (~500 chars/tool, ~150 chars/parameter);
 - the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
-  detection: browsers without the API never download it, and pages without
-  webmcp-exposed capabilities never reference it;
-- registrations use a caller-owned abort signal, and the generated shim aborts
-  stale registrations before re-registering and when Vite replaces the module;
+  detection: browsers without the API never download it, and routes with no
+  active page tools do not load it;
+- initial hydration registers only the matched route's tools. After an SPA
+  navigation commits, the generated shim aborts every old registration and
+  registers the destination route's set; a route with no tools clears the set;
+- registrations use a caller-owned abort signal, and Vite module replacement
+  preserves the active route set while disposing stale registrations;
 - works in full-hydration and islands modes (the islands bootstrap pulls the
   shim in too; `hydration: "none"` pages ship no JS and register no tools).
 
@@ -691,7 +716,7 @@ The capability graph feeds every existing inspection surface:
 - the `pracht dev` startup banner prints a Capabilities table (name, effect,
   exposure, dispatch path) whenever the app registers any;
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
-  path, middleware, source, plus the input/output JSON Schemas in `--json`
+  path, WebMCP route patterns, middleware, source, plus the input/output JSON Schemas in `--json`
   output. It also reports `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`,
   and `mcpUnavailableReasons`. Graph-only text output uses `mcp(unverified)`
   when a missing precondition may be registered by the skipped adapter server
@@ -704,7 +729,8 @@ The capability graph feeds every existing inspection surface:
   instead of presenting a declared transport as proof that the tool is
   reachable;
 - the `/_pracht` devtools page gains a Capabilities table and a live Agents
-  traffic log in dev; retained traffic keeps the Agents panel visible after
+  traffic log in dev; its route table shows each route's active WebMCP tools,
+  and its capability table shows the inverse route mapping. Retained traffic keeps the Agents panel visible after
   HMR removes the final capability, until the dev server restarts; MCP
   declarations are labeled `mcp(unserved)` until the endpoint serves them,
   including destructive declarations without `agents.mcp.destructive`;

@@ -43,7 +43,7 @@ The manifest is not a routing config that happens to be explicit. It is a descri
 
 **The browser.** Your island's click handler calls the generated `capabilities.appointments.book({ … })` client, or a `<Form capability>` posts to it with no JavaScript at all. The capability module never ships to the client: only its name, endpoint, and effect class cross, and importing the module from client code fails the build.
 
-**An agent standing in the user's tab.** With `expose.webmcp`, the page registers the operation as a [WebMCP](https://developer.chrome.com/docs/ai/webmcp) page tool. The agent stops guessing at your DOM and instead reads: *"book_appointment — reserve an open slot. Input: service, time."* It acts as the signed-in user, in their session, and every check still runs on your server.
+**An agent standing in the user's tab.** With `expose.webmcp` and the capability named in that route's `capabilities` list, the page registers the operation as a [WebMCP](https://developer.chrome.com/docs/ai/webmcp) page tool. Navigating away replaces it with the destination route's tool set. The agent stops guessing at your DOM and instead reads: *"book_appointment — reserve an open slot. Input: service, time."* It acts as the signed-in user, in their session, and every check still runs on your server.
 
 **An agent that never opens a browser.** With `expose.mcp`, the same contract is served as a tool on your app's own remote MCP endpoint — `initialize`, `tools/list`, `tools/call`, straight over HTTP. No SDK, no second server, no separate tool definitions to keep in sync. An MCP host points at `https://your-app/mcp` and gets the same validation, middleware, identity checks, and audit events every other caller gets.
 

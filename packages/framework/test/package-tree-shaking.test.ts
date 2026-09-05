@@ -196,10 +196,12 @@ describe("published package tree shaking", () => {
     // client follows now carries a hop count, and an opaque redirect (whose
     // destination the browser refuses to expose) falls back to a document
     // navigation instead of re-fetching the URL it just asked for.
-    it("keeps the router runtime below 9,900 gzip bytes", async () => {
+    // Raised from 9,900 for the route-commit projection hook that swaps
+    // page-scoped WebMCP tools after navigation.
+    it("keeps the router runtime below 9,950 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_900);
+      expect(gzipBytes).toBeLessThanOrEqual(9_950);
     });
 
     it("drops preact-suspense when the app renders no Suspense boundary", async () => {
@@ -345,7 +347,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_620);
+      expect(gzipBytes).toBeLessThanOrEqual(9_670);
     });
 
     it("keeps guards when the feature is enabled", async () => {

@@ -491,6 +491,8 @@ export type SpeculationOption = SpeculationMode | SpeculationConfig;
 
 export interface RouteMeta {
   id?: string;
+  /** WebMCP page tools active while this route is displayed. */
+  capabilities?: string[];
   shell?: string;
   render?: RenderMode;
   hydration?: HydrationMode;
@@ -515,6 +517,8 @@ export interface RouteMeta {
 }
 
 export interface GroupMeta {
+  /** WebMCP page tools inherited by every route in this group. */
+  capabilities?: string[];
   shell?: string;
   render?: RenderMode;
   hydration?: HydrationMode;

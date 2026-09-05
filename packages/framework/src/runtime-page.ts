@@ -511,7 +511,9 @@ async function renderServerDocument<TContext>(
     let islandsEntryUrl: string | undefined;
     const needsIslandsBootstrap =
       hydration === "islands" &&
-      (islandFiles.length > 0 || ctx.options.islandsBootstrapRequired === true);
+      (islandFiles.length > 0 ||
+        (ctx.options.islandsBootstrapRequired === true &&
+          (match.route.capabilities?.length ?? 0) > 0));
     if (needsIslandsBootstrap) {
       islandsEntryUrl = ctx.options.islandsEntryUrl ?? getIslandsClientEntryUrl();
       if (!islandsEntryUrl) {
@@ -557,6 +559,7 @@ async function renderServerDocument<TContext>(
             ])
           : [...islandPreloadUrls],
         speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+        webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
       }),
       pageOptions.status,
       documentHeaders,

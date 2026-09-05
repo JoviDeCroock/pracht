@@ -21,10 +21,10 @@ thing changed each time.
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
 | `hydration: "islands"` | **7.4 KB** | 16.9 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "full"` | **16.2 KB** | 39.8 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **14.7 KB** | 38.9 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **15.9 KB** | 38.9 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"` + `preact/compat` | **17.7 KB** | 44.4 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "full"` | **16.3 KB** | 40.1 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **14.8 KB** | 39.2 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **16.0 KB** | 39.2 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"` + `preact/compat` | **17.8 KB** | 44.7 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load — the route's chunks plus the one the router fetches after
 hydration. Raw is the route's chunks. Both come straight from

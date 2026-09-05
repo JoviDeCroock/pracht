@@ -35,6 +35,8 @@ export const API_METHOD_ORDER: readonly HttpMethod[] = [
 ];
 
 export interface AppGraphRoute {
+  /** WebMCP capability names active while this route is displayed. */
+  capabilities?: string[];
   file: string;
   hydration: string | null;
   id: string;
@@ -100,6 +102,8 @@ export interface AppGraphCapability {
   title: string | null;
   /** Exposure transports from the capability's `expose` config. */
   transports: string[];
+  /** Route patterns that activate this WebMCP page tool (inspection only). */
+  webmcpRoutes?: string[];
 }
 
 export interface AppGraph {
@@ -165,6 +169,7 @@ export interface AppGraphStaticModuleAccess {
 
 export function serializeAppRoutes(routes: readonly ResolvedRoute[]): AppGraphRoute[] {
   return routes.map((route) => ({
+    ...(route.capabilities?.length ? { capabilities: [...route.capabilities] } : {}),
     file: route.file,
     hydration: route.hydration ?? null,
     id: route.id ?? "",
@@ -390,7 +395,10 @@ export async function buildAppGraph(
   } & AppGraphModuleAccess,
 ): Promise<AppGraph> {
   const notFound = options.app.notFound;
-  const capabilities = await serializeCapabilities(options.app.capabilities, options);
+  const capabilities = withWebmcpRoutes(
+    await serializeCapabilities(options.app.capabilities, options),
+    options.app.routes,
+  );
   const mcpEndpoint = resolveMcpEndpoint(options.app.agents);
   const capabilityFailures =
     mcpEndpoint === null
@@ -448,6 +456,23 @@ export async function buildAppGraph(
     notFound: notFound ? serializeAppRoutes([notFound])[0] : null,
     routes: serializeAppRoutes(options.app.routes),
   };
+}
+
+/** Attach the inverse route-to-page-tool view used by inspect and devtools. */
+export function withWebmcpRoutes(
+  capabilities: AppGraphCapability[],
+  routes: readonly Pick<ResolvedRoute, "capabilities" | "path">[],
+): AppGraphCapability[] {
+  return capabilities.map((capability) =>
+    capability.transports.includes("webmcp")
+      ? {
+          ...capability,
+          webmcpRoutes: routes
+            .filter((route) => route.capabilities?.includes(capability.name))
+            .map((route) => route.path),
+        }
+      : capability,
+  );
 }
 
 export interface ApiRouteExports {

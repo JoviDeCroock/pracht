@@ -100,7 +100,7 @@ Defines a single route:
 | ------ | ----------- | ------------------------------------------------------ |
 | `path` | `string`    | URL pattern (e.g. `/blog/:slug`)                       |
 | `file` | `ModuleRef` | Module reference — `() => import("./path")` or string  |
-| `meta` | `RouteMeta` | Optional: render mode, shell, middleware, revalidation, loader caching |
+| `meta` | `RouteMeta` | Optional: render mode, shell, middleware, WebMCP tools, revalidation, loader caching |
 
 > [!IMPORTANT]
 > Function module refs must use the exact inline form `() => import("./path")`
@@ -126,6 +126,7 @@ Group properties cascade to children. A route's own meta overrides the group's.
 ```typescript
 interface RouteMeta {
   id?: string; // Explicit route ID (auto-generated if omitted)
+  capabilities?: string[]; // WebMCP tools active while this route is current
   shell?: string; // Named shell from defineApp.shells
   render?: "spa" | "ssr" | "ssg" | "isg";
   hydration?: "full" | "islands" | "none"; // Partial hydration (see ISLANDS.md)
@@ -142,6 +143,12 @@ interface RouteMeta {
 `src/islands/`; `"none"` ships no JavaScript at all. Both are inherited
 through `group(...)` like `render` and documented in
 [ISLANDS.md](ISLANDS.md).
+
+`capabilities` names registered capabilities whose definitions set
+`expose.webmcp`. The active browser tool set is replaced after each route
+commit, including initial hydration; navigating to a route with an empty list
+removes the previous route's tools. Group capability lists are inherited
+additively and de-duplicated. `hydration: "none"` routes cannot declare them.
 
 `loaderCache` accepts a non-negative integer number of seconds or `false`.
 Positive values set `Cache-Control: private, max-age=<seconds>` on successful
@@ -837,7 +844,7 @@ manifest from the file system. Both routers therefore reach the same runtime.
 
 | Feature | Pages router |
 | --- | --- |
-| Render + hydration modes, dynamic and catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` exports |
+| Render + hydration modes, route-scoped WebMCP tools, dynamic and catch-all routes, `getStaticPaths`, API routes | `RENDER_MODE` / `HYDRATION` / `REVALIDATE` / `CAPABILITIES` exports |
 | Shells | `_app.tsx` per directory (`pages`, `pages:blog`, …); the nearest one replaces its parent |
 | Middleware | one `_middleware.ts` at the pages root on serverful adapters, applied to every page route |
 | [Capabilities](CAPABILITIES.md) | every module in `capabilitiesDir` (`src/capabilities`) — HTTP endpoints, WebMCP, remote MCP, `<Form capability>`, typed clients, and `pracht eval` all work |
@@ -1099,6 +1106,18 @@ two cannot disagree:
    (`notes.search` ↔ `notes-search.ts`, the mapping
    `pracht generate capability` writes). A mismatch, an unusable file name, and
    two modules claiming one name are build, `doctor`, and `verify` errors.
+
+Registration does not make a WebMCP tool global. Each page that needs one must
+export an inline array of names:
+
+```ts
+export const CAPABILITIES = ["notes.search"];
+```
+
+The export is compiled into ordinary route metadata. It is rejected on `_app`
+and `404`, and cannot be combined with `HYDRATION = "none"`. A committed client
+navigation replaces the browser's registered tool set with the destination
+page's array.
 
 `pracht generate capability` emits the `name` property in pages mode and skips
 the manifest edit, because there is no registry entry to add.

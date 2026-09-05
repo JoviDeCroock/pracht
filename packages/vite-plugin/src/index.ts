@@ -67,7 +67,14 @@ import {
 import type { RouteHints } from "./route-loader-hints.ts";
 
 function emptyRouteHints(): RouteHints {
-  return { head: {}, headers: {}, incomplete: false, loader: {}, staticPaths: {} };
+  return {
+    capabilities: {},
+    head: {},
+    headers: {},
+    incomplete: false,
+    loader: {},
+    staticPaths: {},
+  };
 }
 
 export type { RenderMode };
@@ -508,7 +515,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       if (changesRouteHeadSource || changesRouteLoaderSource) {
         try {
-          // One scan answers all four tables. Each is compared against what the
+          // One scan answers all five tables. Each is compared against what the
           // client entry actually emitted, not against the table the previous
           // file in this same save just refreshed — on disk both files are
           // already new, so that comparison reported "unchanged" and left the
@@ -516,6 +523,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           const nextHints = createRouteHintsForVirtualModules(resolved, root);
 
           if (changesRouteHeadSource) {
+            // Pages-route CAPABILITIES are compiled into the generated app
+            // manifest, so changing them must replace the client entry and
+            // its active WebMCP registration callback.
+            shouldReloadClientEntry ||=
+              JSON.stringify(emittedRouteHints.capabilities[relative] ?? []) !==
+              JSON.stringify(nextHints.capabilities[relative] ?? []);
+
             // Only a *transition* changes what the virtual client entry bakes:
             // the hint is "does this module export head", and the client router
             // reads it to decide whether a navigation must fetch route state.

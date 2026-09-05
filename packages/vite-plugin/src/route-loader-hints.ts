@@ -2,7 +2,11 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 import { parse as parseModule } from "@babel/parser";
-import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import {
+  evaluateLiteral,
+  maskCommentsAndStrings,
+  readNamedExportInitializer,
+} from "@pracht/capabilities/static";
 import { initSync, parse } from "es-module-lexer";
 
 import {
@@ -464,6 +468,7 @@ export interface RouteHintOptions {
  * save, which is where that cost lands.
  */
 export interface RouteHints {
+  capabilities: Record<string, string[]>;
   head: Record<string, boolean>;
   headers: Record<string, boolean>;
   /** True when the walk skipped an entry, so these tables are partial. */
@@ -514,6 +519,7 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
   scanRouteFiles(routesDir, extensions, scan);
 
   const hints: RouteHints = {
+    capabilities: {},
     head: {},
     headers: {},
     incomplete: scan.incomplete,
@@ -541,6 +547,13 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
     const compiledFormat = extension === ".md" || extension === ".mdx";
     const synthesizable = additionalExtensions.includes(extension);
     const exports = analyzeRouteExports(source);
+    const capabilityInitializer = readNamedExportInitializer(source, "CAPABILITIES");
+    const capabilityValue = capabilityInitializer
+      ? evaluateLiteral(capabilityInitializer)
+      : undefined;
+    const capabilities = Array.isArray(capabilityValue)
+      ? capabilityValue.filter((name): name is string => typeof name === "string")
+      : [];
 
     const values = {
       head: compiledFormat || synthesizable || exports.head,
@@ -550,6 +563,7 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
     };
 
     for (const key of routeHintKeys(routesDir, file, options)) {
+      hints.capabilities[key] = capabilities;
       hints.head[key] = values.head;
       hints.headers[key] = values.headers;
       hints.loader[key] = values.loader;
