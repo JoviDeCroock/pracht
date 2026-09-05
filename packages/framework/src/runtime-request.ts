@@ -129,6 +129,14 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * passes this so a failing SSG page can name what actually threw.
    */
   onRouteError?: (error: unknown, requestPath: string, context?: RouteErrorContext) => void;
+  /**
+   * Called with the raw error whenever an API handler or app-level API
+   * middleware fails, before it is normalized into a response. The context
+   * uses the same phase and source-file attribution as `onRouteError` so
+   * adapters and development servers can report API failures without parsing
+   * the sanitized response body.
+   */
+  onApiError?: (error: unknown, requestPath: string, context?: RouteErrorContext) => void;
 }
 
 /**
@@ -672,6 +680,9 @@ export async function dispatchApi<TContext>(
       signal: requestSignal,
       url,
       terminal: apiTerminal,
+      onMiddlewareError: () => {
+        currentPhase = "middleware";
+      },
     });
     return withDefaultSecurityHeaders(withEnhancedCapabilityFormRedirect(response, request));
   } catch (error: unknown) {
@@ -687,6 +698,13 @@ export async function dispatchApi<TContext>(
         thrownResponseFailure = normalizeError;
       }
     }
+
+    options.onApiError?.(thrownResponseFailure ?? error, ctx.requestPath, {
+      middlewareFiles: [...apiMiddlewareFiles],
+      phase: currentPhase,
+      routeFile: apiMatch.route.file,
+      routePath: apiMatch.route.path,
+    });
 
     return renderApiErrorResponse({
       error: thrownResponseFailure ?? error,

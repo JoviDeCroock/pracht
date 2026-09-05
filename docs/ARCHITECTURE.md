@@ -412,16 +412,20 @@ difference here only shows up after deploy.
   bytes, so a PDF, an image, or a `Uint8Array` from an API route is
   byte-identical in dev and production. `text/event-stream` keeps its own
   earlier branch: it must stream and never buffer.
-- A loader, middleware, or render failure is logged once to
+- A page loader, page middleware, render, API handler, or API middleware failure is logged once to
   `server.config.logger`, with phase, route id, request path, and message —
-  plus `file:line:column` when the error blames a module of the user's
+  plus the matched route/loader/middleware source file, or `file:line:column`
+  when the error blames a module of the user's
   (`describeAnnotatedUserModule()`), which is how a route file that will not
   compile gets named: it fails while the virtual server module is evaluated, so
   there is no route context to report. The overlay only reaches a document
   navigation; a route-state fetch, a `curl`, or a test run would otherwise see
-  a 500 and nothing server-side. A body stream that fails after the headers are
-  on the wire is logged there too — destroying the socket is all that is left,
-  so the line is the only signal. Expected 404s are not logged.
+  a 500 and nothing server-side. API failures use the dedicated `onApiError`
+  hook and keep their JSON/plain-text response; only unclaimed page failures
+  use `onRouteError` to opt into the browser overlay. A body stream that fails
+  after the headers are on the wire is logged there too — destroying the socket
+  is all that is left, so the line is the only signal. Expected 404s are not
+  logged.
 - The stack is appended only when the failure names no user module, or under
   `DEBUG` (`shouldIncludeDevErrorStack()`). A route/loader/shell file in
   `RouteErrorContext`, Vite's `id`/`loc.file` on a transform error, or a stack
@@ -870,6 +874,13 @@ own import is still linked. Overlay responses retain the phase timings already
 collected for the dev `Server-Timing` header. Every such failure is also logged
 once to the dev terminal (see "Writing the response" above) — the overlay only
 reaches a browser navigating to a document.
+
+API handler and API middleware failures are already normalized inside the
+runtime, so they cannot reach the dev middleware's outer catch either. The dev
+middleware passes `onApiError` to log them with the same phase, route file, and
+middleware-file context while leaving the API response body and content type
+unchanged. This callback is separate from `onRouteError` so an API failure can
+never satisfy the page-overlay handoff.
 
 Four ergonomics features are built in:
 

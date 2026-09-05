@@ -30,6 +30,8 @@ export async function runMiddlewareChain<TContext>(options: {
   signal: AbortSignal;
   url: URL;
   terminal: () => Promise<Response>;
+  /** @internal Report the middleware where a chain failure originated. */
+  onMiddlewareError?: (error: unknown, file: string) => void;
 }): Promise<Response> {
   const { middlewareFiles, terminal } = options;
 
@@ -56,52 +58,71 @@ export async function runMiddlewareChain<TContext>(options: {
     if (i >= middlewareFiles.length) {
       return terminal();
     }
-    const mwModule = await modulePromises[i];
-    // A registered middleware module that exports nothing usable used to be
-    // skipped silently. That fails *open*: a renamed export or a `default`
-    // export leaves an auth gate wired in the manifest but absent at runtime,
-    // and every static check still passes. Refuse to serve instead.
-    if (typeof mwModule?.middleware !== "function") {
-      const message =
-        `Middleware "${middlewareFiles[i]}" does not export a \`middleware\` function. ` +
-        "Middleware modules must `export const middleware: MiddlewareFn = (args, next) => …` " +
-        "(a default export is not used).";
-      // Failing closed is right, but silently failing closed is an outage a
-      // reviewer has to bisect: the likely trigger is a refactor renaming the
-      // export, which takes down every route carrying this middleware at
-      // deploy time. Sanitized 5xx responses say nothing, so log the cause
-      // once per module — the same treatment capability-registry failures get.
-      warnMissingMiddlewareExport(middlewareFiles[i], message);
-      throw new Error(message);
-    }
+    const middlewareFile = middlewareFiles[i];
+    const noDownstreamError = Symbol("no downstream middleware error");
+    let downstreamError: unknown = noDownstreamError;
 
-    let calledNext = false;
-    const next = (): Promise<Response> => {
-      if (calledNext) {
-        throw new Error(`Middleware "${middlewareFiles[i]}" called next() multiple times`);
+    try {
+      const mwModule = await modulePromises[i];
+      // A registered middleware module that exports nothing usable used to be
+      // skipped silently. That fails *open*: a renamed export or a `default`
+      // export leaves an auth gate wired in the manifest but absent at runtime,
+      // and every static check still passes. Refuse to serve instead.
+      if (typeof mwModule?.middleware !== "function") {
+        const message =
+          `Middleware "${middlewareFile}" does not export a \`middleware\` function. ` +
+          "Middleware modules must `export const middleware: MiddlewareFn = (args, next) => …` " +
+          "(a default export is not used).";
+        // Failing closed is right, but silently failing closed is an outage a
+        // reviewer has to bisect: the likely trigger is a refactor renaming the
+        // export, which takes down every route carrying this middleware at
+        // deploy time. Sanitized 5xx responses say nothing, so log the cause
+        // once per module — the same treatment capability-registry failures get.
+        warnMissingMiddlewareExport(middlewareFile, message);
+        throw new Error(message);
       }
-      calledNext = true;
-      return dispatch(i + 1);
-    };
 
-    const args: MiddlewareArgs<TContext> = {
-      request: options.request,
-      params: options.params,
-      pathname: options.pathname,
-      context: options.context,
-      signal: options.signal,
-      url: options.url,
-      route: options.route,
-    };
+      let calledNext = false;
+      const next = async (): Promise<Response> => {
+        if (calledNext) {
+          throw new Error(`Middleware "${middlewareFile}" called next() multiple times`);
+        }
+        calledNext = true;
+        try {
+          return await dispatch(i + 1);
+        } catch (error: unknown) {
+          downstreamError = error;
+          throw error;
+        }
+      };
 
-    const response = await mwModule.middleware(args, next);
-    if (!(response instanceof Response)) {
-      throw new Error(
-        `Middleware "${middlewareFiles[i]}" did not return a Response. ` +
-          "Middleware must return the result of next() or a short-circuit Response.",
-      );
+      const args: MiddlewareArgs<TContext> = {
+        request: options.request,
+        params: options.params,
+        pathname: options.pathname,
+        context: options.context,
+        signal: options.signal,
+        url: options.url,
+        route: options.route,
+      };
+
+      const response = await mwModule.middleware(args, next);
+      if (!(response instanceof Response)) {
+        throw new Error(
+          `Middleware "${middlewareFile}" did not return a Response. ` +
+            "Middleware must return the result of next() or a short-circuit Response.",
+        );
+      }
+      return response;
+    } catch (error: unknown) {
+      // A downstream failure passes through every upstream middleware frame.
+      // Attribute it only at its origin; if this middleware catches it and
+      // throws a different value, the replacement belongs to this frame.
+      if (downstreamError === noDownstreamError || error !== downstreamError) {
+        options.onMiddlewareError?.(error, middlewareFile);
+      }
+      throw error;
     }
-    return response;
   };
 
   return dispatch(0);

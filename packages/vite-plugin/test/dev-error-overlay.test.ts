@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import * as frameworkServer from "../../framework/src/server.ts";
 import * as errorOverlay from "../../framework/src/error-overlay.ts";
-import { defineApp, resolveApp, route } from "../../framework/src/app.ts";
+import { defineApp, resolveApiRoutes, resolveApp, route } from "../../framework/src/app.ts";
 import {
   createDevSSRMiddleware,
   describeAnnotatedUserModule,
@@ -63,6 +63,8 @@ function createResponse() {
 async function render(
   routeModule: Record<string, unknown>,
   options: {
+    apiMiddlewareModule?: Record<string, unknown>;
+    apiModule?: Record<string, unknown>;
     request?: IncomingMessage;
     serverModuleError?: unknown;
     shellModule?: Record<string, unknown>;
@@ -78,9 +80,15 @@ async function render(
       })
     : route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr" });
   const serverMod = {
-    apiRoutes: [],
+    apiRoutes: options.apiModule ? resolveApiRoutes(["/src/api/boom.ts"]) : [],
     islandsBootstrapRequired: false,
     registry: {
+      apiModules: options.apiModule
+        ? { "/src/api/boom.ts": async () => options.apiModule }
+        : undefined,
+      middlewareModules: options.apiMiddlewareModule
+        ? { "./middleware/api-auth.ts": async () => options.apiMiddlewareModule }
+        : undefined,
       routeModules: { "./routes/boom.tsx": async () => routeModule },
       shellModules: options.shellModule
         ? { "./shells/plain.tsx": async () => options.shellModule }
@@ -88,6 +96,10 @@ async function render(
     },
     resolvedApp: resolveApp(
       defineApp({
+        api: options.apiMiddlewareModule ? { middleware: ["apiAuth"] } : undefined,
+        middleware: options.apiMiddlewareModule
+          ? { apiAuth: "./middleware/api-auth.ts" }
+          : undefined,
         routes: [routeDefinition],
         shells: options.shellModule ? { plain: "./shells/plain.tsx" } : undefined,
       }),
@@ -122,7 +134,11 @@ async function render(
     fellThrough = resolve;
   });
   const next = vi.fn(() => fellThrough());
-  await createDevSSRMiddleware(server)(options.request ?? createRequest("/boom"), res, next);
+  await createDevSSRMiddleware(server)(
+    options.request ?? createRequest(options.apiModule ? "/api/boom" : "/boom"),
+    res,
+    next,
+  );
   await Promise.race([finished, fallthrough]);
   return { ...read(), logger, next };
 }
@@ -368,6 +384,53 @@ describe("dev SSR error overlay", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("dev API error reporting", () => {
+  it("logs thrown API handlers with their phase and route file", async () => {
+    const state = await render(
+      { Component: () => null },
+      {
+        apiModule: {
+          GET: () => {
+            throw new Error("API handler exploded");
+          },
+        },
+      },
+    );
+
+    expect(state.statusCode).toBe(500);
+    expect(state.headers["content-type"]).toContain("application/json");
+    expect(state.body).not.toContain("pracht error");
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("[pracht] api error");
+    expect(line).toContain("/src/api/boom.ts");
+    expect(line).toContain("/api/boom");
+    expect(line).toContain("API handler exploded");
+  });
+
+  it("logs API middleware failures with their phase and middleware file", async () => {
+    const state = await render(
+      { Component: () => null },
+      {
+        apiMiddlewareModule: {
+          middleware: async (_args: unknown, next: () => Promise<Response>) => {
+            await next();
+            throw new Error("API middleware exploded");
+          },
+        },
+        apiModule: { GET: () => Response.json({ ok: true }) },
+      },
+    );
+
+    expect(state.statusCode).toBe(500);
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("[pracht] middleware error");
+    expect(line).toContain("./middleware/api-auth.ts");
+    expect(line).toContain("API middleware exploded");
   });
 });
 
