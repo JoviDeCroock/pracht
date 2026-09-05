@@ -200,11 +200,7 @@ overlay cannot preserve their internal-slot identity. The two identities
 compose: `agent` is the caller's software identity, `tokenAuth` is the account
 it acts for.
 
-`CapabilityAuditEvent` does not yet carry `tokenAuth`, so an audited MCP
-dispatch names the calling software but not the account behind it. Capture the
-principal in named middleware or capability code while request context is
-available and send it to the same audit sink until the event gains a field for
-it.
+`CapabilityAuditEvent.tokenAuth` carries a frozen `{ subject, clientId }` summary of the verified OAuth principal for authenticated MCP calls and their nested server invocations. Other dispatches carry `null`. Tokens, scopes, and arbitrary claims are excluded. Attribution comes from the authenticated transport, so replacement application contexts cannot forge it. The dev Agents panel and the showcase audit table display the account alongside the agent software identity.
 
 Full configuration, the metadata document, the challenge table, the JWKS recipe,
 and the fail-closed rules live in
@@ -810,6 +806,7 @@ const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
       status: event.status,
       durationMs: Math.round(event.durationMs),
       agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
+      account: event.tokenAuth,
     }),
   );
 });

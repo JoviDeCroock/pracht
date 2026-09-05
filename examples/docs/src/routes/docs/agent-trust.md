@@ -128,7 +128,7 @@ export const app = defineApp({
 
 pracht stays the resource server. It does not validate JWTs, fetch JWKS, or issue tokens — the rule is *define the authentication hook first, ship deployment recipes before owning an authorization server*. The verified principal lands on `context.tokenAuth` as a frozen snapshot on a non-writable, non-configurable framework-owned field on a fresh request-local overlay, the same shape as `context.agent`. The adapter-supplied base context remains unchanged even when it is reused, frozen, or sealed, so one request's OAuth principal cannot become another request's identity. Native built-ins such as `Map` and `Date` must be wrapped in an ordinary request context because an overlay cannot preserve their internal-slot identity. The two compose: `agent` is the caller's software identity, `tokenAuth` is the account it acts for.
 
-`CapabilityAuditEvent` does not yet carry `tokenAuth`, so audited MCP dispatches name the calling software but not the account behind it. Capture the principal in named middleware or capability code while request context is available and send it to the same audit sink until the event gains a field for it.
+`CapabilityAuditEvent.tokenAuth` carries a frozen `{ subject, clientId }` summary of the verified OAuth principal for authenticated MCP calls and their nested server invocations. Other dispatches carry `null`. Tokens, scopes, and arbitrary claims are excluded. Attribution comes from the authenticated transport, so replacement application contexts cannot forge it. The dev Agents panel and the showcase audit table display the account alongside the agent software identity.
 
 The full setup — the metadata document, the challenge table, a JWKS `verify` recipe, and the fail-closed rules — is on the [Capabilities page](/docs/capabilities#oauth-letting-a-real-host-connect).
 
@@ -438,6 +438,7 @@ const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
       status: event.status,
       durationMs: Math.round(event.durationMs),
       agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
+      account: event.tokenAuth,
     }),
   );
 });
