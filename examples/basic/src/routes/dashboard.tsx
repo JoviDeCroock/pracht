@@ -1,11 +1,15 @@
 import { Form, useRevalidate, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
 
-export async function loader({ request }: LoaderArgs) {
-  const hasSession = request.headers.get("cookie")?.includes("session=") ?? false;
+import type { SessionContext } from "../server/session.ts";
 
+export async function loader({ context }: LoaderArgs<SessionContext>) {
+  // The auth middleware already refused anonymous requests, so this reads a
+  // session that is known to exist. `notice` is a flash value: reading it here
+  // consumes it, and the middleware rewrites the cookie without it.
   return {
-    projectCount: hasSession ? 3 : 0,
-    user: hasSession ? "Ada Lovelace" : "Guest",
+    notice: context.session.get("notice") ?? null,
+    projectCount: 3,
+    user: context.session.get("name") ?? "Guest",
   };
 }
 
@@ -15,6 +19,7 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   return (
     <section>
       <h1>{data.user}</h1>
+      {data.notice && <p role="status">{data.notice}</p>}
       <p>Projects: {data.projectCount}</p>
       <Form
         method="post"
@@ -24,6 +29,9 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
         }}
       >
         <button type="submit">Revalidate dashboard</button>
+      </Form>
+      <Form method="post" action="/api/auth/logout">
+        <button type="submit">Log out</button>
       </Form>
     </section>
   );

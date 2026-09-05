@@ -99,7 +99,9 @@ segment (including `:param`), a trailing `**` matches zero or more segments,
 `resolveApp()` so the CLI evaluates the same graph the runtime serves.
 Evaluation is pure (`evaluateConstraints` in `packages/framework/src/constraints.ts`);
 the CLI supplies source-level lookups such as the `head()` export check
-(`packages/cli/src/verification-graph.ts`). Manifest router only for now.
+(`packages/cli/src/verification-graph.ts`). Pages apps export constraints from
+the root `src/pages/_app.config.ts`; verification evaluates the generated graph
+with the same rules.
 
 Verification only boots the app graph when the app opts in (constraints declared
 or a snapshot committed), so `pracht verify` stays fast for apps that use neither.

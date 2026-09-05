@@ -1,12 +1,17 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { PassThrough } from "node:stream";
 import { h } from "preact";
 import type { ViteDevServer } from "vite";
 import { describe, expect, it, vi } from "vitest";
 
 import * as frameworkServer from "../../framework/src/server.ts";
 import * as errorOverlay from "../../framework/src/error-overlay.ts";
-import { defineApp, resolveApp, route } from "../../framework/src/app.ts";
-import { createDevSSRMiddleware } from "../src/plugin-dev-ssr.ts";
+import { defineApp, resolveApiRoutes, resolveApp, route } from "../../framework/src/app.ts";
+import {
+  createDevSSRMiddleware,
+  describeAnnotatedUserModule,
+  shouldIncludeDevErrorStack,
+} from "../src/plugin-dev-ssr.ts";
 import { PRACHT_SERVER_MODULE_ID } from "../src/plugin-assets.ts";
 
 function createRequest(url: string): IncomingMessage {
@@ -17,25 +22,54 @@ function createRequest(url: string): IncomingMessage {
   } as unknown as IncomingMessage;
 }
 
+/**
+ * A real `ServerResponse` is a writable stream, and the dev middleware pipes
+ * non-HTML bodies into it. Build the fake on a `PassThrough` so the harness
+ * exercises the same code path a browser does.
+ */
 function createResponse() {
-  const headers: Record<string, string> = {};
-  const state = { body: "", headers, statusCode: 0 };
-  const res = {
-    end(body?: unknown) {
-      state.body = String(body ?? "");
-      state.statusCode = res.statusCode;
+  const headers: Record<string, string | string[]> = {};
+  const stream = new PassThrough();
+  const chunks: Buffer[] = [];
+  stream.on("data", (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+  const finished = new Promise<void>((resolve) => stream.on("end", () => resolve()));
+  const res = Object.assign(stream, {
+    getHeader: (name: string) => headers[name.toLowerCase()],
+    getHeaderNames: () => Object.keys(headers),
+    removeHeader: (name: string) => {
+      delete headers[name.toLowerCase()];
     },
     setHeader(name: string, value: unknown) {
-      headers[name.toLowerCase()] = String(value);
+      headers[name.toLowerCase()] = Array.isArray(value) ? value.map(String) : String(value);
+      return res;
     },
     statusCode: 200,
+  }) as unknown as ServerResponse;
+
+  return {
+    finished,
+    res,
+    read() {
+      return {
+        body: Buffer.concat(chunks).toString("utf-8"),
+        bytes: Buffer.concat(chunks),
+        headers,
+        statusCode: res.statusCode,
+      };
+    },
   };
-  return { res: res as unknown as ServerResponse, state };
 }
 
 async function render(
   routeModule: Record<string, unknown>,
-  options: { shellModule?: Record<string, unknown> } = {},
+  options: {
+    apiMiddlewareModule?: Record<string, unknown>;
+    apiModule?: Record<string, unknown>;
+    request?: IncomingMessage;
+    serverModuleError?: unknown;
+    shellModule?: Record<string, unknown>;
+    stageHeaders?: Record<string, string>;
+  } = {},
 ) {
   const routeDefinition = options.shellModule
     ? route("/boom", {
@@ -46,9 +80,15 @@ async function render(
       })
     : route("/boom", "./routes/boom.tsx", { id: "boom", render: "ssr" });
   const serverMod = {
-    apiRoutes: [],
+    apiRoutes: options.apiModule ? resolveApiRoutes(["/src/api/boom.ts"]) : [],
     islandsBootstrapRequired: false,
     registry: {
+      apiModules: options.apiModule
+        ? { "/src/api/boom.ts": async () => options.apiModule }
+        : undefined,
+      middlewareModules: options.apiMiddlewareModule
+        ? { "./middleware/api-auth.ts": async () => options.apiMiddlewareModule }
+        : undefined,
       routeModules: { "./routes/boom.tsx": async () => routeModule },
       shellModules: options.shellModule
         ? { "./shells/plain.tsx": async () => options.shellModule }
@@ -56,28 +96,51 @@ async function render(
     },
     resolvedApp: resolveApp(
       defineApp({
+        api: options.apiMiddlewareModule ? { middleware: ["apiAuth"] } : undefined,
+        middleware: options.apiMiddlewareModule
+          ? { apiAuth: "./middleware/api-auth.ts" }
+          : undefined,
         routes: [routeDefinition],
         shells: options.shellModule ? { plain: "./shells/plain.tsx" } : undefined,
       }),
     ),
   };
 
+  const logger = { error: vi.fn(), warn: vi.fn() };
   const server = {
-    config: { base: "/", logger: { warn: vi.fn() }, root: "/tmp/pracht-overlay-test" },
+    config: { base: "/", logger, root: "/tmp/pracht-overlay-test" },
     ssrFixStacktrace: () => {},
     ssrLoadModule: async (id: string) => {
       if (id === "@pracht/core/server") return frameworkServer;
       if (id === "@pracht/core/error-overlay") return errorOverlay;
-      if (id === PRACHT_SERVER_MODULE_ID) return serverMod;
+      if (id === PRACHT_SERVER_MODULE_ID) {
+        if (options.serverModuleError) throw options.serverModuleError;
+        return serverMod;
+      }
       throw new Error(`Unexpected ssrLoadModule id: ${id}`);
     },
     // The real transform injects the Vite client; the overlay must survive it.
     transformIndexHtml: async (_url: string, html: string) => html,
   } as unknown as ViteDevServer;
 
-  const { res, state } = createResponse();
-  await createDevSSRMiddleware(server)(createRequest("/boom"), res, vi.fn());
-  return state;
+  const { finished, read, res } = createResponse();
+  for (const [name, value] of Object.entries(options.stageHeaders ?? {})) {
+    res.setHeader(name, value);
+  }
+  // A response the middleware declines (a plain 404) falls through to Vite and
+  // never ends, so waiting only on the stream would hang.
+  let fellThrough = () => {};
+  const fallthrough = new Promise<void>((resolve) => {
+    fellThrough = resolve;
+  });
+  const next = vi.fn(() => fellThrough());
+  await createDevSSRMiddleware(server)(
+    options.request ?? createRequest(options.apiModule ? "/api/boom" : "/boom"),
+    res,
+    next,
+  );
+  await Promise.race([finished, fallthrough]);
+  return { ...read(), logger, next };
 }
 
 describe("dev SSR error overlay", () => {
@@ -163,6 +226,146 @@ describe("dev SSR error overlay", () => {
     expect(state.body).not.toContain("pracht error");
   });
 
+  // Before this, a throwing loader produced a perfect browser overlay and
+  // absolute silence in the terminal running `pracht dev`.
+  it("logs one line per failure to the dev terminal", async () => {
+    const state = await render({
+      loader: () => {
+        throw new Error("loader exploded");
+      },
+      Component: () => null,
+    });
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("loader");
+    expect(line).toContain('"boom"');
+    expect(line).toContain("/boom");
+    expect(line).toContain("loader exploded");
+    // The overlay already prints the stack for a document navigation.
+    expect(line).not.toContain("\n");
+  });
+
+  // A client-side navigation fetches route state; the browser shows its own
+  // error and the terminal is the only place the developer can see the cause.
+  it("logs a route-state failure that never reaches the overlay", async () => {
+    const state = await render(
+      {
+        loader: () => {
+          throw new Error("state exploded");
+        },
+        Component: () => null,
+      },
+      {
+        request: {
+          headers: {
+            accept: "application/json",
+            host: "localhost",
+            "x-pracht-route-state-request": "1",
+          },
+          method: "GET",
+          url: "/boom",
+        } as unknown as IncomingMessage,
+      },
+    );
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    expect((state.logger.error.mock.calls[0] as [string])[0]).toContain("state exploded");
+  });
+
+  // An app-owned ErrorBoundary renders the app's error UI, but the failure is
+  // still a server-side failure the developer needs to see.
+  it("logs exactly once when an ErrorBoundary owns the response", async () => {
+    const state = await render({
+      Component: () => {
+        throw new Error("boundary exploded");
+      },
+      ErrorBoundary: ({ error }: { error: Error }) => h("p", null, error.message),
+    });
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+  });
+
+  // `throw notFound()` without a not-found page is a routing outcome; a thrown
+  // redirect never reaches the error path at all.
+  it("stays quiet for an expected not-found", async () => {
+    const notFound = Object.assign(new Error("Not Found"), {
+      name: "PrachtHttpError",
+      status: 404,
+    });
+    const state = await render({
+      loader: () => {
+        throw notFound;
+      },
+      Component: () => null,
+    });
+
+    expect(state.logger.error).not.toHaveBeenCalled();
+  });
+
+  // The failure can arrive after the abandoned response's headers were copied
+  // across, and a surviving content-length would truncate the overlay.
+  it("drops the headers describing the response it replaces", async () => {
+    const state = await render(
+      {
+        Component: () => {
+          throw new Error("render exploded");
+        },
+      },
+      { stageHeaders: { "content-length": "5", "content-type": "application/pdf" } },
+    );
+
+    expect(state.statusCode).toBe(500);
+    expect(state.headers["content-length"]).toBeUndefined();
+    expect(state.headers["content-type"]).toContain("text/html");
+    expect(state.body).toContain("render exploded");
+  });
+
+  // A route module that will not compile fails while the virtual server module
+  // is evaluated — before any route matches — so the logger sees no route
+  // context at all. On a route-state poll there is no overlay either, which
+  // leaves this line as the only place the file is named.
+  it("names the file a compile failure blames", async () => {
+    const state = await render(
+      { Component: () => null },
+      {
+        serverModuleError: Object.assign(new Error("Unexpected token (4:2)"), {
+          id: "/tmp/pracht-overlay-test/src/routes/boom.tsx",
+          loc: { column: 2, file: "/tmp/pracht-overlay-test/src/routes/boom.tsx", line: 4 },
+        }),
+      },
+    );
+
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("src/routes/boom.tsx:4:2");
+    expect(line).toContain("Unexpected token (4:2)");
+    // Attributed, so the trace stays out of the way.
+    expect(line).not.toContain("\n");
+  });
+
+  // Vite's cors middleware runs before this one and stages its headers on the
+  // same response. Clearing them would answer a cross-origin request with a
+  // CORS failure, hiding the overlay that explains what actually broke.
+  it("keeps headers that belong to another middleware", async () => {
+    const state = await render(
+      {
+        Component: () => {
+          throw new Error("render exploded");
+        },
+      },
+      {
+        stageHeaders: {
+          "access-control-allow-origin": "https://studio.example",
+          "content-length": "5",
+        },
+      },
+    );
+
+    expect(state.headers["access-control-allow-origin"]).toBe("https://studio.example");
+    expect(state.headers["content-length"]).toBeUndefined();
+  });
+
   // `pracht dev` passes debugErrors unconditionally; the runtime ignores it
   // under NODE_ENV=production and so must the overlay, or dev in a container
   // that exports it would print the internals the body just withheld.
@@ -181,5 +384,138 @@ describe("dev SSR error overlay", () => {
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("dev API error reporting", () => {
+  it("logs thrown API handlers with their phase and route file", async () => {
+    const state = await render(
+      { Component: () => null },
+      {
+        apiModule: {
+          GET: () => {
+            throw new Error("API handler exploded");
+          },
+        },
+      },
+    );
+
+    expect(state.statusCode).toBe(500);
+    expect(state.headers["content-type"]).toContain("application/json");
+    expect(state.body).not.toContain("pracht error");
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("[pracht] api error");
+    expect(line).toContain("/src/api/boom.ts");
+    expect(line).toContain("/api/boom");
+    expect(line).toContain("API handler exploded");
+  });
+
+  it("logs API middleware failures with their phase and middleware file", async () => {
+    const state = await render(
+      { Component: () => null },
+      {
+        apiMiddlewareModule: {
+          middleware: async (_args: unknown, next: () => Promise<Response>) => {
+            await next();
+            throw new Error("API middleware exploded");
+          },
+        },
+        apiModule: { GET: () => Response.json({ ok: true }) },
+      },
+    );
+
+    expect(state.statusCode).toBe(500);
+    expect(state.logger.error).toHaveBeenCalledTimes(1);
+    const [line] = state.logger.error.mock.calls[0] as [string];
+    expect(line).toContain("[pracht] middleware error");
+    expect(line).toContain("./middleware/api-auth.ts");
+    expect(line).toContain("API middleware exploded");
+  });
+});
+
+/**
+ * The terminal line carries the stack only when the failure names no user
+ * module. A route module that failed to compile, or a loader that threw, is
+ * already located by the message and the overlay; repeating its trace on every
+ * route-state poll buries everything else.
+ */
+describe("dev error stack attribution", () => {
+  const root = "/work/app";
+
+  function frameworkError() {
+    const error = new Error("module runner disconnected");
+    error.stack = [
+      "Error: module runner disconnected",
+      "    at ModuleRunner.import (/work/app/node_modules/vite/dist/node/runner.js:12:3)",
+      "    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)",
+    ].join("\n");
+    return error;
+  }
+
+  function userSyntaxError() {
+    // Vite and Rollup annotate a transform failure with the module it could
+    // not compile; the error itself escapes before any route matched, so it
+    // reaches the logger with no route context at all.
+    const error = Object.assign(new Error("Unexpected token (4:2)"), {
+      id: "/work/app/src/routes/home.tsx",
+    });
+    error.stack = [
+      "Error: Unexpected token (4:2)",
+      "    at parse (/work/app/node_modules/rollup/dist/es/shared/parseAst.js:24:1)",
+    ].join("\n");
+    return error;
+  }
+
+  it("keeps the stack for a failure that names no user module", () => {
+    expect(shouldIncludeDevErrorStack({ error: frameworkError(), root })).toBe(true);
+  });
+
+  it("omits the stack for a route module the developer can already find", () => {
+    expect(shouldIncludeDevErrorStack({ error: userSyntaxError(), root })).toBe(false);
+    expect(
+      shouldIncludeDevErrorStack({
+        context: { phase: "loader", routeFile: "./routes/home.tsx" },
+        error: new Error("loader exploded"),
+        root,
+      }),
+    ).toBe(false);
+  });
+
+  it("attributes a failure whose stack points into project source", () => {
+    const error = new Error("boom");
+    error.stack = ["Error: boom", "    at loader (/work/app/src/server/data.ts:3:9)"].join("\n");
+    expect(shouldIncludeDevErrorStack({ error, root })).toBe(false);
+
+    const devUrlError = new Error("boom");
+    devUrlError.stack = ["Error: boom", "    at Module (/src/routes/home.tsx:2:1)"].join("\n");
+    expect(shouldIncludeDevErrorStack({ error: devUrlError, root })).toBe(false);
+  });
+
+  it("opts everything back in under DEBUG", () => {
+    expect(shouldIncludeDevErrorStack({ debug: true, error: userSyntaxError(), root })).toBe(true);
+  });
+
+  // Suppressing the stack only helps if the line that replaces it says where to
+  // look. A compile failure carries no route context, so on a route-state poll
+  // — which has no overlay — this is the developer's only pointer.
+  it("names the blamed module, relative to the project root", () => {
+    const error = Object.assign(new Error("Unexpected token"), {
+      id: "/work/app/src/routes/home.tsx",
+      loc: { column: 2, file: "/work/app/src/routes/home.tsx", line: 4 },
+    });
+
+    expect(describeAnnotatedUserModule(error, root)).toBe("src/routes/home.tsx:4:2");
+  });
+
+  it("falls back to the file alone, and to nothing outside the project", () => {
+    expect(describeAnnotatedUserModule(userSyntaxError(), root)).toBe("src/routes/home.tsx");
+    expect(describeAnnotatedUserModule(frameworkError(), root)).toBeUndefined();
+    expect(
+      describeAnnotatedUserModule(
+        Object.assign(new Error("boom"), { id: "/work/app/node_modules/vite/dist/x.js" }),
+        root,
+      ),
+    ).toBeUndefined();
   });
 });

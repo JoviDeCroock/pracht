@@ -19,11 +19,13 @@ inner middleware — using a `next()` function. Modules live in
 ```ts [src/middleware/auth.ts]
 import { redirect, type MiddlewareFn } from "@pracht/core";
 
+import { sessions } from "../server/session.ts";
+
 export const middleware: MiddlewareFn = async ({ request }, next) => {
-  const session = await getSession(request);
+  const session = await sessions().getSession(request);
 
   // Short-circuit: return without calling next()
-  if (!session) {
+  if (!session.has("userId")) {
     return redirect("/login", { request });
   }
 
@@ -31,6 +33,10 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
   return next();
 };
 ```
+
+[`@pracht/session`](/docs/recipes/auth) ships this as `requireSession(storage)`,
+along with the wrap-around half that commits the session cookie onto whatever
+response the chain produces.
 
 Calling `await next()` runs the rest of the request and resolves to the final
 `Response`. That means middleware can wrap try/catch/finally around the whole
@@ -122,15 +128,18 @@ The `context` object is shared by reference — there's no merge step.
 
 ## Without a Manifest (Higher-Order Functions)
 
-When using the **pages router** (or any setup without `routes.ts`), there is no manifest to register middleware in. Instead, wrap API handlers with plain higher-order functions:
+When using the **pages router** with a serverful adapter, page routes get middleware through a root-level [`_middleware.ts`](/docs/routing#middleware-via-middlewarets) file — the same `MiddlewareFn` contract, applied to every page route. Pure static exports have no request runtime and cannot use middleware. API routes are not wrapped by it (matching the manifest's independent-by-default behavior). To guard API handlers in pages mode — or per-handler in any mode — wrap them with plain higher-order functions:
 
 ```ts [src/lib/with-auth.ts]
 import type { ApiRouteArgs, ApiRouteHandler } from "@pracht/core";
 
+import { sessions } from "../server/session.ts";
+
 export function withAuth(handler: ApiRouteHandler): ApiRouteHandler {
   return async (args: ApiRouteArgs) => {
-    const session = args.request.headers.get("cookie")?.includes("session=");
-    if (!session) {
+    // The presence of a `session=` cookie proves nothing — it has to open.
+    const session = await sessions().getSession(args.request);
+    if (!session.has("userId")) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     return handler(args);

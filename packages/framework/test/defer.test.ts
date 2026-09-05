@@ -562,3 +562,25 @@ describe("streaming wire metadata", () => {
     }
   });
 });
+
+it("reads queued hydration data synchronously and preserves its first settlement", () => {
+  const globals = globalThis as { window?: unknown };
+  const previous = globals.window;
+  globals.window = {
+    __PRACHT_DEFER__: {
+      q: [
+        ["already-settled", "ready", 0],
+        ["already-settled", "ignored", 0],
+      ],
+    },
+  };
+  try {
+    const data = rehydrateDeferredData({ value: null }, [
+      { id: "already-settled", path: ["value"] },
+    ]);
+    expect(use(data.value)).toBe("ready");
+  } finally {
+    if (previous === undefined) delete globals.window;
+    else globals.window = previous;
+  }
+});

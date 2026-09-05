@@ -25,7 +25,7 @@ yarn create pracht my-app
 bunx create-pracht my-app
 ```
 
-The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, or Vercel), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. Adapters can be changed later in `vite.config.ts`. Moving from pages routing to manifest routing is an explicit ejection step because named shells, route middleware, capabilities, constraints, and runtime agent configuration live in the manifest; see [Pages Router](/docs/routing#pages-router-auto-discovery).
+The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static export), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. Adapters can be changed later in `vite.config.ts`. Moving from pages routing to manifest routing is an explicit ejection step when you need per-route shell or middleware assignment, explicit route ids, path-prefix groups, or webhook ISG policies; see [Pages Router](/docs/routing#pages-router-auto-discovery).
 
 For reproducible setup in CI, demos, or agents, pass the same choices as flags:
 
@@ -40,7 +40,7 @@ Useful creation flags:
 - `--adapter=node|cf|vercel` chooses the deployment target.
 - `--router=manifest|pages` chooses explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, and `--no-tailwind` control styling setup.
-- `--agent-tools` and `--no-agent-tools` control `.claude/skills/`, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` setup.
+- `--agent-tools[=core|full]` and `--no-agent-tools` control `.claude/skills/`, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` setup.
 - `--skip-install`, `--no-git`, `--json`, and `--dry-run` are handy for automation.
 
 ---
@@ -97,14 +97,71 @@ Open `http://localhost:3000` to see your app. Edit `src/routes/home.tsx` and wat
 pnpm build
 ```
 
-For Node.js targets, run the generated server with:
+The build writes `dist/client/` (static assets and prerendered SSG pages) and
+`dist/server/` (the server bundle in whatever shape the adapter needs). For a
+Node.js target you can run it straight away:
 
 ```sh
 node dist/server/server.js
 ```
 
-For Cloudflare and Vercel targets, deploy the generated output with the
-platform tooling.
+---
+
+## Deploy
+
+The scaffold already contains the platform config and a `deploy` script for the
+adapter you chose, so getting a public URL is one command.
+
+### Cloudflare Workers — the shortest path
+
+Scaffold with the Cloudflare adapter and you get a `wrangler.jsonc` and
+`wrangler` as a dev dependency, already installed. Nothing else to write:
+
+```sh
+pnpm create pracht my-app --adapter=cf --yes
+cd my-app
+pnpm run deploy
+```
+
+That script is `pracht build && wrangler deploy`. The first run opens a browser
+to authorize Wrangler against your Cloudflare account (or set
+`CLOUDFLARE_API_TOKEN` in CI instead), then prints the live URL —
+`https://my-app.<your-subdomain>.workers.dev`. Redeploy with the same command.
+
+> [!NOTE]
+> Use `pnpm run deploy`, not `pnpm deploy`: pnpm has a built-in `deploy`
+> command of its own that would run instead of the script.
+
+Static assets are served from `dist/client` through the Worker's `ASSETS`
+binding, and the Worker itself handles SSR, API routes, and ISG. Add KV, D1, R2,
+or cron triggers by editing `wrangler.jsonc`; bindings arrive as `context.env`
+in loaders and API routes.
+
+For a production-shaped local run first, `pracht preview` delegates to Wrangler
+and serves the built app on `localhost`.
+
+### Vercel
+
+Equally short, with one extra interaction — the first deploy asks which Vercel
+project to link the directory to:
+
+```sh
+pnpm create pracht my-app --adapter=vercel --yes
+cd my-app
+pnpm run deploy
+```
+
+That script is `pracht build && vercel deploy --prebuilt`. `pracht build`
+already emits Vercel's Build Output API structure, which is what `--prebuilt`
+consumes — SSG pages as static files, SSR and API routes on an Edge Function,
+ISG routes on Vercel's native ISR.
+
+### Everything else
+
+Node.js (including Docker), Netlify, and pure static hosts are each one adapter
+swap in `vite.config.ts`. See [Deployment](/docs/deployment) for the per-platform
+commands, ISG behaviour, and deploy-base handling, and
+[Adapters](/docs/adapters) for what each adapter emits.
 
 ---
 
@@ -113,4 +170,5 @@ platform tooling.
 - **Route manifest** — `src/routes.ts` declares all routes, their shells, middleware, and render modes. See [Routing](/docs/routing).
 - **Render modes** — each route can be SSR, SSG, ISG, or SPA. See [Rendering Modes](/docs/rendering).
 - **Loaders & API routes** — server-side data fetching and mutations. See [Data Loading](/docs/data-loading).
-- **Adapters** — deploy to Node.js, Cloudflare, or Vercel. See [Adapters](/docs/adapters).
+- **Adapters** — deploy to Node.js, Cloudflare Workers, Netlify, Vercel, or a static host. See [Adapters](/docs/adapters).
+- **Capabilities** — typed operations your app exposes to agents as well as to its own UI. See [The Agentic Web](/docs/agents).

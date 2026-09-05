@@ -130,6 +130,8 @@ Programmatic navigations can still opt out when a route change should commit
 immediately:
 
 ```ts
+import { useNavigate } from "@pracht/core";
+
 const navigate = useNavigate();
 
 await navigate("/settings", { viewTransition: false });
@@ -142,6 +144,7 @@ await navigate("/settings", { viewTransition: false });
 For shared-element style transitions, give the matching elements on both
 routes the same `view-transition-name`.
 
+<!-- snippet: partial -->
 ```tsx [src/routes/gallery.tsx]
 <Link route="photo" params={{ id: photo.id }} viewTransition>
   <img
@@ -183,6 +186,7 @@ normal behavior.
 That means slow data still makes the user wait before the transition starts.
 Use prefetching for destinations that should feel immediate:
 
+<!-- snippet: partial -->
 ```tsx
 <Link route="photo" params={{ id: photo.id }} prefetch="render" viewTransition>
   Open photo

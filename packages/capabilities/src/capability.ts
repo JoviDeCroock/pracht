@@ -1,5 +1,6 @@
 import {
   isValidCapabilityHttpPath,
+  isValidCapabilityName,
   type CapabilityErrorCode,
   type PrachtAgentIdentity,
 } from "./protocol.ts";
@@ -94,6 +95,18 @@ export interface CapabilityDefinition<
   TOutput = unknown,
   TContext = CapabilityContext,
 > {
+  /**
+   * The registered capability name (`"notes.search"`).
+   *
+   * Manifest apps take the name from the `capabilities` registry key and leave
+   * this unset. Pages-router apps have no registry, so the module declares its
+   * own name here; without it the name is the file stem
+   * (`capabilities/notes-search.ts` → `notes-search`). The declared name must
+   * match its file stem with dots written as hyphens — the same mapping
+   * `pracht generate capability` uses — so the file a name resolves to stays
+   * readable from the name alone.
+   */
+  name?: string;
   title: string;
   description: string;
   /** JSON Schema (supported subset) for the capability input. */
@@ -256,6 +269,12 @@ function assertDefinition(definition: CapabilityDefinition<never, unknown, never
   }
   if (typeof definition.run !== "function") {
     throw new Error(`defineCapability("${label}"): "run" must be a function.`);
+  }
+  if (definition.name !== undefined && !isValidCapabilityName(definition.name)) {
+    throw new Error(
+      `defineCapability("${label}"): "name" must be dot-separated segments of letters, ` +
+        'numbers, hyphens, and underscores — for example "notes.search".',
+    );
   }
 
   for (const field of ["input", "output"] as const) {

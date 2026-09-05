@@ -33,8 +33,11 @@
   "type": "module",
   "exports": {
     ".": {
+      "browser": {
+        "types": "./dist/browser.d.mts",
+        "default": "./dist/browser.mjs"
+      },
       "types": "./dist/index.d.mts",
-      "browser": "./dist/browser.mjs",
       "default": "./dist/index.mjs"
     },
     "./browser": {
@@ -84,6 +87,9 @@
       "default": "./dist/devtools.mjs"
     }
   },
+  "engines": {
+    "node": ">=22.18"
+  },
   "publishConfig": {
     "provenance": true
   },
@@ -97,6 +103,10 @@
   },
   "peerDependencies": {
     "preact": "^10.0.0 || ^11.0.0-0",
+    "preact-render-to-string": "^6.7.0"
+  },
+  "devDependencies": {
+    "preact": "11.0.0-rc.1",
     "preact-render-to-string": "^6.7.0"
   }
 }

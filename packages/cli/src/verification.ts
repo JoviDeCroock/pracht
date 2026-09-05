@@ -88,11 +88,13 @@ export async function runVerification(
     collectPagesVerification(project, checks, { changedFiles: frameworkFiles, scope });
   } else {
     collectManifestVerification(project, checks, { changedFiles: frameworkFiles, scope });
-    // Capability contracts are cheap to verify statically and security
-    // relevant, so they are always checked in manifest mode (no-op for apps
-    // without a `capabilities` registry).
-    collectCapabilityChecks(project, checks);
   }
+
+  // Capability contracts are cheap to verify statically and security relevant,
+  // so they are always checked — in pages mode against the same facts the
+  // generated manifest is built from. No-op for apps with no capabilities and
+  // no agent config.
+  collectCapabilityChecks(project, checks);
 
   collectApiVerification(project, checks, { changedFiles: frameworkFiles, scope });
   collectEnvLeakVerification(project, checks, { scope });

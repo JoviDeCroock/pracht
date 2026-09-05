@@ -182,6 +182,66 @@ export function buildPathFromSegments(
   return normalizeRoutePath("/" + parts.join("/"));
 }
 
+interface CompiledHrefRoute {
+  segments: readonly RouteSegment[];
+  parameterNames: readonly string[];
+  parameterNameSet?: ReadonlySet<string>;
+  staticPath?: string;
+}
+
+interface CompiledHrefRoutes {
+  byId: ReadonlyMap<string, CompiledHrefRoute>;
+  registeredIds: readonly string[];
+}
+
+// The browser's route table is small enough that retaining the straightforward
+// resolver costs fewer shipped bytes. Server bundles compile instead: the
+// table is shared across requests, where link-heavy renders make repeated
+// scans and path intermediates expensive. Plain Node (tests and custom SSR)
+// has no import.meta.env, so it takes the server path too.
+const COMPILE_HREF_ROUTES = import.meta.env?.SSR !== false;
+let compiledHrefRouteTables:
+  | WeakMap<readonly HrefRouteDefinition[], CompiledHrefRoutes>
+  | undefined;
+
+function getCompiledHrefRoutes(routes: readonly HrefRouteDefinition[]): CompiledHrefRoutes {
+  const cache = (compiledHrefRouteTables ??= new WeakMap());
+  const cached = cache.get(routes);
+  if (cached) return cached;
+
+  const byId = new Map<string, CompiledHrefRoute>();
+  const registeredIds: string[] = [];
+
+  for (const route of routes) {
+    const id = route.id;
+    if (id === undefined) continue;
+    if (id) registeredIds.push(id);
+    // Preserve Array.find()'s first-match behavior for a malformed table with
+    // duplicate ids. Manifest validation normally rejects this earlier.
+    if (byId.has(id)) continue;
+
+    const segments = route.segments ?? parseRouteSegments(route.path);
+    const parameterNames: string[] = [];
+    for (const segment of segments) {
+      if (segment.type !== "static") parameterNames.push(segment.name);
+    }
+
+    byId.set(id, {
+      segments,
+      parameterNames,
+      parameterNameSet: parameterNames.length > 0 ? new Set(parameterNames) : undefined,
+      // Every caller hands this path to a browser, so it carries the deploy
+      // base. Dynamic paths are based after their parameters are substituted.
+      staticPath:
+        parameterNames.length === 0 ? withBase(buildPathFromSegments(segments, {})) : undefined,
+    });
+  }
+
+  const compiled = { byId, registeredIds };
+  cache.set(routes, compiled);
+  return compiled;
+}
+
 export function buildHref<TRoute extends RouteId>(
   routes: readonly HrefRouteDefinition[],
   routeId: TRoute,
@@ -196,6 +256,10 @@ export function buildHrefUntyped(
   routeId: string,
   options: Omit<UntypedRouteTarget, "route"> = {},
 ): string {
+  if (COMPILE_HREF_ROUTES) {
+    return buildCompiledHref(routes, routeId, options.params, options.search, options.hash);
+  }
+
   const route = routes.find((candidate) => candidate.id === routeId);
   if (!route) {
     // The rich "did you mean" error only exists where import.meta.env.DEV is
@@ -221,6 +285,87 @@ export function buildHrefUntyped(
   // paths use `buildPathFromSegments` directly and stay base-free.
   const path = withBase(buildPathFromSegments(segments, params));
   return `${path}${serializeSearch(options.search as SearchParamsInput | undefined)}${serializeHash(options.hash)}`;
+}
+
+function buildCompiledHref(
+  routes: readonly HrefRouteDefinition[],
+  routeId: string,
+  params: Record<string, unknown> | undefined,
+  search: unknown,
+  hash: string | undefined,
+): string {
+  const compiledRoutes = getCompiledHrefRoutes(routes);
+  const route = compiledRoutes.byId.get(routeId);
+  if (!route) throwUnknownRoute(routeId, compiledRoutes.registeredIds);
+  validateCompiledHrefParams(route, params);
+  const path = route.staticPath ?? withBase(buildCompiledHrefPath(route.segments, params!));
+  const searchSuffix = serializeSearch(search as SearchParamsInput | undefined);
+  const hashSuffix = serializeHash(hash);
+  return searchSuffix || hashSuffix ? `${path}${searchSuffix}${hashSuffix}` : path;
+}
+
+function throwUnknownRoute(routeId: string, registeredIds: readonly string[]): never {
+  // The rich "did you mean" error only exists where import.meta.env.DEV is
+  // not statically false (dev server, tests, Node CLI); production builds
+  // constant-fold the guard and tree-shake the error formatting away.
+  if (import.meta.env?.DEV !== false) {
+    throw new Error(
+      formatUnknownNameError({
+        kind: "pracht route id",
+        kindPlural: "route ids",
+        name: routeId,
+        registered: registeredIds,
+      }),
+    );
+  }
+  throw new Error(`Unknown pracht route id "${routeId}".`);
+}
+
+function validateCompiledHrefParams(
+  route: CompiledHrefRoute,
+  params: Record<string, unknown> | undefined,
+): void {
+  for (const name of route.parameterNames) {
+    if (params?.[name] == null) throw new Error(`Missing route param: ${name}.`);
+  }
+
+  if (!params) return;
+  for (const name in params) {
+    if (Object.prototype.hasOwnProperty.call(params, name) && !route.parameterNameSet?.has(name)) {
+      throw new Error(`Unexpected route param: ${name}.`);
+    }
+  }
+}
+
+function buildCompiledHrefPath(
+  segments: readonly RouteSegment[],
+  params: Readonly<Record<string, unknown>>,
+): string {
+  let path = "";
+  for (const segment of segments) {
+    if (segment.type === "static") {
+      path = appendCompiledPathPart(path, segment.value);
+      continue;
+    }
+
+    const raw = String(params[segment.name]);
+    if (segment.type === "param") {
+      path = appendCompiledPathPart(path, encodeDynamicPathSegment(raw));
+      continue;
+    }
+
+    let partStart = 0;
+    for (let index = 0; index <= raw.length; index += 1) {
+      if (index !== raw.length && raw.charCodeAt(index) !== 47) continue;
+      path = appendCompiledPathPart(path, encodeDynamicPathSegment(raw.slice(partStart, index)));
+      partStart = index + 1;
+    }
+  }
+  return path || "/";
+}
+
+function appendCompiledPathPart(path: string, part: string): string {
+  return part ? `${path}/${part}` : path;
 }
 
 export function normalizeHrefParams(

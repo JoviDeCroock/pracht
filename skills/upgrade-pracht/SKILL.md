@@ -1,6 +1,6 @@
 ---
 name: upgrade-pracht
-version: 1.0.2
+version: 1.1.0
 description: |
   Upgrade the `@pracht/*` packages safely: inventory installed versions, read the
   changelogs between installed and target, map breaking changes to real usage,
@@ -30,11 +30,15 @@ List every installed pracht package and its resolved version:
 pnpm list --depth 1 --json | grep -A2 '@pracht/'   # or read package.json + lockfile
 ```
 
-The family: `@pracht/core`, `@pracht/cli`, `@pracht/vite-plugin`,
-`@pracht/adapter-node`, `@pracht/adapter-cloudflare`, `@pracht/adapter-vercel`,
-`@pracht/preact-ssr-precompile`, `@pracht/content`, `@pracht/markdown`,
-`@pracht/image`. Get the latest published versions with
-`npm view <pkg> version`.
+The family, in full: `@pracht/core`, `@pracht/cli`, `@pracht/vite-plugin`,
+`@pracht/adapter-node`, `@pracht/adapter-cloudflare`,
+`@pracht/adapter-netlify`, `@pracht/adapter-vercel`,
+`@pracht/adapter-static`, `@pracht/preact-ssr-precompile`,
+`@pracht/capabilities`, `@pracht/content`, `@pracht/markdown`,
+`@pracht/openapi`, `@pracht/image`, `@pracht/i18n`, `@pracht/session`,
+`@pracht/test`, plus the `create-pracht` scaffolder (which is not a runtime
+dependency and does not need to move with the rest). Get the latest published
+versions with `npm view <pkg> version`.
 
 ## Step 2: Understand the versioning model
 
@@ -73,11 +77,17 @@ https://raw.githubusercontent.com/JoviDeCroock/pracht/main/packages/<dir>/CHANGE
 | `@pracht/core` | `packages/framework` |
 | `@pracht/cli` | `packages/cli` |
 | `@pracht/vite-plugin` | `packages/vite-plugin` |
-| `@pracht/adapter-node` / `-cloudflare` / `-vercel` | `packages/adapter-*` |
+| `@pracht/adapter-node` / `-cloudflare` / `-netlify` / `-vercel` / `-static` | `packages/adapter-*` |
 | `@pracht/preact-ssr-precompile` | `packages/preact-ssr-precompile` |
+| `@pracht/capabilities` | `packages/capabilities` |
 | `@pracht/content` | `packages/content` |
 | `@pracht/markdown` | `packages/markdown` |
+| `@pracht/openapi` | `packages/openapi` |
 | `@pracht/image` | `packages/image` |
+| `@pracht/i18n` | `packages/i18n` |
+| `@pracht/session` | `packages/session` |
+| `@pracht/test` | `packages/test` |
+| `create-pracht` | `packages/start` |
 
 Changelogs are changesets-generated: `## X.Y.Z` sections containing
 `### Major Changes` / `### Minor Changes` / `### Patch Changes`. Read every

@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import {
   mkdtempSync,
   mkdirSync,
@@ -20,8 +21,10 @@ import {
   pracht,
 } from "../src/index.ts";
 import { stripServerOnlyExportsForClient } from "../src/client-module-transform.ts";
+import { GENERATED_PAGES_LAYOUT_EXPORT } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
+const require = createRequire(import.meta.url);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 function makeTempProject(): string {
@@ -40,7 +43,17 @@ const MANIFEST_PLUGIN_OPTIONS = { appFile: "/src/routes.ts" } as const;
  */
 function writeCapabilityManifestProject(
   root: string,
-  { capabilityPath = "./capabilities/notes-search.ts" } = {},
+  {
+    capabilityKey = '"notes.search"',
+    capabilityPath = "./capabilities/notes-search.ts",
+    registryAuxiliarySource,
+    registryTypeUse,
+  }: {
+    capabilityKey?: string;
+    capabilityPath?: string;
+    registryAuxiliarySource?: string;
+    registryTypeUse?: string;
+  } = {},
 ): void {
   mkdirSync(join(root, "src", "routes"), { recursive: true });
   mkdirSync(join(root, "src", "capabilities"), { recursive: true });
@@ -69,14 +82,23 @@ export default defineCapability({
 });
 `,
   );
+  const registrySource = `{
+    ${capabilityKey}: () => import(${JSON.stringify(capabilityPath)}),
+  }`;
+  const registryDeclaration =
+    registryTypeUse || registryAuxiliarySource
+      ? `const capabilities = ${registrySource};\n${registryAuxiliarySource ?? ""}\n${registryTypeUse ?? ""}\n`
+      : "";
+  const registryValue =
+    registryTypeUse || registryAuxiliarySource ? "capabilities" : registrySource;
+
   writeFileSync(
     join(root, "src", "routes.ts"),
     `import { defineApp, route } from "@pracht/core";
 
+${registryDeclaration}
 export const app = defineApp({
-  capabilities: {
-    "notes.search": () => import(${JSON.stringify(capabilityPath)}),
-  },
+  capabilities: ${registryValue},
   routes: [route("/", () => import("./routes/home.tsx"), { id: "home" })],
 });
 `,
@@ -122,29 +144,23 @@ async function buildTempProject(
         },
         {
           find: "preact/jsx-dev-runtime",
-          replacement: resolve(
-            repoRoot,
-            "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
-          ),
+          replacement: require.resolve("preact/jsx-dev-runtime"),
         },
         {
           find: "preact/jsx-runtime",
-          replacement: resolve(
-            repoRoot,
-            "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
-          ),
+          replacement: require.resolve("preact/jsx-runtime"),
         },
         {
           find: "preact/hooks",
-          replacement: resolve(repoRoot, "node_modules/preact/hooks/dist/hooks.module.js"),
+          replacement: require.resolve("preact/hooks"),
         },
         {
           find: "preact/devtools",
-          replacement: resolve(repoRoot, "node_modules/preact/devtools/dist/devtools.module.js"),
+          replacement: require.resolve("preact/devtools"),
         },
         {
           find: "preact/debug",
-          replacement: resolve(repoRoot, "node_modules/preact/debug/dist/debug.module.js"),
+          replacement: require.resolve("preact/debug"),
         },
         { find: "preact", replacement: resolve(repoRoot, "node_modules/preact/dist/preact.mjs") },
       ],
@@ -200,6 +216,69 @@ export default function Home() {
     expect(transformed).not.toContain(": LoaderArgs");
     expect(transformed).toContain("../shared");
     expect(transformed).toContain("function Home");
+  });
+
+  it("removes pages middleware and imports used only by it", () => {
+    const source = `
+import { serverSecret } from "../server-secret";
+
+export const middleware = async (_args, next) => {
+  const response = await next();
+  response.headers.set("x-secret", serverSecret);
+  return response;
+};
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "src/pages/_middleware.ts", {
+      middleware: true,
+    });
+
+    expect(transformed).not.toContain("../server-secret");
+    expect(transformed).not.toContain("middleware");
+    expect(transformed).not.toContain("x-secret");
+  });
+
+  it("removes pages middleware star re-exports", () => {
+    const source = 'export * from "./_server/auth.ts";\n';
+
+    expect(
+      stripServerOnlyExportsForClient(source, "/src/pages/_middleware.ts", {
+        middleware: true,
+      }),
+    ).toBe("\n");
+  });
+
+  it("removes every runtime effect from a dedicated pages middleware module", () => {
+    const source = `import "./_server/bootstrap.ts";
+const secret = "TOP_LEVEL_MIDDLEWARE_SECRET";
+globalThis.__middlewareLeak = secret;
+export default secret;
+export const middleware = async (_args, next) => next();
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "/src/pages/_middleware.ts", {
+      middleware: true,
+    });
+
+    expect(transformed).not.toContain("bootstrap");
+    expect(transformed).not.toContain("TOP_LEVEL_MIDDLEWARE_SECRET");
+    expect(transformed).not.toContain("__middlewareLeak");
+    expect(transformed).not.toContain("export default");
+  });
+
+  it("preserves an ordinary client export named middleware in route modules", () => {
+    const source = `
+export const middleware = "CLIENT_MIDDLEWARE_LABEL";
+
+export default function Home() {
+  return <main>{middleware}</main>;
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source);
+
+    expect(transformed).toContain('middleware = "CLIENT_MIDDLEWARE_LABEL"');
+    expect(transformed).toContain("<main>{middleware}</main>");
   });
 
   it("does not strip export declarations that appear inside string/template literals", () => {
@@ -635,6 +714,248 @@ describe("client route module build", () => {
     expect(source).toContain('"/src/shells/app.custom":true');
   });
 
+  it("keeps ejected pages middleware out of the client bundle", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages", "_server"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `import { defineApp, group, route } from "@pracht/core";
+
+export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
+
+const pages = () => import("./pages/_middleware.ts");
+const pagesRegistry = { ["pages"]: pages };
+
+export const app = defineApp({
+  shells: { pages: () => import("./pages/_app.tsx") },
+  middleware: { ...pagesRegistry },
+  routes: [
+    group({ shell: "pages", middleware: ["pages"] }, [
+      route("/", () => import("./pages/index.tsx")),
+    ]),
+  ],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return <main>EJECTED_PAGE_COMPONENT</main>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsx"),
+      [
+        'export function head() { return { title: "EJECTED_SERVER_HEAD" }; }',
+        "export function Shell({ children }) { return <div>{children}</div>; }",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_middleware.ts"),
+      'export { middleware } from "./_server/auth.ts";\n',
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_server", "auth.ts"),
+      [
+        'const serverSecret = "EJECTED_MIDDLEWARE_SERVER_SECRET";',
+        "export const middleware = async (_args, next) => {",
+        "  const response = await next();",
+        '  response.headers.set("x-secret", serverSecret);',
+        "  return response;",
+        "};",
+        "",
+      ].join("\n"),
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    });
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("EJECTED_PAGE_COMPONENT");
+    expect(output).not.toContain("EJECTED_MIDDLEWARE_SERVER_SECRET");
+    expect(output).not.toContain("EJECTED_SERVER_HEAD");
+    expect(output).not.toContain("x-secret");
+    expect(readdirSync(join(root, "dist", "assets"))).not.toContainEqual(
+      expect.stringMatching(/^(?:_middleware|auth)-/),
+    );
+  });
+
+  it("strips moved ejected pages middleware from direct client imports", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    mkdirSync(join(root, "src", "middleware", "_server"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `// Auto-generated from pages/ directory by @pracht/vite-plugin.
+export const ${GENERATED_PAGES_LAYOUT_EXPORT} = true;
+import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: { pages: () => import("./middleware/_middleware.ts") },
+  routes: [
+    route("/", () => import("./pages/index.tsx"), { middleware: ["pages"] }),
+  ],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      `import "../middleware/_middleware.ts";
+
+export function Component() {
+  return <main>MOVED_EJECTED_PAGE_COMPONENT</main>;
+}
+`,
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_middleware.ts"),
+      `import "./_server/bootstrap.ts";
+const rootSecret = "MOVED_EJECTED_ROOT_SECRET";
+globalThis.__MOVED_ROOT_MIDDLEWARE_LEAK__ = rootSecret;
+export default rootSecret;
+export * from "./_server/auth.ts";
+`,
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_server", "bootstrap.ts"),
+      `globalThis.__MOVED_BOOTSTRAP_LEAK__ = "MOVED_EJECTED_BOOTSTRAP_SECRET";\n`,
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_server", "auth.ts"),
+      `globalThis.__MOVED_MIDDLEWARE_LEAK__ = "MOVED_EJECTED_MIDDLEWARE_SECRET";
+export const middleware = async (_args, next) => next();
+`,
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/shells",
+      middlewareDir: "/src/middleware",
+    });
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("MOVED_EJECTED_PAGE_COMPONENT");
+    expect(output).not.toContain("MOVED_EJECTED_MIDDLEWARE_SECRET");
+    expect(output).not.toContain("__MOVED_MIDDLEWARE_LEAK__");
+    expect(output).not.toContain("MOVED_EJECTED_ROOT_SECRET");
+    expect(output).not.toContain("__MOVED_ROOT_MIDDLEWARE_LEAK__");
+    expect(output).not.toContain("MOVED_EJECTED_BOOTSTRAP_SECRET");
+    expect(output).not.toContain("__MOVED_BOOTSTRAP_LEAK__");
+  });
+
+  it("keeps _middleware routes in ordinary co-located manifest directories", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "modules"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: { pages: () => import("./modules/_middleware.tsx") },
+  routes: [
+    route("/", () => import("./modules/_middleware.tsx"), { middleware: ["pages"] }),
+  ],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "modules", "_middleware.tsx"),
+      [
+        'export const middleware = () => "COLOCATED_MIDDLEWARE_EXPORT";',
+        "export function Component() { return <main>{middleware()}</main>; }",
+        "",
+      ].join("\n"),
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/modules",
+      shellsDir: "/src/modules",
+      middlewareDir: "/src/modules",
+    });
+
+    expect(readBuiltJs(root)).toContain("COLOCATED_MIDDLEWARE_EXPORT");
+  });
+
+  it("keeps underscore routes when conventional middleware lives separately", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "modules"), { recursive: true });
+    mkdirSync(join(root, "src", "middleware"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: { auth: () => import("./middleware/_middleware.ts") },
+  routes: [
+    route("/", () => import("./modules/_home.tsx"), { middleware: ["auth"] }),
+  ],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "modules", "_home.tsx"),
+      "export function Component() { return <main>SEPARATE_MIDDLEWARE_ROUTE</main>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "middleware", "_middleware.ts"),
+      "export const middleware = async (_args, next) => next();\n",
+    );
+
+    await buildTempProject(root, {
+      appFile: "/src/routes.ts",
+      routesDir: "/src/modules",
+      shellsDir: "/src/modules",
+      middlewareDir: "/src/middleware",
+    });
+
+    expect(readBuiltJs(root)).toContain("SEPARATE_MIDDLEWARE_ROUTE");
+  });
+
+  it("keeps pages middleware helpers out of the client bundle", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages", "_server"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return <main>PAGES_COMPONENT</main>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_middleware.ts"),
+      'export { middleware } from "./_server/auth.ts";\n',
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_server", "auth.ts"),
+      [
+        'const SERVER_SECRET = "PAGES_MIDDLEWARE_SERVER_SECRET";',
+        "export const middleware = async (_args, next) => {",
+        "  const response = await next();",
+        '  response.headers.set("x-secret", SERVER_SECRET);',
+        "  return response;",
+        "};",
+        "",
+      ].join("\n"),
+    );
+
+    await buildTempProject(root);
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("PAGES_COMPONENT");
+    expect(output).not.toContain("PAGES_MIDDLEWARE_SERVER_SECRET");
+    expect(output).not.toContain("x-secret");
+    expect(readdirSync(join(root, "dist", "assets"))).not.toContainEqual(
+      expect.stringMatching(/^(?:_middleware|auth)-/),
+    );
+  });
+
   it("fails the build when client code imports a capability module directly", async () => {
     // Nothing strips a capability module the way a route loader is stripped, so
     // importing one from a component would bundle run() and everything it
@@ -657,6 +978,23 @@ export function Component() {
     await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).rejects.toThrow(
       /Capability module .* was imported by client code/,
     );
+  });
+
+  it("skips the capability import guard when a registry entry is not statically readable", async () => {
+    const root = makeTempProject();
+    writeCapabilityManifestProject(root, { capabilityKey: '["notes.search"]' });
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `
+import capability from "../capabilities/notes-search";
+
+export function Component() {
+  return <main>{capability.title}</main>;
+}
+`,
+    );
+
+    await expect(buildTempProject(root, MANIFEST_PLUGIN_OPTIONS)).resolves.toBeUndefined();
   });
 
   it("guards capability modules registered outside the capabilities directory", async () => {

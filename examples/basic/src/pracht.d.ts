@@ -17,6 +17,12 @@ declare module "@pracht/core" {
         search: SearchParamsInput;
         data: RouteLoaderData<typeof import("./routes/notes")>;
       };
+      "login": {
+        path: "/login";
+        params: Record<never, never>;
+        search: SearchParamsInput;
+        data: RouteLoaderData<typeof import("./routes/login")>;
+      };
       "agent-tools": {
         path: "/agent-tools";
         params: Record<never, never>;
@@ -89,6 +95,16 @@ declare module "@pracht/core" {
         path: "/api/_pracht/image";
         params: Record<never, never>;
         methods: ApiRouteMethodMap<typeof import("./api/_pracht/image")>;
+      };
+      "/api/auth/login": {
+        path: "/api/auth/login";
+        params: Record<never, never>;
+        methods: ApiRouteMethodMap<typeof import("./api/auth/login")>;
+      };
+      "/api/auth/logout": {
+        path: "/api/auth/logout";
+        params: Record<never, never>;
+        methods: ApiRouteMethodMap<typeof import("./api/auth/logout")>;
       };
       "/api/dashboard": {
         path: "/api/dashboard";

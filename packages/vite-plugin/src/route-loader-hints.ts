@@ -186,7 +186,18 @@ function detectNamedExport(source: string, exportName: string, declarationRe: Re
   const parsedResult = inspectParsedModule(source, exportName);
   if (parsedResult !== undefined) return parsedResult;
 
-  const analysisSource = maskCommentsAndStrings(source);
+  return detectNamedExportInMasked(maskCommentsAndStrings(source), exportName, declarationRe);
+}
+
+/**
+ * The lexical half of `detectNamedExport()`, over already-masked source. Every
+ * hint table falls back for the same file, so the mask is computed once.
+ */
+function detectNamedExportInMasked(
+  analysisSource: string,
+  exportName: string,
+  declarationRe: RegExp,
+): boolean {
   if (
     declarationRe.test(analysisSource) ||
     variableDeclarationExports(analysisSource, exportName)
@@ -266,7 +277,18 @@ function exportedNameMatches(node: unknown, exportName: string): boolean {
   return false;
 }
 
-function inspectParsedModule(source: string, exportName: string): boolean | undefined {
+/**
+ * Which of `exportNames` the module exports, or `undefined` when no parser
+ * accepted the source (a custom route syntax such as TSRX).
+ *
+ * Every hint table asks the same question of the same file, so they share one
+ * parse: four separate `inspectParsedModule()` calls used to parse each route
+ * module four times, once per table.
+ */
+function inspectParsedModuleExports(
+  source: string,
+  exportNames: readonly string[],
+): Record<string, boolean> | undefined {
   for (const plugins of [["typescript", "jsx"], ["typescript"]] as const) {
     let body: SyntaxNode[];
     try {
@@ -279,47 +301,63 @@ function inspectParsedModule(source: string, exportName: string): boolean | unde
       continue;
     }
 
+    const found: Record<string, boolean> = {};
+    for (const exportName of exportNames) found[exportName] = false;
+
     for (const statement of body) {
       if (statement.type === "ExportAllDeclaration") {
-        if (statement.exportKind !== "type") return true;
+        // A re-export could expose any of them, so it answers for all at once.
+        if (statement.exportKind !== "type") {
+          for (const exportName of exportNames) found[exportName] = true;
+          return found;
+        }
         continue;
       }
       if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
 
-      if (
-        Array.isArray(statement.specifiers) &&
-        statement.specifiers.some(
-          (specifier) =>
-            isSyntaxNode(specifier) &&
-            specifier.exportKind !== "type" &&
-            exportedNameMatches(specifier.exported, exportName),
-        )
-      ) {
-        return true;
-      }
+      for (const exportName of exportNames) {
+        if (found[exportName]) continue;
 
-      const declaration = statement.declaration;
-      if (!isSyntaxNode(declaration)) continue;
-      if (declaration.declare === true || declaration.type.startsWith("TS")) continue;
-      if (declaration.type === "VariableDeclaration") {
         if (
-          Array.isArray(declaration.declarations) &&
-          declaration.declarations.some(
-            (declarator) =>
-              isSyntaxNode(declarator) && bindingIncludesName(declarator.id, exportName),
+          Array.isArray(statement.specifiers) &&
+          statement.specifiers.some(
+            (specifier) =>
+              isSyntaxNode(specifier) &&
+              specifier.exportKind !== "type" &&
+              exportedNameMatches(specifier.exported, exportName),
           )
         ) {
-          return true;
+          found[exportName] = true;
+          continue;
         }
-      } else if (bindingIncludesName(declaration.id, exportName)) {
-        return true;
+
+        const declaration = statement.declaration;
+        if (!isSyntaxNode(declaration)) continue;
+        if (declaration.declare === true || declaration.type.startsWith("TS")) continue;
+        if (declaration.type === "VariableDeclaration") {
+          if (
+            Array.isArray(declaration.declarations) &&
+            declaration.declarations.some(
+              (declarator) =>
+                isSyntaxNode(declarator) && bindingIncludesName(declarator.id, exportName),
+            )
+          ) {
+            found[exportName] = true;
+          }
+        } else if (bindingIncludesName(declaration.id, exportName)) {
+          found[exportName] = true;
+        }
       }
     }
 
-    return false;
+    return found;
   }
 
   return undefined;
+}
+
+function inspectParsedModule(source: string, exportName: string): boolean | undefined {
+  return inspectParsedModuleExports(source, [exportName])?.[exportName];
 }
 
 export function detectLoaderExport(source: string): boolean {
@@ -328,6 +366,11 @@ export function detectLoaderExport(source: string): boolean {
   const parsedResult = inspectParsedModule(source, "loader");
   if (parsedResult !== undefined) return parsedResult;
 
+  return detectLoaderExportWithoutParser(source);
+}
+
+/** The `loader` detection that applies once no standard parser accepted the source. */
+function detectLoaderExportWithoutParser(source: string): boolean {
   try {
     const [imports, exports] = parse(source);
     if (exports.some((entry) => entry.n === "loader")) return true;
@@ -349,24 +392,54 @@ export function detectLoaderExport(source: string): boolean {
   return detectLoaderExportFallback(source);
 }
 
-function scanRouteFiles(dir: string, files: string[], extensions: Set<string>): void {
+interface RouteFileScan {
+  files: string[];
+  /**
+   * An entry was skipped, so the table this scan feeds describes fewer files
+   * than the directory holds. Callers use it to keep forcing a client-entry
+   * reload until a clean scan replaces the table — silently dropping a subtree
+   * would leave the browser trusting hints for files nobody looked at.
+   */
+  incomplete: boolean;
+}
+
+/** `readdirSync` failing because the directory is simply absent is not a gap. */
+function isMissingDirectory(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+function scanRouteFiles(dir: string, extensions: Set<string>, scan: RouteFileScan): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
-  } catch {
+  } catch (error) {
+    // An app with no shells directory is ordinary; anything else — a
+    // permission error, a directory removed mid-scan — hides real files.
+    if (!isMissingDirectory(error)) scan.incomplete = true;
     return;
   }
 
   for (const entry of entries) {
     const abs = join(dir, entry);
-    const stat = statSync(abs);
+    // A file can be observed while its editor replaces it, and a symlink can
+    // dangle. Skipping that entry keeps the rest of the table intact — letting
+    // the throw escape used to discard every hint the scan had collected — but
+    // the skip is reported so callers know the table is partial.
+    let stat;
+    try {
+      stat = statSync(abs);
+    } catch {
+      scan.incomplete = true;
+      continue;
+    }
     if (stat.isDirectory()) {
-      scanRouteFiles(abs, files, extensions);
+      scanRouteFiles(abs, extensions, scan);
       continue;
     }
 
     if (extensions.has(extname(entry))) {
-      files.push(abs);
+      scan.files.push(abs);
     }
   }
 }
@@ -375,120 +448,137 @@ function toPosixPath(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-export function createRouteLoaderHints(
-  routesDir: string,
-  options: {
-    additionalExtensions?: readonly string[];
-    appFileDir?: string;
-    rootRelativePrefix?: string;
-  } = {},
-): Record<string, boolean> {
-  const files: string[] = [];
-  const hints: Record<string, boolean> = {};
-  const extensions = withAdditionalExtensions(
-    DEFAULT_ROUTE_EXTENSIONS,
-    normalizeAdditionalExtensions(options.additionalExtensions),
-  );
-  scanRouteFiles(routesDir, files, extensions);
+export interface RouteHintOptions {
+  additionalExtensions?: readonly string[];
+  appFileDir?: string;
+  rootRelativePrefix?: string;
+}
 
-  for (const file of files) {
-    const hasLoader = detectLoaderExport(readFileSync(file, "utf-8"));
-    const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
-    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
-    const appFileDir = options.appFileDir;
+/**
+ * Every per-route hint table, from one directory walk and one parse per file.
+ *
+ * The four tables answer the same question — which of `loader`, `head`,
+ * `headers`, and `getStaticPaths` does this module export — of exactly the same
+ * files, so computing them separately walked the tree and re-parsed every route
+ * module once per table. `handleHotUpdate` runs on every keystroke-triggered
+ * save, which is where that cost lands.
+ */
+export interface RouteHints {
+  head: Record<string, boolean>;
+  headers: Record<string, boolean>;
+  /** True when the walk skipped an entry, so these tables are partial. */
+  incomplete: boolean;
+  loader: Record<string, boolean>;
+  staticPaths: Record<string, boolean>;
+}
 
-    const keys = new Set<string>();
-    if (appFileDir) {
-      const relativeToAppFile = toPosixPath(relative(appFileDir, file));
-      keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
+const ROUTE_HINT_EXPORTS = ["loader", "head", "headers", "getStaticPaths"] as const;
+
+function analyzeRouteExports(source: string): Record<string, boolean> {
+  const parsed = inspectParsedModuleExports(source, ROUTE_HINT_EXPORTS);
+  if (parsed) return parsed;
+
+  // No standard parser accepted this module (a custom route syntax such as
+  // TSRX). Each detector keeps its own conservative fallback, over one shared
+  // mask rather than one per table.
+  const analysisSource = maskCommentsAndStrings(source);
+  return {
+    getStaticPaths: detectNamedExportInMasked(
+      analysisSource,
+      "getStaticPaths",
+      STATIC_PATHS_DECLARATION_RE,
+    ),
+    head: detectNamedExportInMasked(analysisSource, "head", HEAD_DECLARATION_RE),
+    headers: detectNamedExportInMasked(analysisSource, "headers", HEADERS_DECLARATION_RE),
+    loader: detectLoaderExportWithoutParser(source),
+  };
+}
+
+function routeHintKeys(routesDir: string, file: string, options: RouteHintOptions): Set<string> {
+  const keys = new Set<string>();
+  if (options.appFileDir) {
+    const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
+    keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
+  }
+  const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
+  if (routeRootPrefix) {
+    keys.add(`${routeRootPrefix}/${toPosixPath(relative(routesDir, file))}`);
+  }
+  return keys;
+}
+
+export function createRouteHints(routesDir: string, options: RouteHintOptions = {}): RouteHints {
+  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
+  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
+  const scan: RouteFileScan = { files: [], incomplete: false };
+  scanRouteFiles(routesDir, extensions, scan);
+
+  const hints: RouteHints = {
+    head: {},
+    headers: {},
+    incomplete: scan.incomplete,
+    loader: {},
+    staticPaths: {},
+  };
+
+  for (const file of scan.files) {
+    let source: string;
+    try {
+      source = readFileSync(file, "utf-8");
+    } catch {
+      // Same race as the stat above, one step later. Report it rather than
+      // letting one half-written file discard the whole table.
+      hints.incomplete = true;
+      continue;
     }
-    if (routeRootPrefix) {
-      keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
-    }
 
-    for (const key of keys) {
-      hints[key] = hasLoader;
+    const extension = extname(file);
+    // A companion Vite plugin may synthesize `head` or `headers` while
+    // compiling a configured format (Markdown frontmatter, for example). Raw
+    // source scanning cannot prove such a module is headless, so navigation
+    // stays conservative. `getStaticPaths` has no Markdown equivalent, so only
+    // configured extensions get that treatment.
+    const compiledFormat = extension === ".md" || extension === ".mdx";
+    const synthesizable = additionalExtensions.includes(extension);
+    const exports = analyzeRouteExports(source);
+
+    const values = {
+      head: compiledFormat || synthesizable || exports.head,
+      headers: compiledFormat || synthesizable || exports.headers,
+      loader: exports.loader,
+      staticPaths: synthesizable || exports.getStaticPaths,
+    };
+
+    for (const key of routeHintKeys(routesDir, file, options)) {
+      hints.head[key] = values.head;
+      hints.headers[key] = values.headers;
+      hints.loader[key] = values.loader;
+      hints.staticPaths[key] = values.staticPaths;
     }
   }
 
   return hints;
+}
+
+export function createRouteLoaderHints(
+  routesDir: string,
+  options: RouteHintOptions = {},
+): Record<string, boolean> {
+  return createRouteHints(routesDir, options).loader;
 }
 
 export function createRouteHeadHints(
   routesDir: string,
-  options: {
-    additionalExtensions?: readonly string[];
-    appFileDir?: string;
-    rootRelativePrefix?: string;
-  } = {},
+  options: RouteHintOptions = {},
 ): Record<string, boolean> {
-  const files: string[] = [];
-  const hints: Record<string, boolean> = {};
-  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
-  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
-  scanRouteFiles(routesDir, files, extensions);
-
-  for (const file of files) {
-    const extension = extname(file);
-    const hasHead =
-      extension === ".md" ||
-      extension === ".mdx" ||
-      // A companion Vite plugin may synthesize `head` while compiling a
-      // configured format (for example, from frontmatter). Raw-source scanning
-      // cannot prove such a module is headless, so keep navigation conservative.
-      additionalExtensions.includes(extension) ||
-      detectHeadExport(readFileSync(file, "utf-8"));
-    const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
-    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
-    const keys = new Set<string>();
-    if (options.appFileDir) {
-      const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
-      keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
-    }
-    if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
-    for (const key of keys) hints[key] = hasHead;
-  }
-
-  return hints;
+  return createRouteHints(routesDir, options).head;
 }
 
 export function createRouteHeadersHints(
   routesDir: string,
-  options: {
-    additionalExtensions?: readonly string[];
-    appFileDir?: string;
-    rootRelativePrefix?: string;
-  } = {},
+  options: RouteHintOptions = {},
 ): Record<string, boolean> {
-  const files: string[] = [];
-  const hints: Record<string, boolean> = {};
-  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
-  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
-  scanRouteFiles(routesDir, files, extensions);
-
-  for (const file of files) {
-    const extension = extname(file);
-    const hasHeaders =
-      extension === ".md" ||
-      extension === ".mdx" ||
-      // Like `head`, document headers may be synthesized by a companion
-      // compiler from frontmatter or other format-specific metadata. A false
-      // hint would keep the active document's CSP/cache headers stale after
-      // Fast Refresh, so compiled formats must stay conservative.
-      additionalExtensions.includes(extension) ||
-      detectHeadersExport(readFileSync(file, "utf-8"));
-    const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
-    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
-    const keys = new Set<string>();
-    if (options.appFileDir) {
-      const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
-      keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
-    }
-    if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
-    for (const key of keys) hints[key] = hasHeaders;
-  }
-
-  return hints;
+  return createRouteHints(routesDir, options).headers;
 }
 
 /**
@@ -501,33 +591,7 @@ export function createRouteHeadersHints(
  */
 export function createRouteStaticPathsHints(
   routesDir: string,
-  options: {
-    additionalExtensions?: readonly string[];
-    appFileDir?: string;
-    rootRelativePrefix?: string;
-  } = {},
+  options: RouteHintOptions = {},
 ): Record<string, boolean> {
-  const files: string[] = [];
-  const hints: Record<string, boolean> = {};
-  const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
-  const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
-  scanRouteFiles(routesDir, files, extensions);
-
-  for (const file of files) {
-    const extension = extname(file);
-    const hasStaticPaths =
-      additionalExtensions.includes(extension) ||
-      detectStaticPathsExport(readFileSync(file, "utf-8"));
-    const relativeToRoutesDir = toPosixPath(relative(routesDir, file));
-    const routeRootPrefix = options.rootRelativePrefix?.replace(/\/$/, "");
-    const keys = new Set<string>();
-    if (options.appFileDir) {
-      const relativeToAppFile = toPosixPath(relative(options.appFileDir, file));
-      keys.add(relativeToAppFile.startsWith(".") ? relativeToAppFile : `./${relativeToAppFile}`);
-    }
-    if (routeRootPrefix) keys.add(`${routeRootPrefix}/${relativeToRoutesDir}`);
-    for (const key of keys) hints[key] = hasStaticPaths;
-  }
-
-  return hints;
+  return createRouteHints(routesDir, options).staticPaths;
 }

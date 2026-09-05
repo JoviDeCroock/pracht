@@ -47,7 +47,7 @@ export default defineConfig(async () => {
           description: "Example app for the pracht framework.",
           // llms.txt is a list of URLs an agent is invited to fetch, so it must
           // not advertise pages an anonymous agent cannot use. Both of these
-          // sit behind the `auth` middleware and answer 302 to `/`.
+          // sit behind the `auth` middleware and answer 302 to `/login`.
           // Framework-reserved paths (`/api/_pracht/image`) are dropped
           // automatically and need no entry here.
           // `/welcome` is the locale detector — it always answers 302 to the

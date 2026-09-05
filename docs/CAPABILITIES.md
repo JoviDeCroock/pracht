@@ -53,8 +53,9 @@ export const app = defineApp({
 
 Capability modules live in `src/capabilities/` by default (configurable via
 the `capabilitiesDir` plugin option). Names are dot-separated segments of
-letters, numbers, hyphens, and underscores. Capabilities are manifest-mode
-only for now — the pages router has no manifest to register them in.
+letters, numbers, hyphens, and underscores. In pages mode, every module in
+`capabilitiesDir` is registered automatically; its `defineCapability({ name })`
+must map back to the filename, with dots written as hyphens.
 
 ## Scaffolding
 
@@ -64,7 +65,8 @@ pracht generate capability --name notes.search --effect read --expose http,webmc
 
 Writes `src/capabilities/notes-search.ts` with `expose`, `effect`, and `input`
 as inline literals (which the browser projection's static analysis requires)
-and registers the name in the manifest. `--effect` defaults to `read`;
+and registers the name in a manifest app. Pages apps take the name from the
+module and need no manifest edit. `--effect` defaults to `read`;
 `--expose` is omitted for a private capability, and `--description` is required
 whenever it is set — that text is the contract an agent reads. The generator
 refuses the combinations the runtime and `pracht verify` reject anyway: a
@@ -80,6 +82,33 @@ capabilities should not carry it:
 ```bash
 npm install @pracht/capabilities
 ```
+
+## Standalone hosting
+
+The capability pipeline does not require the Pracht router. The curated
+`@pracht/capabilities/server` entry exports `createCapabilityHost()` plus the
+supported trust, approval, audit, and invocation APIs. A host receives
+capability objects and middleware functions at runtime and exposes the same
+HTTP, remote MCP, and RFC 9728 metadata handlers through Web-standard
+`Request`/`Response` values. `host.fetch(request)` returns `null` for unrelated
+paths before context creation or signature verification, which makes it safe
+as wildcard middleware; unknown generated capability paths remain owned and
+return the normal typed 404 envelope.
+
+The framework consumes the broader
+`@pracht/capabilities/server/internal` entry. Keep application documentation
+and examples on the curated entry so internal registry and request-binding
+machinery do not become a compatibility promise.
+
+The browser registrar is independently available at
+`@pracht/capabilities/webmcp`. Its optional `{ signal }` registration argument
+owns the registered tools' lifetime; abort it when an SPA scope unmounts or is
+replaced. The public setup guide lives at
+<https://pracht.resynapse.dev/docs/standalone-capabilities>.
+
+Standalone capability modules follow the same typing rule as framework-hosted
+ones: annotate `run()` with `CapabilityRunArgs<Input>` to type its input while
+preserving inference for the concrete output.
 
 Skipping this is not a quiet failure but it *is* a confusing one: capability
 dispatch answers `500 internal_error`, and because the modules cannot be
@@ -534,10 +563,10 @@ and the Chrome/Edge origin trial (stable-channel visitors need an origin-trial
 token in the page head — see the site docs for the `head()` recipe):
 
 - one tool per capability: `name`, `title`, `description`, `inputSchema` (the
-  capability's JSON Schema), the same effect-derived
-  `readOnlyHint`/`destructiveHint`/`idempotentHint` annotation set as the
-  remote MCP projection, and `annotations.untrustedContentHint` when the
-  capability opts in via `expose.webmcp: { untrustedContent: true }`;
+  capability's JSON Schema), WebMCP's effect-derived `readOnlyHint`, and
+  `annotations.untrustedContentHint` when the capability opts in via
+  `expose.webmcp: { untrustedContent: true }`; remote MCP derives its
+  additional MCP-only annotations separately;
 - `execute()` calls the HTTP projection via `callCapability`, so the user's
   session authenticates the call and validation, middleware, and policy all
   stay server-side — the agent acts as the signed-in user, in their tab. When
@@ -553,6 +582,8 @@ token in the page head — see the site docs for the `head()` recipe):
 - the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
   detection: browsers without the API never download it, and pages without
   webmcp-exposed capabilities never reference it;
+- registrations use a caller-owned abort signal, and the generated shim aborts
+  stale registrations before re-registering and when Vite replaces the module;
 - works in full-hydration and islands modes (the islands bootstrap pulls the
   shim in too; `hydration: "none"` pages ship no JS and register no tools).
 
@@ -677,7 +708,7 @@ The capability graph feeds every existing inspection surface:
   HMR removes the final capability, until the dev server restarts; MCP
   declarations are labeled `mcp(unserved)` until the endpoint serves them,
   including destructive declarations without `agents.mcp.destructive`;
-- the `pracht mcp` server exposes `inspect_capabilities` and `inspect_agents`
+- the `pracht dev-mcp` server exposes `inspect_capabilities` and `inspect_agents`
   tools;
 - `pracht verify` runs the static contract checks described above.
 

@@ -1,4 +1,4 @@
-import { resolveApp } from "./app.ts";
+import { DEFAULT_LOADER_TIMEOUT_MS, resolveApp } from "./app.ts";
 import { withBase } from "./base.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
@@ -79,6 +79,7 @@ export async function prerenderApp(
   const generatedAt = Date.now();
   let failedPrerenders = 0;
   let firstPrerenderError: unknown;
+  let firstPrerenderPath: string | undefined;
 
   // Collect all work items first, then render in parallel batches
   const work: {
@@ -150,7 +151,21 @@ export async function prerenderApp(
               `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}": ` +
                 `document request returned status ${response.status}${redirectDetail}. ` +
                 "A static build cannot preserve request-time redirects or failures; make the loader succeed at build time or use a serverful adapter." +
-                describeRenderError(renderError),
+                describeRenderError(renderError, options.app.loaderTimeoutMs),
+              renderError === undefined ? undefined : { cause: renderError },
+            );
+          }
+          // A 5xx is never a routing decision. Skipping it ships a build whose
+          // pages fall back to a live render that fails the same way for every
+          // visitor — a broken middleware module turns the whole app into 500s
+          // behind a green build.
+          if (response.status >= 500) {
+            throw new Error(
+              `Failed to prerender ${item.render.toUpperCase()} route "${item.pathname}": ` +
+                `document request returned status ${response.status}. ` +
+                "Fix the loader, shell, or middleware that failed — the route would otherwise " +
+                "fall back to a live render and return the same error to every visitor." +
+                describeRenderError(renderError, options.app.loaderTimeoutMs),
               renderError === undefined ? undefined : { cause: renderError },
             );
           }
@@ -160,6 +175,7 @@ export async function prerenderApp(
           failedPrerenders++;
           if (firstPrerenderError === undefined && renderError !== undefined) {
             firstPrerenderError = renderError;
+            firstPrerenderPath = item.pathname;
           }
           return null;
         }
@@ -225,7 +241,7 @@ export async function prerenderApp(
                 `Static export failed to serialize route state for "${item.pathname}": ` +
                   `route-state request returned status ${stateResponse.status}${redirectDetail}. ` +
                   "Make the loader succeed at build time or use a serverful adapter." +
-                  describeRenderError(stateError),
+                  describeRenderError(stateError, options.app.loaderTimeoutMs),
                 stateError === undefined ? undefined : { cause: stateError },
               );
             }
@@ -269,7 +285,10 @@ export async function prerenderApp(
     throw new Error(
       `No SSG/ISG pages were prerendered: all ${failedPrerenders} attempted ${noun} returned a non-200 response. ` +
         "Refusing to finish a build with empty prerender output. Fix the build-time loader or render failures, or move request-dependent routes to SSR." +
-        describeRenderError(firstPrerenderError),
+        (firstPrerenderPath === undefined
+          ? ""
+          : `\n\n  First failing route: "${firstPrerenderPath}".`) +
+        describeRenderError(firstPrerenderError, options.app.loaderTimeoutMs),
       firstPrerenderError === undefined ? undefined : { cause: firstPrerenderError },
     );
   }
@@ -286,11 +305,35 @@ export async function prerenderApp(
  * failing static build with a bare status and nothing to act on. Append the
  * real message so `pracht build` names the cause instead of only the symptom.
  */
-export function describeRenderError(error: unknown): string {
+export function describeRenderError(error: unknown, loaderTimeoutMs?: number): string {
   if (error === undefined || error === null) return "";
   const message = error instanceof Error ? error.message : String(error);
   const trimmed = message.trim();
-  return trimmed === "" ? "" : `\n\n  Underlying error: ${trimmed}`;
+  const underlying = trimmed === "" ? "" : `\n\n  Underlying error: ${trimmed}`;
+  return underlying + describeLoaderTimeout(error, loaderTimeoutMs);
+}
+
+/**
+ * Prerendering runs loaders through the same request pipeline a served page
+ * does, so it inherits the same `defineApp({ loaderTimeoutMs })` budget. A
+ * budget tuned down for an edge runtime therefore fails the *build* for any
+ * loader slower than it, and the raw abort says nothing about where the limit
+ * came from.
+ */
+function describeLoaderTimeout(error: unknown, loaderTimeoutMs?: number): string {
+  if (!isLoaderTimeout(error)) return "";
+  return (
+    `\n\n  The loader ran past the ${loaderTimeoutMs ?? DEFAULT_LOADER_TIMEOUT_MS} ms request budget and its signal aborted. ` +
+    "Prerendering uses the same `defineApp({ loaderTimeoutMs })` budget as a served request; raise it, or make the loader " +
+    "finish inside it, if the build needs longer than production does."
+  );
+}
+
+function isLoaderTimeout(error: unknown): boolean {
+  const named = error as { name?: unknown; cause?: { name?: unknown } } | null;
+  // Fetch rejects with the signal's reason in some runtimes and with an
+  // `AbortError` carrying it as `cause` in others.
+  return named?.name === "TimeoutError" || named?.cause?.name === "TimeoutError";
 }
 
 function assertSafePrerenderHeaders(

@@ -100,3 +100,14 @@ describe("createAgentTrafficBuffer", () => {
     expect(buffer.snapshot().recorded).toBe(1);
   });
 });
+
+it("retains only a copied account summary in the devtools buffer", () => {
+  const buffer = createAgentTrafficBuffer();
+  const tokenAuth = { subject: "user-1", clientId: "client-1", claims: { private: true } };
+  buffer.record(auditEvent({ tokenAuth }));
+  tokenAuth.subject = "changed";
+  expect(buffer.snapshot().events[0].tokenAuth).toEqual({
+    subject: "user-1",
+    clientId: "client-1",
+  });
+});

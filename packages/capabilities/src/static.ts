@@ -12,7 +12,12 @@
  * as data and returns `undefined` for anything else.
  */
 
-import { capabilityHttpPath, isValidCapabilityHttpPath } from "./protocol.ts";
+import {
+  capabilityFileStem,
+  capabilityHttpPath,
+  isValidCapabilityHttpPath,
+  isValidCapabilityName,
+} from "./protocol.ts";
 
 /**
  * The parts of a capability contract that decide what gets projected to the
@@ -50,6 +55,258 @@ export interface CapabilityProjection {
   middleware: string[] | undefined;
 }
 
+type StaticAnalysisNode = {
+  type: string;
+  [key: string]: unknown;
+};
+
+function staticNode(value: unknown): StaticAnalysisNode | null {
+  if (!value || typeof value !== "object") return null;
+  return typeof (value as { type?: unknown }).type === "string"
+    ? (value as StaticAnalysisNode)
+    : null;
+}
+
+function staticName(value: unknown): string | null {
+  const node = staticNode(value);
+  if (node?.type === "Identifier" && typeof node.name === "string") return node.name;
+  if (node?.type === "Literal" && typeof node.value === "string") return node.value;
+  return null;
+}
+
+function bindsStaticName(value: unknown, name: string): boolean {
+  const node = staticNode(value);
+  if (!node) return false;
+  if (node.type === "Identifier") return node.name === name;
+  if (node.type === "RestElement" || node.type === "AssignmentPattern") {
+    return bindsStaticName(node.argument ?? node.left, name);
+  }
+  if (node.type === "ArrayPattern") {
+    return (
+      Array.isArray(node.elements) && node.elements.some((item) => bindsStaticName(item, name))
+    );
+  }
+  if (node.type === "ObjectPattern") {
+    return (
+      Array.isArray(node.properties) &&
+      node.properties.some((property) => {
+        const item = staticNode(property);
+        return bindsStaticName(item?.type === "RestElement" ? item.argument : item?.value, name);
+      })
+    );
+  }
+  return false;
+}
+
+function collectStaticBindingNames(value: unknown, names: Set<string>): void {
+  const node = staticNode(value);
+  if (!node) return;
+  if (node.type === "Identifier" && typeof node.name === "string") {
+    names.add(node.name);
+    return;
+  }
+  if (node.type === "RestElement" || node.type === "AssignmentPattern") {
+    collectStaticBindingNames(node.argument ?? node.left, names);
+    return;
+  }
+  if (node.type === "ArrayPattern" && Array.isArray(node.elements)) {
+    for (const element of node.elements) collectStaticBindingNames(element, names);
+    return;
+  }
+  if (node.type === "ObjectPattern" && Array.isArray(node.properties)) {
+    for (const property of node.properties) {
+      const item = staticNode(property);
+      collectStaticBindingNames(item?.type === "RestElement" ? item.argument : item?.value, names);
+    }
+  }
+}
+
+const STATIC_TYPE_ONLY_DECLARATIONS = new Set([
+  "TSDeclareFunction",
+  "TSInterfaceDeclaration",
+  "TSTypeAliasDeclaration",
+]);
+
+function isStaticTypeOnlyDeclaration(declaration: StaticAnalysisNode): boolean {
+  return (
+    declaration.declare === true ||
+    STATIC_TYPE_ONLY_DECLARATIONS.has(declaration.type) ||
+    (declaration.type === "TSImportEqualsDeclaration" && declaration.importKind === "type")
+  );
+}
+
+const STATIC_MODULE_SCOPE_BOUNDARIES = new Set([
+  "ArrowFunctionExpression",
+  "ClassDeclaration",
+  "ClassExpression",
+  "FunctionDeclaration",
+  "FunctionExpression",
+  "StaticBlock",
+  "TSModuleDeclaration",
+]);
+
+function collectNestedModuleVarBindings(value: unknown, names: Set<string>): void {
+  const node = staticNode(value);
+  if (!node || STATIC_MODULE_SCOPE_BOUNDARIES.has(node.type)) return;
+
+  if (node.type === "VariableDeclaration" && node.kind === "var" && node.declare !== true) {
+    const declarations = Array.isArray(node.declarations) ? node.declarations : [];
+    for (const declaration of declarations) {
+      collectStaticBindingNames(staticNode(declaration)?.id, names);
+    }
+    return;
+  }
+
+  for (const [key, child] of Object.entries(node)) {
+    if (key === "type" || key === "start" || key === "end") continue;
+    if (Array.isArray(child)) {
+      for (const item of child) collectNestedModuleVarBindings(item, names);
+    } else {
+      collectNestedModuleVarBindings(child, names);
+    }
+  }
+}
+
+function collectStaticModuleBindings(root: StaticAnalysisNode): {
+  runtime: Set<string>;
+  typeOnly: Set<string>;
+} {
+  const runtime = new Set<string>();
+  const typeOnly = new Set<string>();
+  const statements = Array.isArray(root.body) ? root.body : [];
+
+  for (const value of statements) {
+    const statement = staticNode(value);
+    if (!statement) continue;
+
+    if (statement.type === "ImportDeclaration") {
+      const specifiers = Array.isArray(statement.specifiers) ? statement.specifiers : [];
+      for (const specifierValue of specifiers) {
+        const specifier = staticNode(specifierValue);
+        const localName = staticName(specifier?.local);
+        if (localName === null) continue;
+        if (statement.importKind === "type" || specifier?.importKind === "type") {
+          typeOnly.add(localName);
+        } else {
+          runtime.add(localName);
+        }
+      }
+      continue;
+    }
+
+    const declaration =
+      statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration"
+        ? staticNode(statement.declaration)
+        : statement;
+    if (!declaration) continue;
+
+    const target = isStaticTypeOnlyDeclaration(declaration) ? typeOnly : runtime;
+    if (declaration.type === "VariableDeclaration") {
+      const declarations = Array.isArray(declaration.declarations) ? declaration.declarations : [];
+      for (const item of declarations) collectStaticBindingNames(staticNode(item)?.id, target);
+    } else {
+      const name = staticName(declaration.id);
+      if (name !== null) target.add(name);
+    }
+
+    collectNestedModuleVarBindings(statement, runtime);
+  }
+
+  return { runtime, typeOnly };
+}
+
+/**
+ * Whether a parsed JavaScript/TypeScript module explicitly exports a binding
+ * named `middleware`. This intentionally answers only the static ESM question:
+ * runtime validation owns whether the exported value is callable.
+ *
+ * A value `export *` is treated as unknown/allowed because its names cannot be
+ * known without loading the referenced module. Explicit type-only exports do
+ * not create runtime bindings and are ignored.
+ */
+export function hasNamedMiddlewareExport(program: unknown): boolean {
+  return hasNamedValueExport(program, "middleware");
+}
+
+/**
+ * Whether a parsed module explicitly exports a runtime binding named `name`,
+ * under the rules `hasNamedMiddlewareExport()` documents: a value `export *`
+ * counts because its names cannot be known without loading the referenced
+ * module, and explicit type-only exports do not.
+ */
+export function hasNamedValueExport(program: unknown, name: string): boolean {
+  const root = staticNode(program);
+  if (!root || !Array.isArray(root.body)) return false;
+  const bindings = collectStaticModuleBindings(root);
+
+  for (const value of root.body) {
+    const statement = staticNode(value);
+    if (!statement) continue;
+
+    if (statement.type === "ExportAllDeclaration") {
+      if (statement.exportKind === "type") continue;
+      if (!statement.exported || staticName(statement.exported) === name) return true;
+      continue;
+    }
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue;
+
+    const declaration = staticNode(statement.declaration);
+    if (declaration && !isStaticTypeOnlyDeclaration(declaration)) {
+      if (
+        declaration?.type === "VariableDeclaration" &&
+        Array.isArray(declaration.declarations) &&
+        declaration.declarations.some((item) => bindsStaticName(staticNode(item)?.id, name))
+      ) {
+        return true;
+      }
+      if (staticName(declaration.id) === name) {
+        return true;
+      }
+    }
+
+    if (
+      Array.isArray(statement.specifiers) &&
+      statement.specifiers.some((value) => {
+        const specifier = staticNode(value);
+        const localName = staticName(specifier?.local);
+        return (
+          specifier?.type === "ExportSpecifier" &&
+          specifier.exportKind !== "type" &&
+          staticName(specifier.exported) === name &&
+          (statement.source ||
+            localName === null ||
+            !bindings.typeOnly.has(localName) ||
+            bindings.runtime.has(localName))
+        );
+      })
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Whether a parsed module has an unnamed value `export * from "..."`.
+ *
+ * Callers that need the exact export set — rather than whether one particular
+ * name is present — use this to refuse instead of guessing: the star's names
+ * cannot be known without loading the referenced module.
+ */
+export function hasValueStarExport(program: unknown): boolean {
+  const root = staticNode(program);
+  if (!root || !Array.isArray(root.body)) return false;
+  return root.body.some((value) => {
+    const statement = staticNode(value);
+    return (
+      statement?.type === "ExportAllDeclaration" &&
+      statement.exportKind !== "type" &&
+      !statement.exported
+    );
+  });
+}
+
 /**
  * Derive a capability's projection from its source, without executing it.
  *
@@ -63,6 +320,150 @@ export interface CapabilityProjection {
  * each caller can phrase them its own way (the plugin fails the build, the CLI
  * fails a check).
  */
+/**
+ * Resolve the name a pages-router capability module registers under.
+ *
+ * The pages router has no `capabilities` registry to key modules by, so the
+ * module either declares `defineCapability({ name })` or takes the file stem.
+ * A declared name must still map back to its file (`notes.search` ↔
+ * `notes-search.ts`) so the file a name resolves to is readable from the name
+ * alone — the same mapping `pracht generate capability` writes.
+ *
+ * Returns the resolved name, or an `error` string for the caller to report as
+ * a build/doctor/verify failure. Never guesses: a `name` the analyzer cannot
+ * read statically falls back to the file stem rather than to nothing.
+ */
+export function resolvePagesCapabilityName(
+  fileStem: string,
+  source: string,
+): { ok: true; name: string } | { ok: false; error: string } {
+  const declared = readDeclaredCapabilityName(source);
+  if (declared === null) {
+    if (!isValidCapabilityName(fileStem)) {
+      return {
+        ok: false,
+        error:
+          `file name ${JSON.stringify(fileStem)} is not a usable capability name. Rename the ` +
+          "file to dot-separated segments of letters, numbers, hyphens, and underscores written " +
+          'with hyphens (for example `notes-search.ts`), or declare `name: "notes.search"` in ' +
+          "its `defineCapability({ ... })` call.",
+      };
+    }
+    return { ok: true, name: fileStem };
+  }
+
+  if (!isValidCapabilityName(declared)) {
+    return {
+      ok: false,
+      error:
+        `declares name ${JSON.stringify(declared)}, which is not a valid capability name. Use ` +
+        'dot-separated segments of letters, numbers, hyphens, and underscores (for example "notes.search").',
+    };
+  }
+
+  const expectedStem = capabilityFileStem(declared);
+  if (expectedStem !== fileStem) {
+    return {
+      ok: false,
+      error:
+        `declares name ${JSON.stringify(declared)} but lives in ${JSON.stringify(`${fileStem}.*`)}. ` +
+        `A pages-router capability is discovered by file, so its name must map back to it: rename ` +
+        `the file to ${JSON.stringify(`${expectedStem}.*`)}, or change the declared name to ` +
+        `${JSON.stringify(fileStem.replaceAll("-", "."))}.`,
+    };
+  }
+
+  return { ok: true, name: declared };
+}
+
+/**
+ * The source text of a module's top-level `export const <name> = <literal>`
+ * initializer, or `null` when there is no single unambiguous *literal* one.
+ *
+ * Returns the expression *text*, not a value: callers hand it to the same
+ * object-body scanners they use on a `defineApp({ ... })` literal, so a config
+ * file that lives outside the manifest is analyzed by exactly the same rules.
+ *
+ * That is also why anything other than an object or array literal answers
+ * `null`. `export const agents = buildAgents()` has no body those scanners can
+ * read; returning its text would let a caller inline an opaque expression and
+ * then conclude, from a scan that found no `mcp` key, that the app configures
+ * no MCP endpoint — reporting an open surface as absent. A `satisfies` or `as`
+ * suffix and wrapping parentheses are unwrapped, since they do not change the
+ * literal underneath.
+ */
+export function readNamedExportInitializer(source: string, name: string): string | null {
+  const searchable = maskCommentsAndStrings(source);
+  const declarations = [
+    ...searchable.matchAll(new RegExp(`export\\s+const\\s+${name}\\b`, "g")),
+  ].filter((match) => match.index != null && braceDepthAt(searchable, match.index) === 0);
+  if (declarations.length !== 1) return null;
+
+  // Skip an optional `: Type` annotation, then require the `=`.
+  const afterName = (declarations[0].index ?? 0) + declarations[0][0].length;
+  const assignment = /^\s*(?::[^=]*)?=/.exec(searchable.slice(afterName));
+  if (!assignment) return null;
+
+  const start = skipInsignificant(source, afterName + assignment[0].length);
+  let depth = 0;
+  for (let index = start; index < source.length; index += 1) {
+    const char = searchable[index];
+    if (char === "{" || char === "(" || char === "[") depth += 1;
+    else if (char === "}" || char === ")" || char === "]") depth -= 1;
+    else if (depth === 0 && (char === ";" || char === "\n")) {
+      const text = source.slice(start, index).trim();
+      // A newline at depth 0 only ends the declaration once something was read
+      // (`export const agents =\n  { … }` continues onto the next line).
+      if (text !== "") return asLiteralInitializer(text);
+    }
+    if (depth < 0) return null;
+  }
+
+  const trailing = source.slice(start).trim();
+  return trailing === "" ? null : asLiteralInitializer(trailing);
+}
+
+/** An object or array literal, unwrapped from parentheses and a `satisfies`/`as` suffix. */
+function asLiteralInitializer(text: string): string | null {
+  let value = text.trim();
+
+  // Bounded: each iteration strips one wrapping layer, and real config files
+  // nest a handful at most.
+  for (let guard = 0; guard < 8; guard += 1) {
+    const open = value[0];
+    if (open === "(") {
+      const end = findMatchingBrace(value, 0, "(", ")");
+      if (end === -1 || value.slice(end + 1).trim() !== "") return null;
+      value = value.slice(1, end).trim();
+      continue;
+    }
+    if (open !== "{" && open !== "[") return null;
+
+    const end = findMatchingBrace(value, 0, open, open === "{" ? "}" : "]");
+    if (end === -1) return null;
+    const rest = value.slice(end + 1).trim();
+    if (rest === "") return value;
+    // `{ … } satisfies PrachtAgentsConfig` and `{ … } as const` still describe
+    // the literal; `{ … }.foo` and `{ … } ?? fallback` do not.
+    return /^(?:satisfies|as)\s+\S/.test(rest) ? value.slice(0, end + 1) : null;
+  }
+
+  return null;
+}
+
+/**
+ * The string literal passed as `defineCapability({ name })`, or `null` when
+ * the property is absent or not a statically readable literal.
+ */
+export function readDeclaredCapabilityName(source: string): string | null {
+  const args = extractDefineCapabilityArgs(source);
+  if (!args) return null;
+  const value = scanTopLevelProperties(args).get("name");
+  if (value === undefined) return null;
+  const literal = evaluateLiteral(value);
+  return typeof literal === "string" ? literal : null;
+}
+
 export function extractCapabilityProjection(
   name: string,
   source: string,
@@ -1122,4 +1523,73 @@ function parseNumberLiteral(source: string, start: number): ParsedLiteral | null
   const end = start + match[0].length;
   if (/[A-Za-z0-9_$]/.test(source[end] ?? "")) return null;
   return { value: Number(match[0]), index: end };
+}
+
+/** Read a pages boolean policy without evaluating application code. */
+export function readPageStreaming(source: string): boolean | "invalid" | undefined {
+  const declarations = [
+    ...maskCommentsAndStrings(source).matchAll(/export\s+const\s+STREAMING\s*=/g),
+  ];
+  if (declarations.length === 0) return undefined;
+  if (declarations.length !== 1) return "invalid";
+  const match = declarations[0]!;
+  const value = source
+    .slice(match.index! + match[0].length)
+    .match(/^\s*(true|false)\s*(?:;|\r?\n|$)/);
+  return value ? value[1] === "true" : "invalid";
+}
+
+export {
+  PUBLIC_ENV_PREFIX,
+  VITE_BUILTIN_ENV_VARS,
+  WHOLE_ENV_READ,
+  scanCodeForEnvLeaks,
+  getCodePositionMask,
+} from "./source-analysis.ts";
+export type { EnvLeakReference } from "./source-analysis.ts";
+export {
+  PAGES_APP_CONFIG_EXPORTS,
+  pagesShellName,
+  findOwningPagesShell,
+  maskMarkdownFences,
+} from "./pages-analysis.ts";
+
+/** Inspect one pages-router string declaration without executing its module. */
+export function readPageStringExport(
+  source: string,
+  name: string,
+): { count: number; value?: string } {
+  const declarations = [
+    ...maskCommentsAndStrings(source).matchAll(new RegExp(`export\\s+const\\s+${name}\\s*=`, "g")),
+  ];
+  const declaration = declarations[0];
+  const value =
+    declarations.length === 1
+      ? source
+          .slice((declaration.index ?? 0) + declaration[0].length)
+          .trimStart()
+          .match(/^["'](\w+)["']/)?.[1]
+      : undefined;
+  return { count: declarations.length, value };
+}
+
+export type PageRevalidation =
+  | { kind: "missing" }
+  | { kind: "time"; seconds: number }
+  | { kind: "invalid"; expression: string; reason: "duplicate" | "expression" | "range" };
+
+export function readPageRevalidation(source: string): PageRevalidation {
+  const matches = [
+    ...maskCommentsAndStrings(source).matchAll(/export\s+const\s+REVALIDATE\s*=\s*([^;\n]+)/g),
+  ];
+  if (!matches.length) return { kind: "missing" };
+  if (matches.length > 1)
+    return { kind: "invalid", expression: "duplicate exports", reason: "duplicate" };
+  const expression = matches[0][1].trim().replace(/\s+as\s+const$/, "");
+  if (!/^\d(?:_?\d)*$/.test(expression))
+    return { kind: "invalid", expression, reason: "expression" };
+  const seconds = Number(expression.replaceAll("_", ""));
+  return Number.isSafeInteger(seconds) && seconds > 0
+    ? { kind: "time", seconds }
+    : { kind: "invalid", expression, reason: "range" };
 }

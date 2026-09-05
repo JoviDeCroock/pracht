@@ -145,8 +145,9 @@ export function Component() {
 
 Prefer this over `useRouteData<typeof loader>()` when typegen runs; keep the
 generic form for projects that do not generate route types. Routes without a
-loader type their data as `undefined`. The id must be the active route — dev
-mode warns on mismatches.
+loader type their data as `undefined`. The id must be the active route: a
+mismatch throws (with a descriptive message in dev), so a shell or island that
+needs another route's data must receive it as props instead.
 
 ### API routes
 

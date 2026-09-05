@@ -24,6 +24,12 @@ and returns a small JSON envelope:
 { "data": { ... } }
 ```
 
+Static exports and preload hints use the query-string form instead, `?_data=1`,
+because a `<link rel=preload>` cannot set a header. Either form selects the same
+route-state response. The marker is the framework's, not the app's: it is
+stripped from both `args.url` **and** `args.request.url` before middleware or a
+loader sees them, so reading the query through either one gives the same answer.
+
 The `Vary: x-pracht-route-state-request` response header tells caches to keep
 the HTML and JSON variants separate. JSON responses default to
 `Cache-Control: no-store`; a positive route `loaderCache` value changes
@@ -412,11 +418,49 @@ The client updates the component tree in-place.
 
 ---
 
+## Server pipeline stages
+
+`handlePrachtRequest` is an orchestrator. The work is four stages, and the order
+they run in *is* the routing contract:
+
+```
+handlePrachtRequest (runtime.ts)
+│
+├─ 1. createRequestContext        (runtime-request.ts)
+│       restore the deploy base · canonical URL (`_data` stripped from both
+│       `url` and `request`) · OAuth protected-resource metadata · reject
+│       paths outside the base · route-state detection · cross-origin
+│       upgrade check · load the agent surface and bind agent identity
+│       └─ may answer outright: 308 base redirect, 404 outside base,
+│          403 blocked upgrade, 500 unbindable context
+│
+├─ 2. dispatchApi                 (runtime-request.ts)
+│       match src/api · CSRF gate on unsafe methods · api.middleware chain
+│       └─ returns undefined when no API route claims the path
+│
+├─ 3. dispatchAgentSurface        (runtime-request.ts)
+│       remote MCP endpoint · capability HTTP projections · typed 404 under
+│       the capability prefix
+│       └─ returns undefined when nothing on the agent surface claims it
+│
+└─ 4. renderPage                  (runtime-page.ts)
+        match · not-found page · 405 on unsafe methods · then the
+        middleware → loader → head/headers → document pipeline below
+```
+
+Stage 2 running before stage 3 is why an explicit `src/api` route file wins over
+a generated capability route at the same path — except at the configured MCP
+endpoint, where the collision fails closed with a 500 rather than letting an API
+route bypass MCP's transport and OAuth gates.
+
+Each stage takes one explicit `PrachtRequestContext` rather than closing over the
+handler's locals, so each is callable — and testable — on its own.
+
 ## Server pipeline parallelism
 
-Every request handled by `handlePrachtRequest` runs through a common pipeline.
-Steps that don't depend on each other are kicked off concurrently so the
-critical path is bounded by the slowest independent step, not their sum.
+Inside stage 4, steps that don't depend on each other are kicked off
+concurrently so the critical path is bounded by the slowest independent step,
+not their sum.
 
 ```
 request arrives
@@ -535,8 +579,11 @@ the default security headers. `createEventStream(request)` from
 the framing alone), and wires disconnect cleanup to both signals a runtime can
 deliver: `request.signal` aborting and the body stream being cancelled. In dev,
 the SSR middleware detects `text/event-stream` and pipes instead of buffering —
-buffering would never terminate. The client half is the `useEventSource()`
-hook. End-to-end example: `examples/basic` (`/live` + `src/api/live.ts`);
+buffering would never terminate. (Since only `text/html` is buffered for Vite's
+HTML transform, every other dev response streams as bytes too; the SSE branch
+stays separate because it must also skip the error-overlay checks.) The client
+half is the `useEventSource()` hook.
+End-to-end example: `examples/basic` (`/live` + `src/api/live.ts`);
 recipe: `examples/docs/src/routes/docs/recipes-streaming.md`.
 
 ---

@@ -34,6 +34,9 @@
       "default": "./dist/index.mjs"
     }
   },
+  "engines": {
+    "node": ">=22.18"
+  },
   "publishConfig": {
     "provenance": true
   },
@@ -55,5 +58,9 @@
   "dependencies": {
     "rolldown": "^1.0.0-rc.12",
     "rolldown-string": "^0.3.0"
+  },
+  "devDependencies": {
+    "preact": "11.0.0-rc.1",
+    "preact-render-to-string": "^6.7.0"
   }
 }

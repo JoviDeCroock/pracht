@@ -576,19 +576,25 @@ describe("createPrachtWebmcpModuleSource", () => {
     expect(source).toContain('"title":"Search notes"');
     expect(source).toContain('"description":"Find notes whose title matches the query."');
     expect(source).toContain('"inputSchema":{"type":"object"');
-    // The same effect-derived hint set as the remote MCP projection.
-    expect(source).toContain(
-      '"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true}',
+    // The registrar derives WebMCP's supported annotation hints from the
+    // effect class (covered by the @pracht/capabilities/webmcp unit tests).
+    expect(source).toContain('"effect":"read"');
+    // Resolved from the plugin's own copy of @pracht/capabilities so version
+    // skew in the app root cannot break the generated import. A bare specifier
+    // here would resolve against the app root again — the exact regression.
+    expect(source).not.toContain('from "@pracht/capabilities/webmcp"');
+    expect(source).toMatch(
+      /import \{ registerWebmcpTools \} from "(?:[A-Za-z]:)?\/[^"]*capabilities\/dist\/webmcp\.mjs"/,
     );
     // notes.create is http-only — it must not become a page tool.
     expect(source).not.toContain('"name":"notes.create"');
-    // Targets the standardized API only — Chromium removed the deprecated
-    // navigator.modelContext alias in 152.
-    expect(source).toContain("document.modelContext");
-    expect(source).not.toContain("navigator.modelContext");
-    expect(source).toContain("registerTool");
-    expect(source).toContain("async execute(input, { signal } = {})");
-    expect(source).toContain("signal,");
+    // The dispatch forwards the abort signal and the transport marker header.
+    expect(source).toContain("callCapability(name, input, { headers: transportHeaders, signal })");
+    // Re-registration and HMR tear down stale tools through WebMCP's signal
+    // lifetime option.
+    expect(source).toContain("registrationController?.abort()");
+    expect(source).toContain("{ signal: registrationController.signal }");
+    expect(source).toContain("import.meta.hot.dispose");
     // The host serializes the returned value itself; MCP-style content blocks
     // would reach the agent double-encoded.
     expect(source).not.toContain("content:");
@@ -605,9 +611,7 @@ describe("createPrachtWebmcpModuleSource", () => {
     });
 
     const source = createPrachtWebmcpModuleSource({}, { root });
-    expect(source).toContain(
-      '"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"untrustedContentHint":true}',
-    );
+    expect(source).toContain('"untrustedContent":true');
   });
 });
 

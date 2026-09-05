@@ -52,6 +52,7 @@ describe("dashboard loader", () => {
 
 The shorthand accepts `url` (relative paths resolve against `http://localhost`), `method`, `headers`, `body` (a plain object is JSON-encoded; `BodyInit` values pass through, with Blob/File and `URLSearchParams` normalized across JSDOM/Node realms), `params`, a partial `context`, and `route` overrides — or a fully-formed `request` that wins over all of them. The returned args also expose `controller`, the `AbortController` behind `args.signal`:
 
+<!-- snippet: partial -->
 ```ts
 const args = createLoaderArgs({ url: "/slow" });
 const pending = loader(args);
@@ -172,6 +173,7 @@ describe("auth middleware", () => {
 
 Page and API dispatch catch a **thrown** `Response` outside the middleware chain and send it as-is, so `runMiddleware()` resolves that response by default. The raw capability middleware chain instead rejects the value and maps it to an `internal_error` envelope; use `createCapabilityTestHost()` to test that full pipeline, or opt into raw-chain behavior explicitly:
 
+<!-- snippet: partial -->
 ```ts
 const args = createMiddlewareArgs({ url: "/dashboard" });
 await expect(
@@ -183,6 +185,7 @@ Thrown non-`Response` errors, including `notFound()`, always reject.
 
 Chains work the same way, including `context` mutations flowing downstream — pass the middleware in the order the manifest applies them:
 
+<!-- snippet: partial -->
 ```ts
 const args = createMiddlewareArgs<AppContext>({ url: "/admin", context: {} });
 const response = await runMiddleware([logging, auth, requireAdmin], args, async () => {
@@ -199,14 +202,15 @@ For integration tests, use `handlePrachtRequest()` to test the full server pipel
 
 ```ts [test/integration.test.ts]
 import { describe, it, expect } from "vitest";
-import { handlePrachtRequest, resolveApp } from "@pracht/core";
+import { defineApp, handlePrachtRequest, resolveApp, route } from "@pracht/core";
 
 // Build a test app with mock modules
-const app = resolveApp({
-  shells: { main: "./shells/main.tsx" },
-  middleware: {},
-  routes: [{ path: "/", file: "./routes/home.tsx", shell: "main", render: "ssr" }],
-});
+const app = resolveApp(
+  defineApp({
+    shells: { main: "./shells/main.tsx" },
+    routes: [route("/", "./routes/home.tsx", { shell: "main", render: "ssr" })],
+  }),
+);
 
 const registry = {
   routeModules: {
@@ -226,11 +230,10 @@ const registry = {
 
 describe("request pipeline", () => {
   it("renders the home page with loader data", async () => {
-    const request = new Request("http://localhost/");
-    const response = await handlePrachtRequest(request, {
+    const response = await handlePrachtRequest({
+      request: new Request("http://localhost/"),
       app,
       registry,
-      mode: "development",
     });
 
     expect(response.status).toBe(200);
@@ -239,13 +242,12 @@ describe("request pipeline", () => {
   });
 
   it("returns loader data as JSON for client navigation", async () => {
-    const request = new Request("http://localhost/", {
-      headers: { "x-pracht-route-state-request": "1" },
-    });
-    const response = await handlePrachtRequest(request, {
+    const response = await handlePrachtRequest({
+      request: new Request("http://localhost/", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
       app,
       registry,
-      mode: "development",
     });
 
     const json = await response.json();
@@ -526,6 +528,7 @@ test("invalid input returns path-scoped issues", async ({ request }) => {
 
 `destructive` capabilities need `PRACHT_CONFIRMATION_SECRET` in the server environment — set it on Playwright's `webServer` so the flow works in CI:
 
+<!-- snippet: partial -->
 ```ts [playwright.config.ts]
 webServer: {
   command: "pnpm dev",
@@ -649,7 +652,7 @@ pracht eval --start "pracht preview"    # add --json for machine-readable CI out
 pracht eval --url http://localhost:3000
 ```
 
-A scenario that sets `"transport": "mcp"` runs the same steps against your app's [remote MCP endpoint](/docs/remote-mcp) instead — a real `initialize` handshake followed by one `tools/call` per step — so an `expose.mcp` capability is tested the way an MCP host would actually reach it, not through the HTTP projection standing in for it.
+A scenario that sets `"transport": "mcp"` runs the same steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead — a real `initialize` handshake followed by one `tools/call` per step — so an `expose.mcp` capability is tested the way an MCP host would actually reach it, not through the HTTP projection standing in for it.
 
 See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for a complete worked example — five capabilities with unit, E2E, and eval coverage over both transports.
 

@@ -20,6 +20,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import {
   CAPABILITY_SETTLED_EVENT,
@@ -32,9 +33,56 @@ import {
   extractCapabilityRegistrations,
   scanTopLevelProperties,
 } from "@pracht/capabilities/static";
-import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
+import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
+import {
+  resolveOptions,
+  type PrachtPluginOptions,
+  type ResolvedPrachtPluginOptions,
+} from "./plugin-options.ts";
 
 export { extractCapabilityRegistrations };
+
+/**
+ * The app manifest source these analyzers read.
+ *
+ * In pages mode there is no manifest file, so the generated one is
+ * synthesized here — the exact source the virtual module serves. Analyzing the
+ * generated text rather than re-deriving the registry from the file system is
+ * what keeps pages mode and manifest mode from ever disagreeing about which
+ * capabilities exist and how they are exposed.
+ *
+ * Throws when the manifest cannot be read or the pages tree is invalid; each
+ * caller decides whether that means "assume the worst" or "report nothing".
+ */
+function readAppManifestSource(resolved: ResolvedPrachtPluginOptions, root: string): string {
+  if (!resolved.pagesDir) {
+    return readFileSync(resolve(root, resolved.appFile.replace(/^\//, "")), "utf-8");
+  }
+
+  const pagesDir = resolve(root, resolved.pagesDir.replace(/^\//, ""));
+  const source = generatePagesManifestSource(
+    scanPagesDirectory(pagesDir, [...resolved.additionalExtensions]),
+    {
+      additionalExtensions: resolved.additionalExtensions,
+      capabilitiesDir: resolve(root, resolved.capabilitiesDir.replace(/^\//, "")),
+      capabilitiesDirPrefix: resolved.capabilitiesDir,
+      pagesDir,
+      pagesDefaultRender: resolved.pagesDefaultRender,
+      pagesDirPrefix: resolved.pagesDir,
+    },
+  );
+  // `extractDefineAppObjectBody()` looks for an exported `app`, which the
+  // virtual module deliberately does not have (it re-exports through the
+  // registry instead).
+  return source.replace("const app = defineApp(", "export const app = defineApp(");
+}
+
+/** The directory manifest-relative module refs resolve against. */
+function appManifestDir(resolved: ResolvedPrachtPluginOptions, root: string): string {
+  return resolved.pagesDir
+    ? resolve(root, resolved.pagesDir.replace(/^\//, ""), "..")
+    : dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
+}
 
 export interface ExtractedCapability {
   name: string;
@@ -67,13 +115,10 @@ export function hasAgentSurface(
   root: string = process.cwd(),
 ): boolean {
   const resolved = resolveOptions(options);
-  // The pages router has no manifest: nowhere to register capabilities or agents.
-  if (resolved.pagesDir) return false;
 
-  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
   let manifestSource: string;
   try {
-    manifestSource = readFileSync(appFileAbs, "utf-8");
+    manifestSource = readAppManifestSource(resolved, root);
   } catch {
     return true;
   }
@@ -158,21 +203,19 @@ function hasOpaqueTopLevelProperty(objectBody: string): boolean {
 }
 
 /**
- * Extract capability registrations (name → module path) from the app
- * manifest source and their exposure metadata from each capability source.
- * Pages-router apps have no manifest, so capabilities are manifest-mode only.
+ * Extract capability registrations (name → module path) from a manifest app
+ * or the pages router's generated manifest, then read exposure metadata from
+ * each capability source.
  */
 export function extractCapabilities(
   options: PrachtPluginOptions = {},
   root: string = process.cwd(),
 ): ExtractedCapability[] {
   const resolved = resolveOptions(options);
-  if (resolved.pagesDir) return [];
 
-  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
   let manifestSource: string;
   try {
-    manifestSource = readFileSync(appFileAbs, "utf-8");
+    manifestSource = readAppManifestSource(resolved, root);
   } catch {
     return [];
   }
@@ -180,7 +223,7 @@ export function extractCapabilities(
   const registrations = extractCapabilityRegistrations(manifestSource);
   if (registrations.length === 0) return [];
 
-  const appDir = dirname(appFileAbs);
+  const appDir = appManifestDir(resolved, root);
   return registrations.map(({ name, file }) => {
     // Root-relative refs (`/src/capabilities/x.ts`) resolve against the Vite
     // root, matching the runtime registry loader; everything else is relative
@@ -218,17 +261,15 @@ export function resolveCapabilityModulePaths(
   root: string = process.cwd(),
 ): string[] {
   const resolved = resolveOptions(options);
-  if (resolved.pagesDir) return [];
 
-  const appFileAbs = resolve(root, resolved.appFile.replace(/^\//, ""));
   let manifestSource: string;
   try {
-    manifestSource = readFileSync(appFileAbs, "utf-8");
+    manifestSource = readAppManifestSource(resolved, root);
   } catch {
     return [];
   }
 
-  const appDir = dirname(appFileAbs);
+  const appDir = appManifestDir(resolved, root);
   return extractCapabilityRegistrations(manifestSource).map(({ file }) =>
     file.startsWith("/") ? resolve(root, file.replace(/^\//, "")) : resolve(appDir, file),
   );
@@ -422,23 +463,22 @@ export function createPrachtCapabilitiesClientModuleSource(
 }
 
 /**
- * Generate `virtual:pracht/webmcp` — the disposable WebMCP registration shim.
- * One page tool per `expose.webmcp` capability; `execute` dispatches through
+ * Generate `virtual:pracht/webmcp` — the WebMCP registration shim.
+ * One page tool per `expose.webmcp` capability; dispatch goes through
  * `callCapability`, so the user's session authenticates the call and all
  * validation/middleware/policy stays server-side. Each dispatch carries the
  * transport marker header so audit events can attribute it to WebMCP.
  *
- * Targets the WebMCP CG draft API: `document.modelContext.registerTool()`
- * (ChatGPT desktop's built-in browser; Chromium 150+ within the 149–156
- * origin trial — the `document` getter landed in 150 and the deprecated
- * `navigator.modelContext` alias was removed in 152, so trial builds before
- * 150 are not targeted and no fallback is kept; current polyfills install the
- * `document` shape). No-ops silently when the API is absent.
- *
- * `execute()` returns the capability envelope (`{ ok, data }` /
- * `{ ok: false, error }`) as a plain object: per the spec the host serializes
- * the returned value itself, so wrapping it in MCP-style content blocks would
- * reach the agent double-encoded.
+ * The registration runtime — feature detection, `registerTool()` calls, and
+ * the WebMCP annotation policy — lives in
+ * `@pracht/capabilities/webmcp` (published, so non-pracht sites register tools
+ * with identical semantics); this module only
+ * contributes the statically extracted tool metadata and the app-specific
+ * dispatch. The registrar import is resolved from *this plugin's* copy of
+ * `@pracht/capabilities` at codegen time: the virtual module has no importer
+ * on disk, so a bare specifier would resolve against the app root — where an
+ * older installed copy may predate the `./webmcp` entry point. The registrar
+ * is stateless, so using the plugin's copy cannot split state.
  */
 export function createPrachtWebmcpModuleSource(
   options: PrachtPluginOptions = {},
@@ -455,52 +495,32 @@ export function createPrachtWebmcpModuleSource(
     ...(capability.title ? { title: capability.title } : {}),
     description: capability.description,
     inputSchema: capability.inputSchema,
-    // Same hint set as the remote MCP projection (runtime-mcp.ts), so one
-    // capability advertises one contract on both agent transports. `write`
-    // deliberately omits destructiveHint: the effect class does not prove the
-    // operation is additive, so the host's conservative default applies.
-    // (destructive never reaches WebMCP.)
-    annotations: {
-      readOnlyHint: capability.effect === "read",
-      ...(capability.effect === "read" ? { destructiveHint: false } : {}),
-      idempotentHint: capability.effect === "read",
-      ...(capability.webmcpUntrustedContent ? { untrustedContentHint: true } : {}),
-    },
+    // The registrar derives WebMCP's supported annotation hints from the
+    // effect class. (destructive never reaches WebMCP.)
+    ...(capability.effect ? { effect: capability.effect } : {}),
+    ...(capability.webmcpUntrustedContent ? { untrustedContent: true } : {}),
   }));
 
   return [
     "// Generated by @pracht/vite-plugin — WebMCP page-tool registration shim.",
+    `import { registerWebmcpTools } from ${JSON.stringify(resolveWebmcpRegistrarSpecifier())};`,
     'import { callCapability } from "virtual:pracht/capabilities";',
     "",
     `const tools = ${JSON.stringify(tools)};`,
     `const transportHeaders = { ${JSON.stringify(CAPABILITY_TRANSPORT_HEADER)}: "webmcp" };`,
+    "let registrationController;",
     "",
     "export function registerPrachtWebmcpTools() {",
-    "  const modelContext =",
-    '    (typeof document !== "undefined" && document.modelContext) || null;',
-    '  if (!modelContext || typeof modelContext.registerTool !== "function") {',
-    "    return false;",
-    "  }",
-    "  for (const tool of tools) {",
-    "    try {",
-    "      const registration = modelContext.registerTool({",
-    "        ...tool,",
-    "        async execute(input, { signal } = {}) {",
-    "          return callCapability(tool.name, input, {",
-    "            headers: transportHeaders,",
-    "            signal,",
-    "          });",
-    "        },",
-    "      });",
-    '      if (registration && typeof registration.catch === "function") {',
-    "        registration.catch(() => {});",
-    "      }",
-    "    } catch {",
-    "      // The API is still an origin-trial surface; a failed registration",
-    "      // must never break the page.",
-    "    }",
-    "  }",
-    "  return true;",
+    "  registrationController?.abort();",
+    "  registrationController = new AbortController();",
+    "  return registerWebmcpTools(tools, (name, input, { signal } = {}) =>",
+    "    callCapability(name, input, { headers: transportHeaders, signal }),",
+    "    { signal: registrationController.signal },",
+    "  );",
+    "}",
+    "",
+    "if (import.meta.hot) {",
+    "  import.meta.hot.dispose(() => registrationController?.abort());",
     "}",
     "",
     "registerPrachtWebmcpTools();",
@@ -521,6 +541,21 @@ export function createWebmcpBootstrapSource(): string[] {
     "}",
     "",
   ];
+}
+
+/**
+ * Absolute module specifier for `@pracht/capabilities/webmcp`, resolved from
+ * this plugin so the generated shim never depends on the app root carrying a
+ * new-enough copy. Falls back to the bare specifier if resolution fails
+ * (tests with unusual layouts); Vite then resolves it from the app root.
+ */
+function resolveWebmcpRegistrarSpecifier(): string {
+  try {
+    const require = createRequire(import.meta.url);
+    return require.resolve("@pracht/capabilities/webmcp").split("\\").join("/");
+  } catch {
+    return "@pracht/capabilities/webmcp";
+  }
 }
 
 export function hasWebmcpCapabilities(

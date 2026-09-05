@@ -31,9 +31,33 @@ The current repo scaffold and package boundaries are tracked in
 │  packages/adapter-*   │ │   packages/cli                 │
 │  Node · CF · Vercel   │ │   dev · build · generate       │
 └───────────────────────┘ └────────────────────────────────┘
+
+        packages/capabilities
+ contract · validation · trust · standalone HTTP/MCP host
 ```
 
+`@pracht/capabilities` is below the framework boundary: `@pracht/core` uses
+its server internals for integrated dispatch, while non-Pracht applications
+use the curated `@pracht/capabilities/server` host and
+`@pracht/capabilities/webmcp` registrar directly. Framework-only helpers are
+published at `@pracht/capabilities/server/internal` so they do not become part
+of the supported standalone API by accident.
+
 ---
+
+## Shared tool and adapter contracts
+
+Build and CLI verification consume the same source-analysis helpers from
+`@pracht/capabilities/static`: environment access, Markdown fence masking,
+pages configuration exports, render/hydration literals, revalidation literals,
+and nearest-shell selection. File discovery and diagnostic presentation remain
+with each consumer. The CLI uses core's route graph types and serialization,
+so adding route metadata does not require a second projection implementation.
+
+Node, Cloudflare, and Netlify use core's `applyHeadersManifest` and
+`getManifestHeaders` helpers. Header lookup prefers an exact path, then the
+trailing-slash-free path, then the path without `/index.html`. Adapter-specific
+cache policy, storage, regeneration and request normalization remain local.
 
 ## Core Abstractions
 
@@ -372,6 +396,80 @@ The runtime only records timings when the dev middleware passes a collector via
 `HandlePrachtRequestOptions.timings`; production adapters never pass one, so
 production requests skip all timing work.
 
+### Writing the response
+
+The dev middleware hands the runtime's `Response` to Node the same way the
+production Node adapter does (`writeNodeResponseHeaders` in
+`packages/adapter-node/src/node-request.ts`), and for the same reason: a
+difference here only shows up after deploy.
+
+- Headers are copied with `writeDevResponseHeaders()`, which reads `set-cookie`
+  through `getSetCookie()`. `Headers.forEach()` yields that one header
+  comma-joined and `res.setHeader()` replaces rather than appends, so a loader
+  or API route setting two cookies would otherwise emit one broken header.
+- Only a `text/html` body is decoded to text, because that is the one body this
+  middleware rewrites (Vite's HTML transform). Every other body is piped as
+  bytes, so a PDF, an image, or a `Uint8Array` from an API route is
+  byte-identical in dev and production. `text/event-stream` keeps its own
+  earlier branch: it must stream and never buffer.
+- A page loader, page middleware, render, API handler, or API middleware failure is logged once to
+  `server.config.logger`, with phase, route id, request path, and message —
+  plus the matched route/loader/middleware source file, or `file:line:column`
+  when the error blames a module of the user's
+  (`describeAnnotatedUserModule()`), which is how a route file that will not
+  compile gets named: it fails while the virtual server module is evaluated, so
+  there is no route context to report. The overlay only reaches a document
+  navigation; a route-state fetch, a `curl`, or a test run would otherwise see
+  a 500 and nothing server-side. API failures use the dedicated `onApiError`
+  hook and keep their JSON/plain-text response; only unclaimed page failures
+  use `onRouteError` to opt into the browser overlay. A body stream that fails
+  after the headers are on the wire is logged there too — destroying the socket
+  is all that is left, so the line is the only signal. Expected 404s are not
+  logged.
+- The stack is appended only when the failure names no user module, or under
+  `DEBUG` (`shouldIncludeDevErrorStack()`). A route/loader/shell file in
+  `RouteErrorContext`, Vite's `id`/`loc.file` on a transform error, or a stack
+  frame under the project root outside `node_modules` all count as named — the
+  message and the overlay already locate those, and repeating the trace for
+  each failing route-state poll buries the terminal. Anything unattributable is
+  a framework or module-loading fault where the trace is the only clue.
+- Both error paths check `res.headersSent` first. A failure *after* the
+  response is on the wire would otherwise raise `ERR_HTTP_HEADERS_SENT` on top
+  of the original error, replacing it as the thing the developer sees. When the
+  response has *not* gone out, they clear the headers that described the body
+  being abandoned — `content-length`, `content-type`, `content-encoding`,
+  `transfer-encoding`, `content-disposition` — and only those. A stale
+  `content-length` would truncate the error page written in its place, while
+  clearing everything would also drop the CORS headers Vite's own middleware
+  staged, answering a cross-origin 500 with a CORS failure and no readable
+  overlay.
+
+### Route hint tables
+
+The generated client entry bakes in four per-route tables — does this module
+export `loader`, `head`, `headers`, `getStaticPaths` — which the browser's
+router reads to decide whether a navigation must fetch route state.
+`createRouteHints()` (`route-loader-hints.ts`) builds all four from one
+directory walk and one parse per route file; the per-table
+`createRoute*Hints()` exports are thin wrappers over it, as is
+`createRouteHintsForVirtualModules()` in `plugin-codegen.ts`, which resolves
+the plugin's configured directories. Building them independently meant walking
+`src/routes` and re-parsing every route module once per table, on every file of
+every save.
+
+`handleHotUpdate` compares the fresh scan against `emittedRouteHints` — a
+snapshot of what `load()` last baked into the entry, not the table the previous
+file in the same save just refreshed. A save that writes several files fires
+`handleHotUpdate` once per file against a disk that already holds all of them,
+so comparing against the freshly recomputed table reported "unchanged" for
+every file after the first. A scan that had to skip an entry reports
+`incomplete`, which forces reloads until `load()` rebuilds from a clean walk.
+
+The separate CSS-injection middleware (used by adapter-owned dev servers)
+buffers only responses whose content type is `text/html`, up to
+`MAX_DEV_CSS_BUFFER_BYTES`; anything else keeps its `content-length`, its
+backpressure signal, and its bytes.
+
 ---
 
 ## Build Pipeline
@@ -524,7 +622,13 @@ runtime-context.ts — hydration state reader and Preact runtime provider
     ↑
 runtime-hooks.ts — public browser hooks/components (Link, Form, useRevalidate, etc.)
     ↑
-runtime.ts      — SSR handler and prerendering (static import of app.ts)
+runtime-request.ts — front half of the server pipeline: createRequestContext,
+                     dispatchApi, dispatchAgentSurface (owns HandlePrachtRequestOptions)
+    ↑
+runtime-page.ts — back half: renderPage (middleware → loader → head/headers →
+                  route-state JSON, SPA shell, or server-rendered document)
+    ↑
+runtime.ts      — handlePrachtRequest orchestrator + the public runtime re-exports
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
     ↑
@@ -535,6 +639,8 @@ prefetch.ts     — prefetch listener wiring (intent/viewport/render), loaded by
 router.ts       — client router, hydration bootstrap (imports runtime-context + prefetch-api)
 
 navigation-state.ts — shared useNavigation() store written by router.ts and <Form> (no internal deps)
+navigation-blocker.ts — useBlocker() guard registry + the per-history-entry index that lets a
+                        refused back/forward traversal be put back (imports navigation-state.ts)
 scroll-restoration.ts — sessionStorage-backed per-history-entry scroll position store (no internal deps)
 runtime-speculation.ts — builds the `<script type="speculationrules">` payload from
                          opted-in routes, including the link-level exclusion
@@ -567,16 +673,31 @@ The published core package also exposes small browser-oriented entries:
   the vite plugin rejects client-side imports of it at build time, and its
   browser condition points at a throwing stub as a backstop for other bundlers.
 - The root `@pracht/core` export has a browser condition that points at a
-  client-safe public entry for route and shell modules.
+  client-safe public entry for route and shell modules. The condition carries
+  its own `types`, so the ~70 server-only exports of `index.ts` are a compile
+  error in client code instead of type-checking and then failing at bundle
+  time. Anything genuinely pure that client code needs (`matchRoutePath`,
+  `matchApiRoute`, `routePathIsDynamic`, `resolveApiRoutes`,
+  `evaluateConstraints`) therefore has to be re-exported from `browser.ts` as
+  well — a name missing there is unreachable from the browser, not merely
+  untyped.
 
-**Important:** `runtime.ts` imports `resolveApp` and `buildPathFromSegments` directly from
-`app.ts` via a static import. Earlier versions used `await import("./app.ts")` dynamic
-imports inside `prerenderApp` and `collectSSGPaths` — these were a defensive workaround
-against a perceived circular dependency that never actually existed (since `app.ts` only
-imports from `types.ts`). The dynamic imports have been replaced with static imports.
+**Important:** the server pipeline modules import `resolveApp` and
+`buildPathFromSegments` directly from `app.ts` via a static import. Earlier versions used
+`await import("./app.ts")` dynamic imports inside `prerenderApp` and `collectSSGPaths` —
+these were a defensive workaround against a perceived circular dependency that never
+actually existed (since `app.ts` only imports from `types.ts`). The dynamic imports have
+been replaced with static imports.
 
-The only intentional dynamic import in `runtime.ts` is `preact-render-to-string`, which
-is lazy-loaded to keep the SSR-only dependency out of the client bundle.
+The dynamic imports that remain on the server are deliberate and load-bearing:
+`preact-render-to-string` (kept out of the client bundle), and the agent-surface
+runtimes — `runtime-capabilities.ts`, `runtime-mcp.ts`, `runtime-agent-context.ts`,
+`runtime-agent-auth.ts` — which `runtime-request.ts` only reaches behind the
+`__PRACHT_AGENT_SURFACE__` gate. That gate is repeated in `dispatchAgentSurface` even
+though the runtime check there is redundant: the bundler can fold the define, but it
+cannot prove a runtime read off the request context is always null, and without the
+second gate a capability-free app ships the capability dispatch.
+`packages/framework/test/package-tree-shaking.test.ts` holds that line.
 
 The client router intentionally dynamic-imports `prefetch.ts` after router
 initialization. Navigation keeps the small shared cache available synchronously,
@@ -752,7 +873,16 @@ selection plus the phase and route/loader/shell module paths into the overlay,
 since none is reliably recoverable from a stack trace. A loader module path
 comes from the resolved route as a fallback, so a loader that fails during its
 own import is still linked. Overlay responses retain the phase timings already
-collected for the dev `Server-Timing` header.
+collected for the dev `Server-Timing` header. Every such failure is also logged
+once to the dev terminal (see "Writing the response" above) — the overlay only
+reaches a browser navigating to a document.
+
+API handler and API middleware failures are already normalized inside the
+runtime, so they cannot reach the dev middleware's outer catch either. The dev
+middleware passes `onApiError` to log them with the same phase, route file, and
+middleware-file context while leaving the API response body and content type
+unchanged. This callback is separate from `onRouteError` so an API failure can
+never satisfy the page-overlay handoff.
 
 Four ergonomics features are built in:
 

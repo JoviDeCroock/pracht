@@ -1,6 +1,9 @@
 # Pracht — Vision & MVP
 
-Pracht is a full-stack Preact framework built on Vite. It draws routing and rendering
+Pracht is a full-stack Preact framework built on Vite. It resolves routing, rendering,
+data loading, API endpoints, and capabilities into one explicit app graph, then projects
+that graph to both of the web's audiences: components for browsers, and typed,
+trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
 
 ---
 
@@ -108,7 +111,9 @@ core framework conventions. See
   shell-level head.
 - **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
-  `useLocation()`, `useSearchParams()`, `useParams()`, `<Form>` component, `<Link>`
+  `useLocation()`, `useSearchParams()`, `useParams()`, `useBlocker()` (guard a
+  navigation before it commits, including back/forward and document unload),
+  `<Form>` component, `<Link>`
   (with `prefetch`, `preserveScroll`, `viewTransition`, `speculate` props), and imperative
   `prefetch()`.
 

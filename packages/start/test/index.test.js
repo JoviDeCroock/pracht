@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, readlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -25,6 +26,29 @@ const NODE_ADAPTER = {
 };
 
 describe("create-pracht", () => {
+  it("describes root middleware support in the pages router prompt", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-router-prompt-"));
+    const prompt = execFileSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../bin/create-pracht.js", import.meta.url)),
+        join(root, "my-pages-app"),
+        "--adapter=node",
+        "--template=minimal",
+        "--no-agent-tools",
+        "--dry-run",
+        "--skip-install",
+        "--no-git",
+      ],
+      { encoding: "utf-8", input: "2\n" },
+    );
+
+    expect(prompt).toContain("_middleware.ts, src/capabilities/, and _app.config.ts");
+    expect(prompt).toContain("no per-route middleware or shell overrides");
+    expect(prompt).not.toContain("pages and API routes only");
+    expect(prompt).not.toContain("MCP, or agent trust");
+  });
+
   it("detects the package manager from the npm user agent", () => {
     expect(getPackageManager("pnpm/10.0.0 npm/? node/? darwin x64")).toBe("pnpm");
     expect(getPackageManager("yarn/4.7.0 npm/? node/? darwin x64")).toBe("yarn");
@@ -149,28 +173,29 @@ describe("create-pracht", () => {
     const tsconfig = await readFile(join(targetDir, "tsconfig.json"), "utf-8");
     expect(tsconfig).toMatchInlineSnapshot(`
       "{
-          "compilerOptions": {
-              "allowImportingTsExtensions": true,
-              "jsx": "react-jsx",
-              "jsxImportSource": "preact",
-              "lib": [
-                  "ES2022",
-                  "DOM",
-                  "DOM.Iterable"
-              ],
-              "module": "ESNext",
-              "moduleResolution": "Bundler",
-              "noEmit": true,
-              "skipLibCheck": true,
-              "strict": true,
-              "target": "ES2022",
-              "types": [
-                  "vite/client",
-                  "@pracht/vite-plugin/virtual"
-              ],
-              "verbatimModuleSyntax": true
-          }
-      }"
+        "compilerOptions": {
+          "target": "ES2022",
+          "lib": [
+            "ES2022",
+            "DOM",
+            "DOM.Iterable"
+          ],
+          "module": "ESNext",
+          "moduleResolution": "Bundler",
+          "jsx": "react-jsx",
+          "jsxImportSource": "preact",
+          "types": [
+            "vite/client",
+            "@pracht/vite-plugin/virtual"
+          ],
+          "allowImportingTsExtensions": true,
+          "verbatimModuleSyntax": true,
+          "strict": true,
+          "skipLibCheck": true,
+          "noEmit": true
+        }
+      }
+      "
     `);
   });
 
@@ -231,28 +256,29 @@ describe("create-pracht", () => {
     const tsconfig = await readFile(join(targetDir, "tsconfig.json"), "utf-8");
     expect(tsconfig).toMatchInlineSnapshot(`
       "{
-          "compilerOptions": {
-              "allowImportingTsExtensions": true,
-              "jsx": "react-jsx",
-              "jsxImportSource": "preact",
-              "lib": [
-                  "ES2022",
-                  "DOM",
-                  "DOM.Iterable"
-              ],
-              "module": "ESNext",
-              "moduleResolution": "Bundler",
-              "noEmit": true,
-              "skipLibCheck": true,
-              "strict": true,
-              "target": "ES2022",
-              "types": [
-                  "vite/client",
-                  "@pracht/vite-plugin/virtual"
-              ],
-              "verbatimModuleSyntax": true
-          }
-      }"
+        "compilerOptions": {
+          "target": "ES2022",
+          "lib": [
+            "ES2022",
+            "DOM",
+            "DOM.Iterable"
+          ],
+          "module": "ESNext",
+          "moduleResolution": "Bundler",
+          "jsx": "react-jsx",
+          "jsxImportSource": "preact",
+          "types": [
+            "vite/client",
+            "@pracht/vite-plugin/virtual"
+          ],
+          "allowImportingTsExtensions": true,
+          "verbatimModuleSyntax": true,
+          "strict": true,
+          "skipLibCheck": true,
+          "noEmit": true
+        }
+      }
+      "
     `);
 
     const envDts = await readFile(join(targetDir, "src/env.d.ts"), "utf-8");
@@ -447,7 +473,10 @@ describe("create-pracht", () => {
     expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
     expect(packageJson).not.toContain('"preview"');
     expect(readme).toContain("configured for Vercel");
-    expect(readme).toContain("pnpm deploy");
+    // `pnpm deploy` is pnpm's own workspace-deploy command and shadows the
+    // package script, so the README has to print the explicit `run` form.
+    expect(readme).toContain("pnpm run deploy");
+    expect(readme).not.toContain("`pnpm deploy`");
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(false);
     expect(existsSync(join(targetDir, "Dockerfile"))).toBe(false);
     expect(existsSync(join(targetDir, ".dockerignore"))).toBe(false);
@@ -463,28 +492,29 @@ describe("create-pracht", () => {
     const tsconfig = await readFile(join(targetDir, "tsconfig.json"), "utf-8");
     expect(tsconfig).toMatchInlineSnapshot(`
       "{
-          "compilerOptions": {
-              "allowImportingTsExtensions": true,
-              "jsx": "react-jsx",
-              "jsxImportSource": "preact",
-              "lib": [
-                  "ES2022",
-                  "DOM",
-                  "DOM.Iterable"
-              ],
-              "module": "ESNext",
-              "moduleResolution": "Bundler",
-              "noEmit": true,
-              "skipLibCheck": true,
-              "strict": true,
-              "target": "ES2022",
-              "types": [
-                  "vite/client",
-                  "@pracht/vite-plugin/virtual"
-              ],
-              "verbatimModuleSyntax": true
-          }
-      }"
+        "compilerOptions": {
+          "target": "ES2022",
+          "lib": [
+            "ES2022",
+            "DOM",
+            "DOM.Iterable"
+          ],
+          "module": "ESNext",
+          "moduleResolution": "Bundler",
+          "jsx": "react-jsx",
+          "jsxImportSource": "preact",
+          "types": [
+            "vite/client",
+            "@pracht/vite-plugin/virtual"
+          ],
+          "allowImportingTsExtensions": true,
+          "verbatimModuleSyntax": true,
+          "strict": true,
+          "skipLibCheck": true,
+          "noEmit": true
+        }
+      }
+      "
     `);
   });
 
@@ -517,6 +547,9 @@ describe("create-pracht", () => {
     expect(existsSync(join(targetDir, "src/routes.ts"))).toBe(false);
     expect(readme).toContain("src/pages/");
     expect(readme).toContain("The pages router has no manifest");
+    expect(readme).toContain("every module in `src/capabilities/`");
+    expect(readme).toContain("`src/pages/_app.config.ts`");
+    expect(readme).toContain("Pure static exports have no request runtime");
     expect(readme).toContain("export const REVALIDATE = 3600");
 
     // AGENTS.md is only seeded with agent tooling, so the README — which every
@@ -539,7 +572,10 @@ describe("create-pracht", () => {
     expect(agents).toContain("pages routing");
     expect(agents).toContain("src/pages/");
     expect(agents).toContain("The pages router has no manifest");
+    expect(agents).toContain("every module in `src/capabilities/`");
+    expect(agents).toContain("`src/pages/_app.config.ts`");
     expect(agents).toContain("export const REVALIDATE = 3600");
+    expect(agents).toContain("pracht generate middleware --name _middleware");
   });
 
   it("seeds pnpm edge build policy for every router and template permutation", async () => {
@@ -611,7 +647,9 @@ describe("create-pracht", () => {
     }
   });
 
-  it("keeps the inert standalone pnpm policy for other package managers", async () => {
+  // npm, yarn, and bun ignore pnpm-workspace.yaml entirely, so emitting one
+  // leaves a config in the repo that nothing in the repo obeys.
+  it("writes no pnpm-workspace.yaml for other package managers", async () => {
     const root = await mkdtemp(join(tmpdir(), "pracht-start-non-pnpm-edge-policy-"));
 
     for (const packageManager of ["npm", "yarn", "bun"]) {
@@ -632,10 +670,10 @@ describe("create-pracht", () => {
 
       const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
       expect(packageJson.pnpm).toBeUndefined();
-      const workspace = await readFile(join(targetDir, "pnpm-workspace.yaml"), "utf-8");
-      expect(workspace).toContain('  - "."');
-      expect(workspace).toContain("allowBuilds:");
-      expect(workspace).toContain('  "esbuild": true');
+      expect(existsSync(join(targetDir, "pnpm-workspace.yaml"))).toBe(false);
+      // The policy is pnpm's alone, so its README note is pnpm's alone too.
+      const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+      expect(readme).not.toContain("pnpm-workspace.yaml");
     }
   });
 
@@ -837,12 +875,18 @@ describe("create-pracht", () => {
     expect(output.dryRun).toBe(true);
     expect(output.tailwind).toBe(true);
     expect(output.agentTools).toBe(true);
+    expect(output.agentSkills).toBe("core");
     expect(output.files).toContain("Dockerfile");
     expect(output.files).toContain(".dockerignore");
     expect(output.files).toContain("src/styles/global.css");
     expect(output.files).toContain(".gitignore");
     expect(output.files).toContain(".mcp.json");
-    expect(output.files).toContain(".claude/skills/add-auth/SKILL.md");
+    expect(output.files).toContain(".claude/skills/pracht-scaffold/SKILL.md");
+    // The default is a core set, not the whole catalog: an audit skill has
+    // nothing to audit in an eight-file starter, and every description it
+    // seeds costs the agent context in every later session.
+    expect(output.files).not.toContain(".claude/skills/audit-loaders/SKILL.md");
+    expect(output.files.filter((file) => file.startsWith(".claude/skills/"))).toHaveLength(5);
     expect(existsSync(targetDir)).toBe(false);
   });
 
@@ -869,6 +913,7 @@ describe("create-pracht", () => {
 
     expect(output.tailwind).toBe(false);
     expect(output.agentTools).toBe(false);
+    expect(output.agentSkills).toBeNull();
     expect(output.files).not.toContain("Dockerfile");
     expect(output.files).not.toContain("src/styles/global.css");
     expect(output.files).not.toContain(".mcp.json");
@@ -896,18 +941,89 @@ describe("create-pracht", () => {
       // `npx pracht` either: that resolves to a registry package literally
       // named `pracht` whenever the local bin is missing, which `--no-install`
       // turns into a loud failure.
-      args: ["--no-install", "pracht", "mcp"],
+      args: ["--no-install", "pracht", "dev-mcp"],
     });
 
-    const skillFile = join(targetDir, ".claude/skills/add-auth/SKILL.md");
+    const skillFile = join(targetDir, ".claude/skills/pracht-scaffold/SKILL.md");
     expect(existsSync(skillFile)).toBe(true);
-    expect(await readFile(skillFile, "utf-8")).toContain("name: add-auth");
+    expect(await readFile(skillFile, "utf-8")).toContain("name: pracht-scaffold");
+    expect(existsSync(join(targetDir, ".claude/skills/audit-loaders/SKILL.md"))).toBe(false);
 
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("## Agent tooling");
     expect(agents).toContain(".claude/skills/");
     expect(agents).toContain(".mcp.json");
+    // The seeded set is a subset, so the instructions have to say where the
+    // rest are — otherwise an agent hand-writes a SKILL.md that already exists.
+    expect(agents).toContain("pracht skills add");
+    expect(agents).toContain(".well-known/agent-skills/index.json");
+
+    const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    expect(readme).toContain("## Skills");
+    expect(readme).toContain("pracht skills list");
+    // The Navigating section is about route ids and nothing else; file
+    // descriptions belong under Files.
+    const navigating = readme.slice(readme.indexOf("## Navigating"));
+    expect(navigating.slice(0, navigating.indexOf("## Checks"))).not.toContain(
+      "- `.claude/skills/`",
+    );
   });
+
+  it("seeds the whole catalog with --agent-tools=full", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-agent-tools-full-"));
+    const targetDir = join(root, "my-full-agent-app");
+
+    await scaffoldProject({
+      adapter: NODE_ADAPTER,
+      agentSkills: "full",
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    expect(existsSync(join(targetDir, ".claude/skills/pracht-scaffold/SKILL.md"))).toBe(true);
+    expect(existsSync(join(targetDir, ".claude/skills/audit-loaders/SKILL.md"))).toBe(true);
+
+    // Nothing left to add, so nothing points at the catalog.
+    const readme = await readFile(join(targetDir, "README.md"), "utf-8");
+    expect(readme).toContain("The whole pracht skill catalog");
+    expect(readme).not.toContain("pracht skills add");
+  });
+
+  // `pnpm deploy` is pnpm's own workspace-deploy command: it stages a workspace
+  // package into a directory and never looks at the `deploy` script. A README
+  // or AGENTS.md that prints it hands the reader a command that silently does
+  // something else.
+  it.each(["pnpm", "npm", "yarn", "bun"])(
+    "prints a %s deploy command that runs the package script",
+    async (packageManager) => {
+      const root = await mkdtemp(join(tmpdir(), `pracht-start-deploy-${packageManager}-`));
+      const targetDir = join(root, "my-deploy-app");
+
+      await scaffoldProject({
+        adapter: {
+          description: "Cloudflare Workers with wrangler deploy",
+          id: "cloudflare",
+          label: "Cloudflare Workers",
+          packageName: "@pracht/adapter-cloudflare",
+          short: "cf",
+        },
+        packageManager,
+        pnpmMajor: 11,
+        resolveRemoteVersions: false,
+        targetDir,
+      });
+
+      const expected = packageManager === "yarn" ? "yarn deploy" : `${packageManager} run deploy`;
+      for (const file of ["README.md", "AGENTS.md"]) {
+        const source = await readFile(join(targetDir, file), "utf-8");
+        expect(source, `${file} deploy command`).toContain(expected);
+        if (packageManager !== "yarn") {
+          expect(source, `${file} deploy command`).not.toContain(`\`${packageManager} deploy\``);
+        }
+      }
+    },
+  );
 
   it("skips agent tooling when agentTools is false", async () => {
     const root = await mkdtemp(join(tmpdir(), "pracht-start-no-agent-tools-"));
@@ -1024,6 +1140,11 @@ describe("create-pracht", () => {
   it("parseArgs handles --agent-tools and --no-agent-tools flags", () => {
     expect(parseArgs([]).agentTools).toBeUndefined();
     expect(parseArgs(["--agent-tools"]).agentTools).toBe(true);
+    expect(parseArgs(["--agent-tools"]).agentSkills).toBeUndefined();
+    expect(parseArgs(["--agent-tools=core"]).agentSkills).toBe("core");
+    expect(parseArgs(["--agent-tools=full"]).agentTools).toBe(true);
+    expect(parseArgs(["--agent-tools=full"]).agentSkills).toBe("full");
+    expect(() => parseArgs(["--agent-tools=some"])).toThrow(/Use core or full/);
     expect(parseArgs(["--no-agent-tools"]).agentTools).toBe(false);
   });
 

@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.3.0
+version: 1.7.0
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -25,11 +25,8 @@ before converting it; never infer from the filename. Prefer the simplest
 pracht equivalent, and when a Next.js feature has no equivalent, say so and
 propose an alternative instead of inventing one.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), use
-`generate_route`/`generate_shell`/`generate_middleware`/`generate_api` to
-scaffold and `inspect_routes`/`inspect_api`/`doctor`/`verify` to check
-progress, instead of Bash. `pracht inspect` needs the pracht plugin in the
-vite config; `inspect_build` needs a prior `pracht build`.
+With the Pracht MCP server, prefer its generate/inspect/doctor/verify tools;
+`inspect_build` needs a prior `pracht build`.
 
 ## Step 0: Assess the source
 
@@ -40,6 +37,9 @@ the tree: `app/` (App Router), `pages/` (Pages Router), `middleware.ts`,
 `"use server"` actions — and the third-party integrations (auth, CMS, DB,
 analytics). Confirm scope with the user if the app has more than ~20 routes.
 
+Agent tools alone do not require a router migration; use the standalone host:
+<https://pracht.resynapse.dev/docs/standalone-capabilities>.
+
 ## Fast path: Pages Router
 
 `pagesDir` makes a pages-router source near-drop-in — **Phase 7 is then
@@ -47,13 +47,25 @@ automatic**:
 
 1. `pracht({ pagesDir: "/src/pages" })` in `vite.config.ts`; copy `pages/` to
    `src/pages/`.
-2. `_app.tsx` → pracht shell shape (`Shell` export taking `children`).
+2. `_app.tsx` → pracht shell shape (`Shell` export taking `children`). A
+   subdirectory `_app` scopes a shell to that subtree (`blog/_app.tsx` →
+   `"pages:blog"`), where App Router `layout.tsx` lands — but shells replace
+   rather than nest, so it repeats the chrome, `head()`, and `headers()` it
+   needs.
 3. `getServerSideProps`/`getStaticProps` → `loader` export.
 4. `export const RENDER_MODE = "ssg"` on static pages (`"ssr"` is the
    default). For time-revalidated pages export `RENDER_MODE = "isg"` plus a
    positive integer `REVALIDATE` in seconds; webhook policies require ejecting
    to a manifest.
-5. Run the dev server, iterate, and optionally eject later with
+5. `middleware.ts` → a root-level `src/pages/_middleware.ts` exporting a
+   `MiddlewareFn` (Phase 6). It runs on every page route; API routes are not
+   wrapped. Move `config.matcher` checks into the body and compare
+   `stripBase(url.pathname)`. A nested `_middleware`, a `_middleware/`
+   directory, and a missing export are build/doctor/verify errors.
+6. Other `_`-prefixed files and directories are reserved: pracht ignores the
+   subtree. Capabilities live in `src/capabilities/` (auto-discovered,
+   self-named); `agents` / `constraints` in `src/pages/_app.config.ts`.
+7. Run the dev server, iterate, and optionally eject later with
    `generateRoutesFile`.
 
 ## Concept mapping
@@ -62,11 +74,11 @@ automatic**:
 | ------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `pages/` directory              | `pagesDir` plugin option                                        | Auto-discovers routes from the file system                            |
 | `app/page.tsx`                  | `src/routes/*.tsx` + `route()` in manifest                      | File is a module; wiring is explicit                                  |
-| `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp`                    | Shells are named, not directory-nested                                |
+| `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp` (pages: `_app.tsx` per directory) | Named shells; a directory `_app` replaces its parent instead of nesting |
 | `app/loading.tsx`               | `Loading` export on the shell                                   | SSR placeholder for SPA routes until the client router takes over     |
 | `app/error.tsx`                 | `ErrorBoundary` export in route module                          | Same concept, different wiring                                        |
 | `app/not-found.tsx`             | `notFound:` in `defineApp` (or `pages/404.tsx` in pagesDir mode) | Not a route — never matches a URL, so it cannot shadow static assets  |
-| `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp`             | Named, applied per route/group                                        |
+| `middleware.ts`                 | `src/middleware/*.ts` + `middleware` in `defineApp` (or `src/pages/_middleware.ts` in pagesDir mode) | Named, applied per route/group; the pages-mode file runs on every page route |
 | `app/api/*/route.ts`            | `src/api/*.ts` with `GET`/`POST` exports                        | Auto-discovered, no manifest entry                                    |
 | `generateStaticParams`          | `getStaticPaths()` export                                       | Returns `RouteParams[]` of param objects                              |
 | `generateMetadata`              | `head()` export                                                 | Returns `{ title, meta }`                                             |
@@ -203,6 +215,14 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 `group({ middleware: ["auth"] }, [route("/dashboard", …)])`. Pracht middleware
 is wrap-around (Hono/Koa/Astro shape), so you can `await next()` and observe
 the response — useful for tracing.
+
+In `pagesDir` mode the same `MiddlewareFn` goes in a root-level
+`src/pages/_middleware.ts`, applied to every page route (API routes stay
+unwrapped). Do not migrate a per-request auth matcher onto an `ssg`/`isg` page
+and call it protected: that document runs middleware only at
+build/revalidation, with a sanitized request. Keep such pages `ssr`/`spa`, or
+keep a separately verified edge gate. Pure static exports have no request
+runtime.
 
 ## Phase 7: Route manifest
 

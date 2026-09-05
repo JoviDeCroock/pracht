@@ -21,6 +21,9 @@ import {
 import {
   evaluateLiteral,
   extractCapabilityRegistrations,
+  hasNamedValueExport,
+  readNamedExportInitializer,
+  resolvePagesCapabilityName,
   extractDefineAppObjectBody,
   extractDefineCapabilityArgs,
   findTopLevelObjectProperty,
@@ -30,8 +33,11 @@ import {
 } from "@pracht/capabilities/static";
 import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
 
+import { parseAst } from "vite";
+
 import { extractRegistryEntries } from "./manifest.js";
-import { resolveProjectPath, type ProjectConfig } from "./project.js";
+import { displayPath, resolveProjectPath, type ProjectConfig } from "./project.js";
+import { parserLanguage } from "./verification-pages.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
@@ -47,7 +53,187 @@ const MCP_AUTH_CONFIG_KEYS = new Set([
 ]);
 
 /**
- * Static verification of registered capabilities (manifest mode only). These
+ * The manifest source the capability checks analyze, plus the file relative
+ * module refs inside it resolve against.
+ *
+ * Pages-router apps have no manifest file, so one is synthesized from the two
+ * places a pages app declares the same facts: `src/capabilities/` and the
+ * `agents` / `constraints` exports of `src/pages/_app.config.ts`. Every check
+ * below then runs on identical input in both modes, which is the only way the
+ * two routers can be held to the same contract.
+ *
+ * Returns `null` when there is nothing to check.
+ */
+function readCapabilityManifest(
+  project: ProjectConfig,
+  checks: Check[],
+): { manifestPath: string; manifestSource: string } | null {
+  if (project.mode !== "pages") {
+    const manifestPath = resolveProjectPath(project.root, project.appFile);
+    if (!existsSync(manifestPath)) return null;
+    return { manifestPath, manifestSource: readFileSync(manifestPath, "utf-8") };
+  }
+
+  const configPath = findPagesAppConfigPath(project);
+  const configSource = configPath ? readFileSync(configPath, "utf-8") : "";
+  const properties: string[] = [];
+
+  const configProgram = configPath === null ? null : parseConfigProgram(configPath, configSource);
+
+  for (const key of ["agents", "constraints"] as const) {
+    if (configPath === null) continue;
+    // `hasNamedValueExport()` is the same reader the build uses to decide which
+    // keys the generated manifest sets, so "declared" cannot mean one thing
+    // here and another there.
+    if (configProgram !== null && !hasNamedValueExport(configProgram, key)) continue;
+    const initializer = readNamedExportInitializer(configSource, key);
+    if (initializer === null) {
+      // Fail closed and loudly. The build still registers whatever the module
+      // exports, so an unreadable `agents` is a *checked-nothing*, not an
+      // absent config — and every check below would otherwise read the silence
+      // as proof, reporting an unauthenticated MCP endpoint or a missing
+      // destructive approval store as fine.
+      checks.push(
+        createCheck(
+          "warning",
+          `Pages app config ${JSON.stringify(displayPath(project.root, configPath))} declares ` +
+            `\`${key}\` as something other than an inline object or array literal, so its ` +
+            "contents are not verified — the Web Bot Auth policy, MCP authentication, and " +
+            "destructive-approval checks below are skipped for it. Inline the literal (a " +
+            "`satisfies` or `as const` suffix is fine) to get the same checks a manifest app " +
+            "gets.",
+        ),
+      );
+      continue;
+    }
+    properties.push(`  ${key}: ${initializer},`);
+  }
+
+  const capabilities = listPagesCapabilities(project, checks);
+  if (capabilities.length > 0) {
+    properties.push(
+      "  capabilities: {",
+      ...capabilities.map(
+        (capability) =>
+          `    ${JSON.stringify(capability.name)}: ${JSON.stringify(capability.ref)},`,
+      ),
+      "  },",
+    );
+  }
+  if (findPagesMiddlewarePath(project)) {
+    properties.push(`  middleware: { pages: ${JSON.stringify(pagesMiddlewareRef(project))} },`);
+  }
+
+  if (properties.length === 0) return null;
+  const body = properties.join("\n");
+
+  return {
+    // Relative refs inside `_app.config.ts` (an `agents.mcp.auth.verify`
+    // module) are written relative to that file, so it is the base.
+    manifestPath:
+      configPath ?? resolveProjectPath(project.root, `${project.pagesDir}/_app.config.ts`),
+    manifestSource: `export const app = defineApp({\n${body}\n});\n`,
+  };
+}
+
+/** `null` when the config cannot be parsed; callers then trust the source scan alone. */
+function parseConfigProgram(file: string, source: string): unknown {
+  try {
+    return parseAst(source, { lang: parserLanguage(file) });
+  } catch {
+    return null;
+  }
+}
+
+const PAGES_CONFIG_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx"];
+
+function findPagesAppConfigPath(project: ProjectConfig): string | null {
+  const pagesDir = resolveProjectPath(project.root, project.pagesDir);
+  for (const extension of PAGES_CONFIG_EXTENSIONS) {
+    const candidate = resolve(pagesDir, `_app.config${extension}`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function findPagesMiddlewarePath(project: ProjectConfig): string | null {
+  const pagesDir = resolveProjectPath(project.root, project.pagesDir);
+  for (const extension of PAGES_CONFIG_EXTENSIONS) {
+    const candidate = resolve(pagesDir, `_middleware${extension}`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function pagesMiddlewareRef(project: ProjectConfig): string {
+  const file = findPagesMiddlewarePath(project);
+  return file
+    ? `${project.pagesDir}/${relativePath(resolveProjectPath(project.root, project.pagesDir), file).replace(/\\/g, "/")}`
+    : `${project.pagesDir}/_middleware.ts`;
+}
+
+/**
+ * Capability modules a pages app auto-discovers, as root-relative manifest
+ * refs. Name resolution is shared with the build through
+ * `resolvePagesCapabilityName()`, so `verify` cannot disagree with what the
+ * generated manifest registers.
+ */
+function listPagesCapabilities(
+  project: ProjectConfig,
+  checks: Check[],
+): { name: string; ref: string }[] {
+  const capabilitiesDir = resolveProjectPath(project.root, project.capabilitiesDir);
+  if (!existsSync(capabilitiesDir)) return [];
+
+  const results: { name: string; ref: string }[] = [];
+  const seen = new Map<string, string[]>();
+
+  for (const file of listCapabilityFiles(capabilitiesDir)) {
+    const relativeRef = relativePath(capabilitiesDir, file).replace(/\\/g, "/");
+    const stem = relativeRef.slice(0, relativeRef.lastIndexOf("."));
+    const resolved = resolvePagesCapabilityName(
+      stem.slice(stem.lastIndexOf("/") + 1),
+      readFileSync(file, "utf-8"),
+    );
+    if (!resolved.ok) {
+      checks.push(
+        createCheck("error", `Capability module ${JSON.stringify(relativeRef)} ${resolved.error}`),
+      );
+      continue;
+    }
+    results.push({ name: resolved.name, ref: `${project.capabilitiesDir}/${relativeRef}` });
+    seen.set(resolved.name, [...(seen.get(resolved.name) ?? []), relativeRef]);
+  }
+
+  for (const [name, files] of seen) {
+    if (files.length < 2) continue;
+    checks.push(
+      createCheck(
+        "error",
+        `Multiple capability modules register the name ${JSON.stringify(name)}: ` +
+          `${files.map((file) => JSON.stringify(file)).join(", ")}. Keep one module per ` +
+          "capability name.",
+      ),
+    );
+  }
+
+  return results;
+}
+
+function listCapabilityFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = resolve(dir, entry.name);
+    if (entry.isDirectory()) files.push(...listCapabilityFiles(full));
+    else if (/\.(?:ts|tsx|js|jsx)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+      files.push(full);
+    }
+  }
+  return files.sort();
+}
+
+/**
+ * Static verification of registered capabilities. These
  * checks mirror what `defineCapability()` and the runtime registry enforce,
  * but run without executing application code so `pracht verify` stays fast
  * and safe. Spec security rule 1: exposed capabilities without a full
@@ -59,10 +245,9 @@ const MCP_AUTH_CONFIG_KEYS = new Set([
  * registered approval store.
  */
 export function collectCapabilityChecks(project: ProjectConfig, checks: Check[]): void {
-  const manifestPath = resolveProjectPath(project.root, project.appFile);
-  if (!existsSync(manifestPath)) return;
-
-  const manifestSource = readFileSync(manifestPath, "utf-8");
+  const manifest = readCapabilityManifest(project, checks);
+  if (!manifest) return;
+  const { manifestPath, manifestSource } = manifest;
   const entries = extractCapabilityRegistrations(manifestSource).map(({ name, file }) => ({
     name,
     path: file,

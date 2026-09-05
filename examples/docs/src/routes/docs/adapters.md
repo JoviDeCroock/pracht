@@ -636,6 +636,30 @@ To serve a static export under a sub-path, see [Sub-Path Deploys](/docs/deployme
 
 ---
 
+## Null-body responses
+
+Pracht removes `Content-Length` from any application Fetch `Response` whose
+body is actually null before it reaches the development or production
+transport. This keeps explicit nonzero lengths from leaking onto bodyless HEAD,
+204, 205, and 304 responses; Node may replace the removed value with its own
+`Content-Length: 0` for a 205. A HEAD response that still carries the GET
+representation keeps its valid length metadata while the transport suppresses
+the bytes.
+
+If you write a custom response transport, apply the same policy at its final
+boundary:
+
+```ts
+import { normalizeResponseHeaders } from "@pracht/core/server";
+
+const response = normalizeResponseHeaders(
+  await handlePrachtRequest({ app, registry, request }),
+);
+```
+
+Protocol-switch responses are returned untouched so runtime-specific handles,
+such as Cloudflare's `webSocket`, remain attached.
+
 ## Context Factory
 
 Adapters inject platform-specific values into loaders and API routes via a context factory. With generated entries, point the adapter at a module that exports `createContext`:
@@ -721,3 +745,11 @@ At the runtime level, an adapter also typically needs to:
 
 > [!INFO]
 > See the source of `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`, or `@pracht/adapter-node` in the monorepo for a concrete reference implementation.
+
+
+## Prerendered document headers
+
+Node, Cloudflare, and Netlify apply recorded document headers using the same
+lookup order: the exact requested pathname, then that path without a trailing
+slash, then that path without `/index.html`. Platform-specific cache headers
+and ISG regeneration still follow the adapter behavior described above.

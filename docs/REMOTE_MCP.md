@@ -4,9 +4,14 @@ Serve your app's [capabilities](CAPABILITIES.md) as [Model Context
 Protocol](https://modelcontextprotocol.io) tools, over stateless Streamable
 HTTP, at one endpoint — for agents that never open a browser.
 
-> Not to be confused with [MCP.md](MCP.md), which documents `pracht mcp`: a
+> Not to be confused with [MCP.md](MCP.md), which documents `pracht dev-mcp`: a
 > stdio server that gives *coding* agents access to your app graph at
 > development time. This page is about the deployed application's own tools.
+
+Applications outside the Pracht framework can expose this same endpoint with
+`createCapabilityHost()` from `@pracht/capabilities/server`; capability
+semantics and transport hardening are identical. See the standalone section in
+[CAPABILITIES.md](CAPABILITIES.md#standalone-hosting).
 
 ## Enabling it
 
@@ -612,12 +617,6 @@ format is documented in
 - **Authorization-server duties.** Pracht is the resource server
   ([above](#oauth-resource-server-metadata)); token issuance, dynamic client
   registration (RFC 7591), and consent UI stay with your identity provider.
-- **The OAuth subject in audit events.** `CapabilityAuditEvent` carries the Web
-  Bot Auth `agent`, not `context.tokenAuth`, so an audited MCP dispatch names
-  the calling software but not the account it acted for. Capture the principal
-  in named middleware or capability code while request context is available and
-  send it to the same audit sink until the event gains a field for it — a
-  follow-up.
 - **`resources/*` and `prompts/*`** — only `tools/*` is projected.
 - **The `2026-07-28` wire profile.** It replaces the initialization exchange
   with self-describing requests and requires its own header/result codec; the

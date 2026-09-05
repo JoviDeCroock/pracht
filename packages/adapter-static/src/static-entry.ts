@@ -103,7 +103,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     '    const detail = location ? ` (redirect: ${location})` : "";',
     "    throw new Error(",
     "      `Static export failed to render the notFound page: status ${response.status}${detail}. Make its loader succeed at build time or use a serverful adapter.` +",
-    "        describeRenderError(renderError),",
+    "        describeRenderError(renderError, resolvedApp.loaderTimeoutMs),",
     "      renderError === undefined ? undefined : { cause: renderError },",
     "    );",
     "  }",

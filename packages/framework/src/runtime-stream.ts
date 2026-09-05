@@ -9,7 +9,7 @@
  *
  * 1. `prefix` — everything through `<div id="pracht-root">`. Flushed before the
  *    render starts, so `<head>` reaches the browser immediately and preloads
- *    begin while loaders are still running.
+ *    begin while deferred loader work is still running.
  * 2. the renderer's first chunk — the shell, i.e. the tree with every
  *    unresolved `<Suspense>` boundary rendered as its fallback.
  * 3. `afterShell` — closes the root div and writes the state and defer-channel
@@ -207,6 +207,9 @@ export async function streamingHtmlResponse(
         ),
       );
 
+      const allDeferredWrites = Promise.all(deferredWrites);
+      void allDeferredWrites.catch(() => {});
+
       void (async () => {
         try {
           await write(prefix);
@@ -251,7 +254,7 @@ export async function streamingHtmlResponse(
 
           // The renderer resolves once every boundary it saw has flushed, but a
           // deferred value with no boundary reading it has no other join point.
-          await Promise.all(deferredWrites);
+          await allDeferredWrites;
 
           await write(suffix);
           if (closed) return;

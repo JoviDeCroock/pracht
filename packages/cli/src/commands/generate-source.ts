@@ -79,6 +79,12 @@ export interface CapabilitySourceOptions {
   description: string;
   effect: "read" | "write" | "destructive";
   expose: string[];
+  /**
+   * Declared registration name. Emitted for pages-router apps, where the
+   * directory is the registry and nothing else records the name; manifest apps
+   * take it from their `capabilities` key instead.
+   */
+  name?: string;
   title: string;
 }
 
@@ -101,6 +107,7 @@ export function buildCapabilityModuleSource(options: CapabilitySourceOptions): s
     "}",
     "",
     "export default defineCapability({",
+    ...(options.name === undefined ? [] : [`  name: ${JSON.stringify(options.name)},`]),
     `  title: ${JSON.stringify(options.title)},`,
     `  description: ${JSON.stringify(options.description)},`,
     "  input: {",

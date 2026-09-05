@@ -44,10 +44,21 @@ Pages-router apps replace the manifest with \`src/pages/\` file routing
 (\`export const RENDER_MODE = "ssg"\` in the page file). Pages ISG also requires
 \`export const REVALIDATE = 3600\`; it supports time policies only and fails
 build/doctor/verify when the policy is missing or misplaced, including on
-\`_app\` or \`404\`. Fenced Markdown/MDX examples are ignored. **The pages router has
-no manifest, so it has no middleware, capabilities, constraints, or \`agents\`**
-— if a task needs auth or the agent surface, use manifest routing (or eject
-with \`generateRoutesFile\`).
+\`_app\` or \`404\`. Fenced Markdown/MDX examples are ignored. With a serverful
+adapter, middleware is a single root-level \`src/pages/_middleware.ts\`
+(\`export const middleware: MiddlewareFn\`) applied to every page route — nested
+or per-route middleware is not supported, and API routes are not wrapped. Pure
+static exports have no request runtime and cannot use middleware. Shells are
+\`_app.tsx\` per directory (\`pages\`, \`pages:blog\`, …); the nearest one replaces
+its parent. Capabilities are every module in \`src/capabilities/\`, each naming
+itself with \`defineCapability({ name })\` or taking its file stem (the name must
+map back to the file with dots as hyphens). \`agents\` and \`constraints\` are
+named exports of \`src/pages/_app.config.ts\`. **Still manifest-only: per-route
+middleware and shell assignment, \`defineApp({ api })\` (the only seam in front
+of capability HTTP endpoints and \`/mcp\`), \`group({ pathPrefix })\`, explicit
+route ids, per-route \`prefetch\`/\`speculation\`/\`loaderCache\`/\`markdown\`,
+\`viewTransitions\`, and webhook ISG.** Eject with \`generateRoutesFile\` for
+those.
 
 ## Route example
 
@@ -180,7 +191,8 @@ policy change a human must approve.
 - \`pracht typegen\` — typed route ids/params for \`<Link>\`, \`href()\`, \`useNavigate()\`.
 - \`pracht eval [files] [--url] [--start "<cmd>"]\` — run scripted agent-task scenarios against the capability HTTP projection, or the remote MCP endpoint with \`"transport": "mcp"\`; exits 1 on any failed expectation.
 - \`pracht doctor\` — app wiring diagnostics.
-- \`pracht mcp\` — this CLI as an MCP server (inspect/verify/generate/docs tools).
+- \`pracht dev-mcp\` — this CLI as an authoring MCP server (inspect/verify/generate/docs tools).
+  Not your app's own remote MCP endpoint, which serves capabilities to end-user agents.
 
 ## Finishing a change
 

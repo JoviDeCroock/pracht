@@ -105,32 +105,24 @@ export const app = defineApp({
         id: "agents",
         render: "ssg",
       }),
-      route("/docs/llms", () => import("./routes/docs/llms.md"), {
-        id: "llms",
-        render: "ssg",
-      }),
-      route("/docs/agent-workflow", () => import("./routes/docs/agent-workflow.md"), {
-        id: "agent-workflow",
-        render: "ssg",
-      }),
-      route("/docs/agent-skills", () => import("./routes/docs/agent-skills.md"), {
-        id: "agent-skills",
-        render: "ssg",
-      }),
       route("/docs/capabilities", () => import("./routes/docs/capabilities.md"), {
         id: "capabilities",
         render: "ssg",
       }),
+      route(
+        "/docs/standalone-capabilities",
+        () => import("./routes/docs/standalone-capabilities.md"),
+        {
+          id: "standalone-capabilities",
+          render: "ssg",
+        },
+      ),
       route("/docs/agent-trust", () => import("./routes/docs/agent-trust.md"), {
         id: "agent-trust",
         render: "ssg",
       }),
-      route("/docs/remote-mcp", () => import("./routes/docs/remote-mcp.md"), {
-        id: "remote-mcp",
-        render: "ssg",
-      }),
-      route("/docs/mcp", () => import("./routes/docs/mcp.md"), {
-        id: "mcp",
+      route("/docs/coding-agents", () => import("./routes/docs/coding-agents.md"), {
+        id: "coding-agents",
         render: "ssg",
       }),
       route("/docs/recipes/i18n", () => import("./routes/docs/recipes-i18n.md"), {
@@ -196,6 +188,31 @@ export const app = defineApp({
       route("/docs/reference/i18n", "./routes/docs/reference-i18n.md", {
         id: "reference-i18n",
         render: "ssg",
+      }),
+
+      // Retired "Agents" pages. They stay routable and 308 to whichever page
+      // absorbed them, so old links and bookmarks keep working. Not in the
+      // nav, not in the sitemap, and absent from llms.txt because the content
+      // collection only ever sees Markdown pages.
+      route("/docs/llms", () => import("./routes/legacy-redirect.tsx"), {
+        id: "legacy-llms",
+        render: "ssr",
+      }),
+      route("/docs/agent-workflow", () => import("./routes/legacy-redirect.tsx"), {
+        id: "legacy-agent-workflow",
+        render: "ssr",
+      }),
+      route("/docs/agent-skills", () => import("./routes/legacy-redirect.tsx"), {
+        id: "legacy-agent-skills",
+        render: "ssr",
+      }),
+      route("/docs/mcp", () => import("./routes/legacy-redirect.tsx"), {
+        id: "legacy-mcp",
+        render: "ssr",
+      }),
+      route("/docs/remote-mcp", () => import("./routes/legacy-redirect.tsx"), {
+        id: "legacy-remote-mcp",
+        render: "ssr",
       }),
     ]),
   ],

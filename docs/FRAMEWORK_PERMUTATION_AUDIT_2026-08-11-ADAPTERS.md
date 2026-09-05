@@ -126,6 +126,10 @@ has a build-script policy), and `--tailwind`/`--no-tailwind` taking precedence
 over `--template`. Both were changed during remediation and then reverted when
 those tests failed — the tests were right.
 
+**2026-09-02 update:** the current scaffold registers `pracht dev-mcp` with
+`npx --no-install`, and emits `pnpm-workspace.yaml` only for pnpm projects.
+The F-13 row records the 2026-08-11 remediation state rather than current policy.
+
 ### Adversarial review of the remediation
 
 Two independent review scopes — runtime/security, and docs/behaviour

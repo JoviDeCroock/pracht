@@ -1,6 +1,6 @@
-# MCP Server
+# Authoring MCP Server
 
-`pracht mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server on
+`pracht dev-mcp` starts a [Model Context Protocol](https://modelcontextprotocol.io) server on
 stdio, built into `@pracht/cli`. It gives coding agents (Claude Code, Cursor, and any
 other MCP client) native, structured access to the same capabilities the CLI exposes:
 inspecting the resolved app graph, diagnosing wiring problems, running framework-aware
@@ -15,10 +15,14 @@ work with the resolved graph instead of globbing `src/`.
 > [REMOTE_MCP.md](REMOTE_MCP.md) — the deployed app serves its capabilities as MCP tools
 > over Streamable HTTP.
 
+The command was named `pracht mcp` through v1.12. That name still works and behaves
+identically, printing a deprecation notice to stderr; it was renamed because it was
+constantly read as the app's own remote MCP endpoint.
+
 ## Starting the server
 
 ```bash
-pracht mcp
+pracht dev-mcp
 ```
 
 The server speaks the MCP protocol over stdout/stdin; all logging goes to stderr. It runs
@@ -29,7 +33,7 @@ until stdin closes. You normally never start it by hand — your MCP client does
 From an app directory with `@pracht/cli` installed:
 
 ```bash
-claude mcp add pracht -- npx pracht mcp
+claude mcp add pracht -- npx pracht dev-mcp
 ```
 
 Or check a `.mcp.json` into the repository root so every collaborator gets the server
@@ -40,7 +44,7 @@ automatically:
   "mcpServers": {
     "pracht": {
       "command": "npx",
-      "args": ["pracht", "mcp"]
+      "args": ["pracht", "dev-mcp"]
     }
   }
 }
@@ -52,7 +56,7 @@ Apps scaffolded with `create-pracht` get this `.mcp.json` (plus the Claude Code 
 ## Registering with other MCP clients
 
 Any client that supports stdio servers works the same way — configure the command
-`npx pracht mcp` (or `node ./node_modules/@pracht/cli/bin/pracht.js mcp`) with the app
+`npx pracht dev-mcp` (or `node ./node_modules/@pracht/cli/bin/pracht.js dev-mcp`) with the app
 root as the working directory. For example, in Cursor (`.cursor/mcp.json`) or VS Code
 (`.vscode/mcp.json`) use the same `command`/`args` shape as the snippet above.
 
@@ -75,10 +79,10 @@ the server from the project directory.
 | `report`              | `cwd?`, `base?` (git ref, default `origin/main`)                                                                    | PR-ready markdown assembled from machine truth: app-graph diff, verify results, client JS budgets. Same as `pracht report`. |
 | `get_docs`            | —                                                                                                                   | The embedded pracht authoring guide for coding agents (same text as `pracht llms`). Read it before authoring pracht app code. |
 | `generate_route`      | `cwd?`, `path`, `render?` (`spa`/`ssr`/`ssg`/`isg`), `shell?`, `middleware?` (string[]), `loader?`, `errorBoundary?`, `staticPaths?`, `title?`, `revalidate?` (seconds), `test?` (boolean — emit a Playwright smoke test in `e2e/`; defaults to on when the app has a Playwright setup) | Files created and updated (`{ kind, created, updated }`).                            |
-| `generate_shell`      | `cwd?`, `name`                                                                                                      | Files created and updated. Manifest apps only.                                       |
-| `generate_middleware` | `cwd?`, `name`                                                                                                      | Files created and updated. Manifest apps only.                                       |
+| `generate_shell`      | `cwd?`, `name`                                                                                                      | Files created and updated. Manifest apps only — pages apps add an `_app.tsx` to the directory it should wrap. |
+| `generate_middleware` | `cwd?`, `name`                                                                                                      | Files created and updated. Manifest apps accept named middleware; pages apps using a serverful adapter accept `_middleware` for the root middleware applied to every page route. Pure static exports cannot use request middleware. |
 | `generate_api`        | `cwd?`, `path`, `methods?` (string[], defaults to `["GET"]`)                                                        | Files created and updated.                                                           |
-| `generate_capability` | `cwd?`, `name`, `effect?`, `expose?`, `title?`, `description?`                                                      | Files created and updated. Manifest apps only.                                       |
+| `generate_capability` | `cwd?`, `name`, `effect?`, `expose?`, `title?`, `description?`                                                      | Files created and updated. Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the module declares its own `name`. |
 
 ## Error handling
 

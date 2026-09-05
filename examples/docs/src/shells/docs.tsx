@@ -85,13 +85,14 @@ const NAV = [
     label: "Agents",
     links: [
       { href: "/docs/agents", Icon: IconWorldBolt, title: "The Agentic Web" },
-      { href: "/docs/llms", Icon: IconSparkles, title: "LLM Content" },
-      { href: "/docs/agent-workflow", Icon: IconRobot, title: "Agent Workflow" },
-      { href: "/docs/agent-skills", Icon: IconSparkles, title: "Agent Skills" },
-      { href: "/docs/mcp", Icon: IconTerminal2, title: "MCP Server" },
       { href: "/docs/capabilities", Icon: IconRobot, title: "Capabilities" },
+      {
+        href: "/docs/standalone-capabilities",
+        Icon: IconPlug,
+        title: "Standalone Capabilities",
+      },
       { href: "/docs/agent-trust", Icon: IconShieldCheck, title: "Agent Trust" },
-      { href: "/docs/remote-mcp", Icon: IconWorldBolt, title: "Remote MCP" },
+      { href: "/docs/coding-agents", Icon: IconTerminal2, title: "Coding Agents" },
     ],
   },
   {
@@ -104,7 +105,7 @@ const NAV = [
       { href: "/docs/recipes/view-transitions", Icon: IconSparkles, title: "View Transitions" },
       { href: "/docs/recipes/testing", Icon: IconTestPipe, title: "Testing" },
       { href: "/docs/recipes/logging", Icon: IconActivity, title: "Logging" },
-      { href: "/docs/recipes/streaming", Icon: IconBroadcast, title: "Streaming" },
+      { href: "/docs/recipes/streaming", Icon: IconBroadcast, title: "SSE & WebSockets" },
       {
         href: "/docs/recipes/fullstack-cloudflare",
         Icon: IconCloud,

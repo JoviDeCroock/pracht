@@ -60,40 +60,117 @@ describe("documentation content", () => {
       resolve(repoRoot, "examples/docs/src/routes/docs/cli.md"),
       "utf-8",
     );
-    const shippedCommands = Array.from(
-      cliSource.matchAll(/^    ([a-z]+): \(\) => import\(/gm),
-      (match) => match[1],
-    ).sort();
-    const documentedCommands = Array.from(
-      publicReference.matchAll(/^## pracht ([a-z]+)$/gm),
-      (match) => match[1],
-    ).sort();
+    // A hyphenated subcommand (`dev-mcp`) is not a valid identifier, so its
+    // registry key is quoted.
+    const registered = Array.from(
+      cliSource.matchAll(
+        /^    "?([a-z][a-z-]*)"?: \(\) => import\("\.\/commands\/([\w-]+)\.js"\)/gm,
+      ),
+      (match) => ({ name: match[1], module: match[2] }),
+    );
 
-    expect(documentedCommands).toEqual(shippedCommands);
+    // A deprecated alias gets no section of its own — the reference should not
+    // read like the CLI has two ways to do the same thing. It still has to be
+    // documented, so it is required to appear *inside* the section for the
+    // command it aliases; an alias nobody can find is an alias that turns into
+    // a support question.
+    const aliases = [];
+    const commands = [];
+    for (const entry of registered) {
+      const source = readFileSync(
+        resolve(repoRoot, `packages/cli/src/commands/${entry.module}.ts`),
+        "utf-8",
+      );
+      const alias = /description:\s*"Deprecated alias for `pracht ([a-z][a-z-]*)`"/.exec(source);
+      if (alias) aliases.push({ name: entry.name, aliasOf: alias[1] });
+      else commands.push(entry.name);
+    }
+
+    const sections = new Map();
+    const headings = [...publicReference.matchAll(/^## pracht ([a-z][a-z-]*)$/gm)];
+    for (const [i, heading] of headings.entries()) {
+      const start = heading.index + heading[0].length;
+      const end = headings[i + 1]?.index ?? publicReference.length;
+      sections.set(heading[1], publicReference.slice(start, end));
+    }
+
+    expect([...sections.keys()].sort()).toEqual(commands.sort());
+
+    // Guard the guard: if the alias regex ever stops matching, the check above
+    // silently starts demanding a section for the alias instead of skipping it,
+    // so assert the alias set is the one we know ships.
+    expect(aliases).toEqual([{ name: "mcp", aliasOf: "dev-mcp" }]);
+    for (const alias of aliases) {
+      const section = sections.get(alias.aliasOf);
+      expect(section, `cli.md has no "## pracht ${alias.aliasOf}" section`).toBeDefined();
+      expect(
+        section,
+        `"pracht ${alias.name}" is a shipped alias but is not mentioned under "## pracht ${alias.aliasOf}"`,
+      ).toContain(`pracht ${alias.name}`);
+    }
   });
 
-  // The manifest-only limitation was documented in docs/ROUTING.md but never on
-  // the public site, so a reader choosing the pages router could not learn that
-  // it has no capability, MCP, or agent-trust surface until much later.
-  it("publishes the pages-router limitations on the public site", () => {
+  // Router choice is made before anything is built, so the public site has to
+  // say what each router registers and — just as importantly — what still needs
+  // an explicit manifest. Claiming a limitation that no longer exists sends
+  // readers to the wrong router just as effectively as hiding a real one.
+  it("publishes what the pages router supports on the public site", () => {
     const routing = readFileSync(
       resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"),
       "utf-8",
     );
-    expect(routing).toContain("What the pages router does not have");
+    expect(routing).toContain("What the pages router supports and how");
     for (const feature of ["Capabilities", "Middleware", "WebMCP", "pracht eval", "constraints"]) {
       expect(routing).toContain(feature);
     }
+    // The honest residual: what still requires an explicit manifest.
+    expect(routing).toContain("Per-route middleware assignment");
+    expect(routing).toContain("Per-route shell overrides");
 
     // The two pages a reader lands on when they want the agent surface must
-    // point back at that table rather than silently assuming a manifest.
-    for (const file of [
-      "examples/docs/src/routes/docs/capabilities.md",
-      "examples/docs/src/routes/docs/agent-trust.md",
+    // say how a pages app reaches it, and link somewhere that exists.
+    for (const [file, anchor] of [
+      [
+        "examples/docs/src/routes/docs/capabilities.md",
+        "/docs/routing#capabilities-via-srccapabilities",
+      ],
+      ["examples/docs/src/routes/docs/agent-trust.md", "/docs/routing#app-config-via-appconfigts"],
     ]) {
       const source = readFileSync(resolve(repoRoot, file), "utf-8");
-      expect(source).toContain("Manifest router only");
-      expect(source).toContain("/docs/routing#what-the-pages-router-does-not-have");
+      expect(source).toContain("Both routers");
+      expect(source).toContain(anchor);
+      expect(source).not.toContain("/docs/routing#what-the-pages-router-does-not-have");
+    }
+  });
+
+  // Anchors are computed, not written: examples/docs/content.ts slugifies each
+  // heading by dropping everything that is not a letter, number, space, or
+  // hyphen. `_middleware.ts` therefore becomes `middlewarets`, so a link that
+  // spells the underscore scrolls nowhere — silently, in a released doc.
+  it("resolves every same-page anchor in the pages-router docs", () => {
+    const files = [
+      "examples/docs/src/routes/docs/routing.md",
+      "examples/docs/src/routes/docs/middleware.md",
+      "examples/docs/src/routes/docs/capabilities.md",
+      "examples/docs/src/routes/docs/agent-trust.md",
+    ];
+    const routingSlugs = headingSlugs(
+      readFileSync(resolve(repoRoot, "examples/docs/src/routes/docs/routing.md"), "utf-8"),
+    );
+
+    for (const file of files) {
+      const source = readFileSync(resolve(repoRoot, file), "utf-8");
+      const ownSlugs = headingSlugs(source);
+      for (const [, target] of source.matchAll(/\]\((#[^)\s]+|\/docs\/routing#[^)\s]+)\)/g)) {
+        const [page, anchor] = target.startsWith("#")
+          ? [ownSlugs, target.slice(1)]
+          : [routingSlugs, target.slice(target.indexOf("#") + 1)];
+        expect({ file, target, resolved: page.has(anchor) }).toEqual({
+          file,
+          target,
+          resolved: true,
+        });
+      }
     }
   });
 
@@ -170,4 +247,38 @@ function collectMarkdownAndTextFiles(paths) {
     }
   }
   return files;
+}
+
+/**
+ * The heading ids examples/docs/content.ts emits. Kept in lockstep with its
+ * `slugify()`: inline code fences are stripped as tags would be, then anything
+ * that is not a letter, number, space, or hyphen is dropped.
+ */
+function headingSlugs(markdown) {
+  const slugs = new Set();
+  const seen = new Map();
+  let inFence = false;
+
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const heading = /^#{1,6}\s+(.*?)\s*$/.exec(line);
+    if (!heading) continue;
+
+    const base =
+      heading[1]
+        .replace(/`/g, "")
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N} -]/gu, "")
+        .trim()
+        .replace(/ /g, "-") || `section-${seen.size + 1}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    slugs.add(count === 0 ? base : `${base}-${count}`);
+  }
+
+  return slugs;
 }

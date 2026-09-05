@@ -67,6 +67,7 @@ route options and `<Link>` props.
 | Option | Default | Description |
 | --- | --- | --- |
 | `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) driven by `route({ prefetch })` and `<Link prefetch>`. Off also drops the separate prefetch chunk and makes `prefetch()` a no-op |
+| `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off also drops the per-history-entry index the router stamps so a refused back/forward traversal can be put back, and makes `useBlocker()` never block (it warns in development) |
 
 An unknown key here is an error rather than a silent no-op, so a typo cannot
 quietly ship the feature you meant to remove.
@@ -81,7 +82,7 @@ quietly ship the feature you meant to remove.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `llmsTxt` | `false` | Emit [`llms.txt`](/docs/llms) from the resolved app graph |
+| `llmsTxt` | `false` | Emit [`llms.txt`](/docs/agents#llmstxt) from the resolved app graph |
 | `llmsTxt.title` | package `name` | H1 title |
 | `llmsTxt.description` | package `description` | Blockquote summary under the title; omitted when neither is set |
 | `llmsTxt.origin` | *(unset)* | Origin prepended to every link, e.g. `"https://example.com"`. Links stay root-relative when omitted |
@@ -120,9 +121,10 @@ export const app = defineApp({
 | `capabilities` | Record\<string, ModuleRef\> | Named [capabilities](/docs/capabilities), e.g. `{ "notes.search": () => import("./capabilities/notes-search.ts") }`. Server-only and private unless they declare `expose` |
 | `notFound` | ModuleRef \| NotFoundConfig | The [404 page](/docs/data-loading#custom-404-page). Deliberately not a route |
 | `api` | ApiConfig | App-wide API policy — see below |
-| `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/remote-mcp) with its optional OAuth resource-server config. Serializable data and module references only |
-| `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Agent Workflow](/docs/agent-workflow) |
+| `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with its optional OAuth resource-server config. Serializable data and module references only |
+| `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Coding Agents](/docs/coding-agents#constraints) |
 | `viewTransitions` | boolean | Enable the View Transitions API for every client navigation by default. See [View Transitions](/docs/recipes/view-transitions) |
+| `loaderTimeoutMs` | number | Budget in milliseconds for the `signal` passed to middleware, loaders, and API handlers. Default `30000`. The signal aborts when the budget runs out or the client disconnects, whichever comes first; one budget covers the whole request, including the not-found render after `notFound()`. It applies to SSG/ISG prerendering too, so a short edge budget can fail the build. See [Data Loading](/docs/data-loading#signal) |
 
 ### `api`
 

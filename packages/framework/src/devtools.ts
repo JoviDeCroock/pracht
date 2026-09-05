@@ -52,6 +52,8 @@ export interface AgentTrafficEvent {
   outcome: string;
   status: number;
   durationMs: number;
+  /** Verified OAuth account behind this dispatch, when present. */
+  tokenAuth?: { readonly subject: string; readonly clientId?: string | null } | null;
   /** Verified agent identity, `null` when unsigned or Web Bot Auth is off. */
   agent: { agentDomain: string | null; keyId: string } | null;
 }
@@ -174,6 +176,7 @@ ${capabilityRows}
         <td>${escapeHtml(formatTransport(event))}</td>
         <td>${escapeHtml(event.effect)}</td>
         <td>${escapeHtml(formatAgent(event.agent))}</td>
+        <td>${escapeHtml(event.tokenAuth?.subject ?? "—")}</td>
         <td class="${agentTrafficSucceeded(event) ? "ok" : "err"}">${escapeHtml(formatOutcome(event))}</td>
         <td class="file">${escapeHtml(formatDuration(event.durationMs))}</td>
       </tr>`,
@@ -192,7 +195,7 @@ ${capabilityRows}
       : "";
 
   const trafficTable = `${composedToggle}<table>
-      <thead><tr><th>Time (UTC)</th><th>Capability</th><th>Transport</th><th>Effect</th><th>Agent</th><th>Outcome</th><th>Duration</th></tr></thead>
+      <thead><tr><th>Time (UTC)</th><th>Capability</th><th>Transport</th><th>Effect</th><th>Agent</th><th>Account</th><th>Outcome</th><th>Duration</th></tr></thead>
       <tbody>
 ${trafficRows}
       </tbody>

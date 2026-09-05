@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { h, render } from "preact";
+import { Component, h, render } from "preact";
+import type { ComponentChildren } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PrachtRuntimeProvider, useRouteData } from "../src/index.ts";
@@ -40,17 +41,30 @@ describe("useRouteData", () => {
     expect(captured).toEqual({ user: "Ada" });
   });
 
-  it("warns in dev when the route id does not match the active route", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  // The typed overload promises `RouteDataFor<"settings">`. The runtime holds
+  // one route's data, so honouring the argument means refusing — handing back
+  // the dashboard's data under the settings route's type is the bug.
+  it("throws when the route id is not the active route", () => {
+    let thrown: unknown;
 
     function Consumer() {
       useRouteData("settings");
       return null;
     }
 
+    class Boundary extends Component<{ children: ComponentChildren }> {
+      static getDerivedStateFromError(error: unknown) {
+        thrown = error;
+        return {};
+      }
+      render() {
+        return thrown ? null : this.props.children;
+      }
+    }
+
     render(
       h(PrachtRuntimeProvider, {
-        children: h(Consumer, null),
+        children: h(Boundary, { children: h(Consumer, null) }),
         data: { user: "Ada" },
         routeId: "dashboard",
         url: "/dashboard",
@@ -58,9 +72,23 @@ describe("useRouteData", () => {
       scratch,
     );
 
-    expect(warn).toHaveBeenCalledWith(
-      'useRouteData("settings") rendered inside route "dashboard"; returning the active route\'s data.',
-    );
+    const message = (thrown as Error).message;
+    expect(message).toContain("useRouteData");
+    expect(message).toContain("settings");
+    expect(message).toContain("dashboard");
+  });
+
+  it("returns undefined outside a runtime provider, with or without a route id", () => {
+    let withId: unknown = "unset";
+
+    function Consumer() {
+      withId = useRouteData("dashboard");
+      return null;
+    }
+
+    render(h(Consumer, null), scratch);
+
+    expect(withId).toBeUndefined();
   });
 
   it("keeps the loader-generic form working without a route id", () => {

@@ -200,8 +200,10 @@ export {
   formatServerTimingHeader,
   Link,
   handlePrachtRequest,
+  normalizeResponseHeaders,
   readHydrationState,
   startApp,
+  useBlocker,
   useLocation,
   useNavigation,
   useParams,
@@ -209,7 +211,13 @@ export {
   useRouteData,
   useSearchParams,
   PrachtRuntimeProvider,
+  type Blocker,
+  type BlockerArgs,
+  type BlockerHistoryAction,
+  type BlockerState,
   type ReadonlyURLSearchParams,
+  type RegisterBlockerOptions,
+  type ShouldBlockNavigation,
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 export { buildStaticFallbackHtml, prerenderApp } from "./prerender.ts";

@@ -66,9 +66,48 @@ every concrete prerendered path for adapters, and annotates generated
 | request | Request       | The incoming Web Request                             |
 | params  | RouteParams   | Dynamic URL params, e.g. `{ slug: "hello" }`         |
 | context | TContext      | App-level context from the adapter's context factory |
-| signal  | AbortSignal   | Cancellation signal for timeouts                     |
+| signal  | AbortSignal   | Aborts when the client disconnects or the budget runs out |
 | url     | URL           | Parsed URL object                                    |
 | route   | ResolvedRoute | Matched route metadata                               |
+
+#### `signal`
+
+`signal` aborts for either of two reasons, whichever comes first: the client
+went away, or the request ran out of its budget. Pass it to `fetch()`, to a
+database driver, or to anything else that accepts an `AbortSignal`, and work
+stops instead of running to completion for a visitor who has already navigated
+away.
+
+```ts [src/routes/search.tsx]
+export async function loader({ signal, url }: LoaderArgs) {
+  const response = await fetch(`https://api.example.com/search?q=${url.searchParams.get("q")}`, {
+    signal,
+  });
+  return { results: await response.json() };
+}
+```
+
+The budget defaults to 30 seconds and is configurable app-wide with
+[`defineApp({ loaderTimeoutMs })`](/docs/reference/config#defineapp--the-route-manifest).
+One budget covers the whole request: middleware, the loader, and — when a
+loader throws `notFound()` — rendering the not-found page all run on what is
+left of it. The same signal reaches [API route](/docs/api-routes) handlers.
+
+**It applies at build time too.** SSG and ISG prerendering run loaders through
+the same request pipeline, so a budget tuned down for an edge runtime will fail
+the *build* for any loader slower than it. The build error names the route and
+says the loader ran past the budget.
+
+**A client disconnect is not an error.** When the visitor goes away, pracht
+skips `onRouteError` and answers 499 rather than rendering an error page, so an
+abandoned navigation does not appear in Sentry or OpenTelemetry as an
+application fault. A budget expiry still reports normally.
+
+**Adapter support.** Cloudflare, Netlify, and Vercel hand pracht the platform's
+own `Request`, whose signal already tracks the connection. The Node adapter
+wires one from the socket. Static export has no request to abandon — there the
+signal only carries the build-time budget. Runtimes without `AbortSignal.any`
+get the same composed signal, wired by hand.
 
 ### When loaders run
 
@@ -177,8 +216,8 @@ Three rules:
   so keep metadata, status, and cache-header inputs in the awaited part of the
   loader.
 - **A suspending `<Suspense>` boundary must resolve to exactly one DOM
-  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11
-  removes this constraint.
+  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11 supports empty and multi-child boundaries; the workspace exercises
+  `11.0.0-rc.1`.
 - Return `defer()` from an enumerable data property, not from a getter. Pracht
   does not eagerly invoke loader getters to discover hidden deferred values and
   throws instead of silently serializing an unresolved marker.
@@ -194,6 +233,8 @@ route("/product/:id", () => import("./routes/product.tsx"), {
   streaming: true,
 });
 ```
+
+Pages routes use `export const STREAMING = true` with SSR and full hydration.
 
 It is a group option too, so a whole section can opt in at once. Your route
 source does not change — the same `defer()` and `use()` code streams or
@@ -317,36 +358,7 @@ pass straight through, so a `<Suspense>` ancestor still sees them — wrapping a
 
 #### Custom 404 page
 
-Declare a `notFound` page in the manifest. It handles both ways a page can be missing — an unmatched URL, and a loader that cannot find what it was asked for:
-
-```ts [src/routes.ts]
-export const app = defineApp({
-  shells: { public: () => import("./shells/public.tsx") },
-  notFound: {
-    component: () => import("./routes/not-found.tsx"),
-    shell: "public",
-  },
-  routes: [...],
-});
-```
-
-```tsx [src/routes/not-found.tsx]
-import { useLocation } from "@pracht/core";
-
-export function Component() {
-  const location = useLocation();
-
-  return (
-    <div>
-      <h1>404</h1>
-      <p>No page lives at {location.pathname}.</p>
-      <a href="/">Go home</a>
-    </div>
-  );
-}
-```
-
-Inside a loader or middleware, `throw notFound()` renders the same page with a 404 status:
+Inside a loader or middleware, `throw notFound()` renders the app's not-found page with a 404 status:
 
 ```ts
 import { notFound } from "@pracht/core";
@@ -358,13 +370,89 @@ export async function loader({ params }: LoaderArgs) {
 }
 ```
 
-A route module's own `ErrorBoundary` still wins for that route. Shell-level boundaries do not intercept 404s once `notFound` is configured — "not found" is an outcome, not a failure.
+A route module's own `ErrorBoundary` still wins for that route. Shell-level boundaries do not intercept 404s once a `notFound` page is configured — "not found" is an outcome, not a failure.
 
-> [!NOTE]
-> The not-found page is deliberately not a route: it never matches a URL, so it cannot shadow static assets or a path you add later, and it never appears in typed routes, prefetching, or SSG output. Pages-router apps get the same behavior from `pages/404.tsx`.
+Declaring that page is a manifest concern rather than a data-loading one: see [Routing](/docs/routing#not-found-page) for the `notFound` entry, why it is deliberately not a route, and the pages-router equivalent (`pages/404.tsx`).
 
 > [!NOTE]
 > Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages are shown to users. Pass `debugErrors: true` to `handlePrachtRequest()` to see full error details during development; it is ignored when `NODE_ENV=production`.
+
+---
+
+## Mutations
+
+A loader cannot mutate: it runs on GET, it may be replayed from a prerendered page, and it has no place to put a response status. Writes go to an [API route](/docs/api-routes), and the framework's `<Form>` connects the two — it intercepts the submission and posts it over `fetch` with no page reload, exposes the in-flight state through `useNavigation()`, and still submits natively when JavaScript has not loaded.
+
+```ts [src/api/projects.ts]
+import { redirect } from "@pracht/core";
+import type { ApiRouteArgs } from "@pracht/core";
+
+export async function POST({ request, context }: ApiRouteArgs) {
+  const form = await request.formData();
+  const title = String(form.get("title") ?? "").trim();
+  if (!title) {
+    return Response.json({ error: "validation", issues: [{ path: "title", message: "Required" }] }, {
+      status: 400,
+    });
+  }
+
+  await context.db.projects.create({ title });
+  // Post/redirect/get: the router follows this and refetches the route's
+  // loader data, and a no-JavaScript submission gets an ordinary 303.
+  return redirect("/projects", { request });
+}
+```
+
+```tsx [src/routes/projects.tsx]
+import { Form, useNavigation, useRouteData } from "@pracht/core";
+
+export async function loader({ context }: LoaderArgs) {
+  return { projects: await context.db.projects.all() };
+}
+
+export function Component() {
+  const data = useRouteData<typeof loader>();
+  const navigation = useNavigation();
+
+  return (
+    <>
+      <ul>
+        {data.projects.map((p) => (
+          <li key={p.id}>{p.title}</li>
+        ))}
+      </ul>
+
+      <Form method="post" action="/api/projects">
+        <input name="title" placeholder="Project name" required />
+        <button type="submit" disabled={navigation.state === "submitting"}>
+          {navigation.state === "submitting" ? "Creating…" : "Create"}
+        </button>
+      </Form>
+    </>
+  );
+}
+```
+
+**Refreshing the page after a write is your call, not an automatic one.** A `<Form action>` submission that gets a 2xx back leaves loader data exactly as it was. Two ways to refresh it:
+
+- **Redirect from the handler**, as above. API dispatch converts the 3xx into a handshake the client router understands, so it navigates and refetches route state instead of letting `fetch` follow the redirect itself. This is the one that also works with JavaScript disabled.
+- **Call `useRevalidate()`** from `onResponse` when the page should stay put:
+
+```tsx
+const revalidate = useRevalidate();
+
+<Form
+  method="post"
+  action="/api/projects"
+  onResponse={(response) => {
+    if (response.ok) revalidate();
+  }}
+>
+```
+
+A `<Form capability>` submission is the exception: capabilities carry an effect class, so any successful non-`read` call revalidates the active route on its own. That is one reason to reach for a [capability](/docs/capabilities) when the same operation should also be callable by an agent.
+
+`navigation.formData` holds the submitted fields while the request is in flight, which is what optimistic UI reads. For client-side `schema` validation, rendering server validation issues, file uploads, and multi-button forms, see the [Forms recipe](/docs/recipes/forms).
 
 ---
 
@@ -526,6 +614,12 @@ export function Component() {
 }
 ```
 
+The runtime holds one route's data — the one on screen — so the route id is a
+typing shortcut, not a lookup. It is still honoured: passing the id of a route
+other than the active one throws, rather than handing back another route's data
+under the requested route's type. To read data across routes, pass it down as a
+prop.
+
 For projects that do not run typegen, pass the loader type explicitly as a generic instead:
 
 ```ts
@@ -584,45 +678,86 @@ function NavigationProgress() {
 - `location` — the target `{ pathname, search, hash, href }` while not idle
 - `formData` — the submitted `FormData` while a submission is pending (great for optimistic UI)
 
-### \<Form\> Component
+### useBlocker()
 
-Declarative form submission with progressive enhancement. Use the `action` prop to target an API route:
+Stop a navigation before it commits — the "you have unsaved changes" guard.
+`useNavigation()` reports that a navigation is happening; `useBlocker()` is how
+you say no to one.
 
-```ts
-import { Form } from "@pracht/core";
+```tsx
+import { useBlocker } from "@pracht/core";
 
 export function Component() {
+  const [dirty, setDirty] = useState(false);
+  const blocker = useBlocker(dirty);
+
   return (
-    <Form method="post" action="/api/projects">
-      <input name="title" placeholder="Project name" />
-      <button type="submit">Create</button>
-    </Form>
+    <>
+      <textarea onInput={() => setDirty(true)} />
+      {blocker.state === "blocked" && (
+        <dialog open>
+          <p>Discard your unsaved changes?</p>
+          <button onClick={blocker.proceed}>Discard</button>
+          <button onClick={blocker.reset}>Keep editing</button>
+        </dialog>
+      )}
+    </>
   );
 }
 ```
 
-The `<Form>` component intercepts same-origin submissions and sends them via `fetch` (no full page reload), while cross-origin actions retain native form navigation so they do not require a custom-header CORS preflight. It also falls back to native submission if JavaScript fails.
+- `state` — `"unblocked"`, `"blocked"` (a navigation is waiting on you), or `"proceeding"`
+- `location` — where the blocked navigation was going, while blocked
+- `proceed()` — let it continue
+- `reset()` — abandon it and stay put
+
+Pass a predicate instead of a boolean to decide per navigation:
+
+```ts
+const blocker = useBlocker(
+  ({ nextLocation }) => dirty && nextLocation?.pathname !== "/drafts",
+);
+```
+
+The predicate receives `{ currentLocation, nextLocation, historyAction }`, where
+`historyAction` is `"push"`, `"replace"`, `"pop"` (back/forward), or `"unload"`.
+
+**What is guarded.** `<Link>` clicks, `useNavigate()` calls, and back/forward
+traversals. Full document unloads — reloads, closed tabs, links to another
+origin — go through the browser's own `beforeunload` dialog, whose text is not
+yours to choose; those calls get `nextLocation: null` and
+`historyAction: "unload"`. Opt out with `useBlocker(dirty, { beforeUnload: false })`.
+
+**Shipping less JavaScript.** The guard checks are two branches, but the
+per-history-entry index the router stamps so a refused back/forward traversal
+can be put back is unconditional — a guard mounted later still has to measure
+traversals across entries created earlier. An app that guards no navigation
+compiles all of it out:
+
+```ts [vite.config.ts]
+pracht({ client: { navigationGuards: false } });
+```
+
+With it off `useBlocker()` stays importable but never blocks, and says so in
+development.
+
+**Limits.** Render at most one blocker at a time — a second registration wins
+and warns in development. A back/forward traversal onto a history entry pracht
+did not create (app code calling `history.pushState()` directly) is not
+guarded, because the router cannot measure how far the browser moved and so
+cannot put the entry back. `<Form>` submissions are not navigations and are not
+guarded.
+
+### \<Form\> Component
+
+Declarative form submission with progressive enhancement, shown in full under [Mutations](#mutations). It intercepts same-origin submissions and sends them via `fetch` (no full page reload), while cross-origin actions retain native form navigation so they do not require a custom-header CORS preflight. It falls back to native submission if JavaScript fails, and drives `useNavigation()`'s `"submitting"` state.
+
+Set `action` to an API route path, or `capability` to post straight to a [capability](/docs/capabilities) endpoint.
 
 ---
 
 ## API Routes
 
-Standalone server endpoints for REST APIs, webhooks, and health checks. Files in `src/api/` are auto-discovered and mapped to URLs:
+Loaders read; API routes write. Files in `src/api/` are auto-discovered, export named HTTP method handlers, return native `Response` objects, share the same context system as page routes, and never enter the client bundle. See [API Routes](/docs/api-routes) for the file convention, method handlers, API middleware, same-origin protection, and WebSockets, and [API Validation](/docs/api-validation) for Standard Schema validation and typed `apiFetch()`.
 
-```ts [src/api/users/[id].ts]
-// src/api/health.ts  → GET /api/health
-// src/api/users/[id].ts → GET /api/users/:id
-
-export async function GET({ params, context }: ApiRouteArgs) {
-  const user = await context.db.users.find(params.id);
-  if (!user) return new Response("Not found", { status: 404 });
-  return Response.json(user);
-}
-
-export async function DELETE({ params, context }: ApiRouteArgs) {
-  await context.db.users.delete(params.id);
-  return new Response(null, { status: 204 });
-}
-```
-
-API routes export named HTTP method handlers or one default handler that branches on `request.method`, return `Response` objects directly, share the same context system as page routes, and are excluded from client bundles entirely.
+For an operation you also want agents to call, define it once as a [capability](/docs/capabilities) instead: same validation and middleware pipeline, plus an HTTP endpoint, a WebMCP page tool, and a remote MCP tool generated from one contract.

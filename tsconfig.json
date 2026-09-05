@@ -41,6 +41,7 @@
       "@pracht/image/node": ["./packages/image/src/node.ts"],
       "@pracht/image/vite": ["./packages/image/src/vite.ts"],
       "@pracht/i18n": ["./packages/i18n/src/index.ts"],
+      "@pracht/session": ["./packages/session/src/index.ts"],
       "@pracht/markdown": ["./packages/markdown/src/index.ts"],
       "@pracht/markdown/runtime": ["./packages/markdown/src/runtime.ts"],
       "@pracht/test": ["./packages/test/src/index.ts"]
@@ -56,6 +57,8 @@
     "packages/cli/test/fixtures/cloudflare-runtime-import"
   ],
   "include": [
+    "bench/**/*.ts",
+    "bench/**/*.tsx",
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "packages/vite-plugin/virtual.d.ts",

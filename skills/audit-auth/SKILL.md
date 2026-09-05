@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.2.4
+version: 1.4.0
 description: |
   Find pracht routes that look protected but aren't: missing auth middleware,
   middleware that augments context but never gates, client-only checks, and
@@ -24,8 +24,18 @@ redirect `Response`. What the framework does NOT decide is *which* routes get
 an auth gate — that is app wiring, and this skill audits it.
 
 The pracht auth pattern (see `examples/docs/src/routes/docs/recipes-auth.md`):
-middleware checks the session, short-circuits with a redirect on absence, and
-forwards user info via request headers; loaders downstream read the headers.
+middleware loads the session onto `context.session` and short-circuits with a
+redirect when there is no user; loaders downstream read `context.session`.
+
+`@pracht/session` is the first-party implementation. Two of its exports map
+straight onto the Gate/Augmenter classification below — `requireSession()` is
+a Gate, `sessionMiddleware()` is an Augmenter — so a project using it can be
+classified from the factory name without reading the middleware body. A
+project that hand-rolls its session instead is not automatically wrong, but
+check it for the things the package handles: an expiry inside the signed
+payload (not only `Max-Age`), a constant-time or `crypto.subtle.verify`
+signature check, `HttpOnly`/`Secure`/`SameSite`, and encryption if the cookie
+carries anything beyond an opaque id.
 
 Prerequisites: `pracht inspect` requires a vite config that registers the
 pracht plugin.
@@ -40,18 +50,37 @@ MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
-Middleware is registered by name in the app manifest —
-`defineApp({ middleware: { auth: () => import("./middleware/auth.ts") } })` —
-and `inspect` reports those names, not files. Read the name→file map from
-`src/routes.ts` (or the configured manifest) to resolve each name, then read
-each middleware file and classify it:
+`inspect` reports middleware names, not files. Resolve them according to the
+app's router mode, then read each middleware file and classify it:
+
+- **Manifest router:** read the name→file map from `src/routes.ts` (or the
+  configured manifest), where middleware is registered through
+  `defineApp({ middleware: { auth: () => import("./middleware/auth.ts") } })`.
+- **Pages router:** when the Vite config sets `pagesDir`, the generated name
+  `"pages"` resolves to the root `<pagesDir>/_middleware.ts` (or `.tsx`, `.js`,
+  or `.jsx`). It applies to every page route and never wraps API routes. There
+  is no `src/routes.ts` manifest to inspect unless the app has ejected. Follow
+  imports and re-exports into underscore-reserved helpers such as
+  `<pagesDir>/_server/auth.ts`; Pracht excludes those helpers from client
+  route/shell registries, but a direct import from client code still bundles
+  them and should be treated as a server-code leak.
+
+Then classify each resolved middleware module:
 
 - **Gate** — on auth failure, returns a short-circuit `Response`
   (`redirect("/login", { request })`, or a 401/403 `Response`) WITHOUT calling
-  `next()`; on success, `return next()`.
-- **Augmenter** — mutates request headers/context with user info, then always
-  returns `next()`. Never short-circuits.
+  `next()`; on success, `return next()`. `requireSession()` from
+  `@pracht/session` is one.
+- **Augmenter** — puts user info on `context` (or, in older code, on request
+  headers), then always returns `next()`. Never short-circuits.
+  `sessionMiddleware()` is one.
 - **Other** — non-auth middleware (rate limit, logging, CORS, etc.).
+
+Flag any middleware that writes identity onto `args.request.headers`: the
+client controls request headers, so a loader reading `x-user-id` back out is
+trusting attacker-supplied input, and the write throws outright on Cloudflare
+Workers where the incoming `Request` is immutable. Identity belongs on
+`context`.
 
 The "Augmenter" category is the silent killer: it makes loaders *think*
 auth is enforced because `request.headers.get('x-user-id')` returns a value
@@ -63,7 +92,8 @@ to handle it. Flag every loader downstream of an Augmenter that doesn't.
 A route is "expected protected" if any of:
 
 - It has `auth`/`session`/`requireUser`/similar middleware applied.
-- Its loader reads `x-user-id`/`x-user-email`/`getSession`/equivalent.
+- Its loader reads `context.session`, `getSession`, or (legacy)
+  `x-user-id`/`x-user-email`.
 - It lives under conventional protected paths: `/dashboard*`, `/admin*`,
   `/account*`, `/settings*`, `/app*` (ask the user to confirm the
   convention if unclear).
@@ -80,6 +110,13 @@ For each expected-protected route:
 3. Confirm the gate runs **before** any other middleware that depends on
    identity (order matters).
 4. If only an Augmenter is present, mark as `augmented-only`.
+5. For pages-router routes, inspect `render` too. A root pages Gate on an
+   `ssg` or `isg` route does not protect the static document per visitor:
+   document middleware runs during build/revalidation with a sanitized request,
+   while later route-state requests are separate live requests. Unless an
+   independently verified platform/CDN edge gate protects the document, report
+   the route as `error` / `unprotected-static` and recommend `ssr`/`spa` for
+   session-gated pages.
 
 ## Step 4: Check the API surface
 
@@ -138,6 +175,22 @@ SPA route loaders.
 
 ## Step 6: Session cookie sanity
 
+With `@pracht/session`, check the configuration rather than the mechanics:
+`cookie.secrets` read from `serverEnv` (never a literal), the storage built
+inside a function rather than at module scope (Workers env is request-scoped),
+a `__Host-` cookie name unless subdomain sharing is required, and `sameSite`
+matching the app's embedding needs. A `store` is required for logout to
+invalidate a session anywhere other than the browser that asked.
+
+Then check the **login path for `session.regenerate()`**, called after
+credentials verify and before the user is written onto the session. Its
+absence is session fixation: with a store, an attacker who can plant a cookie
+for the host keeps a valid pointer to the session that becomes authenticated.
+Flag it as `error`/`fixation` on any store-backed app; on a cookie-only app it
+is `info` (the cookie carries the sealed data, not a pointer), but still worth
+adding before the app grows a store. Audit every other privilege change the
+same way — 2FA completion, role assumption, impersonation.
+
 Cross-reference with `audit-csrf`: the same cookies that authorize the user
 are the CSRF target. Recommend running `audit-csrf` after this skill.
 
@@ -151,9 +204,12 @@ Severity is the primary scale; the verdict is a secondary domain label:
 - `error` / `unprotected` — no auth middleware on a route the user expects
   protected.
 - `error` / `inconsistent` — UI route is gated; sibling API is not.
+- `error` / `unprotected-static` — a pages-router SSG/ISG document relies on
+  request/session middleware without an independent per-request edge gate.
 - `warn` / `augmented-only` — middleware reads session but never blocks;
   loader must handle null user.
 - `warn` / `client-only` — server allows; client hides UI.
+- `error` / `fixation` — store-backed session, no `regenerate()` at login.
 - `info` / `protected` — gate confirmed.
 - `info` / `public-by-design` — deliberately exposed (login, signup,
   marketing).

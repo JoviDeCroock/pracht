@@ -142,6 +142,8 @@ return { product: await getProduct(id), reviews: await getReviews(id) };
 return { product: await getProduct(id), reviews: defer(getReviews(id)) };
 ```
 
+Pages routes use `export const STREAMING = true` with SSR and full hydration.
+
 Recommend `streaming: true` only alongside a `<Suspense>` boundary reading the
 deferred value with `use()`; without a boundary there is nothing to flush
 early. Do not recommend it for:

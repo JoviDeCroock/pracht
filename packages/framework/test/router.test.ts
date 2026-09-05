@@ -275,6 +275,31 @@ describe("typed route href helpers", () => {
       "/products/1?tab=details",
     );
   });
+
+  it("compiles each href route table once", () => {
+    let idReads = 0;
+    let pathReads = 0;
+    const routes = [
+      {
+        get id() {
+          idReads += 1;
+          return "home";
+        },
+        get path() {
+          pathReads += 1;
+          return "/";
+        },
+      },
+    ];
+
+    expect(buildHref(routes, "home")).toBe("/");
+    expect(buildHref(routes, "home")).toBe("/");
+    expect({ idReads, pathReads }).toEqual({ idReads: 1, pathReads: 1 });
+  });
+
+  it("preserves explicitly empty ids in low-level href tables", () => {
+    expect(buildHref([{ id: "", path: "/empty" }], "")).toBe("/empty");
+  });
 });
 
 describe("matchRoutePath", () => {

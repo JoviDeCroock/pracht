@@ -30,10 +30,10 @@ pnpm create pracht my-app --adapter=vercel --template=tailwind --yes
 
 Options:
 
-- `--adapter=node|cf|vercel` — choose Node.js, Cloudflare Workers, or Vercel output.
+- `--adapter=node|cf|netlify|vercel|static` — choose Node.js, Cloudflare Workers, Netlify, Vercel, or pure static output.
 - `--router=manifest|pages` — choose explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — control Tailwind setup.
-- `--agent-tools`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`.
+- `--agent-tools[=core|full]`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`. `core` (the default) seeds five skills; `full` seeds the whole catalog. Add more later with [`pracht skills add`](#pracht-skills).
 - `--skip-install` — write files without installing dependencies.
 - `--no-git` — skip `git init` and the initial commit.
 - `--json` — print a machine-readable summary.
@@ -58,6 +58,8 @@ pracht dev --cache-dir /tmp/pracht-vite-cache
 ```
 
 Routes are rendered server-side on each request. Changes to routes, shells, loaders, and components are reflected immediately via HMR.
+
+A failing loader, middleware, or render prints one line to the terminal — phase, route id, request path, and message — alongside the browser error overlay, so failures on a client-side navigation, a `curl`, or a test run are visible server-side too. Failures that name no file of yours also print their stack; set `DEBUG` to print it for every failure.
 
 Vite normally writes its optimizer cache to `node_modules/.vite`. When multiple
 dev servers use the same checkout, pass a distinct `--cache-dir` to each one so
@@ -132,7 +134,8 @@ pracht generate api --path /health --methods GET,POST
 > On Windows Git Bash/MSYS shells, leading `/` arguments may be rewritten as absolute Windows paths before Node sees them. If `--path /dashboard` reports that it would write outside `src/routes`, use PowerShell/CMD or pass `MSYS_NO_PATHCONV=1` when invoking the `pracht` binary directly.
 
 - Manifest apps update `src/routes.ts` automatically for routes, shells, and middleware.
-- Pages-router apps scaffold route files into `src/pages/`.
+- Pages-router apps scaffold route files into `src/pages/`; with a serverful adapter, `generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts` (the only middleware seam in pages mode). Pure static exports cannot use request middleware.
+- `generate capability` works in both modes. Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the generated module declares its own `name` and no manifest is written. `generate shell` stays manifest-only — pages apps add an `_app.tsx` to the directory they want it to wrap.
 - Add `--json` when another tool or agent needs machine-readable output.
 
 `generate route` also emits a Playwright smoke test at `e2e/<route-id>.spec.ts` whenever the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory). The test visits the route with example values for dynamic params (`/blog/:slug` → `/blog/example-slug`), asserts the response status is below 400, and checks the `h1` text. `--test` forces the test, `--no-test` skips it. Generated tests import `@playwright/test`; if it is not installed, the generator prints the required follow-up (`pnpm add -D @playwright/test`).
@@ -258,7 +261,7 @@ pracht plan --json
 pracht plan --markdown
 ```
 
-The snapshot works like a lockfile for the route graph: `pracht verify` fails when `.pracht/app-graph.json` is stale, with the fix in the message (run `pracht plan --write`). See [AI-Assisted Authoring & Review](/docs/agent-workflow) for the full workflow.
+The snapshot works like a lockfile for the route graph: `pracht verify` fails when `.pracht/app-graph.json` is stale, with the fix in the message (run `pracht plan --write`). See [Coding Agents](/docs/coding-agents#the-route-graph-lockfile) for the full workflow.
 
 Capability changes are marked `!` when they widen what agents can reach — a new exposure, a downgraded `agentPolicy`, dropped middleware, or a loosened input schema — and `--markdown` puts a callout above the diff so the line is not missed.
 
@@ -311,7 +314,7 @@ pracht eval --json
 ```
 
 A scenario picks its transport: the capability HTTP projection by default, or
-the app's [remote MCP endpoint](/docs/remote-mcp) with `"transport": "mcp"`,
+the app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with `"transport": "mcp"`,
 where the runner performs an `initialize` handshake and issues each step as a
 `tools/call`. See [Agent Trust](/docs/agent-trust) for the scenario format.
 
@@ -335,17 +338,24 @@ pracht llms
 pracht llms --write
 ```
 
-The same guide is available from the MCP server (`pracht mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
+The same guide is available from the authoring MCP server (`pracht dev-mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
 
 ---
 
-## pracht mcp
+## pracht dev-mcp
 
 Starts a Model Context Protocol server over stdio for coding agents:
 
 ```sh
-pracht mcp
+pracht dev-mcp
 ```
+
+This is the **authoring** server: it exposes your app's *graph* to the agent
+writing the code. It is not your app's own [remote MCP
+endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), which exposes your app's *operations* to end-user
+agents in production. The command was called `pracht mcp` through v1.12; that
+name still works and behaves identically, printing a deprecation notice to
+stderr.
 
 Configure the command as a local MCP server rather than running it as a human
 interactive prompt. The protocol owns stdout; diagnostics go to stderr so they
@@ -355,6 +365,54 @@ runs until its MCP client disconnects and exits non-zero on startup or protocol
 failure. There is no `--json` flag because MCP frames are already structured
 protocol output. It is adapter-independent, although individual inspection and
 verification results reflect the configured target.
+
+See [Coding Agents](/docs/coding-agents#the-authoring-mcp-server) for client
+registration and the full tool reference. This is the *development-time* server;
+serving your app's own capabilities to end-user agents in production is
+[remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser),
+a different thing entirely.
+
+---
+
+## pracht skills
+
+Lists and installs the pracht Claude Code skills from the published
+[agent-skills index](https://pracht.resynapse.dev/.well-known/agent-skills/index.json):
+
+```sh
+# The catalog, with a marker on the ones this app already has
+pracht skills list
+
+# Install into .claude/skills/
+pracht skills add audit-loaders add-db
+```
+
+`create-pracht` seeds a small core set — `pracht-scaffold`, `pracht-debug`,
+`pracht-deploy`, `upgrade-pracht`, `add-capabilities` — because every skill
+description sits in the agent's system prompt for every session whether the
+skill runs or not. `pracht skills add` is how you take the rest, one at a time.
+Pass `--agent-tools=full` at scaffold time to start with all of them.
+
+The index is treated as untrusted input, because its contents land in the
+directory your coding agent reads instructions from:
+
+- Every entry must carry a 64-character hex SHA-256, and `add` verifies the
+  downloaded body against it. An index missing a digest on any entry is
+  rejected whole, before anything is written.
+- The index and every skill URL must be `https` (plain `http` is allowed only
+  for `localhost`, so you can serve an offline mirror).
+- Skill names must match `[a-z0-9][a-z0-9-]*`, so a name from the index can
+  never resolve outside `.claude/skills/`.
+- If `.claude/skills` is a symlink, `add` refuses rather than writing through
+  it — this repository points its own at the canonical `skills/` sources, and
+  a stray `add` there would rewrite the published catalog. `--force` allows it
+  when the link still resolves inside the project; a link escaping the project
+  is always refused.
+
+An already-installed skill is skipped unless you pass `--force`. `--index <url>`
+points both subcommands at a different catalog, and `--json` gives both
+machine-readable output — `add --json` always reports `installed`, `skipped`,
+and `failed`, and exits non-zero if anything failed.
 
 ---
 

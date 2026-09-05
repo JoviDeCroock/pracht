@@ -1,6 +1,6 @@
 ---
 name: audit-agent-surface
-version: 1.0.4
+version: 1.1.0
 description: |
   Inventory what agents can reach in a pracht app — capability exposure (HTTP,
   WebMCP, remote MCP), `agents` trust config, the destructive-confirmation gate,
@@ -59,10 +59,17 @@ middleware → `agentPolicy`. A capability reported as `unreadable` means
 `@pracht/capabilities` is not installed; treat it as an `error` and stop
 reasoning about its policy until it loads.
 
-Cross-check `inspect agents` against the manifest's `agents` block. It reads
-resolved app and production `llmsTxt` config, including computed branches. A
-`null` `llmsTxt.enabled` means an older plugin: report unknown and recommend an
-upgrade. Use resolved `mcp.auth`; `null` means framework-level OAuth is open.
+Cross-check `inspect agents` against the app's `agents` config: the manifest's
+`agents` block, or the `agents` export of `src/pages/_app.config.ts` when
+`inspect` reports `"mode": "pages"`. It reads resolved app and production
+`llmsTxt` config, including computed branches. `llmsTxt.enabled: null` means an older
+plugin: report unknown and recommend upgrading. Use resolved
+`mcp.auth`; `null` means framework OAuth is open.
+
+Where capabilities are declared differs by router; what they expose does not.
+A pages app registers every module in `src/capabilities/` — read that
+directory, not a `capabilities` key. A pages app is not surface-free just
+because it has no `src/routes.ts`.
 
 ## Step 2: Exposure vs. intent
 
@@ -277,16 +284,16 @@ staleness, so trust it only when verify passes.
 
 When the app is supposed to have none:
 
-- Confirm the manifest registers no `capabilities` and no `agents`. That lets
-  the build define the surface away (~15 KB gzip of an example server bundle).
+- Confirm no `capabilities` and no `agents` are registered (pages apps: no
+  `src/capabilities/`, no `_app.config.ts`). That lets the build define the
+  surface away (~15 KB gzip in an example server bundle).
 - Analysis is one-sided: a spread, a regex literal, or otherwise opaque syntax
   in the manifest leaves the define unset and keeps the runtime in the bundle.
   Flag manifest constructs that defeat the static read.
-- Confirm `llmsTxt` is off if the app should not advertise itself, and that no
-  route sets `markdown: true`.
-- `create-pracht --no-agent-tools` controls the *scaffolded developer* tooling
-  (`.mcp.json`, skills) — it has nothing to do with the deployed agent surface.
-  Do not conflate them in the report.
+- Confirm `llmsTxt` is off if the app should not advertise itself, and no route
+  sets `markdown: true`.
+- `create-pracht --no-agent-tools` controls *scaffolded developer* tooling
+  (`.mcp.json`, skills), not the deployed agent surface. Do not conflate them.
 
 ## Step 8: Report
 
@@ -324,12 +331,10 @@ Severities:
 3. Do not treat client-declared signals as trust: the `webmcp` transport marker
    is informational, and only MCP dispatch state is trustworthy for
    attributing nested effects.
-4. Distinguish `pracht mcp` (the development-time stdio server exposing the app
+4. Distinguish `pracht dev-mcp` (the development-time stdio server exposing the app
    *graph* to coding agents) from the deployed `/mcp` endpoint exposing the app's
    *operations*. They have different threat models.
-5. State the framework guarantee before each finding so the reader can tell an
-   opt-out from a hole.
-6. Pair with `/audit-auth`, `/audit-csrf`, and `/audit-secrets` — this skill
+5. Pair with `/audit-auth`, `/audit-csrf`, and `/audit-secrets` — this skill
    owns agent reachability, not general request authorization.
 
 $ARGUMENTS

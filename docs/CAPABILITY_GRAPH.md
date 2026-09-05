@@ -8,6 +8,11 @@ see the [remote MCP contract](REMOTE_MCP.md) and dated decision logs below.
 **Recommendation:** Make typed, protocol-neutral application capabilities the next major Pracht
 primitive.
 
+> A follow-on decision,
+> [LOADERS_AS_CAPABILITIES.md](LOADERS_AS_CAPABILITIES.md), accepts optional
+> descriptive route metadata while keeping loader execution, route
+> authorization, auditing, and capability delegation as separate concerns.
+
 > The code samples below are the original proposal's illustrations and predate
 > the implementation. The shipped developer model is documented in
 > [CAPABILITIES.md](CAPABILITIES.md) and [AGENT_TRUST.md](AGENT_TRUST.md);
@@ -392,6 +397,14 @@ adding the MCP SDK to `@pracht/core`:
 
 The MCP SDK and MCP Apps bridge stay optional and out of normal client bundles. Applications that
 do not register capabilities pay no runtime or build cost.
+
+The shipped package boundary also supports applications that do not use the
+Pracht framework. `@pracht/capabilities/server` is the curated standalone
+surface (`createCapabilityHost()` and supported trust hooks),
+`@pracht/capabilities/webmcp` is the browser registrar, and
+`@pracht/capabilities/server/internal` is reserved for framework integration.
+Standalone hosts register capability and middleware objects at runtime while
+using the same dispatch and MCP implementation as `@pracht/core`.
 
 ### Schema boundary
 

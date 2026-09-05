@@ -1,3 +1,6 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -300,6 +303,631 @@ export const app = defineApp({
 
       const result = runCli([command, "--json"], { cwd: appDir });
       expect(JSON.parse(result.stdout).ok).toBe(true);
+    },
+  );
+
+  it.each(["doctor", "verify"])("accepts a root pages _middleware in %s", (command) => {
+    const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-ok-`);
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      `import type { MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async (_args, next) => next();
+`,
+    );
+
+    const result = runCli([command, "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(true);
+    expect(report.checks.some((check) => check.message.includes("Found pages middleware"))).toBe(
+      true,
+    );
+  });
+
+  it.each(["doctor", "verify"])("accepts a quoted pages middleware export in %s", (command) => {
+    const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-quoted-`);
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.js",
+      'const fn = async (_args, next) => next();\nexport { fn as "middleware" };',
+    );
+
+    const result = runCli([command, "--json"], { cwd: appDir });
+    expect(JSON.parse(result.stdout).ok).toBe(true);
+  });
+
+  it.each(["doctor", "verify"])(
+    "ignores underscore-prefixed pages directories in %s",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-private-dir-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_components/button.tsx",
+        'export const RENDER_MODE = "isg"; export function Component() { return null; }',
+      );
+      writeProjectFile(appDir, "src/pages/_components/_app.tsx", "export const REVALIDATE = 60;");
+
+      const result = runCli([command, "--json"], { cwd: appDir });
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(true);
+      expect(report.checks.some((check) => check.message === "Found 1 page route.")).toBe(true);
+      expect(
+        report.checks.some(
+          (check) => check.message === "No `_app` shell was found in the pages directory.",
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["doctor", "verify"])(
+    "fails %s when pages _middleware does not export middleware",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-export-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_middleware.ts",
+        "export default async (_args, next) => next();",
+      );
+
+      const result = runCliStatus([command, "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) => check.message.includes("does not export `middleware`")),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["doctor", "verify"])(
+    "fails %s when pages middleware aliases a type-only binding",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-type-only-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_middleware.ts",
+        "type Handler = () => void;\nexport { Handler as middleware };",
+      );
+
+      const result = runCliStatus([command, "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) => check.message.includes("does not export `middleware`")),
+      ).toBe(true);
+    },
+  );
+
+  it("leaves pages middleware callability to runtime", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-middleware-runtime-value-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_middleware.ts", "export const middleware = 1;");
+
+    const report = JSON.parse(runCli(["verify", "--json"], { cwd: appDir }).stdout);
+    expect(report.ok).toBe(true);
+  });
+
+  it("does not report invalid changed pages middleware as successful", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-middleware-changed-invalid-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+    initializeGitRepo(appDir);
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export default async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["verify", "--changed", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.scope).toBe("changed");
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" && check.message.includes("does not export `middleware`"),
+      ),
+    ).toBe(true);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("Changed pages middleware"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not report a valid root middleware as successful beside a nested middleware error", () => {
+    const appDir = createTempDir("pracht-cli-verify-pages-middleware-mixed-invalid-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/admin/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "error" && check.message.includes("Nested pages middleware"),
+      ),
+    ).toBe(true);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("Found pages middleware"),
+      ),
+    ).toBe(false);
+  });
+
+  it("fails when manifest middleware sits inside a client registry directory", () => {
+    const appDir = createTempDir("pracht-cli-verify-middleware-client-boundary-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp } from "@pracht/core";
+
+export const app = defineApp({
+  middleware: { pages: () => import("./pages/_middleware.ts") },
+  routes: [],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    }),
+  ],
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const result = runCliStatus(["verify", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" && check.message.includes("inside a client registry directory"),
+      ),
+    ).toBe(true);
+  });
+
+  it("stays quiet when an ejected pages manifest keeps its layout marker", () => {
+    const appDir = createTempDir("pracht-cli-verify-middleware-ejected-marker-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp } from "@pracht/core";
+
+export const __PRACHT_EJECTED_PAGES_LAYOUT__ = true;
+
+export const app = defineApp({
+  middleware: { pages: () => import("./pages/_middleware.ts") },
+  routes: [],
+});
+`,
+    });
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+
+export default defineConfig({
+  plugins: [
+    pracht({
+      appFile: "/src/routes.ts",
+      routesDir: "/src/pages",
+      shellsDir: "/src/pages",
+      middlewareDir: "/src/pages",
+    }),
+  ],
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/_middleware.ts",
+      "export const middleware = async (_args, next) => next();",
+    );
+
+    const report = JSON.parse(runCli(["verify", "--json"], { cwd: appDir }).stdout);
+    expect(
+      report.checks.some((check) => check.message.includes("inside a client registry directory")),
+    ).toBe(false);
+  });
+
+  it("reports a nested pages _app as a directory-scoped shell", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-nested-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("(1 directory-scoped)"),
+      ),
+    ).toBe(true);
+  });
+
+  it("verifies capabilities auto-discovered from src/capabilities in pages mode", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-capabilities-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/capabilities/notes-search.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  name: "notes.search",
+  title: "Search notes",
+  description: "Find notes whose title matches the query.",
+  effect: "read",
+  expose: { http: true },
+  input: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+  output: { type: "object", properties: { hits: { type: "number" } }, required: ["hits"] },
+  run: () => ({ hits: 0 }),
+});
+`,
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message === "Registered 1 capability.",
+      ),
+    ).toBe(true);
+    expect(report.checks.some((check) => check.message.includes('Capability "notes.search"'))).toBe(
+      true,
+    );
+  });
+
+  it("fails doctor when a pages capability name does not map back to its file", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-capability-name-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/capabilities/search.ts",
+      `import { defineCapability } from "@pracht/capabilities";
+
+export default defineCapability({
+  name: "notes.search",
+  title: "Search notes",
+  description: "Find notes.",
+  effect: "read",
+  input: { type: "object" },
+  output: { type: "object" },
+  run: () => ({}),
+});
+`,
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" &&
+          check.message.includes('declares name "notes.search" but lives in'),
+      ),
+    ).toBe(true);
+  });
+
+  it("reports the pages app config exports it applies", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-config-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_app.config.ts",
+      'export const agents = { webBotAuth: { policy: "observe", keys: [] } };\n',
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "ok" &&
+          check.message === "Found pages app config `_app.config` (`agents`).",
+      ),
+    ).toBe(true);
+  });
+
+  it("fails doctor for a pages app config that exports nothing usable", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-config-empty-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_app.config.ts", "export default { agents: {} };\n");
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" &&
+          check.message.includes("exports none of `agents`, `constraints`"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails doctor for a nested pages app config", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-config-nested-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.config.ts",
+      "export const agents = { mcp: {} };\n",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) => check.status === "error" && check.message.includes("Nested `_app.config`"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails doctor when two _app files compete for the same shell registration", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-duplicate-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/blog/_app.jsx",
+      "export function Shell({ children }) { return children; }",
+    );
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "error" && check.message.includes('Multiple `_app` shells in "blog"'),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when a pages _app never renders its children", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-no-children-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_app.tsx", "export function Shell() { return null; }");
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+    expect(
+      report.checks.some(
+        (check) =>
+          check.status === "warning" && check.message.includes("never mentions `children`"),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an _app inside an underscore-reserved tree a plain helper", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-app-reserved-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(
+      appDir,
+      "src/pages/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+    writeProjectFile(
+      appDir,
+      "src/pages/_components/_app.tsx",
+      "export function Shell({ children }) { return children; }",
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    expect(report.checks.some((check) => check.message.includes("Nested pages `_app` shell"))).toBe(
+      false,
+    );
+    expect(
+      report.checks.some(
+        (check) => check.status === "ok" && check.message.includes("`_app` shell"),
+      ),
+    ).toBe(true);
+  });
+
+  it.each(["admin", "_components"])(
+    "fails doctor for nested pages _middleware files under %s",
+    (directory) => {
+      const appDir = createTempDir("pracht-cli-doctor-pages-middleware-nested-");
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        `src/pages/${directory}/_middleware.ts`,
+        "export const middleware = async (_args, next) => next();",
+      );
+
+      const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(report.checks.some((check) => check.message.includes("Nested pages middleware"))).toBe(
+        true,
+      );
+    },
+  );
+
+  it("fails doctor for a _middleware directory instead of treating it as a route", () => {
+    const appDir = createTempDir("pracht-cli-doctor-pages-middleware-dir-");
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    writeProjectFile(appDir, "src/pages/_middleware/.gitkeep", "");
+
+    const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some((check) =>
+        check.message.includes("`_middleware` directory is not supported"),
+      ),
+    ).toBe(true);
+    // The file inside the directory must never surface as a page route.
+    expect(report.checks.some((check) => check.message.includes('route "/_middleware"'))).toBe(
+      false,
+    );
+  });
+
+  it.each(["doctor", "verify"])("fails %s for an empty _middleware directory", (command) => {
+    const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-empty-dir-`);
+    writePagesApp(appDir);
+    writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
+    mkdirSync(join(appDir, "src/pages/_middleware"), { recursive: true });
+
+    const result = runCliStatus([command, "--json"], { cwd: appDir });
+    expect(result.status).toBe(1);
+    const report = JSON.parse(result.stdout);
+    expect(report.ok).toBe(false);
+    expect(
+      report.checks.some((check) =>
+        check.message.includes("`_middleware` directory is not supported"),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([".md", ".mdx", ".tsrx", ".mts", ".mjs", ".cts", ".cjs", ".vue", ""])(
+    "fails doctor for _middleware%s instead of silently ignoring it",
+    (extension) => {
+      const extensionName = extension.slice(1) || "extensionless";
+      const appDir = createTempDir(`pracht-cli-doctor-pages-middleware-${extensionName}-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        `src/pages/_middleware${extension}`,
+        "export const middleware = async (_args, next) => next();",
+      );
+
+      const result = runCliStatus(["doctor", "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) =>
+          check.message.includes(`cannot use the \`${extension}\` extension`),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(["doctor", "verify"])(
+    "fails %s for _middleware using a configured custom page extension",
+    (command) => {
+      const appDir = createTempDir(`pracht-cli-${command}-pages-middleware-custom-`);
+      writePagesApp(appDir);
+      writeProjectFile(
+        appDir,
+        "vite.config.ts",
+        'import { pracht } from "@pracht/vite-plugin";\npracht({ pagesDir: "/src/pages", additionalExtensions: [".vue"] });',
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/index.tsx",
+        "export function Component() { return null; }",
+      );
+      writeProjectFile(
+        appDir,
+        "src/pages/_middleware.vue",
+        "<script>export const middleware = async (_args, next) => next();</script>",
+      );
+
+      const result = runCliStatus([command, "--json"], { cwd: appDir });
+      expect(result.status).toBe(1);
+      const report = JSON.parse(result.stdout);
+      expect(report.ok).toBe(false);
+      expect(
+        report.checks.some((check) => check.message.includes("cannot use the `.vue` extension")),
+      ).toBe(true);
     },
   );
 

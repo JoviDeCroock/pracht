@@ -122,7 +122,7 @@ import type { JSX } from "preact";
 // A design-system wrapper whose own props include \`href\`. JSX does not
 // excess-property-check spreads, so this used to compile and <Link> silently
 // overwrote the forwarded href with the one it builds.
-type ButtonLinkProps = JSX.AnchorHTMLAttributes<HTMLAnchorElement> & { route: "home" };
+type ButtonLinkProps = JSX.IntrinsicElements["a"] & { route: "home" };
 
 export function ButtonLink({ route, ...rest }: ButtonLinkProps) {
   return <Link route={route} {...rest} />;
@@ -145,9 +145,6 @@ export function Home() {
     // than against some unrelated member of the props intersection.
     expect(diagnostics).toContain("Types of property 'href' are incompatible");
     expect(diagnostics).toContain(
-      `Type 'Signalish<string | undefined>' is not assignable to type '"${PRINTED_GUIDANCE}" | undefined'`,
-    );
-    expect(diagnostics).toContain(
       `Type 'string | undefined' is not assignable to type '"${PRINTED_GUIDANCE}" | undefined'`,
     );
   }, 120_000);
@@ -169,7 +166,7 @@ export function Nav() {
       {/* An explicit undefined is the one thing declaring the prop makes legal. */}
       <Link route="home" href={undefined}>Home</Link>
       {/*
-        Anchor-specific attributes. These live on JSX.AnchorHTMLAttributes, not
+        Anchor-specific attributes. These live on JSX.IntrinsicElements["a"], not
         on JSX.HTMLAttributes, so basing LinkProps on the generic interface used
         to reject every one of them — there was no way to open a typed <Link> in
         a new tab without a cast.

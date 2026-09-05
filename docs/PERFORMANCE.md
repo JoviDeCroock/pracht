@@ -5,6 +5,22 @@ that promise honest as an app grows: `pracht build --analyze` (visibility),
 per-route client-JS budgets (enforcement), and `pracht({ client })` for
 compiling out router features the app does not use.
 
+## Server-rendered typed links
+
+Server builds compile each immutable href route table on first use. The
+compiled table indexes route ids, records dynamic parameter names, and keeps a
+complete based path for static routes. Subsequent `<Link>` renders,
+`createHref()` calls, typed `navigate()` calls, and typed `prefetch()` calls use
+the same O(1) lookup; static links return their cached path, while dynamic links
+substitute parameters without allocating filtered segment arrays, sets, or a
+normalized parameter object per call. The cache is weakly keyed by the route
+array so short-lived generated or test tables remain collectible.
+
+This compilation is server-only. Browser builds retain the smaller linear
+resolver because route tables there are normally small and the client-byte
+budget is the more important constraint. Keep new typed URL surfaces on the
+shared href builder so they inherit both execution paths.
+
 ## Tree-shaking framework imports
 
 `@pracht/core` is published as unbundled ESM so downstream bundlers can follow
@@ -85,6 +101,29 @@ switchable. The popstate handler tells a history traversal apart from an in-page
 fragment navigation by whether the entry carries a router-stamped scroll key, so
 the two are one mechanism rather than two features — removing it would change
 navigation semantics, not just bundle size.
+
+## Switching off navigation guards
+
+`useBlocker()` guards are two branches in `navigate()` and the `popstate`
+handler, but the per-history-entry index they need to put a refused back/forward
+traversal back has to be stamped on every entry the router creates — a guard
+mounted later still has to measure traversals across entries created earlier.
+That part is unconditional, so it gets the same switch prefetching has:
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  plugins: [pracht({ client: { navigationGuards: false } })],
+});
+```
+
+Measured by `pnpm bench` on the ladder fixture, the feature costs 300 gzip
+bytes with guards on and 60 with them compiled out — the residue is a few dead
+variable declarations the minifier keeps inside the router closure.
+
+Unlike `client.prefetch`, turning this off is not silent: `useBlocker()` stays
+importable, never blocks, and warns in development. Quietly not protecting
+unsaved work is a different class of surprise from quietly not prefetching.
 
 ## Composing with the app's chunking
 
@@ -250,3 +289,40 @@ When a route blows its budget, the usual levers, in order of impact:
    shell; a heavy dependency imported in a shell taxes every page.
 4. **Audit the vendor chunk** — see the `audit-bundles` skill for a guided
    deep-dive into fan-in, heavy dependencies, and prefetch tuning.
+
+## The benchmark harness
+
+`--analyze` answers "what does *my app* ship". `bench/` answers "what does
+*pracht* cost", so the framework's own numbers are reproducible rather than
+remembered:
+
+```bash
+pnpm bench              # bytes + timings, printed as a table
+pnpm bench:check        # bytes only, fails when they drift (what CI runs)
+```
+
+The harness builds a fixture whose three routes render identical markup and
+share one interactive component, varying nothing but the hydration mode. A
+delta between two rows is therefore framework runtime, not application code.
+
+Bytes are deterministic, so they are recorded in `bench/baseline.json` and the
+`bundle-size` CI job fails when they move — an accidental import that pulls a
+new module into the client entry surfaces as a failing PR. Timings are not
+deterministic, so the harness reports their median and spread and nothing in CI
+gates on them.
+
+One thing the harness measures that `--analyze` cannot: chunks the router
+`import()`s *after* hydration. The prefetch runtime is one, so a full-hydration
+route fetches roughly 1.1 KB gzip that no route total mentions. The harness
+attributes it by subtraction and reports it in a `+ lazy` column, which is why
+`client: { prefetch: false }` is worth about 1.4 KB on a cold load rather than
+the ~0.3 KB the route report implies.
+
+See [bench/README.md](../bench/README.md) for the fixture layout and what to do
+when the baseline moves.
+
+The streaming baseline exercises Preact `11.0.0-rc.1` and render-to-string `6.7.0`.
+Cold gzip totals are 0 bytes without hydration, 7,687 for islands, and 17,727
+for full hydration. Streamed error handling and hydration readiness add about 0.3 KB gzip to the
+router measured with Preact external; the end-to-end baseline also includes
+the Preact version change.

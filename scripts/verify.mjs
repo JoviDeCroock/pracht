@@ -18,10 +18,13 @@
 //   node scripts/verify.mjs --skip-build  reuse the dist/ from a previous build
 //   node scripts/verify.mjs --force-build rebuild every package, cache or not
 //   node scripts/verify.mjs --skip-e2e    unit tests only (no browser needed)
+//   node scripts/verify.mjs --check       report formatting/lint, never rewrite
 //
 // Formatting runs before the checks rather than beside them: oxfmt and oxlint
 // rewrite files in place, and rewriting sources under a running test process
-// would make the result depend on timing.
+// would make the result depend on timing. `--check` swaps both for their
+// read-only equivalents (`format:check` and `oxlint` without `--fix`) so the
+// same gate can run somewhere a dirty tree is a failure rather than a fixup.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { availableParallelism, loadavg } from "node:os";
@@ -32,6 +35,7 @@ const args = new Set(process.argv.slice(2));
 const skipBuild = args.has("--skip-build");
 const forceBuild = args.has("--force-build");
 const skipE2e = args.has("--skip-e2e");
+const checkOnly = args.has("--check");
 const startedAt = Date.now();
 
 function run(name, command, commandArgs, env = process.env) {
@@ -95,12 +99,21 @@ if (!skipBuild) {
   report(await run("build", "node", ["./scripts/build.mjs", ...(forceBuild ? ["--force"] : [])]));
 }
 
-// 2. Formatters, which mutate the tree.
+// 2. Formatters, which mutate the tree — unless `--check` asked for the
+//    read-only equivalents.
 if (ok()) {
-  report(await run("format", "pnpm", ["run", "format"]));
+  report(
+    checkOnly
+      ? await run("format:check", "pnpm", ["run", "format:check"])
+      : await run("format", "pnpm", ["run", "format"]),
+  );
 }
 if (ok()) {
-  report(await run("lint", "pnpm", ["run", "lint"]));
+  report(
+    checkOnly
+      ? await run("lint:check", "pnpm", ["exec", "oxlint", "."])
+      : await run("lint", "pnpm", ["run", "lint"]),
+  );
 }
 
 // 3. Every check that only reads the tree, together. Type generation reads the
@@ -114,20 +127,23 @@ if (ok()) {
   const testEnv = saturated
     ? {
         ...process.env,
-        VITEST_MAX_THREADS: process.env.VITEST_MAX_THREADS ?? String(unitWorkers),
-        VITEST_MIN_THREADS: process.env.VITEST_MIN_THREADS ?? "1",
+        VITEST_MAX_WORKERS: process.env.VITEST_MAX_WORKERS ?? String(unitWorkers),
       }
     : process.env;
   const checks = [
     () => run("typecheck", "node", ["./scripts/typecheck.mjs"]),
     () => run("basic generated types", "pnpm", ["--dir", "examples/basic", "run", "typegen:check"]),
     () => run("test", "pnpm", ["run", "test"], testEnv),
+    // Client bytes are a CI gate (.github/workflows/ci.yml) and drift silently
+    // otherwise. Four fixture builds, ~5s of work, and it reads the same
+    // packages/*/dist the build above just produced.
+    () => run("bench:check", "pnpm", ["run", "bench:check"]),
   ];
 
   if (saturated) {
     console.log(
       `verify: load ${oneMinuteLoad.toFixed(1)} across ${parallelism} cores; ` +
-        `serializing checks and limiting Vitest to ${testEnv.VITEST_MAX_THREADS} workers`,
+        `serializing checks and limiting Vitest to ${testEnv.VITEST_MAX_WORKERS} workers`,
     );
     for (const check of checks) {
       report(await check());

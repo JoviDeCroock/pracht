@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/JoviDeCroock/pracht">
-    <img src="./assets/banner.svg" alt="pracht — Full-stack Preact, per route." width="720">
+    <img src="./assets/banner.svg" alt="pracht — One app graph, for browsers and for agents." width="720">
   </a>
 </p>
 
@@ -11,9 +11,9 @@
 
 # pracht
 
-**Full-stack Preact, per route.** _(pracht /praxt/ — Dutch & German for splendor. Also: how you've always mispronounced Preact.)_
+**One app graph, projected to browsers and to agents.** _(pracht /praxt/ — Dutch & German for splendor. Also: how you've always mispronounced Preact.)_
 
-Pick SPA, SSR, SSG, or ISG on a route-by-route basis. Ship less JavaScript by default. Deploy the same codebase to Node, Cloudflare, Netlify, or Vercel.
+Other frameworks render your app for humans and leave agents to scrape it. Pracht resolves your routes, loaders, API routes, and capabilities into one explicit graph, then projects that graph two ways: components for people, and typed, trust-gated tools for agents — over HTTP, [WebMCP](https://developer.chrome.com/docs/ai/webmcp), remote MCP, and `llms.txt`. It is a Preact framework, so the human half is small; it is an explicit framework, so the agent half is something you declare rather than something that gets scraped off you.
 
 ```bash
 npm create pracht@latest my-app
@@ -23,15 +23,17 @@ npm create pracht@latest my-app
 
 ## Why pracht
 
-- **Preact-first** — the low bundle size that you know and love with a familiar API.
-- **Per-route render modes** — SPA, SSR, SSG, and ISG in the same app. No global default fighting you.
-- **Explicit over magic** — a typed `defineApp()` manifest wires routes, shells, and middleware. What runs where is never a mystery. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
+- **One explicit app graph** — a typed `defineApp()` manifest wires routes, shells, middleware, and capabilities. What runs where is never a mystery, and because the graph is resolved rather than inferred, tooling can read it. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
+- **The graph is projected to agents, not scraped from them** — one `defineCapability()` contract becomes a server call, an HTTP endpoint, a WebMCP page tool, and a tool on your app's own remote MCP endpoint, listed for discovery in a generated `llms.txt`. Same validation, same middleware, same effect class on every transport.
+- **Trust ships with the surface** — Web Bot Auth (RFC 9421) verified agent identity, per-capability policies, a prepare/commit confirmation gate for destructive effects, one structured audit event per dispatch, and `pracht eval` to prove agent flows in CI.
+- **Preact-first** — 0 KB of client JavaScript on a static route, 7.5 KB gzip with islands, 17.3 KB fully hydrated with the router. Measured by `pnpm bench` in this repo and gated in CI, not asserted.
+- **Per-route render and hydration modes** — SPA, SSR, SSG, and ISG, and full, islands, or no hydration, chosen per route. No global default fighting you.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.
 - **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.
-- **Deploy anywhere** — one codebase, one build, five production-ready adapters (Node, Cloudflare Workers, Netlify, Vercel, and pure static export).
 - **Env safety built in** — typed `serverEnv`/`publicEnv` helpers with a `PRACHT_PUBLIC_` prefix rule, and builds fail when client bundles reference non-public env vars.
 - **Optional content collections** — `@pracht/content` gives loaders and build plugins one server-only registry for routes, locales, source/compiled representations, caching, and emitted assets.
 - **Markdown images without runtime JavaScript** — `@pracht/markdown` compiles ordinary relative Markdown images through `@pracht/image` into cached responsive WebP variants for SSR, SSG, and hydration-disabled routes.
+- **Deploy anywhere** — one codebase, one build, five production-ready adapters (Node, Cloudflare Workers, Netlify, Vercel, and pure static export).
 
 ## At a glance
 
@@ -84,14 +86,13 @@ src/pages/
   blog/[slug].tsx  → /blog/:slug
 ```
 
-Same render modes, same adapters — just let the filesystem drive.
-
-The manifest is where shells, middleware, capabilities, constraints, and the
-agent surface are registered, so the pages router does not have them: one
-`_app.tsx` shell, no middleware, no capabilities (and therefore no capability
-endpoints, WebMCP, remote MCP, or `pracht eval`), no `defineApp({ constraints })`,
-no `agents`. Pick it for content-shaped sites; pick the manifest when you need
-auth or the agent surface. See [docs/ROUTING.md](docs/ROUTING.md#what-the-pages-router-does-not-have).
+Same render modes, same adapters — just let the filesystem drive. Directory
+`_app.tsx` files provide shells, a root `_middleware.ts` wraps every page, and
+modules in `src/capabilities/` plus `agents` / `constraints` from
+`src/pages/_app.config.ts` provide the same agent surface as a manifest app.
+Eject when you need per-route shell or middleware assignment, explicit route
+ids, path-prefix groups, or webhook ISG policies. See
+[docs/ROUTING.md](docs/ROUTING.md#pages-router-auto-discovery).
 
 ## Create an app
 
@@ -120,19 +121,19 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 
 - **Provable changes** — a committed app-graph snapshot (`.pracht/app-graph.json`) plus `pracht plan` gives reviewers an intent-level diff of routes, render modes, shells, middleware, and API endpoints; `pracht report` turns it into the factual half of a PR description. See [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md).
 - **Machine-enforced invariants** — `defineApp({ constraints })` declares rules like `requireMiddleware("/app/**", "auth")` that `pracht verify` enforces deterministically, so no author (human or LLM) can merge a violation.
-- **MCP server** — `pracht mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
+- **MCP server** — `pracht dev-mcp` starts a stdio [Model Context Protocol](https://modelcontextprotocol.io) server so agents can natively inspect the resolved app graph, run doctor/verify diagnostics, diff and snapshot the graph (plan/report), read the authoring guide (get_docs), and scaffold routes, shells, middleware, and API handlers. See [docs/MCP.md](docs/MCP.md) for registration and the tool reference.
 - **Authoring guide for agents** — `pracht llms --write` drops the framework's conventions into `llms.txt` so any coding agent picks them up.
-- **Capabilities, WebMCP & remote MCP** — `@pracht/capabilities` lets you define a typed application operation once (JSON Schema contract, effect class, middleware) and project it to server code, a generated HTTP endpoint, a WebMCP page tool for in-browser agents, an MCP tool at your app's own `/mcp` endpoint for agents that never open a browser, and the human UI via `<Form capability>` — private by default, with `pracht verify` enforcing the security defaults and effect-driven revalidation keeping the page consistent after mutations. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and [docs/REMOTE_MCP.md](docs/REMOTE_MCP.md).
+- **Capabilities, WebMCP & remote MCP** — `@pracht/capabilities` lets you define a typed application operation once (JSON Schema contract, effect class, middleware) and project it to server code, a generated HTTP endpoint, a WebMCP page tool for in-browser agents, an MCP tool at your app's own `/mcp` endpoint for agents that never open a browser, and the human UI via `<Form capability>` — private by default, with `pracht verify` enforcing the security defaults and effect-driven revalidation keeping the page consistent after mutations. The same pipeline can be mounted in non-Pracht applications with `createCapabilityHost()`. See [docs/CAPABILITIES.md](docs/CAPABILITIES.md) and [docs/REMOTE_MCP.md](docs/REMOTE_MCP.md).
 - **Agent trust layer** — Web Bot Auth (RFC 9421) verified agent identity on the request context with observe/require policies, a prepare/commit confirmation flow for destructive capabilities, capability audit events, and `pracht eval` for scripted agent-task checks in CI — over the capability HTTP projection or, with `"transport": "mcp"`, over the app's own remote MCP endpoint. See [docs/AGENT_TRUST.md](docs/AGENT_TRUST.md).
 - **llms.txt** — the opt-in `llmsTxt` plugin option emits an [llms.txt](https://llmstxt.org) index of your pages, API routes, and HTTP-exposed capabilities at build time and serves it live in dev. See [docs/LLMS_TXT.md](docs/LLMS_TXT.md).
-- **Claude Code skills** — 28 skills for scaffolding, auditing, testing, debugging, and deploying pracht apps live in [skills/](skills/README.md). See the [agent skills](#agent-skills) section below.
+- **Claude Code skills** — 33 skills for scaffolding, auditing, testing, debugging, and deploying pracht apps live in [skills/](skills/README.md). See the [agent skills](#agent-skills) section below.
 
 ## Agent skills
 
 The skills are distributed three ways (see the [catalog](skills/README.md)):
 
 - **Discovery endpoint** — every skill is published at `https://pracht.resynapse.dev/skills/<name>/SKILL.md`, listed with SHA-256 digests in the manifest at [`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json) and advertised via a `Link: rel="agent-skills"` header.
-- **create-pracht** — `npm create pracht@latest` seeds the full catalog into new apps' `.claude/skills/` and writes a `.mcp.json` registering the `pracht mcp` server (yes-default prompt, `--no-agent-tools` to skip).
+- **create-pracht** — `npm create pracht@latest` seeds five core skills into new apps' `.claude/skills/` and writes a `.mcp.json` registering `pracht dev-mcp` (yes-default prompt, `--agent-tools=full` for the whole catalog, `--no-agent-tools` to skip).
 - **In this repo** — `.claude/skills` symlinks to [skills/](skills/README.md), so Claude Code loads them automatically for contributors.
 
 ## Repo map
@@ -155,6 +156,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Netlify, Vercel, and static-export deployment paths
 - [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>`, runtime loaders, and static variants
 - [packages/i18n/README.md](packages/i18n/README.md) — `@pracht/i18n`: locale-detection middleware, typed dictionaries, hreflang helpers
+- [packages/session/README.md](packages/session/README.md) — `@pracht/session`: encrypted cookie or store-backed sessions, middleware, and password hashing
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents (development time)
 - [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`
 - [docs/ENV.md](docs/ENV.md) — typed env access, `PRACHT_PUBLIC_` prefix rule, leak detection

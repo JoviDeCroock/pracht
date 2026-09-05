@@ -7,7 +7,7 @@ prev:
   title: Testing
 next:
   href: /docs/recipes/streaming
-  title: Streaming
+  title: Server-Sent Events & WebSockets
 ---
 
 ## Recommended Shape
@@ -21,8 +21,9 @@ error.
 - **Manifest apps** (those with `routes.ts`): use a tracing/logging middleware
   registered with `defineApp`. One middleware covers loaders, API routes, and
   inner middleware in one wrapper.
-- **Pages router** apps: there is no manifest, so wrap individual API
-  handlers with a small higher-order function instead.
+- **Pages router** apps: `src/pages/_middleware.ts` is one wrapper around every
+  page route, but it does not wrap API routes, capability HTTP endpoints, or
+  `/mcp` — wrap those handlers with a small higher-order function instead.
 - **Adapter-level wrappers** are only needed when you want to observe the
   outer HTTP cycle including framework-internal failures, since pracht
   converts loader/handler errors into responses before they leave its
@@ -71,7 +72,14 @@ export function createContext({ request }: { request: Request }) {
 Register the context type once so `args.context.logger` is typed everywhere:
 
 ```ts [src/env.d.ts]
-import type { RequestLogger } from "./server/logger";
+import "@pracht/core";
+
+/** Whatever `createRequestLogger()` returns — swap in your logger's type. */
+interface RequestLogger {
+  /** Buffers one structured record; `flush()` ships them. */
+  event(fields: Record<string, unknown>): void;
+  flush(): Promise<void>;
+}
 
 declare module "@pracht/core" {
   interface Register {
@@ -184,8 +192,9 @@ Honeycomb / Beeline-style libraries need.
 
 ## Pages Router: Higher-Order Wrapper
 
-The pages router does not use the manifest, so register logging by wrapping
-individual handlers:
+`src/pages/_middleware.ts` covers every page route with the same `MiddlewareFn`
+a manifest registers. It does not cover API routes, capability HTTP endpoints,
+or `/mcp`, so log those by wrapping the handlers:
 
 ```ts [src/lib/with-request-logging.ts]
 import type { ApiRouteHandler } from "@pracht/core";
@@ -256,6 +265,7 @@ const stopAuditLog = addCapabilityAuditListener("audit-log", (event) => {
       status: event.status,
       durationMs: Math.round(event.durationMs),
       agent: event.agent?.agentDomain ?? event.agent?.keyId ?? null,
+      account: event.tokenAuth,
     }),
   );
 });

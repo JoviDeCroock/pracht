@@ -42,6 +42,9 @@
       "types": "./virtual.d.ts"
     }
   },
+  "engines": {
+    "node": ">=22.18"
+  },
   "publishConfig": {
     "provenance": true
   },

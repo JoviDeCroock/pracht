@@ -2,7 +2,10 @@ import { lstat, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { ISGManifestEntry } from "@pracht/core/server";
 
-export type HeadersManifest = Record<string, Record<string, string>>;
+import { getManifestHeaders } from "@pracht/core/server";
+export { applyHeadersManifest, getManifestHeaders } from "@pracht/core/server";
+import type { HeadersManifest } from "@pracht/core/server";
+export type { HeadersManifest } from "@pracht/core/server";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -98,34 +101,6 @@ export async function resolveStaticFile(
   }
 
   return null;
-}
-
-export function applyHeadersManifest(
-  headers: Headers,
-  headersManifest: HeadersManifest,
-  pathname: string,
-): void {
-  const routeHeaders = getManifestHeaders(headersManifest, pathname);
-  if (!routeHeaders) return;
-
-  for (const [key, value] of Object.entries(routeHeaders)) {
-    headers.set(key, value);
-  }
-}
-
-export function getManifestHeaders(
-  headersManifest: HeadersManifest,
-  pathname: string,
-): Record<string, string> | undefined {
-  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
-  const withoutSlash = pathname.replace(/\/$/, "") || "/";
-
-  return (
-    headersManifest[pathname] ??
-    headersManifest[withoutSlash] ??
-    headersManifest[withoutIndex] ??
-    undefined
-  );
 }
 
 function resolveUrlPath(staticRoot: string, pathname: string, suffix?: string): string | null {

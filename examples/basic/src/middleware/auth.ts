@@ -1,16 +1,19 @@
-import { redirect, type MiddlewareFn } from "@pracht/core";
+import type { MiddlewareFn } from "@pracht/core";
+import { requireSession } from "@pracht/session";
 
-// ⚠️ NOT FOR PRODUCTION — This is a minimal example only.
-// A real implementation should:
-//   - Verify the session token with a cryptographic signature (e.g. HMAC)
-//   - Check token expiry
-//   - Set cookie attributes: HttpOnly, Secure, SameSite=Lax, Path=/
-export const middleware: MiddlewareFn = async ({ request }, next) => {
-  const hasSession = request.headers.get("cookie")?.includes("session=") ?? false;
+import { sessions } from "../server/session.ts";
 
-  if (!hasSession) {
-    return redirect("/", { request });
-  }
+let gate: MiddlewareFn | undefined;
 
-  return next();
+/**
+ * The gate for `/dashboard` and `/settings`: it reads the decrypted session
+ * and short-circuits with a redirect when there is no user, rather than
+ * augmenting the request and hoping the loader checks.
+ *
+ * Built on first use for the same reason `sessions()` is — the session secret
+ * comes from `serverEnv`, which is request-scoped on Cloudflare Workers.
+ */
+export const middleware: MiddlewareFn = (args, next) => {
+  gate ??= requireSession(sessions(), { loginPath: "/login" });
+  return gate(args, next);
 };

@@ -13,6 +13,25 @@ export function capabilityHttpPath(name: string): string {
   return `${CAPABILITY_HTTP_PREFIX}${name.split(".").join("/")}`;
 }
 
+const CAPABILITY_NAME_RE = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
+
+/** Whether `name` is a valid capability name: dot-separated `[A-Za-z0-9_-]` segments. */
+export function isValidCapabilityName(name: string): boolean {
+  return typeof name === "string" && CAPABILITY_NAME_RE.test(name);
+}
+
+/**
+ * The capability module file stem a name maps to: dots become hyphens
+ * (`notes.search` → `notes-search`).
+ *
+ * `pracht generate capability` writes the file at this stem, and pages-router
+ * auto-discovery reads the name back from it, so the mapping has to live in
+ * one place.
+ */
+export function capabilityFileStem(name: string): string {
+  return name.replaceAll(".", "-");
+}
+
 /** Normalize a dispatch path for matching: strip a single trailing slash. */
 export function normalizeCapabilityHttpPath(path: string): string {
   return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;

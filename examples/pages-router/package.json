@@ -7,14 +7,15 @@
     "@pracht/adapter-cloudflare": "workspace:*",
     "@pracht/adapter-node": "workspace:*",
     "@pracht/adapter-vercel": "workspace:*",
+    "@pracht/capabilities": "workspace:*",
     "@pracht/core": "workspace:*",
     "@pracht/openapi": "workspace:*"
   },
   "devDependencies": {
     "@pracht/cli": "workspace:*",
     "@pracht/vite-plugin": "workspace:*",
-    "preact": "^10.26.9",
-    "preact-render-to-string": "^6.5.13",
+    "preact": "11.0.0-rc.1",
+    "preact-render-to-string": "^6.7.0",
     "vite": "^8.0.0"
   }
 }

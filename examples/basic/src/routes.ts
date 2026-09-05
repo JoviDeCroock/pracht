@@ -63,6 +63,9 @@ export const app = defineApp({
         speculation: "prefetch",
       }),
       route("/notes", () => import("./routes/notes.tsx"), { id: "notes", render: "ssr" }),
+      // Public: the gate on the app group redirects here. SSR because it
+      // reflects `?redirect=` and `?error=` back into the form.
+      route("/login", () => import("./routes/login.tsx"), { id: "login", render: "ssr" }),
       route("/agent-tools", () => import("./routes/agent-tools.tsx"), {
         id: "agent-tools",
         render: "ssr",

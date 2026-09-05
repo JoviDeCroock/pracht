@@ -3,8 +3,8 @@ title: Internationalization (i18n)
 lead: Serve your app in multiple languages with @pracht/i18n — middleware detects the locale, loaders return translations, and components consume them via route data.
 breadcrumb: i18n
 prev:
-  href: /docs/remote-mcp
-  title: Remote MCP
+  href: /docs/coding-agents
+  title: Coding Agents
 next:
   href: /docs/recipes/auth
   title: Authentication
@@ -214,6 +214,7 @@ Navigating to the other prefix is an explicit choice. On SSR routes the middlewa
 
 If your URLs are fixed — an existing site, a shared link surface, an app behind a login — keep them and let the locale live in the cookie. Nothing about the manifest changes: register routes as usual and add the i18n middleware to the group.
 
+<!-- snippet: partial -->
 ```ts [src/routes.ts]
 group({ shell: "main", middleware: ["i18n"] }, [
   route("/", "./routes/home.tsx", { render: "ssr" }),
@@ -287,6 +288,7 @@ export function LanguageSwitcher({ onSwitchStart }: { onSwitchStart?: () => void
 **Client switch (no request at all).** Write the cookie from the browser and swap the dictionary in place — the URL never changes and nothing is re-fetched:
 
 ```tsx
+import type { RouteComponentProps } from "@pracht/core";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { t } from "@pracht/i18n";
 import { LanguageSwitcher } from "../components/LanguageSwitcher.tsx";
@@ -422,7 +424,7 @@ export const translations = { en, fr } as const;
 export const defaultLocale = "en";
 export const supportedLocales = Object.keys(translations);
 
-export function t(locale: string, key: keyof typeof en): string {
+export function t(locale: string, key: keyof typeof en & string): string {
   const dict = (translations as Record<string, Record<string, string>>)[locale];
   return dict?.[key] ?? translations[defaultLocale][key] ?? key;
 }

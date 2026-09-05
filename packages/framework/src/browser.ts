@@ -3,9 +3,13 @@ export {
   buildPathFromSegments,
   defineApp,
   group,
+  matchApiRoute,
   matchAppRoute,
+  matchRoutePath,
+  resolveApiRoutes,
   resolveApp,
   route,
+  routePathIsDynamic,
   timeRevalidate,
   webhookRevalidate,
 } from "./app.ts";
@@ -21,6 +25,7 @@ export { PRACHT_BASE, stripBase, withBase } from "./base.ts";
  * silent, whole-app hydration failure.
  */
 export {
+  evaluateConstraints,
   forbidRenderMode,
   matchRoutePattern,
   requireHead,
@@ -31,6 +36,7 @@ export {
 export type {
   ConstraintRoute,
   ConstraintViolation,
+  EvaluateConstraintsOptions,
   ForbidRenderModeConstraint,
   RequireHeadConstraint,
   RequireMiddlewareConstraint,
@@ -128,13 +134,20 @@ export {
   PrachtRuntimeProvider,
   readHydrationState,
   startApp,
+  useBlocker,
   useLocation,
   useNavigation,
   useParams,
   useRevalidate,
   useRouteData,
   useSearchParams,
+  type Blocker,
+  type BlockerArgs,
+  type BlockerHistoryAction,
+  type BlockerState,
   type ReadonlyURLSearchParams,
+  type RegisterBlockerOptions,
+  type ShouldBlockNavigation,
 } from "./runtime-hooks.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
 
@@ -236,6 +249,48 @@ export type {
   TimeRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,
+  // Type-only, so none of these reach the client bundle. They are the types
+  // already-exported browser values and interfaces refer to — `FormProps`
+  // and `createUseCapability` speak in capability envelopes, `RouteMeta`
+  // in speculation and revalidate policies, `PrachtAppConfig` in agent trust
+  // config — and without them client code cannot name what it receives.
+  AgentPolicyMode,
+  CapabilityBrowserCallOptions,
+  CapabilityCallInputFor,
+  CapabilityCallOptionsFor,
+  CapabilityClientMethod,
+  CapabilityConfirmationConfig,
+  CapabilityEffect,
+  CapabilityEffectFor,
+  CapabilityEnvelope,
+  CapabilityErrorCode,
+  CapabilityErrorPayload,
+  CapabilityInputFor,
+  CapabilityIssue,
+  CapabilityName,
+  CapabilityOutputFor,
+  HasRegisteredCapabilities,
+  HttpCapabilityName,
+  McpAuthConfig,
+  McpProjectionConfig,
+  McpTokenPrincipal,
+  McpTokenVerifier,
+  McpTokenVerifierModule,
+  McpTokenVerifyArgs,
+  NonDestructiveCapabilityName,
+  PrachtAgentIdentity,
+  PrachtAgentsConfig,
+  PrachtContextExtensions,
+  PrachtRequestContext,
+  RegisteredCapabilityName,
+  RouteRevalidatePolicy,
+  SpeculationConfig,
+  SpeculationEagerness,
+  SpeculationMode,
+  SpeculationOption,
+  WebBotAuthConfig,
+  WebBotAuthStaticKey,
+  WebhookRevalidatePolicy,
 } from "./types.ts";
 export type {
   FormProps,

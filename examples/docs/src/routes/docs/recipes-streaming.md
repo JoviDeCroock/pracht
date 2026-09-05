@@ -1,7 +1,7 @@
 ---
-title: Streaming
+title: Server-Sent Events & WebSockets
 lead: Push live updates to the browser with first-party Server-Sent Events helpers — createEventStream on the server, useEventSource in components — and wire WebSockets per adapter.
-breadcrumb: Streaming
+breadcrumb: SSE & WebSockets
 prev:
   href: /docs/recipes/logging
   title: Logging
@@ -9,6 +9,9 @@ next:
   href: /docs/recipes/fullstack-cloudflare
   title: Full-Stack Cloudflare
 ---
+
+> [!NOTE]
+> This page covers streaming data to a rendered page. For streaming HTML and deferred Suspense boundaries, see [Streaming SSR](/docs/data-loading#streaming-the-document).
 
 ## Server-Sent Events
 
@@ -90,6 +93,7 @@ serious volume should watch `stream.desiredSize` (the response stream's
 remaining queue capacity, `null` once closed) and pause or drop messages while
 it is zero or negative:
 
+<!-- snippet: partial -->
 ```ts
 const size = stream.desiredSize;
 if (size === null) break; // stream closed — stop producing
@@ -218,6 +222,7 @@ Attach a WebSocket server (e.g. [`ws`](https://github.com/websockets/ws))
 alongside pracht instead. The Node adapter's `configureServerFrom` option
 hands you the underlying `http.Server` before `listen()`:
 
+<!-- snippet: partial -->
 ```ts [vite.config.ts]
 nodeAdapter({
   configureServerFrom: "/src/server/websockets.ts",

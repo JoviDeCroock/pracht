@@ -155,7 +155,7 @@ export default async function BlogPost({ params }) {
 ```tsx [src/routes/blog-post.tsx]
 // pracht
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
-import { useRouteData } from "pracht/client";
+import { useRouteData } from "@pracht/core";
 
 export async function loader({ params }: LoaderArgs) {
   const post = await db.posts.find(params.slug);

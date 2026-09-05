@@ -42,6 +42,9 @@
       "default": "./dist/cache.mjs"
     }
   },
+  "engines": {
+    "node": ">=22.18"
+  },
   "publishConfig": {
     "provenance": true
   },
