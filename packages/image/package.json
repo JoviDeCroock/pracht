@@ -1,6 +1,6 @@
 {
   "name": "@pracht/image",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Responsive, CLS-safe <Image> component for Pracht with pluggable optimization loaders and a Node image endpoint.",
   "keywords": [
     "pracht",

@@ -1,5 +1,39 @@
 # @pracht/vite-plugin
 
+## 0.12.0
+
+### Minor Changes
+
+- [#361](https://github.com/JoviDeCroock/pracht/pull/361) [`d0ab66e`](https://github.com/JoviDeCroock/pracht/commit/d0ab66ee65c7cb7a6a163f3220b6c668e40717ff) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add the `client.navigationGuards` option. It defaults to `true`; set it to `false` to compile `useBlocker()` navigation guards, and the per-history-entry index they need, out of the client bundle.
+
+- [#376](https://github.com/JoviDeCroock/pracht/pull/376) [`cbe1f4d`](https://github.com/JoviDeCroock/pracht/commit/cbe1f4dd63e009cb73e748c0f8cd36f03b21a842) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Capabilities can now reuse Standard JSON Schema validators from APIs, forms, and loader-side validation, with non-literal WebMCP schemas derived server-side instead of bundled into the browser.
+
+- [`04adc90`](https://github.com/JoviDeCroock/pracht/commit/04adc90db6304d3d5d118f27b1114d525668c162) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add first-party sessions and pages-router parity for middleware, nested shells, capabilities, and agent configuration, while hardening request cancellation, client navigation, development responses, toolchain requirements, and scaffolded agent tooling. The authoring MCP command is now `pracht dev-mcp`, with `pracht mcp` retained as a deprecated alias.
+
+- [#374](https://github.com/JoviDeCroock/pracht/pull/374) [`1a0acb7`](https://github.com/JoviDeCroock/pracht/commit/1a0acb7d619df29bd99d5c8e13a5712fd909262e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Scope WebMCP page tools to active routes and show route-to-tool mappings in graph inspection.
+  Add `capabilities` to manifest routes or groups, or export `CAPABILITIES` from Pages routes, to activate their WebMCP tools.
+
+### Patch Changes
+
+- [#371](https://github.com/JoviDeCroock/pracht/pull/371) [`3a3148b`](https://github.com/JoviDeCroock/pracht/commit/3a3148b2662e62e0bdbf79b7aa170bf0996be4ce) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Capability audit events and the dev Agents panel identify the verified OAuth account behind remote MCP calls and nested operations.
+
+- [#368](https://github.com/JoviDeCroock/pracht/pull/368) [`595e1f9`](https://github.com/JoviDeCroock/pracht/commit/595e1f91685ea876ddd2fc98cfbbe7d0ecd8ea9b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Normalize null-body responses across development and production adapters so an explicit nonzero `Content-Length` cannot leave clients waiting for bytes.
+
+- [#368](https://github.com/JoviDeCroock/pracht/pull/368) [`595e1f9`](https://github.com/JoviDeCroock/pracht/commit/595e1f91685ea876ddd2fc98cfbbe7d0ecd8ea9b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add opt-in route CSS inlining across every deployment target and an SSR-safe lazy `useWebVitals()` hook.
+
+- [#369](https://github.com/JoviDeCroock/pracht/pull/369) [`6ae3d84`](https://github.com/JoviDeCroock/pracht/commit/6ae3d8425fe9760c77a9f9aafc91274bee052c13) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Log API handler and middleware failures in the dev terminal with phase and source-file attribution.
+
+- [#372](https://github.com/JoviDeCroock/pracht/pull/372) [`6684cd8`](https://github.com/JoviDeCroock/pracht/commit/6684cd8356c9112ac933dd20e44464a231e7ad2f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep page metadata, environment checks, route inspection, and prerendered headers consistent across framework tools and adapters.
+
+- [#367](https://github.com/JoviDeCroock/pracht/pull/367) [`27e6b80`](https://github.com/JoviDeCroock/pracht/commit/27e6b806ff1c28a6c2b0d9d94ca23361dea9696e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Applications outside Pracht can now host the capability HTTP and remote MCP pipeline and register lifecycle-owned WebMCP tools.
+
+- [#340](https://github.com/JoviDeCroock/pracht/pull/340) [`a269447`](https://github.com/JoviDeCroock/pracht/commit/a269447293b39d3bf3e23516318e0365c5ca8258) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add opt-in streaming SSR with deferred loader data using render-to-string 6.7 and Preact 10 or 11.
+- Updated dependencies [[`3a3148b`](https://github.com/JoviDeCroock/pracht/commit/3a3148b2662e62e0bdbf79b7aa170bf0996be4ce), [`595e1f9`](https://github.com/JoviDeCroock/pracht/commit/595e1f91685ea876ddd2fc98cfbbe7d0ecd8ea9b), [`cbe1f4d`](https://github.com/JoviDeCroock/pracht/commit/cbe1f4dd63e009cb73e748c0f8cd36f03b21a842), [`04adc90`](https://github.com/JoviDeCroock/pracht/commit/04adc90db6304d3d5d118f27b1114d525668c162), [`595e1f9`](https://github.com/JoviDeCroock/pracht/commit/595e1f91685ea876ddd2fc98cfbbe7d0ecd8ea9b), [`0b42d62`](https://github.com/JoviDeCroock/pracht/commit/0b42d622b55757eb73f19c3cff134ee42bfbcf18), [`6ae3d84`](https://github.com/JoviDeCroock/pracht/commit/6ae3d8425fe9760c77a9f9aafc91274bee052c13), [`1a0acb7`](https://github.com/JoviDeCroock/pracht/commit/1a0acb7d619df29bd99d5c8e13a5712fd909262e), [`6684cd8`](https://github.com/JoviDeCroock/pracht/commit/6684cd8356c9112ac933dd20e44464a231e7ad2f), [`27e6b80`](https://github.com/JoviDeCroock/pracht/commit/27e6b806ff1c28a6c2b0d9d94ca23361dea9696e), [`a269447`](https://github.com/JoviDeCroock/pracht/commit/a269447293b39d3bf3e23516318e0365c5ca8258), [`1014efe`](https://github.com/JoviDeCroock/pracht/commit/1014efe3f75b98fef02c32c364990ac5302fba8b), [`d0ab66e`](https://github.com/JoviDeCroock/pracht/commit/d0ab66ee65c7cb7a6a163f3220b6c668e40717ff)]:
+  - @pracht/capabilities@0.4.0
+  - @pracht/core@0.17.0
+  - @pracht/adapter-node@0.4.3
+  - @pracht/preact-ssr-precompile@0.1.4
+
 ## 0.11.1
 
 ### Patch Changes
