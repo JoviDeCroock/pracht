@@ -337,6 +337,12 @@ to regress:
   not assert how fast the CLI starts. Raise them together or not at all — a
   `spawnSync` cap at or above the test budget just moves the failure from
   `result.error` to a vitest timeout without buying any slack.
+- **Unit tests use a shared 25-second hang ceiling.** Fixture builds and CLI
+  subprocesses use the same default; tests that assert ordering still assert
+  ordering rather than relying on elapsed time. On a saturated host `verify`
+  sets `VITEST_MAX_WORKERS`, which `vitest.config.ts` maps to Vitest's current
+  `maxWorkers`/`minWorkers` options. The old thread environment names did not
+  constrain the fork workers used by Vitest 3.
 - **Unit tests parallelise per file, never within one.** Vitest gives each test
   file its own worker but runs the tests inside a file in sequence, and the CLI
   tests block on `execFileSync`, so `it.concurrent` buys nothing there. A single

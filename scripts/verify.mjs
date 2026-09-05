@@ -127,8 +127,7 @@ if (ok()) {
   const testEnv = saturated
     ? {
         ...process.env,
-        VITEST_MAX_THREADS: process.env.VITEST_MAX_THREADS ?? String(unitWorkers),
-        VITEST_MIN_THREADS: process.env.VITEST_MIN_THREADS ?? "1",
+        VITEST_MAX_WORKERS: process.env.VITEST_MAX_WORKERS ?? String(unitWorkers),
       }
     : process.env;
   const checks = [
@@ -144,7 +143,7 @@ if (ok()) {
   if (saturated) {
     console.log(
       `verify: load ${oneMinuteLoad.toFixed(1)} across ${parallelism} cores; ` +
-        `serializing checks and limiting Vitest to ${testEnv.VITEST_MAX_THREADS} workers`,
+        `serializing checks and limiting Vitest to ${testEnv.VITEST_MAX_WORKERS} workers`,
     );
     for (const check of checks) {
       report(await check());

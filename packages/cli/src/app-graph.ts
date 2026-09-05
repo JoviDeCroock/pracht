@@ -18,29 +18,10 @@ import type {
 import { loadMcpTokenVerifier } from "@pracht/core/server";
 import type { ViteDevServer } from "vite";
 
-export interface AppGraphRoute {
-  file: string;
-  hydration: string | null;
-  id: string;
-  loaderCache: number | false | null;
-  loaderFile: string | null;
-  markdown?: true;
-  middleware: string[];
-  path: string;
-  prefetch: string | null;
-  render: string | null;
-  revalidate: unknown;
-  shell: string | null;
-  shellFile: string | null;
-  speculation: unknown;
-}
-
-export interface AppGraphApiRoute {
-  file: string;
-  hasDefaultHandler: boolean;
-  methods: string[];
-  path: string;
-}
+import type { AppGraphRoute, AppGraphApiRoute } from "@pracht/core";
+export type { AppGraphRoute, AppGraphApiRoute } from "@pracht/core";
+import { serializeAppRoutes as serializeResolvedRoutes } from "@pracht/core";
+export { serializeAppRoutes as serializeResolvedRoutes } from "@pracht/core";
 
 export interface CapabilityAppGraph {
   capabilities: AppGraphCapability[];
@@ -69,23 +50,6 @@ export interface AppGraph extends CapabilityAppGraph {
   routes: AppGraphRoute[];
   /** The app-level not-found page (never part of `routes`), or `null`. */
   notFound?: AppGraphRoute | null;
-}
-
-interface ResolvedRouteEntry {
-  file: string;
-  hydration?: string;
-  id: string;
-  loaderCache?: number | false;
-  loaderFile?: string;
-  markdown?: boolean;
-  middleware: string[];
-  path: string;
-  prefetch?: string;
-  render?: string;
-  revalidate?: unknown;
-  shell?: string;
-  shellFile?: string;
-  speculation?: unknown;
 }
 
 const PRACHT_DEV_METADATA_MODULE_ID = "virtual:pracht/dev-metadata";
@@ -361,23 +325,4 @@ export function capabilityModuleLoader(
     );
     return viaRegistry ?? server.ssrLoadModule(file);
   };
-}
-
-export function serializeResolvedRoutes(routes: ResolvedRouteEntry[]): AppGraphRoute[] {
-  return routes.map((route) => ({
-    file: route.file,
-    hydration: route.hydration ?? null,
-    id: route.id,
-    loaderCache: route.loaderCache ?? null,
-    loaderFile: route.loaderFile ?? null,
-    ...(route.markdown === true ? { markdown: true as const } : {}),
-    middleware: route.middleware,
-    path: route.path,
-    prefetch: route.prefetch ?? null,
-    render: route.render ?? null,
-    revalidate: route.revalidate ?? null,
-    shell: route.shell ?? null,
-    shellFile: route.shellFile ?? null,
-    speculation: route.speculation ?? null,
-  }));
 }

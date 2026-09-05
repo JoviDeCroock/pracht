@@ -208,3 +208,12 @@ still reaches the client through hydration state, and a value inlined via a
 custom Vite `define` is invisible to the scan. Keep secrets out of loader
 return data, and use the `audit-secrets` skill for dataflow-level review of what
 your loaders send to the browser.
+
+
+### Verification and build checks
+
+`pracht verify` and `pracht build` recognize the same environment access syntax,
+including optional chaining and bracket access. Comments, string contents, and
+regular-expression literals do not count as reads; expressions inside template
+strings do. Verification checks source files, while the build also checks the
+emitted client bundles.

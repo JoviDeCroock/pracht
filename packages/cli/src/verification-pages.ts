@@ -1,8 +1,19 @@
 import {
+  readPageStringExport,
+  readPageRevalidation,
+  PAGES_APP_CONFIG_EXPORTS,
+  pagesShellName,
+  findOwningPagesShell,
+  maskMarkdownFences,
   hasNamedValueExport,
   hasValueStarExport,
-  maskCommentsAndStrings,
 } from "@pracht/capabilities/static";
+export {
+  PAGES_APP_CONFIG_EXPORTS,
+  pagesShellName,
+  findOwningPagesShell,
+} from "@pracht/capabilities/static";
+
 import { parseAst } from "vite";
 import { readFileSync } from "node:fs";
 import { basename, extname, relative } from "node:path";
@@ -47,7 +58,6 @@ export type PagesFile =
  * reads `app.notFound`, so accepting it here would pull the config module (and
  * its Web Bot Auth keys) into the browser bundle. `pages/404.tsx` covers it.
  */
-export const PAGES_APP_CONFIG_EXPORTS = ["agents", "constraints"] as const;
 
 // Mirrors the vite plugin's pages middleware extensions (and the
 // `middlewareDir` registry glob). Every exact `_middleware` basename using a
@@ -211,25 +221,6 @@ export function describePagesFile(
 }
 
 /** The registered shell name for an `_app` in `directory` (posix, `""` at the root). */
-export function pagesShellName(directory: string): string {
-  return directory === "" ? "pages" : `pages:${directory}`;
-}
-
-/** The `_app` that owns a page: the nearest ancestor directory with one. */
-export function findOwningPagesShell<T extends { directory: string }>(
-  shells: readonly T[],
-  pageRelativePath: string,
-): T | undefined {
-  const segments = pageRelativePath.replace(/\\/g, "/").split("/").slice(0, -1);
-  return [...shells]
-    .sort((left, right) => right.directory.length - left.directory.length)
-    .find(
-      (shell) =>
-        shell.directory === "" ||
-        segments.slice(0, shell.directory.split("/").length).join("/") === shell.directory,
-    );
-}
-
 /** The oxc parser language for a source file, by extension. */
 export function parserLanguage(file: string): "js" | "jsx" | "ts" | "tsx" {
   switch (extname(file).toLowerCase()) {
@@ -253,99 +244,12 @@ function isInsideMiddlewareDirectory(pagesDir: string, file: string): boolean {
 }
 
 function extractQuotedExport(source: string, name: string): string | undefined {
-  const masked = maskCommentsAndStrings(source);
-  const declarations = [...masked.matchAll(new RegExp(`export\\s+const\\s+${name}\\s*=`, "g"))];
-  if (declarations.length !== 1) return undefined;
-  const declaration = declarations[0];
-  const valueStart = (declaration.index ?? 0) + declaration[0].length;
-  return source
-    .slice(valueStart)
-    .trimStart()
-    .match(/^["'](\w+)["']/)?.[1];
+  return readPageStringExport(source, name).value;
 }
 
 function extractRevalidate(source: string): PagesRoute["revalidate"] {
-  const matches = [
-    ...maskCommentsAndStrings(source).matchAll(/export\s+const\s+REVALIDATE\s*=\s*([^;\n]+)/g),
-  ];
-  if (matches.length === 0) return { kind: "missing" };
-  if (matches.length > 1) return { kind: "invalid", expression: "duplicate exports" };
-  const match = matches[0];
-
-  const expression = match[1].trim().replace(/\s+as\s+const$/, "");
-  if (!/^\d(?:_?\d)*$/.test(expression)) {
-    return { kind: "invalid", expression };
-  }
-
-  const seconds = Number(expression.replaceAll("_", ""));
-  if (!Number.isSafeInteger(seconds) || seconds <= 0) {
-    return { kind: "invalid", expression };
-  }
-  return { kind: "time", seconds };
-}
-
-/** Mask Markdown fenced examples while preserving source offsets and top-level MDX exports. */
-function maskMarkdownFences(source: string, relativePath: string): string {
-  if (!/\.mdx?$/.test(relativePath)) return source;
-
-  const chars = source.split("");
-  let activeFence: { character: "`" | "~"; continuationIndent: number; length: number } | null =
-    null;
-  for (const line of source.matchAll(/.*(?:\r?\n|$)/g)) {
-    if (line[0] === "") continue;
-    const lineStart = line.index ?? 0;
-    const content = line[0].replace(/\r?\n$/, "");
-    const stripped = stripMarkdownContainerPrefix(content);
-    const fenceContent: string =
-      activeFence && stripped.content.startsWith(" ".repeat(activeFence.continuationIndent))
-        ? stripped.content.slice(activeFence.continuationIndent)
-        : stripped.content;
-    const opening: RegExpExecArray | null = activeFence
-      ? null
-      : /^ {0,3}(`{3,}|~{3,})/.exec(fenceContent);
-    const closing = activeFence
-      ? new RegExp(`^ {0,3}\\${activeFence.character}{${activeFence.length},}[ \\t]*$`).test(
-          fenceContent,
-        )
-      : false;
-
-    if (activeFence || opening) {
-      for (let offset = 0; offset < line[0].length; offset += 1) {
-        const index = lineStart + offset;
-        if (chars[index] !== "\n" && chars[index] !== "\r") chars[index] = " ";
-      }
-    }
-
-    if (closing) {
-      activeFence = null;
-    } else if (opening) {
-      activeFence = {
-        character: opening[1][0] as "`" | "~",
-        continuationIndent: stripped.continuationIndent,
-        length: opening[1].length,
-      };
-    }
-  }
-  return chars.join("");
-}
-
-function stripMarkdownContainerPrefix(line: string): {
-  content: string;
-  continuationIndent: number;
-} {
-  let content = line;
-  let continuationIndent = 0;
-  while (true) {
-    const quote = /^ {0,3}> ?/.exec(content);
-    if (quote) {
-      content = content.slice(quote[0].length);
-      continue;
-    }
-    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(content);
-    if (!list) return { content, continuationIndent };
-    continuationIndent += list[0].length;
-    content = content.slice(list[0].length);
-  }
+  const result = readPageRevalidation(source);
+  return result.kind === "invalid" ? { kind: "invalid", expression: result.expression } : result;
 }
 
 export function collectDuplicateRoutePaths(
