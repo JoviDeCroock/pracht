@@ -281,3 +281,9 @@ export type {
   PrerenderAppResult,
   PrerenderResult,
 } from "./prerender.ts";
+
+export {
+  applyHeadersManifest,
+  getManifestHeaders,
+  type HeadersManifest,
+} from "./runtime-headers.ts";

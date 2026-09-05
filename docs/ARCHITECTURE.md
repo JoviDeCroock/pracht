@@ -45,6 +45,20 @@ of the supported standalone API by accident.
 
 ---
 
+## Shared tool and adapter contracts
+
+Build and CLI verification consume the same source-analysis helpers from
+`@pracht/capabilities/static`: environment access, Markdown fence masking,
+pages configuration exports, render/hydration literals, revalidation literals,
+and nearest-shell selection. File discovery and diagnostic presentation remain
+with each consumer. The CLI uses core's route graph types and serialization,
+so adding route metadata does not require a second projection implementation.
+
+Node, Cloudflare, and Netlify use core's `applyHeadersManifest` and
+`getManifestHeaders` helpers. Header lookup prefers an exact path, then the
+trailing-slash-free path, then the path without `/index.html`. Adapter-specific
+cache policy, storage, regeneration and request normalization remain local.
+
 ## Core Abstractions
 
 ### 1. Route Manifest (`defineApp`, `route`, `group`)

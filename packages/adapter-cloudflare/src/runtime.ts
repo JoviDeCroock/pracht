@@ -1,3 +1,4 @@
+import { applyHeadersManifest } from "@pracht/core/server";
 import {
   applyDefaultSecurityHeaders,
   createBaseRedirectResponse,
@@ -485,30 +486,6 @@ async function regenerateCloudflareISGPage(
       return false;
     }
   });
-}
-
-function applyHeadersManifest(
-  headers: Headers,
-  headersManifest: HeadersManifest,
-  pathname: string,
-): void {
-  const routeHeaders = getManifestHeaders(headersManifest, pathname);
-  if (!routeHeaders) return;
-
-  for (const [key, value] of Object.entries(routeHeaders)) {
-    headers.set(key, value);
-  }
-}
-
-function getManifestHeaders(
-  headersManifest: HeadersManifest,
-  pathname: string,
-): Record<string, string> | undefined {
-  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
-  const withoutSlash = pathname.replace(/\/$/, "") || "/";
-  return (
-    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex]
-  );
 }
 
 /**

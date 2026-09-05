@@ -721,3 +721,11 @@ At the runtime level, an adapter also typically needs to:
 
 > [!INFO]
 > See the source of `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`, or `@pracht/adapter-node` in the monorepo for a concrete reference implementation.
+
+
+## Prerendered document headers
+
+Node, Cloudflare, and Netlify apply recorded document headers using the same
+lookup order: the exact requested pathname, then that path without a trailing
+slash, then that path without `/index.html`. Platform-specific cache headers
+and ISG regeneration still follow the adapter behavior described above.

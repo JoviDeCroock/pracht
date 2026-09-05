@@ -1,3 +1,4 @@
+import { applyHeadersManifest } from "@pracht/core/server";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { McpAuthConfig } from "@pracht/core";
@@ -985,19 +986,6 @@ function appendNetlifyCacheTags(headers: Headers, requiredTags: string[]): void 
     normalized.add(tag.toLowerCase());
   }
   headers.set("netlify-cache-tag", tags.join(","));
-}
-
-function applyHeadersManifest(
-  headers: Headers,
-  headersManifest: HeadersManifest,
-  pathname: string,
-): void {
-  const withoutSlash = pathname.replace(/\/$/, "") || "/";
-  const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
-  const values =
-    headersManifest[pathname] ?? headersManifest[withoutSlash] ?? headersManifest[withoutIndex];
-  if (!values) return;
-  for (const [name, value] of Object.entries(values)) headers.set(name, value);
 }
 
 function isRouteStateRequest(request: Request, url: URL): boolean {

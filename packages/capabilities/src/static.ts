@@ -1524,3 +1524,58 @@ function parseNumberLiteral(source: string, start: number): ParsedLiteral | null
   if (/[A-Za-z0-9_$]/.test(source[end] ?? "")) return null;
   return { value: Number(match[0]), index: end };
 }
+
+export {
+  PUBLIC_ENV_PREFIX,
+  VITE_BUILTIN_ENV_VARS,
+  WHOLE_ENV_READ,
+  scanCodeForEnvLeaks,
+  getCodePositionMask,
+} from "./source-analysis.ts";
+export type { EnvLeakReference } from "./source-analysis.ts";
+export {
+  PAGES_APP_CONFIG_EXPORTS,
+  pagesShellName,
+  findOwningPagesShell,
+  maskMarkdownFences,
+} from "./pages-analysis.ts";
+
+/** Inspect one pages-router string declaration without executing its module. */
+export function readPageStringExport(
+  source: string,
+  name: string,
+): { count: number; value?: string } {
+  const declarations = [
+    ...maskCommentsAndStrings(source).matchAll(new RegExp(`export\\s+const\\s+${name}\\s*=`, "g")),
+  ];
+  const declaration = declarations[0];
+  const value =
+    declarations.length === 1
+      ? source
+          .slice((declaration.index ?? 0) + declaration[0].length)
+          .trimStart()
+          .match(/^["'](\w+)["']/)?.[1]
+      : undefined;
+  return { count: declarations.length, value };
+}
+
+export type PageRevalidation =
+  | { kind: "missing" }
+  | { kind: "time"; seconds: number }
+  | { kind: "invalid"; expression: string; reason: "duplicate" | "expression" | "range" };
+
+export function readPageRevalidation(source: string): PageRevalidation {
+  const matches = [
+    ...maskCommentsAndStrings(source).matchAll(/export\s+const\s+REVALIDATE\s*=\s*([^;\n]+)/g),
+  ];
+  if (!matches.length) return { kind: "missing" };
+  if (matches.length > 1)
+    return { kind: "invalid", expression: "duplicate exports", reason: "duplicate" };
+  const expression = matches[0][1].trim().replace(/\s+as\s+const$/, "");
+  if (!/^\d(?:_?\d)*$/.test(expression))
+    return { kind: "invalid", expression, reason: "expression" };
+  const seconds = Number(expression.replaceAll("_", ""));
+  return Number.isSafeInteger(seconds) && seconds > 0
+    ? { kind: "time", seconds }
+    : { kind: "invalid", expression, reason: "range" };
+}
