@@ -68,7 +68,7 @@ function createResponse(options: { highWaterMark?: number } = {}) {
   };
 }
 
-function createServer(options: { failCssDiscovery?: boolean } = {}) {
+function createServer(options: { failCssDiscovery?: boolean; streaming?: boolean } = {}) {
   const logger = { error: vi.fn(), warn: vi.fn() };
   const routeEntry = moduleNode("/src/routes/about.tsx", "js", [
     moduleNode("/src/routes/about.css", "css"),
@@ -89,7 +89,9 @@ function createServer(options: { failCssDiscovery?: boolean } = {}) {
       if (id === "@pracht/core/server") {
         return {
           matchAppRoute: (_app: unknown, pathname: string) =>
-            pathname === "/about" ? { route: { file: "./routes/about.tsx" } } : undefined,
+            pathname === "/about"
+              ? { route: { file: "./routes/about.tsx", streaming: options.streaming } }
+              : undefined,
           stripBase: (pathname: string) => pathname,
         };
       }
@@ -208,4 +210,17 @@ describe("dev CSS injection middleware", () => {
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect((logger.error.mock.calls[0] as [string])[0]).toContain("module runner is gone");
   });
+});
+
+it("flushes streaming CSS and the shell before the response ends", async () => {
+  const { server } = createServer({ streaming: true });
+  const response = createResponse();
+  createDevCssInjectionMiddleware(server)(createRequest(), response.res, vi.fn());
+  response.res.setHeader("content-type", "text/html");
+  response.res.write("<html><head></head><body>shell");
+  await vi.waitFor(() => expect(response.body).toContain("shell"));
+  expect(response.body).toContain('href="/src/routes/about.css"');
+  response.res.end("tail</body></html>");
+  await response.finished;
+  expect(response.body).toContain("shelltail</body></html>");
 });

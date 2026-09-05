@@ -1522,6 +1522,20 @@ function parseNumberLiteral(source: string, start: number): ParsedLiteral | null
   return { value: Number(match[0]), index: end };
 }
 
+/** Read a pages boolean policy without evaluating application code. */
+export function readPageStreaming(source: string): boolean | "invalid" | undefined {
+  const declarations = [
+    ...maskCommentsAndStrings(source).matchAll(/export\s+const\s+STREAMING\s*=/g),
+  ];
+  if (declarations.length === 0) return undefined;
+  if (declarations.length !== 1) return "invalid";
+  const match = declarations[0]!;
+  const value = source
+    .slice(match.index! + match[0].length)
+    .match(/^\s*(true|false)\s*(?:;|\r?\n|$)/);
+  return value ? value[1] === "true" : "invalid";
+}
+
 export {
   PUBLIC_ENV_PREFIX,
   VITE_BUILTIN_ENV_VARS,

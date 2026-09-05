@@ -12,8 +12,9 @@
  * @internal Not part of the published API.
  */
 import { h } from "preact";
+import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
-import { resolveDeferredData } from "./defer.ts";
+import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
 import {
   buildRuntimeDiagnostics,
@@ -23,7 +24,7 @@ import {
 } from "./runtime-errors.ts";
 import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider } from "./runtime-context.ts";
-import { buildHtmlDocument, htmlResponse } from "./runtime-html.ts";
+import { buildHtmlDocument, buildHtmlDocumentParts, htmlResponse } from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
   getIslandsClientEntryUrl,
@@ -60,6 +61,7 @@ import {
 import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import {
   composeRequestSignal,
+  combineRequestSignals,
   isClientDisconnect,
   type PrachtRequestContext,
 } from "./runtime-request.ts";
@@ -195,6 +197,8 @@ export interface PageRenderOptions {
  */
 interface PageRenderJob<TContext> {
   ctx: PrachtRequestContext<TContext>;
+  abortController?: AbortController;
+  willStream: boolean;
   match: RouteMatch;
   pageOptions: PageRenderOptions;
   routeArgs: BaseRouteArgs<TContext>;
@@ -255,13 +259,11 @@ async function runPageLoader<TContext>(
     return { response: loaderResult };
   }
 
-  // Resolve any defer()ed fields before anything serializes them. One
-  // call covers every render mode and both the document and route-state
-  // paths, because this is the only place a loader is invoked. Returns
-  // the input untouched when the route defers nothing.
+  // Buffered representations resolve deferred fields here. Streaming documents
+  // preserve their markers until the renderer and hydration channel consume them.
   let data: unknown;
   try {
-    data = await resolveDeferredData(loaderResult);
+    data = job.willStream ? loaderResult : await resolveDeferredData(loaderResult);
   } finally {
     if (loader && timings) timings.loader = performance.now() - loaderStart;
   }
@@ -486,7 +488,7 @@ async function renderServerDocument<TContext>(
   // travels through context (not module state), so concurrent async
   // renders — e.g. parallel SSG prerendering — never attribute scripts
   // to the wrong page.
-  const scriptCapture = createScriptCapture(hydration);
+  const scriptCapture = createScriptCapture(hydration, job.willStream, head.script);
   tree = h(
     ScriptCaptureContext.Provider as FunctionComponent<Record<string, unknown>>,
     { value: scriptCapture },
@@ -504,6 +506,74 @@ async function renderServerDocument<TContext>(
       { value: islandCapture },
       tree,
     );
+  }
+
+  if (job.willStream) {
+    // head/headers are already resolved above and the state script only
+    // needs the awaited loader data, so the whole document shape is known
+    // before a single component renders.
+    const { data: serializedData, pending } = serializeDeferred(data);
+    const { prefix, afterShell, suffix } = buildHtmlDocumentParts({
+      head: withCapturedScripts(head, scriptCapture),
+      body: "",
+      hydrationState: {
+        url: ctx.requestPath,
+        routeId: match.route.id ?? "",
+        data: serializedData,
+        deferred: pending.map(({ id, path }) => ({ id, path })),
+        error: null,
+      },
+      clientEntryUrl: ctx.options.clientEntryUrl,
+      clientEntryAtEnd: true,
+      inlineBootstrapScript:
+        pending.length > 0
+          ? {
+              source: DEFER_RUNTIME_SHIM,
+              nonce: head.fontNonce,
+            }
+          : undefined,
+      cssAssets,
+      // Buffered documents expose the client entry through their script
+      // immediately, so the build manifest only lists its dependencies.
+      // This script lives at the end of a streamed document; preload the
+      // entry itself so deferred work does not also delay its download.
+      modulePreloadUrls: ctx.options.clientEntryUrl
+        ? [...new Set([ctx.options.clientEntryUrl, ...modulePreloadUrls])]
+        : modulePreloadUrls,
+      speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+    });
+
+    return await streamingHtmlResponse({
+      tree,
+      prefix,
+      afterShell,
+      suffix,
+      status: pageOptions.status,
+      headers: documentHeaders,
+      signal: job.routeArgs.signal,
+      pending,
+      nonce: head.fontNonce,
+      exposeErrorDetails: ctx.exposeDiagnostics,
+      onError: (error) => {
+        // Past the first flush there is no error document to send, so the
+        // only remaining job is to make the failure visible server-side.
+        ctx.options.onRouteError?.(error, ctx.requestPath, {
+          phase: "render",
+          routeFile: match.route.file,
+          routeId: match.route.id,
+          routePath: match.route.path,
+          shellFile: match.route.shellFile,
+          loaderFile: job.loaderFile,
+          middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+        });
+        console.error("[pracht] streaming render failed after the first flush:", error);
+      },
+      onCancel: () => {
+        job.abortController?.abort(
+          new DOMException("The streaming response consumer disconnected.", "AbortError"),
+        );
+      },
+    });
   }
 
   const renderToString = await getRenderToStringAsync();
@@ -625,7 +695,18 @@ export async function renderPage<TContext>(
 ): Promise<Response> {
   const { options, registry, request } = ctx;
   // One budget per request.
-  const requestSignal = inheritedSignal ?? composeRequestSignal(request, ctx.loaderTimeoutMs);
+  const willStream =
+    match.route.streaming === true &&
+    (match.route.render ?? "ssr") === "ssr" &&
+    (match.route.hydration ?? "full") === "full" &&
+    request.method === "GET" &&
+    !ctx.isRouteStateRequest &&
+    !prefersMarkdown(request.headers.get("accept"));
+  const abortController = willStream ? new AbortController() : undefined;
+  const budgetSignal = inheritedSignal ?? composeRequestSignal(request, ctx.loaderTimeoutMs);
+  const requestSignal = abortController
+    ? combineRequestSignals(budgetSignal, abortController.signal)
+    : budgetSignal;
   const pageContext = ctx.context;
   const routeArgs: BaseRouteArgs<TContext> = {
     request,
@@ -639,6 +720,8 @@ export async function renderPage<TContext>(
   const timings = options.timings;
   const job: PageRenderJob<TContext> = {
     ctx,
+    abortController,
+    willStream,
     match,
     pageOptions,
     routeArgs,

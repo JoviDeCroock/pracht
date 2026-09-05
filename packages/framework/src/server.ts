@@ -134,6 +134,7 @@ export {
 } from "./event-stream.ts";
 export { isUpgradeRequest } from "./upgrade.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
+export { isStreamingHtmlResponse } from "./runtime-stream.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {
   CapabilityTestHost,

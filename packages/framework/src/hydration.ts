@@ -18,7 +18,7 @@ const hydrationCompleteListeners = new Set<() => void>();
 // there.
 //
 // The *suspension counter* itself lives in `hydration-suspense.ts`: counting
-// hydration promises requires `preact-suspense`, and an app that never renders
+// hydration promises requires the Suspense implementation, and an app that never renders
 // a Suspense boundary should not pay for it. That module registers its
 // `options.__e` patch through `beginHydrationSuspension()` below, and is only
 // reachable from the `Suspense`/`lazy` exports.

@@ -25,6 +25,7 @@ function makeRoute(path: string, overrides: Record<string, unknown> = {}) {
     shell: null,
     shellFile: null,
     speculation: null,
+    streaming: null,
     ...overrides,
   };
 }
@@ -73,6 +74,16 @@ describe("normalizeGraphSnapshot", () => {
       JSON.parse(serializeGraphSnapshot(makeSnapshot({ mcpDestructive: true }))).mcpDestructive,
     ).toBe(true);
   });
+
+  it("normalizes snapshots written before streaming metadata existed", () => {
+    const route = makeRoute("/legacy");
+    // @ts-expect-error -- an older committed snapshot has no streaming field.
+    delete route.streaming;
+
+    const snapshot = normalizeGraphSnapshot(makeSnapshot({ routes: [route] }));
+
+    expect(snapshot.routes[0].streaming).toBeNull();
+  });
 });
 
 describe("diffGraphSnapshots", () => {
@@ -99,6 +110,7 @@ describe("diffGraphSnapshots", () => {
           markdown: true,
           middleware: ["auth", "audit"],
           render: "spa",
+          streaming: true,
         }),
         makeRoute("/pricing", { render: "isg", revalidate: { kind: "time", seconds: 3600 } }),
       ],
@@ -115,6 +127,7 @@ describe("diffGraphSnapshots", () => {
         changes: [
           { field: "render", from: "ssr", to: "spa" },
           { field: "middleware", from: ["auth"], to: ["auth", "audit"] },
+          { field: "streaming", from: null, to: true },
           { field: "markdown", from: null, to: true },
         ],
       },

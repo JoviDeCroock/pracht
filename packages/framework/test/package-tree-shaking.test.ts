@@ -17,6 +17,7 @@ const clientEntry = join(outputDir, "client.mjs");
 const serverEntry = join(outputDir, "server.mjs");
 
 type FrameworkPackage = {
+  peerDependencies?: Record<string, string>;
   sideEffects?: boolean | string[];
 };
 
@@ -107,7 +108,9 @@ async function bundleExport(
           "preact",
           /^preact\//,
           "preact-render-to-string",
-          "preact-suspense",
+          // The streaming renderer is a subpath import (`/stream`), so the
+          // bare specifier alone does not externalize it.
+          /^preact-render-to-string\//,
           // The harness copies @pracht/core's dist files into a temporary
           // directory without installing package dependencies beside them.
           // Apps receive web-vitals through @pracht/core; keep the lazy import
@@ -144,6 +147,10 @@ async function bundleExport(
 describe("published package tree shaking", () => {
   it("keeps prerender initialization while marking other modules as side-effect-free", () => {
     expect(packageJson.sideEffects).toEqual(["./dist/prerender.mjs"]);
+  });
+
+  it("requires a renderer version that exports the streaming entry point", () => {
+    expect(packageJson.peerDependencies?.["preact-render-to-string"]).toBe("^6.7.0");
   });
 
   it("emits source modules instead of shared cross-entry chunks", () => {
@@ -204,22 +211,18 @@ describe("published package tree shaking", () => {
     // shape (no client defines at all) is the worst case, where neither branch
     // can be folded.
     //
-    // Raised from 9,850 for the bounded redirect chain: a loader redirect the
-    // client follows now carries a hop count, and an opaque redirect (whose
-    // destination the browser refuses to expose) falls back to a document
-    // navigation instead of re-fetching the URL it just asked for.
-    // Raised from 9,900 for the route-commit projection hook that swaps
-    // page-scoped WebMCP tools after navigation.
-    it("keeps the router runtime below 9,950 gzip bytes", async () => {
+    // Streaming adds route error boundaries and waits for renderer DOM swaps.
+    // These ceilings measure the router with Preact external.
+    it("keeps the router runtime below 10,250 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_950);
+      expect(gzipBytes).toBeLessThanOrEqual(10_250);
     });
 
-    it("drops preact-suspense when the app renders no Suspense boundary", async () => {
+    it("drops compat Suspense when the app renders no Suspense boundary", async () => {
       const { code } = await bundleExport("initClientRouter", production);
 
-      expect(code).not.toContain("preact-suspense");
+      expect(code).not.toContain("preact/compat");
     });
 
     it("drops the navigation blocker when the app renders no useBlocker()", async () => {
@@ -242,7 +245,7 @@ describe("published package tree shaking", () => {
     it("keeps Suspense hydration tracking reachable from the Suspense export", async () => {
       const { code } = await bundleExport("Suspense");
 
-      expect(code).toContain("preact-suspense");
+      expect(code).toContain("preact/compat");
     });
 
     it("keeps capability revalidation reachable from the dispatch paths", async () => {
@@ -359,7 +362,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_670);
+      expect(gzipBytes).toBeLessThanOrEqual(9_960);
     });
 
     it("keeps guards when the feature is enabled", async () => {

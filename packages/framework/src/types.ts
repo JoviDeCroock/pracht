@@ -501,6 +501,14 @@ export interface RouteMeta {
   middleware?: string[];
   revalidate?: RouteRevalidate;
   loaderCache?: LoaderCache;
+  /**
+   * Stream the HTML document instead of buffering it.
+   *
+   * Only meaningful with `render: "ssr"` and `hydration: "full"` — every other
+   * combination either writes a file or ships no client runtime, and resolves
+   * deferred values before responding. Off by default.
+   */
+  streaming?: boolean;
   prefetch?: PrefetchStrategy;
   speculation?: SpeculationOption;
   hasLoader?: boolean;
@@ -524,6 +532,8 @@ export interface GroupMeta {
   hydration?: HydrationMode;
   middleware?: string[];
   loaderCache?: LoaderCache;
+  /** Stream HTML documents for routes in this group. See `RouteMeta.streaming`. */
+  streaming?: boolean;
   pathPrefix?: string;
   speculation?: SpeculationOption;
 }
@@ -820,18 +830,6 @@ export type LoaderData<TLoader extends LoaderLike> = TLoader extends (
   ? Awaited<TResult>
   : never;
 
-type ResolveDeferredLoaderData<T> = T extends import("./defer.ts").Deferred<infer TValue>
-  ? ResolveDeferredLoaderData<TValue>
-  : T extends readonly unknown[]
-    ? { [TKey in keyof T]: ResolveDeferredLoaderData<T[TKey]> }
-    : T extends object
-      ? { [TKey in keyof T]: ResolveDeferredLoaderData<T[TKey]> }
-      : T;
-
-type ResolvedLoaderData<TLoader extends LoaderLike> = ResolveDeferredLoaderData<
-  LoaderData<TLoader>
->;
-
 /**
  * Extract loader data from a route module type. `pracht typegen` uses this to
  * register per-route loader data on `Register["routes"]`. When a separate
@@ -852,30 +850,18 @@ export interface HeadArgs<
   TLoader extends LoaderLike = undefined,
   TContext = RegisteredContext,
 > extends BaseRouteArgs<TContext> {
-  data: ResolvedLoaderData<TLoader>;
+  data: LoaderData<TLoader>;
 }
 
 export interface HeadersArgs<
   TLoader extends LoaderLike = undefined,
   TContext = RegisteredContext,
 > extends BaseRouteArgs<TContext> {
-  data: ResolvedLoaderData<TLoader>;
+  data: LoaderData<TLoader>;
 }
 
 export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
-  /**
-   * Deliberately the raw loader data, unlike `HeadArgs`/`HeadersArgs`, which
-   * resolve deferred fields.
-   *
-   * `head()` and `headers()` decide the response status and headers, so they
-   * can never see an unsettled value — under streaming as much as today. A
-   * component can: once `render: "ssr"` flushes the shell before deferred
-   * fields settle (issue #191), this prop really does carry `Deferred`
-   * markers. Keeping them in the type is what makes `use()` inside a
-   * `<Suspense>` boundary the only way to read one, so a route written today
-   * keeps working then. `use()` returns an already-settled value directly,
-   * which is why that costs nothing now.
-   */
+  /** Raw loader data; read deferred fields with `use()` inside Suspense. */
   data: LoaderData<TLoader>;
   params: RouteParams;
 }

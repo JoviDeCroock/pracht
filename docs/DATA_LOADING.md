@@ -213,26 +213,92 @@ of the same deferred value never do the work twice.
 
 #### What defers, and when
 
-Today **every render mode resolves deferred values before the response is
-written** — nothing streams yet, in any mode (streaming is issue #191). The
-benefit right now is the authoring shape and the concurrency: independent
-deferred fields resolve together rather than in series, so two 300 ms calls cost
-300 ms, not 600 ms.
+By default every render mode resolves deferred values before the response is
+written. Even then `defer()` earns its keep: independent deferred fields
+resolve concurrently rather than in series, so two 300 ms calls cost 300 ms,
+not 600 ms.
 
-The resolution pass costs nothing when the app never defers. `defer()` sets a
-process-level latch and `resolveDeferredData()` returns its input untouched
-until that latch flips, so a loader result is only walked in a process that has
-actually created a deferred value.
+Add `streaming: true` to an `ssr` route and the shell is flushed before those
+values settle — see [Streaming the document](#streaming-the-document). The same
+component works either way, because `use()` accepts a settled value, a deferred
+one, or a bare promise.
 
-The reason to write `defer()` now is that it is the finished API. When the
-streaming renderer lands, `render: "ssr"` will flush the shell before deferred
-values settle and stream them in — with no change to route source. `use()`
-already accepts a settled value, a deferred one, or a bare promise for exactly
-that reason, and the same component works either way.
-
-`ssg` and `isg` will always resolve everything: those modes write files, a file
+`ssg` and `isg` always resolve everything: those modes write files, a file
 cannot stream, and shipping fallback markup as permanent static output would be
-a correctness bug.
+a correctness bug. Client navigation fetches route state as JSON, which also
+resolves everything today.
+
+#### Streaming the document
+
+By default a deferred value still resolves before the response is written — the
+gain is concurrency, not an earlier first byte. Opt a route into streaming to
+get the earlier first byte too:
+
+```typescript
+route("/product/:id", () => import("./routes/product.tsx"), {
+  render: "ssr",
+  streaming: true,
+});
+```
+
+Pages routes opt in with `export const STREAMING = true`; the effective render
+mode must be `ssr` and hydration must be `full`.
+
+`streaming` is also a group option, so a whole section can opt in at once.
+
+With it on, the response is written in this order:
+
+1. The document head and the opening `<div id="pracht-root">`, followed by the
+   shell: the tree with every unresolved `<Suspense>` boundary showing its
+   fallback. The renderer prepares that shell before committing the response,
+   so a shell failure can still produce a normal error document; stylesheet and
+   preload tags still reach the browser before deferred loader work completes.
+2. The hydration state and defer-channel bootstrap. Exact deferred locations
+   travel as framework metadata beside the user-owned loader data, so no user
+   object shape or property name is reserved by the wire format.
+3. Each deferred value as it settles — the resolved markup from the renderer,
+   plus a small script carrying the data so the client has it too.
+4. The client entry, then `</body></html>`. The entry is preloaded with the
+   document assets, but hydration starts after the streamed content so even a
+   `beforeHydration` script inside a deferred subtree keeps its guarantee.
+
+Streaming is rejected at manifest-resolution time for any other combination:
+`ssg` and `isg` write files, and a `hydration` other than `"full"` ships no
+client runtime to resume a boundary with.
+
+Streaming requires `preact-render-to-string` 6.7 or newer. That release uses
+the marker protocol Preact 11 expects when hydrating streamed Suspense
+boundaries; `@pracht/core` declares the matching peer range.
+
+Development uses the same streaming path: Vite transforms the document prefix
+before it is committed, then forwards the remaining renderer and deferred-data
+chunks without buffering them.
+
+##### What changes when a route streams
+
+- **A deferred rejection no longer fails the response.** Before the first flush
+  a failure still produces a normal error document. After it, the status is
+  already sent, so a rejection is delivered on the defer channel and surfaces
+  where the value is read — the route or shell `ErrorBoundary` export renders,
+  or a nearer standalone `<ErrorBoundary>` can recover only that subtree. The
+  response stays `200`. Unexpected server errors keep the same production
+  sanitization as buffered route errors; `debugErrors` only exposes their
+  details outside production.
+- **`<Script strategy="beforeHydration">` is emitted in place** rather than
+  hoisted into `<head>`, which has already been written. A body script in SSR
+  HTML still runs before hydration, so the guarantee holds.
+- **`Server-Timing` render totals are less meaningful**, since the render is no
+  longer over when the response is returned.
+- **The client must reach the end of the document** to receive every deferred
+  value. A boundary whose data never arrives keeps showing its fallback.
+
+##### Content-Security-Policy
+
+The renderer emits an inline bootstrap script for its boundary swaps, and it
+has no nonce hook (see [CSP.md](CSP.md)). A streaming route therefore needs
+`script-src` to permit that script; pracht's own deferred-data scripts do carry
+a nonce when one is configured. Non-streaming routes are unaffected, which is
+part of why streaming is opt-in.
 
 #### Rules
 
@@ -240,13 +306,14 @@ a correctness bug.
   status or headers.** By the time it settles, the response status and headers
   are already decided. Auth checks belong in middleware or in the awaited part
   of the loader — which is the existing pracht convention.
-- **`head()` and `headers()` see awaited data only.** Both run before the
-  render and receive the resolved loader result, so metadata cannot depend on a
-  value whose whole point is arriving late.
+- **`head()` and `headers()` cannot depend on deferred fields.** On a streaming
+  route they run before deferred work settles and receive the same `Deferred`
+  markers as the component; their argument types preserve those markers so an
+  accidental direct read is a type error. Keep values needed for metadata,
+  status, or cache headers in the awaited part of the loader.
 - **On Preact 10, a `<Suspense>` boundary that suspends must resolve to exactly
   one DOM element** — not `null`, not a multi-child fragment. This constraint
-  goes away with Preact 11's hydration rework. It does not bite today, because
-  nothing streams yet, but write boundaries to that shape now.
+  goes away with Preact 11's hydration rework.
 - Pass the un-awaited call. `defer(await getReviews(id))` throws, because it
   defeats the point silently.
 - Return the marker from an enumerable data property. A deferred value hidden

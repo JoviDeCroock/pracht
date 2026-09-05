@@ -512,6 +512,18 @@ describe("<Script> client strategies", () => {
     expect(document.querySelectorAll('script[src="/ssr-emitted.js"]').length).toBe(1);
   });
 
+  it("does not reinject a streamed beforeHydration script during hydration", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    scratch.innerHTML = '<script src="/streamed.js"></script>';
+
+    markHydrating();
+    hydrate(h(Script, { strategy: "beforeHydration", src: "/streamed.js" }), scratch);
+    await flush();
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(injectedScripts()).toHaveLength(0);
+  });
+
   it('injects strategy="idle" scripts via requestIdleCallback', async () => {
     const idleCallbacks: (() => void)[] = [];
     vi.stubGlobal("requestIdleCallback", (cb: () => void) => {

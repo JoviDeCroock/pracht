@@ -11,7 +11,7 @@ next:
 ---
 
 > [!NOTE]
-> This page is about streaming *data* to an already-rendered page. **Streaming HTML SSR — flushing the shell first and streaming suspended content in — is not implemented yet**; every render mode resolves the whole document before the response is written. Progress is tracked in [issue #191](https://github.com/JoviDeCroock/pracht/issues/191).
+> This page covers streaming data to a rendered page. For streaming HTML and deferred Suspense boundaries, see [Streaming SSR](/docs/data-loading#streaming-the-document).
 
 ## Server-Sent Events
 

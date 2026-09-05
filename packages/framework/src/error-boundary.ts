@@ -81,7 +81,7 @@ function isThenable(value: unknown): boolean {
   return typeof (value as { then?: unknown } | null | undefined)?.then === "function";
 }
 
-function normalizeCaughtError(value: unknown): Error {
+export function normalizeCaughtError(value: unknown): Error {
   if (value instanceof Error) return value;
   try {
     return new Error(String(value));

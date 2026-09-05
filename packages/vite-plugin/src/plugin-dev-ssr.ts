@@ -350,6 +350,10 @@ export function createDevSSRMiddleware(
       }
 
       const serverTiming = framework.formatServerTimingHeader(timings);
+      if (shouldStreamDevHtmlResponse(framework, response, contentType)) {
+        await streamDevHtmlResponse(server, res, url, response, devBase, serverTiming);
+        return;
+      }
 
       // Only an HTML document is decoded to text: it is the one body this
       // middleware rewrites. Everything else — a PDF from an API route, an
@@ -582,6 +586,153 @@ function isUserModulePath(candidate: string, root: string | undefined): boolean 
   return path.startsWith(`${root.replace(/\/$/, "")}/`) || path.startsWith("/src/");
 }
 
+export function shouldStreamDevHtmlResponse(
+  framework: { isStreamingHtmlResponse?: (response: Response) => boolean },
+  response: Response,
+  contentType: string,
+): boolean {
+  return (
+    response.body !== null &&
+    contentType.includes("text/html") &&
+    framework.isStreamingHtmlResponse?.(response) === true
+  );
+}
+
+async function streamDevHtmlResponse(
+  server: ViteDevServer,
+  res: ServerResponse,
+  url: string,
+  response: Response,
+  base: string,
+  serverTiming: string | undefined,
+): Promise<void> {
+  const reader = response.body!.getReader();
+  let committed = false;
+  const cancel = () => {
+    if (!res.writableFinished) void reader.cancel().catch(() => undefined);
+  };
+  res.on("close", cancel);
+
+  try {
+    // The runtime emits the complete document prefix as one encoded chunk. It
+    // includes </head>, so Vite and pracht's transformIndexHtml hooks can add
+    // the dev client and route CSS before any bytes are committed; later
+    // renderer/deferred chunks then pass through untouched.
+    const first = await reader.read();
+    const prefix = first.done ? "" : new TextDecoder().decode(first.value);
+    const transformed = await transformStreamingDevHtmlPrefix(server, url, prefix, base);
+
+    res.statusCode = response.status;
+    writeDevResponseHeaders(res, response.headers);
+    res.removeHeader("content-length");
+    if (serverTiming) res.setHeader("Server-Timing", serverTiming);
+    committed = true;
+
+    if (transformed.prefix) await writeDevResponseChunk(res, transformed.prefix);
+    let bodyEndInjected = transformed.beforeBodyClose === "";
+    const decoder = new TextDecoder();
+    while (!first.done) {
+      const next = await reader.read();
+      if (next.done) break;
+      let chunk: string | Uint8Array = next.value;
+      if (!bodyEndInjected) {
+        const injection = injectStreamingBodyEnd(
+          decoder.decode(next.value),
+          transformed.beforeBodyClose,
+        );
+        chunk = injection.html;
+        bodyEndInjected = injection.injected;
+      }
+      await writeDevResponseChunk(res, chunk);
+    }
+    res.end();
+  } catch (error) {
+    if (committed || res.headersSent) {
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
+    throw error;
+  } finally {
+    res.removeListener("close", cancel);
+    reader.releaseLock();
+  }
+}
+
+const STREAM_PREFIX_END_MARKER = '<template data-pracht-stream-prefix-end=""></template>';
+const STREAM_BODY_END_MARKER = '<template data-pracht-stream-body-end=""></template>';
+
+/**
+ * Run Vite's HTML hooks against a syntactically complete document, then split
+ * their output back into the prefix that can be committed now and tags that
+ * belong immediately before `</body>` once the stream finishes.
+ */
+export async function transformStreamingDevHtmlPrefix(
+  server: ViteDevServer,
+  url: string,
+  prefix: string,
+  base: string,
+): Promise<{ prefix: string; beforeBodyClose: string }> {
+  const completed =
+    `${prefix}${STREAM_PREFIX_END_MARKER}</div>` + `${STREAM_BODY_END_MARKER}</body></html>`;
+  const transformed = await transformDevHtml(server, url, completed, base);
+  const prefixEnd = transformed.indexOf(STREAM_PREFIX_END_MARKER);
+  const bodyMarker = transformed.indexOf(STREAM_BODY_END_MARKER, prefixEnd);
+  const bodyClose = transformed.indexOf("</body>", bodyMarker);
+
+  if (prefixEnd < 0 || bodyMarker < 0 || bodyClose < 0) {
+    throw new Error(
+      "A Vite transform removed Pracht's streaming HTML markers; the document cannot be streamed safely in development.",
+    );
+  }
+
+  return {
+    prefix: transformed.slice(0, prefixEnd),
+    beforeBodyClose: transformed.slice(bodyMarker + STREAM_BODY_END_MARKER.length, bodyClose),
+  };
+}
+
+/** Insert deferred Vite `body` tags into the runtime-owned closing chunk. */
+export function injectStreamingBodyEnd(
+  html: string,
+  beforeBodyClose: string,
+): { html: string; injected: boolean } {
+  const bodyClose = html.indexOf("</body>");
+  if (bodyClose < 0) return { html, injected: false };
+  return {
+    html: `${html.slice(0, bodyClose)}${beforeBodyClose}${html.slice(bodyClose)}`,
+    injected: true,
+  };
+}
+
+async function writeDevResponseChunk(
+  res: ServerResponse,
+  chunk: string | Uint8Array,
+): Promise<void> {
+  if (res.destroyed || res.writableEnded || res.write(chunk)) return;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      res.removeListener("close", onClose);
+      res.removeListener("drain", onDrain);
+      res.removeListener("error", onError);
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    res.once("close", onClose);
+    res.once("drain", onDrain);
+    res.once("error", onError);
+  });
+}
+
 /**
  * Vite's HTML transform adds `config.base` to root-absolute asset attributes.
  * Pracht's runtime has already added it to URLs produced by `withBase()` — the
@@ -676,10 +827,13 @@ export async function createDevCssManifest(
     ) => { route: ResolvedRoute } | undefined;
     pathname: string | null;
     registry: ModuleRegistry;
+    streaming?: boolean;
+    route?: ResolvedRoute | null;
   },
 ): Promise<Record<string, string[]>> {
-  const route =
-    options.pathname === null
+  const route = Object.hasOwn(options, "route")
+    ? options.route
+    : options.pathname === null
       ? undefined
       : (options.matchAppRoute(options.app, options.pathname)?.route ?? options.app.notFound);
   if (!route) return {};
@@ -808,11 +962,19 @@ async function resolveDevCssContextForPath(
   // against the same base-free route manifest. `null` deliberately suppresses
   // not-found CSS for adapter HTML responses outside this app's base.
   const pathname = options.basePathRetained ? framework.stripBase(publicPathname) : publicPathname;
+  const route =
+    pathname === null
+      ? null
+      : (framework.matchAppRoute(serverMod.resolvedApp, pathname)?.route ??
+        serverMod.resolvedApp.notFound ??
+        null);
   return {
     app: serverMod.resolvedApp,
     matchAppRoute: framework.matchAppRoute,
     pathname,
     registry: serverMod.registry,
+    route,
+    streaming: route?.streaming === true,
   };
 }
 
@@ -887,6 +1049,37 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
       buffered = 0;
     };
 
+    let streamingFlush: Promise<void> | undefined;
+    const flushStreamingPrefix = (): void => {
+      if (streamingFlush || mode !== "buffer") return;
+      streamingFlush = (async () => {
+        const context = await contextPromise;
+        if (!context?.streaming || mode !== "buffer") return;
+        if (!Buffer.concat(chunks).includes("</head>")) return;
+        const manifest = await createDevCssManifest(server, context);
+        if (mode !== "buffer") return;
+        const html = injectDevCssLinks(
+          Buffer.concat(chunks).toString("utf-8"),
+          manifest,
+          server.config.base || "/",
+        );
+        chunks.length = 0;
+        buffered = 0;
+        mode = "passthrough";
+        releasePatches();
+        originalWrite(html);
+      })()
+        .catch((error) => {
+          server.config.logger.error(
+            `[pracht] Could not inject streaming development stylesheets: ${String(error)}`,
+          );
+          if (mode === "buffer") spillToPassthrough();
+        })
+        .finally(() => {
+          streamingFlush = undefined;
+        });
+    };
+
     res.writeHead = ((statusCode: number, ...args: unknown[]) => {
       if (decide(args) === "passthrough") {
         return Reflect.apply(originalWriteHead, res, [statusCode, ...args]);
@@ -909,6 +1102,7 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
       }
       chunks.push(buffer);
       buffered += buffer.length;
+      flushStreamingPrefix();
       done?.();
       return true;
     }) as typeof res.write;
@@ -921,6 +1115,11 @@ export function createDevCssInjectionMiddleware(server: ViteDevServer): Connect.
       const done = readNodeWriteCallback(encodingOrCallback, callback);
 
       void (async () => {
+        await streamingFlush;
+        if (mode === "passthrough") {
+          originalEnd(undefined, done);
+          return;
+        }
         const body = Buffer.concat(chunks);
         try {
           const context = await contextPromise;

@@ -407,6 +407,13 @@ export function collectPagesVerification(
   }
 
   for (const shell of appShells) {
+    if (shell.hasStreamingExport)
+      checks.push(
+        createCheck(
+          "error",
+          `STREAMING belongs on a pages route, not ${displayPath(project.root, shell.file)}.`,
+        ),
+      );
     if (shell.hasRevalidateExport) {
       checks.push(
         createCheck(
@@ -420,6 +427,13 @@ export function collectPagesVerification(
   }
 
   for (const page of notFoundPages) {
+    if (page.hasStreamingExport)
+      checks.push(
+        createCheck(
+          "error",
+          `STREAMING belongs on a pages route, not ${displayPath(project.root, page.file)}.`,
+        ),
+      );
     if (page.hasRevalidateExport) {
       checks.push(
         createCheck(
@@ -436,6 +450,18 @@ export function collectPagesVerification(
     const render =
       route.renderMode ??
       (project.pagesDefaultRenderIsStatic ? project.pagesDefaultRender : undefined);
+    if (
+      route.streaming === "invalid" ||
+      (route.streaming === true &&
+        ((render !== undefined && render !== "ssr") || (route.hydrationMode ?? "full") !== "full"))
+    ) {
+      checks.push(
+        createCheck(
+          "error",
+          `Pages route ${JSON.stringify(display)} requires a boolean literal STREAMING export, SSR, and full hydration to stream.`,
+        ),
+      );
+    }
     if (route.revalidate.kind === "invalid") {
       checks.push(
         createCheck(

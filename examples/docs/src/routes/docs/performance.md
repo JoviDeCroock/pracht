@@ -20,16 +20,16 @@ thing changed each time.
 | Route setting | Gzip | Raw | What reaches the browser |
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
-| `hydration: "islands"` | **7.4 KB** | 16.9 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "full"` | **16.3 KB** | 40.1 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **14.8 KB** | 39.2 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **16.0 KB** | 39.2 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"` + `preact/compat` | **17.8 KB** | 44.7 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "islands"` | **7.5 KB** | 16.7 KB | Preact, the island bootstrap, and the island chunks on the page. |
+| `hydration: "full"` | **17.4 KB** | 42.6 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **15.9 KB** | 41.6 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **17.2 KB** | 41.7 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"` + `preact/compat` | **18.2 KB** | 44.9 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load — the route's chunks plus the one the router fetches after
 hydration. Raw is the route's chunks. Both come straight from
 `bench/baseline.json`, so every number here is one command away from being
-checked.
+checked. This baseline uses Preact `11.0.0-rc.1` and render-to-string `6.7.0`.
 
 Your application code sits on top of these. They are a floor, not a budget.
 
@@ -120,7 +120,7 @@ On the server, pracht knows which route and shell are being rendered. It uses th
 
 ## Vendor Chunk
 
-Preact, preact/hooks, and preact-suspense are extracted into a shared `vendor` chunk. This means:
+Preact and its hook/compat entry points are extracted into a shared `vendor` chunk. This means:
 
 - The vendor chunk is cached once by the browser and shared across all routes.
 - Route chunks stay small — they only contain route-specific code.

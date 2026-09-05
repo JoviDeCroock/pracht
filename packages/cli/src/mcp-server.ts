@@ -43,7 +43,7 @@ export function createPrachtMcpServer(): McpServer {
     "inspect_routes",
     {
       description:
-        "Inspect the resolved page-route graph of a pracht app: path, id, render mode, hydration mode, prefetch strategy, speculation rules, shell, middleware, loader file. Same payload as `pracht inspect routes --json`.",
+        "Inspect the resolved page-route graph of a pracht app: path, id, render mode, hydration mode, streaming mode, prefetch strategy, speculation rules, shell, middleware, loader file. Same payload as `pracht inspect routes --json`.",
       inputSchema: { ...cwdInput },
     },
     guard(({ cwd }) => runInspect(resolveCwd(cwd), { target: "routes" })),

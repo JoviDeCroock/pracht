@@ -52,6 +52,7 @@ export interface AppGraphRoute {
   shell: string | null;
   shellFile: string | null;
   speculation: SpeculationOption | null;
+  streaming: boolean | null;
 }
 
 export interface AppGraphApiRoute {
@@ -184,6 +185,7 @@ export function serializeAppRoutes(routes: readonly ResolvedRoute[]): AppGraphRo
     shell: route.shell ?? null,
     shellFile: route.shellFile ?? null,
     speculation: route.speculation ?? null,
+    streaming: route.streaming ?? null,
   }));
 }
 

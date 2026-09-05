@@ -90,12 +90,33 @@ export interface ScriptCapture {
    * on an islands route they never run, which is worth a dev warning.
    */
   insideIsland?: boolean;
+  /**
+   * True when the document is streamed. `<head>` is already on the wire by the
+   * time a component renders, so there is nothing left to merge into and
+   * `beforeHydration` scripts are emitted in place instead — a body script in
+   * SSR HTML still runs before hydration, which is the guarantee the strategy
+   * actually makes.
+   */
+  streaming?: boolean;
 }
 
 export const ScriptCaptureContext = createContext<ScriptCapture | null>(null);
 
-export function createScriptCapture(hydration: HydrationMode): ScriptCapture {
-  return { scripts: [], keys: new Set(), hydration };
+export function createScriptCapture(
+  hydration: HydrationMode,
+  streaming = false,
+  existingScripts: readonly HeadScriptDescriptor[] = [],
+): ScriptCapture {
+  return {
+    scripts: [],
+    keys: new Set(
+      existingScripts
+        .map((script) => scriptKey(script, script.children))
+        .filter((key): key is string => key !== null),
+    ),
+    hydration,
+    streaming,
+  };
 }
 
 /** Merge captured scripts into the document head without duplicating head() entries. */
@@ -154,6 +175,20 @@ export function Script(props: ScriptProps): VNode | null {
   // Hooks must run unconditionally; the capture branch below only short-
   // circuits on the server, where this component renders exactly once.
   const hydrated = useIsHydrationComplete();
+
+  // A streamed beforeHydration script occupies this component's body slot in
+  // the server HTML. Hydration removes that node because the client component
+  // renders nothing, so remember it while it is still present instead of
+  // waiting for the effect below and injecting the script a second time.
+  if (
+    capture === null &&
+    strategy === "beforeHydration" &&
+    key !== null &&
+    !injectedScripts.has(key) &&
+    existsInDocument(props, inline)
+  ) {
+    injectedScripts.add(key);
+  }
 
   useEffect(() => {
     // Server captures never reach effects; this is the client-only path.
@@ -219,6 +254,12 @@ export function Script(props: ScriptProps): VNode | null {
   // by the renderer for every documented render path.
   if (capture) {
     if (strategy === "beforeHydration") {
+      // Streamed documents have no head left to merge into; emit in place.
+      if (capture.streaming) {
+        if (capture.keys.has(key)) return null;
+        capture.keys.add(key);
+        return renderInlineScriptTag(props, inline);
+      }
       if (!capture.keys.has(key)) {
         capture.keys.add(key);
         capture.scripts.push(toHeadScriptDescriptor(props, inline));

@@ -87,7 +87,7 @@ export type {
 type CapabilityFormResult<TName extends string> = CapabilityEnvelope<CapabilityOutputFor<TName>>;
 
 export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName> extends Omit<
-  JSX.HTMLAttributes<HTMLFormElement>,
+  JSX.IntrinsicElements["form"],
   "action" | "method"
 > {
   /**
@@ -163,7 +163,7 @@ export type LinkHrefGuidance =
   "`href` is not a <Link> prop: <Link> builds its own href from `route` and `params`. Use a generated route id with <Link route={routeId}>, a plain <a href> for external and user-provided URLs, or omit href from the props you spread here.";
 
 /**
- * `JSX.AnchorHTMLAttributes`, not `JSX.HTMLAttributes`. Preact keeps the
+ * `JSX.IntrinsicElements["a"]`, not `JSX.HTMLAttributes`. Preact keeps the
  * anchor-specific attributes — `target`, `rel`, `download`, `ping`,
  * `referrerpolicy`, `hreflang` — on the anchor interface, so basing `LinkProps`
  * on the generic one rejected all of them: `<Link route="home" target="_blank">`
@@ -172,10 +172,7 @@ export type LinkHrefGuidance =
  * `Omit`, is why the compiler used to answer `<Link href>` with
  * `Did you mean 'ref'?`.
  */
-export type LinkProps<TRoute extends RouteId = RouteId> = Omit<
-  JSX.AnchorHTMLAttributes<HTMLAnchorElement>,
-  "href"
-> &
+export type LinkProps<TRoute extends RouteId = RouteId> = Omit<JSX.IntrinsicElements["a"], "href"> &
   RouteTarget<TRoute> & {
     /**
      * Not a real prop — see {@link LinkHrefGuidance}. `<Link>` builds its own
@@ -392,7 +389,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     speculate,
     href,
     ...anchorProps
-  } = props as unknown as Omit<JSX.AnchorHTMLAttributes<HTMLAnchorElement>, "href"> &
+  } = props as unknown as Omit<JSX.IntrinsicElements["a"], "href"> &
     UntypedRouteTarget & {
       href?: unknown;
       prefetch?: LinkPrefetchStrategy;
@@ -414,7 +411,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     );
   }
 
-  return h("a", {
+  return h<JSX.IntrinsicElements["a"]>("a", {
     ...anchorProps,
     href: buildHrefUntyped(routes, route, { params, search, hash }),
     // Read by the client router's click handler and the prefetch listeners.
@@ -422,7 +419,7 @@ export function Link<TRoute extends RouteId>(props: LinkProps<TRoute>) {
     [PRESERVE_SCROLL_ATTRIBUTE]: preserveScroll ? "" : undefined,
     [VIEW_TRANSITION_ATTRIBUTE]: viewTransition ? "" : undefined,
     [SPECULATE_ATTRIBUTE]: speculate === undefined ? undefined : speculate ? "on" : "off",
-  } as JSX.HTMLAttributes<HTMLAnchorElement>);
+  } as JSX.IntrinsicElements["a"]);
 }
 
 export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
@@ -710,7 +707,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         settleNavigation(navigationToken);
       }
     },
-  } as JSX.HTMLAttributes<HTMLFormElement>);
+  } as JSX.IntrinsicElements["form"]);
 }
 
 export function parseLocation(value: string): Location {

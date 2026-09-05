@@ -466,3 +466,15 @@ test("dev SSR responses carry a Server-Timing header with phase durations", asyn
   expect(serverTiming).toMatch(/loader;dur=\d+(\.\d+)?/);
   expect(serverTiming).toMatch(/render;dur=\d+(\.\d+)?/);
 });
+
+test("Preact 11 hydrates streamed empty and multi-element boundaries", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/streaming");
+  await expect(page.locator("#streamed-message")).toHaveText("Deferred content");
+  await expect(page.locator("#streamed-counter")).toBeEnabled();
+  await page.locator("#streamed-counter").click();
+  await expect(page.locator("#streamed-counter")).toHaveText("Count 1");
+  await expect(page.locator("text=Loading empty boundary")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

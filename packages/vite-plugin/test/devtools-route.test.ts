@@ -155,6 +155,7 @@ describe("dev middleware /_pracht devtools route", () => {
         shell: "public",
         shellFile: "./shells/public.tsx",
         speculation: null,
+        streaming: null,
       },
       {
         file: "./routes/user.tsx",
@@ -170,6 +171,7 @@ describe("dev middleware /_pracht devtools route", () => {
         shell: null,
         shellFile: null,
         speculation: null,
+        streaming: null,
       },
     ]);
     expect(graph.api).toEqual([

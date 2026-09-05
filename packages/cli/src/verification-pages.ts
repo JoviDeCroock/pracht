@@ -7,6 +7,7 @@ import {
   maskMarkdownFences,
   hasNamedValueExport,
   hasValueStarExport,
+  readPageStreaming,
 } from "@pracht/capabilities/static";
 export {
   PAGES_APP_CONFIG_EXPORTS,
@@ -30,8 +31,9 @@ export type PagesFile =
       /** Registered shell name: `pages` at the root, `pages:blog` for `blog/_app.tsx`. */
       shellName: string;
       hasRevalidateExport: boolean;
+      hasStreamingExport?: boolean;
     }
-  | { file: string; kind: "not-found"; hasRevalidateExport: boolean }
+  | { file: string; kind: "not-found"; hasRevalidateExport: boolean; hasStreamingExport?: boolean }
   | {
       file: string;
       kind: "middleware";
@@ -69,6 +71,8 @@ export interface PagesRoute {
   kind: "route";
   routePath: string;
   renderMode?: string;
+  hydrationMode?: string;
+  streaming?: boolean | "invalid";
   revalidate:
     | { kind: "missing" }
     | { kind: "invalid"; expression: string }
@@ -181,6 +185,7 @@ export function describePagesFile(
       directory,
       shellName: pagesShellName(directory),
       hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
+      ...(readPageStreaming(analysisSource) !== undefined ? { hasStreamingExport: true } : {}),
     };
   }
 
@@ -194,6 +199,7 @@ export function describePagesFile(
       file,
       kind: "not-found",
       hasRevalidateExport: extractRevalidate(analysisSource).kind !== "missing",
+      ...(readPageStreaming(analysisSource) !== undefined ? { hasStreamingExport: true } : {}),
     };
   }
 
@@ -203,6 +209,8 @@ export function describePagesFile(
       kind: "route",
       routePath: "/",
       renderMode: extractQuotedExport(analysisSource, "RENDER_MODE"),
+      hydrationMode: extractQuotedExport(analysisSource, "HYDRATION"),
+      streaming: readPageStreaming(analysisSource),
       revalidate: extractRevalidate(analysisSource),
     };
   }
@@ -216,6 +224,8 @@ export function describePagesFile(
     kind: "route",
     routePath: normalizeRoutePath(`/${normalized}`),
     renderMode: extractQuotedExport(analysisSource, "RENDER_MODE"),
+    hydrationMode: extractQuotedExport(analysisSource, "HYDRATION"),
+    streaming: readPageStreaming(analysisSource),
     revalidate: extractRevalidate(analysisSource),
   };
 }

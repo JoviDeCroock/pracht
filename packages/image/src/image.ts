@@ -1,12 +1,18 @@
 import { h } from "preact";
 import type { JSX, VNode } from "preact";
 
+// Intrinsic style is stable across Preact 10 and 11; omit strings and signals.
+type ImageStyle = Exclude<
+  NonNullable<JSX.IntrinsicElements["img"]["style"]>,
+  string | { value: unknown }
+>;
+
 import { getImageConfig } from "./config.ts";
 import type { ImageLoader } from "./loaders.ts";
 import type { PrachtImageMetadata } from "./metadata.ts";
 
 export interface ImageProps extends Omit<
-  JSX.HTMLAttributes<HTMLImageElement>,
+  JSX.IntrinsicElements["img"],
   | "src"
   | "srcset"
   | "srcSet"
@@ -63,10 +69,10 @@ export interface ImageProps extends Omit<
    * otherwise inject CSS via the style attribute).
    */
   blurDataURL?: string;
-  style?: string | JSX.CSSProperties;
+  style?: string | ImageStyle;
 }
 
-const FILL_STYLE: JSX.CSSProperties = {
+const FILL_STYLE: ImageStyle = {
   position: "absolute",
   height: "100%",
   width: "100%",
@@ -86,7 +92,7 @@ const BLUR_DATA_URL_PATTERN = /^data:image\/[a-z0-9.+-]+(?:;[a-z0-9=+-]+)*,[a-z0
 
 function blurBackground(blurDataURL: string): {
   styleString: string;
-  styleObject: JSX.CSSProperties;
+  styleObject: ImageStyle;
 } {
   const image = `url("${blurDataURL}")`;
   return {
@@ -201,7 +207,7 @@ function planSrcSet(
  * loader (see `configureImage()` and the `loader` prop).
  */
 export function Image(props: ImageProps): VNode {
-  return h("img", getImageProps(props));
+  return h<JSX.IntrinsicElements["img"]>("img", getImageProps(props));
 }
 
 /**
@@ -321,7 +327,7 @@ export function getImageProps(props: ImageProps): JSX.IntrinsicElements["img"] {
   // a plain CSS background on the <img> itself: SSR-safe, zero hydration —
   // the real image covers it as soon as it paints.
   const blur = safeBlurDataURL != null ? blurBackground(safeBlurDataURL) : undefined;
-  let mergedStyle: string | JSX.CSSProperties | undefined = style;
+  let mergedStyle: string | ImageStyle | undefined = style;
   if (blur || fill) {
     const baseString = `${blur?.styleString ?? ""}${fill ? FILL_STYLE_STRING : ""}`;
     mergedStyle =
@@ -330,7 +336,7 @@ export function getImageProps(props: ImageProps): JSX.IntrinsicElements["img"] {
         : {
             ...blur?.styleObject,
             ...(fill ? FILL_STYLE : undefined),
-            ...(style as JSX.CSSProperties | undefined),
+            ...(style as ImageStyle | undefined),
           };
   }
 

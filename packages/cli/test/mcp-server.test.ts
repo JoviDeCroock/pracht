@@ -56,6 +56,9 @@ describe("pracht MCP server", () => {
       "typegen",
       "verify",
     ]);
+    expect(tools.find((tool) => tool.name === "inspect_routes")?.description).toContain(
+      "streaming mode",
+    );
   });
 
   it("runs doctor against a fixture app", async () => {
@@ -198,6 +201,7 @@ export const app = defineApp({
           shell: null,
           shellFile: null,
           speculation: null,
+          streaming: null,
         },
       ],
     });

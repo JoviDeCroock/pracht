@@ -227,7 +227,14 @@ function resolveLoaderTimeoutMs(value: number | undefined): number {
  */
 export function composeRequestSignal(request: Request, timeoutMs: number): AbortSignal {
   const timeout = AbortSignal.timeout(timeoutMs);
-  const clientSignal: AbortSignal | undefined = request.signal;
+  return combineRequestSignals(request.signal, timeout);
+}
+
+/** Compose transport and consumer signals, including runtimes without AbortSignal.any. */
+export function combineRequestSignals(
+  clientSignal: AbortSignal | undefined,
+  timeout: AbortSignal,
+): AbortSignal {
   if (!clientSignal) return timeout;
   if (typeof AbortSignal.any === "function") return AbortSignal.any([clientSignal, timeout]);
 

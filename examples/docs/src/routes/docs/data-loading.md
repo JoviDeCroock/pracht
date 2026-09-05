@@ -201,33 +201,86 @@ Boundaries are always explicit; Pracht never wraps a component for you.
 start until something reads the value. It is memoized, so two reads never do
 the work twice.
 
-Every render mode resolves deferred values before the response is written, so
-today the win is concurrency: two independent 300 ms fields cost 300 ms instead
-of 600 ms. **Streaming HTML SSR is not implemented** — nothing flushes the shell
-ahead of a pending field yet. It is tracked in
-[issue #191](https://github.com/JoviDeCroock/pracht/issues/191), and the API on
-this page is the one it would build on, so route source written against `defer()`
-and `<Suspense>` now should not need to change. `ssg` and `isg` will resolve
-everything regardless, because a static file cannot stream.
-
-A route that never calls `defer()` pays nothing for any of this: the runtime
-tracks whether the process has ever created a deferred value and skips the
-resolution pass entirely when it has not.
+By default every render mode resolves deferred values before the response is
+written. Even then `defer()` earns its keep: independent fields resolve
+concurrently, so two 300 ms calls cost 300 ms instead of 600 ms.
 
 Three rules:
 
 - **A deferred value cannot redirect, throw `PrachtHttpError`, or set response
   status or headers.** By the time it settles, the status and headers are
   already sent. Auth belongs in middleware or in the awaited part of the loader.
-- **`head()` and `headers()` see awaited data only.** They run before the
-  render.
+- **`head()` and `headers()` cannot depend on deferred fields.** On a streaming
+  route they run before deferred work settles and receive the same `Deferred`
+  markers as the component. Their argument types keep those markers visible,
+  so keep metadata, status, and cache-header inputs in the awaited part of the
+  loader.
 - **A suspending `<Suspense>` boundary must resolve to exactly one DOM
-  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11 is
-  expected to lift this; pracht does not run on it yet, so plan for the
-  constraint.
+  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11 supports empty and multi-child boundaries; the workspace exercises
+  `11.0.0-rc.1`.
 - Return `defer()` from an enumerable data property, not from a getter. Pracht
   does not eagerly invoke loader getters to discover hidden deferred values and
   throws instead of silently serializing an unresolved marker.
+
+### Streaming the document
+
+Add `streaming: true` to an SSR route and the shell is flushed *before* the
+deferred values settle, instead of after:
+
+```ts [src/routes.ts]
+route("/product/:id", () => import("./routes/product.tsx"), {
+  render: "ssr",
+  streaming: true,
+});
+```
+
+Pages routes use `export const STREAMING = true` with SSR and full hydration.
+
+It is a group option too, so a whole section can opt in at once. Your route
+source does not change — the same `defer()` and `use()` code streams or
+buffers depending on this one flag.
+
+The response is written in this order:
+
+1. The document head and opening root element, followed by the shell with every
+   unresolved boundary showing its fallback. The shell is prepared before the
+   response commits, so an early render failure can still produce a normal
+   error page while styles and preloads arrive before deferred work completes.
+2. The hydration state and defer-channel bootstrap. Deferred locations live in
+   framework metadata beside the loader data; no user object shape or property
+   name is reserved.
+3. Each deferred value as it settles.
+4. The client entry and closing tags. The entry is preloaded with the document
+   assets, but hydration starts after the streamed content so a
+   `beforeHydration` script inside a deferred subtree still runs first.
+
+Streaming is rejected for any other combination: `ssg` and `isg` write files,
+and a `hydration` mode other than `"full"` ships no client runtime to resume a
+boundary with.
+
+Streaming requires `preact-render-to-string` 6.7 or newer. That is the first
+release with the streamed-boundary markers Preact 11 hydration expects;
+`@pracht/core` declares the matching peer range.
+
+`pracht dev` preserves the same behavior: Vite transforms the initial document
+prefix, then passes later renderer and deferred-data chunks through directly.
+
+Two behaviour changes worth knowing:
+
+- **A deferred rejection no longer fails the response.** Before the first flush
+  a failure still renders a normal error document. After it, the status is
+  already sent, so the rejection travels with the data and surfaces where the
+  value is read. The route or shell `ErrorBoundary` export renders, or a nearer
+  standalone `<ErrorBoundary>` can recover just that subtree; the response
+  stays `200`. Unexpected server failures remain sanitized in production, just
+  like buffered route errors.
+- **`<Script strategy="beforeHydration">` is emitted in place** rather than
+  hoisted into `<head>`, which has already been sent. It still runs before
+  hydration.
+
+Streaming also needs a `script-src` that permits the renderer's inline
+bootstrap script, which has no nonce hook yet — see [CSP](/docs/recipes/csp).
+Non-streaming routes are unaffected, which is why this is opt-in.
 
 ### Error handling
 

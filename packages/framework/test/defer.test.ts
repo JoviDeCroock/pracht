@@ -1,6 +1,14 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { defer, isDeferred, resolveDeferredData, type Deferred, use } from "../src/defer.ts";
+import {
+  defer,
+  isDeferred,
+  rehydrateDeferredData,
+  resolveDeferredData,
+  serializeDeferred,
+  type Deferred,
+  use,
+} from "../src/defer.ts";
 import type { HeadArgs, HeadersArgs, RouteComponentProps } from "../src/types.ts";
 import { PrachtHttpError } from "../src/types.ts";
 
@@ -316,19 +324,13 @@ describe("deferred loader data types", () => {
     };
   }
 
-  type ResolvedData = {
-    product: { name: string };
-    reviews: { id: number }[];
-    summary: { score: number };
-  };
-
-  // head() and headers() decide status and headers, so they can never see an
-  // unsettled value and their data type resolves. The component can — once
-  // streaming lands — so its props keep the markers and `use()` stays the only
-  // way to read one.
-  it("resolves deferred fields for head and headers while preserving component markers", () => {
-    expectTypeOf<HeadArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();
-    expectTypeOf<HeadersArgs<typeof loader>["data"]>().toEqualTypeOf<ResolvedData>();
+  it("preserves deferred markers for head, headers, and components", () => {
+    expectTypeOf<HeadArgs<typeof loader>["data"]>().toEqualTypeOf<
+      Awaited<ReturnType<typeof loader>>
+    >();
+    expectTypeOf<HeadersArgs<typeof loader>["data"]>().toEqualTypeOf<
+      Awaited<ReturnType<typeof loader>>
+    >();
     expectTypeOf<RouteComponentProps<typeof loader>["data"]["reviews"]>().toEqualTypeOf<
       Deferred<{ id: number }[]>
     >();
@@ -389,4 +391,196 @@ describe("use()", () => {
     const result: string | null = use(optional);
     expect(result).toBeNull();
   });
+});
+
+describe("streaming wire metadata", () => {
+  async function settle(value: unknown): Promise<unknown> {
+    try {
+      return use(value);
+    } catch (promise) {
+      await promise;
+      return use(value);
+    }
+  }
+
+  it("keeps dotted keys distinct from nested paths", async () => {
+    const { data, pending } = serializeDeferred({
+      "a.b": defer(Promise.resolve("flat")),
+      a: { b: defer(Promise.resolve("nested")) },
+    });
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+    try {
+      const hydrated = rehydrateDeferredData(
+        data,
+        pending.map(({ id, path }) => ({ id, path })),
+      ) as { "a.b": unknown; a: { b: unknown } };
+      const registry = (
+        globals.window as {
+          __PRACHT_DEFER__: { r(id: string, value: unknown): void };
+        }
+      ).__PRACHT_DEFER__;
+      for (const entry of pending) registry.r(entry.id, await entry.promise);
+
+      await expect(settle(hydrated["a.b"])).resolves.toBe("flat");
+      await expect(settle(hydrated.a.b)).resolves.toBe("nested");
+    } finally {
+      if (!hadWindow) delete globals.window;
+    }
+  });
+
+  it("does not interpret user objects as deferred metadata", () => {
+    const userValue = { "$pracht:defer": "ordinary-data" };
+    expect(rehydrateDeferredData(userValue)).toBe(userValue);
+  });
+
+  it("does not invoke accessors while discovering deferred values", () => {
+    let reads = 0;
+    const source = {
+      get reviews() {
+        reads += 1;
+        return defer(Promise.resolve(`reviews-${reads}`));
+      },
+    };
+
+    const { data, pending } = serializeDeferred(source);
+
+    expect(reads).toBe(0);
+    expect(pending).toEqual([]);
+    expect(() => JSON.stringify(data)).toThrow(
+      "Return defer() from an enumerable data property, not from a getter",
+    );
+    expect(reads).toBe(1);
+  });
+
+  it("does not invoke array accessors while discovering deferred values", () => {
+    let reads = 0;
+    const source: unknown[] = [];
+    Object.defineProperty(source, "0", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        reads += 1;
+        return defer(Promise.resolve(`reviews-${reads}`));
+      },
+    });
+    source.length = 1;
+
+    const { data, pending } = serializeDeferred(source);
+
+    expect(reads).toBe(0);
+    expect(pending).toEqual([]);
+    expect(() => JSON.stringify(data)).toThrow(
+      "Return defer() from an enumerable data property, not from a getter",
+    );
+    expect(reads).toBe(1);
+  });
+
+  it("preserves serialized error metadata on deferred rejections", async () => {
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+    try {
+      const hydrated = rehydrateDeferredData({ value: null }, [
+        { id: "deferred-error", path: ["value"] },
+      ]) as { value: unknown };
+      const registry = (
+        globals.window as {
+          __PRACHT_DEFER__: { e(id: string, error: unknown): void };
+        }
+      ).__PRACHT_DEFER__;
+      registry.e("deferred-error", {
+        message: "Not found",
+        name: "PrachtHttpError",
+        status: 404,
+      });
+
+      await expect(settle(hydrated.value)).rejects.toMatchObject({
+        message: "Not found",
+        name: "PrachtHttpError",
+        status: 404,
+      });
+    } finally {
+      if (!hadWindow) delete globals.window;
+    }
+  });
+
+  it("serializes every occurrence of a shared object", () => {
+    const shared = { value: defer(Promise.resolve("ok")) };
+    const { data, pending } = serializeDeferred({ first: shared, second: shared });
+
+    expect(data).toEqual({ first: { value: null }, second: { value: null } });
+    expect(pending.map(({ path }) => path)).toEqual([
+      ["first", "value"],
+      ["second", "value"],
+    ]);
+  });
+
+  it("preserves __proto__ data without polluting Object.prototype", async () => {
+    const source = JSON.parse('{"__proto__":{}}') as Record<string, any>;
+    source.__proto__.polluted = defer(Promise.resolve("safe"));
+    const { data, pending } = serializeDeferred(source);
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+
+    try {
+      expect(Object.hasOwn(data as object, "__proto__")).toBe(true);
+      const hydrated = rehydrateDeferredData(
+        JSON.parse(JSON.stringify(data)),
+        pending.map(({ id, path }) => ({ id, path })),
+      ) as Record<string, any>;
+      const registry = (
+        globals.window as {
+          __PRACHT_DEFER__: { r(id: string, value: unknown): void };
+        }
+      ).__PRACHT_DEFER__;
+      registry.r(pending[0].id, await pending[0].promise);
+
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+      expect(Object.hasOwn(hydrated, "__proto__")).toBe(true);
+      await expect(settle(hydrated.__proto__.polluted)).resolves.toBe("safe");
+    } finally {
+      delete (Object.prototype as { polluted?: unknown }).polluted;
+      if (!hadWindow) delete globals.window;
+    }
+  });
+
+  it("rejects deferred paths that would traverse inherited properties", () => {
+    const globals = globalThis as { window?: unknown };
+    const hadWindow = "window" in globals;
+    globals.window = globals.window ?? {};
+    try {
+      expect(() =>
+        rehydrateDeferredData({}, [{ id: "forged", path: ["__proto__", "polluted"] }]),
+      ).toThrow(/Invalid deferred hydration path/);
+      expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
+    } finally {
+      delete (Object.prototype as { polluted?: unknown }).polluted;
+      if (!hadWindow) delete globals.window;
+    }
+  });
+});
+
+it("reads queued hydration data synchronously and preserves its first settlement", () => {
+  const globals = globalThis as { window?: unknown };
+  const previous = globals.window;
+  globals.window = {
+    __PRACHT_DEFER__: {
+      q: [
+        ["already-settled", "ready", 0],
+        ["already-settled", "ignored", 0],
+      ],
+    },
+  };
+  try {
+    const data = rehydrateDeferredData({ value: null }, [
+      { id: "already-settled", path: ["value"] },
+    ]);
+    expect(use(data.value)).toBe("ready");
+  } finally {
+    if (previous === undefined) delete globals.window;
+    else globals.window = previous;
+  }
 });

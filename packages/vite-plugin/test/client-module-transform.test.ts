@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import {
   mkdtempSync,
   mkdirSync,
@@ -23,6 +24,7 @@ import { stripServerOnlyExportsForClient } from "../src/client-module-transform.
 import { GENERATED_PAGES_LAYOUT_EXPORT } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
+const require = createRequire(import.meta.url);
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 function makeTempProject(): string {
@@ -142,29 +144,23 @@ async function buildTempProject(
         },
         {
           find: "preact/jsx-dev-runtime",
-          replacement: resolve(
-            repoRoot,
-            "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
-          ),
+          replacement: require.resolve("preact/jsx-dev-runtime"),
         },
         {
           find: "preact/jsx-runtime",
-          replacement: resolve(
-            repoRoot,
-            "node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
-          ),
+          replacement: require.resolve("preact/jsx-runtime"),
         },
         {
           find: "preact/hooks",
-          replacement: resolve(repoRoot, "node_modules/preact/hooks/dist/hooks.module.js"),
+          replacement: require.resolve("preact/hooks"),
         },
         {
           find: "preact/devtools",
-          replacement: resolve(repoRoot, "node_modules/preact/devtools/dist/devtools.module.js"),
+          replacement: require.resolve("preact/devtools"),
         },
         {
           find: "preact/debug",
-          replacement: resolve(repoRoot, "node_modules/preact/debug/dist/debug.module.js"),
+          replacement: require.resolve("preact/debug"),
         },
         { find: "preact", replacement: resolve(repoRoot, "node_modules/preact/dist/preact.mjs") },
       ],

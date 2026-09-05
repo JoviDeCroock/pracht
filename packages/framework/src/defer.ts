@@ -18,19 +18,22 @@
  * the object keeps its shape, the type records exactly which fields defer, and
  * a route that calls `defer()` nowhere serializes byte-identically to before.
  *
- * Today every path resolves deferred values before the response is written —
- * `resolveDeferredData()` is called once, at the single loader call site in
- * `runtime.ts`. The authoring API is the finished one: when the streaming
- * renderer lands, `render: "ssr"` starts flushing the shell before these
- * settle and no route source has to change. `use()` already accepts a settled
- * value, a `Deferred`, or a bare promise for exactly that reason.
+ * Buffered documents and route-state responses resolve deferred values before
+ * writing. An SSR route with `streaming: true` instead flushes its shell and
+ * delivers the deferred values as they settle. The component API is identical
+ * on both paths: `use()` accepts a settled value, a `Deferred`, or a bare
+ * promise.
  *
  * Note that `ssg` and `isg` write files and therefore always resolve
  * everything — a static file cannot stream, and shipping fallback markup as
  * permanent output would be a correctness bug.
  */
 
-import { isPrachtHttpError } from "./runtime-errors.ts";
+import {
+  deserializeRouteError,
+  isPrachtHttpError,
+  type SerializedRouteError,
+} from "./runtime-errors.ts";
 
 const DEFERRED = Symbol.for("pracht.deferred");
 
@@ -169,8 +172,8 @@ type SettledState<T> =
 const settled = new WeakMap<Promise<unknown>, SettledState<unknown>>();
 
 /**
- * Throw-until-settled, the shape `preact-suspense` and
- * `preact-render-to-string` both already understand.
+ * Throw-until-settled, the shape Preact Suspense and
+ * `preact-render-to-string` both understand.
  */
 function readSettled<T>(promise: Promise<T>): T {
   let state = settled.get(promise) as SettledState<T> | undefined;
@@ -333,4 +336,253 @@ function deferredSerializationError(): TypeError {
     "A deferred loader value reached serialization without being resolved. " +
       "Return defer() from an enumerable data property, not from a getter.",
   );
+}
+
+/* -------------------------------------------------------------------------- *
+ * Wire format
+ *
+ * A streamed document cannot serialize a value that has not settled. The
+ * hydration state therefore carries null placeholders in `data` plus an
+ * out-of-band list of exact paths to replace with Deferred values. Keeping the
+ * metadata outside user data avoids reserving a magic object shape, while path
+ * segment arrays preserve keys containing dots, slashes, or numeric strings.
+ * -------------------------------------------------------------------------- */
+
+export type DeferredPathSegment = string | number;
+
+export interface DeferredHydrationReference {
+  id: string;
+  path: DeferredPathSegment[];
+}
+
+export interface SerializedDeferred {
+  /** Loader data with each unresolved `Deferred` replaced by `null`. */
+  data: unknown;
+  /** Deferred values and the exact hydration-state locations they replace. */
+  pending: Array<DeferredHydrationReference & { promise: Promise<unknown> }>;
+}
+
+/**
+ * Replace every `Deferred` with `null`, collecting its promise and exact path.
+ * IDs include a deterministic counter plus a readable path for diagnostics;
+ * the counter makes them unique even when user keys render alike.
+ */
+export function serializeDeferred(data: unknown): SerializedDeferred {
+  const pending: Array<DeferredHydrationReference & { promise: Promise<unknown> }> = [];
+
+  const walk = (value: unknown, path: DeferredPathSegment[], ancestors: Set<object>): unknown => {
+    if (isDeferred(value)) {
+      const label = path.length === 0 ? "root" : path.map(String).join(".");
+      const id = `${pending.length}:${label}`;
+      pending.push({
+        id,
+        path: [...path],
+        promise: resolveDeferredData(value),
+      });
+      return null;
+    }
+    if (typeof value !== "object" || value === null) return value;
+    if (ancestors.has(value)) return value;
+    ancestors.add(value);
+
+    if (Array.isArray(value)) {
+      const next: unknown[] = [];
+      Object.setPrototypeOf(next, Object.getPrototypeOf(value));
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      for (const key of Reflect.ownKeys(descriptors)) {
+        if (key === "length") continue;
+        const descriptor = descriptors[key as keyof typeof descriptors];
+        Object.defineProperty(
+          next,
+          key,
+          isArrayIndexKey(key) && "value" in descriptor
+            ? {
+                ...descriptor,
+                value: walk(descriptor.value, [...path, Number(key)], ancestors),
+              }
+            : descriptor,
+        );
+      }
+      Object.defineProperty(next, "length", descriptors.length);
+      ancestors.delete(value);
+      return next;
+    }
+    if (!isPlainObject(value)) {
+      ancestors.delete(value);
+      return value;
+    }
+
+    const next = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const key of Reflect.ownKeys(descriptors)) {
+      const descriptor = descriptors[key as keyof typeof descriptors];
+      Object.defineProperty(
+        next,
+        key,
+        typeof key === "string" && descriptor.enumerable && "value" in descriptor
+          ? { ...descriptor, value: walk(descriptor.value, [...path, String(key)], ancestors) }
+          : descriptor,
+      );
+    }
+    ancestors.delete(value);
+    return next;
+  };
+
+  return { data: walk(data, [], new Set()), pending };
+}
+
+/**
+ * The inline shim written before any deferred chunk.
+ *
+ * The streamed client runtime is an async module, so a deferred chunk can land
+ * before or after the real registry installs. The shim is emitted first and
+ * queues early `r`/`e` calls for the registry to drain.
+ */
+export const DEFER_RUNTIME_SHIM =
+  "window.__PRACHT_DEFER__=window.__PRACHT_DEFER__||{q:[]," +
+  "r:function(i,v){this.q.push([i,v,0])},e:function(i,v){this.q.push([i,v,1])}};";
+
+interface DeferRegistry {
+  q?: [string, unknown, 0 | 1][];
+  r(id: string, value: unknown): void;
+  e(id: string, error: unknown): void;
+}
+
+const clientDeferred = new Map<
+  string,
+  { promise: Promise<unknown>; resolve: (v: unknown) => void; reject: (e: unknown) => void }
+>();
+
+function getClientEntry(id: string) {
+  let entry = clientDeferred.get(id);
+  if (!entry) {
+    let resolve!: (v: unknown) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<unknown>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    // Nothing may observe this rejection before `use()` reads it, and an
+    // unobserved rejection is an unhandled-rejection warning in the browser.
+    promise.catch(() => {});
+    let done = false;
+    entry = {
+      promise,
+      resolve(value) {
+        if (done) return;
+        done = true;
+        settled.set(promise, { status: "fulfilled", value });
+        resolve(value);
+      },
+      reject(reason) {
+        if (done) return;
+        done = true;
+        settled.set(promise, { status: "rejected", reason });
+        reject(reason);
+      },
+    };
+    clientDeferred.set(id, entry);
+  }
+  return entry;
+}
+
+/**
+ * Install the real registry and drain whatever the shim queued.
+ *
+ * Idempotent: repeated calls (client navigation, HMR) reuse the same map so a
+ * chunk that arrived before hydration is never lost.
+ */
+export function installDeferRegistry(): void {
+  if (typeof window === "undefined") return;
+  const existing = (window as unknown as { __PRACHT_DEFER__?: DeferRegistry }).__PRACHT_DEFER__;
+  const queued = existing?.q ?? [];
+
+  const registry: DeferRegistry = {
+    r(id, value) {
+      getClientEntry(id).resolve(value);
+    },
+    e(id, error) {
+      const err = isSerializedRouteError(error)
+        ? deserializeRouteError(error)
+        : new Error(
+            typeof error === "object" && error !== null && "message" in error
+              ? String((error as { message: unknown }).message)
+              : String(error),
+          );
+      getClientEntry(id).reject(err);
+    },
+  };
+  (window as unknown as { __PRACHT_DEFER__: DeferRegistry }).__PRACHT_DEFER__ = registry;
+
+  for (const [id, value, kind] of queued) {
+    if (kind === 1) registry.e(id, value);
+    else registry.r(id, value);
+  }
+}
+
+function isSerializedRouteError(error: unknown): error is SerializedRouteError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as Partial<SerializedRouteError>).message === "string" &&
+    typeof (error as Partial<SerializedRouteError>).name === "string" &&
+    typeof (error as Partial<SerializedRouteError>).status === "number"
+  );
+}
+
+/**
+ * Replace the out-of-band deferred locations in hydrated loader data.
+ *
+ * Returns the input by reference when there are no references, so a route that
+ * defers nothing pays nothing. The input comes directly from `JSON.parse`, so
+ * replacing its placeholder values in place cannot mutate application state.
+ */
+export function rehydrateDeferredData<T>(
+  data: T,
+  references: readonly DeferredHydrationReference[] = [],
+): T {
+  if (references.length === 0) return data;
+  installDeferRegistry();
+
+  let result: unknown = data;
+  for (const { id, path } of references) {
+    const replacement = defer(getClientEntry(id).promise);
+    if (path.length === 0) {
+      result = replacement;
+      continue;
+    }
+
+    let parent: unknown = result;
+    for (let index = 0; index < path.length - 1; index += 1) {
+      const segment = path[index];
+      if (typeof parent !== "object" || parent === null || !Object.hasOwn(parent, segment)) {
+        throw new Error(`Invalid deferred hydration path for ${JSON.stringify(id)}.`);
+      }
+      parent = (parent as Record<DeferredPathSegment, unknown>)[segment];
+    }
+    if (typeof parent !== "object" || parent === null) {
+      throw new Error(`Invalid deferred hydration path for ${JSON.stringify(id)}.`);
+    }
+    defineOwnDataProperty(
+      parent as Record<DeferredPathSegment, unknown>,
+      path[path.length - 1],
+      replacement,
+    );
+  }
+
+  return result as T;
+}
+
+/** Define an enumerable own property without invoking the legacy `__proto__` setter. */
+function defineOwnDataProperty(
+  target: Record<PropertyKey, unknown>,
+  key: PropertyKey,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
 }

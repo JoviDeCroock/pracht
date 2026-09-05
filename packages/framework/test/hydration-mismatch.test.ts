@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { Fragment, h, hydrate, options as preactOptions, render } from "preact";
 import type { VNode } from "preact";
-import { Suspense, lazy } from "preact-suspense";
+import { Suspense, lazy } from "../src/suspense.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {

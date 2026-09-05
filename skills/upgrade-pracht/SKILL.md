@@ -102,7 +102,7 @@ changelog prescribes, and whether it can be applied mechanically. Also
 re-check peer ranges after a major target bump — `@pracht/vite-plugin`
 requires `vite` (^8), `@pracht/adapter-cloudflare` requires `vite` and
 `wrangler` (^4.81), `@pracht/core` requires `preact` (^10) and
-`preact-render-to-string` (^6).
+`preact-render-to-string` (^6.7).
 
 Present the plan as a table:
 

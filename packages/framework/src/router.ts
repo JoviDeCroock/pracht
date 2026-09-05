@@ -1,8 +1,8 @@
-import { createContext, h } from "preact";
+import { Component, createContext, h } from "preact";
 import { hydrate, render } from "preact";
 import { useContext, useLayoutEffect, useMemo, useState } from "preact/hooks";
 import type { StateUpdater } from "preact/hooks";
-import type { FunctionComponent } from "preact";
+import type { ComponentChildren, FunctionComponent } from "preact";
 import type { FontHeadFragments } from "./font.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
@@ -18,6 +18,7 @@ import { installHydrationMismatchWarning } from "./hydration-mismatch.ts";
 import { readHistoryIndex, withHistoryIndex } from "./navigation-blocker.ts";
 import type { BlockerHistoryAction, BlockNavigationFn } from "./navigation-blocker.ts";
 import { markHydrating, onHydrationComplete } from "./hydration.ts";
+import { normalizeCaughtError } from "./error-boundary.ts";
 import {
   beginLoadingNavigation,
   createNavigationLocation,
@@ -105,6 +106,7 @@ const BLOCKER_ENABLED =
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
+  ErrorBoundaries: readonly [FunctionComponent | null, FunctionComponent | null];
   capabilities: readonly string[];
   componentProps: Record<string, unknown>;
   data: unknown;
@@ -112,6 +114,26 @@ interface RouteRenderState {
   routeId: string;
   url: string;
   version: number;
+}
+
+interface RouteErrorBoundaryProps {
+  Boundary: FunctionComponent;
+  children: ComponentChildren;
+}
+
+class RouteErrorBoundary extends Component<RouteErrorBoundaryProps, { error: Error | null }> {
+  state = { error: null };
+
+  componentDidCatch(error: unknown): void {
+    if (typeof (error as { then?: unknown } | null)?.then === "function") throw error;
+    this.setState({ error: normalizeCaughtError(error) });
+  }
+
+  render(props: RouteErrorBoundaryProps, state: { error: Error | null }): ComponentChildren {
+    return state.error === null
+      ? props.children
+      : h(props.Boundary as FunctionComponent<Record<string, unknown>>, { error: state.error });
+  }
 }
 
 declare global {
@@ -202,10 +224,6 @@ export interface InitClientRouterOptions {
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
   const { app, routeModules, shellModules, root, findModuleKey, onRouteChange } = options;
-
-  if (import.meta.env?.DEV) {
-    installHydrationMismatchWarning();
-  }
 
   const moduleCache = new Map<string, Promise<unknown>>();
 
@@ -459,8 +477,19 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     updateRouteState = setRouteState;
     const navigateValue = useMemo(() => navigate, []);
 
-    const { Shell, Component, capabilities, componentProps, data, params, routeId, url, version } =
-      routeState;
+    const {
+      Shell,
+      Component,
+      ErrorBoundaries,
+      capabilities,
+      componentProps,
+      data,
+      params,
+      routeId,
+      url,
+      version,
+    } = routeState;
+    const [RouteBoundary, ShellBoundary] = ErrorBoundaries;
     activeRouteStateVersion = version;
 
     useLayoutEffect(() => {
@@ -471,9 +500,23 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       callback();
     }, [capabilities, version]);
     const routeElement = h(RouteComponent, { Component, componentProps });
-    const componentTree = Shell
-      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, routeElement)
+    const guardedRouteElement = RouteBoundary
+      ? h(RouteErrorBoundary, {
+          key: version,
+          Boundary: RouteBoundary,
+          children: routeElement,
+        })
       : routeElement;
+    const shellTree = Shell
+      ? h(Shell as FunctionComponent<Record<string, unknown>>, null, guardedRouteElement)
+      : guardedRouteElement;
+    const componentTree = ShellBoundary
+      ? h(RouteErrorBoundary, {
+          key: version,
+          Boundary: ShellBoundary,
+          children: shellTree,
+        })
+      : shellTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -521,7 +564,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
 
     const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
-    const ErrorBoundary = routeMod.ErrorBoundary ?? resolvedShell?.ErrorBoundary;
+    const RouteBoundary = routeMod.ErrorBoundary as FunctionComponent | undefined;
+    const ShellBoundary = resolvedShell?.ErrorBoundary as FunctionComponent | undefined;
+    const ErrorBoundary = RouteBoundary ?? ShellBoundary;
     const Component = (
       state.error ? ErrorBoundary : (routeMod.Component ?? DefaultComponent)
     ) as FunctionComponent<any>;
@@ -534,6 +579,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component,
+      ErrorBoundaries: state.error ? [null, null] : [RouteBoundary ?? null, ShellBoundary ?? null],
       capabilities: match.route.capabilities ?? [],
       componentProps,
       data: state.data,
@@ -560,6 +606,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     return {
       Shell,
       Component: Loading ?? (() => null),
+      ErrorBoundaries: [null, null],
       capabilities: match.route.capabilities ?? [],
       componentProps: {},
       data: undefined,
@@ -1021,6 +1068,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialShellPromise,
       );
       if (pendingState) {
+        if (import.meta.env?.DEV) installHydrationMismatchWarning();
         hydrate(h(RouterRoot, { initialState: pendingState }), root);
       }
 
@@ -1089,6 +1137,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         if (initialMatch.route.render === "spa") {
           render(h(RouterRoot, { initialState: initialRouteState }), root);
         } else {
+          // The renderer schedules its subtree swaps in animation frames. Let
+          // those queued swaps finish before attaching handlers to their DOM.
+          if (
+            initialMatch.route.streaming &&
+            document.querySelector("preact-island[data-target]")
+          ) {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          }
+          // Route and shell imports have settled by this point. If either uses
+          // Suspense, compat's boundary handler is now in place, so the dev
+          // tracker can wrap it instead of being hidden behind it later.
+          if (import.meta.env?.DEV) installHydrationMismatchWarning();
           markHydrating();
           hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
           onHydrationComplete(() => {
@@ -1156,17 +1216,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
-  // Publish readiness only after a static fallback has resolved and committed
-  // its real route. The fallback document starts with an empty body, so
-  // marking it ready before the async route import finishes would violate the
-  // public test/tooling contract below.
-  window.__PRACHT_ROUTER_READY__ = true;
-  // Public hydration marker for test tooling: server-rendered pages look
-  // interactive before the client router takes over, so tests (Playwright,
-  // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
-  // interacting earlier triggers native form submits instead of JS handlers.
-  document.documentElement.setAttribute("data-pracht-hydrated", "true");
-
   // Restore the scroll position after a reload or a return from an external
   // document — with `history.scrollRestoration = "manual"` the browser no
   // longer does this for us.
@@ -1183,9 +1232,26 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       startShellImport(match);
     };
     registerPrefetchTarget(app, warmModules);
-    const { setupPrefetching } = await import("./prefetch.ts");
-    setupPrefetching(app, warmModules);
+    try {
+      const { setupPrefetching } = await import("./prefetch.ts");
+      setupPrefetching(app, warmModules);
+    } catch (error) {
+      // Prefetching is an optional enhancement. A missing or stale lazy chunk
+      // must not leave an otherwise hydrated page permanently "not ready".
+      console.warn("[pracht] Prefetching could not be initialized.", error);
+    }
   }
+
+  // Publish readiness only after a static fallback has resolved and committed
+  // its real route and optional client features have installed their listeners.
+  // The fallback document starts with an empty body, so marking it ready before
+  // either step finishes would violate the public test/tooling contract below.
+  window.__PRACHT_ROUTER_READY__ = true;
+  // Public hydration marker for test tooling: server-rendered pages look
+  // interactive before the client router takes over, so tests (Playwright,
+  // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
+  // interacting earlier triggers native form submits instead of JS handlers.
+  document.documentElement.setAttribute("data-pracht-hydrated", "true");
 }
 
 /**

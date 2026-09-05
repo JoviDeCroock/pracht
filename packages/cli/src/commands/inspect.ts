@@ -326,6 +326,7 @@ function printInspectReport(report: InspectReport): void {
       // column (a route silently losing its auth gate should be visible).
       console.log(
         `  ${route.path}  id=${route.id}  render=${route.render ?? "n/a"}  hydration=${route.hydration ?? "full"}` +
+          `  streaming=${route.streaming === true ? "true" : "false"}` +
           `  shell=${route.shell ?? "none"}  middleware=[${route.middleware.join(", ")}]` +
           `  webmcp=[${route.capabilities?.join(", ") ?? ""}]  file=${route.file}`,
       );
@@ -334,7 +335,7 @@ function printInspectReport(report: InspectReport): void {
     console.log("\nNot found page");
     console.log(
       report.notFound
-        ? `  ${report.notFound.path}  shell=${report.notFound.shell ?? "n/a"}  hydration=${report.notFound.hydration ?? "full"}  middleware=[${report.notFound.middleware.join(", ")}]  file=${report.notFound.file}`
+        ? `  ${report.notFound.path}  shell=${report.notFound.shell ?? "n/a"}  hydration=${report.notFound.hydration ?? "full"}  streaming=${report.notFound.streaming === true ? "true" : "false"}  middleware=[${report.notFound.middleware.join(", ")}]  file=${report.notFound.file}`
         : "  None declared — unmatched URLs return a plain-text 404.",
     );
   }

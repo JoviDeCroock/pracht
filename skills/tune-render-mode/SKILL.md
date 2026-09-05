@@ -127,6 +127,42 @@ field (absent from the JSON), grep the manifest for `hydration:` (pages apps:
   router), island props must be JSON-serializable, and `render: "spa"` cannot
   combine with `"islands"`/`"none"`.
 
+## Step 3c: Consider streaming for slow SSR routes
+
+An `ssr` route whose loader has one slow call and several fast ones is a
+candidate for `defer()` plus `streaming: true`. Flag it when the loader awaits
+more than one independent source and at least one is materially slower — the
+whole document currently waits on the slowest.
+
+```ts
+// before: TTFB waits on getReviews()
+return { product: await getProduct(id), reviews: await getReviews(id) };
+
+// after: shell flushes without reviews, which stream in
+return { product: await getProduct(id), reviews: defer(getReviews(id)) };
+```
+
+Pages routes use `export const STREAMING = true` with SSR and full hydration.
+
+Recommend `streaming: true` only alongside a `<Suspense>` boundary reading the
+deferred value with `use()`; without a boundary there is nothing to flush
+early. Do not recommend it for:
+
+- `ssg` / `isg` routes — they write files and the manifest rejects the
+  combination
+- routes with `hydration` other than `"full"` — no client runtime resumes a
+  boundary, and the manifest rejects it
+- routes whose loader is a single slow call with nothing else to show — the
+  shell would be empty and the user sees a skeleton rather than content
+
+Also mention the tradeoffs when proposing it: a deferred rejection surfaces at
+the read site rather than as an error document (the response is already
+committed at `200`), and streaming needs a `script-src` that allows the
+renderer's inline bootstrap script. Route `head()` and `headers()` hooks run
+before deferred work settles, so any data they need must stay awaited. Confirm
+the app uses
+`preact-render-to-string` 6.7 or newer before enabling streaming.
+
 ## Step 4: Propose diffs, then apply on confirmation
 
 Present the exact edits and wait for approval. Where the edit lands depends

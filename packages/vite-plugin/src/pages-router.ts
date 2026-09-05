@@ -9,6 +9,7 @@ import {
   hasNamedMiddlewareExport,
   hasNamedValueExport,
   hasValueStarExport,
+  readPageStreaming,
   maskCommentsAndStrings,
   readNamedExportInitializer,
   resolvePagesCapabilityName,
@@ -41,6 +42,7 @@ export interface ScannedPage {
   isDynamic: boolean;
   renderMode?: string;
   hydrationMode?: string;
+  streaming?: boolean;
   revalidateSeconds?: number;
   hasRevalidateExport?: boolean;
   hasLoader?: boolean;
@@ -194,6 +196,10 @@ export function findPagesAppShellFiles(
       return !segments.slice(0, -1).some((segment) => segment.startsWith("_"));
     })
     .map((file) => {
+      if (readPageStreaming(readFileSync(file, "utf-8")) !== undefined)
+        throw new Error(
+          `[pracht] STREAMING belongs on a pages route, not ${JSON.stringify(file)}.`,
+        );
       const directory = relative(pagesDir, file)
         .replace(/\\/g, "/")
         .split("/")
@@ -440,6 +446,13 @@ function scan(
     const analysisSource = maskMarkdownFences(source, rel);
     const renderMode = extractQuotedPageExport(analysisSource, "RENDER_MODE", rel);
     const hydrationMode = extractQuotedPageExport(analysisSource, "HYDRATION", rel);
+    const streaming = readPageStreaming(analysisSource);
+    if (streaming === "invalid")
+      throw new Error(
+        `[pracht] Pages module ${JSON.stringify(rel)} must export STREAMING once as a boolean literal.`,
+      );
+    if (streaming !== undefined && (isRootApp || routePath === "/404"))
+      throw new Error(`[pracht] STREAMING belongs on a pages route, not ${JSON.stringify(rel)}.`);
     const capabilities = extractPageCapabilities(analysisSource, rel);
     const revalidate = extractRevalidateSeconds(analysisSource, rel);
     const hasLoader = detectLoaderExport(analysisSource);
@@ -464,6 +477,7 @@ function scan(
       isDynamic: routePath.split("/").some((segment) => segment.startsWith(":")),
       renderMode,
       hydrationMode,
+      streaming,
       revalidateSeconds: revalidate.seconds,
       hasRevalidateExport: revalidate.present,
       hasLoader,
@@ -703,12 +717,18 @@ export function generatePagesManifestSource(
           '`RENDER_MODE = "isg"` (or `pagesDefaultRender: "isg"`).',
       );
     }
+    if (page.streaming && (render !== "ssr" || (page.hydrationMode ?? "full") !== "full")) {
+      throw new Error(
+        `[pracht] Pages route ${JSON.stringify(page.relativePath)} requires SSR and full hydration for STREAMING.`,
+      );
+    }
     const fileRef = pageFileRef(page);
     const metaParts = [
       `render: ${JSON.stringify(render)}`,
       `hasLoader: ${page.hasLoader ? "true" : "false"}`,
       `hasHead: ${page.hasHead ? "true" : "false"}`,
     ];
+    if (page.streaming !== undefined) metaParts.push(`streaming: ${page.streaming}`);
     if (page.capabilities.length > 0) {
       metaParts.push(`capabilities: ${JSON.stringify(page.capabilities)}`);
     }

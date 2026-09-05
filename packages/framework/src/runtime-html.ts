@@ -101,7 +101,7 @@ function isAllowedHeadAttribute(
   );
 }
 
-export function buildHtmlDocument(options: {
+export interface HtmlDocumentOptions {
   head: HeadMetadata;
   body: string;
   /**
@@ -111,6 +111,12 @@ export function buildHtmlDocument(options: {
    */
   hydrationState?: PrachtHydrationState;
   clientEntryUrl?: string;
+  /** Let the streamed client runtime execute as soon as it is fetched. */
+  clientEntryAsync?: boolean;
+  /** Keep the client entry after streamed boundary content and in-place scripts. */
+  clientEntryAtEnd?: boolean;
+  /** Internal inline bootstrap emitted after state and before the client entry. */
+  inlineBootstrapScript?: { source: string; nonce?: string };
   /** Ordered route CSS assets, optionally carrying content to inline. */
   cssAssets?: Array<{ content?: string; href: string }>;
   cssUrls?: string[];
@@ -121,12 +127,32 @@ export function buildHtmlDocument(options: {
   speculationRules?: SpeculationRulesDocument | null;
   /** Page-scoped WebMCP tools consumed by the islands bootstrap. */
   webmcpCapabilities?: readonly string[];
-}): string {
+}
+
+/**
+ * Assemble the document as three pieces so the streaming renderer can write
+ * them around a body it does not have yet.
+ *
+ * `buildHtmlDocument()` is the concatenation of all three with the body in the
+ * middle, so the buffered and streamed paths cannot drift apart.
+ *
+ * - `prefix` — through the opening `<div id="pracht-root">`
+ * - `afterShell` — closes that div and carries hydration state/bootstrap scripts
+ * - `suffix` — optional deferred client entry plus `</body></html>`, written once
+ *   the render is done
+ */
+export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
+  prefix: string;
+  afterShell: string;
+  suffix: string;
+} {
   const {
     head,
-    body,
     hydrationState,
     clientEntryUrl,
+    clientEntryAsync = false,
+    clientEntryAtEnd = false,
+    inlineBootstrapScript,
     cssAssets,
     cssUrls = [],
     inlineCss = [],
@@ -230,8 +256,11 @@ export function buildHtmlDocument(options: {
   const stateScript = hydrationState
     ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`
     : "";
+  const bootstrapScript = inlineBootstrapScript
+    ? `<script${inlineBootstrapScript.nonce ? ` nonce="${escapeHtml(inlineBootstrapScript.nonce)}"` : ""}>${escapeScriptChildren(inlineBootstrapScript.source)}</script>`
+    : "";
   const entryScript = clientEntryUrl
-    ? `<script type="module" src="${escapeHtml(clientEntryUrl)}"${
+    ? `<script type="module"${clientEntryAsync ? " async" : ""} src="${escapeHtml(clientEntryUrl)}"${
         webmcpCapabilities.length > 0
           ? ` data-pracht-webmcp-tools="${escapeHtml(webmcpCapabilities.join(","))}"`
           : ""
@@ -257,20 +286,30 @@ export function buildHtmlDocument(options: {
     ],
     "    ",
   );
-  const bodyLines = joinDocumentLines(
-    [`<div id="pracht-root">${body}</div>`, stateScript, entryScript],
+  const trailingScripts = joinDocumentLines(
+    [stateScript, bootstrapScript, clientEntryAtEnd ? "" : entryScript],
     "    ",
   );
+  const suffixScripts = joinDocumentLines([clientEntryAtEnd ? entryScript : ""], "    ");
 
-  return `<!DOCTYPE html>
+  return {
+    prefix: `<!DOCTYPE html>
 <html${head.lang ? ` lang="${escapeHtml(head.lang)}"` : ""}>
   <head>
 ${headLines}
   </head>
   <body>
-${bodyLines}
+    <div id="pracht-root">`,
+    afterShell: `</div>${trailingScripts ? `\n${trailingScripts}` : ""}`,
+    suffix: `${suffixScripts ? `\n${suffixScripts}` : ""}
   </body>
-</html>`;
+</html>`,
+  };
+}
+
+export function buildHtmlDocument(options: HtmlDocumentOptions): string {
+  const { prefix, afterShell, suffix } = buildHtmlDocumentParts(options);
+  return `${prefix}${options.body}${afterShell}${suffix}`;
 }
 
 function joinDocumentLines(parts: string[], indent: string): string {

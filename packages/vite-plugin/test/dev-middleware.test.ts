@@ -1,14 +1,19 @@
+import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
 
 import {
   collectDevCssUrls,
+  createDevCssInjectionMiddleware,
   createDevCssManifest,
+  injectStreamingBodyEnd,
   injectDevCssForPath,
   injectDevCssLinks,
   isEventStreamContentType,
   isDevNotFoundRequest,
   shouldBypassDevSSR,
   shouldRenderDevErrorOverlay,
+  shouldStreamDevHtmlResponse,
+  transformStreamingDevHtmlPrefix,
 } from "../src/plugin-dev-ssr.ts";
 import { PRACHT_DEV_MODULE_ID } from "../src/plugin-assets.ts";
 
@@ -17,6 +22,40 @@ describe("development streaming response detection", () => {
     expect(isEventStreamContentType("text/event-stream; charset=utf-8")).toBe(true);
     expect(isEventStreamContentType("Text/Event-Stream; Charset=UTF-8")).toBe(true);
     expect(isEventStreamContentType("application/json")).toBe(false);
+  });
+
+  it("streams only responses created by the framework streaming renderer", () => {
+    const response = new Response("<main>custom middleware response</main>", {
+      headers: { "content-type": "text/html" },
+    });
+
+    expect(
+      shouldStreamDevHtmlResponse({ isStreamingHtmlResponse: () => false }, response, "text/html"),
+    ).toBe(false);
+    expect(
+      shouldStreamDevHtmlResponse({ isStreamingHtmlResponse: () => true }, response, "text/html"),
+    ).toBe(true);
+  });
+
+  it("keeps Vite body-end injections outside the streamed hydration root", async () => {
+    const server = {
+      transformIndexHtml: async (_url: string, html: string) =>
+        html
+          .replace("</head>", '<meta name="head-hook"></head>')
+          .replace("</body>", '<script id="body-hook"></script></body>'),
+    } as any;
+    const transformed = await transformStreamingDevHtmlPrefix(
+      server,
+      "/stream",
+      '<!DOCTYPE html><html><head></head><body><div id="pracht-root">',
+      "/",
+    );
+
+    expect(transformed.prefix).toContain('name="head-hook"');
+    expect(transformed.prefix).not.toContain('id="body-hook"');
+    const suffix = injectStreamingBodyEnd("</div></body></html>", transformed.beforeBodyClose);
+    expect(suffix.injected).toBe(true);
+    expect(suffix.html).toBe('</div><script id="body-hook"></script></body></html>');
   });
 });
 
@@ -167,6 +206,77 @@ describe("development CSS discovery", () => {
       'href="/app/src/routes/about.css"',
     );
     expect(matchedPathnames).toEqual(["/about", "/about"]);
+  });
+
+  it("injects CSS into an adapter-owned streaming prefix without buffering the tail", async () => {
+    const routeEntry = moduleNode("/src/routes/stream.tsx", "js", [
+      moduleNode("/src/routes/stream.css", "css"),
+    ]);
+    const viteServer = {
+      config: { base: "/", logger: { warn() {} } },
+      environments: {
+        worker: {
+          moduleGraph: {
+            getModuleByUrl: async (url: string) =>
+              url === "/src/routes/stream.tsx" ? routeEntry : undefined,
+          },
+        },
+      },
+      ssrLoadModule: async (id: string) => {
+        if (id === "@pracht/core/server") {
+          return {
+            matchAppRoute: () => ({
+              route: { file: "./routes/stream.tsx", streaming: true },
+            }),
+            stripBase: (pathname: string) => pathname,
+          };
+        }
+        if (id === PRACHT_DEV_MODULE_ID) {
+          return {
+            registry: {
+              routeModules: { "/src/routes/stream.tsx": async () => ({}) },
+            },
+            resolvedApp: { routes: [] },
+          };
+        }
+        throw new Error(`Unexpected ssrLoadModule id: ${id}`);
+      },
+    } as any;
+    const middleware = createDevCssInjectionMiddleware(viteServer);
+    let finish!: () => void;
+    const server = createServer((req, res) => {
+      middleware(req, res, () => {
+        res.setHeader("content-type", "text/html; charset=utf-8");
+        res.write("<html><head></head><body>shell");
+        finish = () => res.end("tail</body></html>");
+      });
+    });
+
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Expected a TCP address");
+      const response = await fetch(`http://127.0.0.1:${address.port}/stream`, {
+        headers: { accept: "text/html" },
+      });
+      const reader = response.body!.getReader();
+      const first = new TextDecoder().decode((await reader.read()).value);
+
+      expect(first).toContain('href="/src/routes/stream.css"');
+      expect(first).toContain("shell");
+      expect(first).not.toContain("tail");
+
+      finish();
+      let tail = "";
+      for (;;) {
+        const next = await reader.read();
+        if (next.done) break;
+        tail += new TextDecoder().decode(next.value);
+      }
+      expect(tail).toContain("tail</body></html>");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 

@@ -1708,3 +1708,22 @@ export const app = defineApp({ routes: [] });
     );
   });
 });
+
+it("preserves streaming in server, client, and ejected pages manifests", () => {
+  const pagesDir = makeTempPagesDir();
+  writeFileSync(
+    join(pagesDir, "index.tsx"),
+    'export const STREAMING = true; export const RENDER_MODE = "ssr"; export default () => null;',
+  );
+  const pages = scanPagesDirectory(pagesDir);
+  for (const target of ["server", "client"] as const) {
+    expect(generatePagesManifestSource(pages, { pagesDir, target })).toContain("streaming: true");
+  }
+  writeFileSync(
+    join(pagesDir, "index.tsx"),
+    'export const STREAMING = true; export const RENDER_MODE = "ssg";',
+  );
+  expect(() => generatePagesManifestSource(scanPagesDirectory(pagesDir), { pagesDir })).toThrow(
+    /requires SSR/,
+  );
+});
