@@ -1,6 +1,6 @@
 {
   "name": "@pracht/session",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "First-party sessions for Pracht: encrypted cookie sessions or store-backed session ids, secret rotation, flash messages, and session middleware. WebCrypto only, so it runs unchanged on Node, Cloudflare Workers, Netlify, and Vercel.",
   "keywords": [
     "pracht",

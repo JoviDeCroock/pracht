@@ -1,5 +1,13 @@
 # @pracht/image
 
+## 0.4.1
+
+### Patch Changes
+
+- [`04adc90`](https://github.com/JoviDeCroock/pracht/commit/04adc90db6304d3d5d118f27b1114d525668c162) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add first-party sessions and pages-router parity for middleware, nested shells, capabilities, and agent configuration, while hardening request cancellation, client navigation, development responses, toolchain requirements, and scaffolded agent tooling. The authoring MCP command is now `pracht dev-mcp`, with `pracht mcp` retained as a deprecated alias.
+
+- [#340](https://github.com/JoviDeCroock/pracht/pull/340) [`a269447`](https://github.com/JoviDeCroock/pracht/commit/a269447293b39d3bf3e23516318e0365c5ca8258) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add opt-in streaming SSR with deferred loader data using render-to-string 6.7 and Preact 10 or 11.
+
 ## 0.4.0
 
 ### Minor Changes

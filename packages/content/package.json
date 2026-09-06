@@ -1,6 +1,6 @@
 {
   "name": "@pracht/content",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Server-only content collections for Pracht with canonical route mapping, locales, compilation, caching, and static artifacts.",
   "keywords": [
     "pracht",
