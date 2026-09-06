@@ -24,13 +24,21 @@ import {
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
+  PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
   isCapabilitiesModule,
   isClientModule,
   isDevModule,
+  isDevPageToolsModule,
   isIslandsClientModule,
   isServerModule,
   isWebmcpModule,
 } from "./plugin-assets.ts";
+import {
+  appCoreHasDevPageTools,
+  createDevPageToolsScriptTag,
+  createPrachtDevPageToolsModuleSource,
+  shouldInjectDevPageTools,
+} from "./plugin-dev-page-tools.ts";
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
@@ -111,6 +119,7 @@ export {
 export {
   PRACHT_CAPABILITIES_MODULE_ID,
   PRACHT_CLIENT_MODULE_ID,
+  PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
@@ -360,6 +369,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
       if (isCapabilitiesModule(id)) return PRACHT_CAPABILITIES_MODULE_ID;
       if (isWebmcpModule(id)) return PRACHT_WEBMCP_MODULE_ID;
+      if (isDevPageToolsModule(id)) return PRACHT_DEV_PAGE_TOOLS_MODULE_ID;
 
       // Fail loudly when client code imports the server-only env entry.
       // `scan` resolutions (dep optimizer discovery) are skipped because the
@@ -410,6 +420,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           root,
           runnerConfig: capabilityRunnerConfig,
         });
+      }
+      if (isDevPageToolsModule(id)) {
+        // Dev-only by construction: a build never imports the module, and
+        // only the dev HTML transform below emits the tag that loads it.
+        return isBuild || !resolved.devPageTools
+          ? "export {};\n"
+          : createPrachtDevPageToolsModuleSource({ root, base });
       }
       return null;
     },
@@ -463,13 +480,21 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     async transformIndexHtml(html, context) {
       if (isBuild || !context.server || !html.includes("</head>")) return html;
 
+      // Every dev document — rendered route, dev 404, error overlay — loads
+      // the dev-only WebMCP page tools, so an agent driving this tab can ask
+      // it what it is showing. The tag is emitted here and nowhere else.
+      const tags =
+        resolved.devPageTools && shouldInjectDevPageTools(context.path)
+          ? [createDevPageToolsScriptTag(context.server.config.base || "/")]
+          : [];
+
       try {
-        return await injectDevCssForPath(context.server, context.path, html);
+        return { html: await injectDevCssForPath(context.server, context.path, html), tags };
       } catch {
         // The original request path owns development error reporting. CSS
         // discovery must not replace its overlay or response with a second
         // module-loading failure from this HTML transform.
-        return html;
+        return { html, tags };
       }
     },
 
@@ -958,6 +983,9 @@ const PRACHT_OPTIMIZE_DEPS_INCLUDE = [
   "@pracht/core/client",
   "@pracht/core/islands-client",
   "@pracht/core/manifest",
+  // Dev-only page tools read the mounted route runtime; pre-bundling them in
+  // the same run as `@pracht/core/client` keeps that state in one module.
+  "@pracht/core/dev-page-tools",
 ];
 
 // Package names only: Vite matches `dedupe` against the bare package id, so a
@@ -982,7 +1010,12 @@ function createPrachtOptimizeDepsInclude(root: string): string[] {
     const require = createRequire(join(root, "package.json"));
     const corePackagePath = toPosixPath(require.resolve("@pracht/core/package.json"));
     if (!corePackagePath.includes("/node_modules/")) return [];
-    return PRACHT_OPTIMIZE_DEPS_INCLUDE;
+    // An installed core older than this plugin has no dev-page-tools entry;
+    // including it would make Vite warn about an unresolvable dependency on
+    // top of the generated module's own one-line warning.
+    return appCoreHasDevPageTools(root)
+      ? PRACHT_OPTIMIZE_DEPS_INCLUDE
+      : PRACHT_OPTIMIZE_DEPS_INCLUDE.filter((entry) => entry !== "@pracht/core/dev-page-tools");
   } catch {
     return [];
   }

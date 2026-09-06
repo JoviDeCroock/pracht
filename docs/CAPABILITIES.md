@@ -785,6 +785,17 @@ The capability graph feeds every existing inspection surface:
   including destructive declarations without `agents.mcp.destructive`;
 - the `pracht dev-mcp` server exposes `inspect_capabilities` and `inspect_agents`
   tools;
+- every dev document registers dev-only `pracht_*` WebMCP page tools
+  (`pracht_route`, `pracht_loader_data`, `pracht_islands`, `pracht_last_error`,
+  `pracht_page_tools`) for an agent-driven browser testing that tab. The
+  runtime is `@pracht/core/dev-page-tools`; the plugin's `transformIndexHtml`
+  hook injects `/@pracht/dev-page-tools.js` (`virtual:pracht/dev-page-tools`)
+  into every dev HTML document, and that module feature-detects
+  `document.modelContext` before importing the runtime. Live state comes from
+  the mounted route runtime (falling back to the hydration state script), the
+  static shape from `/_pracht.json`, and the error overlay embeds its failure
+  as JSON (`#pracht-dev-error`) so `pracht_last_error` can read it. No build
+  emits the tag or the module; `pracht({ devPageTools: false })` skips both;
 - `pracht verify` runs the static contract checks described above.
 
 The CLI, MCP, startup-banner, and Capabilities-table views describe the static

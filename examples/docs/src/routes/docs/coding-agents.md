@@ -12,11 +12,12 @@ next:
 
 ## Two Different Kinds of Agent
 
-"Agent" means two unrelated things in a pracht app, and the two MCP servers involved are the usual source of confusion. This page is entirely about the first row:
+"Agent" means two unrelated things in a pracht app, and the two MCP servers involved are the usual source of confusion. This page is entirely about the development rows:
 
 | | Audience | When | What it exposes |
 | --- | --- | --- | --- |
 | **`pracht dev-mcp`** (this page) | Your coding agent — Claude Code, Cursor, an MCP client on your machine | **Development** | Your app's *graph*: routes, API endpoints, capabilities, diagnostics, scaffolding |
+| **[Dev page tools](#debugging-in-the-tab-dev-page-tools)** (this page) | An agent-driven browser testing your app — agent-browser, ChatGPT desktop, Chromium under the WebMCP origin trial | **Development** | *This tab*: the matched route, its loader data, islands, the last error, and the app's own page tools — as WebMCP tools on every dev document |
 | **[Remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser)** | End-user agents calling your deployed app | **Production** | Your app's *operations*: capabilities served as MCP tools over Streamable HTTP |
 
 `pracht dev-mcp` never ships. It is part of `@pracht/cli`, it runs on your machine, and it is not reachable from your deployed app. Remote MCP is the opposite on every count.
@@ -106,6 +107,41 @@ Each returns the files created and updated as `{ kind, created, updated }`. `gen
 ### Error Handling
 
 Tool failures — a missing manifest, an unknown shell, a refusal to overwrite an existing file — come back as MCP `isError` results carrying the message. The server never crashes on a failed call, so an agent can read the error, correct its input, and retry.
+
+---
+
+## Debugging in the Tab: Dev Page Tools
+
+An agent that drives a browser against `pracht dev` — agent-browser, ChatGPT desktop's built-in browser, Chromium with the WebMCP origin trial — has the page in front of it but not the framework's view of that page. Which route matched? What did the loader actually return? Did the island hydrate? What was the server error behind this 500? Answering those from the outside means correlating server logs, or finding and configuring a separate MCP server, with the tab under test.
+
+So the tab answers them itself. Every document `pracht dev` serves registers five read-only [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents) page tools with the browser's model context, scoped to that document:
+
+| Tool | Answers |
+| --- | --- |
+| `pracht_route` | The matched route: id, URL, params, render and hydration mode, streaming, shell chain, route and loader files, middleware, declared capabilities, and whether this is the not-found page |
+| `pracht_loader_data` | The loader data the page holds right now — after client navigation and revalidation, not just the initial document. Pass `{ path: "notes.0.title" }` to read one value |
+| `pracht_islands` | The route's hydration mode and every `<pracht-island>` on the page with its source file, client strategy, serialized props, and hydration status |
+| `pracht_last_error` | The server error this document rendered (the dev error overlay, structured, or the `ErrorBoundary` state), plus the most recent uncaught client errors with stacks |
+| `pracht_page_tools` | The app's own WebMCP tools active on this route — the production agent surface — and the declared capabilities that are *not* page tools, with the reason |
+
+Each resolves to the same `{ ok, data }` / `{ ok: false, error }` envelope as a pracht capability. The tools follow committed client-side navigation, so after an agent clicks a link, `pracht_route` describes the destination.
+
+There is nothing to install. The dev SSR middleware injects one `<script type="module" src="/@pracht/dev-page-tools.js">` into every HTML document it serves — full-hydration routes, islands routes, `hydration: "none"` routes, the dev 404 page, and the error overlay alike. That module feature-detects `document.modelContext` before importing anything, so a browser without the WebMCP API pays for the feature check and nothing else. No build step emits the tag or the module; a production bundle cannot contain them. To turn them off, set `pracht({ devPageTools: false })` in `vite.config.ts`.
+
+```sh
+pracht dev
+# then, from an agent-driven browser on http://localhost:5173/notes:
+# pracht_route        → { ok: true, data: { routeId: "notes", render: "ssr", hydration: "full", … } }
+# pracht_loader_data  → { ok: true, data: { data: { notes: [ … ] } } }
+# pracht_last_error   → { ok: true, data: { server: null, client: [] } }
+```
+
+Two things to know before pointing an agent at it:
+
+- **Loader data is what the browser has.** Routes with `hydration: "islands"` or `"none"` never ship their loader data, so `pracht_loader_data` answers with an error that says so and names the request the client router makes (the route URL with the `x-pracht-route-state-request: 1` header) to read the serialized route state from the server instead.
+- **It is a debugging surface, not a security boundary.** Loader data and stack traces can contain whatever your loaders return. The tools are read-only, exist only on the dev origin, and are gone from every build — the same rule that keeps the Agents traffic panel on `/_pracht` out of production — but treat a dev server like the dev server it is.
+
+Together with the [WebMCP page tools](/docs/capabilities#webmcp-tools-for-in-browser-agents) your app already exposes, this makes `pracht dev` plus an agent-driven browser a complete loop: the agent exercises the production tools on the page and, when something looks wrong, asks the same page why.
 
 ---
 

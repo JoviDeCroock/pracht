@@ -16,6 +16,7 @@ export default defineConfig({
     "src/error-overlay.ts",
     "src/dev-404.ts",
     "src/devtools.ts",
+    "src/dev-page-tools.ts",
   ],
   format: "esm",
   dts: true,

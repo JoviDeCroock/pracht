@@ -154,6 +154,14 @@ export interface PrachtPluginOptions {
    * the dev server serves `/llms.txt` live. Disabled by default.
    */
   llmsTxt?: false | PrachtLlmsTxtOptions;
+  /**
+   * Register the dev-only, read-only `pracht_*` WebMCP page tools on every
+   * document `pracht dev` serves, so an agent-driven browser can ask the tab
+   * which route matched, what its loader returned, which islands hydrated,
+   * and what the last error was. `false` skips the script tag and the module.
+   * Never part of a build either way. Enabled by default.
+   */
+  devPageTools?: boolean;
 }
 
 export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
@@ -185,6 +193,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   precompileSsrJsx: false,
   envSafety: {},
   llmsTxt: false,
+  devPageTools: true,
 };
 
 export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPluginOptions {
@@ -196,6 +205,12 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   // spread over the `false` default — treat it as disabled, not invalid.
   if (resolved.llmsTxt === undefined) {
     resolved.llmsTxt = false;
+  }
+  if (resolved.devPageTools === undefined) {
+    resolved.devPageTools = true;
+  }
+  if (typeof resolved.devPageTools !== "boolean") {
+    throw new Error("pracht({ devPageTools }) expects a boolean.");
   }
   resolved.client = resolveClientOptions(options.client);
   if (typeof resolved.vendorChunk !== "boolean") {
