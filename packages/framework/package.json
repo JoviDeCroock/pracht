@@ -85,6 +85,10 @@
     "./devtools": {
       "types": "./dist/devtools.d.mts",
       "default": "./dist/devtools.mjs"
+    },
+    "./dev-page-tools": {
+      "types": "./dist/dev-page-tools.d.mts",
+      "default": "./dist/dev-page-tools.mjs"
     }
   },
   "engines": {

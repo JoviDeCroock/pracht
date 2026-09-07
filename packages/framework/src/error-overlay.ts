@@ -9,9 +9,16 @@
  * endpoint (launch-editor middleware) to make stack frames clickable.
  */
 
+import { DEV_ERROR_OVERLAY_DATA_ID } from "./runtime-constants.ts";
+import { escapeScriptChildren } from "./script-escape.ts";
+
 export interface ErrorOverlayOptions {
   message: string;
+  /** Error class name (`TypeError`, `PrachtHttpError`), when known. */
+  name?: string;
   stack?: string;
+  /** HTTP status the overlay replaces; feeds the structured JSON block. */
+  status?: number;
   routeId?: string;
   file?: string;
   /**
@@ -226,6 +233,22 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
     ? `<div class="meta"><span class="label">Shell</span> ${renderFileValue(options.shellFile, root)}</div>`
     : "";
 
+  // The same failure, structured: the dev page tools read it back for an
+  // agent driving this tab (`pracht_last_error`), which would otherwise have
+  // to scrape the rendered overlay.
+  const overlayData = JSON.stringify({
+    message,
+    ...(options.name ? { name: options.name } : {}),
+    ...(stack ? { stack } : {}),
+    ...(options.phase ? { phase: options.phase } : {}),
+    ...(routeId ? { routeId } : {}),
+    ...(file ? { file } : {}),
+    ...(options.loaderFile ? { loaderFile: options.loaderFile } : {}),
+    ...(options.shellFile ? { shellFile: options.shellFile } : {}),
+    ...(options.status !== undefined ? { status: options.status } : {}),
+  });
+  const overlayDataHtml = `<script type="application/json" id="${DEV_ERROR_OVERLAY_DATA_ID}">${escapeScriptChildren(overlayData, "application/json")}</script>`;
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -336,6 +359,7 @@ export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
     ${stackHtml}
     <div class="hint">Click a stack frame to open it in your editor. Fix the error and save — the page will reload automatically.</div>
   </div>
+  ${overlayDataHtml}
   <script>
     // Open clicked stack frames in the editor via Vite's built-in
     // /__open-in-editor endpoint (dev server only).

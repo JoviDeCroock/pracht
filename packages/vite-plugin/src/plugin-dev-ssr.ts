@@ -20,6 +20,7 @@ import type { AgentTrafficBuffer } from "./agent-traffic.ts";
 import { createAgentTrafficBuffer } from "./agent-traffic.ts";
 import {
   CLIENT_BROWSER_PATH,
+  DEV_PAGE_TOOLS_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
   PRACHT_DEV_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
@@ -62,7 +63,11 @@ export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.Ne
         : requestUrl.pathname.startsWith(base)
           ? `/${requestUrl.pathname.slice(base.length)}`
           : null;
-    if (pathname !== CLIENT_BROWSER_PATH && pathname !== ISLANDS_CLIENT_BROWSER_PATH) {
+    if (
+      pathname !== CLIENT_BROWSER_PATH &&
+      pathname !== ISLANDS_CLIENT_BROWSER_PATH &&
+      pathname !== DEV_PAGE_TOOLS_BROWSER_PATH
+    ) {
       return next();
     }
 
@@ -1370,7 +1375,9 @@ async function respondWithErrorOverlay(
   const { buildErrorOverlayHtml } = await server.ssrLoadModule("@pracht/core/error-overlay");
   let html = buildErrorOverlayHtml({
     message: error instanceof Error ? error.message : String(error),
+    name: error instanceof Error ? error.name : undefined,
     stack: error instanceof Error ? error.stack : undefined,
+    status,
     routeId: context?.routeId,
     file: context?.routeFile,
     loaderFile: context?.loaderFile,
@@ -1682,6 +1689,7 @@ function isReservedDevPath(pathname: string): boolean {
   return (
     pathname === CLIENT_BROWSER_PATH ||
     pathname === ISLANDS_CLIENT_BROWSER_PATH ||
+    pathname === DEV_PAGE_TOOLS_BROWSER_PATH ||
     pathname === "/@vite/client" ||
     pathname === "/@react-refresh" ||
     pathname.startsWith("/@vite/") ||

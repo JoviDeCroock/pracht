@@ -8,11 +8,14 @@ export const PRACHT_DEV_MODULE_ID = "virtual:pracht/dev-metadata";
 export const PRACHT_ISLANDS_CLIENT_MODULE_ID = "virtual:pracht/islands-client";
 export const PRACHT_CAPABILITIES_MODULE_ID = "virtual:pracht/capabilities";
 export const PRACHT_WEBMCP_MODULE_ID = "virtual:pracht/webmcp";
+export const PRACHT_DEV_PAGE_TOOLS_MODULE_ID = "virtual:pracht/dev-page-tools";
 
 // Browser-safe path alias — the colon in "virtual:" is parsed as a protocol
 // scheme by browsers, so we serve the client module from a plain path.
 export const CLIENT_BROWSER_PATH = "/@pracht/client.js";
 export const ISLANDS_CLIENT_BROWSER_PATH = "/@pracht/islands.js";
+/** Dev-only: the WebMCP page tools every dev document loads. Never emitted by a build. */
+export const DEV_PAGE_TOOLS_BROWSER_PATH = "/@pracht/dev-page-tools.js";
 
 export interface ViteManifestEntry {
   file: string;
@@ -169,4 +172,12 @@ export function isCapabilitiesModule(id: string): boolean {
 
 export function isWebmcpModule(id: string): boolean {
   return id === PRACHT_WEBMCP_MODULE_ID || id.endsWith(PRACHT_WEBMCP_MODULE_ID);
+}
+
+export function isDevPageToolsModule(id: string): boolean {
+  return (
+    id === PRACHT_DEV_PAGE_TOOLS_MODULE_ID ||
+    id === DEV_PAGE_TOOLS_BROWSER_PATH ||
+    id.endsWith(PRACHT_DEV_PAGE_TOOLS_MODULE_ID)
+  );
 }

@@ -699,6 +699,8 @@ pracht inspect capabilities
 
 The CLI, MCP, startup-banner, and Capabilities-table views describe the static configured surface. To see whether agents actually are calling it, read the live audit events in the **Agents** panel on `/_pracht` in dev, or register a production sink with `addCapabilityAuditListener()`. Retained traffic keeps the panel visible after HMR removes the final capability, until the dev server restarts. See [Agent trust](/docs/agent-trust#audit-trail).
 
+In dev, the page itself is an inspection surface too: every document `pracht dev` serves registers read-only `pracht_*` WebMCP tools — matched route, loader data, islands, last error, and the app's own page tools on that route — for an agent-driven browser testing the tab. See [Dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools).
+
 Coming next: MCP Apps UI views rendered with Preact, so a capability can return an interactive result into an agent's chat.
 
 For the story behind the design, read [The Agentic Web](/docs/agents); for the identity, confirmation, and audit rules every projection enforces, read [Agent Trust](/docs/agent-trust); for unit, E2E, and WebMCP testing patterns, see the [Testing recipe](/docs/recipes/testing).

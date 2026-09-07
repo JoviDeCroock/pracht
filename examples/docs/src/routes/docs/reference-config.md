@@ -89,6 +89,7 @@ quietly ship the feature you meant to remove.
 | `llmsTxt.origin` | *(unset)* | Origin prepended to every link, e.g. `"https://example.com"`. Links stay root-relative when omitted |
 | `llmsTxt.include` | `["pages", "api", "capabilities"]` | Which sections to emit |
 | `llmsTxt.exclude` | `[]` | Path patterns to leave out, using the same segment globs as `constraints` (`*` is one segment, trailing `**` is the rest) |
+| `devPageTools` | `true` | Register the dev-only, read-only `pracht_*` WebMCP page tools on every document `pracht dev` serves. `false` skips them. Never part of a build. See [Dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools) |
 
 > [!NOTE]
 > `llms.txt` invites agents to fetch every URL it lists. Exclude anything an
