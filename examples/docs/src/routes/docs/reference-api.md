@@ -17,8 +17,9 @@ condition, so a client bundle automatically resolves to a client-safe subset of
 the same entry point — you do not pick a different specifier for the browser.
 That condition carries its own type declarations, so a server-only export such
 as `handlePrachtRequest` is a compile error in client code rather than a
-bundling failure. TypeScript only applies the condition when you ask it to, in
-a `tsconfig.json` used for client-only code:
+bundling failure. New `create-pracht` apps enable the condition in their
+generated `tsconfig.client.json`; keep it in custom client TypeScript
+configurations:
 
 ```json [tsconfig.client.json]
 {
@@ -29,8 +30,11 @@ a `tsconfig.json` used for client-only code:
 }
 ```
 
-Without it — and in a project with one `tsconfig.json` covering loaders and
-components alike — types keep resolving to the full entry, exactly as before.
+Without it, TypeScript resolves the root package to the full server-capable
+entry even when Vite will build that module for the browser. The generated base
+`tsconfig.json` deliberately keeps that default for server code and tests; the
+`typecheck` script runs both programs. Explicit `@pracht/core/server` imports
+also keep resolving to the server declarations in either program.
 
 | Specifier | Use |
 | --- | --- |

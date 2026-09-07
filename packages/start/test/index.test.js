@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, readlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -97,7 +97,9 @@ describe("create-pracht", () => {
     expect(parsedPackageJson.pnpm).toBeUndefined();
     expect(packageJson).toContain('"preview": "pracht preview"');
     expect(packageJson).toContain('"start": "node dist/server/server.js"');
-    expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
+    expect(packageJson).toContain(
+      '"typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.client.json"',
+    );
     expect(packageJson).toMatch(/"typescript": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).not.toContain("wrangler");
     expect(gitignore).toContain(".env*");
@@ -142,6 +144,8 @@ describe("create-pracht", () => {
     expect(readme).toContain("pnpm build");
     expect(readme).toContain("docker build");
     expect(readme).toContain("pnpm typecheck");
+    expect(readme).toContain("`tsconfig.json` — server-capable whole-project TypeScript checks");
+    expect(readme).toContain("`tsconfig.client.json` — browser-conditioned checks");
     expect(readme).toContain("`pracht verify` validates routes and constraints.");
     expect(readme).toContain("`pracht plan --write`");
     expect(readme).toContain("`pracht report`");
@@ -197,6 +201,127 @@ describe("create-pracht", () => {
       }
       "
     `);
+
+    const clientTsconfig = await readFile(join(targetDir, "tsconfig.client.json"), "utf-8");
+    expect(clientTsconfig).toMatchInlineSnapshot(`
+      "{
+        "extends": "./tsconfig.json",
+        "compilerOptions": {
+          "customConditions": [
+            "browser"
+          ]
+        },
+        "include": [
+          "src/routes/**/*",
+          "src/shells/**/*",
+          "src/islands/**/*"
+        ]
+      }
+      "
+    `);
+  });
+
+  it("rejects server-only root exports under the scaffolded browser condition", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-browser-types-"));
+    const targetDir = join(root, "my-browser-types-app");
+
+    await scaffoldProject({
+      adapter: NODE_ADAPTER,
+      agentTools: false,
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    // Keep the generated tsconfig intact, but replace the application with a
+    // minimal conditional-exports fixture. The framework package tests prove
+    // the real declarations have this shape; this test proves a new app asks
+    // TypeScript for the browser branch while the explicit server subpath is
+    // still available.
+    await rm(join(targetDir, "src"), { force: true, recursive: true });
+    await rm(join(targetDir, "vite.config.ts"), { force: true });
+    await mkdir(join(targetDir, "src/routes"), { recursive: true });
+    await writeFile(
+      join(targetDir, "src/routes/client.ts"),
+      [
+        'import { handlePrachtRequest } from "@pracht/core";',
+        'import { handlePrachtRequest as serverHandle } from "@pracht/core/server";',
+        "void handlePrachtRequest;",
+        "void serverHandle;",
+        "",
+      ].join("\n"),
+    );
+
+    const coreDir = join(targetDir, "node_modules/@pracht/core");
+    await mkdir(coreDir, { recursive: true });
+    await writeFile(
+      join(coreDir, "package.json"),
+      JSON.stringify({
+        name: "@pracht/core",
+        type: "module",
+        exports: {
+          ".": {
+            browser: { types: "./browser.d.ts", default: "./browser.js" },
+            types: "./index.d.ts",
+            default: "./index.js",
+          },
+          "./server": { types: "./server.d.ts", default: "./server.js" },
+        },
+      }),
+    );
+    await writeFile(join(coreDir, "browser.d.ts"), "export declare const Link: unknown;\n");
+    await writeFile(
+      join(coreDir, "index.d.ts"),
+      "export declare function handlePrachtRequest(): Promise<Response>;\n",
+    );
+    await writeFile(
+      join(coreDir, "server.d.ts"),
+      "export declare function handlePrachtRequest(): Promise<Response>;\n",
+    );
+
+    for (const [packageName, subpath] of [
+      ["vite", "client"],
+      ["@pracht/vite-plugin", "virtual"],
+    ]) {
+      const packageDir = join(targetDir, "node_modules", packageName);
+      await mkdir(packageDir, { recursive: true });
+      await writeFile(
+        join(packageDir, "package.json"),
+        JSON.stringify({
+          name: packageName,
+          type: "module",
+          exports: { [`./${subpath}`]: { types: `./${subpath}.d.ts` } },
+        }),
+      );
+      await writeFile(join(packageDir, `${subpath}.d.ts`), "export {};\n");
+    }
+
+    const tscPath = fileURLToPath(
+      new URL("../../../node_modules/typescript/bin/tsc", import.meta.url),
+    );
+    const serverResult = spawnSync(
+      process.execPath,
+      [tscPath, "--project", ".", "--pretty", "false"],
+      {
+        cwd: targetDir,
+        encoding: "utf-8",
+      },
+    );
+    const clientResult = spawnSync(
+      process.execPath,
+      [tscPath, "--project", "tsconfig.client.json", "--pretty", "false"],
+      {
+        cwd: targetDir,
+        encoding: "utf-8",
+      },
+    );
+
+    expect(serverResult.status).toBe(0);
+    expect(clientResult.status).not.toBe(0);
+    expect(clientResult.stdout).toContain(
+      "Module '\"@pracht/core\"' has no exported member 'handlePrachtRequest'",
+    );
+    expect(clientResult.stdout).not.toContain("@pracht/core/server");
   });
 
   it("scaffolds a cloudflare starter", async () => {
@@ -226,7 +351,9 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/adapter-cloudflare": "\^\d+\.\d+\.\d+"/);
 
     expect(packageJson).toContain('"preview": "pracht preview"');
-    expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
+    expect(packageJson).toContain(
+      '"typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.client.json"',
+    );
     expect(packageJson).toContain('"wrangler": "^4.81.0"');
     // A fixed date, never a generated one: workerd refuses to start when asked
     // for a compatibility date newer than its own binary, so "today" is by
@@ -470,7 +597,9 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"vercel": "\^\d+\.\d+\.\d+"/);
 
     expect(packageJson).toContain('"deploy": "pracht build && vercel deploy --prebuilt"');
-    expect(packageJson).toContain('"typecheck": "tsc --noEmit"');
+    expect(packageJson).toContain(
+      '"typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.client.json"',
+    );
     expect(packageJson).not.toContain('"preview"');
     expect(readme).toContain("configured for Vercel");
     // `pnpm deploy` is pnpm's own workspace-deploy command and shadows the
@@ -576,6 +705,16 @@ describe("create-pracht", () => {
     expect(agents).toContain("`src/pages/_app.config.ts`");
     expect(agents).toContain("export const REVALIDATE = 3600");
     expect(agents).toContain("pracht generate middleware --name _middleware");
+
+    const clientTsconfig = JSON.parse(
+      await readFile(join(targetDir, "tsconfig.client.json"), "utf-8"),
+    );
+    expect(clientTsconfig).toEqual({
+      extends: "./tsconfig.json",
+      compilerOptions: { customConditions: ["browser"] },
+      include: ["src/pages/**/*", "src/islands/**/*"],
+      exclude: ["src/pages/**/_app.config.*", "src/pages/**/_middleware.*"],
+    });
   });
 
   it("seeds pnpm edge build policy for every router and template permutation", async () => {
@@ -881,6 +1020,7 @@ describe("create-pracht", () => {
     expect(output.files).toContain("src/styles/global.css");
     expect(output.files).toContain(".gitignore");
     expect(output.files).toContain(".mcp.json");
+    expect(output.files).toContain("tsconfig.client.json");
     expect(output.files).toContain(".claude/skills/pracht-scaffold/SKILL.md");
     // The default is a core set, not the whole catalog: an audit skill has
     // nothing to audit in an eight-file starter, and every description it
