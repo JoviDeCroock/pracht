@@ -12,6 +12,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 // realpathSync so ROOT resolves to the repo root even if this file is reached
@@ -174,8 +175,8 @@ function parseSkillFile(raw: string, file: string): SkillFile {
 
 const cliIndexSource = readFileSync(join(CLI_SRC, "index.ts"), "utf-8");
 
-/** `pracht` subcommand -> absolute path of its citty command module. */
-const CLI_SUBCOMMANDS = new Map<string, string>(
+/** `pracht` top-level subcommand -> absolute path of its citty command module. */
+const CLI_SUBCOMMAND_MODULES = new Map<string, string>(
   [
     // A hyphenated subcommand (`dev-mcp`) is not a valid identifier, so its key
     // is quoted in the object literal.
@@ -185,32 +186,116 @@ const CLI_SUBCOMMANDS = new Map<string, string>(
   ].map((m) => [m[1], join(CLI_SRC, "commands", `${m[2]}.ts`)]),
 );
 
-/**
- * Collect citty arg names from a command module. Arg definitions all have the
- * shape `key: { type: "..." }` (possibly across lines), which sidesteps
- * brace-matching through template-literal descriptions. Positional args are
- * included; that slightly loosens the flag check but never rejects a real flag.
- */
-function cittyArgNames(commandFile: string): Set<string> {
-  const source = readFileSync(commandFile, "utf-8");
-  const names = new Set<string>();
-  for (const match of source.matchAll(/(?:"([\w-]+)"|(\w[\w-]*)):\s*\{\s*type:\s*"/g)) {
-    names.add(match[1] ?? match[2]);
-  }
-  return names;
+interface CliCommand {
+  flags: Set<string>;
+  subcommands: Map<string, CliCommand>;
 }
 
-const cliArgCache = new Map<string, Set<string>>();
-function flagsForSubcommand(subcommand: string): Set<string> {
-  const file = CLI_SUBCOMMANDS.get(subcommand);
-  if (!file) return GLOBAL_CLI_FLAGS;
-  let flags = cliArgCache.get(file);
-  if (!flags) {
-    flags = new Set([...cittyArgNames(file), ...GLOBAL_CLI_FLAGS]);
-    cliArgCache.set(file, flags);
+function staticPropertyName(name: ts.PropertyName): string | null {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+    return name.text;
   }
-  return flags;
+  return null;
 }
+
+function objectProperty(
+  object: ts.ObjectLiteralExpression,
+  wanted: string,
+): ts.PropertyAssignment | null {
+  for (const property of object.properties) {
+    if (ts.isPropertyAssignment(property) && staticPropertyName(property.name) === wanted) {
+      return property;
+    }
+  }
+  return null;
+}
+
+/**
+ * Read a citty command module as a command tree. Nested commands such as
+ * `generate route` share a source file, so a file-wide arg regex would pool
+ * unrelated flags and let `generate shell --path` pass the catalog guard.
+ */
+function commandTree(commandFile: string): CliCommand {
+  const source = readFileSync(commandFile, "utf-8");
+  const sourceFile = ts.createSourceFile(commandFile, source, ts.ScriptTarget.Latest, true);
+  const definitions = new Map<string, ts.Expression>();
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        definitions.set(declaration.name.text, declaration.initializer);
+      }
+    }
+  }
+
+  function commandObject(expression: ts.Expression): ts.ObjectLiteralExpression | null {
+    if (ts.isIdentifier(expression)) {
+      const definition = definitions.get(expression.text);
+      return definition ? commandObject(definition) : null;
+    }
+    if (
+      ts.isCallExpression(expression) &&
+      ts.isIdentifier(expression.expression) &&
+      expression.expression.text === "defineCommand"
+    ) {
+      const [definition] = expression.arguments;
+      return definition && ts.isObjectLiteralExpression(definition) ? definition : null;
+    }
+    return null;
+  }
+
+  function parseCommand(expression: ts.Expression): CliCommand {
+    const object = commandObject(expression);
+    if (!object) {
+      throw new Error(`${commandFile}: could not resolve a defineCommand() expression`);
+    }
+
+    const flags = new Set<string>(GLOBAL_CLI_FLAGS);
+    const args = objectProperty(object, "args")?.initializer;
+    if (args) {
+      if (!ts.isObjectLiteralExpression(args)) {
+        throw new Error(
+          `${commandFile}: command args must be an object literal for drift checking`,
+        );
+      }
+      for (const property of args.properties) {
+        if (!ts.isPropertyAssignment(property)) {
+          throw new Error(`${commandFile}: command args contain an unsupported property`);
+        }
+        const name = staticPropertyName(property.name);
+        if (!name) throw new Error(`${commandFile}: command arg name is not static`);
+        flags.add(name);
+      }
+    }
+
+    const subcommands = new Map<string, CliCommand>();
+    const subcommandObject = objectProperty(object, "subCommands")?.initializer;
+    if (subcommandObject) {
+      if (!ts.isObjectLiteralExpression(subcommandObject)) {
+        throw new Error(`${commandFile}: subCommands must be an object literal for drift checking`);
+      }
+      for (const property of subcommandObject.properties) {
+        if (!ts.isPropertyAssignment(property)) {
+          throw new Error(`${commandFile}: subCommands contains an unsupported property`);
+        }
+        const name = staticPropertyName(property.name);
+        if (!name) throw new Error(`${commandFile}: subcommand name is not static`);
+        subcommands.set(name, parseCommand(property.initializer));
+      }
+    }
+
+    return { flags, subcommands };
+  }
+
+  const defaultExport = sourceFile.statements.find(ts.isExportAssignment);
+  if (!defaultExport) throw new Error(`${commandFile}: has no default command export`);
+  return parseCommand(defaultExport.expression);
+}
+
+const CLI_SUBCOMMANDS = new Map<string, CliCommand>(
+  [...CLI_SUBCOMMAND_MODULES].map(([name, file]) => [name, commandTree(file)]),
+);
 
 const mcpServerSource = readFileSync(join(CLI_SRC, "mcp-server.ts"), "utf-8");
 const MCP_TOOLS = new Set(
@@ -272,6 +357,53 @@ function extractPrachtInvocations(body: string): PrachtInvocation[] {
   return invocations;
 }
 
+function validatePrachtInvocation(invocation: PrachtInvocation): string[] {
+  const [first] = invocation.argv;
+  if (first.startsWith("-")) {
+    // Bare-flag invocation like `pracht --version` (handled in index.ts).
+    return [];
+  }
+  if (!/^[a-z][\w-]*$/.test(first)) return []; // placeholder like `pracht <command>`
+
+  const commandPath: string[] = [];
+  let commands = CLI_SUBCOMMANDS;
+  let command: CliCommand | undefined;
+  let cursor = 0;
+
+  while (cursor < invocation.argv.length) {
+    const token = invocation.argv[cursor];
+    if (token.startsWith("-") || commands.size === 0) break;
+    if (!/^[a-z][\w-]*$/.test(token)) break;
+
+    command = commands.get(token);
+    if (!command) {
+      const parent = commandPath.length === 0 ? "pracht" : `pracht ${commandPath.join(" ")}`;
+      return [
+        `"${parent} ${token}" (from \`${invocation.source}\`) is not a registered CLI subcommand; known under "${parent}": ${[...commands.keys()].join(", ")}`,
+      ];
+    }
+
+    commandPath.push(token);
+    commands = command.subcommands;
+    cursor += 1;
+  }
+
+  if (!command) return [];
+
+  const problems: string[] = [];
+  for (const token of invocation.argv.slice(cursor)) {
+    const flag = /^--([a-z][\w-]*)(?:=.*)?$/.exec(token)?.[1];
+    if (!flag) continue;
+    const normalized = flag.replace(/^no-/, "");
+    if (!command.flags.has(flag) && !command.flags.has(normalized)) {
+      problems.push(
+        `flag "--${flag}" (from \`${invocation.source}\`) is not defined by "pracht ${commandPath.join(" ")}"; known: ${[...command.flags].map((known) => `--${known}`).join(", ")}`,
+      );
+    }
+  }
+  return problems;
+}
+
 // ---------------------------------------------------------------------------
 // Load the skills
 // ---------------------------------------------------------------------------
@@ -310,20 +442,40 @@ describe("drift-guard source extraction", () => {
 
   it("extracts the CLI subcommand registry from packages/cli/src/index.ts", () => {
     expect(CLI_SUBCOMMANDS.size).toBeGreaterThanOrEqual(5);
-    for (const [subcommand, file] of CLI_SUBCOMMANDS) {
+    for (const [subcommand, file] of CLI_SUBCOMMAND_MODULES) {
       expect(existsSync(file), `command module for "pracht ${subcommand}" not found: ${file}`).toBe(
         true,
       );
     }
   });
 
-  it("extracts citty flags from the command modules", () => {
-    // Every registered command except `dev-mcp` and its deprecated `mcp` alias
-    // (neither takes args) defines args.
-    const withArgs = [...CLI_SUBCOMMANDS.keys()].filter(
-      (sub) => cittyArgNames(CLI_SUBCOMMANDS.get(sub) as string).size > 0,
-    );
-    expect(withArgs.length).toBeGreaterThanOrEqual(CLI_SUBCOMMANDS.size - 2);
+  it("extracts citty flags in their nested command context", () => {
+    const generate = CLI_SUBCOMMANDS.get("generate");
+    expect(generate?.subcommands.get("route")?.flags).toContain("path");
+    expect(generate?.subcommands.get("shell")?.flags).toContain("name");
+    expect(generate?.subcommands.get("shell")?.flags).not.toContain("path");
+
+    const skillsCommand = CLI_SUBCOMMANDS.get("skills");
+    expect(skillsCommand?.subcommands.get("add")?.flags).toContain("force");
+    expect(skillsCommand?.subcommands.get("list")?.flags).not.toContain("force");
+  });
+
+  it("rejects a real flag on the wrong subcommand and keeps typo diagnostics", () => {
+    const misplaced = toInvocation("pracht generate shell --path /dashboard");
+    expect(misplaced).not.toBeNull();
+    expect(validatePrachtInvocation(misplaced as PrachtInvocation)).toEqual([
+      expect.stringContaining(
+        'flag "--path" (from `pracht generate shell --path /dashboard`) is not defined by "pracht generate shell"; known: --help, --version, --name, --json',
+      ),
+    ]);
+
+    const typo = toInvocation("pracht generate shell --nmae app");
+    expect(typo).not.toBeNull();
+    expect(validatePrachtInvocation(typo as PrachtInvocation)).toEqual([
+      expect.stringContaining(
+        'flag "--nmae" (from `pracht generate shell --nmae app`) is not defined by "pracht generate shell"; known: --help, --version, --name, --json',
+      ),
+    ]);
   });
 
   it("extracts MCP tool names from packages/cli/src/mcp-server.ts", () => {
@@ -360,27 +512,8 @@ describe.each(skills)("skills/$name/SKILL.md", (skill) => {
 
   it("only references real pracht CLI subcommands and flags", () => {
     for (const invocation of extractPrachtInvocations(parsed(skill).body)) {
-      const [first, ...rest] = invocation.argv;
-      if (first.startsWith("-")) {
-        // Bare-flag invocation like `pracht --version` (handled in index.ts).
-        continue;
-      }
-      const subcommand = /^[a-z][\w-]*$/.exec(first)?.[0];
-      if (!subcommand) continue; // placeholder like `pracht <command>`
-      expect(
-        CLI_SUBCOMMANDS.has(subcommand),
-        `"pracht ${subcommand}" (from \`${invocation.source}\`) is not a registered CLI subcommand; known: ${[...CLI_SUBCOMMANDS.keys()].join(", ")}`,
-      ).toBe(true);
-
-      const allowedFlags = flagsForSubcommand(subcommand);
-      for (const token of rest) {
-        const flag = /^--([a-z][\w-]*)(?:=.*)?$/.exec(token)?.[1];
-        if (!flag) continue;
-        const normalized = flag.replace(/^no-/, "");
-        expect(
-          allowedFlags.has(flag) || allowedFlags.has(normalized),
-          `flag "--${flag}" (from \`${invocation.source}\`) is not defined by "pracht ${subcommand}"; known: ${[...allowedFlags].map((f) => `--${f}`).join(", ")}`,
-        ).toBe(true);
+      for (const problem of validatePrachtInvocation(invocation)) {
+        expect.fail(problem);
       }
     }
   });
