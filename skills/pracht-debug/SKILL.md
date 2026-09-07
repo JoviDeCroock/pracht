@@ -94,7 +94,10 @@ Work in order; stop at the root cause.
   component (via Preact's `options.__m` hook). Compare server HTML against
   client output. Usual causes: date/time differences, browser-only APIs during
   SSR (`window`, `document`, `localStorage`), conditional rendering on client
-  state — or two copies of `@pracht/core` in the SSR module graph. The tell for
+  state — or, on Preact 10, a suspending boundary resolving to zero or multiple
+  DOM nodes. Preact 11 supports those boundary shapes, so Pracht skips that
+  legacy diagnostic there. Another cause is two copies of `@pracht/core` in
+  the SSR module graph. The tell for
   that last one: in the server-rendered HTML of *every* page, `useLocation()`
   returns `/`, `useParams()` returns `{}`, and `useRouteData()` returns
   `undefined`, while the hydrated client is correct — provider and hooks hold
