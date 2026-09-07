@@ -47,3 +47,10 @@ export const VIEW_TRANSITION_ATTRIBUTE = "data-pracht-view-transition";
 // explicitly re-enable itself. Read by the emitted rules (as a
 // `selector_matches` exclusion) and by the client router / prefetch listeners.
 export const SPECULATE_ATTRIBUTE = "data-pracht-speculate";
+
+/**
+ * `id` of the JSON `<script>` the dev error overlay embeds so the dev page
+ * tools (`pracht_last_error`) can read the failure structurally instead of
+ * scraping the rendered document.
+ */
+export const DEV_ERROR_OVERLAY_DATA_ID = "pracht-dev-error";

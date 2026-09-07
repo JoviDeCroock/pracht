@@ -36,6 +36,7 @@ Reach for these before deep manual inspection:
 | `pracht inspect routes\|api\|build --json` | The resolved graph — never reconstruct it from source |
 | `GET /_pracht` (JSON at `/_pracht.json`) | Same graph from a running dev server, no CLI needed |
 | `Server-Timing` on dev SSR responses | `mw` / `loader` / `render` durations in ms — which phase is slow |
+| `pracht_*` WebMCP page tools in the open tab | Tab-scoped view from an agent-driven browser: `pracht_route`, `pracht_loader_data`, `pracht_islands`, `pracht_last_error`, `pracht_page_tools` |
 
 `pracht inspect` needs the pracht plugin in the vite config; `inspect build`
 needs a prior `pracht build`. Under a Vite deploy base, prefix `/_pracht` with
@@ -43,6 +44,18 @@ that base (links from the devtools and dev-404 pages already do). When the
 pracht MCP server is registered (docs/MCP.md), prefer the
 `inspect_routes`/`inspect_api`/`doctor`/`verify` MCP tools — same payloads,
 structured results.
+
+When you are driving a browser against `pracht dev` (agent-browser, a WebMCP
+host), ask the tab before reading logs: every dev document registers read-only
+`pracht_*` page tools with `document.modelContext`. `pracht_route` gives the
+matched route, files, render/hydration mode, and middleware; `pracht_loader_data`
+the data the page holds now (`{ path: "a.0.b" }` narrows it; islands/none routes
+answer with the route-state request to make instead); `pracht_islands` each
+island's file, strategy, props, and hydration status; `pracht_last_error` the
+structured server error behind an overlay or `ErrorBoundary` plus recent client
+errors; `pracht_page_tools` the app's active WebMCP tools on the route. All
+resolve to `{ ok, data }` / `{ ok: false, error }` envelopes and follow client
+navigation.
 
 ## Checklist
 

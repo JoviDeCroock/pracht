@@ -144,6 +144,30 @@ async function render(
 }
 
 describe("dev SSR error overlay", () => {
+  it("embeds the failure as JSON for the dev page tools", async () => {
+    const state = await render({
+      loader: async () => {
+        throw new TypeError("loader </script> exploded");
+      },
+      Component: () => h("p", null, "never"),
+    });
+    expect(state.statusCode).toBe(500);
+    const match = state.body.match(
+      /<script type="application\/json" id="pracht-dev-error">([^<]*)<\/script>/,
+    );
+    expect(match).not.toBeNull();
+    expect(JSON.parse(match![1])).toEqual({
+      message: "loader </script> exploded",
+      name: "TypeError",
+      stack: expect.stringContaining("loader </script> exploded"),
+      phase: "loader",
+      routeId: "boom",
+      file: "./routes/boom.tsx",
+      loaderFile: "./routes/boom.tsx",
+      status: 500,
+    });
+  });
+
   it("replaces the runtime's plain-text render failure", async () => {
     const state = await render({
       Component: () => {

@@ -176,10 +176,14 @@ export const CAPABILITIES = ["notes.search"];
 
 `CAPABILITIES` must be an inline array of non-empty registered names and cannot
 appear on `_app` or `404`. In a manifest, group capability lists are additive.
+
 Unknown names, capabilities without `expose.webmcp`, and activation on
 `hydration: "none"` routes are rejected. Initial hydration registers the matched
 route's set; every committed client navigation replaces it, so never assume a
 tool exposed on one page persists globally.
+
+In dev, the tab's `pracht_page_tools` WebMCP tool lists the tools active on
+the route and why a declared capability is not one.
 
 Each `agents` sub-option is independent — add only what the app uses. Web Bot
 Auth `policy: "require"` gates capability HTTP endpoints (not pages or API

@@ -247,18 +247,25 @@ test("webmcp shim registers page tools and execute() round-trips over HTTP", asy
   });
 
   await page.goto("/notes");
-  await page.waitForFunction(
-    () => (window as unknown as { __webmcpTools?: unknown[] }).__webmcpTools?.length,
+  await page.waitForFunction(() =>
+    (window as unknown as { __webmcpTools?: { name: string }[] }).__webmcpTools?.some(
+      (tool) => tool.name === "notes.search",
+    ),
   );
 
   const tools = await page.evaluate(() =>
-    (window as unknown as { __webmcpTools: FakeRegisteredTool[] }).__webmcpTools.map((tool) => ({
-      name: tool.name,
-      title: tool.title,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      annotations: tool.annotations,
-    })),
+    (window as unknown as { __webmcpTools: FakeRegisteredTool[] }).__webmcpTools
+      // Every dev document also registers the dev-only `pracht_*` debugging
+      // tools (covered in dev-page-tools.test.ts); this test is about the
+      // app's own capabilities.
+      .filter((tool) => !tool.name.startsWith("pracht_"))
+      .map((tool) => ({
+        name: tool.name,
+        title: tool.title,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: tool.annotations,
+      })),
   );
 
   // Only webmcp-exposed capabilities become page tools, with their real schema.
@@ -328,11 +335,22 @@ test("webmcp tools follow committed client-route navigation", async ({ page }) =
       window as unknown as { __PRACHT_NAVIGATE__: (href: string) => Promise<void> }
     ).__PRACHT_NAVIGATE__("/"),
   );
-  await page.waitForFunction(
-    () =>
-      (window as unknown as { __activeWebmcpTools: Map<string, unknown> }).__activeWebmcpTools
-        .size === 0,
-  );
+  // The home route declares no capabilities, so only the five dev-only
+  // debugging tools (registered on every dev document) may remain.
+  await page.waitForFunction(() => {
+    const devTools = new Set([
+      "pracht_route",
+      "pracht_loader_data",
+      "pracht_islands",
+      "pracht_last_error",
+      "pracht_page_tools",
+    ]);
+    return [
+      ...(
+        window as unknown as { __activeWebmcpTools: Map<string, unknown> }
+      ).__activeWebmcpTools.keys(),
+    ].every((name) => devTools.has(name));
+  });
 
   await page.evaluate(() =>
     (
@@ -359,8 +377,10 @@ test("webmcp execute() aborts its capability request when the host cancels", asy
   });
 
   await page.goto("/notes");
-  await page.waitForFunction(
-    () => (window as unknown as { __webmcpTools?: unknown[] }).__webmcpTools?.length,
+  await page.waitForFunction(() =>
+    (window as unknown as { __webmcpTools?: { name: string }[] }).__webmcpTools?.some(
+      (tool) => tool.name === "notes.search",
+    ),
   );
 
   const envelope = (await page.evaluate(async () => {
@@ -403,7 +423,10 @@ test("zero-island responses keep the WebMCP projection executable", async ({ pag
   await expect(page.getByRole("heading", { name: "Agent tools without UI islands" })).toBeVisible();
   await expect(page.locator("pracht-island")).toHaveCount(0);
   await page.waitForFunction(
-    () => (window as unknown as { __webmcpTools?: unknown[] }).__webmcpTools?.length === 1,
+    () =>
+      (window as unknown as { __webmcpTools?: { name: string }[] }).__webmcpTools?.filter(
+        (tool) => !tool.name.startsWith("pracht_"),
+      ).length === 1,
   );
   expect(scriptRequests).toContain("/@pracht/islands.js");
 
@@ -412,8 +435,8 @@ test("zero-island responses keep the WebMCP projection executable", async ({ pag
       window as unknown as {
         __webmcpTools: { name: string; execute: (input: unknown) => Promise<unknown> }[];
       }
-    ).__webmcpTools[0];
-    return tool.execute({ query: "capabilities" });
+    ).__webmcpTools.find((candidate) => candidate.name === "notes.search");
+    return tool!.execute({ query: "capabilities" });
   })) as { data: { notes: { title: string }[] } };
   expect(envelope.data.notes[0].title).toBe("Capabilities");
 });
