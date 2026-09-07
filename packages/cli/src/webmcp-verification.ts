@@ -1,4 +1,5 @@
 import type { AppGraph, AppGraphCapability, AppGraphRoute } from "@pracht/core";
+import { DEV_PAGE_TOOL_PREFIX } from "@pracht/core/dev-page-tools";
 
 import { collectAppGraph } from "./app-graph.js";
 import { withAppServer } from "./app-server.js";
@@ -159,11 +160,14 @@ export async function runWebmcpVerification(
 
       let observedTools: BrowserToolDescriptor[];
       try {
-        observedTools = await waitForBrowserTools(
-          browser.page,
-          routeCase.expectedTools.map((tool) => tool.name),
-          Math.min(options.timeoutMs ?? 10_000, 3_000),
-        );
+        observedTools = (
+          await waitForBrowserTools(
+            browser.page,
+            routeCase.expectedTools.map((tool) => tool.name),
+            Math.min(options.timeoutMs ?? 10_000, 3_000),
+            { ignoreNamePrefixes: [DEV_PAGE_TOOL_PREFIX] },
+          )
+        ).filter((tool) => !isFrameworkDevPageTool(tool));
       } catch (error) {
         return {
           browser: browser.info,
@@ -238,7 +242,8 @@ export function compareWebmcpTools(
 ): WebmcpMismatch[] {
   const mismatches: WebmcpMismatch[] = [];
   const expectedByName = new Map(expected.map((tool) => [tool.name, tool]));
-  const observedByName = new Map(observed.map((tool) => [tool.name, tool]));
+  const appTools = observed.filter((tool) => !isFrameworkDevPageTool(tool));
+  const observedByName = new Map(appTools.map((tool) => [tool.name, tool]));
 
   for (const tool of expected) {
     const actual = observedByName.get(tool.name);
@@ -257,12 +262,16 @@ export function compareWebmcpTools(
       actual.annotations.readOnlyHint,
     );
   }
-  for (const tool of observed) {
+  for (const tool of appTools) {
     if (!expectedByName.has(tool.name)) {
       mismatches.push({ actual: tool, kind: "unexpected", tool: tool.name });
     }
   }
   return mismatches;
+}
+
+function isFrameworkDevPageTool(tool: BrowserToolDescriptor): boolean {
+  return tool.name.startsWith(DEV_PAGE_TOOL_PREFIX);
 }
 
 function expectedToolsForRoute(

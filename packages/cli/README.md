@@ -95,9 +95,10 @@ pracht verify webmcp --start "pracht preview" --json
 
 It launches an installed Chrome 150+ build with WebMCP testing enabled,
 compares the native route-scoped tool registry with the resolved app graph,
-and verifies navigation cleanup. Pracht never downloads an unpinned browser;
-pass `--browser /path/to/chrome` in CI. `--scenario` accepts explicit safe
-WebMCP eval files when invocation/cancellation proof should join the report.
+and verifies navigation cleanup. Framework-owned `pracht_*` development tools
+are excluded from app-graph parity. Pracht never downloads an unpinned browser;
+pass `--browser /path/to/chrome` in CI. `--scenario` accepts explicit safe WebMCP
+eval files when invocation/cancellation proof should join the report.
 
 ### `pracht eval`
 

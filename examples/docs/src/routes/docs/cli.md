@@ -291,8 +291,10 @@ configuration.
 an installed Chrome/Chromium build, launches it with WebMCP testing enabled,
 visits routes that activate page tools, and compares the browser-owned registry
 with the resolved capability graph. It also navigates to a route without tools
-to prove old route registrations are removed. Pracht does not download a
-browser: use Chrome 150+ and pass `--browser /pinned/path/to/chrome` in CI.
+to prove old route registrations are removed. Framework-owned `pracht_*`
+development page tools are excluded from app-graph parity; other unexpected
+registrations still fail as drift. Pracht does not download a browser: use
+Chrome 150+ and pass `--browser /pinned/path/to/chrome` in CI.
 `--url` points at a running app; `--start` uses the same managed-server shape as
 `pracht eval`. The command exits 1 for startup failure, unsupported APIs,
 registration failure, or drift. JSON includes the browser/version, each route,

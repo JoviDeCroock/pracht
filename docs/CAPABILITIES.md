@@ -662,6 +662,8 @@ in a real Chrome process: it launches Chrome with the WebMCP testing feature,
 visits every route that activates a page tool, reads
 `document.modelContext.getTools()`, compares names and graph-owned descriptor
 fields, then visits a neutral route to prove stale registrations were removed.
+Framework-owned `pracht_*` development page tools are excluded from app-graph
+parity; unexpected application registrations still count as drift.
 
 ```bash
 pracht verify webmcp --url http://localhost:3000

@@ -60,6 +60,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { DEV_PAGE_TOOL_PREFIX } from "@pracht/core/dev-page-tools";
 import {
   capabilityHttpPath,
   CONFIRMATION_HEADER,
@@ -548,6 +549,7 @@ export async function runScenario(
         webmcp.page,
         [...new Set(scenario.steps.map((step) => step.capability))],
         Math.min(options.timeoutMs ?? 10_000, 3_000),
+        { ignoreNamePrefixes: [DEV_PAGE_TOOL_PREFIX] },
       );
     } catch (error) {
       await webmcp?.close();

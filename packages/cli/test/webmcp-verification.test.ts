@@ -35,6 +35,19 @@ describe("compareWebmcpTools", () => {
     expect(compareWebmcpTools([expected], [observed])).toEqual([]);
   });
 
+  it("ignores framework-owned dev page tools without hiding unexpected app tools", () => {
+    const devTool = (name: string): BrowserToolDescriptor => ({ ...observed, name });
+    expect(
+      compareWebmcpTools(
+        [expected],
+        [observed, devTool("pracht_route"), devTool("pracht_page_tools")],
+      ),
+    ).toEqual([]);
+    expect(compareWebmcpTools([expected], [observed, devTool("notes.unexpected")])).toEqual([
+      expect.objectContaining({ kind: "unexpected", tool: "notes.unexpected" }),
+    ]);
+  });
+
   it("reports removed or renamed browser registrations as focused drift", () => {
     expect(compareWebmcpTools([expected], [])).toEqual([
       expect.objectContaining({ kind: "missing", tool: "notes.search" }),

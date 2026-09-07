@@ -165,8 +165,10 @@ export async function waitForBrowserTools(
   page: Page,
   expectedNames: readonly string[],
   timeoutMs = 2_000,
+  options: { ignoreNamePrefixes?: readonly string[] } = {},
 ): Promise<BrowserToolDescriptor[]> {
   const expected = [...expectedNames].sort();
+  const ignored = options.ignoreNamePrefixes ?? [];
   const deadline = Date.now() + timeoutMs;
   let observed: BrowserToolDescriptor[] = [];
 
@@ -176,7 +178,9 @@ export async function waitForBrowserTools(
       Math.max(1, deadline - Date.now()),
       "Timed out while reading the browser WebMCP registry.",
     );
-    const names = observed.map((tool) => tool.name);
+    const names = observed
+      .filter((tool) => !ignored.some((prefix) => tool.name.startsWith(prefix)))
+      .map((tool) => tool.name);
     if (JSON.stringify(names) === JSON.stringify(expected)) return observed;
     await page.waitForTimeout(50);
   } while (Date.now() < deadline);
