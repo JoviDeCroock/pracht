@@ -1,6 +1,6 @@
 ---
 name: pre-deploy
-version: 1.4.0
+version: 1.5.0
 description: |
   Adapter-aware pre-deployment checklist (Node, Cloudflare Workers, Vercel, static)
   for the failures that only surface in production: missing env vars, Node-only
@@ -54,6 +54,20 @@ Resolve every `status: "error"` before continuing — **if `pracht doctor`
 reports errors, stop here**; the remaining checks will be noisy false
 positives. Stale generated typed-route files block deployment; if the app does
 not use them yet, note that `typegen --check` is optional.
+
+If `pracht inspect agents --json` reports any WebMCP exposure, run the live
+browser boundary too. Point it at the already-started preview, or let it own the
+server lifecycle:
+
+```bash
+pracht verify webmcp --start "pracht preview" --json
+```
+
+CI must install a pinned Chrome 150+ build and pass its executable with
+`--browser`; the verifier never silently downloads one. Treat unsupported API,
+startup/registration failure, and graph drift as deployment errors. Do not add
+`--scenario` unless the repository already supplies an explicitly safe WebMCP
+eval scenario.
 
 For a PR deploy, `pracht report --base origin/main` produces a markdown summary
 (graph diff + verify + budgets) worth attaching.

@@ -4,17 +4,17 @@
  * Runs JSON scenario files against a live app's agent surface and checks each
  * step's outcome, turning the capability graph's proof metrics ("can an agent
  * actually complete this task through my tools?") into repeatable CI checks.
- * Two transports, one scenario format: the capability HTTP projection
- * (`/api/capabilities/*`, the default) and the remote MCP projection (JSON-RPC
- * `tools/call` against `/mcp`), so an app that advertises `expose.mcp` can
- * prove an MCP host actually reaches the tool. Scenario format
+ * Three transports, one scenario format: the capability HTTP projection
+ * (`/api/capabilities/*`, the default), the remote MCP projection (JSON-RPC
+ * `tools/call` against `/mcp`), and native browser WebMCP page tools. Scenario format
  * (docs/AGENT_TRUST.md):
  *
  *   {
  *     "name": "notes flow",
  *     "task": "search, then purge with confirmation",
  *     "url": "http://localhost:3000",        // optional; --url overrides
- *     "transport": "http",                   // or "mcp"; default "http"
+ *     "transport": "http",                   // "mcp" or "webmcp"; default "http"
+ *     "webmcpRoute": "/notes",               // required for "webmcp"
  *     "mcpPath": "/mcp",                     // MCP endpoint, when it is not the default
  *     "mcpHeaders": { "authorization": "Bearer ..." }, // every MCP request
  *     "steps": [
@@ -73,15 +73,24 @@ import {
   mcpToolName,
 } from "@pracht/capabilities";
 import { createAgentSignatureHeaders, type AgentSigningJwk } from "@pracht/core/agent-auth";
+import {
+  executeBrowserTool,
+  launchWebmcpBrowser,
+  navigateWebmcpPage,
+  readWebmcpSupport,
+  waitForBrowserTools,
+  type WebmcpBrowserSession,
+} from "./webmcp-browser.js";
 
 /**
  * Which projection a scenario drives.
  *
  * `"http"` posts to the capability HTTP endpoints. `"mcp"` performs a real
  * `initialize` handshake against the app's MCP endpoint and issues every step
- * as a `tools/call` — the same round trip an MCP host makes.
+ * as a `tools/call`. `"webmcp"` launches Chrome and executes the route's native
+ * page tool through the browser-owned model context.
  */
-export type EvalTransport = "http" | "mcp";
+export type EvalTransport = "http" | "mcp" | "webmcp";
 
 export interface EvalExpectation {
   ok?: boolean;
@@ -116,6 +125,8 @@ export interface EvalStep {
    * an `agentPolicy: "require"` capability rejects unsigned callers.
    */
   sign?: boolean;
+  /** Cancel a WebMCP tool invocation after this many milliseconds. */
+  cancelAfterMs?: number;
   expect?: EvalExpectation;
 }
 
@@ -143,6 +154,8 @@ export interface EvalScenario {
   mcpPath?: string;
   /** Headers applied to every MCP transport request, including `initialize`. */
   mcpHeaders?: Record<string, string>;
+  /** Route whose browser-owned tool registry is used by a WebMCP scenario. */
+  webmcpRoute?: string;
   /** Sign every step (unless the step sets `"sign": false`) as this agent. */
   signAs?: EvalSignAs;
   steps: EvalStep[];
@@ -246,10 +259,11 @@ export function parseScenario(file: string): EvalScenario {
   if (
     scenario.transport !== undefined &&
     scenario.transport !== "http" &&
-    scenario.transport !== "mcp"
+    scenario.transport !== "mcp" &&
+    scenario.transport !== "webmcp"
   ) {
     throw new Error(
-      `"transport" must be "http" or "mcp", got ${JSON.stringify(scenario.transport)}`,
+      `"transport" must be "http", "mcp", or "webmcp", got ${JSON.stringify(scenario.transport)}`,
     );
   }
   if (scenario.mcpPath !== undefined) {
@@ -285,6 +299,16 @@ export function parseScenario(file: string): EvalScenario {
     }
     scenario.mcpHeaders = normalizedHeaders;
   }
+  if (scenario.webmcpRoute !== undefined) {
+    if (scenario.transport !== "webmcp") {
+      throw new Error('"webmcpRoute" only applies to a scenario with "transport": "webmcp"');
+    }
+    if (typeof scenario.webmcpRoute !== "string" || !scenario.webmcpRoute.startsWith("/")) {
+      throw new Error('"webmcpRoute" must be an absolute route such as "/notes"');
+    }
+  } else if (scenario.transport === "webmcp") {
+    throw new Error('a WebMCP scenario requires "webmcpRoute"');
+  }
   // `path` addresses an HTTP endpoint; over MCP a step is addressed by tool
   // name. Rejecting the combination here beats posting a scenario's custom
   // path at an MCP endpoint and reporting whatever 404 comes back.
@@ -295,6 +319,32 @@ export function parseScenario(file: string): EvalScenario {
         `step ${withPath} sets "path", which only applies to the HTTP transport — ` +
           "an MCP step is addressed by its projected tool name",
       );
+    }
+  }
+  if (scenario.transport === "webmcp") {
+    if (scenario.signAs !== undefined) {
+      throw new Error('"signAs" is unavailable over WebMCP; page tools use the browser session');
+    }
+    for (const [index, step] of scenario.steps.entries()) {
+      if (step.path !== undefined || step.confirm !== undefined || step.sign !== undefined) {
+        throw new Error(
+          `step ${index} uses an HTTP-only path, confirmation, or signing option over WebMCP`,
+        );
+      }
+      if (step.headers && Object.keys(step.headers).length > 0) {
+        throw new Error(`step ${index} sets headers, which WebMCP tool calls cannot forward`);
+      }
+    }
+  }
+  for (const [index, step] of scenario.steps.entries()) {
+    if (step.cancelAfterMs === undefined) continue;
+    if (
+      scenario.transport !== "webmcp" ||
+      typeof step.cancelAfterMs !== "number" ||
+      !Number.isFinite(step.cancelAfterMs) ||
+      step.cancelAfterMs < 0
+    ) {
+      throw new Error(`step ${index} "cancelAfterMs" must be a non-negative WebMCP delay`);
     }
   }
   // Validated here rather than at first use: a malformed identity would
@@ -426,7 +476,9 @@ export function collectExpectationFailures(
 
 export interface RunScenarioOptions {
   baseUrl: string;
+  browserExecutable?: string;
   fetchImpl?: typeof fetch;
+  timeoutMs?: number;
 }
 
 /** Capability envelope shape both transports normalize to. */
@@ -475,65 +527,153 @@ export async function runScenario(
     session = opened.session;
   }
 
-  for (const [index, step] of scenario.steps.entries()) {
-    let input: unknown;
-    let headers: Record<string, string>;
-    let confirmation: string | undefined;
+  let webmcp: WebmcpBrowserSession | undefined;
+  if (transport === "webmcp") {
     try {
-      input = resolveStepReferences(step.input === undefined ? {} : step.input, steps);
-      headers = resolveStepReferences(step.headers ?? {}, steps) as Record<string, string>;
-      if (step.confirm !== undefined) {
-        confirmation = String(resolveStepReferences(step.confirm, steps));
+      webmcp = await launchWebmcpBrowser({
+        executable: options.browserExecutable,
+        timeoutMs: options.timeoutMs,
+      });
+      const routeUrl = new URL(
+        scenario.webmcpRoute!,
+        ensureTrailingSlash(options.baseUrl),
+      ).toString();
+      await navigateWebmcpPage(webmcp.page, routeUrl, webmcp.timeoutMs);
+      const support = await readWebmcpSupport(webmcp.page);
+      if (!support.available) {
+        await webmcp.close();
+        return abort(support.detail ?? "The browser does not expose the WebMCP API.");
       }
-    } catch (error: unknown) {
-      return abort(error instanceof Error ? error.message : String(error));
+      await waitForBrowserTools(
+        webmcp.page,
+        [...new Set(scenario.steps.map((step) => step.capability))],
+        Math.min(options.timeoutMs ?? 10_000, 3_000),
+      );
+    } catch (error) {
+      await webmcp?.close();
+      return abort(
+        `could not open the WebMCP browser session: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
-
-    const sign = scenario.signAs !== undefined && step.sign !== false;
-    const started = performance.now();
-    const dispatched = session
-      ? await callMcpTool({ session, step, index, input, headers, confirmation, sign })
-      : await callHttpCapability({
-          baseUrl: options.baseUrl,
-          fetchImpl,
-          signAs: sign ? scenario.signAs : undefined,
-          step,
-          input,
-          headers:
-            confirmation === undefined
-              ? headers
-              : { ...headers, [CONFIRMATION_HEADER]: confirmation },
-        });
-    if ("error" in dispatched) return abort(dispatched.error);
-    const latencyMs = performance.now() - started;
-
-    const { status, transportStatus, envelope } = dispatched;
-    const failures = collectExpectationFailures(step.expect, status, envelope);
-    steps.push({
-      capability: step.capability,
-      transport,
-      status,
-      transportStatus,
-      ok: envelope.ok === true,
-      latencyMs,
-      errorCode:
-        envelope.ok === true
-          ? null
-          : typeof envelope.error?.code === "string"
-            ? envelope.error.code
-            : null,
-      failures,
-      resultForReferences: { status, transportStatus, ...envelope } as Record<string, unknown>,
-    });
   }
 
+  try {
+    for (const [index, step] of scenario.steps.entries()) {
+      let input: unknown;
+      let headers: Record<string, string>;
+      let confirmation: string | undefined;
+      try {
+        input = resolveStepReferences(step.input === undefined ? {} : step.input, steps);
+        headers = resolveStepReferences(step.headers ?? {}, steps) as Record<string, string>;
+        if (step.confirm !== undefined) {
+          confirmation = String(resolveStepReferences(step.confirm, steps));
+        }
+      } catch (error: unknown) {
+        return abort(error instanceof Error ? error.message : String(error));
+      }
+
+      const sign = scenario.signAs !== undefined && step.sign !== false;
+      const started = performance.now();
+      const dispatched = webmcp
+        ? await callWebmcpTool({ webmcp, step, input })
+        : session
+          ? await callMcpTool({ session, step, index, input, headers, confirmation, sign })
+          : await callHttpCapability({
+              baseUrl: options.baseUrl,
+              fetchImpl,
+              signAs: sign ? scenario.signAs : undefined,
+              step,
+              input,
+              headers:
+                confirmation === undefined
+                  ? headers
+                  : { ...headers, [CONFIRMATION_HEADER]: confirmation },
+            });
+      if ("error" in dispatched) return abort(dispatched.error);
+      const latencyMs = performance.now() - started;
+
+      const { status, transportStatus, envelope } = dispatched;
+      const failures = collectExpectationFailures(step.expect, status, envelope);
+      steps.push({
+        capability: step.capability,
+        transport,
+        status,
+        transportStatus,
+        ok: envelope.ok === true,
+        latencyMs,
+        errorCode:
+          envelope.ok === true
+            ? null
+            : typeof envelope.error?.code === "string"
+              ? envelope.error.code
+              : null,
+        failures,
+        resultForReferences: { status, transportStatus, ...envelope } as Record<string, unknown>,
+      });
+    }
+
+    return {
+      name: scenario.name,
+      file,
+      transport,
+      ok: steps.every((step) => step.failures.length === 0),
+      steps,
+      error: null,
+    };
+  } finally {
+    await webmcp?.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WebMCP browser transport
+// ---------------------------------------------------------------------------
+
+async function callWebmcpTool(args: {
+  webmcp: WebmcpBrowserSession;
+  step: EvalStep;
+  input: unknown;
+}): Promise<DispatchResult> {
+  let result;
+  try {
+    result = await executeBrowserTool(
+      args.webmcp.page,
+      args.step.capability,
+      args.input,
+      args.step.cancelAfterMs,
+      args.webmcp.timeoutMs,
+    );
+  } catch (error) {
+    return {
+      error: `WebMCP tool ${JSON.stringify(args.step.capability)} failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (result.error) {
+    const cancelled = args.step.cancelAfterMs !== undefined && /abort|cancel/i.test(result.error);
+    return {
+      status: cancelled ? 499 : 500,
+      transportStatus: cancelled ? 499 : 500,
+      envelope: {
+        ok: false,
+        error: {
+          code: cancelled ? "cancelled" : "webmcp_execution_error",
+          message: result.error,
+        },
+      },
+    };
+  }
+  const envelope = asRecord(result.value);
+  if (!envelope || typeof envelope.ok !== "boolean") {
+    return {
+      error:
+        `WebMCP tool ${JSON.stringify(args.step.capability)} returned a value that is not a ` +
+        `Pracht capability envelope: ${snippet(JSON.stringify(result.value) ?? String(result.value))}`,
+    };
+  }
   return {
-    name: scenario.name,
-    file,
-    transport,
-    ok: steps.every((step) => step.failures.length === 0),
-    steps,
-    error: null,
+    status: envelope.ok === true ? 200 : 500,
+    transportStatus: envelope.ok === true ? 200 : 500,
+    envelope: envelope as EvalEnvelope,
   };
 }
 
@@ -998,6 +1138,10 @@ function snippet(text: string): string {
   const trimmed = text.trim();
   if (trimmed === "") return "";
   return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+}
+
+function ensureTrailingSlash(url: string): string {
+  return url.endsWith("/") ? url : `${url}/`;
 }
 
 // ---------------------------------------------------------------------------

@@ -656,6 +656,35 @@ token in the page head — see the site docs for the `head()` recipe):
 - works in full-hydration and islands modes (the islands bootstrap pulls the
   shim in too; `hydration: "none"` pages ship no JS and register no tools).
 
+Static verification proves that declarations, route activation, and the
+resolved graph agree. `pracht verify webmcp` proves the next runtime boundary
+in a real Chrome process: it launches Chrome with the WebMCP testing feature,
+visits every route that activates a page tool, reads
+`document.modelContext.getTools()`, compares names and graph-owned descriptor
+fields, then visits a neutral route to prove stale registrations were removed.
+
+```bash
+pracht verify webmcp --url http://localhost:3000
+pracht verify webmcp --start "pracht preview" --json
+pracht verify webmcp --browser /pinned/path/to/chrome
+```
+
+Pracht locates an installed Chrome/Chromium build but never downloads an
+unpinned browser. The current runtime requires Chrome 150+ because Pracht
+targets `document.modelContext`; CI should install a pinned build and pass
+`--browser`. JSON distinguishes app startup, browser startup, unsupported API,
+registry failure, and graph drift, and includes browser/version, route,
+expected/observed descriptors, and focused mismatches. Dynamic route patterns
+use deterministic example segments. `--start` owns the server process group;
+browser and server processes are closed on success, failure, timeout, SIGINT,
+and SIGTERM.
+
+Add `--scenario evals/safe-webmcp.eval.json` to include explicit invocation
+proof in the same report. The file uses the `pracht eval` format with
+`"transport": "webmcp"` and a `"webmcpRoute"`; no operation is invoked unless
+the author supplies it. A step may set `"cancelAfterMs"` to prove that host
+cancellation reaches the generated dispatch path.
+
 If WebMCP does not graduate from its origin trial, the shim is deletable
 without touching the capability contract.
 
@@ -809,12 +838,14 @@ worked examples.
 `pracht eval` runs scripted scenarios (search → validation failure →
 confirmation flow) against a live app and exits 1 on any failed expectation —
 `--start "<command>"` launches and stops the app itself. Scenarios drive either
-projection: the capability HTTP endpoints by default, or the remote MCP
-endpoint with `"transport": "mcp"`, which issues each step as a `tools/call`
-after a real `initialize` handshake. See
+the capability HTTP endpoints by default, the remote MCP endpoint with
+`"transport": "mcp"`, or a native browser registry with
+`"transport": "webmcp"` plus `"webmcpRoute"`. WebMCP scenarios can explicitly
+invoke and cancel known-safe operations; they cannot forward arbitrary headers,
+confirmation tokens, or Web Bot Auth signatures. See
 [AGENT_TRUST.md](AGENT_TRUST.md#pracht-eval-scripted-agent-task-scenarios),
 `examples/basic/evals/notes.eval.json`, and
-`examples/basic/evals/notes-mcp.eval.json`.
+`examples/basic/evals/notes-mcp.eval.json` / `notes-webmcp.eval.json`.
 
 ## Not built yet
 

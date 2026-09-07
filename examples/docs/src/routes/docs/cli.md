@@ -277,6 +277,8 @@ and app-graph snapshot freshness:
 pracht verify
 pracht verify --changed
 pracht verify --json
+pracht verify webmcp --url http://localhost:3000
+pracht verify webmcp --start "pracht preview" --json
 ```
 
 `--changed` narrows file-oriented checks for a fast local loop; use the default
@@ -284,6 +286,21 @@ full scope before committing. The command exits 1 when any blocking check
 fails. `--json` emits the same checks, scope, and final `ok` value for CI and
 agents. Adapter-specific checks use the target resolved from the app's Vite
 configuration.
+
+`pracht verify webmcp` is the live complement to those static checks. It finds
+an installed Chrome/Chromium build, launches it with WebMCP testing enabled,
+visits routes that activate page tools, and compares the browser-owned registry
+with the resolved capability graph. It also navigates to a route without tools
+to prove old route registrations are removed. Pracht does not download a
+browser: use Chrome 150+ and pass `--browser /pinned/path/to/chrome` in CI.
+`--url` points at a running app; `--start` uses the same managed-server shape as
+`pracht eval`. The command exits 1 for startup failure, unsupported APIs,
+registration failure, or drift. JSON includes the browser/version, each route,
+expected and observed descriptors, and focused mismatches.
+
+To prove a known-safe invocation too, pass
+`--scenario evals/notes-webmcp.eval.json`. Only explicitly listed scenario
+steps run; the report includes their results and cancellation proof.
 
 ---
 
@@ -310,13 +327,17 @@ pracht eval                                  # evals/**/*.eval.json
 pracht eval evals/notes.eval.json
 pracht eval --url http://localhost:3000
 pracht eval --start "pracht preview" --url http://localhost:3000
+pracht eval evals/notes-webmcp.eval.json --browser /pinned/path/to/chrome
 pracht eval --json
 ```
 
-A scenario picks its transport: the capability HTTP projection by default, or
-the app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with `"transport": "mcp"`,
-where the runner performs an `initialize` handshake and issues each step as a
-`tools/call`. See [Agent Trust](/docs/agent-trust) for the scenario format.
+A scenario picks its transport: the capability HTTP projection by default, the
+app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with `"transport": "mcp"`,
+or a browser-owned page-tool registry with `"transport": "webmcp"` and
+`"webmcpRoute": "/notes"`. MCP performs an `initialize` handshake and
+`tools/call`; WebMCP uses native `getTools()` / `executeTool()` and supports an
+explicit per-step `cancelAfterMs`. See [Agent Trust](/docs/agent-trust) for the
+scenario format.
 
 Each scenario may declare its own URL, or `--url` can override all of them.
 `--start` launches one server for the entire run, waits for it to answer, and

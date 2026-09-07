@@ -751,14 +751,14 @@ describe("runScenario over the MCP transport", () => {
   });
 });
 
-describe("MCP scenario validation", () => {
+describe("transport scenario validation", () => {
   it("rejects transports, paths, and step fields that cannot apply", () => {
     const dir = makeTempDir();
     const file = join(dir, "mcp.eval.json");
     const base = { name: "x", steps: [{ capability: "notes.search" }] };
 
     writeFileSync(file, JSON.stringify({ ...base, transport: "grpc" }));
-    expect(() => parseScenario(file)).toThrow(/"transport" must be "http" or "mcp"/);
+    expect(() => parseScenario(file)).toThrow(/"transport" must be "http", "mcp", or "webmcp"/);
 
     writeFileSync(file, JSON.stringify({ ...base, mcpPath: "/mcp" }));
     expect(() => parseScenario(file)).toThrow(/"mcpPath" only applies/);
@@ -796,6 +796,34 @@ describe("MCP scenario validation", () => {
       JSON.stringify({ ...base, transport: "mcp", mcpHeaders: { Authorization: "Bearer t" } }),
     );
     expect(parseScenario(file).mcpHeaders).toEqual({ authorization: "Bearer t" });
+
+    writeFileSync(file, JSON.stringify({ ...base, transport: "webmcp" }));
+    expect(() => parseScenario(file)).toThrow(/requires "webmcpRoute"/);
+
+    writeFileSync(file, JSON.stringify({ ...base, transport: "webmcp", webmcpRoute: "notes" }));
+    expect(() => parseScenario(file)).toThrow(/absolute route/);
+
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...base,
+        transport: "webmcp",
+        webmcpRoute: "/notes",
+        steps: [{ capability: "notes.search", headers: { authorization: "x" } }],
+      }),
+    );
+    expect(() => parseScenario(file)).toThrow(/cannot forward/);
+
+    writeFileSync(
+      file,
+      JSON.stringify({
+        ...base,
+        transport: "webmcp",
+        webmcpRoute: "/notes",
+        steps: [{ capability: "notes.search", cancelAfterMs: 0 }],
+      }),
+    );
+    expect(parseScenario(file).steps[0].cancelAfterMs).toBe(0);
   });
 });
 
