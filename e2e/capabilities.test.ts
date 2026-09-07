@@ -767,6 +767,9 @@ test("MCP refuses GET, cross-origin, and cookie-authenticated requests", async (
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
+const webmcpBrowserArgs = process.env.PRACHT_E2E_WEBMCP_BROWSER
+  ? ["--browser", process.env.PRACHT_E2E_WEBMCP_BROWSER]
+  : [];
 
 test("pracht verify webmcp checks the native registry, navigation cleanup, and invocation", async () => {
   test.setTimeout(40_000);
@@ -781,6 +784,7 @@ test("pracht verify webmcp checks the native registry, navigation cleanup, and i
       "--scenario",
       "evals/notes-webmcp.eval.json",
       "--json",
+      ...webmcpBrowserArgs,
     ],
     { cwd: resolve(repoRoot, "examples/basic") },
   );
@@ -812,7 +816,7 @@ test("pracht eval runs the example scenarios against the dev server", async () =
   for (let run = 0; run < 2; run += 1) {
     const { stdout } = await execFileAsync(
       process.execPath,
-      [cliEntry, "eval", "--url", capabilitiesUrl],
+      [cliEntry, "eval", "--url", capabilitiesUrl, ...webmcpBrowserArgs],
       { cwd: resolve(repoRoot, "examples/basic") },
     );
     expect(stdout).toContain("PASS  notes agent flow");

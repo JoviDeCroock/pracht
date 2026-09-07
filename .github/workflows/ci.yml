@@ -113,6 +113,16 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps --only-shell chromium
 
+      - name: Install pinned Chrome for WebMCP
+        env:
+          CHROME_FOR_TESTING_VERSION: 152.0.7977.76
+        run: |
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/chrome-for-testing.zip" \
+            "https://storage.googleapis.com/chrome-for-testing-public/$CHROME_FOR_TESTING_VERSION/linux64/chrome-linux64.zip"
+          unzip -q "$RUNNER_TEMP/chrome-for-testing.zip" -d "$RUNNER_TEMP"
+          echo "PRACHT_E2E_WEBMCP_BROWSER=$RUNNER_TEMP/chrome-linux64/chrome" >> "$GITHUB_ENV"
+
       - name: E2E tests
         run: pnpm e2e
 
