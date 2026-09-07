@@ -771,25 +771,40 @@ const webmcpBrowserArgs = process.env.PRACHT_E2E_WEBMCP_BROWSER
   ? ["--browser", process.env.PRACHT_E2E_WEBMCP_BROWSER]
   : [];
 
+async function runPracht(args: string[]): Promise<{ stderr: string; stdout: string }> {
+  try {
+    return await execFileAsync(process.execPath, [cliEntry, ...args], {
+      cwd: resolve(repoRoot, "examples/basic"),
+    });
+  } catch (error) {
+    const failure = error as Error & { stderr?: string; stdout?: string };
+    throw new Error(
+      [
+        failure.message,
+        failure.stdout ? `stdout:\n${failure.stdout}` : "",
+        failure.stderr ? `stderr:\n${failure.stderr}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      { cause: error },
+    );
+  }
+}
+
 test("pracht verify webmcp checks the native registry, navigation cleanup, and invocation", async () => {
   test.setTimeout(60_000);
-  const { stdout } = await execFileAsync(
-    process.execPath,
-    [
-      cliEntry,
-      "verify",
-      "webmcp",
-      "--url",
-      capabilitiesUrl,
-      "--scenario",
-      "evals/notes-webmcp.eval.json",
-      "--json",
-      ...webmcpBrowserArgs,
-      "--timeout",
-      "30000",
-    ],
-    { cwd: resolve(repoRoot, "examples/basic") },
-  );
+  const { stdout } = await runPracht([
+    "verify",
+    "webmcp",
+    "--url",
+    capabilitiesUrl,
+    "--scenario",
+    "evals/notes-webmcp.eval.json",
+    "--json",
+    ...webmcpBrowserArgs,
+    "--timeout",
+    "30000",
+  ]);
   const report = JSON.parse(stdout);
 
   expect(report.ok).toBe(true);
