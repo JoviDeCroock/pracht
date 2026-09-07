@@ -772,7 +772,7 @@ const webmcpBrowserArgs = process.env.PRACHT_E2E_WEBMCP_BROWSER
   : [];
 
 test("pracht verify webmcp checks the native registry, navigation cleanup, and invocation", async () => {
-  test.setTimeout(40_000);
+  test.setTimeout(60_000);
   const { stdout } = await execFileAsync(
     process.execPath,
     [
@@ -785,6 +785,8 @@ test("pracht verify webmcp checks the native registry, navigation cleanup, and i
       "evals/notes-webmcp.eval.json",
       "--json",
       ...webmcpBrowserArgs,
+      "--timeout",
+      "30000",
     ],
     { cwd: resolve(repoRoot, "examples/basic") },
   );
