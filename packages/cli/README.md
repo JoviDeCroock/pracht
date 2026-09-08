@@ -86,6 +86,32 @@ pracht verify --changed
 pracht verify --json
 ```
 
+Use the browser-backed subcommand for routes that expose WebMCP page tools:
+
+```bash
+pracht verify webmcp --url http://localhost:3000
+pracht verify webmcp --start "pracht preview" --json
+```
+
+It launches an installed Chrome 150+ build with WebMCP testing enabled,
+compares the native route-scoped tool registry with the resolved app graph,
+and verifies navigation cleanup. Framework-owned `pracht_*` development tools
+are excluded from app-graph parity. Pracht never downloads an unpinned browser;
+pass `--browser /path/to/chrome` in CI. `--scenario` accepts explicit safe WebMCP
+eval files when invocation/cancellation proof should join the report.
+
+### `pracht eval`
+
+Run scripted capability scenarios over HTTP (default), remote MCP
+(`"transport": "mcp"`), or native WebMCP (`"transport": "webmcp"` plus
+`"webmcpRoute"`). A WebMCP step can set `cancelAfterMs` to prove host
+cancellation reaches the dispatch path.
+
+```bash
+pracht eval --start "pracht preview"
+pracht eval evals/notes-webmcp.eval.json --browser /path/to/chrome --json
+```
+
 ### `pracht plan`
 
 Semantic app-graph diff against a base git ref. Reads the

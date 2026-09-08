@@ -176,7 +176,9 @@ configured runtime module such as the OAuth verifier is authoritatively unusable
 with \`pracht eval\` (scenario files in \`evals/*.eval.json\`, \`--start\` boots the
 app itself). A scenario runs against the HTTP projection by default, or against
 the app's remote MCP endpoint with scenario-level \`"transport": "mcp"\` — write
-one of those for anything with \`expose.mcp\`.
+one of those for anything with \`expose.mcp\`. A known-safe WebMCP scenario uses
+\`"transport": "webmcp"\` plus \`"webmcpRoute"\`; run \`pracht verify webmcp\`
+to compare the live browser registry with the route graph before invoking it.
 
 ## Constraints (invariants reviewers rely on)
 
@@ -200,11 +202,12 @@ policy change a human must approve.
 - \`pracht build [--analyze]\` — production build; \`--analyze\` reports per-route client JS; budgets fail the build.
 - \`pracht inspect [routes|api|capabilities|build] --json\` — resolved app graph as JSON. Prefer this over globbing \`src/\`.
 - \`pracht verify [--changed] [--json]\` — deterministic framework checks; must pass before committing.
+- \`pracht verify webmcp [--url] [--start "<cmd>"] [--browser <path>]\` — launch compatible Chrome and compare native route-scoped page tools with the resolved graph; add \`--scenario\` only for explicit safe invocation proof.
 - \`pracht plan [--base ref] [--markdown]\` — semantic app-graph diff vs a git ref; \`--write\` refreshes \`.pracht/app-graph.json\`.
 - \`pracht report [--base ref]\` — PR-ready markdown: graph diff + verification + budgets. Use it as the factual half of a PR description.
 - \`pracht generate route|shell|middleware|api|capability\` — canonical scaffolding; \`generate route\` also emits a Playwright smoke test when the app has an e2e setup.
 - \`pracht typegen\` — typed route ids/params for \`<Link>\`, \`href()\`, \`useNavigate()\`.
-- \`pracht eval [files] [--url] [--start "<cmd>"]\` — run scripted agent-task scenarios against the capability HTTP projection, or the remote MCP endpoint with \`"transport": "mcp"\`; exits 1 on any failed expectation.
+- \`pracht eval [files] [--url] [--start "<cmd>"] [--browser <path>]\` — run scripted agent-task scenarios over HTTP, remote MCP, or native WebMCP; exits 1 on any failed expectation.
 - \`pracht doctor\` — app wiring diagnostics.
 - \`pracht dev-mcp\` — this CLI as an authoring MCP server (inspect/verify/generate/docs tools).
   Not your app's own remote MCP endpoint, which serves capabilities to end-user agents.

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { relative } from "node:path";
 
 import { defineCommand } from "citty";
@@ -10,6 +10,7 @@ import {
   waitForServer,
   type EvalScenarioResult,
 } from "../eval-runner.js";
+import { startManagedCommand, stopProcessTree } from "../managed-command.js";
 
 const DEFAULT_START_URL = "http://localhost:3000";
 
@@ -17,7 +18,7 @@ export default defineCommand({
   meta: {
     name: "eval",
     description:
-      "Run scripted agent-task scenarios against the capability HTTP projection or the remote MCP endpoint",
+      "Run scripted agent-task scenarios over capability HTTP, remote MCP, or browser WebMCP",
   },
   args: {
     files: {
@@ -35,6 +36,10 @@ export default defineCommand({
         'Command that starts your app (e.g. "pracht preview"). pracht eval launches it, ' +
         `waits for a response at --url (default ${DEFAULT_START_URL}), runs the scenarios, ` +
         "then stops it",
+    },
+    browser: {
+      type: "string",
+      description: "Chrome/Chromium executable used by WebMCP scenarios",
     },
     json: {
       type: "boolean",
@@ -76,22 +81,12 @@ export default defineCommand({
 
       let output = "";
       let exitReason: string | null = null;
-      child = spawn(startCommand, {
-        shell: true,
-        // Its own process group on POSIX, so stopping it also stops whatever
-        // the shell command spawned (package managers, dev servers).
-        detached: process.platform !== "win32",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      child.stdout?.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-      });
-      child.stderr?.on("data", (chunk: Buffer) => {
-        output += chunk.toString();
-      });
-      child.on("exit", (code) => {
-        exitReason = `the start command exited with code ${code ?? "unknown"} before the server answered`;
-      });
+      const managed = startManagedCommand(startCommand);
+      child = managed.child;
+      const syncManagedState = (): void => {
+        output = managed.output();
+        exitReason = managed.earlyExit();
+      };
 
       // A detached child (its own process group) does not receive the
       // terminal's Ctrl+C, so stop it explicitly before exiting — otherwise it
@@ -107,8 +102,14 @@ export default defineCommand({
         console.log(`Starting app: ${startCommand}`);
         console.log(`Waiting for ${baseUrl} ...`);
       }
-      const ready = await waitForServer(baseUrl, { earlyExit: () => exitReason });
+      const ready = await waitForServer(baseUrl, {
+        earlyExit: () => {
+          syncManagedState();
+          return exitReason;
+        },
+      });
       if (!ready.ok) {
+        syncManagedState();
         releaseSignalHandler();
         stopStartedCommand(child);
         console.error(`Could not reach the app at ${baseUrl}: ${ready.reason}`);
@@ -123,7 +124,14 @@ export default defineCommand({
     try {
       const results: EvalScenarioResult[] = [];
       for (const file of files) {
-        results.push(await runEvalFile(file, cwd, urlOverride));
+        results.push(
+          await runEvalFile(
+            file,
+            cwd,
+            urlOverride,
+            args.browser ? String(args.browser) : undefined,
+          ),
+        );
       }
 
       const ok = results.every((result) => result.ok && result.error === null);
@@ -146,34 +154,14 @@ export default defineCommand({
 
 /** Stop the `--start` process — the whole group on POSIX (`shell: true` spawns children). */
 function stopStartedCommand(child: ChildProcess): void {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return;
-  }
-  if (process.platform !== "win32" && child.pid) {
-    try {
-      process.kill(-child.pid, "SIGTERM");
-      return;
-    } catch {
-      // Group already gone — fall through to the direct kill.
-    }
-  }
-  if (process.platform === "win32" && child.pid) {
-    // `shell: true` spawns a cmd.exe; SIGTERM only kills that shell, leaving
-    // the actual server (a descendant) running. taskkill /T ends the tree.
-    try {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
-      return;
-    } catch {
-      // Fall through to the direct kill.
-    }
-  }
-  child.kill("SIGTERM");
+  stopProcessTree(child);
 }
 
 async function runEvalFile(
   file: string,
   cwd: string,
   urlOverride: string | undefined,
+  browserExecutable: string | undefined,
 ): Promise<EvalScenarioResult> {
   let scenario;
   try {
@@ -205,7 +193,7 @@ async function runEvalFile(
     };
   }
 
-  return runScenario(scenario, file, { baseUrl });
+  return runScenario(scenario, file, { baseUrl, browserExecutable });
 }
 
 function printTranscript(results: EvalScenarioResult[], cwd: string): void {
@@ -218,7 +206,7 @@ function printTranscript(results: EvalScenarioResult[], cwd: string): void {
     // HTTP says nothing about whether an MCP host can reach the capability.
     // Read from the scenario result, not its first step — a scenario that fails
     // during the handshake has no steps and is exactly when this matters.
-    const transport = result.transport === "mcp" ? "  [mcp]" : "";
+    const transport = result.transport === "http" ? "" : `  [${result.transport}]`;
     console.log(`\n${marker}  ${result.name}${transport}  (${relative(cwd, result.file)})`);
     if (result.error) {
       console.log(`      ${result.error}`);

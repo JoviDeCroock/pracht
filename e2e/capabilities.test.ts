@@ -790,6 +790,64 @@ test("MCP refuses GET, cross-origin, and cookie-authenticated requests", async (
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
+const webmcpBrowserArgs = process.env.PRACHT_E2E_WEBMCP_BROWSER
+  ? ["--browser", process.env.PRACHT_E2E_WEBMCP_BROWSER]
+  : [];
+
+async function runPracht(args: string[]): Promise<{ stderr: string; stdout: string }> {
+  try {
+    return await execFileAsync(process.execPath, [cliEntry, ...args], {
+      cwd: resolve(repoRoot, "examples/basic"),
+    });
+  } catch (error) {
+    const failure = error as Error & { stderr?: string; stdout?: string };
+    throw new Error(
+      [
+        failure.message,
+        failure.stdout ? `stdout:\n${failure.stdout}` : "",
+        failure.stderr ? `stderr:\n${failure.stderr}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      { cause: error },
+    );
+  }
+}
+
+test("pracht verify webmcp checks the native registry, navigation cleanup, and invocation", async () => {
+  test.setTimeout(60_000);
+  const { stdout } = await runPracht([
+    "verify",
+    "webmcp",
+    "--url",
+    capabilitiesUrl,
+    "--scenario",
+    "evals/notes-webmcp.eval.json",
+    "--json",
+    ...webmcpBrowserArgs,
+    "--timeout",
+    "30000",
+  ]);
+  const report = JSON.parse(stdout);
+
+  expect(report.ok).toBe(true);
+  expect(report.status).toBe("passed");
+  expect(report.browser.version).toMatch(/^\d+\./);
+  expect(report.support.methods).toEqual(expect.arrayContaining(["getTools", "executeTool"]));
+  expect(report.routes.map((route: { route: string }) => route.route)).toEqual([
+    "/notes",
+    "/agent-tools",
+    "/",
+  ]);
+  expect(report.routes.at(-1)).toMatchObject({ expectedTools: [], observedTools: [] });
+  expect(report.invocations[0]).toMatchObject({ ok: true, transport: "webmcp" });
+  expect(report.invocations[0].steps).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ capability: "notes.search", ok: true, status: 200 }),
+      expect.objectContaining({ errorCode: "cancelled", ok: false, status: 499 }),
+    ]),
+  );
+});
 
 test("pracht eval runs the example scenarios against the dev server", async () => {
   // Run twice against one long-lived approval store. Consumed proposals stay
@@ -798,7 +856,7 @@ test("pracht eval runs the example scenarios against the dev server", async () =
   for (let run = 0; run < 2; run += 1) {
     const { stdout } = await execFileAsync(
       process.execPath,
-      [cliEntry, "eval", "--url", capabilitiesUrl],
+      [cliEntry, "eval", "--url", capabilitiesUrl, ...webmcpBrowserArgs],
       { cwd: resolve(repoRoot, "examples/basic") },
     );
     expect(stdout).toContain("PASS  notes agent flow");

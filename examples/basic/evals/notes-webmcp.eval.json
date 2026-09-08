@@ -1,0 +1,19 @@
+{
+  "name": "search notes through the live WebMCP registry",
+  "task": "invoke and cancel the browser-owned notes.search page tool",
+  "transport": "webmcp",
+  "webmcpRoute": "/notes",
+  "steps": [
+    {
+      "capability": "notes.search",
+      "input": { "query": "capabilities" },
+      "expect": { "ok": true, "output": { "notes": [{ "title": "Capabilities" }] } }
+    },
+    {
+      "capability": "notes.search",
+      "input": { "query": "capabilities" },
+      "cancelAfterMs": 0,
+      "expect": { "ok": false, "status": 499, "errorCode": "cancelled" }
+    }
+  ]
+}

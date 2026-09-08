@@ -562,9 +562,59 @@ test("destructive capability requires confirmation, then commits", async ({ requ
 
 Worth asserting too: a tampered token and a same-token-different-input call both answer `403`.
 
-### Faking WebMCP in the browser
+### Verify native WebMCP in Chrome
 
-No agent is needed to test the [WebMCP projection](/docs/capabilities). Install a fake `document.modelContext` before any page script runs — the client runtime's feature detection will register tools against it, and `execute()` round-trips through the real HTTP projection:
+The ordinary `pracht verify` command checks declarations and graph wiring
+without opening a browser. Add the live check when routes expose WebMCP:
+
+```sh
+pracht verify webmcp --start "pracht preview"
+
+# Pin the executable in CI; Pracht never downloads an unpinned browser.
+pracht verify webmcp --start "pracht preview" \
+  --browser /path/to/chrome --json
+```
+
+The verifier enables Chrome's WebMCP testing feature, enumerates the native
+page-tool registry on every activating route, compares tool names, descriptions,
+schemas, titles, and read-only hints with Pracht's graph, and navigates to a
+neutral route to verify cleanup. Chrome 150+ is required for the
+`document.modelContext` API Pracht targets. Unsupported builds and startup,
+registration, or graph-drift failures are distinct non-zero results.
+
+Registration never implies permission to execute arbitrary operations. Add an
+explicit WebMCP eval scenario only for inputs known to be safe:
+
+```json [evals/notes-webmcp.eval.json]
+{
+  "name": "live notes page tool",
+  "transport": "webmcp",
+  "webmcpRoute": "/notes",
+  "steps": [
+    {
+      "capability": "notes.search",
+      "input": { "query": "roadmap" },
+      "expect": { "ok": true }
+    },
+    {
+      "capability": "notes.search",
+      "input": { "query": "roadmap" },
+      "cancelAfterMs": 0,
+      "expect": { "ok": false, "status": 499, "errorCode": "cancelled" }
+    }
+  ]
+}
+```
+
+Run it through `pracht eval`, or include invocation results in the verifier's
+JSON with `pracht verify webmcp --scenario evals/notes-webmcp.eval.json`.
+
+### Fast WebMCP tests with a fake registry
+
+For fast tests that do not require a compatible Chrome build, install a fake
+`document.modelContext` before any page script runs. The client runtime's
+feature detection registers tools against it, and `execute()` still
+round-trips through the real HTTP projection:
 
 ```ts [e2e/webmcp.test.ts]
 test("webmcp tools register and execute", async ({ page }) => {
@@ -652,9 +702,9 @@ pracht eval --start "pracht preview"    # add --json for machine-readable CI out
 pracht eval --url http://localhost:3000
 ```
 
-A scenario that sets `"transport": "mcp"` runs the same steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead — a real `initialize` handshake followed by one `tools/call` per step — so an `expose.mcp` capability is tested the way an MCP host would actually reach it, not through the HTTP projection standing in for it.
+A scenario that sets `"transport": "mcp"` runs the same steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead — a real `initialize` handshake followed by one `tools/call` per step. `"transport": "webmcp"` plus `"webmcpRoute"` launches compatible Chrome and invokes the page-owned tool; `cancelAfterMs` supplies explicit cancellation proof.
 
-See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for a complete worked example — five capabilities with unit, E2E, and eval coverage over both transports.
+See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for a complete worked example — five capabilities with unit, E2E, and eval coverage over HTTP, remote MCP, and WebMCP.
 
 ---
 

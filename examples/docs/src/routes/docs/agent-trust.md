@@ -655,4 +655,35 @@ Expectations mean the same thing on both transports — including `status`. `ok`
 
 Transport differences fail loudly rather than quietly. A capability the endpoint does not project — anything without `expose.mcp` — fails the scenario with the tool name it looked for and what to do about it. Destructive confirmation scenarios work when the app enables [`agents.mcp.destructive` and an approval store](/docs/capabilities#destructive-tools): the `confirm` token rides in the call's `_meta["io.pracht/confirmation"]` field, since MCP has no per-call header channel. Step `headers` remain limited: the projection forwards only `authorization`, so any other header on an MCP step fails the scenario instead of silently never arriving.
 
-The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing the full dispatch pipeline with `createCapabilityTestHost()` — including this confirmation flow and simulated agent identities — plus Playwright patterns, faking the WebMCP API, and signing Web Bot Auth requests in tests.
+### Explicit Invocation Over WebMCP
+
+Use `"transport": "webmcp"` with a `"webmcpRoute"` to launch compatible Chrome,
+discover the native page tool, and invoke only the known-safe steps you wrote:
+
+```jsonc [evals/notes-webmcp.eval.json]
+{
+  "name": "notes through WebMCP",
+  "transport": "webmcp",
+  "webmcpRoute": "/notes",
+  "steps": [
+    {
+      "capability": "notes.search",
+      "input": { "query": "roadmap" },
+      "expect": { "ok": true }
+    },
+    {
+      "capability": "notes.search",
+      "input": { "query": "roadmap" },
+      "cancelAfterMs": 0,
+      "expect": { "ok": false, "status": 499, "errorCode": "cancelled" }
+    }
+  ]
+}
+```
+
+`cancelAfterMs` proves browser-host cancellation reaches the generated dispatch
+path. Page tools cannot forward arbitrary headers, confirmation tokens, or a
+Web Bot Auth `signAs` identity, so the runner rejects those combinations.
+Chrome 150+ is required; pin it in CI with `--browser /path/to/chrome`.
+
+The [Testing recipe](/docs/recipes/testing) covers the rest of the agent-surface toolbox: unit testing the full dispatch pipeline with `createCapabilityTestHost()` — including this confirmation flow and simulated agent identities — plus browser-backed verification, fast fake-registry tests, and signing Web Bot Auth requests in tests.

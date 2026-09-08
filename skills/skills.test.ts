@@ -201,7 +201,7 @@ function cittyArgNames(commandFile: string): Set<string> {
 }
 
 const cliArgCache = new Map<string, Set<string>>();
-function flagsForSubcommand(subcommand: string): Set<string> {
+function flagsForSubcommand(subcommand: string, nestedSubcommand?: string): Set<string> {
   const file = CLI_SUBCOMMANDS.get(subcommand);
   if (!file) return GLOBAL_CLI_FLAGS;
   let flags = cliArgCache.get(file);
@@ -209,7 +209,18 @@ function flagsForSubcommand(subcommand: string): Set<string> {
     flags = new Set([...cittyArgNames(file), ...GLOBAL_CLI_FLAGS]);
     cliArgCache.set(file, flags);
   }
-  return flags;
+  if (!nestedSubcommand) return flags;
+
+  const source = readFileSync(file, "utf-8");
+  const entry = new RegExp(`\\b${nestedSubcommand}:\\s*(\\w+)\\b`).exec(source);
+  if (!entry) return flags;
+  const importPath = new RegExp(`import\\s+${entry[1]}\\s+from\\s+["'](\\.[^"']+)\\.js["']`).exec(
+    source,
+  )?.[1];
+  if (!importPath) return flags;
+  const nestedFile = resolve(dirname(file), `${importPath}.ts`);
+  if (!existsSync(nestedFile)) return flags;
+  return new Set([...flags, ...cittyArgNames(nestedFile)]);
 }
 
 const mcpServerSource = readFileSync(join(CLI_SRC, "mcp-server.ts"), "utf-8");
@@ -372,7 +383,8 @@ describe.each(skills)("skills/$name/SKILL.md", (skill) => {
         `"pracht ${subcommand}" (from \`${invocation.source}\`) is not a registered CLI subcommand; known: ${[...CLI_SUBCOMMANDS.keys()].join(", ")}`,
       ).toBe(true);
 
-      const allowedFlags = flagsForSubcommand(subcommand);
+      const nestedSubcommand = rest.find((token) => /^[a-z][\w-]*$/.test(token));
+      const allowedFlags = flagsForSubcommand(subcommand, nestedSubcommand);
       for (const token of rest) {
         const flag = /^--([a-z][\w-]*)(?:=.*)?$/.exec(token)?.[1];
         if (!flag) continue;

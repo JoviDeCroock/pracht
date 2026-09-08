@@ -49,6 +49,7 @@
     "@pracht/capabilities": "workspace:*",
     "@pracht/core": "workspace:*",
     "citty": "^0.1.6",
+    "playwright-core": "^1.59.1",
     "zod": "^4.4.3"
   }
 }

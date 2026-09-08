@@ -991,9 +991,10 @@ erase separately reported `llms.txt`, MCP endpoint, or Web Bot Auth surfaces.
 
 `pracht eval [files...]` runs JSON scenarios against a live app's agent surface
 and exits 1 on any failed expectation — "can an agent actually complete this
-task through my tools?" as a repeatable CI check. A scenario drives either
-projection: the capability HTTP endpoints (default) or the
-[remote MCP endpoint](REMOTE_MCP.md) via `"transport": "mcp"`.
+task through my tools?" as a repeatable CI check. A scenario drives the
+capability HTTP endpoints (default), the [remote MCP endpoint](REMOTE_MCP.md)
+via `"transport": "mcp"`, or the live browser page-tool registry via
+`"transport": "webmcp"`.
 
 ```bash
 pracht eval --start "pracht preview"             # starts the app, runs evals/**/*.eval.json, stops it
@@ -1017,14 +1018,16 @@ example):
   "name": "notes agent flow",
   "task": "optional human description",
   "url": "http://localhost:3000",   // optional; --url overrides
-  "transport": "http",              // or "mcp"; default "http"
+  "transport": "http",              // "mcp" or "webmcp"; default "http"
   "mcpPath": "/mcp",                // only with "transport": "mcp", when not the default
+  "webmcpRoute": "/notes",          // required only with "transport": "webmcp"
   "steps": [
     {
       "capability": "notes.purge",   // name → POST /api/capabilities/notes/purge
       "path": "/api/custom",         // optional override for custom expose.http.path
       "input": { "titlePrefix": "Old" },
       "confirm": "$steps[0].error.confirmationToken", // HTTP: sets the confirmation header
+      "cancelAfterMs": 25,            // optional WebMCP host cancellation proof
       "expect": {
         "ok": false,                        // envelope ok flag
         "status": 409,                      // capability dispatch status (both transports)
@@ -1119,6 +1122,16 @@ example):
   project fails the scenario with the tool name it looked for and what to do
   about it, rather than passing quietly.
   `examples/basic/evals/notes-mcp.eval.json` exercises the complete round trip.
+- **WebMCP transport**: `"transport": "webmcp"` launches a compatible Chrome
+  process with the testing feature enabled, opens `webmcpRoute`, discovers the
+  registered tool, and invokes it through `document.modelContext.executeTool()`.
+  Only explicit steps run. `cancelAfterMs` aborts the browser-host call and is
+  reported as status `499` / error code `cancelled`; use it to prove the
+  generated HTTP dispatch observes cancellation. WebMCP cannot forward step
+  headers, confirmation tokens, or `signAs`, and those combinations are
+  rejected when the scenario loads. Pass a pinned executable with
+  `pracht eval --browser /path/to/chrome` in CI. See
+  `examples/basic/evals/notes-webmcp.eval.json`.
 - Output: a human transcript (step, capability, outcome, status, latency,
   denial reasons; MCP scenarios are marked `[mcp]`) or `--json` for CI, where
   each step also carries its `transport`.
