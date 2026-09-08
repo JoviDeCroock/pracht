@@ -45,8 +45,8 @@ pracht MCP server is registered (docs/MCP.md), prefer the
 `inspect_routes`/`inspect_api`/`doctor`/`verify` MCP tools — same payloads,
 structured results.
 
-When you are driving a browser against `pracht dev` (agent-browser, a WebMCP
-host), ask the tab before reading logs: every dev document registers read-only
+When you are driving a browser against `pracht dev` with a WebMCP-compatible
+test harness or host, ask the tab before reading logs: every dev document registers read-only
 `pracht_*` page tools with `document.modelContext`. `pracht_route` gives the
 matched route, files, render/hydration mode, and middleware; `pracht_loader_data`
 the data the page holds now (`{ path: "a.0.b" }` narrows it; islands/none routes

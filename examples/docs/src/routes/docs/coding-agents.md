@@ -17,7 +17,7 @@ next:
 | | Audience | When | What it exposes |
 | --- | --- | --- | --- |
 | **`pracht dev-mcp`** (this page) | Your coding agent — Claude Code, Cursor, an MCP client on your machine | **Development** | Your app's *graph*: routes, API endpoints, capabilities, diagnostics, scaffolding |
-| **[Dev page tools](#debugging-in-the-tab-dev-page-tools)** (this page) | An agent-driven browser testing your app — agent-browser, ChatGPT desktop, Chromium under the WebMCP origin trial | **Development** | *This tab*: the matched route, its loader data, islands, the last error, and the app's own page tools — as WebMCP tools on every dev document |
+| **[Dev page tools](#debugging-in-the-tab-dev-page-tools)** (this page) | A WebMCP-compatible agent or test harness driving your app | **Development** | *This tab*: the matched route, its loader data, islands, the last error, and the app's own page tools — as WebMCP tools on every dev document |
 | **[Remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser)** | End-user agents calling your deployed app | **Production** | Your app's *operations*: capabilities served as MCP tools over Streamable HTTP |
 
 `pracht dev-mcp` never ships. It is part of `@pracht/cli`, it runs on your machine, and it is not reachable from your deployed app. Remote MCP is the opposite on every count.
@@ -112,7 +112,7 @@ Tool failures — a missing manifest, an unknown shell, a refusal to overwrite a
 
 ## Debugging in the Tab: Dev Page Tools
 
-An agent that drives a browser against `pracht dev` — agent-browser, ChatGPT desktop's built-in browser, Chromium with the WebMCP origin trial — has the page in front of it but not the framework's view of that page. Which route matched? What did the loader actually return? Did the island hydrate? What was the server error behind this 500? Answering those from the outside means correlating server logs, or finding and configuring a separate MCP server, with the tab under test.
+A WebMCP-compatible agent or test harness driving a browser against `pracht dev` has the page in front of it but not the framework's view of that page. Which route matched? What did the loader actually return? Did the island hydrate? What was the server error behind this 500? Answering those from the outside means correlating server logs, or finding and configuring a separate MCP server, with the tab under test.
 
 So the tab answers them itself. Every document `pracht dev` serves registers five read-only [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents) page tools with the browser's model context, scoped to that document:
 
@@ -126,7 +126,7 @@ So the tab answers them itself. Every document `pracht dev` serves registers fiv
 
 Each resolves to the same `{ ok, data }` / `{ ok: false, error }` envelope as a pracht capability. The tools follow committed client-side navigation, so after an agent clicks a link, `pracht_route` describes the destination.
 
-There is nothing to install. The dev SSR middleware injects one `<script type="module" src="/@pracht/dev-page-tools.js">` into every HTML document it serves — full-hydration routes, islands routes, `hydration: "none"` routes, the dev 404 page, and the error overlay alike. That module feature-detects `document.modelContext` before importing anything, so a browser without the WebMCP API pays for the feature check and nothing else. No build step emits the tag or the module; a production bundle cannot contain them. To turn them off, set `pracht({ devPageTools: false })` in `vite.config.ts`.
+There is nothing to install in the app, but the browser or harness must provide WebMCP; no mainstream browser agent consumes arbitrary page tools in broad production availability yet. The dev SSR middleware injects one `<script type="module" src="/@pracht/dev-page-tools.js">` into every HTML document it serves — full-hydration routes, islands routes, `hydration: "none"` routes, the dev 404 page, and the error overlay alike. That module feature-detects `document.modelContext` before importing anything, so a browser without the WebMCP API pays for the feature check and nothing else. No build step emits the tag or the module; a production bundle cannot contain them. To turn them off, set `pracht({ devPageTools: false })` in `vite.config.ts`.
 
 ```sh
 pracht dev

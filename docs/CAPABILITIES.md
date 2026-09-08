@@ -9,7 +9,7 @@ Today those surfaces are:
   routes, and middleware;
 - **an HTTP endpoint** — generated `POST` dispatch when `expose.http` is set;
 - **a WebMCP page tool** — eligible for route-scoped browser registration when
-  `expose.webmcp` is set (ChatGPT desktop browser; Chrome/Edge origin trial);
+  `expose.webmcp` is set (experimental Chrome origin trial);
 - **a remote MCP tool** — served at one Streamable HTTP endpoint when
   `expose.mcp` is set and the app configures `agents.mcp`, for agents that
   never open a browser (see [REMOTE_MCP.md](REMOTE_MCP.md)).
@@ -620,19 +620,30 @@ at all: `callCapability("notes.stats")`.
 With `expose.webmcp: true` (which requires `expose.http`), the client runtime
 can register the capability as a WebMCP page tool for in-browser agents on
 routes that activate its name. The
-shim targets the CG draft API — `document.modelContext.registerTool()` — with
-no `navigator.modelContext` fallback: within the 149–156 origin trial the
-`document` getter landed in Chromium 150 and the deprecated alias was removed
-in 152, so pre-150 trial builds are not targeted and current polyfills install
-the `document` shape. Hosts include the ChatGPT desktop app's built-in browser
-and the Chrome/Edge origin trial (stable-channel visitors need an origin-trial
-token in the page head — see the site docs for the `head()` recipe):
+shim targets the current CG draft API — `document.modelContext.registerTool()`
+— with no `navigator.modelContext` fallback. The spec moved from `navigator`
+to `document` on 2026-07-21; within the 149–156 origin trial the `document`
+getter landed in Chromium 150 and the deprecated alias was removed in 152.
+Pre-150 trial builds are not targeted and current polyfills install the
+`document` shape. Stable-channel visitors need an origin-trial token in the
+page head; see the site docs for the `head()` recipe.
+
+The 2026-09-04 spec snapshot is still a W3C Community Group Draft, explicitly
+not a W3C Standard or Standards Track document. The Web Machine Learning
+Working Group charter lists WebNN, not WebMCP. No mainstream browser agent
+currently consumes arbitrary WebMCP tools in broad production availability;
+Chrome's integration remains preview-only and Anthropic closed support in the
+Claude Chrome extension as not planned. Treat this projection as a progressive
+enhancement and retain HTTP or remote MCP for production agent access:
 
 - one tool per capability: `name`, `title`, `description`, `inputSchema` (the
   capability's JSON Schema), WebMCP's effect-derived `readOnlyHint`, and
   `annotations.untrustedContentHint` when the capability opts in via
-  `expose.webmcp: { untrustedContent: true }`; remote MCP derives its
-  additional MCP-only annotations separately;
+  `expose.webmcp: { untrustedContent: true }`. The draft also defines
+  `consequentialHint`; pracht never infers it because consequential operations
+  belong to the rejected `destructive` page-tool class. Standalone tools may
+  set it explicitly. Remote MCP derives its additional MCP-only annotations
+  separately;
 - `execute()` calls the HTTP projection via `callCapability`, so the user's
   session authenticates the call and validation, middleware, and policy all
   stay server-side — the agent acts as the signed-in user, in their tab. When
@@ -643,8 +654,11 @@ token in the page head — see the site docs for the `head()` recipe):
 - `pracht verify` errors on names outside the spec's tool-name grammar
   (1–128 ASCII `[a-zA-Z0-9_.-]`), warns when a page tool sits behind an
   effective `agentPolicy: "require"` (WebMCP calls are unsigned browser
-  fetches, so every call would 401), and warns when descriptions exceed the
-  published agent-legibility budgets (~500 chars/tool, ~150 chars/parameter);
+  fetches, so every call would 401), and warns when names or descriptions
+  exceed Chrome's advisory budgets (30 chars/tool or parameter name, 500
+  chars/tool description, 150 chars/parameter description). Chrome also
+  recommends at most 1.5K characters per result; pracht preserves validated
+  results, so applications must bound them through inputs and schemas;
 - the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
   detection: browsers without the API never download it, and routes with no
   active page tools do not load it;
@@ -653,6 +667,8 @@ token in the page head — see the site docs for the `head()` recipe):
   registers the destination route's set; a route with no tools clears the set;
 - registrations use a caller-owned abort signal, and Vite module replacement
   preserves the active route set while disposing stale registrations;
+- integrated registrations omit `exposedTo`, keeping cross-origin discovery
+  disabled. Standalone callers may pass an explicit secure-origin allowlist;
 - works in full-hydration and islands modes (the islands bootstrap pulls the
   shim in too; `hydration: "none"` pages ship no JS and register no tools).
 
