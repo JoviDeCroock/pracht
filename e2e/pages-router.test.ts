@@ -478,3 +478,18 @@ test("Preact 11 hydrates streamed empty and multi-element boundaries", async ({ 
   await expect(page.locator("text=Loading empty boundary")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("Preact 11 hydrates client-lazy empty and multi-element boundaries without a legacy warning", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/lazy-boundaries");
+  await expect(page.getByRole("heading", { name: "Lazy hydration boundaries" })).toBeVisible();
+  await expect(page.locator("#lazy-fragment-first")).toHaveText("Lazy fragment first");
+  await expect(page.locator("#lazy-fragment-second")).toHaveText("Lazy fragment second");
+  await expect(page.getByText("Loading lazy empty boundary")).toHaveCount(0);
+  await expect(page.getByText("Loading lazy fragment")).toHaveCount(0);
+  await expect(page.locator("#__pracht_hydration_mismatch__")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
