@@ -13,6 +13,15 @@ described in `VISION_MVP.md`.
 Every published package carries `engines.node: ">=22.18"` too, so an install on
 an older runtime warns instead of failing halfway through a build.
 
+`create-pracht` emits a `tsconfig.client.json` that enables TypeScript's
+`browser` custom condition for routes, shells, islands, and their imports. Root
+imports from `@pracht/core` on those client-facing surfaces therefore use the
+same declarations as a browser bundle and reject server-only exports at
+typecheck time. The base `tsconfig.json` still checks the whole project without
+that condition, preserving server and test resolution; the generated
+`typecheck` script runs both programs. The scaffolder test compiles a
+conditional-exports fixture to guard both halves of the boundary.
+
 **Why 22.18 specifically.** Node enabled type stripping unflagged in 22.18.0.
 `packages/cli/test/fixtures/e2e-port-lease-child.mjs` is spawned with a bare
 `process.execPath` — no `--experimental-strip-types` in `NODE_OPTIONS` — and
