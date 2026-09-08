@@ -887,6 +887,33 @@ describe("collectCapabilityChecks", () => {
     expect(checks.some((check) => check.status === "error")).toBe(false);
   });
 
+  it("warns when webmcp tool and parameter names exceed Chrome's advisory budget", () => {
+    const longName = "long." + "x".repeat(30);
+    const longParameter = "parameter".repeat(4);
+    const checks: Check[] = [];
+    collectCapabilityChecks(
+      createProject({
+        capability: capabilitySource(
+          COMPLETE_FIELDS.replace(
+            'query: { type: "string" }',
+            `${JSON.stringify(longParameter)}: { type: "string" }`,
+          ),
+        ),
+        registration: `    ${JSON.stringify(longName)}: () => import("./capabilities/notes-search.ts"),`,
+      }),
+      checks,
+    );
+
+    const warnings = checks
+      .filter((check) => check.status === "warning")
+      .map((check) => check.message);
+    expect(warnings).toContainEqual(expect.stringContaining("35-character WebMCP tool name"));
+    expect(warnings).toContainEqual(
+      expect.stringContaining(`input parameter at ${JSON.stringify(longParameter)}`),
+    );
+    expect(checks.some((check) => check.status === "error")).toBe(false);
+  });
+
   it("fails schemas using unsupported JSON Schema keywords", () => {
     const checks = runChecks(
       capabilitySource(

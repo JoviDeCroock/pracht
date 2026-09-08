@@ -1185,7 +1185,7 @@ function collectSingleCapabilityChecks(
           ),
         );
       }
-      collectWebmcpBudgetChecks(label, description, properties.get("input"), checks);
+      collectWebmcpBudgetChecks(label, name, description, properties.get("input"), checks);
     }
 
     if (effectValue === "destructive") {
@@ -1278,13 +1278,25 @@ function collectSingleCapabilityChecks(
  */
 const WEBMCP_DESCRIPTION_BUDGET = 500;
 const WEBMCP_PARAM_DESCRIPTION_BUDGET = 150;
+const WEBMCP_NAME_BUDGET = 30;
+const WEBMCP_PARAM_NAME_BUDGET = 30;
 
 function collectWebmcpBudgetChecks(
   label: string,
+  name: string,
   description: StaticString,
   inputText: string | undefined,
   checks: Check[],
 ): void {
+  if (name.length > WEBMCP_NAME_BUDGET) {
+    checks.push(
+      createCheck(
+        "warning",
+        `${label} has a ${name.length}-character WebMCP tool name — Chrome recommends no more ` +
+          `than ${WEBMCP_NAME_BUDGET} characters for reliable agent selection.`,
+      ),
+    );
+  }
   if (description.kind === "valid" && description.value.length > WEBMCP_DESCRIPTION_BUDGET) {
     checks.push(
       createCheck(
@@ -1296,6 +1308,21 @@ function collectWebmcpBudgetChecks(
   }
   const schema = inputText ? evaluateLiteral(inputText) : undefined;
   if (!schema || typeof schema !== "object") return;
+  for (const [path, propertyName] of collectSchemaPropertyNames(
+    schema as Record<string, unknown>,
+    "",
+  )) {
+    if (propertyName.length > WEBMCP_PARAM_NAME_BUDGET) {
+      checks.push(
+        createCheck(
+          "warning",
+          `${label} is exposed as a WebMCP page tool and its input parameter at ` +
+            `${JSON.stringify(path)} has a ${propertyName.length}-character name — Chrome ` +
+            `recommends no more than ${WEBMCP_PARAM_NAME_BUDGET} characters per parameter name.`,
+        ),
+      );
+    }
+  }
   for (const [path, text] of collectSchemaDescriptions(schema as Record<string, unknown>, "")) {
     if (text.length > WEBMCP_PARAM_DESCRIPTION_BUDGET) {
       checks.push(
@@ -1308,6 +1335,34 @@ function collectWebmcpBudgetChecks(
       );
     }
   }
+}
+
+/** Every property name in a JSON Schema subtree, reported as a dotted path. */
+function collectSchemaPropertyNames(
+  schema: Record<string, unknown>,
+  path: string,
+): [string, string][] {
+  const found: [string, string][] = [];
+  const properties = schema.properties;
+  if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+    for (const [key, value] of Object.entries(properties)) {
+      const propertyPath = path === "" ? key : `${path}.${key}`;
+      found.push([propertyPath, key]);
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        found.push(...collectSchemaPropertyNames(value as Record<string, unknown>, propertyPath));
+      }
+    }
+  }
+  const items = schema.items;
+  if (items && typeof items === "object" && !Array.isArray(items)) {
+    found.push(
+      ...collectSchemaPropertyNames(
+        items as Record<string, unknown>,
+        path === "" ? "[]" : `${path}[]`,
+      ),
+    );
+  }
+  return found;
 }
 
 /** Every `description` string in a JSON Schema subtree, except the root's (that is the tool description's job). */

@@ -65,6 +65,10 @@ server-side. Validation accepts the dependency-free JSON Schema subset shown
 above, or a Standard Schema validator with Standard JSON Schema support (such
 as Zod 4). The capability projection emits only the derived JSON contract to
 WebMCP; it never adds the validator itself to that client chunk.
+The standalone registrar models the draft's `readOnlyHint`,
+`untrustedContentHint`, and `consequentialHint` annotations. Cross-origin
+discovery remains off unless its third argument explicitly sets a trusted
+`exposedTo` origin allowlist.
 
 See the [Capabilities](https://pracht.resynapse.dev/docs/capabilities) and
 [Standalone Capabilities](https://pracht.resynapse.dev/docs/standalone-capabilities)

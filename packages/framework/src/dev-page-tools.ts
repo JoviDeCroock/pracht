@@ -2,8 +2,7 @@
  * Dev-only WebMCP page tools: the open tab exposes its own debugging surface
  * to an agent-driven browser.
  *
- * An agent testing a page in `pracht dev` (agent-browser, ChatGPT desktop's
- * built-in browser, Chromium under the WebMCP origin trial) can ask the tab
+ * A WebMCP-capable agent or test harness driving a page in `pracht dev` can ask the tab
  * which route matched, what the loader returned, which islands hydrated, and
  * what the last error was — with the context of *this* navigation, instead of
  * correlating server logs or a separately configured MCP server with the page
