@@ -1,5 +1,18 @@
 # @pracht/vite-plugin
 
+## 0.13.0
+
+### Minor Changes
+
+- [#381](https://github.com/JoviDeCroock/pracht/pull/381) [`b42f586`](https://github.com/JoviDeCroock/pracht/commit/b42f5864f2c24935c4b5a43bbb7fd75545dfc079) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Every document served by `pracht dev` now registers dev-only, read-only WebMCP page tools (`pracht_route`, `pracht_loader_data`, `pracht_islands`, `pracht_last_error`, `pracht_page_tools`) so an agent-driven browser can ask the open tab which route matched, what its loader returned, which islands hydrated, and what the last error was. Nothing is emitted in a production build, and `pracht({ devPageTools: false })` turns them off.
+
+### Patch Changes
+
+- Updated dependencies [[`b42f586`](https://github.com/JoviDeCroock/pracht/commit/b42f5864f2c24935c4b5a43bbb7fd75545dfc079), [`3b44c60`](https://github.com/JoviDeCroock/pracht/commit/3b44c600911f7ea734c22e494372376f68611c4f), [`ee8b848`](https://github.com/JoviDeCroock/pracht/commit/ee8b848ce7f7d834cac5e6d72acedacfc8907476)]:
+  - @pracht/core@0.18.0
+  - @pracht/capabilities@0.5.0
+  - @pracht/adapter-node@0.4.4
+
 ## 0.12.0
 
 ### Minor Changes
