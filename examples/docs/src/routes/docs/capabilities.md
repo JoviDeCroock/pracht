@@ -279,9 +279,9 @@ Runtime validation is unchanged either way, and it is the runtime — not the co
 
 With `expose.webmcp: true`, the client runtime can register the capability as a [WebMCP](https://webmachinelearning.github.io/webmcp/) page tool via `document.modelContext.registerTool()` on routes that activate its name. Initial hydration installs only the matched route's set. After each SPA navigation commits, pracht aborts the old registrations and installs the destination set; navigating to a route with no tools clears them. The tool's `execute()` dispatches through the HTTP projection, so the agent acts as the signed-in user in their tab while validation, middleware, and policy all stay server-side. If the WebMCP host cancels execution, its `AbortSignal` aborts the capability's HTTP request too, and the returned value is the capability envelope itself (`{ ok, data }` or `{ ok: false, error }`) — the host serializes it per the spec, so there is no extra wrapping for an agent to unpick.
 
-The registered descriptor carries the capability's `title` (hosts show it in their tool UI), its `description`, the input JSON Schema, and WebMCP's effect-derived `readOnlyHint`. Inline JSON Schema stays the non-executing build fast path. Imported and builder-produced Standard JSON Schemas are derived by loading the server-only capability module during code generation; only the resulting JSON is emitted. Keep `expose` and `effect` inline because they still determine the browser endpoint table statically. If a capability module imports an edge-only runtime at the top level, move that import inside `run()` or keep its WebMCP input inline.
+The registered descriptor carries the capability's `title`, its `description`, the input JSON Schema, and WebMCP's effect-derived `readOnlyHint`. Inline JSON Schema stays the non-executing build fast path. Imported and builder-produced Standard JSON Schemas are derived by loading the server-only capability module during code generation; only the resulting JSON is emitted. Keep `expose` and `effect` inline because they still determine the browser endpoint table statically. If a capability module imports an edge-only runtime at the top level, move that import inside `run()` or keep its WebMCP input inline.
 
-Remote MCP derives its additional `destructiveHint` and `idempotentHint` separately because those annotations are not part of WebMCP. Capabilities whose results include user-generated or third-party content can advertise `untrustedContentHint` with the options form:
+Remote MCP derives its additional `destructiveHint` and `idempotentHint` separately because those annotations are not part of WebMCP. WebMCP also defines `consequentialHint`, but pracht does not infer it: consequential operations belong to pracht's `destructive` class, and destructive page tools are rejected instead of relying on a host hint for enforcement. Capabilities whose results include user-generated or third-party content can advertise `untrustedContentHint` with the options form:
 
 ```ts
 expose: {
@@ -296,9 +296,13 @@ The shim ships as its own chunk behind feature detection: browsers without the A
 
 ### Hosts and the origin trial
 
-WebMCP hosts include the ChatGPT desktop app's built-in browser (its "Site tools" surface discovers page tools automatically — no SDK, manifest, or registration) and Chromium browsers running the origin trial (149–156). Within that trial window, the `document.modelContext` getter landed in Chromium 150 and the deprecated `navigator.modelContext` alias was removed in 152, so pracht targets `document.modelContext` only — trial builds older than 150 register no tools, and pre-150 polyfills such as `@mcp-b/webmcp-polyfill` install the `document` shape too.
+WebMCP remains a [W3C Community Group Draft](https://webmachinelearning.github.io/webmcp/), not a W3C Standard or Standards Track deliverable. The [Web Machine Learning Working Group charter](https://www.w3.org/2025/03/webmachinelearning-charter.html) lists WebNN, not WebMCP, so there is no formal commitment to advance this API. Its current imperative surface is `document.modelContext` (`registerTool()`, `getTools()`, and `executeTool()`). The spec moved there from `navigator.modelContext` in July 2026; pracht targets only the current `document` shape.
 
-Agent-embedded browsers enable the API themselves, but for *stable* Chrome and Edge visitors the page must carry an [origin-trial token](https://developer.chrome.com/origintrials/) during the trial window or `document.modelContext` never exists and the tools silently stay off. Register your origin, then emit the token from your shell's `head()`:
+Chrome's origin trial covers versions 149–156. The `document.modelContext` getter landed in Chromium 150 and the deprecated `navigator.modelContext` alias was removed in 152, so trial builds older than 150 register no tools. Polyfills such as `@mcp-b/webmcp-polyfill` install the current `document` shape too.
+
+Treat WebMCP as an experimental progressive enhancement, not your only agent integration. As of September 2026, no mainstream browser agent consumes arbitrary WebMCP page tools in broad production availability. [Chrome's own WebMCP integration](https://developer.chrome.com/docs/ai/webmcp/) remains an early/developer preview (and is separate from the generally available Gemini-in-Chrome surface), while Anthropic has [closed WebMCP support for the Claude Chrome extension as not planned](https://github.com/anthropics/claude-code/issues/30645). Keep the HTTP or remote MCP projection available for agents that need a production transport.
+
+For stable Chrome visitors, the page must carry an [origin-trial token](https://developer.chrome.com/origintrials/) during the trial window or `document.modelContext` never exists and the tools silently stay off. Register your origin, then emit the token from your shell's `head()`:
 
 ```ts [src/shells/app.tsx]
 import { publicEnv } from "@pracht/core";
@@ -314,7 +318,9 @@ The token is origin-bound and public by design, so the [`PRACHT_PUBLIC_` prefix]
 
 For local testing without a token, enable `chrome://flags/#enable-webmcp-testing` (plus `#devtools-webmcp-support` for the DevTools Application-panel WebMCP pane), or fake the API in Playwright — see [Testing](/docs/recipes/testing#faking-webmcp-in-the-browser).
 
-`pracht verify` guards the projection: it errors on tool names the browser would reject and warns when a page tool can never work (a `"require"` agent policy 401s the page's unsigned fetches) or when tool metadata exceeds the published agent-legibility budgets (~500 characters per tool description, ~150 per parameter description).
+`pracht verify` guards the projection: it errors on names outside the draft's hard grammar (1–128 ASCII letters, digits, `_`, `-`, or `.`) and warns when a page tool can never work (a `"require"` agent policy 401s the page's unsigned fetches) or statically readable metadata exceeds [Chrome's advisory budgets](https://developer.chrome.com/docs/ai/webmcp/secure-tools) (30 characters per tool or parameter name, 500 per tool description, and 150 per parameter description). Chrome also recommends no more than 1.5K characters per individual tool result. Pracht does not truncate a validated result — bound arrays and prose through input limits, pagination, and output-schema limits so every transport sees the same value.
+
+Registrations are origin-restrictive by default. The integrated pracht projection does not set `exposedTo`, so cross-origin documents cannot discover or execute its tools. Standalone hosts may pass a deliberate allowlist through `registerWebmcpTools(..., { exposedTo: [...] })`; only list secure origins you trust with the same user data and actions.
 
 ---
 

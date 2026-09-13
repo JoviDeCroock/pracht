@@ -179,7 +179,9 @@ registerWebmcpTools(
 registrations.abort();
 ```
 
-Registration is a no-op when `document.modelContext` is absent. Each descriptor uses only WebMCP's `readOnlyHint` and optional `untrustedContentHint`; remote MCP derives its additional MCP annotations separately. Destructive page tools are refused because browser registration is not a server-verified confirmation boundary.
+Registration is a no-op when `document.modelContext` is absent. Each descriptor derives WebMCP's `readOnlyHint` and can carry `untrustedContentHint` or an explicit `consequentialHint`; remote MCP derives its additional MCP annotations separately. Destructive page tools are refused because browser registration is not a server-verified confirmation boundary.
+
+The optional registration object also accepts `exposedTo`, but omit it unless a secure cross-origin document genuinely needs access. The default keeps tools restricted to their origin and browser-provided agents. Chrome recommends compact metadata and results: 30 characters per tool or parameter name, 500 per tool description, 150 per parameter description, and 1.5K per result.
 
 ## Moving to Pracht Later
 

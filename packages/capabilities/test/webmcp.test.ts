@@ -13,7 +13,7 @@ interface RegisteredTool {
 
 interface RegistrationCall {
   tool: RegisteredTool;
-  options: { signal?: AbortSignal } | undefined;
+  options: { signal?: AbortSignal; exposedTo?: readonly string[] } | undefined;
 }
 
 function installModelContext(
@@ -22,7 +22,10 @@ function installModelContext(
   const registered: RegistrationCall[] = [];
   (globalThis as { document?: unknown }).document = {
     modelContext: {
-      registerTool(tool: RegisteredTool, options?: { signal?: AbortSignal }) {
+      registerTool(
+        tool: RegisteredTool,
+        options?: { signal?: AbortSignal; exposedTo?: readonly string[] },
+      ) {
         registered.push({ tool, options });
         return registerTool(tool);
       },
@@ -92,9 +95,13 @@ describe("registerWebmcpTools", () => {
 
   it("lets explicit annotations override the derived ones", () => {
     const registered = installModelContext();
-    registerWebmcpTools([{ ...searchTool, annotations: { readOnlyHint: false } }], () => null);
+    registerWebmcpTools(
+      [{ ...searchTool, annotations: { readOnlyHint: false, consequentialHint: true } }],
+      () => null,
+    );
     expect(registered[0].tool.annotations).toEqual({
       readOnlyHint: false,
+      consequentialHint: true,
     });
   });
 
@@ -105,6 +112,18 @@ describe("registerWebmcpTools", () => {
     registerWebmcpTools([searchTool], () => null, { signal: controller.signal });
 
     expect(registered[0].options).toEqual({ signal: controller.signal });
+  });
+
+  it("keeps cross-origin exposure opt-in", () => {
+    const registered = installModelContext();
+
+    registerWebmcpTools([searchTool], () => null);
+    registerWebmcpTools([searchTool], () => null, {
+      exposedTo: ["https://trusted.example"],
+    });
+
+    expect(registered[0].options).toEqual({});
+    expect(registered[1].options).toEqual({ exposedTo: ["https://trusted.example"] });
   });
 
   it("refuses to register destructive tools", () => {

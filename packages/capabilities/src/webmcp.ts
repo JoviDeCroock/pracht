@@ -4,11 +4,10 @@
  * The runtime behind pracht's generated `virtual:pracht/webmcp` shim,
  * published so any site — pracht or not — can register page tools with the
  * same registration semantics and annotation policy. Targets the WebMCP CG
- * draft API: `document.modelContext.registerTool()` (ChatGPT desktop's
- * built-in browser; Chromium 150+ within the origin trial — the `document`
- * getter landed in 150 and the deprecated `navigator.modelContext` alias was
- * removed in 152). No-ops when the API is absent, and a failed registration
- * never breaks the page.
+ * draft API: `document.modelContext.registerTool()` (Chromium 150+ within the
+ * 149–156 origin trial — the `document` getter landed in 150 and the
+ * deprecated `navigator.modelContext` alias was removed in 152). No-ops when
+ * the API is absent, and a failed registration never breaks the page.
  *
  * `execute()` returns whatever the dispatch resolves to as a plain value: per
  * the spec the host serializes the returned value itself, so wrapping it in
@@ -23,12 +22,14 @@ import type { JsonSchema } from "./schema.ts";
 export interface WebmcpToolAnnotations {
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
+  /** The tool performs a significant real-world or non-reversible action. */
+  consequentialHint?: boolean;
 }
 
 export interface WebmcpTool {
   /** Tool name — for a pracht capability, the registered capability name. */
   name: string;
-  /** Optional display title; feeds host UI (e.g. ChatGPT's "Site tools" list). */
+  /** Optional display title for a host's tool UI. */
   title?: string;
   /** The contract an agent reads. Required — a tool without one is unusable. */
   description: string;
@@ -57,6 +58,12 @@ export interface WebmcpRegistrationOptions {
    * the document's model context, matching the current WebMCP draft.
    */
   signal?: AbortSignal;
+  /**
+   * Secure cross-origin documents that may discover and execute the tools.
+   * Omit this by default: registration then stays restricted to the owning
+   * origin and browser-provided agents.
+   */
+  exposedTo?: readonly string[];
 }
 
 /**
@@ -72,9 +79,11 @@ export type WebmcpDispatch = (
 ) => unknown | Promise<unknown>;
 
 /**
- * The annotation set pracht advertises for an effect class. WebMCP currently
- * standardizes only the read-only and untrusted-content hints; remote MCP has
- * additional effect hints and derives those in its own projection.
+ * The annotation set pracht can derive safely from an effect class. WebMCP
+ * also defines `consequentialHint`, but integrated pracht capabilities never
+ * infer it: operations that require that warning belong to the `destructive`
+ * class, which page-tool exposure rejects. Standalone callers may set the hint
+ * explicitly through `WebmcpTool.annotations`.
  */
 export function webmcpToolAnnotations(
   effect: CapabilityEffect | undefined,

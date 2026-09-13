@@ -61,7 +61,8 @@ speculative:
   ordinary stateless request handling at the edge.
 - **WebMCP entered Chrome origin trial (Chrome 149, June 2026).** Authored by Google and
   Microsoft in the W3C Web ML CG, it lets a web page register typed tools for in-browser agents —
-  the page itself becomes the tool surface. No framework has integrated it yet.
+  the page itself becomes the tool surface. At the time of this proposal no framework had
+  integrated it yet.
 
 Relevant primary references:
 
@@ -71,6 +72,8 @@ Relevant primary references:
 - [MCP Apps overview](https://modelcontextprotocol.io/extensions/apps/overview)
 - [MCP Apps specification (SEP-1865)](https://modelcontextprotocol.io/seps/1865-mcp-apps-interactive-user-interfaces-for-mcp)
 - [WebMCP origin trial announcement](https://developer.chrome.com/blog/ai-webmcp-origin-trial)
+- [WebMCP Community Group Draft](https://webmachinelearning.github.io/webmcp/)
+- [Web Machine Learning Working Group charter](https://www.w3.org/2025/03/webmachinelearning-charter.html)
 - [Cloudflare remote MCP deployment guide](https://developers.cloudflare.com/agents/model-context-protocol/guides/remote-mcp-server/)
 - [Web Bot Auth / signed agents](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)
 
@@ -317,10 +320,11 @@ call only explicitly allowed capabilities.
 ### In-browser agent use (WebMCP)
 
 WebMCP inverts the deployment model: instead of an agent connecting to a remote server, the page
-registers typed tools that an in-browser agent (Gemini in Chrome today; origin trial through
-Chrome 156) can call while the user watches. For a *web* framework this may be the larger prize —
-it is the only emerging standard where the website itself is the tool surface, and no framework
-integrates it yet.
+registers typed tools that a compatible in-browser agent can call while the user watches. Chrome's
+origin trial runs through 156, but no mainstream agent consumes arbitrary WebMCP tools in broad
+production availability as of September 2026. For a *web* framework this may be the larger prize —
+it is the only emerging standard where the website itself is the tool surface, and Pracht can keep
+that experimental projection isolated from its protocol-neutral contract.
 
 With `expose.webmcp` enabled, a manifest route declares the page tool with
 `route(path, file, { capabilities: ["projects.search"] })`; a pages route exports
@@ -332,8 +336,8 @@ is thin: it calls the generated HTTP endpoint, so validation, middleware, policy
 stay server-side. The user's existing session authenticates the call — which is correct for
 WebMCP's model (the agent acts *as the signed-in user, in their tab*) and exactly wrong for remote
 MCP (see the security model: browser cookies must never authenticate the remote transport). Effect
-classes still gate what an in-page agent may do: `destructive` capabilities keep their
-server-verified confirmation flow regardless of who clicks.
+classes still gate what an in-page agent may do: Pracht refuses to register `destructive`
+capabilities because a browser host's confirmation UI is not a server-verified boundary.
 
 The marginal cost on top of the capability graph is small — a client registration shim and typegen —
 and it makes Pracht the first framework where one definition serves human forms, remote agents, and
@@ -961,20 +965,26 @@ WebMCP is not covered by the reversal and is no longer waiting on a mechanism:
 a page host's approval UX is not a security boundary, so there is nothing
 server-verified for the flow to bind to.
 
-### Addendum (2026-08-27 — WebMCP conformance)
+### Addendum (2026-09-07 — WebMCP conformance and availability)
 
 The shim described in spike answer 8 tracked the spec as it stood; the spec
-moved. Chromium removed the deprecated `navigator.modelContext` alias in 152,
-so the shim now targets `document.modelContext` only (the getter landed in
-150; pre-150 origin-trial builds are no longer targeted). `execute()` returns
-the capability envelope as a plain value — the host serializes it per the
-current draft, where the earlier MCP-style content blocks arrived
-double-encoded — and the descriptor gained `title`, the remote projection's
-effect-derived hint set, and an opt-in `untrustedContentHint`
-(`expose.webmcp: { untrustedContent: true }`). ChatGPT's desktop browser
-shipped WebMCP support on 2026-08-25 with no SDK or manifest, which makes the
-"disposable shim over the HTTP projection" design the load-bearing hedge it
-was meant to be.
+moved from `navigator.modelContext` to `document.modelContext` on 2026-07-21.
+Chromium removed the deprecated alias in 152, so the shim now targets
+`document.modelContext` only (the getter landed in 150; pre-150 origin-trial
+builds are no longer targeted). `execute()` returns the capability envelope as
+a plain value — the host serializes it per the current draft, where the earlier
+MCP-style content blocks arrived double-encoded — and the descriptor carries
+`title`, `readOnlyHint`, an opt-in `untrustedContentHint`, and explicit
+`consequentialHint` support for standalone tools. Registrations omit
+`exposedTo` by default, so cross-origin discovery remains opt-in.
+
+The 2026-09-04 snapshot remains a W3C Community Group Draft, explicitly not a
+W3C Standard or Standards Track document. The Web Machine Learning Working
+Group charter lists only WebNN as a normative specification. Adoption also
+lags the API: Chrome's origin trial spans 149–156, its agent integration is
+still preview-only, and Anthropic closed Claude Chrome extension support as
+not planned. That makes the disposable shim and the independent HTTP/remote
+MCP projections the load-bearing hedge they were meant to be.
 
 ## Final Recommendation
 

@@ -385,14 +385,13 @@ same prepare/commit round trip as HTTP, with the token in the call's
 `createCapabilityTestHost()` from `@pracht/core` covers the same pipeline in
 unit tests, without a server.
 
-WebMCP specifics `pracht verify` checks: tool names must fit the spec's
-grammar (1–128 ASCII `[a-zA-Z0-9_.-]`); an effective `agentPolicy: "require"`
-makes a page tool dead (unsigned browser fetches always 401 — warned);
-descriptions have advisory budgets (~500 chars per tool, ~150 per schema
-parameter). Hosts: the ChatGPT desktop browser enables the API itself, but
-stable Chrome/Edge visitors only get `document.modelContext` if the page head
-carries an origin-trial token — the docs site's capabilities page shows the
-shell `head()` recipe.
+WebMCP: names must fit the draft's 1–128 ASCII `[a-zA-Z0-9_.-]` grammar;
+Chrome advises 30 chars/name, 500/tool description, 150/parameter description,
+and 1.5K/result. `pracht verify` checks static limits; bound outputs yourself.
+Stable Chrome needs an origin-trial token. No mainstream production agent
+consumes these tools yet, so retain HTTP or remote MCP. See the capabilities
+site page for current compatibility. An effective `agentPolicy: "require"`
+always 401s unsigned page-tool calls and is warned.
 
 To audit what the whole agent surface exposes, run `/audit-agent-surface`.
 

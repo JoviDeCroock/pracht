@@ -580,8 +580,8 @@ export async function createPrachtWebmcpModuleSourceAsync(
 function webmcpTool(capability: ExtractedCapability): Record<string, unknown> {
   return {
     name: capability.name,
-    // The spec's optional `title` feeds host UI (e.g. ChatGPT's "Site tools"
-    // list). Omitted when unavailable rather than guessed.
+    // The spec's optional `title` feeds host UI. Omitted when unavailable
+    // rather than guessed.
     ...(capability.title ? { title: capability.title } : {}),
     description: capability.description,
     inputSchema: capability.inputSchema,

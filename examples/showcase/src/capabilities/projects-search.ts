@@ -14,7 +14,7 @@ interface SearchInput {
  *   /playground      → `useCapability("projects.search")` in the browser
  *   /app             → `invokeCapability()` in the SSR loader
  *   an HTTP agent    → POST /api/capabilities/projects/search
- *   Gemini in Chrome → the same tool, registered on the page via WebMCP
+ *   a WebMCP host    → the same tool, registered on the page
  *   a remote agent   → the `projects_search` tool at POST /mcp
  *
  * One contract, five callers, no duplicated business rules.
