@@ -17,7 +17,7 @@ npm run dev
 - Detects the active package manager from the current environment.
 - Lets the user choose between the Node.js, Cloudflare, Vercel, Netlify, and static adapters.
 - Optionally wires up Tailwind CSS (`tailwindcss` + `@tailwindcss/vite`, a global stylesheet, and the shell import).
-- Scaffolds a minimal app with a route manifest or pages router, shell, home route, not-found page, a sample API route for serverful adapters, runnable project README, TypeScript typecheck script, and (with agent tooling enabled) agent instructions.
+- Scaffolds a minimal app with a route manifest or pages router, shell, home route, not-found page, a sample API route for serverful adapters, runnable project README, TypeScript typecheck script, browser-aware package resolution that rejects server-only root exports in client code, and (with agent tooling enabled) agent instructions.
 - Manifest scaffolds include a commented-out `constraints` example in `src/routes.ts`, ready for `pracht verify`.
 - The generated `.gitignore` keeps `.pracht/app-graph.json` committable, and the README and agent instructions cover the `pracht verify` / `pracht plan` / `pracht report` loop.
 - Every standalone pnpm scaffold includes a narrow lifecycle-script policy for
@@ -100,7 +100,7 @@ writing it would leave a config in the repo that nothing in the repo reads.
 
 - `dev` -> `pracht dev`
 - `build` -> `pracht build`
-- `typecheck` -> `tsc --noEmit`
+- `typecheck` -> checks the server-capable base TypeScript program, then the browser-conditioned routes, shells, and islands in `tsconfig.client.json`
 
 Node starters also include:
 

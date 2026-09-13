@@ -754,6 +754,7 @@ async function buildProjectFiles({
     }),
     "vite.config.ts": createViteConfig(adapter, router, tailwind),
     "tsconfig.json": createBaseTSConfig(adapter),
+    "tsconfig.client.json": createClientTSConfig(router),
   };
 
   // A static export has no server, so an API route would be a hard build
@@ -871,7 +872,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
   const scripts = {
     build: "pracht build",
     dev: "pracht dev",
-    typecheck: "tsc --noEmit",
+    typecheck: "tsc --noEmit && tsc --noEmit --project tsconfig.client.json",
   };
 
   if (adapter.id === "node") {
@@ -1161,6 +1162,27 @@ function createBaseTSConfig(_adapter) {
       noEmit: true,
     },
   };
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+function createClientTSConfig(router) {
+  const config = {
+    extends: "./tsconfig.json",
+    compilerOptions: {
+      customConditions: ["browser"],
+    },
+    include:
+      router === "pages"
+        ? ["src/pages/**/*", "src/islands/**/*"]
+        : ["src/routes/**/*", "src/shells/**/*", "src/islands/**/*"],
+  };
+
+  // Pages route modules are shared with the browser, but these two convention
+  // files are server-only. The base program still checks the whole project.
+  if (router === "pages") {
+    config.exclude = ["src/pages/**/_app.config.*", "src/pages/**/_middleware.*"];
+  }
+
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
@@ -1606,6 +1628,10 @@ function createAgentInstructions({
     lines.push("- `src/api/` — API route handlers");
   }
   lines.push(`- \`vite.config.ts\` — Vite config with the ${adapter.label} adapter`);
+  lines.push("- `tsconfig.json` — server-capable whole-project TypeScript checks");
+  lines.push(
+    "- `tsconfig.client.json` — browser-conditioned checks for routes, shells, islands, and their imports",
+  );
 
   if (tailwind) {
     lines.push("- `src/styles/global.css` — Tailwind CSS entry stylesheet, imported by the shell");
@@ -1780,6 +1806,11 @@ function createReadme({
   if (adapter.id !== "static") {
     lines.push("- `src/api/health.ts` is a sample API route.");
   }
+
+  lines.push("- `tsconfig.json` — server-capable whole-project TypeScript checks.");
+  lines.push(
+    "- `tsconfig.client.json` — browser-conditioned checks for routes, shells, islands, and their imports.",
+  );
 
   if (tailwind) {
     lines.push("- `src/styles/global.css` is the Tailwind CSS entry, imported by the shell.");
