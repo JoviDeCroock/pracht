@@ -111,5 +111,5 @@ collide with other skill packs installed in the same app.
   rationale that does not change what the agent does, and keep a trailing
   `## Rules` section only for constraints the steps do not already state.
 - `skills/skills.test.ts` enforces these conventions in CI (frontmatter shape,
-  `$ARGUMENTS`, tool policy, and that referenced CLI subcommands, MCP tools,
-  and build-output paths actually exist).
+  `$ARGUMENTS`, tool policy, referenced CLI subcommands and their exact flags,
+  MCP tools, and build-output paths).
