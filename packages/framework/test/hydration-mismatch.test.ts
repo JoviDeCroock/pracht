@@ -150,7 +150,7 @@ describe("installHydrationMismatchWarning", () => {
   });
 
   it("warns when a component unsuspends during hydration and renders multiple DOM nodes", async () => {
-    installHydrationMismatchWarning();
+    installHydrationMismatchWarning({ supportsMultiNodeSuspenseHydration: false });
 
     scratch.innerHTML = "<div><div>A</div><div>B</div></div>";
 
@@ -185,7 +185,7 @@ describe("installHydrationMismatchWarning", () => {
   });
 
   it("warns when a component unsuspends during hydration and renders zero DOM nodes", async () => {
-    installHydrationMismatchWarning();
+    installHydrationMismatchWarning({ supportsMultiNodeSuspenseHydration: false });
 
     scratch.innerHTML = "<div></div>";
 
@@ -220,7 +220,7 @@ describe("installHydrationMismatchWarning", () => {
   });
 
   it("reports the resolved user component name, not the lazy() wrapper, on offset issues", async () => {
-    installHydrationMismatchWarning();
+    installHydrationMismatchWarning({ supportsMultiNodeSuspenseHydration: false });
 
     scratch.innerHTML = "<div><div>A</div><div>B</div></div>";
 
@@ -253,7 +253,7 @@ describe("installHydrationMismatchWarning", () => {
   });
 
   it("handles wrapper components between the Suspense boundary and the suspending component", async () => {
-    installHydrationMismatchWarning();
+    installHydrationMismatchWarning({ supportsMultiNodeSuspenseHydration: false });
 
     scratch.innerHTML = "<div><div>A</div><div>B</div></div>";
 

@@ -1,9 +1,17 @@
-import { options as preactOptions } from "preact";
+import * as preactRuntime from "preact";
 import type { VNode } from "preact";
 
 import { installHydrationSuspenseTracking } from "./hydration-suspense.ts";
 
 const HYDRATION_BANNER_ID = "__pracht_hydration_mismatch__";
+
+// Preact 11 initializes a private component bitfield in its base constructor;
+// Preact 10 instances only own `props` and `context`. Probe the shape instead
+// of importing package metadata, because apps commonly alias the bare `preact`
+// specifier to an entry file and those aliases can break package subpaths.
+const PreactComponent = preactRuntime.Component as unknown as new () => Record<string, unknown>;
+const supportsMultiNodeSuspenseHydration = Object.keys(new PreactComponent()).length > 2;
+const preactOptions = preactRuntime.options;
 
 // Preact flag on vnode.__u for vnodes diffing against existing DOM (hydrate path).
 const MODE_HYDRATE = 1 << 5;
@@ -27,16 +35,23 @@ interface InternalComponent {
   __v?: InternalVNode;
 }
 
+interface HydrationMismatchWarningOptions {
+  supportsMultiNodeSuspenseHydration?: boolean;
+}
+
 let installed = false;
 let prevMismatch: PreactOptions["__m"];
 let prevCatchError: PreactOptions["__e"];
 let prevCommit: PreactOptions["__c"];
+let installedLegacySuspenseChecks = false;
 
 // Vnodes that suspended while hydrating, awaiting a post-resolve DOM count.
 const pendingSuspenseChecks = new Set<InternalVNode>();
 let flushScheduled = false;
 
-export function installHydrationMismatchWarning(): void {
+export function installHydrationMismatchWarning(
+  options: HydrationMismatchWarningOptions = {},
+): void {
   if (installed) return;
   installed = true;
 
@@ -48,23 +63,27 @@ export function installHydrationMismatchWarning(): void {
 
   const opts = preactOptions as PreactOptions;
   prevMismatch = opts.__m;
-  prevCatchError = opts.__e;
-  prevCommit = opts.__c;
 
   opts.__m = function (vnode: VNode) {
     appendHydrationWarning(vnode);
     if (prevMismatch) prevMismatch(vnode);
   };
 
-  opts.__e = function (err, newVNode, oldVNode, errorInfo) {
-    trackSuspendingVNode(err, newVNode as InternalVNode);
-    if (prevCatchError) prevCatchError(err, newVNode, oldVNode, errorInfo);
-  };
+  if (!(options.supportsMultiNodeSuspenseHydration ?? supportsMultiNodeSuspenseHydration)) {
+    installedLegacySuspenseChecks = true;
+    prevCatchError = opts.__e;
+    prevCommit = opts.__c;
 
-  opts.__c = function (vnode, commitQueue) {
-    if (prevCommit) prevCommit(vnode, commitQueue);
-    scheduleSuspenseCheckFlush();
-  };
+    opts.__e = function (err, newVNode, oldVNode, errorInfo) {
+      trackSuspendingVNode(err, newVNode as InternalVNode);
+      if (prevCatchError) prevCatchError(err, newVNode, oldVNode, errorInfo);
+    };
+
+    opts.__c = function (vnode, commitQueue) {
+      if (prevCommit) prevCommit(vnode, commitQueue);
+      scheduleSuspenseCheckFlush();
+    };
+  }
 }
 
 function trackSuspendingVNode(err: unknown, vnode: InternalVNode): void {
@@ -223,10 +242,13 @@ export function _resetHydrationMismatchForTesting(): void {
   const opts = preactOptions as PreactOptions;
   if (installed) {
     opts.__m = prevMismatch;
-    opts.__e = prevCatchError;
-    opts.__c = prevCommit;
+    if (installedLegacySuspenseChecks) {
+      opts.__e = prevCatchError;
+      opts.__c = prevCommit;
+    }
   }
   installed = false;
+  installedLegacySuspenseChecks = false;
   prevMismatch = undefined;
   prevCatchError = undefined;
   prevCommit = undefined;

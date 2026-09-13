@@ -313,7 +313,8 @@ part of why streaming is opt-in.
   status, or cache headers in the awaited part of the loader.
 - **On Preact 10, a `<Suspense>` boundary that suspends must resolve to exactly
   one DOM element** — not `null`, not a multi-child fragment. This constraint
-  goes away with Preact 11's hydration rework.
+  goes away with Preact 11's hydration rework. Pracht's development diagnostic
+  enforces the single-node rule only when the active Preact runtime is 10.x.
 - Pass the un-awaited call. `defer(await getReviews(id))` throws, because it
   defeats the point silently.
 - Return the marker from an enumerable data property. A deferred value hidden

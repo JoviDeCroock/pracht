@@ -217,7 +217,8 @@ Three rules:
   loader.
 - **A suspending `<Suspense>` boundary must resolve to exactly one DOM
   element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11 supports empty and multi-child boundaries; the workspace exercises
-  `11.0.0-rc.1`.
+  `11.0.0-rc.1`, and Pracht skips the legacy single-node development warning
+  when that newer hydration runtime is active.
 - Return `defer()` from an enumerable data property, not from a getter. Pracht
   does not eagerly invoke loader getters to discover hidden deferred values and
   throws instead of silently serializing an unresolved marker.
