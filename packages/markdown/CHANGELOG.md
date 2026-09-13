@@ -1,5 +1,12 @@
 # @pracht/markdown
 
+## 0.1.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @pracht/content@0.1.3
+
 ## 0.1.2
 
 ### Patch Changes
