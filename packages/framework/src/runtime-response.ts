@@ -22,6 +22,7 @@ import {
   mergeEntryPreloadUrls,
   resolveManifestEntries,
   resolvePageCssAssets,
+  withIslandCssAssets,
   resolvePageJsUrls,
   resolveRegistryModule,
 } from "./runtime-manifest.ts";
@@ -373,7 +374,12 @@ export async function renderRouteErrorResponse<TContext>(options: {
         head,
         body,
         clientEntryUrl: islandsEntryUrl,
-        cssAssets,
+        cssAssets: withIslandCssAssets(
+          cssAssets,
+          options.options.cssManifest,
+          options.options.cssContentManifest,
+          islandFiles,
+        ),
         modulePreloadUrls: islandsEntryUrl
           ? mergeEntryPreloadUrls(options.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
               ...islandPreloadUrls,

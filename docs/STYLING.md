@@ -21,13 +21,19 @@ Prefer styling approaches that produce real CSS files:
 
 These all produce CSS that Vite tracks through its module graph. Pracht's build
 maps each route and shell to its transitive CSS dependencies, then injects only
-the relevant `<link rel="stylesheet">` tags into the server-rendered HTML. See
-[RENDERING_MODES.md](RENDERING_MODES.md) and the per-page CSS section in the
-performance docs.
+the relevant `<link rel="stylesheet">` tags into the server-rendered HTML. The
+islands a page renders contribute their stylesheets too — an island is its own
+client entry, so its CSS is in neither the route's nor the shell's closure, and
+without this it would arrive only when the island's chunk is imported, after
+hydration. See [RENDERING_MODES.md](RENDERING_MODES.md) and the per-page CSS
+section in the performance docs.
 
 Development uses the same first-paint contract: `pracht dev` discovers the
 matched route and shell's transitive CSS in Vite's live module graph and adds
-stylesheet links to the initial HTML before the client entry. Apps should only
+stylesheet links to the initial HTML before the client entry. Islands are
+included as well, though development links every registered island's CSS rather
+than only the rendered ones — a streaming route flushes `<head>` before any
+island marker exists, so there is nothing to narrow it by. Apps should only
 need to import their CSS from a route, shell, or one of their dependencies — a
 development-only `<link>` in `head()` is unnecessary.
 
@@ -91,7 +97,8 @@ export default function Home() {
 
 Vite generates unique class names at build time (e.g. `_hero_1a2b3`), so
 styles never collide across routes. The framework automatically injects only
-the CSS files used by the current route and its shell.
+the CSS files used by the current route, its shell, and the islands it
+rendered.
 
 ---
 

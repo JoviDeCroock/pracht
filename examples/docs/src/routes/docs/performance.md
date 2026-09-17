@@ -200,7 +200,7 @@ critical path.
 
 ## CSS Per Page
 
-pracht builds a CSS manifest that maps each source file to its transitive CSS dependencies. At request time, only the CSS needed for the matched route and shell is injected as `<link rel="stylesheet">` tags — no unused CSS is sent.
+pracht builds a CSS manifest that maps each source file to its transitive CSS dependencies. At request time, only the CSS needed for the matched route, its shell, and the islands it rendered is injected as `<link rel="stylesheet">` tags — no unused CSS is sent.
 
 For a small site, opt into inlining those complete route-scoped files:
 
