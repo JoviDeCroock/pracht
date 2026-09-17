@@ -49,6 +49,11 @@ request but repeats shared CSS in every HTML response; see
 [PERFORMANCE.md](PERFORMANCE.md#inlining-route-css) for the trade-off and CSP
 requirements. It does not extract styles produced at render time by CSS-in-JS.
 
+`build.cssCodeSplit: false` is rejected in `configResolved`, and `pracht doctor`
+reports it as an error. Vite's single-stylesheet mode attaches that asset to the
+client entry and expects an `index.html` to link it; pracht has none, so the
+per-route manifest comes back empty and every document ships unstyled.
+
 ---
 
 ## CSS-in-JS

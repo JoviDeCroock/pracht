@@ -62,6 +62,13 @@ function runConfigResolvedHook(base: string): void {
   hook.call({}, { base, build: { ssr: true }, command: "build", root: "/project" });
 }
 
+function runConfigResolved(config: Record<string, unknown>): void {
+  const plugin = pracht({ adapter: edgeAdapter }).find((candidate) => candidate.name === "pracht");
+  if (!plugin) throw new Error("pracht plugin not found");
+  const hook = getHook<(this: unknown, config: unknown) => void>(plugin, "configResolved");
+  hook.call({}, { base: "/", command: "build", root: "/project", ...config });
+}
+
 function getHook<T>(plugin: Plugin, name: keyof Plugin): T {
   const hook = plugin[name] as unknown as T | { handler: T };
   return typeof hook === "object" && hook !== null && "handler" in hook ? hook.handler : hook;
@@ -175,6 +182,34 @@ describe("pracht plugin build config", () => {
 
     expect(source).toContain('export const buildBase = "/";');
     expect(source).toContain('export const configuredBase = "./";');
+  });
+
+  it("refuses a client build with CSS code splitting switched off", () => {
+    expect(() => runConfigResolved({ build: { cssCodeSplit: false } })).toThrow(
+      /build\.cssCodeSplit is disabled/,
+    );
+    expect(() =>
+      runConfigResolved({
+        build: {},
+        environments: { client: { build: { cssCodeSplit: false } } },
+      }),
+    ).toThrow(/build\.cssCodeSplit is disabled/);
+  });
+
+  it("leaves the server build and split-on clients alone", () => {
+    // The server build emits its CSS for the route manifest, not for a
+    // document to link, so the flag means nothing there.
+    expect(() => runConfigResolved({ build: { cssCodeSplit: false, ssr: true } })).not.toThrow();
+    expect(() => runConfigResolved({ build: { cssCodeSplit: true } })).not.toThrow();
+    expect(() =>
+      runConfigResolved({
+        build: { cssCodeSplit: false },
+        environments: { client: { build: { cssCodeSplit: true } } },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      runConfigResolved({ build: { cssCodeSplit: false }, command: "serve" }),
+    ).not.toThrow();
   });
 
   it("accepts safe path and asset-only CDN bases", () => {

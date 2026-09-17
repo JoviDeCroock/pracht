@@ -58,6 +58,21 @@ export function collectConfigChecks(
     checks.push(createCheck("ok", "Vite config registers the pracht plugin."));
   }
 
+  // Vite's single-stylesheet mode links its output from the index.html it
+  // transforms, and a pracht app has none: documents link what the manifest
+  // lists per route, which that mode leaves empty. The build would succeed and
+  // every page would ship unstyled.
+  if (/cssCodeSplit\s*:\s*false/.test(maskCommentsAndStrings(project.rawConfig))) {
+    checks.push(
+      createCheck(
+        "error",
+        "vite.config sets build.cssCodeSplit to false, which leaves every page without a " +
+          "stylesheet. Remove it, or use pracht({ inlineCss: true }) to drop the stylesheet " +
+          "request instead.",
+      ),
+    );
+  }
+
   if (!project.additionalExtensionsIsStatic) {
     checks.push(
       createCheck(

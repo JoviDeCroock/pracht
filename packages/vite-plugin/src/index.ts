@@ -345,6 +345,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
     configResolved(config) {
       assertSafeRootAbsoluteDeployBase(config.base);
+      assertCssCodeSplitEnabled(config);
       root = config.root;
       isBuild = config.command === "build";
       base = config.base;
@@ -826,6 +827,40 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   plugins.push(optimizeDepsEntriesPlugin);
 
   return plugins;
+}
+
+/**
+ * A pracht app has no `index.html`, so `build.cssCodeSplit: false` is not the
+ * "one stylesheet instead of many" it is in an SPA.
+ *
+ * Vite then emits the whole app's CSS as a single asset attached to the client
+ * entry chunk and links it from the HTML it transforms. Pracht assembles its
+ * documents instead, linking the stylesheets the manifest lists for the route,
+ * its shell, and the islands it rendered — and with the split off, the manifest
+ * lists none for any of them. The build succeeds and every page ships without a
+ * single stylesheet, which is the kind of failure nobody reads a build log to
+ * find.
+ */
+function assertCssCodeSplitEnabled(config: {
+  build?: { cssCodeSplit?: boolean; ssr?: boolean | string };
+  command?: string;
+  environments?: { client?: { build?: { cssCodeSplit?: boolean } } };
+}): void {
+  if (config.command !== "build" || config.build?.ssr) return;
+  // The client environment's resolved value is what the build honours; the
+  // top-level one is only the default it was derived from.
+  const cssCodeSplit =
+    config.environments?.client?.build?.cssCodeSplit ?? config.build?.cssCodeSplit;
+  if (cssCodeSplit !== false) return;
+
+  throw new Error(
+    "[pracht] build.cssCodeSplit is disabled. Pracht documents link the stylesheets of the " +
+      "route, shell, and islands a page rendered, resolved per route from the build manifest. " +
+      "Without the split, Vite merges every stylesheet into one asset that only an index.html " +
+      "would link — which a pracht app never has — so every page would ship unstyled. Remove " +
+      "`build: { cssCodeSplit: false }`; to cut the stylesheet request instead, use " +
+      "`pracht({ inlineCss: true })`.",
+  );
 }
 
 function assertSafeRootAbsoluteDeployBase(base: string | undefined): void {

@@ -51,6 +51,11 @@ the document instead. That removes a render-blocking request but repeats shared
 CSS in every HTML response, so [measure the trade-off](/docs/performance#css-per-page).
 It does not collect runtime CSS-in-JS output.
 
+One Vite option is incompatible: `build.cssCodeSplit: false` merges the app's
+stylesheets into a single asset that only an `index.html` would link, and a
+pracht app assembles its documents from the per-route manifest instead. The
+build refuses it rather than shipping pages with no stylesheet at all.
+
 ---
 
 ## CSS-in-JS — Use With Care
