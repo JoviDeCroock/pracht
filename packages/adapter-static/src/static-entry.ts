@@ -154,6 +154,11 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
  * anything that needs a server: `render: "ssr"` / `"isg"` routes, SPA
  * loaders, request middleware, API routes, and network-exposed capabilities.
  * SSG loaders run at build time; static SPA routes are loaderless.
+ *
+ * The `notFound` page may use `hydration: "islands"` or `"none"` to keep the
+ * client router out of `404.html`, at the cost of the page knowing which URL
+ * was requested. Configuring `fallback` requires full hydration there, because
+ * that document is built from the not-found page's serialized route state.
  */
 export function staticAdapter(options: StaticAdapterOptions = {}): PrachtAdapter {
   assertValidStaticAdapterOptions(options);

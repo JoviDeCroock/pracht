@@ -1192,10 +1192,18 @@ aggregated error — before any prerendering — when the app needs one:
   from the render itself.
 - **Route and not-found middleware** are hard errors: a static host has no
   request runtime in which to enforce redirects, authentication, or headers.
-- The **`notFound` page must use full hydration** (the default). Every unknown
-  URL receives the same prebuilt `404.html`, so the full client router is what
-  replaces the build URL with the visitor's actual location. `"islands"` and
-  `"none"` are hard errors for a static not-found page.
+- The **`notFound` page may drop the client router**, and must keep it when a
+  SPA `fallback` is configured. Every unknown URL receives the same prebuilt
+  `404.html`, and the client router is what replaces the build URL with the
+  visitor's actual location — but that is all it does there, and on an
+  otherwise islands-only site it is the largest chunk in the build, loaded by
+  that one page. `hydration: "islands"` and `"none"` are therefore allowed: the
+  page keeps the markup it was prerendered with, including the synthetic path
+  `useLocation()` saw, so a page that opts out must not claim to show the
+  requested URL (an island reading `window.location.pathname` can).
+  With `staticAdapter({ fallback })` it stays a hard error: that document is
+  built from the not-found page's serialized route state and boots the router
+  from it.
 - **API routes** are hard errors (nothing can answer them).
 - **Capabilities exposed over HTTP/MCP/WebMCP** are hard errors. Unexposed
   capabilities are fine — `invokeCapability()` from build-time loaders runs

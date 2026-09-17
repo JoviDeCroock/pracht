@@ -176,6 +176,7 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   const routes = serverMod.resolvedApp?.routes ?? [];
   const notFound = serverMod.resolvedApp?.notFound;
   const pageRoutes = notFound ? [...routes, notFound] : routes;
+  const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
 
   // A sub-path deploy (GitHub Pages project site, an S3 key prefix) is
   // supported: asset, route-state, href, and preview URLs all carry the base.
@@ -248,11 +249,27 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
     );
   }
 
-  if (notFound && notFound.hydration !== undefined && notFound.hydration !== "full") {
+  // A static host serves one prebuilt 404.html for every unknown URL, so the
+  // page renders at a synthetic path and the client router is what rewrites
+  // its state to the URL the visitor actually asked for. That only matters
+  // when something reads it: the SPA fallback document is built from the
+  // notFound page's serialized route state and boots the router from it, so
+  // there full hydration is still required. Without a fallback, a 404 that
+  // shows fixed markup does not need the router at all — and the router is
+  // routinely the largest chunk in an otherwise islands-only build, loaded by
+  // 404.html and nothing else.
+  if (
+    notFound &&
+    notFound.hydration !== undefined &&
+    notFound.hydration !== "full" &&
+    configuredFallback
+  ) {
     problems.push(
-      `the notFound page uses hydration: "${notFound.hydration}", but a static host serves one prebuilt 404.html for every unknown URL:\n` +
+      `the notFound page uses hydration: "${notFound.hydration}", but staticAdapter({ fallback: ${JSON.stringify(
+        configuredFallback,
+      )} }) builds that document from the notFound page's serialized route state and boots the client router from it:\n` +
         "    - notFound\n" +
-        '  Static notFound pages must use full hydration so the client router can adopt the visitor\'s real URL. Remove the hydration option (or set it to "full"), or use a serverful adapter.',
+        '  Give the notFound page full hydration (remove the hydration option, or set it to "full"), drop the fallback, or use a serverful adapter.',
     );
   }
 
