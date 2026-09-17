@@ -105,6 +105,13 @@ function readFileSyncSafe(path) {
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
+// The Node floor every pracht package declares, read from this package's own
+// engines field so a bump lands in scaffolded apps without a second edit.
+const NODE_MINIMUM = (
+  JSON.parse(readFileSyncSafe(resolve(PACKAGE_ROOT, "package.json"))).engines?.node ?? ">=22.18"
+).replace(/^\D*/, "");
+const NODE_MAJOR = NODE_MINIMUM.split(".")[0];
+
 // The published package bundles a copy of the repo skills (see
 // scripts/sync-skills.js); inside the monorepo we fall back to the source.
 const SKILL_DIRS = [resolve(PACKAGE_ROOT, "skills"), resolve(PACKAGE_ROOT, "../../skills")];
@@ -733,6 +740,11 @@ async function buildProjectFiles({
     : null;
 
   const files = {
+    // Build images (Cloudflare Pages, Netlify, most CI) pick a Node version
+    // from this file; without it they choose their own default, which is
+    // routinely older than pracht's `engines.node` and fails the build on a
+    // missing modern built-in rather than on a version mismatch.
+    ".nvmrc": `${NODE_MAJOR}\n`,
     ".gitignore":
       "dist\nnode_modules\n.netlify\n.wrangler\n.vercel\n.env*\n!.env.example\n.dev.vars\n# Keep .pracht/app-graph.json committed — it is the `pracht plan` snapshot.\n",
     "README.md": createReadme({
@@ -923,6 +935,10 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
       version: "0.0.0",
       private: true,
       type: "module",
+      // Matches every pracht package. Vercel reads this to choose a Node
+      // version; the `.nvmrc` next to it covers the hosts that read that
+      // instead.
+      engines: { node: `>=${NODE_MINIMUM}` },
       scripts,
       dependencies: {
         [adapter.packageName]: versions[adapter.packageName],

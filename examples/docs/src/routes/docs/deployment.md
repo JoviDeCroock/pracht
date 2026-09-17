@@ -10,6 +10,16 @@ next:
   title: Adapters Reference
 ---
 
+## Node on the build image
+
+Whatever you deploy to, the machine that runs `pracht build` needs **Node 22.18 or newer**. Hosted build images pick a version themselves, and the default is often older: Cloudflare Pages and Netlify read `.nvmrc`, Vercel reads `engines.node` from `package.json`. `create-pracht` writes both, so a scaffolded app never has to say it twice — add them by hand when you are migrating an existing project.
+
+```txt [.nvmrc]
+22
+```
+
+The CLI checks the running version before it loads anything else, so an unsupported Node fails with `pracht requires Node >= 22.18 (found 18.17.1).` instead of a `SyntaxError` about a missing `node:util` export.
+
 ## Node.js
 
 The default adapter. Generates a standalone Node.js server with static file serving and ISG support.

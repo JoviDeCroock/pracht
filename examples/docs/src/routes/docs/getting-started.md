@@ -7,6 +7,10 @@ next:
   title: Why Pracht?
 ---
 
+## Requirements
+
+pracht needs **Node 22.18 or newer** — every package declares it in `engines.node`, and the CLI checks it before it loads anything else, so an older Node fails with the version rather than with a missing built-in. Scaffolded apps ship an `.nvmrc` and an `engines.node` field so build images (Cloudflare Pages, Netlify, Vercel, CI) pick a supported version instead of their own default.
+
 ## Create a Project
 
 The fastest way to start is with `create-pracht`. It scaffolds a working app with routing, a shell, an API route, and your choice of deployment adapter.
