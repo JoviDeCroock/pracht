@@ -1,5 +1,29 @@
 # @pracht/vite-plugin
 
+## 0.13.0
+
+### Minor Changes
+
+- [#381](https://github.com/JoviDeCroock/pracht/pull/381) [`b42f586`](https://github.com/JoviDeCroock/pracht/commit/b42f5864f2c24935c4b5a43bbb7fd75545dfc079) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Every document served by `pracht dev` now registers dev-only, read-only WebMCP page tools (`pracht_route`, `pracht_loader_data`, `pracht_islands`, `pracht_last_error`, `pracht_page_tools`) so an agent-driven browser can ask the open tab which route matched, what its loader returned, which islands hydrated, and what the last error was. Nothing is emitted in a production build, and `pracht({ devPageTools: false })` turns them off.
+
+### Patch Changes
+
+- [#400](https://github.com/JoviDeCroock/pracht/pull/400) [`bb7c2f3`](https://github.com/JoviDeCroock/pracht/commit/bb7c2f3d6e78cb9abed38596de992a37461c1794) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Copy the assets a route stylesheet references — background images, self-hosted fonts, `@import`ed stylesheets — into the client output, so a route outside the client bundle no longer ships CSS pointing at files that were left in `dist/server`.
+
+- [#397](https://github.com/JoviDeCroock/pracht/pull/397) [`69f1b07`](https://github.com/JoviDeCroock/pracht/commit/69f1b0787de81cc08c7b55a3b10bd0e0ed6bc782) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Include the CSS of the islands a page renders in its document, so island styles no longer arrive after hydration and flash unstyled markup first.
+
+- [#400](https://github.com/JoviDeCroock/pracht/pull/400) [`5c71135`](https://github.com/JoviDeCroock/pracht/commit/5c71135d741dcaee06be743b037b7687de45f6bb) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep the CSS of islands, and of anything a route shares with one, out of the server entry's merged stylesheet, so a route that does not fully hydrate links exactly the stylesheets it renders — served from the copy the client build already published.
+
+- [#403](https://github.com/JoviDeCroock/pracht/pull/403) [`149e7c7`](https://github.com/JoviDeCroock/pracht/commit/149e7c77b357d255316e594c33dc86fc0fb2e332) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Publish the assets a route imports into its markup when that route is outside the client bundle, so an `<img src>` built from an asset import on a `hydration: "none"` or `hydration: "islands"` page no longer points at a file that only exists in `dist/server`.
+
+- [#400](https://github.com/JoviDeCroock/pracht/pull/400) [`7350323`](https://github.com/JoviDeCroock/pracht/commit/7350323038521690cda8839f7d69a550cbadc28c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Refuse a build with `build.cssCodeSplit: false` instead of emitting pages that link no stylesheet at all, and report the same setting from `pracht doctor`.
+
+- [#398](https://github.com/JoviDeCroock/pracht/pull/398) [`9c15a72`](https://github.com/JoviDeCroock/pracht/commit/9c15a724dfe222003967e0232382fa4c7ac4f12a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Emit and link the CSS of routes that do not fully hydrate. A `hydration: "none"` or `hydration: "islands"` route is absent from the client bundle, so its CSS modules were previously compiled for their class names and never emitted, leaving the page with unstyled markup.
+- Updated dependencies [[`b42f586`](https://github.com/JoviDeCroock/pracht/commit/b42f5864f2c24935c4b5a43bbb7fd75545dfc079), [`69f1b07`](https://github.com/JoviDeCroock/pracht/commit/69f1b0787de81cc08c7b55a3b10bd0e0ed6bc782), [`3b44c60`](https://github.com/JoviDeCroock/pracht/commit/3b44c600911f7ea734c22e494372376f68611c4f), [`ee8b848`](https://github.com/JoviDeCroock/pracht/commit/ee8b848ce7f7d834cac5e6d72acedacfc8907476)]:
+  - @pracht/core@0.18.0
+  - @pracht/capabilities@0.5.0
+  - @pracht/adapter-node@0.4.4
+
 ## 0.12.0
 
 ### Minor Changes

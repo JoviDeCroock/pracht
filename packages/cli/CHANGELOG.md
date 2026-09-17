@@ -1,5 +1,22 @@
 # @pracht/cli
 
+## 1.14.0
+
+### Minor Changes
+
+- [#384](https://github.com/JoviDeCroock/pracht/pull/384) [`31ac3b9`](https://github.com/JoviDeCroock/pracht/commit/31ac3b96189dcb3e941fc07fa19898d7c5b8fb3e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add browser-backed WebMCP registry verification and explicit WebMCP eval scenarios with invocation and cancellation proof.
+
+### Patch Changes
+
+- [#400](https://github.com/JoviDeCroock/pracht/pull/400) [`7350323`](https://github.com/JoviDeCroock/pracht/commit/7350323038521690cda8839f7d69a550cbadc28c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Refuse a build with `build.cssCodeSplit: false` instead of emitting pages that link no stylesheet at all, and report the same setting from `pracht doctor`.
+
+- [#398](https://github.com/JoviDeCroock/pracht/pull/398) [`9c15a72`](https://github.com/JoviDeCroock/pracht/commit/9c15a724dfe222003967e0232382fa4c7ac4f12a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Emit and link the CSS of routes that do not fully hydrate. A `hydration: "none"` or `hydration: "islands"` route is absent from the client bundle, so its CSS modules were previously compiled for their class names and never emitted, leaving the page with unstyled markup.
+
+- [#388](https://github.com/JoviDeCroock/pracht/pull/388) [`ee8b848`](https://github.com/JoviDeCroock/pracht/commit/ee8b848ce7f7d834cac5e6d72acedacfc8907476) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Standalone WebMCP registration now supports current consequential annotations and opt-in cross-origin exposure, while verify reports Chrome's advisory name budgets.
+- Updated dependencies [[`b42f586`](https://github.com/JoviDeCroock/pracht/commit/b42f5864f2c24935c4b5a43bbb7fd75545dfc079), [`69f1b07`](https://github.com/JoviDeCroock/pracht/commit/69f1b0787de81cc08c7b55a3b10bd0e0ed6bc782), [`3b44c60`](https://github.com/JoviDeCroock/pracht/commit/3b44c600911f7ea734c22e494372376f68611c4f), [`ee8b848`](https://github.com/JoviDeCroock/pracht/commit/ee8b848ce7f7d834cac5e6d72acedacfc8907476)]:
+  - @pracht/core@0.18.0
+  - @pracht/capabilities@0.5.0
+
 ## 1.13.0
 
 ### Minor Changes
