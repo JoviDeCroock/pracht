@@ -145,6 +145,172 @@ function createNonFullHydrationExcludes(
   return [...excludes];
 }
 
+const IMPORTING_NODE_TYPES = new Set([
+  "ExportAllDeclaration",
+  "ExportNamedDeclaration",
+  "ImportDeclaration",
+  "ImportExpression",
+]);
+
+/** Every string the manifest holds, and where it imports from. */
+function collectManifestStrings(
+  source: string,
+  file: string,
+): {
+  localImports: string[];
+  strings: string[];
+} {
+  const strings: string[] = [];
+  const localImports: string[] = [];
+  const program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
+
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    const node = asStaticProgramNode(value);
+    if (!node) return;
+
+    if (
+      typeof node.value === "string" &&
+      (node.type === "Literal" || node.type === "StringLiteral")
+    )
+      strings.push(node.value);
+
+    // A module ref can only be a plain string, so `import("./" + name)` never
+    // contributes one — and a specifier that is not a literal is read below as
+    // a reason to distrust the whole scan. `export const app = …` carries no
+    // source at all and is not one of them.
+    if (IMPORTING_NODE_TYPES.has(node.type) && node.source != null) {
+      const specifier = asStaticProgramNode(node.source);
+      localImports.push(typeof specifier?.value === "string" ? specifier.value : "");
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key === "type") continue;
+      walk(node[key]);
+    }
+  };
+
+  walk(program.body);
+  return { localImports, strings };
+}
+
+/**
+ * The route and shell modules the app manifest names, and whether that answer
+ * can be trusted.
+ *
+ * Refs are plain strings — `"./routes/home.tsx"`, or the specifier of a
+ * `() => import("./routes/home.tsx")` — so every string in the manifest that
+ * resolves to a file under the routes or shells directory is a ref. Reading
+ * them this loosely is deliberate: a string that turns out to be something
+ * else (a middleware path, a route pattern) resolves to no file there and drops
+ * out, and over-collecting only ever keeps a module the app already ships.
+ *
+ * `complete` is false as soon as a ref could live somewhere this file cannot
+ * see: a manifest that imports a routes fragment from another module, or
+ * assembles a specifier at runtime. Callers must then leave the registry as it
+ * was — dropping a module a route needs breaks navigation to it, which is far
+ * worse than shipping one nothing reaches.
+ */
+export function collectManifestModuleRefs(
+  resolved: ResolvedPrachtPluginOptions,
+  root: string = process.cwd(),
+): { complete: boolean; files: Set<string> } {
+  const files = new Set<string>();
+  if (resolved.pagesDir) return { complete: false, files };
+
+  const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
+  let source: string;
+  try {
+    source = readFileSync(appFile, "utf-8");
+  } catch {
+    return { complete: false, files };
+  }
+
+  let collected: { localImports: string[]; strings: string[] };
+  try {
+    collected = collectManifestStrings(source, appFile);
+  } catch {
+    // An unparseable manifest is the dev server's error to report, not a
+    // reason to reorganize the bundle.
+    return { complete: false, files };
+  }
+
+  const appDir = dirname(appFile);
+  const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map((directory) =>
+    toPosixPath(resolve(root, directory.replace(/^\//, ""))),
+  );
+  const isOwned = (path: string): boolean =>
+    ownedDirectories.some((directory) => toPosixPath(path).startsWith(`${directory}/`));
+
+  for (const value of collected.strings) {
+    if (!value.startsWith(".") && !value.startsWith("/")) continue;
+    const abs = value.startsWith("/") ? resolve(root, value.slice(1)) : resolve(appDir, value);
+    if (!isOwned(abs)) continue;
+    try {
+      if (statSync(abs).isFile()) files.add(toPosixPath(abs));
+    } catch {
+      // A ref to a file that is not there is reported by `pracht doctor`; it
+      // cannot be excluded from anything either way.
+    }
+  }
+
+  // A relative import that is not itself a route or shell may be carrying route
+  // definitions of its own.
+  const complete = collected.localImports.every((specifier) => {
+    if (specifier === "") return false;
+    if (!specifier.startsWith(".") && !specifier.startsWith("/")) return true;
+    const abs = specifier.startsWith("/")
+      ? resolve(root, specifier.slice(1))
+      : resolve(appDir, specifier);
+    return isOwned(abs);
+  });
+
+  return { complete, files };
+}
+
+/**
+ * Files sitting in the routes or shells directory that the manifest never
+ * names.
+ *
+ * In manifest mode the client registry is a glob over those directories, so a
+ * draft, a scratch copy, or a route deleted from the manifest but left on disk
+ * was compiled and published as a client chunk — with its source — for a page
+ * no URL reaches. The manifest is the app's route list; the registry follows
+ * it.
+ *
+ * The pages router legitimately owns its directory: there, a file *is* a route.
+ */
+function createUnreferencedModuleExcludes(
+  resolved: ResolvedPrachtPluginOptions,
+  root: string = process.cwd(),
+  directories: readonly string[],
+): string[] {
+  const refs = collectManifestModuleRefs(resolved, root);
+  if (!refs.complete) return [];
+
+  const extensions = withAdditionalExtensions(
+    DEFAULT_ROUTE_EXTENSIONS,
+    resolved.additionalExtensions,
+  );
+  const excludes: string[] = [];
+  const rootPrefix = `${toPosixPath(root).replace(/\/$/, "")}/`;
+
+  for (const directory of directories) {
+    const files: string[] = [];
+    scanFiles(resolve(root, directory.replace(/^\//, "")), files, extensions);
+    for (const file of files) {
+      const posix = toPosixPath(file);
+      if (refs.files.has(posix)) continue;
+      excludes.push(`!/${posix.replace(rootPrefix, "")}`);
+    }
+  }
+
+  return excludes;
+}
+
 export function createPrachtClientModuleSource(
   options: PrachtPluginOptions = {},
   buildOptions: { root?: string } = {},
@@ -183,6 +349,17 @@ export function createPrachtClientModuleSource(
       ...createUnderscoreReservedExcludes(isPagesMode ? resolved.pagesDir : resolved.routesDir),
     );
   }
+  // The manifest is the route list, so the registry carries what it names and
+  // nothing else. An ejected pages layout keeps the directory-is-the-route
+  // contract even though it reads a manifest, so it is left out.
+  const unreferencedExcludes =
+    isPagesMode || usesEjectedPagesLayout
+      ? []
+      : createUnreferencedModuleExcludes(resolved, buildOptions.root, [
+          resolved.routesDir,
+          resolved.shellsDir,
+        ]);
+  routeExcludes.push(...unreferencedExcludes);
   const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
   const additionalRouteGlobPattern =
     additionalRouteGlob && routeExcludes.length > 0
@@ -212,7 +389,7 @@ export function createPrachtClientModuleSource(
     ? createReservedSubtreeExcludes(resolved.pagesDir)
     : usesEjectedPagesShellLayout
       ? createUnderscoreReservedExcludes(resolved.shellsDir)
-      : [];
+      : [...unreferencedExcludes];
   const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
   const additionalShellGlobPattern =
     shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;

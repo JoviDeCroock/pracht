@@ -576,6 +576,23 @@ Resolves to:
 Runtime matching is a linear scan over this flat array. For typical app sizes
 (tens to low hundreds of routes) this is effectively instant.
 
+### What reaches the client bundle
+
+The browser resolves a route's module through a registry the plugin generates
+from the manifest's refs, so a file in `src/routes/` or `src/shells/` that the
+manifest never names is not in it and is not compiled into the client bundle. A
+draft, a scratch copy, or a route deleted from the manifest but left on disk
+stays out of `dist/client` — as does a shared module kept under `src/routes/`,
+which is still imported by the route that uses it rather than becoming an entry
+of its own.
+
+Refs are read out of the manifest file itself. When one could live somewhere
+that file does not show — the manifest imports its routes from another module,
+or builds a specifier at runtime — the registry falls back to covering both
+directories whole, because dropping a module a route needs would break
+navigation to it. The pages router is unaffected either way: there the
+directory *is* the route list.
+
 ---
 
 ## Deploy Base
