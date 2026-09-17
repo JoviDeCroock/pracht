@@ -49,7 +49,11 @@ separate pass there — a rendered island is a static import of the route or
 shell that placed it, so the walk already reaches its CSS, and only for the
 islands the page uses. Apps should only need to import their CSS from a route,
 shell, or one of their dependencies — a development-only `<link>` in `head()`
-is unnecessary.
+is unnecessary. `e2e/islands-css-parity.test.ts` holds the two
+halves to that promise: for every page in the islands example it compares the
+class names the initial document has rules for in `pracht dev` against the built
+output, in both directions, so a stylesheet either side drops or adds fails the
+suite.
 
 Production links these route-scoped files by default. For small stylesheets,
 `pracht({ inlineCss: true })` instead places the complete matched route and
