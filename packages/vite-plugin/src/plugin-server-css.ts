@@ -1,4 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Plugin, Rollup } from "vite";
 
@@ -147,6 +148,124 @@ export function collectReferencedAssets(
   return referenced;
 }
 
+const STYLESHEET_RE = /\.(?:css|scss|sass|less|styl|stylus|pcss|postcss|sss)(?:\?|$)/;
+const STYLESHEET_QUERY_RE = /[?&](?:inline|raw|url)(?:[=&]|$)/;
+
+function isStylesheetModule(id: string): boolean {
+  return STYLESHEET_RE.test(id) && !STYLESHEET_QUERY_RE.test(id);
+}
+
+/** Which chunk absorbed each module, so a stylesheet can be traced to its asset. */
+function mapModulesToChunks(bundle: Rollup.OutputBundle): Map<string, Rollup.OutputChunk> {
+  const owners = new Map<string, Rollup.OutputChunk>();
+  for (const output of Object.values(bundle)) {
+    if (output.type !== "chunk") continue;
+    const chunk = output as Rollup.OutputChunk;
+    for (const moduleId of Object.keys(chunk.modules ?? {})) owners.set(moduleId, chunk);
+  }
+  return owners;
+}
+
+function chunkCssFiles(chunk: Rollup.OutputChunk): string[] {
+  return [
+    ...((chunk as { viteMetadata?: { importedCss?: Set<string> } }).viteMetadata?.importedCss ??
+      []),
+  ];
+}
+
+/**
+ * Stylesheets a route imports that the chunk walk cannot reach.
+ *
+ * The walk stops at entry chunks because the server entry holds the whole app,
+ * so anything the bundler hoisted in there — a component an island and a route
+ * both use, a stylesheet imported by middleware — used to fall out of the
+ * route's CSS entirely. The module graph still knows what the route imports, so
+ * ask it: every stylesheet reachable from the route's own module, resolved to
+ * the chunk that carries it.
+ *
+ * Linking a merged entry stylesheet gives a route more CSS than it uses, which
+ * is why islands are split into their own chunks before this runs. What is left
+ * here is a genuine hoist, reported once so it can be fixed at the source.
+ */
+function collectHoistedCss(
+  context: { getModuleInfo(id: string): { importedIds?: readonly string[] } | null },
+  entryModuleId: string,
+  owners: Map<string, Rollup.OutputChunk>,
+  collected: ReadonlySet<string>,
+): { files: string[]; hoistedFrom: string[] } {
+  const files: string[] = [];
+  const hoistedFrom: string[] = [];
+  const seen = new Set<string>();
+  const pending = [entryModuleId];
+
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    if (isStylesheetModule(id)) {
+      const owner = owners.get(id);
+      if (owner) {
+        for (const file of chunkCssFiles(owner)) {
+          if (collected.has(file) || files.includes(file)) continue;
+          files.push(file);
+          if (owner.isEntry) hoistedFrom.push(id);
+        }
+      }
+      continue;
+    }
+
+    // Dependencies are followed one level — an app module importing a
+    // package's stylesheet is common; a package's internal graph is not the
+    // app's to reorganize, and walking it would cost far more than it finds.
+    if (id.includes("node_modules")) continue;
+    for (const imported of context.getModuleInfo(id)?.importedIds ?? []) pending.push(imported);
+  }
+
+  return { files, hoistedFrom };
+}
+
+/**
+ * Stylesheets the client build already published, indexed by content.
+ *
+ * Both builds compile the same sources, so a stylesheet a route resolves from
+ * the server graph is usually byte-for-byte one the client build emitted — an
+ * island's, most often, since islands are now chunks in both. Pointing at the
+ * published copy keeps one URL for one stylesheet instead of making a visitor
+ * download the same bytes twice under two names.
+ */
+function indexClientStylesheets(root: string, base: string): Map<string, string> {
+  const clientOutDir = resolveClientOutDir(root);
+  const index = new Map<string, string>();
+  if (!clientOutDir) return index;
+
+  const walk = (directory: string, prefix: string): void => {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(directory, entry.name);
+      const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (entry.name === ".vite") continue;
+        walk(path, name);
+      } else if (entry.name.endsWith(".css")) {
+        try {
+          index.set(readFileSync(path, "utf-8"), `${base}${name}`);
+        } catch {
+          // An unreadable file simply does not participate.
+        }
+      }
+    }
+  };
+
+  walk(clientOutDir, "");
+  return index;
+}
+
 export function createServerCssAssetsPlugin(options: { inlineCss: boolean }): Plugin {
   let isServerBundle = false;
   let serverOutDir: string | undefined;
@@ -179,6 +298,31 @@ export function createServerCssAssetsPlugin(options: { inlineCss: boolean }): Pl
       const cssManifest: Record<string, string[]> = {};
       const cssContentManifest: Record<string, string> = {};
       const needed = new Set<string>();
+      const owners = mapModulesToChunks(bundle);
+      const publishedByContent = indexClientStylesheets(root, base);
+      const hoisted = new Set<string>();
+
+      const sourceOf = (file: string): string | undefined => {
+        const asset = bundle[file];
+        if (!asset || asset.type !== "asset") return undefined;
+        const source = (asset as Rollup.OutputAsset).source;
+        return typeof source === "string" ? source : Buffer.from(source).toString("utf-8");
+      };
+
+      // A stylesheet the client build already published is served from there;
+      // only what is unique to this build has to be copied out.
+      const urls = new Map<string, string>();
+      const urlFor = (file: string): string => {
+        const known = urls.get(file);
+        if (known !== undefined) return known;
+        const source = sourceOf(file);
+        const published = source === undefined ? undefined : publishedByContent.get(source);
+        const url = published ?? `${base}${file}`;
+        if (!published) needed.add(file);
+        if (options.inlineCss && source !== undefined) cssContentManifest[url] = source;
+        urls.set(file, url);
+        return url;
+      };
 
       for (const output of Object.values(bundle)) {
         if (output.type !== "chunk") continue;
@@ -190,21 +334,26 @@ export function createServerCssAssetsPlugin(options: { inlineCss: boolean }): Pl
         const relativePath = relative(projectRoot, facade.split("?")[0]!).replace(/\\/g, "/");
         if (relativePath.startsWith("..")) continue;
 
-        const css = [...new Set(collectChunkCss(bundle, chunk.fileName))];
-        if (css.length === 0) continue;
+        const css = new Set(collectChunkCss(bundle, chunk.fileName));
+        const missing = collectHoistedCss(this, facade, owners, css);
+        for (const file of missing.files) css.add(file);
+        for (const id of missing.hoistedFrom) hoisted.add(id);
+        if (css.size === 0) continue;
 
-        cssManifest[relativePath] = css.map((file) => `${base}${file}`);
-        for (const file of css) needed.add(file);
+        cssManifest[relativePath] = [...css].map(urlFor);
       }
 
-      if (options.inlineCss) {
-        for (const file of needed) {
-          const asset = bundle[file];
-          if (!asset || asset.type !== "asset") continue;
-          const source = (asset as Rollup.OutputAsset).source;
-          cssContentManifest[`${base}${file}`] =
-            typeof source === "string" ? source : Buffer.from(source).toString("utf-8");
-        }
+      if (hoisted.size > 0) {
+        const list = [...hoisted]
+          .map((id) => relative(projectRoot, id).replace(/\\/g, "/"))
+          .sort()
+          .join(", ");
+        this.warn(
+          `[pracht] ${list} ${hoisted.size === 1 ? "is" : "are"} bundled into the server entry, ` +
+            "so the stylesheet carrying it also holds other routes' CSS. The routes that import " +
+            "it are linking that whole stylesheet rather than their own; import it from a route, " +
+            "a shell, or an island to keep the split.",
+        );
       }
 
       // The stylesheets alone are not the deployable set: whatever they point

@@ -31,7 +31,13 @@ section in the performance docs.
 Hydration mode does not change this. A route that does not fully hydrate is
 absent from the client bundle the manifest is built from, so its stylesheets are
 collected from the server build's graph instead and copied into the client
-output. They are static files; nothing about them needs a client runtime. The
+output. Islands are their own chunks in that build too — the server entry
+imports every island eagerly, and without the split their CSS (and anything they
+share with a route) merges into the entry's stylesheet, where no single route
+can claim it. A stylesheet that ends up in the entry anyway is still linked,
+from the module graph rather than the chunk graph, and reported so the import
+can be moved. Stylesheets both builds emit identically are served from the
+client build's copy, so one stylesheet keeps one URL. They are static files; nothing about them needs a client runtime. The
 assets those stylesheets reference — background images, self-hosted fonts, an
 `@import`ed sheet — are copied along with them, since they are emitted next to
 the stylesheet in the server build and exist nowhere else.

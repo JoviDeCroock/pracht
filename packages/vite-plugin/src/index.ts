@@ -11,7 +11,7 @@ import {
 
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
-import { frameworkChunkConfig } from "./chunk-groups.ts";
+import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
@@ -242,6 +242,24 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         console.warn(`[pracht] ${clientChunkConfig.warning}`);
       }
 
+      // The server entry imports every island eagerly, which pulls them — and
+      // anything they share with a route — into its chunk, where a route can
+      // no longer tell which stylesheets are its own. One chunk per island
+      // keeps that boundary, the way the client build has it by construction.
+      // Edge targets bundle the server into a single chunk and reject chunk
+      // grouping, so they are left alone.
+      const serverChunkConfig =
+        isSSRBuild && !isEdge
+          ? islandChunkConfig(
+              (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
+                ?.output,
+              resolveConfigPath(configRoot, resolved.islandsDir),
+            )
+          : {};
+      if (serverChunkConfig.warning) {
+        console.warn(`[pracht] ${serverChunkConfig.warning}`);
+      }
+
       return {
         appType: "custom" as const,
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
@@ -267,7 +285,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // that disable code splitting (e.g. webworker targets) reject chunk
         // grouping outright.
         ...(isSSRBuild
-          ? {}
+          ? serverChunkConfig.output
+            ? { build: { rollupOptions: { output: serverChunkConfig.output } } }
+            : {}
           : {
               build: {
                 rollupOptions: {
