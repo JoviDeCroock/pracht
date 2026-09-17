@@ -7,6 +7,7 @@ import { displayPath, readProjectConfig, resolveProjectPath } from "../project.j
 import { schemaToTypeText } from "@pracht/capabilities";
 import type { AppGraphCapability } from "@pracht/core";
 import { assertCapabilityProjectionsAgree } from "../capability-consistency.js";
+import { generatedSourceMatches } from "../generated-source.js";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
 import { runInspect, type InspectReport } from "./inspect.js";
 
@@ -611,6 +612,16 @@ function resolveOutputPath(root: string, outputPath: string): string {
   throw new Error(`Refusing to write outside the project root: ${outputPath}.`);
 }
 
+/**
+ * Whether the file on disk already carries these declarations. Compared
+ * semantically rather than byte-for-byte, so a project whose formatter has
+ * been over the generated files does not see `--check` report them stale
+ * forever — and so regenerating does not undo that formatting on every run.
+ * See `generatedSourceMatches`.
+ */
 function fileMatches(path: string, source: string): boolean {
-  return existsSync(path) && readFileSync(path, "utf-8") === ensureTrailingNewline(source);
+  return (
+    existsSync(path) &&
+    generatedSourceMatches(readFileSync(path, "utf-8"), ensureTrailingNewline(source))
+  );
 }
