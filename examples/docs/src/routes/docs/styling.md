@@ -39,7 +39,7 @@ export default defineConfig({
 
 See [Performance → CSS Per Page](/docs/performance) for how pracht maps routes to their transitive CSS dependencies.
 
-This holds for every hydration mode. A `hydration: "none"` or `hydration: "islands"` route ships little or no JavaScript and so is absent from the client bundle, but its CSS is collected from the server build instead and served like any other asset — importing a CSS module from a route works the same whatever that route hydrates.
+This holds for every hydration mode. A `hydration: "none"` or `hydration: "islands"` route ships little or no JavaScript and so is absent from the client bundle, but its CSS is collected from the server build instead and served like any other asset — importing a CSS module from a route works the same whatever that route hydrates. Whatever that CSS references — a background image, a self-hosted font, an `@import`ed stylesheet — is served alongside it.
 
 Islands are covered too. An island is its own client entry, so its CSS belongs to neither the route nor the shell; pracht adds the stylesheets of the islands a page rendered to that page's document. Without this an island's styles arrive only once its chunk is imported — after hydration, so its server-rendered markup paints unstyled first. Deferred islands (`client="visible"`, `client="idle"`) still get their CSS up front, because the strategy defers the island's JavaScript, not its markup.
 

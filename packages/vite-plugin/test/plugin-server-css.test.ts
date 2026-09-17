@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  collectReferencedAssets,
   createServerCssAssetsPlugin,
   escapeForStringLiteral,
   ROUTE_CSS_CONTENT_TOKEN,
@@ -170,5 +171,77 @@ describe("server-build CSS for routes outside the client bundle", () => {
     for (const quote of ['"', "'"]) {
       expect(new Function(`return ${quote}${escaped}${quote}`)()).toBe(JSON.stringify(value));
     }
+  });
+});
+
+describe("assets a route stylesheet references", () => {
+  const bundle = {
+    "assets/page.css": asset(
+      "assets/page.css",
+      [
+        ".hero{background-image:url(/assets/hero-abc.png)}",
+        '.icon{background:url("/assets/icon-abc.svg")}',
+        "@font-face{src:url('/assets/inter-abc.woff2') format('woff2')}",
+        ".inline{background:url(data:image/svg+xml,%3csvg/%3e)}",
+        ".remote{background:url(https://cdn.example.com/logo.png)}",
+        ".public{background:url(/logo.png)}",
+        ".masked{mask:url(#fade)}",
+      ].join("\n"),
+    ),
+    "assets/hero-abc.png": asset("assets/hero-abc.png", "png"),
+    "assets/icon-abc.svg": asset("assets/icon-abc.svg", "<svg/>"),
+    "assets/inter-abc.woff2": asset("assets/inter-abc.woff2", "woff2"),
+  };
+
+  it("collects what the build emitted and nothing else", () => {
+    expect(collectReferencedAssets(bundle, ["assets/page.css"], "/").sort()).toEqual([
+      "assets/hero-abc.png",
+      "assets/icon-abc.svg",
+      "assets/inter-abc.woff2",
+    ]);
+  });
+
+  it("follows a relative reference and an @import chain", () => {
+    const nested = {
+      "assets/page.css": asset("assets/page.css", '@import "./shared-abc.css";'),
+      "assets/shared-abc.css": asset(
+        "assets/shared-abc.css",
+        ".logo{background:url(../media/logo-abc.png)}",
+      ),
+      "media/logo-abc.png": asset("media/logo-abc.png", "png"),
+    };
+
+    expect(collectReferencedAssets(nested, ["assets/page.css"], "/").sort()).toEqual([
+      "assets/shared-abc.css",
+      "media/logo-abc.png",
+    ]);
+  });
+
+  it("strips a deploy base, including a CDN one", () => {
+    const based = {
+      "assets/page.css": asset(
+        "assets/page.css",
+        [
+          ".a{background:url(https://cdn.example.com/assets/hero-abc.png)}",
+          // Root-relative under a CDN base is someone else's URL, not ours.
+          ".b{background:url(/assets/icon-abc.svg)}",
+        ].join("\n"),
+      ),
+      "assets/hero-abc.png": asset("assets/hero-abc.png", "png"),
+      "assets/icon-abc.svg": asset("assets/icon-abc.svg", "<svg/>"),
+    };
+
+    expect(collectReferencedAssets(based, ["assets/page.css"], "https://cdn.example.com/")).toEqual(
+      ["assets/hero-abc.png"],
+    );
+  });
+
+  it("terminates on a cycle", () => {
+    const cyclic = {
+      "assets/a.css": asset("assets/a.css", '@import "./b.css";'),
+      "assets/b.css": asset("assets/b.css", '@import "./a.css";'),
+    };
+
+    expect(collectReferencedAssets(cyclic, ["assets/a.css"], "/")).toEqual(["assets/b.css"]);
   });
 });

@@ -16,7 +16,8 @@ import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
 //     the full client runtime/router entry,
 // (d) `client="visible"` islands hydrate (and fetch their chunk) only after
 //     scrolling into view, and
-// (e) `hydration: "none"` routes ship zero JavaScript.
+// (e) `hydration: "none"` routes ship zero JavaScript and still receive their
+//     stylesheet together with the assets it references.
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureDir = resolve(repoRoot, "examples/islands");
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
@@ -82,6 +83,16 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     const staticHtml = readFileSync(resolve(exampleDir, "dist/client/static/index.html"), "utf-8");
     expect(staticHtml).not.toContain("<script");
     expect(staticHtml).not.toContain("<pracht-island");
+
+    // A hydration-none route's stylesheet comes out of the server build, and so
+    // does every asset it points at. Copying the stylesheet without them ships
+    // a document whose background image 404s.
+    const staticCssUrl = staticHtml.match(/<link rel="stylesheet" href="([^"]+)">/)?.[1];
+    expect(staticCssUrl).toBeTruthy();
+    const staticCss = readFileSync(resolve(exampleDir, `dist/client${staticCssUrl}`), "utf-8");
+    const referencedAsset = staticCss.match(/url\(["']?([^)"']+)["']?\)/)?.[1];
+    expect(referencedAsset).toMatch(/^\/assets\/dots-[^/]+\.svg$/);
+    expect(existsSync(resolve(exampleDir, `dist/client${referencedAsset}`))).toBe(true);
 
     expect(existsSync(resolve(exampleDir, "dist/client/lazy/index.html"))).toBe(true);
 

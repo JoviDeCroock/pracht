@@ -31,7 +31,10 @@ section in the performance docs.
 Hydration mode does not change this. A route that does not fully hydrate is
 absent from the client bundle the manifest is built from, so its stylesheets are
 collected from the server build's graph instead and copied into the client
-output. They are static files; nothing about them needs a client runtime.
+output. They are static files; nothing about them needs a client runtime. The
+assets those stylesheets reference — background images, self-hosted fonts, an
+`@import`ed sheet — are copied along with them, since they are emitted next to
+the stylesheet in the server build and exist nowhere else.
 
 Development uses the same first-paint contract: `pracht dev` discovers the
 matched route and shell's transitive CSS in Vite's live module graph and adds
