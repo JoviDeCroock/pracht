@@ -163,9 +163,9 @@ critical CSS still linked.
 
 ## Inlining route CSS
 
-Production documents link the matched route and shell's emitted stylesheets by
-default. Small sites can remove those render-blocking requests by opting into
-full route-CSS inlining:
+Production documents link the matched route and shell's emitted stylesheets, plus
+those of the islands the page rendered, by default. Small sites can remove those
+render-blocking requests by opting into full route-CSS inlining:
 
 ```ts
 // vite.config.ts
@@ -176,7 +176,7 @@ export default defineConfig({
 
 The client build's CSS manifest remains the source of truth. The plugin embeds
 the emitted asset contents in the generated server module; the request runtime
-resolves the same route/shell URL set as before and writes it into
+resolves the same route/shell/island URL set as before and writes it into
 `<style data-pracht-inline-css>`. This one path covers manifest and pages
 routers, SPA shell documents, SSR, SSG/ISG prerendering, error boundaries,
 islands, hydration-none pages, and every built-in adapter. Development keeps

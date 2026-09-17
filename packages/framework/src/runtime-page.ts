@@ -38,6 +38,7 @@ import {
   mergeEntryPreloadUrls,
   resolveManifestEntries,
   resolvePageCssAssets,
+  withIslandCssAssets,
   resolvePageJsUrls,
   resolveDataFunctions,
   resolveRegistryModule,
@@ -627,7 +628,12 @@ async function renderServerDocument<TContext>(
         head: withCapturedScripts(head, scriptCapture),
         body: ssrContent,
         clientEntryUrl: islandsEntryUrl,
-        cssAssets,
+        cssAssets: withIslandCssAssets(
+          cssAssets,
+          ctx.options.cssManifest,
+          ctx.options.cssContentManifest,
+          islandFiles,
+        ),
         modulePreloadUrls: islandsEntryUrl
           ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
               ...islandPreloadUrls,

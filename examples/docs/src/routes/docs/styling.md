@@ -39,7 +39,9 @@ export default defineConfig({
 
 See [Performance → CSS Per Page](/docs/performance) for how pracht maps routes to their transitive CSS dependencies.
 
-The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`.
+Islands are covered too. An island is its own client entry, so its CSS belongs to neither the route nor the shell; pracht adds the stylesheets of the islands a page rendered to that page's document. Without this an island's styles arrive only once its chunk is imported — after hydration, so its server-rendered markup paints unstyled first. Deferred islands (`client="visible"`, `client="idle"`) still get their CSS up front, because the strategy defers the island's JavaScript, not its markup.
+
+The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`. Development links every registered island's CSS rather than only the rendered ones, since a streaming route flushes `<head>` before any island marker exists.
 
 Production uses route-scoped links by default. For small emitted stylesheets,
 `pracht({ inlineCss: true })` puts the complete matched route and shell CSS in
@@ -93,7 +95,7 @@ export default function Home() {
 }
 ```
 
-Vite generates unique class names at build time (e.g. `_hero_1a2b3`), so styles never collide across routes. The framework automatically injects only the CSS files used by the current route and its shell.
+Vite generates unique class names at build time (e.g. `_hero_1a2b3`), so styles never collide across routes. The framework automatically injects only the CSS files used by the current route, its shell, and the islands it rendered.
 
 ---
 

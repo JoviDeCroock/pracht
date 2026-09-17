@@ -82,12 +82,52 @@ export function resolvePageCssAssets(
   routeFile: string,
 ): Array<{ content?: string; href: string }> {
   const pageUrls = resolvePageCssUrls(cssManifest, shellFile, routeFile);
-  return pageUrls.map((href) => ({
+  return pageUrls.map((href) => toCssAsset(href, cssContentManifest));
+}
+
+function toCssAsset(
+  href: string,
+  cssContentManifest: Record<string, string> | undefined,
+): { content?: string; href: string } {
+  return {
     href,
     ...(cssContentManifest && Object.hasOwn(cssContentManifest, href)
       ? { content: cssContentManifest[href] }
       : {}),
-  }));
+  };
+}
+
+/**
+ * Add the stylesheets of the islands a page rendered to its CSS assets.
+ *
+ * Islands are their own client entries, so their CSS is in neither the shell's
+ * nor the route's closure and `resolvePageCssAssets` cannot see it. Left out of
+ * the document it still reaches the browser, but only because Vite's preload
+ * helper appends a `<link>` when the island's dynamic import runs — which is
+ * after hydration, so the island's server-rendered markup paints unstyled and
+ * the styles arrive visibly late.
+ *
+ * Hydration strategy is deliberately not consulted. `visible` and `idle` defer
+ * an island's JavaScript, but its markup is in the document from the first
+ * paint and needs its rules there too.
+ */
+export function withIslandCssAssets(
+  cssAssets: Array<{ content?: string; href: string }>,
+  cssManifest: Record<string, string[]> | undefined,
+  cssContentManifest: Record<string, string> | undefined,
+  islandFiles: Iterable<string>,
+): Array<{ content?: string; href: string }> {
+  if (!cssManifest) return cssAssets;
+  const seen = new Set(cssAssets.map((asset) => asset.href));
+  const merged = [...cssAssets];
+  for (const file of islandFiles) {
+    for (const href of resolveManifestEntries(cssManifest, file) ?? []) {
+      if (seen.has(href)) continue;
+      seen.add(href);
+      merged.push(toCssAsset(href, cssContentManifest));
+    }
+  }
+  return merged;
 }
 
 export function resolvePageJsUrls(

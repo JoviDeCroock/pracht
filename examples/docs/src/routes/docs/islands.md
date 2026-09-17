@@ -101,6 +101,11 @@ Set the framework-owned `client` prop per island usage:
 `idle` and `visible` islands are not preloaded, so below-the-fold widgets do
 not fetch their chunks until they are needed.
 
+A strategy defers an island's JavaScript, never its styles. Every island a page
+renders has its CSS in that page's document, because its markup is server
+rendered and painted long before its chunk loads. See
+[Styling](/docs/styling).
+
 ---
 
 ## Props and Children
