@@ -13,6 +13,7 @@ import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { frameworkChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
+import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
@@ -768,6 +769,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ? createEdgeRuntimeSafetyPlugin()
     : null;
 
+  const serverCssAssetsPlugin = createServerCssAssetsPlugin({
+    inlineCss: resolved.inlineCss,
+  });
+
   const optimizeDepsEntriesPlugin: Plugin = {
     name: "pracht:optimize-deps-entries",
     enforce: "post",
@@ -803,6 +808,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     clientModuleTransformPlugin,
     ...(clientModulePrefreshPlugin ? [clientModulePrefreshPlugin] : []),
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
+    serverCssAssetsPlugin,
     createEnvSafetyPlugin(resolved.envSafety),
   ];
 

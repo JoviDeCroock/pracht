@@ -12,6 +12,7 @@ import {
   ISLANDS_CLIENT_BROWSER_PATH,
   readClientBuildAssets,
 } from "./plugin-assets.ts";
+import { ROUTE_CSS_CONTENT_TOKEN, ROUTE_CSS_MANIFEST_TOKEN } from "./plugin-server-css.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -625,8 +626,23 @@ export function createPrachtServerModuleSource(
     `export const clientEntryUrl = ${JSON.stringify(clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
-    `export const cssManifest = ${JSON.stringify(clientBuild.cssManifest)};`,
-    `export const cssContentManifest = ${JSON.stringify(clientBuild.cssContentManifest)};`,
+    // Routes that do not fully hydrate never reach the client bundle, so the
+    // client manifest has nothing for them. Their stylesheets come from the
+    // server build's own graph, spliced into these tokens once Rollup has named
+    // the assets (see plugin-server-css.ts). The client build stays
+    // authoritative: it is merged last and wins on any shared key. A build that
+    // never replaces the tokens parses to an empty object and behaves as before.
+    `const routeCssManifest = /* @__PURE__ */ parsePrachtRouteCss("${ROUTE_CSS_MANIFEST_TOKEN}");`,
+    `const routeCssContentManifest = /* @__PURE__ */ parsePrachtRouteCss("${ROUTE_CSS_CONTENT_TOKEN}");`,
+    "function parsePrachtRouteCss(raw) {",
+    "  try {",
+    "    return JSON.parse(raw);",
+    "  } catch {",
+    "    return {};",
+    "  }",
+    "}",
+    `export const cssManifest = { ...routeCssManifest, ...${JSON.stringify(clientBuild.cssManifest)} };`,
+    `export const cssContentManifest = { ...routeCssContentManifest, ...${JSON.stringify(clientBuild.cssContentManifest)} };`,
     `export const jsManifest = ${JSON.stringify(clientBuild.jsManifest)};`,
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,
     `export const budgets = ${JSON.stringify(resolved.budgets)};`,

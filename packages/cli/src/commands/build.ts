@@ -587,7 +587,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       clientEntryUrl: clientEntryUrl ?? undefined,
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
       islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
-      cssManifest,
+      // The server module's manifest additionally carries the routes that are
+      // absent from the client bundle, whose CSS the server build emitted. The
+      // freshly read client entries are layered on top: they are the ones
+      // rebuilt against the deploy base.
+      cssManifest: { ...serverMod.cssManifest, ...cssManifest },
       cssContentManifest: serverMod.cssContentManifest,
       jsManifest,
       registry: serverMod.registry,
