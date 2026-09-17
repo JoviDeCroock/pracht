@@ -20,6 +20,7 @@ import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
   isPrachtHttpError,
+  reportRequestError,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
 import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
@@ -558,7 +559,7 @@ async function renderServerDocument<TContext>(
       onError: (error) => {
         // Past the first flush there is no error document to send, so the
         // only remaining job is to make the failure visible server-side.
-        ctx.options.onRouteError?.(error, ctx.requestPath, {
+        reportRequestError(ctx.options.onRouteError, error, ctx.requestPath, {
           phase: "render",
           routeFile: match.route.file,
           routeId: match.route.id,
@@ -895,7 +896,7 @@ export async function renderPage<TContext>(
     // instead of having to infer that from mutable response headers.
     job.shellModule ??= await job.shellModulePromise.catch(() => undefined);
 
-    options.onRouteError?.(thrownResponseFailure ?? error, ctx.requestPath, {
+    reportRequestError(options.onRouteError, thrownResponseFailure ?? error, ctx.requestPath, {
       errorBoundary: job.routeModule?.ErrorBoundary
         ? "route"
         : job.shellModule?.ErrorBoundary

@@ -13,6 +13,8 @@ import type {
 } from "@pracht/core";
 import {
   applyDefaultSecurityHeaders,
+  describeRouteErrorModule,
+  formatRequestErrorLine,
   normalizeResponseHeaders,
   resolveRegistryModule,
 } from "@pracht/core";
@@ -422,18 +424,6 @@ export function createDevSSRMiddleware(
  * can fail — a route-state fetch during client-side navigation, `curl`, an
  * end-to-end test — used to get a 500 and no server-side trace of why.
  */
-function formatDevRequestErrorLine(options: {
-  file?: string;
-  message: string;
-  path: string;
-  phase?: string;
-  routeId?: string;
-}): string {
-  const route = options.routeId ? ` in route "${options.routeId}"` : "";
-  const file = options.file ? ` (${options.file})` : "";
-  return `[pracht] ${options.phase ?? "request"} error${route}${file} at ${options.path}: ${options.message}`;
-}
-
 /**
  * A `throw notFound()` that reaches `onRouteError` is a routing outcome, not a
  * crash: the app simply declares no not-found page. Redirects never reach it
@@ -461,14 +451,14 @@ function logDevRequestError(
   if (!shouldLogDevRequestError(options.error)) return;
 
   const { error } = options;
-  const line = formatDevRequestErrorLine({
+  const line = formatRequestErrorLine({
     // A compile failure carries the module it could not build but no route
     // context — it happened before anything matched — so without this a route
     // file's syntax error names no file at all on a route-state poll, where
     // there is no overlay to fall back on.
     file:
       describeAnnotatedUserModule(error, server.config.root) ??
-      describeContextUserModule(options.context),
+      describeRouteErrorModule(options.context),
     message: error instanceof Error ? error.message : String(error),
     path: options.path,
     phase: options.context?.phase,
@@ -486,16 +476,6 @@ function logDevRequestError(
   server.config.logger.error(wantsStack && stack ? `${line}\n${stack}` : line, {
     timestamp: true,
   });
-}
-
-/** Source modules the runtime matched before a handled request failure. */
-function describeContextUserModule(context: RouteErrorContext | undefined): string | undefined {
-  if (!context) return undefined;
-  if (context.phase === "middleware" && context.middlewareFiles?.length) {
-    return context.middlewareFiles.join(", ");
-  }
-  if (context.phase === "loader" && context.loaderFile) return context.loaderFile;
-  return context.routeFile;
 }
 
 /**

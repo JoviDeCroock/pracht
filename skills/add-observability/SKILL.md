@@ -48,6 +48,12 @@ but trivial.
 
 ## Step 2: Server error tracking
 
+Pracht already prints one line per 5xx to the server console — phase, route id,
+source file, request path, message, and the stack — so the app is not silent
+before any of this is wired. What that default does not give you is a request
+id, a duration, the successful requests, or delivery to a sink off the box.
+Say so when the user only wants "errors in my logs": they may already have it.
+
 ### Sentry path (Node adapter)
 
 The pattern below uses `@sentry/node` and works on the **Node adapter only**

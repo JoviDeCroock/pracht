@@ -10,6 +10,29 @@ next:
   title: Server-Sent Events & WebSockets
 ---
 
+## What pracht Logs on Its Own
+
+A loader, render, or API handler that throws answers 500 and prints one line to
+the server's console before anything of yours runs:
+
+```text
+[pracht] loader error in route "blog" (./routes/blog.tsx) at /blog/hello: post 42 is gone
+```
+
+The phase, the route id, the source file pracht had matched, the request path,
+and the message, followed by the stack. It is the same line `pracht dev` prints
+to the terminal, so a failure reads the same in development and in production.
+A `throw notFound()` is a routing outcome rather than a crash and stays quiet.
+
+That default exists so a deployed app is never silent about a 500. It is not a
+substitute for the middleware below: one line per failure has no request id, no
+duration, no status for the requests that succeeded, and no way to reach your
+sink. Add the middleware when you want those; a host that reports failures
+itself — the dev server, the prerenderer during a build — replaces the default
+rather than adding to it.
+
+---
+
 ## Recommended Shape
 
 Pracht middleware wraps the rest of the request via `next()`, so a single
