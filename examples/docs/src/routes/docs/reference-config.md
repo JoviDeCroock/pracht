@@ -61,14 +61,15 @@ app already follows, so most apps pass only an `adapter`.
 ### Client bundle
 
 `client` switches off router features so they are compiled out of the client
-bundle. Every feature defaults to `true`. Turn one off only when the app really
-does not use it — the router then silently stops honouring the corresponding
-route options and `<Link>` props.
+bundle, and switches on the one diagnostic a production build can carry. Turn a
+feature off only when the app really does not use it — the router then silently
+stops honouring the corresponding route options and `<Link>` props.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) driven by `route({ prefetch })` and `<Link prefetch>`. Off also drops the separate prefetch chunk and makes `prefetch()` a no-op |
 | `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off also drops the per-history-entry index the router stamps so a refused back/forward traversal can be put back, and makes `useBlocker()` never block (it warns in development) |
+| `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in the production client and islands bundles, so a build can be checked before it is deployed. Not for the build you ship |
 
 An unknown key here is an error rather than a silent no-op, so a typo cannot
 quietly ship the feature you meant to remove.

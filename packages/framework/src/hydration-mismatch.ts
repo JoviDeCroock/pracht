@@ -181,6 +181,11 @@ function appendHydrationWarning(vnode: VNode): void {
 }
 
 function appendBannerMessage(message: string): void {
+  // Logged as well as shown: a probe build (`client: { hydrationWarnings:
+  // true }`) is read by a headless browser walking the emitted pages, and a
+  // console error is what that collects without scraping the DOM.
+  console.error(`[pracht] ${message}`);
+
   if (typeof document === "undefined") return;
 
   let banner = document.getElementById(HYDRATION_BANNER_ID);

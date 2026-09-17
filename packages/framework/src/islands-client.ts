@@ -45,6 +45,17 @@ let capabilityRevalidationBound = false;
 declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 
 /**
+ * Keep the hydration-mismatch reporter in a production islands bundle, opted
+ * into with `client: { hydrationWarnings: true }`. Declared here rather than
+ * imported so this bundle folds its own `false` and drops the reporter's
+ * dynamic import with the branch around it.
+ */
+declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
+
+const HYDRATION_WARNINGS_FORCED =
+  typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
+
+/**
  * Islands routes render server-side and mount no client router, so there is no
  * route-data store to soft-refresh after a mutation the way full-hydration
  * routes do. Reload the document instead when a non-`read` capability settles
@@ -68,9 +79,9 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   // router, so the router's copy of this install never runs for them — and
   // `hydration: "islands"` is the configuration that ships the least
   // JavaScript, so it is also the one most apps reach for. Dynamically
-  // imported behind the DEV branch: the module is dropped from production
-  // islands bundles along with the branch itself.
-  if (import.meta.env?.DEV) {
+  // imported behind the branch: unless the app opts into production warnings,
+  // the module is dropped from the islands bundle along with the branch.
+  if (import.meta.env?.DEV || HYDRATION_WARNINGS_FORCED) {
     const { installHydrationMismatchWarning } = await import("./hydration-mismatch.ts");
     installHydrationMismatchWarning();
   }

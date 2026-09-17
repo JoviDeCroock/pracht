@@ -189,10 +189,15 @@ describe("published package tree shaking", () => {
   // used to be: Suspense hydration tracking and capability revalidation. Both
   // now hang off the code that actually uses them.
   describe("client entry", () => {
-    // Measure a production-shaped build: the dev-only hydration mismatch
-    // warning (and the Suspense chain it needs) is dead code in a real app
-    // bundle, so counting it would hide what ships.
-    const production = { define: { "import.meta.env.DEV": "false" }, entry: clientEntry };
+    // Measure a production-shaped build: the hydration mismatch warning (and
+    // the Suspense chain it needs) is dead code in a real app bundle, so
+    // counting it would hide what ships. `__PRACHT_HYDRATION_WARNINGS__` is
+    // part of that shape — the plugin always emits it, and only
+    // `client: { hydrationWarnings: true }` keeps the reporter.
+    const production = {
+      define: { "import.meta.env.DEV": "false", __PRACHT_HYDRATION_WARNINGS__: "false" },
+      entry: clientEntry,
+    };
 
     // A ceiling, not a target: every byte here is on the critical path of
     // every hydrating route. Lower it when a feature moves off that path;
@@ -296,9 +301,12 @@ describe("published package tree shaking", () => {
   // of the client bundle. The router reaches it directly, so only the define
   // can remove it.
   describe("__PRACHT_CLIENT_PREFETCH__", () => {
-    // Production shape: the dev-only hydration mismatch warning is dead code in
-    // a real app bundle, so counting it would hide what ships.
-    const PRODUCTION = { "import.meta.env.DEV": "false" };
+    // Production shape: the hydration mismatch warning is dead code in a real
+    // app bundle, so counting it would hide what ships.
+    const PRODUCTION = {
+      "import.meta.env.DEV": "false",
+      __PRACHT_HYDRATION_WARNINGS__: "false",
+    };
 
     const routerBundle = (define: Record<string, string>) =>
       bundleExport("initClientRouter", {
@@ -342,7 +350,10 @@ describe("published package tree shaking", () => {
   // capabilities and configures no agents must not contain the capability
   // dispatch or the Web Bot Auth verifier at all.
   describe("__PRACHT_CLIENT_BLOCKER__", () => {
-    const PRODUCTION = { "import.meta.env.DEV": "false" };
+    const PRODUCTION = {
+      "import.meta.env.DEV": "false",
+      __PRACHT_HYDRATION_WARNINGS__: "false",
+    };
 
     const routerBundle = (define: Record<string, string>) =>
       bundleExport("initClientRouter", {
@@ -378,6 +389,29 @@ describe("published package tree shaking", () => {
       const { code } = await routerBundle({});
 
       expect(code).toContain("__PRACHT_BLOCK_NAVIGATION__");
+    });
+  });
+
+  // `pracht({ client: { hydrationWarnings: true } })` is the one diagnostic a
+  // production build can carry: it keeps the mismatch reporter so the output
+  // about to be deployed can be walked for mismatches.
+  describe("__PRACHT_HYDRATION_WARNINGS__", () => {
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: { "import.meta.env.DEV": "false", ...define },
+        entry: clientEntry,
+      });
+
+    it("drops the reporter from a default production build", async () => {
+      const { code } = await routerBundle({ __PRACHT_HYDRATION_WARNINGS__: "false" });
+
+      expect(code).not.toContain("__pracht_hydration_mismatch__");
+    });
+
+    it("keeps the reporter when the app opts in", async () => {
+      const { code } = await routerBundle({ __PRACHT_HYDRATION_WARNINGS__: "true" });
+
+      expect(code).toContain("__pracht_hydration_mismatch__");
     });
   });
 

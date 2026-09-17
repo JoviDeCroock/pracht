@@ -225,7 +225,17 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const clientFeatureDefines = {
         __PRACHT_CLIENT_BLOCKER__: String(resolved.client.navigationGuards),
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
+        __PRACHT_HYDRATION_WARNINGS__: String(resolved.client.hydrationWarnings),
       };
+
+      // A probe build ships diagnostics to visitors, so say so rather than
+      // letting an unnoticed flag reach production.
+      if (resolved.client.hydrationWarnings && env.command === "build" && !isSSRBuild) {
+        console.warn(
+          "[pracht] client.hydrationWarnings is on: this build keeps the hydration-mismatch " +
+            "banner and console reporting. Use it to check the output, not to deploy.",
+        );
+      }
 
       // Contributed rather than imposed: pracht adds its Preact group to the
       // app's own chunking config in whichever form the app used, so an app
