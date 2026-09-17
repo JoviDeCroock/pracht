@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import type { IslandProps } from "@pracht/core";
+import "./lazybox.css";
 
 interface LazyBoxProps {
   label: string;

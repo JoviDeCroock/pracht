@@ -54,6 +54,21 @@ test("visible islands hydrate only after scrolling into view", async ({ page }) 
   await expect(page.getByTestId("revealed")).toHaveText("Hydrated below the fold!");
 });
 
+test("dev links the stylesheets of exactly the islands a page renders", async ({ page }) => {
+  test.setTimeout(20_000);
+
+  // Each island imports its own stylesheet. It must be in the initial
+  // document — otherwise the island's server-rendered markup paints unstyled
+  // until Vite's client runtime injects it — and only where the island is used.
+  const homeHtml = (await (await page.goto("/"))?.text()) ?? "";
+  expect(homeHtml).toContain('<link rel="stylesheet" href="/src/islands/counter.css">');
+  expect(homeHtml).not.toContain("lazybox.css");
+
+  const lazyHtml = (await (await page.goto("/lazy"))?.text()) ?? "";
+  expect(lazyHtml).toContain('<link rel="stylesheet" href="/src/islands/lazybox.css">');
+  expect(lazyHtml).not.toContain("counter.css");
+});
+
 test("hydration none routes render without islands bootstrap or state", async ({ page }) => {
   test.setTimeout(20_000);
 

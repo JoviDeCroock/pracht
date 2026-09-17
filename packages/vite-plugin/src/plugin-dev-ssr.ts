@@ -826,7 +826,6 @@ export async function createDevCssManifest(
   server: ViteDevServer,
   options: {
     app: ResolvedPrachtApp;
-    islandFiles?: readonly string[];
     matchAppRoute: (
       app: ResolvedPrachtApp,
       pathname: string,
@@ -874,25 +873,11 @@ export async function createDevCssManifest(
     if (urls.length > 0) manifest[file] = urls;
   }
 
-  // Islands are their own client entries, so their CSS is in neither the
-  // shell's nor the route's graph and the walk above cannot reach it. Left out,
-  // an island's server-rendered markup paints before Vite's client runtime
-  // injects its styles — the FOUC this whole mechanism exists to prevent.
-  //
-  // Production narrows this to the islands a page actually rendered, because
-  // the render collects them. Development has no equivalent signal: the links
-  // are written into the document, and on a streaming route <head> is flushed
-  // before any island marker exists. So every registered island contributes,
-  // and a dev page carries a few stylesheet links it does not need.
-  for (const file of options.islandFiles ?? []) {
-    const entries = await Promise.all(
-      Object.values(server.environments).map((environment) =>
-        environment.moduleGraph.getModuleByUrl(file),
-      ),
-    );
-    const urls = [...new Set(entries.flatMap((entry) => collectDevCssUrls(entry)))];
-    if (urls.length > 0) manifest[file] = urls;
-  }
+  // Islands need no separate walk here. In development a rendered island is a
+  // static import of the route or shell that placed it, so the graph walk
+  // above already reaches its CSS — and only for the islands the page uses.
+  // Production has to resolve islands separately because each island is its
+  // own client entry, outside the route and shell chunks.
 
   return manifest;
 }
@@ -996,7 +981,6 @@ async function resolveDevCssContextForPath(
         null);
   return {
     app: serverMod.resolvedApp,
-    islandFiles: serverMod.islandFiles,
     matchAppRoute: framework.matchAppRoute,
     pathname,
     registry: serverMod.registry,

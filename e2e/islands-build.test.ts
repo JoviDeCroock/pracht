@@ -46,7 +46,7 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     // --- Static output shape ---------------------------------------------
     const manifest = JSON.parse(
       readFileSync(resolve(exampleDir, "dist/client/.vite/manifest.json"), "utf-8"),
-    ) as Record<string, { file: string; src?: string }>;
+    ) as Record<string, { file: string; src?: string; css?: string[] }>;
     const clientEntryUrl = `/${manifest["virtual:pracht/client"].file}`;
     const islandsEntryUrl = `/${manifest["virtual:pracht/islands-client"].file}`;
     const counterChunkUrl = `/${
@@ -64,6 +64,20 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     expect(homeHtml).not.toContain('id="pracht-state"');
     expect(homeHtml).not.toContain(clientEntryUrl);
     expect(homeHtml).toContain(`<script type="module" src="${islandsEntryUrl}"></script>`);
+    // An island is its own client entry, so its CSS is outside the route and
+    // shell chunks. It still has to be in the document, and only where the
+    // island rendered: Counter's stylesheet on the home page, LazyBox's not.
+    const counterCssUrl = `/${
+      Object.values(manifest).find((entry) => entry.src?.endsWith("islands/Counter.tsx"))!.css![0]
+    }`;
+    const lazyBoxCssUrl = `/${
+      Object.values(manifest).find((entry) => entry.src?.endsWith("islands/LazyBox.tsx"))!.css![0]
+    }`;
+    expect(homeHtml).toContain(`<link rel="stylesheet" href="${counterCssUrl}">`);
+    expect(homeHtml).not.toContain(lazyBoxCssUrl);
+    const lazyHtml = readFileSync(resolve(exampleDir, "dist/client/lazy/index.html"), "utf-8");
+    expect(lazyHtml).toContain(`<link rel="stylesheet" href="${lazyBoxCssUrl}">`);
+    expect(lazyHtml).not.toContain(counterCssUrl);
 
     const staticHtml = readFileSync(resolve(exampleDir, "dist/client/static/index.html"), "utf-8");
     expect(staticHtml).not.toContain("<script");
