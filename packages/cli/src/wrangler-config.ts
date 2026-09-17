@@ -301,7 +301,12 @@ function readJsonMainEntries(source: string): WranglerMainEntry[] {
 }
 
 /** Removes `//` and block comments without touching comment-like text inside strings. */
-function stripJsonComments(source: string): string {
+/**
+ * JSONC without a parser dependency: comments out, trailing commas left to the
+ * caller's own cleanup. Shared with the tsconfig check, which reads the same
+ * flavour of JSON.
+ */
+export function stripJsonComments(source: string): string {
   let out = "";
   let inString = false;
   let inLineComment = false;

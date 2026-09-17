@@ -205,6 +205,54 @@ export const middleware: MiddlewareFn = async (_args, next) => {
     expect(report.checks.some((check) => check.message.includes("adapter dependency"))).toBe(true);
   });
 
+  it("warns about a moduleResolution that cannot see the published types", () => {
+    const appDir = createTempDir("pracht-cli-doctor-module-resolution-");
+    writeManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      `{
+  // Carried forward from a Vite 2 project.
+  "compilerOptions": {
+    "moduleResolution": "Node",
+    "strict": true,
+  },
+}
+`,
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    const warning = report.checks.find((check) => check.message.includes("moduleResolution"));
+
+    // A warning, not a failure: the app builds and runs, `tsc` is the only
+    // thing that cannot see the types.
+    expect(report.ok).toBe(true);
+    expect(warning?.status).toBe("warning");
+    expect(warning?.message).toContain("tsconfig.json");
+    expect(warning?.message).toContain('"bundler"');
+  });
+
+  it("says nothing about a tsconfig that resolves package exports", () => {
+    const appDir = createTempDir("pracht-cli-doctor-module-resolution-ok-");
+    writeManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "tsconfig.json",
+      `{ "compilerOptions": { "moduleResolution": "Bundler" } }\n`,
+    );
+    writeProjectFile(
+      appDir,
+      "tsconfig.client.json",
+      `{ "extends": "./tsconfig.json", "compilerOptions": { "customConditions": ["browser"] } }\n`,
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+
+    // The client config inherits the value; reporting on what it does not say
+    // would be a guess.
+    expect(report.checks.some((check) => check.message.includes("moduleResolution"))).toBe(false);
+  });
+
   it("reports blocking doctor failures for broken manifest references", () => {
     const appDir = createTempDir("pracht-cli-doctor-bad-");
     writeManifestApp(appDir, {

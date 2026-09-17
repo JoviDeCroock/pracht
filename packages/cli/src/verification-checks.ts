@@ -29,6 +29,7 @@ import {
   readWranglerAssetsHtmlHandling,
   readWranglerMainEntries,
   readWranglerBundleSettings,
+  stripJsonComments,
 } from "./wrangler-config.js";
 import {
   collectDuplicateRoutePaths,
@@ -1098,6 +1099,55 @@ interface BudgetReportFile {
     limitBytes: number;
     ok: boolean;
   }[];
+}
+
+/**
+ * `moduleResolution` values that predate package `exports`.
+ *
+ * Every pracht package publishes its types through `exports` alone, so under
+ * TypeScript's classic node10 algorithm each import of `@pracht/core` fails
+ * with TS2307 — "there are types at .../index.d.mts, but this result could not
+ * be resolved under your current moduleResolution setting". Nothing else
+ * notices: Vite reads `exports` and the app builds and runs, so the errors sit
+ * there until someone runs `tsc` on purpose. `"Node"` is still what a lot of
+ * older tsconfigs say, including anything carried forward from CRA-era or
+ * Vite 2/3 tooling — exactly the projects migrating onto pracht.
+ */
+const LEGACY_MODULE_RESOLUTIONS = new Set(["node", "node10", "classic"]);
+
+const TSCONFIG_FILES = ["tsconfig.json", "tsconfig.client.json"];
+
+export function collectTypeScriptConfigChecks(project: ProjectConfig, checks: Check[]): void {
+  for (const name of TSCONFIG_FILES) {
+    const configPath = resolve(project.root, name);
+    if (!existsSync(configPath)) continue;
+
+    let config: { compilerOptions?: { moduleResolution?: unknown } };
+    try {
+      config = JSON.parse(
+        stripJsonComments(readFileSync(configPath, "utf-8")).replace(/,(\s*[}\]])/g, "$1"),
+      );
+    } catch {
+      checks.push(createCheck("warning", `${name} exists but could not be parsed.`));
+      continue;
+    }
+
+    const moduleResolution = config.compilerOptions?.moduleResolution;
+    // An absent value inherits from `extends` or from `module`, neither of
+    // which this can read. Report only what the file actually says.
+    if (typeof moduleResolution !== "string") continue;
+
+    if (LEGACY_MODULE_RESOLUTIONS.has(moduleResolution.toLowerCase())) {
+      checks.push(
+        createCheck(
+          "warning",
+          `${name} sets "moduleResolution": ${JSON.stringify(moduleResolution)}, which does not read ` +
+            "package `exports`. Pracht's packages are ESM-only and publish their types through " +
+            '`exports`, so `tsc` cannot find them. Use "bundler" (or "node16"/"nodenext").',
+        ),
+      );
+    }
+  }
 }
 
 export function collectBudgetChecks(project: ProjectConfig, checks: Check[]): void {
