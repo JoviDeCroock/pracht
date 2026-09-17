@@ -42,14 +42,28 @@ function assetUrl(file: string, base: string): string {
   return `${base}${file}`;
 }
 
+/**
+ * The directory the client build wrote to, located by its manifest. Assets the
+ * server build emits for routes outside the client bundle are copied here, so
+ * they are served from the same place as every other asset.
+ */
+export function resolveClientOutDir(root = process.cwd()): string | undefined {
+  const manifestPath = findClientManifest(root);
+  return manifestPath ? dirname(dirname(manifestPath)) : undefined;
+}
+
+function findClientManifest(root: string): string | undefined {
+  return ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"]
+    .map((candidate) => resolve(root, candidate))
+    .find((candidate) => existsSync(candidate));
+}
+
 export function readClientBuildAssets(
   root = process.cwd(),
   base = "/",
   inlineCss = false,
 ): ClientBuildAssets {
-  const manifestPath = ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"]
-    .map((candidate) => resolve(root, candidate))
-    .find((candidate) => existsSync(candidate));
+  const manifestPath = findClientManifest(root);
   if (!manifestPath) {
     return {
       clientEntryUrl: null,

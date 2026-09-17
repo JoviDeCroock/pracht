@@ -28,6 +28,11 @@ without this it would arrive only when the island's chunk is imported, after
 hydration. See [RENDERING_MODES.md](RENDERING_MODES.md) and the per-page CSS
 section in the performance docs.
 
+Hydration mode does not change this. A route that does not fully hydrate is
+absent from the client bundle the manifest is built from, so its stylesheets are
+collected from the server build's graph instead and copied into the client
+output. They are static files; nothing about them needs a client runtime.
+
 Development uses the same first-paint contract: `pracht dev` discovers the
 matched route and shell's transitive CSS in Vite's live module graph and adds
 stylesheet links to the initial HTML before the client entry. Islands are
