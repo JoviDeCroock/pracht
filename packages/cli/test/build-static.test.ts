@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  describeInlineCssOpportunity,
   isStaticExportBuild,
   resolvePrerenderOutputPath,
   resolveRouteStateOutputPath,
@@ -1085,5 +1086,78 @@ describe("writeStaticExportArtifacts", () => {
     // is what the client derives from location.pathname.
     expect(existsSync(resolveRouteStateOutputPath(clientDir, "/posts/caf%C3%A9"))).toBe(true);
     expect(logs.join("\n")).not.toContain("decode URLs before the filesystem lookup");
+  });
+});
+
+describe("describeInlineCssOpportunity", () => {
+  function writePage(clientDir: string, path: string, html: string): void {
+    const filePath =
+      path === "/" ? join(clientDir, "index.html") : join(clientDir, path.slice(1), "index.html");
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, html, "utf-8");
+  }
+
+  function writeCss(clientDir: string, url: string, bytes: number): void {
+    const filePath = join(clientDir, url.slice(1));
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, "a".repeat(bytes), "utf-8");
+  }
+
+  const linked = (href: string) =>
+    `<html><head><link rel="stylesheet" href="${href}"></head></html>`;
+
+  it("suggests inlining when every page links a small stylesheet", () => {
+    const clientDir = createTempDir();
+    writeCss(clientDir, "/assets/site.css", 4_096);
+    writePage(clientDir, "/", linked("/assets/site.css"));
+    writePage(clientDir, "/about", linked("/assets/site.css"));
+
+    const tip = describeInlineCssOpportunity({
+      clientDir,
+      pages: [{ path: "/" }, { path: "/about" }],
+    });
+
+    expect(tip).toContain("4.0kb");
+    expect(tip).toContain("inlineCss: true");
+  });
+
+  it("says nothing when the stylesheet is too big to be worth duplicating", () => {
+    const clientDir = createTempDir();
+    writeCss(clientDir, "/assets/site.css", 40_000);
+    writePage(clientDir, "/", linked("/assets/site.css"));
+
+    expect(describeInlineCssOpportunity({ clientDir, pages: [{ path: "/" }] })).toBeNull();
+  });
+
+  it("says nothing when one page is already over the threshold", () => {
+    const clientDir = createTempDir();
+    writeCss(clientDir, "/assets/site.css", 4_096);
+    writeCss(clientDir, "/assets/heavy.css", 20_000);
+    writePage(clientDir, "/", linked("/assets/site.css"));
+    writePage(clientDir, "/heavy", linked("/assets/heavy.css"));
+
+    expect(
+      describeInlineCssOpportunity({ clientDir, pages: [{ path: "/" }, { path: "/heavy" }] }),
+    ).toBeNull();
+  });
+
+  it("says nothing when the app already inlines, ships no CSS, or links elsewhere", () => {
+    const inlined = createTempDir();
+    writePage(inlined, "/", "<html><head><style data-pracht-inline-css>a{}</style></head></html>");
+    expect(describeInlineCssOpportunity({ clientDir: inlined, pages: [{ path: "/" }] })).toBeNull();
+
+    const bare = createTempDir();
+    writePage(bare, "/", "<html><head></head></html>");
+    expect(describeInlineCssOpportunity({ clientDir: bare, pages: [{ path: "/" }] })).toBeNull();
+
+    // A cross-origin stylesheet is not pracht's to inline, and its size is not
+    // measurable from the output directory.
+    const remote = createTempDir();
+    writePage(remote, "/", linked("https://cdn.example.com/site.css"));
+    expect(describeInlineCssOpportunity({ clientDir: remote, pages: [{ path: "/" }] })).toBeNull();
+
+    // A page that was never written cannot be characterized.
+    const missing = createTempDir();
+    expect(describeInlineCssOpportunity({ clientDir: missing, pages: [{ path: "/" }] })).toBeNull();
   });
 });

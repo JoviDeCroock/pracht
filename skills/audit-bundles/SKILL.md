@@ -191,6 +191,13 @@ rel="stylesheet">` tags on static pages, and the build warns.
 `build.cssCodeSplit: false` is rejected outright — there is no `index.html` to
 link the single stylesheet it produces, so every page would ship without one.
 
+When a route's CSS is small and the site is entered cold — a static export, a
+content site arriving from search — the stylesheet link is often the only
+render-blocking request left on a page that ships no JavaScript. Report
+`pracht({ inlineCss: true })` as a suggestion there, with the cost: the same
+bytes in every document and no shared stylesheet cache. An app whose visitors
+move between pages should keep the link.
+
 ## Step 7: Report
 
 Three sections:
