@@ -64,6 +64,16 @@ function bindCapabilityRevalidation(): void {
 }
 
 export async function hydrateIslands(options: HydrateIslandsOptions): Promise<void> {
+  // Islands routes call `hydrate()` here rather than through the client
+  // router, so the router's copy of this install never runs for them — and
+  // `hydration: "islands"` is the configuration that ships the least
+  // JavaScript, so it is also the one most apps reach for. Dynamically
+  // imported behind the DEV branch: the module is dropped from production
+  // islands bundles along with the branch itself.
+  if (import.meta.env?.DEV) {
+    const { installHydrationMismatchWarning } = await import("./hydration-mismatch.ts");
+    installHydrationMismatchWarning();
+  }
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     bindCapabilityRevalidation();
   }
