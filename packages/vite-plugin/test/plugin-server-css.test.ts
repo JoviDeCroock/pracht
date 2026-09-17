@@ -1,6 +1,14 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -17,6 +25,7 @@ const ROOT = "/project";
 function chunk(
   fileName: string,
   options: {
+    assets?: string[];
     css?: string[];
     facadeModuleId?: string | null;
     imports?: string[];
@@ -32,7 +41,10 @@ function chunk(
     imports: options.imports ?? [],
     isEntry: options.isEntry ?? false,
     modules: Object.fromEntries((options.modules ?? []).map((id) => [id, {}])),
-    viteMetadata: { importedCss: new Set(options.css ?? []) },
+    viteMetadata: {
+      importedAssets: new Set(options.assets ?? []),
+      importedCss: new Set(options.css ?? []),
+    },
   };
 }
 
@@ -380,5 +392,114 @@ describe("assets a route stylesheet references", () => {
     };
 
     expect(collectReferencedAssets(cyclic, ["assets/a.css"], "/")).toEqual(["assets/b.css"]);
+  });
+});
+
+describe("assets a route imports into its markup", () => {
+  const roots: string[] = [];
+
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { force: true, recursive: true });
+  });
+
+  /**
+   * Drive both hooks over a bundle whose assets are on disk in `dist/server`,
+   * the way Rollup leaves them, and report what reached `dist/client`.
+   */
+  function publish(
+    build: (root: string) => {
+      bundle: Record<string, any>;
+      client?: Record<string, string>;
+      server: Record<string, string>;
+    },
+  ): { published: string[]; root: string } {
+    const root = mkdtempSync(join(tmpdir(), "pracht-server-assets-"));
+    roots.push(root);
+    const { bundle, client = {}, server } = build(root);
+
+    mkdirSync(join(root, "dist/client/.vite"), { recursive: true });
+    writeFileSync(join(root, "dist/client/.vite/manifest.json"), "{}");
+    for (const [name, content] of Object.entries(client)) {
+      mkdirSync(dirname(join(root, "dist/client", name)), { recursive: true });
+      writeFileSync(join(root, "dist/client", name), content);
+    }
+    for (const [name, content] of Object.entries(server)) {
+      mkdirSync(dirname(join(root, "dist/server", name)), { recursive: true });
+      writeFileSync(join(root, "dist/server", name), content);
+    }
+
+    const plugin = createServerCssAssetsPlugin({ inlineCss: false }) as any;
+    plugin.configResolved({ base: "/", build: { outDir: "dist/server", ssr: true }, root });
+    const entry = chunk("server.js", { facadeModuleId: "virtual:pracht/server", isEntry: true });
+    entry.code = `[parse("${ROUTE_CSS_MANIFEST_TOKEN}"), parse("${ROUTE_CSS_CONTENT_TOKEN}")]`;
+    plugin.generateBundle.call(
+      { environment: undefined, getModuleInfo: () => ({ importedIds: [] }), warn: () => {} },
+      {},
+      { "server.js": entry, ...bundle },
+    );
+    plugin.writeBundle.call({});
+
+    const assetsDir = join(root, "dist/client/assets");
+    const published = existsSync(assetsDir)
+      ? readdirSync(assetsDir, { recursive: true })
+          .map((name) => String(name).replace(/\\/g, "/"))
+          .sort()
+      : [];
+    return { published, root };
+  }
+
+  it("copies the file behind an asset import out of the server build", () => {
+    // `import dots from "./dots.svg"` in a `hydration: "none"` route: the module
+    // holding the URL never reaches the client build, so without this the page
+    // renders an `<img src>` pointing at a file only `dist/server` has.
+    const { published } = publish((root) => ({
+      bundle: {
+        "assets/static-page.js": chunk("assets/static-page.js", {
+          facadeModuleId: `${root}/src/routes/static-page.tsx`,
+          imports: ["assets/dots.js"],
+        }),
+        "assets/dots.js": chunk("assets/dots.js", { assets: ["assets/dots-abc.svg"] }),
+        "assets/dots-abc.svg": asset("assets/dots-abc.svg", "<svg/>"),
+      },
+      server: { "assets/dots-abc.svg": "<svg/>" },
+    }));
+
+    expect(published).toEqual(["dots-abc.svg"]);
+  });
+
+  it("leaves a file the client build already published where it is", () => {
+    const { published, root } = publish((base) => ({
+      bundle: {
+        "assets/home.js": chunk("assets/home.js", {
+          assets: ["assets/hero-abc.jpg"],
+          facadeModuleId: `${base}/src/routes/home.tsx`,
+        }),
+        "assets/hero-abc.jpg": asset("assets/hero-abc.jpg", "jpeg"),
+      },
+      client: { "assets/hero-abc.jpg": "client copy" },
+      server: { "assets/hero-abc.jpg": "server copy" },
+    }));
+
+    expect(published).toEqual(["hero-abc.jpg"]);
+    expect(readFileSync(join(root, "dist/client/assets/hero-abc.jpg"), "utf-8")).toBe(
+      "client copy",
+    );
+  });
+
+  it("does not publish what only the server entry imports", () => {
+    // The entry holds every API handler, so an asset reachable only through it
+    // is not something a page renders a URL to.
+    const { published } = publish((root) => ({
+      bundle: {
+        "assets/static-page.js": chunk("assets/static-page.js", {
+          facadeModuleId: `${root}/src/routes/static-page.tsx`,
+          imports: ["server.js"],
+        }),
+        "assets/private-abc.pem": asset("assets/private-abc.pem", "key"),
+      },
+      server: { "assets/private-abc.pem": "key" },
+    }));
+
+    expect(published).toEqual([]);
   });
 });

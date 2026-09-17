@@ -42,6 +42,13 @@ assets those stylesheets reference — background images, self-hosted fonts, an
 `@import`ed sheet — are copied along with them, since they are emitted next to
 the stylesheet in the server build and exist nowhere else.
 
+So is anything else such a route imports through Vite's asset pipeline: an
+`<img src>` built from `import dots from "./dots.svg"`, the file behind a
+`?pracht` image import. The route renders a URL under `base` for a file the
+client build never saw, and the copy is taken from the chunks the page renders —
+routes, shells, islands, and what they import — never from the server entry, so
+a file only an API route reads stays in `dist/server`.
+
 Development uses the same first-paint contract: `pracht dev` discovers the
 matched route and shell's transitive CSS in Vite's live module graph and adds
 stylesheet links to the initial HTML before the client entry. Islands need no

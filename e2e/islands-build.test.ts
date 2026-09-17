@@ -17,8 +17,9 @@ import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
 // (d) `client="visible"` islands hydrate (and fetch their chunk) only after
 //     scrolling into view, and
 // (e) `hydration: "none"` routes ship zero JavaScript and still receive their
-//     stylesheet together with the assets it references, including the CSS of
-//     an island they render as a plain component.
+//     stylesheet together with the assets it references and the ones they
+//     import into their markup, including the CSS of an island they render as
+//     a plain component.
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureDir = resolve(repoRoot, "examples/islands");
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
@@ -110,6 +111,13 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     const referencedAsset = staticCss.match(/url\(["']?([^)"']+)["']?\)/)?.[1];
     expect(referencedAsset).toMatch(/^\/assets\/dots-[^/]+\.svg$/);
     expect(existsSync(resolve(exampleDir, `dist/client${referencedAsset}`))).toBe(true);
+
+    // The same holds for an asset the route imports into its markup: the module
+    // carrying the URL is server-side only, so the file behind it is emitted by
+    // the server build and nowhere else.
+    const importedAsset = staticHtml.match(/<img[^>]*id="static-glyph"[^>]*src="([^"]+)"/)?.[1];
+    expect(importedAsset).toMatch(/^\/assets\/glyph-[^/]+\.svg$/);
+    expect(existsSync(resolve(exampleDir, `dist/client${importedAsset}`))).toBe(true);
 
     expect(existsSync(resolve(exampleDir, "dist/client/lazy/index.html"))).toBe(true);
 

@@ -6,7 +6,7 @@ import type { Plugin, Rollup } from "vite";
 import { resolveClientOutDir } from "./plugin-assets.ts";
 
 /**
- * Stylesheets for routes that are not in the client bundle.
+ * Stylesheets and assets for routes that are not in the client bundle.
  *
  * `hydration: "none"` ships no JavaScript and `hydration: "islands"` pulls in
  * the islands rather than the route module, so neither route reaches the client
@@ -18,6 +18,12 @@ import { resolveClientOutDir } from "./plugin-assets.ts";
  * `ssrEmitAssets` makes the server build write them out, its chunk graph says
  * which route each one belongs to, and they are copied into the client output
  * to be served like any other asset.
+ *
+ * The same holds for everything else such a route imports through Vite's asset
+ * pipeline — an `<img src>` built from `import dots from "./dots.svg"`, the
+ * source behind a `?pracht` image import. The page renders a URL under `base`
+ * for a file that was only ever written to `dist/server`, so those travel out
+ * of the server build too.
  *
  * The mapping is only known once Rollup has named the assets, which is after
  * the generated server module was written. It is spliced into a token in that
@@ -62,6 +68,38 @@ function collectChunkCss(
     css.push(...collectChunkCss(bundle, imported, seen, false));
   }
   return css;
+}
+
+/**
+ * Walk a chunk's imports for the files it renders a URL to — an `<img src>`
+ * from `import dots from "./dots.svg"`, the source an `?pracht` image import
+ * hands `<Image>`.
+ *
+ * Vite records these on `viteMetadata.importedAssets`, the way it records
+ * stylesheets, and an asset import becomes its own small chunk in the server
+ * build, so a route reaches its own assets the same way it reaches a
+ * component's CSS: through its imports. The entry is skipped for the same
+ * reason the CSS walk skips it — it holds every route and every API handler,
+ * and publishing what only an API route reads would put a server-side file on
+ * the CDN.
+ */
+function collectChunkAssets(
+  bundle: Rollup.OutputBundle,
+  fileName: string,
+  seen = new Set<string>(),
+  isRoot = true,
+): string[] {
+  if (seen.has(fileName)) return [];
+  seen.add(fileName);
+  const output = bundle[fileName];
+  if (!output || output.type !== "chunk") return [];
+  const chunk = output as Rollup.OutputChunk & { viteMetadata?: { importedAssets?: Set<string> } };
+  if (!isRoot && chunk.isEntry) return [];
+  const assets = [...(chunk.viteMetadata?.importedAssets ?? [])];
+  for (const imported of chunk.imports ?? []) {
+    assets.push(...collectChunkAssets(bundle, imported, seen, false));
+  }
+  return assets;
 }
 
 /**
@@ -298,6 +336,7 @@ export function createServerCssAssetsPlugin(options: { inlineCss: boolean }): Pl
       const cssManifest: Record<string, string[]> = {};
       const cssContentManifest: Record<string, string> = {};
       const needed = new Set<string>();
+      const neededAssets = new Set<string>();
       const owners = mapModulesToChunks(bundle);
       const publishedByContent = indexClientStylesheets(root, base);
       const hoisted = new Set<string>();
@@ -334,6 +373,11 @@ export function createServerCssAssetsPlugin(options: { inlineCss: boolean }): Pl
         const relativePath = relative(projectRoot, facade.split("?")[0]!).replace(/\\/g, "/");
         if (relativePath.startsWith("..")) continue;
 
+        // A route renders the URL of an imported asset into its markup whether
+        // or not it has any CSS, so this is collected before the CSS check
+        // below returns.
+        for (const file of collectChunkAssets(bundle, chunk.fileName)) neededAssets.add(file);
+
         const css = new Set(collectChunkCss(bundle, chunk.fileName));
         const missing = collectHoistedCss(this, facade, owners, css);
         for (const file of missing.files) css.add(file);
@@ -357,8 +401,9 @@ export function createServerCssAssetsPlugin(options: { inlineCss: boolean }): Pl
       }
 
       // The stylesheets alone are not the deployable set: whatever they point
-      // at travels with them.
-      copyFiles = [...needed, ...collectReferencedAssets(bundle, needed, base)];
+      // at travels with them, and so does whatever the routes themselves
+      // import. `writeBundle` skips any name the client build already holds.
+      copyFiles = [...needed, ...collectReferencedAssets(bundle, needed, base), ...neededAssets];
 
       // The generated server module carries the tokens; other chunks never do.
       for (const output of Object.values(bundle)) {
