@@ -125,41 +125,6 @@ describe("development CSS discovery", () => {
     });
   });
 
-  it("includes island stylesheets, which are outside the route and shell graphs", async () => {
-    const routeEntry = moduleNode("/src/routes/home.tsx", "js", [
-      moduleNode("/src/routes/home.module.css", "css"),
-    ]);
-    const islandEntry = moduleNode("/src/islands/Counter.tsx", "js", [
-      moduleNode("/src/islands/counter.module.css", "css"),
-    ]);
-    const graph = new Map([
-      ["/src/routes/home.tsx", routeEntry],
-      ["/src/islands/Counter.tsx", islandEntry],
-    ]);
-
-    const manifest = await createDevCssManifest(
-      {
-        environments: {
-          ssr: { moduleGraph: { getModuleByUrl: async (url: string) => graph.get(url) } },
-        },
-      } as any,
-      {
-        app: { routes: [] } as any,
-        islandFiles: ["/src/islands/Counter.tsx"],
-        matchAppRoute: () => ({ route: { file: "./routes/home.tsx" } as any }),
-        pathname: "/",
-        registry: {
-          routeModules: { "/src/routes/home.tsx": async () => ({}) as any },
-        },
-      },
-    );
-
-    expect(manifest).toEqual({
-      "./routes/home.tsx": ["/src/routes/home.module.css"],
-      "/src/islands/Counter.tsx": ["/src/islands/counter.module.css"],
-    });
-  });
-
   it("injects discovered styles into the document head without duplicates", () => {
     const html =
       '<html><head><link rel="stylesheet" href="/existing.css"></head><body></body></html>';

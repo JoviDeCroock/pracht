@@ -30,12 +30,12 @@ section in the performance docs.
 
 Development uses the same first-paint contract: `pracht dev` discovers the
 matched route and shell's transitive CSS in Vite's live module graph and adds
-stylesheet links to the initial HTML before the client entry. Islands are
-included as well, though development links every registered island's CSS rather
-than only the rendered ones — a streaming route flushes `<head>` before any
-island marker exists, so there is nothing to narrow it by. Apps should only
-need to import their CSS from a route, shell, or one of their dependencies — a
-development-only `<link>` in `head()` is unnecessary.
+stylesheet links to the initial HTML before the client entry. Islands need no
+separate pass there — a rendered island is a static import of the route or
+shell that placed it, so the walk already reaches its CSS, and only for the
+islands the page uses. Apps should only need to import their CSS from a route,
+shell, or one of their dependencies — a development-only `<link>` in `head()`
+is unnecessary.
 
 Production links these route-scoped files by default. For small stylesheets,
 `pracht({ inlineCss: true })` instead places the complete matched route and

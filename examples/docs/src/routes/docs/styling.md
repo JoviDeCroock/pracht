@@ -41,7 +41,7 @@ See [Performance → CSS Per Page](/docs/performance) for how pracht maps routes
 
 Islands are covered too. An island is its own client entry, so its CSS belongs to neither the route nor the shell; pracht adds the stylesheets of the islands a page rendered to that page's document. Without this an island's styles arrive only once its chunk is imported — after hydration, so its server-rendered markup paints unstyled first. Deferred islands (`client="visible"`, `client="idle"`) still get their CSS up front, because the strategy defers the island's JavaScript, not its markup.
 
-The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`. Development links every registered island's CSS rather than only the rendered ones, since a streaming route flushes `<head>` before any island marker exists.
+The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`. Island stylesheets are covered by the same walk, since a rendered island is a static import of the route or shell that placed it, so a dev page links exactly the island CSS it uses.
 
 Production uses route-scoped links by default. For small emitted stylesheets,
 `pracht({ inlineCss: true })` puts the complete matched route and shell CSS in
