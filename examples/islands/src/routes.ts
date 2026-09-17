@@ -25,6 +25,13 @@ export const app = defineApp({
         render: "ssg",
         hydration: "none",
       }),
+      // Fully static as well, but with an island component on the page: it
+      // renders as a plain component and its CSS still has to be linked.
+      route("/static-island", () => import("./routes/static-island.tsx"), {
+        id: "static-island",
+        render: "ssg",
+        hydration: "none",
+      }),
       // Islands also work with SSR: rendered per request, hydrating only the
       // islands on the page.
       route("/ssr", () => import("./routes/server-time.tsx"), {

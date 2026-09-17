@@ -39,9 +39,9 @@ export default defineConfig({
 
 See [Performance → CSS Per Page](/docs/performance) for how pracht maps routes to their transitive CSS dependencies.
 
-This holds for every hydration mode. A `hydration: "none"` or `hydration: "islands"` route ships little or no JavaScript and so is absent from the client bundle, but its CSS is collected from the server build instead and served like any other asset — importing a CSS module from a route works the same whatever that route hydrates.
+This holds for every hydration mode. A `hydration: "none"` or `hydration: "islands"` route ships little or no JavaScript and so is absent from the client bundle, but its CSS is collected from the server build instead and served like any other asset — importing a CSS module from a route works the same whatever that route hydrates. Whatever that CSS references — a background image, a self-hosted font, an `@import`ed stylesheet — is served alongside it.
 
-Islands are covered too. An island is its own client entry, so its CSS belongs to neither the route nor the shell; pracht adds the stylesheets of the islands a page rendered to that page's document. Without this an island's styles arrive only once its chunk is imported — after hydration, so its server-rendered markup paints unstyled first. Deferred islands (`client="visible"`, `client="idle"`) still get their CSS up front, because the strategy defers the island's JavaScript, not its markup.
+Islands are covered too. An island is its own client entry, so its CSS belongs to neither the route nor the shell; pracht adds the stylesheets of the islands a page rendered to that page's document. A route that renders an island without hydrating it — an island is an ordinary component outside an islands-mode render — links the same stylesheet, and it is the same file at the same URL, not a second copy. Without this an island's styles arrive only once its chunk is imported — after hydration, so its server-rendered markup paints unstyled first. Deferred islands (`client="visible"`, `client="idle"`) still get their CSS up front, because the strategy defers the island's JavaScript, not its markup.
 
 The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`. Island stylesheets are covered by the same walk, since a rendered island is a static import of the route or shell that placed it, so a dev page links exactly the island CSS it uses.
 
@@ -50,6 +50,11 @@ Production uses route-scoped links by default. For small emitted stylesheets,
 the document instead. That removes a render-blocking request but repeats shared
 CSS in every HTML response, so [measure the trade-off](/docs/performance#css-per-page).
 It does not collect runtime CSS-in-JS output.
+
+One Vite option is incompatible: `build.cssCodeSplit: false` merges the app's
+stylesheets into a single asset that only an `index.html` would link, and a
+pracht app assembles its documents from the per-route manifest instead. The
+build refuses it rather than shipping pages with no stylesheet at all.
 
 ---
 

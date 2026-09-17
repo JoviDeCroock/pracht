@@ -31,7 +31,16 @@ section in the performance docs.
 Hydration mode does not change this. A route that does not fully hydrate is
 absent from the client bundle the manifest is built from, so its stylesheets are
 collected from the server build's graph instead and copied into the client
-output. They are static files; nothing about them needs a client runtime.
+output. Islands are their own chunks in that build too — the server entry
+imports every island eagerly, and without the split their CSS (and anything they
+share with a route) merges into the entry's stylesheet, where no single route
+can claim it. A stylesheet that ends up in the entry anyway is still linked,
+from the module graph rather than the chunk graph, and reported so the import
+can be moved. Stylesheets both builds emit identically are served from the
+client build's copy, so one stylesheet keeps one URL. They are static files; nothing about them needs a client runtime. The
+assets those stylesheets reference — background images, self-hosted fonts, an
+`@import`ed sheet — are copied along with them, since they are emitted next to
+the stylesheet in the server build and exist nowhere else.
 
 Development uses the same first-paint contract: `pracht dev` discovers the
 matched route and shell's transitive CSS in Vite's live module graph and adds
@@ -40,7 +49,11 @@ separate pass there — a rendered island is a static import of the route or
 shell that placed it, so the walk already reaches its CSS, and only for the
 islands the page uses. Apps should only need to import their CSS from a route,
 shell, or one of their dependencies — a development-only `<link>` in `head()`
-is unnecessary.
+is unnecessary. `e2e/islands-css-parity.test.ts` holds the two
+halves to that promise: for every page in the islands example it compares the
+class names the initial document has rules for in `pracht dev` against the built
+output, in both directions, so a stylesheet either side drops or adds fails the
+suite.
 
 Production links these route-scoped files by default. For small stylesheets,
 `pracht({ inlineCss: true })` instead places the complete matched route and
@@ -48,6 +61,11 @@ shell CSS in the initial document. This removes the parser-blocking stylesheet
 request but repeats shared CSS in every HTML response; see
 [PERFORMANCE.md](PERFORMANCE.md#inlining-route-css) for the trade-off and CSP
 requirements. It does not extract styles produced at render time by CSS-in-JS.
+
+`build.cssCodeSplit: false` is rejected in `configResolved`, and `pracht doctor`
+reports it as an error. Vite's single-stylesheet mode attaches that asset to the
+client entry and expects an `index.html` to link it; pracht has none, so the
+per-route manifest comes back empty and every document ships unstyled.
 
 ---
 

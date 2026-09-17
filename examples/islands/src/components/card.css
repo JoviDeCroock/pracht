@@ -1,0 +1,7 @@
+/* Imported by an island and by a route that ships no JavaScript, so the
+   bundler puts it wherever both can reach it. */
+.card {
+  border: 1px solid #c7d2fe;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+}

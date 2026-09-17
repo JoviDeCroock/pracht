@@ -65,7 +65,7 @@ export default defineConfig({
     },
     {
       name: "islands",
-      testMatch: /islands-dev\.test\.ts/,
+      testMatch: /islands-dev\.test\.ts|islands-css-parity\.test\.ts/,
       use: {
         baseURL: e2eUrls.islands,
       },

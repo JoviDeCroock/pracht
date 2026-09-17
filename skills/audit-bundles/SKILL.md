@@ -181,6 +181,16 @@ pracht injects per route. Compare `<link rel="stylesheet">` tags in
 that wants Preact inside its own chunks or places `frameworkChunkGroups()`
 itself.
 
+Pracht contributes one group to the **server** build too: each island becomes
+its own chunk, so a route that does not fully hydrate can resolve its CSS from
+that build without inheriting the server entry's merged stylesheet. An app that
+configures SSR chunking composes with it the same way the client side does; a
+group that pulls islands back into the entry shows up as extra `<link
+rel="stylesheet">` tags on static pages, and the build warns.
+
+`build.cssCodeSplit: false` is rejected outright — there is no `index.html` to
+link the single stylesheet it produces, so every page would ship without one.
+
 ## Step 7: Report
 
 Three sections:

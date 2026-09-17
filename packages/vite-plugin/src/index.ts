@@ -11,7 +11,7 @@ import {
 
 import type { RenderMode } from "@pracht/core";
 import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
-import { frameworkChunkConfig } from "./chunk-groups.ts";
+import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
@@ -242,6 +242,24 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         console.warn(`[pracht] ${clientChunkConfig.warning}`);
       }
 
+      // The server entry imports every island eagerly, which pulls them — and
+      // anything they share with a route — into its chunk, where a route can
+      // no longer tell which stylesheets are its own. One chunk per island
+      // keeps that boundary, the way the client build has it by construction.
+      // Edge targets bundle the server into a single chunk and reject chunk
+      // grouping, so they are left alone.
+      const serverChunkConfig =
+        isSSRBuild && !isEdge
+          ? islandChunkConfig(
+              (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
+                ?.output,
+              resolveConfigPath(configRoot, resolved.islandsDir),
+            )
+          : {};
+      if (serverChunkConfig.warning) {
+        console.warn(`[pracht] ${serverChunkConfig.warning}`);
+      }
+
       return {
         appType: "custom" as const,
         // Expose PRACHT_PUBLIC_-prefixed vars on import.meta.env (client and
@@ -267,7 +285,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // that disable code splitting (e.g. webworker targets) reject chunk
         // grouping outright.
         ...(isSSRBuild
-          ? {}
+          ? serverChunkConfig.output
+            ? { build: { rollupOptions: { output: serverChunkConfig.output } } }
+            : {}
           : {
               build: {
                 rollupOptions: {
@@ -345,6 +365,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
     configResolved(config) {
       assertSafeRootAbsoluteDeployBase(config.base);
+      assertCssCodeSplitEnabled(config);
       root = config.root;
       isBuild = config.command === "build";
       base = config.base;
@@ -826,6 +847,40 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   plugins.push(optimizeDepsEntriesPlugin);
 
   return plugins;
+}
+
+/**
+ * A pracht app has no `index.html`, so `build.cssCodeSplit: false` is not the
+ * "one stylesheet instead of many" it is in an SPA.
+ *
+ * Vite then emits the whole app's CSS as a single asset attached to the client
+ * entry chunk and links it from the HTML it transforms. Pracht assembles its
+ * documents instead, linking the stylesheets the manifest lists for the route,
+ * its shell, and the islands it rendered — and with the split off, the manifest
+ * lists none for any of them. The build succeeds and every page ships without a
+ * single stylesheet, which is the kind of failure nobody reads a build log to
+ * find.
+ */
+function assertCssCodeSplitEnabled(config: {
+  build?: { cssCodeSplit?: boolean; ssr?: boolean | string };
+  command?: string;
+  environments?: { client?: { build?: { cssCodeSplit?: boolean } } };
+}): void {
+  if (config.command !== "build" || config.build?.ssr) return;
+  // The client environment's resolved value is what the build honours; the
+  // top-level one is only the default it was derived from.
+  const cssCodeSplit =
+    config.environments?.client?.build?.cssCodeSplit ?? config.build?.cssCodeSplit;
+  if (cssCodeSplit !== false) return;
+
+  throw new Error(
+    "[pracht] build.cssCodeSplit is disabled. Pracht documents link the stylesheets of the " +
+      "route, shell, and islands a page rendered, resolved per route from the build manifest. " +
+      "Without the split, Vite merges every stylesheet into one asset that only an index.html " +
+      "would link — which a pracht app never has — so every page would ship unstyled. Remove " +
+      "`build: { cssCodeSplit: false }`; to cut the stylesheet request instead, use " +
+      "`pracht({ inlineCss: true })`.",
+  );
 }
 
 function assertSafeRootAbsoluteDeployBase(base: string | undefined): void {

@@ -16,7 +16,9 @@ import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
 //     the full client runtime/router entry,
 // (d) `client="visible"` islands hydrate (and fetch their chunk) only after
 //     scrolling into view, and
-// (e) `hydration: "none"` routes ship zero JavaScript.
+// (e) `hydration: "none"` routes ship zero JavaScript and still receive their
+//     stylesheet together with the assets it references, including the CSS of
+//     an island they render as a plain component.
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureDir = resolve(repoRoot, "examples/islands");
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
@@ -79,9 +81,35 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     expect(lazyHtml).toContain(`<link rel="stylesheet" href="${lazyBoxCssUrl}">`);
     expect(lazyHtml).not.toContain(counterCssUrl);
 
+    // An island on a route that ships no JavaScript renders as a plain
+    // component. Its stylesheet — and the card it shares with the route — is
+    // bundled into the server entry unless islands are chunked apart, and the
+    // page linked neither. It must also be the copy the client build already
+    // published, not a second one under its own URL.
+    const staticIslandHtml = readFileSync(
+      resolve(exampleDir, "dist/client/static-island/index.html"),
+      "utf-8",
+    );
+    expect(staticIslandHtml).not.toContain("<script");
+    expect(staticIslandHtml).toContain(`<link rel="stylesheet" href="${counterCssUrl}">`);
+    const counterCss = readFileSync(resolve(exampleDir, `dist/client${counterCssUrl}`), "utf-8");
+    expect(counterCss).toContain(".counter");
+    expect(counterCss).toContain(".card");
+    expect(staticIslandHtml.match(/rel="stylesheet"/g)).toHaveLength(1);
+
     const staticHtml = readFileSync(resolve(exampleDir, "dist/client/static/index.html"), "utf-8");
     expect(staticHtml).not.toContain("<script");
     expect(staticHtml).not.toContain("<pracht-island");
+
+    // A hydration-none route's stylesheet comes out of the server build, and so
+    // does every asset it points at. Copying the stylesheet without them ships
+    // a document whose background image 404s.
+    const staticCssUrl = staticHtml.match(/<link rel="stylesheet" href="([^"]+)">/)?.[1];
+    expect(staticCssUrl).toBeTruthy();
+    const staticCss = readFileSync(resolve(exampleDir, `dist/client${staticCssUrl}`), "utf-8");
+    const referencedAsset = staticCss.match(/url\(["']?([^)"']+)["']?\)/)?.[1];
+    expect(referencedAsset).toMatch(/^\/assets\/dots-[^/]+\.svg$/);
+    expect(existsSync(resolve(exampleDir, `dist/client${referencedAsset}`))).toBe(true);
 
     expect(existsSync(resolve(exampleDir, "dist/client/lazy/index.html"))).toBe(true);
 

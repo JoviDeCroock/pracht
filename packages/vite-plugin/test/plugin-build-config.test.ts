@@ -1,6 +1,9 @@
+import { resolve } from "node:path";
+
 import { build, parseAst, resolveConfig, type Plugin } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { islandChunkName } from "../src/chunk-groups.ts";
 import { pracht, type PrachtAdapter } from "../src/index.ts";
 
 const edgeAdapter: PrachtAdapter = {
@@ -9,6 +12,17 @@ const edgeAdapter: PrachtAdapter = {
   serverImports: "",
   createServerEntryModule: () => "export default {};",
 };
+
+const nodeishAdapter: PrachtAdapter = {
+  id: "node",
+  serverImports: "",
+  createServerEntryModule: () => "export default {};",
+};
+
+interface ChunkGroupShape {
+  name: string | ((id: string) => string | null);
+  test?: unknown;
+}
 
 interface BuildConfig {
   resolve?: { dedupe?: string[] };
@@ -25,8 +39,8 @@ interface BuildConfig {
       external?: unknown[];
       output?: {
         manualChunks?: unknown;
-        codeSplitting?: { groups?: Array<{ name: string; test?: unknown }> };
-        advancedChunks?: { groups?: Array<{ name: string; test?: unknown }> };
+        codeSplitting?: { groups?: ChunkGroupShape[] };
+        advancedChunks?: { groups?: ChunkGroupShape[] };
       };
     };
   };
@@ -60,6 +74,13 @@ function runConfigResolvedHook(base: string): void {
   if (!plugin) throw new Error("pracht plugin not found");
   const hook = getHook<(this: unknown, config: unknown) => void>(plugin, "configResolved");
   hook.call({}, { base, build: { ssr: true }, command: "build", root: "/project" });
+}
+
+function runConfigResolved(config: Record<string, unknown>): void {
+  const plugin = pracht({ adapter: edgeAdapter }).find((candidate) => candidate.name === "pracht");
+  if (!plugin) throw new Error("pracht plugin not found");
+  const hook = getHook<(this: unknown, config: unknown) => void>(plugin, "configResolved");
+  hook.call({}, { base: "/", command: "build", root: "/project", ...config });
 }
 
 function getHook<T>(plugin: Plugin, name: keyof Plugin): T {
@@ -177,6 +198,34 @@ describe("pracht plugin build config", () => {
     expect(source).toContain('export const configuredBase = "./";');
   });
 
+  it("refuses a client build with CSS code splitting switched off", () => {
+    expect(() => runConfigResolved({ build: { cssCodeSplit: false } })).toThrow(
+      /build\.cssCodeSplit is disabled/,
+    );
+    expect(() =>
+      runConfigResolved({
+        build: {},
+        environments: { client: { build: { cssCodeSplit: false } } },
+      }),
+    ).toThrow(/build\.cssCodeSplit is disabled/);
+  });
+
+  it("leaves the server build and split-on clients alone", () => {
+    // The server build emits its CSS for the route manifest, not for a
+    // document to link, so the flag means nothing there.
+    expect(() => runConfigResolved({ build: { cssCodeSplit: false, ssr: true } })).not.toThrow();
+    expect(() => runConfigResolved({ build: { cssCodeSplit: true } })).not.toThrow();
+    expect(() =>
+      runConfigResolved({
+        build: { cssCodeSplit: false },
+        environments: { client: { build: { cssCodeSplit: true } } },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      runConfigResolved({ build: { cssCodeSplit: false }, command: "serve" }),
+    ).not.toThrow();
+  });
+
   it("accepts safe path and asset-only CDN bases", () => {
     for (const base of ["/", "/app/", "/caf%C3%A9/", "https://cdn.example.com/"]) {
       expect(() => runConfigResolvedHook(base)).not.toThrow();
@@ -281,6 +330,27 @@ describe("pracht plugin build config", () => {
       { name: "vendor", test: /node_modules[\\/]preact/ },
     ]);
     expect(ssrConfig.build?.rollupOptions?.output).toBeUndefined();
+  });
+
+  it("splits each island into its own server chunk", () => {
+    const groups = runConfigHook(nodeishAdapter, true).build?.rollupOptions?.output?.codeSplitting
+      ?.groups;
+    expect(groups).toHaveLength(1);
+
+    const name = groups![0]!.name as (id: string) => string | null;
+    const islands = resolve(process.cwd(), "src/islands");
+    expect(name(`${islands}/Counter.tsx`)).toBe("islands/Counter");
+    expect(name(`${islands}/widgets/Chart.tsx`)).toBe("islands/widgets/Chart");
+    // Not a chunk of its own: a stylesheet follows the island that imports it.
+    expect(name(`${islands}/counter.css`)).toBeNull();
+    expect(name(resolve(process.cwd(), "src/routes/home.tsx"))).toBeNull();
+  });
+
+  it("leaves the client build and single-chunk edge servers unsplit", () => {
+    expect(
+      runConfigHook(nodeishAdapter, false).build?.rollupOptions?.output?.codeSplitting?.groups,
+    ).toEqual([{ name: "vendor", test: /node_modules[\\/]preact/ }]);
+    expect(runConfigHook(edgeAdapter, true).build?.rollupOptions?.output).toBeUndefined();
   });
 
   it("contributes only its own group, so Vite appends it to the app's", () => {
@@ -414,4 +484,28 @@ describe("pracht plugin build config", () => {
       ).rejects.toThrow(new RegExp(`${specifier.replace(":", "\\:")} in `));
     },
   );
+});
+
+describe("islandChunkName", () => {
+  it("names a chunk after the island, whatever the directory shape", () => {
+    expect(islandChunkName("/app/src/islands/Counter.tsx", "/app/src/islands")).toBe(
+      "islands/Counter",
+    );
+    expect(islandChunkName("/app/src/islands/nested/Chart.jsx", "/app/src/islands/")).toBe(
+      "islands/nested/Chart",
+    );
+    expect(islandChunkName("C:\\app\\src\\islands\\Counter.tsx", "C:\\app\\src\\islands")).toBe(
+      "islands/Counter",
+    );
+    expect(islandChunkName("/app/src/islands/Counter.tsx?used", "/app/src/islands")).toBe(
+      "islands/Counter",
+    );
+  });
+
+  it("claims nothing outside the islands directory, and no assets inside it", () => {
+    expect(islandChunkName("/app/src/routes/home.tsx", "/app/src/islands")).toBeNull();
+    expect(islandChunkName("/app/src/islands-legacy/Counter.tsx", "/app/src/islands")).toBeNull();
+    expect(islandChunkName("/app/src/islands/counter.css", "/app/src/islands")).toBeNull();
+    expect(islandChunkName("/app/src/islands/logo.svg", "/app/src/islands")).toBeNull();
+  });
 });

@@ -1,0 +1,8 @@
+/* Referenced by nothing in the client bundle: this route ships no JavaScript,
+   so the stylesheet and the asset it points at both come from the server
+   build's output. */
+.static-hero {
+  background-image: url("../media/dots.svg");
+  background-repeat: no-repeat;
+  min-height: 96px;
+}
