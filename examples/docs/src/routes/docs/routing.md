@@ -50,6 +50,8 @@ File-based routing (Next.js, SvelteKit) couples URL structure to directory struc
 - Shells and middleware are named references (reusable across groups)
 - URL structure is independent of file system layout
 
+The manifest is also what reaches the browser. The client resolves a route's module through a registry built from the manifest's refs, so a file in `src/routes/` or `src/shells/` that the manifest never names is not compiled into the client bundle — a draft, a scratch copy, or a route you deleted from the manifest but left on disk stays out of `dist/client`, and so does a shared module you keep under `src/routes/`. If a ref could live somewhere the manifest file does not show — you import your routes from another module, or build a specifier at runtime — the registry covers both directories whole instead, since dropping a module a route needs would break navigation to it.
+
 ---
 
 ## API Reference
