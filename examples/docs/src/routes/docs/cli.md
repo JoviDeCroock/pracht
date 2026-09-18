@@ -217,7 +217,8 @@ unconfigured — exposure recorded in the graph that nothing serves. An empty
 capability list means there are no capability operations; it does not erase the
 separately reported `llms.txt`, MCP endpoint, or Web Bot Auth surfaces. The `build`
 target reports the adapter, client entry, and asset manifests and is most useful
-after `pracht build`; the other targets evaluate the live Vite app graph. Use
+after `pracht build` — its CSS manifest covers routes that never enter the client
+bundle, which `dist/client/.vite/manifest.json` cannot; the other targets evaluate the live Vite app graph. Use
 `--json` for stable machine-readable output. Unknown targets and graph-loading
 errors exit non-zero. Registered API and capability modules are loaded strictly
 for live inspection: a module initialization error, unsupported runtime import,

@@ -49,6 +49,12 @@ client build never saw, and the copy is taken from the chunks the page renders �
 routes, shells, islands, and what they import — never from the server entry, so
 a file only an API route reads stays in `dist/server`.
 
+`pracht build` writes the merged mapping to `dist/server/css-manifest.json` — route or shell
+file to the stylesheet URLs its documents link, client and server build together. No runtime
+reads it; it exists because that is the only place a non-hydrating route's CSS survives the
+build, and `pracht inspect build` merges it over the client manifest so introspection is not
+blind to exactly the routes this page recommends.
+
 Development uses the same first-paint contract: `pracht dev` discovers the
 matched route and shell's transitive CSS in Vite's live module graph and adds
 stylesheet links to the initial HTML before the client entry. Islands need no

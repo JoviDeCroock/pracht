@@ -15,7 +15,7 @@ import { collectCapabilityAppGraph } from "../app-graph.js";
 import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
 import { serializeMcpAuth, type McpAuthSnapshot } from "../graph-snapshot.js";
 import { handleCliError } from "../utils.js";
-import { readClientBuildAssets } from "../build-metadata.js";
+import { readBuiltPageCssManifest, readClientBuildAssets } from "../build-metadata.js";
 
 const INSPECT_TARGETS = new Set(["routes", "api", "capabilities", "agents", "build", "all"]);
 
@@ -221,7 +221,12 @@ export async function runInspect(
       report.build = {
         adapterTarget: serverModule.buildTarget,
         clientEntryUrl: buildAssets.clientEntryUrl,
-        cssManifest: buildAssets.cssManifest,
+        // The build's own map wins where both have the file. It is the only
+        // record of the stylesheets belonging to routes that never enter the
+        // client bundle, so reporting the client manifest alone would say a
+        // `hydration: "none"` route has no CSS while its document links a
+        // stylesheet.
+        cssManifest: { ...buildAssets.cssManifest, ...readBuiltPageCssManifest(root) },
         jsManifest: buildAssets.jsManifest,
       };
     }

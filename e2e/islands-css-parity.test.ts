@@ -59,6 +59,8 @@ test("a page has the same rules in dev as it ships with", async ({ page }) => {
       stdio: "pipe",
     });
 
+    const linkedInBuild = new Set<string>();
+
     for (const path of PAGES) {
       // Dev links the source stylesheets Vite serves, so they are read from the
       // fixture; the example styles with plain CSS, which keeps class names
@@ -80,6 +82,7 @@ test("a page has the same rules in dev as it ships with", async ({ page }) => {
       const builtCss = documentCss(builtHtml, (href) =>
         readFileSync(resolve(exampleDir, `dist/client${href}`), "utf-8"),
       );
+      for (const href of stylesheetHrefs(builtHtml)) linkedInBuild.add(href);
 
       const inDev = classNames(devCss);
       const inBuild = classNames(builtCss);
@@ -92,6 +95,24 @@ test("a page has the same rules in dev as it ships with", async ({ page }) => {
         `${path} ships rules dev never shows`,
       ).toEqual([]);
     }
+
+    // `dist/server/css-manifest.json` is what `pracht inspect` reports and what
+    // a CSS-weight audit reads. It has to account for every stylesheet these
+    // documents link, including the ones only the server build emitted --
+    // which is the whole reason the file exists rather than the client
+    // manifest, where a route shipping no JavaScript has no entry at all.
+    const recorded = new Set(
+      Object.values(
+        JSON.parse(
+          readFileSync(resolve(exampleDir, "dist/server/css-manifest.json"), "utf-8"),
+        ) as Record<string, string[]>,
+      ).flat(),
+    );
+    expect(linkedInBuild.size).toBeGreaterThan(1);
+    expect(
+      [...linkedInBuild].filter((href) => !recorded.has(href)).sort(),
+      "a built document links a stylesheet the build's css manifest never recorded",
+    ).toEqual([]);
 
     // The comparison is only worth something if the pages have rules to compare
     // and differ from one another; an empty set matches an empty set.

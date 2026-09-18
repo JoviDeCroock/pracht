@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const MANIFEST_PATHS = ["dist/client/.vite/manifest.json", "dist/.vite/manifest.json"];
+const PAGE_CSS_MANIFEST_PATH = "dist/server/css-manifest.json";
 const PRACHT_CLIENT_MODULE_QUERY = "pracht-client";
 
 interface ViteManifestEntry {
@@ -29,6 +30,38 @@ export interface ClientBuildAssets {
  */
 function assetUrl(file: string, base: string): string {
   return `${base}${file}`;
+}
+
+/**
+ * The build's complete route/shell to stylesheet map.
+ *
+ * `readClientBuildAssets` only sees what the client bundle references, and a
+ * route with `hydration: "none"` or `"islands"` is deliberately absent from it:
+ * its stylesheets come from the server build's graph instead. `pracht build`
+ * records the merged mapping so introspection is not blind to exactly the
+ * routes the framework recommends. `null` when the file is missing -- a build
+ * from an older pracht, or one with a custom server entry -- in which case the
+ * client manifest is all there is.
+ */
+export function readBuiltPageCssManifest(
+  root: string = process.cwd(),
+): Record<string, string[]> | null {
+  const manifestPath = resolve(root, PAGE_CSS_MANIFEST_PATH);
+  if (!existsSync(manifestPath)) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+
+  const manifest: Record<string, string[]> = {};
+  for (const [file, urls] of Object.entries(parsed)) {
+    if (Array.isArray(urls) && urls.every((url) => typeof url === "string")) manifest[file] = urls;
+  }
+  return manifest;
 }
 
 export function readClientBuildAssets(root: string = process.cwd(), base = "/"): ClientBuildAssets {

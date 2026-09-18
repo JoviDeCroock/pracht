@@ -5,6 +5,7 @@ import {
   createRepoTempDir,
   runCli,
   writeInspectableManifestApp,
+  writeProjectFile,
 } from "./helpers/cli-fixtures.js";
 
 afterEach(cleanupTempDirs);
@@ -190,6 +191,48 @@ describe("@pracht/cli inspect", () => {
     expect(runCli(["inspect", "agents"], { cwd: disabledDir }).stdout).toContain(
       "transports=mcp(unserved)",
     );
+  }, 30_000);
+
+  it("reports the stylesheets of routes that never enter the client bundle", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-server-css-");
+    writeInspectableManifestApp(appDir);
+    // What `pracht build` records: a route with `hydration: "none"` or
+    // `"islands"` is absent from the client manifest by construction, so its
+    // stylesheet exists only in this map.
+    writeProjectFile(
+      appDir,
+      "dist/server/css-manifest.json",
+      JSON.stringify(
+        {
+          "src/routes/dashboard.tsx": ["/assets/dashboard.css"],
+          "src/routes/static-page.tsx": ["/assets/static-page.css"],
+          "src/shells/app.tsx": ["/assets/app.css"],
+        },
+        null,
+        2,
+      ),
+    );
+
+    const build = JSON.parse(runCli(["inspect", "build", "--json"], { cwd: appDir }).stdout);
+
+    expect(build.build.cssManifest).toEqual({
+      "src/routes/dashboard.tsx": ["/assets/dashboard.css"],
+      "src/routes/static-page.tsx": ["/assets/static-page.css"],
+      "src/shells/app.tsx": ["/assets/app.css"],
+    });
+  }, 30_000);
+
+  it("falls back to the client manifest when the build css manifest is unreadable", () => {
+    const appDir = createRepoTempDir("pracht-cli-inspect-bad-css-");
+    writeInspectableManifestApp(appDir);
+    writeProjectFile(appDir, "dist/server/css-manifest.json", "{ not json");
+
+    const build = JSON.parse(runCli(["inspect", "build", "--json"], { cwd: appDir }).stdout);
+
+    expect(build.build.cssManifest).toEqual({
+      "src/routes/dashboard.tsx": ["/assets/dashboard.css"],
+      "src/shells/app.tsx": ["/assets/app.css"],
+    });
   }, 30_000);
 
   it("reports build asset URLs under the configured Vite base", () => {
