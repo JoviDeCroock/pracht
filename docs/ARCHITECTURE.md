@@ -838,7 +838,12 @@ transition as the rest of the tree.
 
 In development the client router calls `installHydrationMismatchWarning()`
 which wraps three Preact options to surface common hydration bugs in a single
-visible banner:
+visible banner. The islands bootstrap (`islands-client.ts`) installs the same
+hook before hydrating its first island — it calls `hydrate()` itself and never
+loads the router, so without that call `hydration: "islands"` routes, the ones
+shipping the least JavaScript, would be the only ones with no mismatch
+coverage. The install is idempotent, so a page carrying both runtimes wraps the
+options once. The wrapped options are:
 
 - `options.__m` (mismatch) — Preact already calls this when the
   server-rendered HTML and client vnode disagree. The wrapper appends a list
@@ -863,7 +868,9 @@ visible banner:
   background.
 
 The banner is only installed when `import.meta.env.DEV` is true, so the
-overhead — and the wrappers themselves — never ship to production builds.
+overhead — and the wrappers themselves — never ship to production builds. The
+islands bootstrap imports the module dynamically inside that branch, so the
+production islands bundle drops the import along with the branch.
 
 ### Dev error overlay (`error-overlay.ts`)
 

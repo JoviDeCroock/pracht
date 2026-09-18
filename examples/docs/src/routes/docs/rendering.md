@@ -225,3 +225,11 @@ return hydrated;
 - **Client-only widgets**: Render a placeholder during SSR, swap in the real widget after hydration
 - **Avoiding hydration mismatches**: Gate browser-only APIs (`window.innerWidth`, `localStorage`) behind the hydrated check
 - **Progressive enhancement**: Show a static version first, enhance with interactivity after hydration
+
+## Hydration mismatch warnings
+
+When the server-rendered HTML and the client's first render disagree, `pracht dev` puts a red banner at the top of the page naming the element or component Preact stopped at, plus any Suspense boundary that resolved during hydration while rendering a number of top-level DOM nodes other than one.
+
+The banner installs on every hydrating route, whichever hydration mode it uses: full-hydration routes get it from the client router, `hydration: "islands"` routes from the islands bootstrap, before the first island hydrates. `hydration: "none"` routes ship no JavaScript and never hydrate, so there is nothing to mismatch.
+
+It is development-only — the check and the code behind it are dropped from production builds.
