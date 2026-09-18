@@ -415,7 +415,8 @@ difference here only shows up after deploy.
   byte-identical in dev and production. `text/event-stream` keeps its own
   earlier branch: it must stream and never buffer.
 - A page loader, page middleware, render, API handler, or API middleware failure is logged once to
-  `server.config.logger`, with phase, route id, request path, and message —
+  `server.config.logger` through the dev server's `onRouteError`/`onApiError`
+  hooks, with phase, route id, request path, and message —
   plus the matched route/loader/middleware source file, or `file:line:column`
   when the error blames a module of the user's
   (`describeAnnotatedUserModule()`), which is how a route file that will not
@@ -428,6 +429,15 @@ difference here only shows up after deploy.
   after the headers are on the wire is logged there too — destroying the socket
   is all that is left, so the line is the only signal. Expected 404s are not
   logged.
+- A request that no host claims is logged by the runtime itself
+  (`reportRequestError()` in `runtime-errors.ts`), which is what a deployed app
+  is: the generated server entry passes neither hook, and the default used to be
+  silence, so a visitor got a 500 while the operator's log stayed empty. Both
+  reporters share `formatRequestErrorLine()`, so the sentence is the same one
+  the terminal prints; the runtime always appends the stack, because production
+  has no overlay to open instead. A host that does pass a hook replaces the
+  default rather than adding to it — the dev server and the prerenderer each
+  report failures their own way and must not be doubled.
 - The stack is appended only when the failure names no user module, or under
   `DEBUG` (`shouldIncludeDevErrorStack()`). A route/loader/shell file in
   `RouteErrorContext`, Vite's `id`/`loc.file` on a transform error, or a stack

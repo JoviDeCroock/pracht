@@ -29,6 +29,7 @@ import {
   SAFE_METHODS,
 } from "./runtime-constants.ts";
 import {
+  reportRequestError,
   shouldExposeServerErrors,
   type PrachtRuntimeDiagnosticPhase,
   type RouteErrorContext,
@@ -708,7 +709,7 @@ export async function dispatchApi<TContext>(
       }
     }
 
-    options.onApiError?.(thrownResponseFailure ?? error, ctx.requestPath, {
+    reportRequestError(options.onApiError, thrownResponseFailure ?? error, ctx.requestPath, {
       middlewareFiles: [...apiMiddlewareFiles],
       phase: currentPhase,
       routeFile: apiMatch.route.file,

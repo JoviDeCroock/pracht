@@ -198,3 +198,75 @@ export function deserializeRouteError(error: SerializedRouteError): Error {
     error.diagnostics;
   return result;
 }
+
+/**
+ * One line naming a request failure.
+ *
+ * Both reporters share it, so an operator reading a deployed app's logs and a
+ * developer reading the `pracht dev` terminal are looking at the same sentence.
+ * The dev server adds the overlay and decides when to append a stack; the
+ * wording is here.
+ */
+export function formatRequestErrorLine(options: {
+  file?: string;
+  message: string;
+  path: string;
+  phase?: string;
+  routeId?: string;
+}): string {
+  const route = options.routeId ? ` in route "${options.routeId}"` : "";
+  const file = options.file ? ` (${options.file})` : "";
+  return `[pracht] ${options.phase ?? "request"} error${route}${file} at ${options.path}: ${options.message}`;
+}
+
+/** The source module the runtime had matched when a request failed. */
+export function describeRouteErrorModule(
+  context: RouteErrorContext | undefined,
+): string | undefined {
+  if (!context) return undefined;
+  if (context.phase === "middleware" && context.middlewareFiles?.length) {
+    return context.middlewareFiles.join(", ");
+  }
+  if (context.phase === "loader" && context.loaderFile) return context.loaderFile;
+  return context.routeFile;
+}
+
+/**
+ * Report a request failure to the host, or log it when the host said nothing.
+ *
+ * `onRouteError`/`onApiError` are how a caller that owns the surrounding
+ * surface takes over: the dev server swaps in its overlay, the prerenderer
+ * blames a route in the build output. A deployed app has no such caller — the
+ * generated server entry passes neither — and the default used to be silence,
+ * so a 500 reached the visitor while the operator's log stayed empty. The
+ * response body still says nothing beyond "Internal Server Error"; this is the
+ * server-side half.
+ *
+ * A `throw notFound()` is a routing outcome rather than a crash, so only
+ * failures that answer 5xx are logged — the same line dev applies. The stack
+ * goes with it: production has no error overlay to open, and the message alone
+ * rarely locates a throw inside a dependency.
+ */
+export function reportRequestError(
+  hook: ((error: unknown, requestPath: string, context?: RouteErrorContext) => void) | undefined,
+  error: unknown,
+  requestPath: string,
+  context: RouteErrorContext,
+): void {
+  if (hook) {
+    hook(error, requestPath, context);
+    return;
+  }
+
+  if (isPrachtHttpError(error) && error.status < 500) return;
+
+  const line = formatRequestErrorLine({
+    file: describeRouteErrorModule(context),
+    message: error instanceof Error ? error.message : String(error),
+    path: requestPath,
+    phase: context.phase,
+    routeId: context.routeId,
+  });
+  const stack = error instanceof Error ? error.stack : undefined;
+  console.error(stack ? `${line}\n${stack}` : line);
+}

@@ -122,6 +122,7 @@ export {
   setCapabilityAuditHook,
 } from "./runtime-capabilities.ts";
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
+export { describeRouteErrorModule, formatRequestErrorLine } from "./runtime-errors.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {
