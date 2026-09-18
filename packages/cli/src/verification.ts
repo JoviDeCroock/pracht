@@ -8,6 +8,7 @@ import {
   collectManifestVerification,
   collectPackageChecks,
   collectPagesVerification,
+  collectTypeScriptConfigChecks,
 } from "./verification-checks.js";
 import { collectCapabilityChecks } from "./verification-capabilities.js";
 import { collectEnvLeakVerification } from "./verification-env.js";
@@ -99,6 +100,7 @@ export async function runVerification(
   collectApiVerification(project, checks, { changedFiles: frameworkFiles, scope });
   collectEnvLeakVerification(project, checks, { scope });
   collectPackageChecks(project, checks, packageJsonPath);
+  collectTypeScriptConfigChecks(project, checks);
   collectBudgetChecks(project, checks);
   await collectGraphChecks(project, checks);
 

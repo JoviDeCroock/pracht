@@ -182,6 +182,7 @@ The doctor command checks:
 - App manifest or pages-router directory wiring
 - Referenced shell, middleware, and route modules
 - Package-level CLI and adapter dependencies
+- A `tsconfig.json` whose `moduleResolution` predates package `exports` (`"node"`, `"node10"`, `"classic"`), which makes every `@pracht/core` import unresolvable to `tsc` while Vite still builds the app
 
 ---
 

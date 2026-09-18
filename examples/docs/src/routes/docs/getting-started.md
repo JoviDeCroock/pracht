@@ -80,6 +80,23 @@ my-app/
 
 Depending on your choices, the starter can also include Tailwind's `src/styles/global.css`, adapter files such as `wrangler.jsonc` or `Dockerfile`, and agent files under `.claude/skills/` plus `.mcp.json`.
 
+### TypeScript settings pracht requires
+
+pracht's packages are ESM-only and publish their types through `exports`, so your `tsconfig.json` needs a resolver that reads it:
+
+```json [tsconfig.json]
+{
+  "compilerOptions": {
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["vite/client", "@pracht/vite-plugin/virtual"]
+  }
+}
+```
+
+`"node16"` and `"nodenext"` work too. The legacy `"moduleResolution": "Node"` (node10) does not — it predates `exports`, and every import of `@pracht/core` fails with `TS2307: Cannot find module '@pracht/core' or its corresponding type declarations`. Nothing else notices: Vite resolves `exports` and the app builds and runs, so the errors only appear when someone runs `tsc`. `create-pracht` scaffolds the right value; `pracht doctor` warns when an existing project carries the old one. See [Import Paths](/docs/reference/api#import-paths) for the browser-conditioned `tsconfig.client.json` that goes with it.
+
 ---
 
 ## Development

@@ -12,6 +12,10 @@ next:
 
 ## Import Paths
 
+Every pracht package is ESM-only and publishes its types through `exports`, so
+`tsc` needs `"moduleResolution": "bundler"` (or `"node16"`/`"nodenext"`) — see
+[TypeScript settings pracht requires](/docs/getting-started#typescript-settings-pracht-requires).
+
 Almost everything comes from `@pracht/core`. The package declares a `browser`
 condition, so a client bundle automatically resolves to a client-safe subset of
 the same entry point — you do not pick a different specifier for the browser.
