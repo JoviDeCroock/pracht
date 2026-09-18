@@ -79,6 +79,10 @@ when `src/pracht.d.ts` does not exist. In CI, prefer:
 pracht typegen --check
 ```
 
+The check compares declarations, not bytes, so generated files reformatted by
+the project's formatter still read as up to date and regenerating leaves them
+formatted. Do not add them to a formatter ignore list on that account.
+
 ## Step 3: Replace string navigation where it matters
 
 ### Components

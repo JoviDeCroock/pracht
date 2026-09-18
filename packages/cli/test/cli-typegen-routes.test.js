@@ -68,6 +68,22 @@ describe("@pracht/cli typegen routes", () => {
     runCli(["typegen"], { cwd: appDir });
     expect(statSync(declarationPath).mtimeMs).toBeLessThan(Date.now() - 60_000);
 
+    // A formatter over the generated files must not make them look stale, and
+    // regenerating must not undo the formatting — otherwise `pracht typegen`
+    // and the project's formatter undo each other on every commit.
+    const runtimePath = join(appDir, "src/pracht-routes.ts");
+    const formatted = readFileSync(runtimePath, "utf-8")
+      .replace(/"/g, "'")
+      .replace(/;$/gm, "")
+      .replace(/,$/gm, "");
+    writeProjectFile(appDir, "src/pracht-routes.ts", formatted);
+    const afterFormatting = JSON.parse(
+      runCli(["typegen", "--check", "--json"], { cwd: appDir }).stdout,
+    );
+    expect(afterFormatting).toMatchObject({ check: true, ok: true });
+    runCli(["typegen"], { cwd: appDir });
+    expect(readFileSync(runtimePath, "utf-8")).toBe(formatted);
+
     writeProjectFile(appDir, "src/pracht.d.ts", "stale\n");
     const stale = runCliStatus(["typegen", "--check", "--json"], { cwd: appDir });
     expect(stale.status).toBe(1);
