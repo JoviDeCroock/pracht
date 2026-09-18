@@ -595,7 +595,7 @@ The build fails closed — before prerendering, with every offender listed — w
 
 - every route must be `render: "ssg"` or loaderless, full-hydration `"spa"`; SSG loaders must produce HTML plus valid JSON route state at build time, and dynamic SSG routes must export `getStaticPaths()`;
 - no route or not-found middleware;
-- the `notFound` page must use full hydration (the default) so `404.html` can adopt the visitor's real URL;
+- the `notFound` page must use full hydration when `fallback` is configured, because that document is built from the page's serialized route state (see [Dropping the router from `404.html`](#dropping-the-router-from-404html));
 - no API routes;
 - no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely;
 - neither route patterns nor concrete paths returned by `getStaticPaths()` may write under the reserved `/_pracht/` namespace; concrete output is checked before any page is written;
@@ -611,6 +611,29 @@ Client-side navigation normally fetches route-state JSON from the server. A stat
 ### 404 and SPA fallback
 
 The app's `notFound` page is rendered to `404.html` independently of ordinary route matching (the GitHub Pages / S3 convention); the full-hydration page adopts the URL actually visited. With `fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into dynamic `render: "spa"` routes boot the client router and resolve the route from `window.location`.
+
+#### Dropping the router from `404.html`
+
+Adopting the URL is the only thing the client router does on that page, and on a site whose other pages are islands or static it is the single largest chunk in the build — requested by `404.html` and nothing else. A 404 that shows fixed markup does not need it:
+
+```ts
+notFound: {
+  component: () => import("./routes/not-found.tsx"),
+  shell: "site",
+  hydration: "none",   // or "islands"
+}
+```
+
+The tradeoff is the URL. The page is prerendered at a synthetic path, so `useLocation()` reports that path rather than the one the visitor typed, and without the router nothing corrects it afterwards. Say nothing about the URL, or read it in an island — `hydration: "islands"` costs the islands bootstrap (a few kB) instead of the router:
+
+```tsx
+// src/islands/RequestedPath.tsx
+export default function RequestedPath() {
+  return <code>{typeof window === "undefined" ? "" : window.location.pathname}</code>;
+}
+```
+
+`fallback` is the one thing that still requires full hydration: that document is built from the not-found page's serialized route state, and the build fails closed if the state is not there.
 
 The fallback is one document shared by every rewritten URL, so it cannot run a route-, shell-, or not-found-specific `head()` export. If a fallback-rendered route declares one, configure explicit generic `fallbackHead` metadata shared by every fallback URL; the build fails closed when it is omitted. Fonts in that generic head remain registered while the fallback commits a loaderless dynamic SPA route.
 

@@ -280,8 +280,11 @@ SSG loaders run only at build time and must produce HTML plus valid JSON route
 state; dynamic SSG routes must export `getStaticPaths()`. Only
 manifest-registered capabilities participate, and every registered capability
 module must load successfully so exposure validation fails closed. The
-`notFound` page must use full hydration (the default) because the shared
-`404.html` needs the client router to adopt the visitor's actual URL.
+`notFound` page may set `hydration: "islands"` or `"none"` to keep the client
+router out of `404.html` — the router is there only to replace the build URL
+with the visitor's, so a 404 that does not name the requested URL pays nothing
+for it. `staticAdapter({ fallback })` still requires full hydration there,
+because that document is built from the not-found page's route state.
 
 **Deploy base.** Sub-path deploys (GitHub Pages *project* sites, S3 key
 prefixes) set Vite `base` to that path. CDN and document-relative bases (`""`,

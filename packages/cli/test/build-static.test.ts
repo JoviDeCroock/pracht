@@ -160,9 +160,33 @@ describe("validateStaticExport", () => {
     expect((error as Error).message).toContain("static host has no request runtime");
   });
 
-  it("fails closed when notFound cannot adopt the requested URL", async () => {
+  it("lets the notFound page opt out of the client router when nothing reads its state", async () => {
+    // The router is loaded by 404.html and nothing else in an otherwise
+    // islands-only build, and it exists there only to rewrite the page's state
+    // to the visitor's URL. A 404 that shows fixed markup does not need it.
+    for (const hydration of ["islands", "none"] as const) {
+      await expect(
+        validateStaticExport({
+          resolvedApp: {
+            notFound: {
+              hydration,
+              middlewareFiles: [],
+              path: "/__pracht-not-found__",
+              render: "ssr",
+            },
+            routes: [{ hasLoader: false, middlewareFiles: [], path: "/", render: "ssg" }],
+          },
+        }),
+      ).resolves.toBeUndefined();
+    }
+  });
+
+  it("fails closed when the SPA fallback needs the notFound page's route state", async () => {
     for (const hydration of ["islands", "none"] as const) {
       const error = await validateStaticExport({
+        staticExportConfig: { fallback: "200.html", fallbackHead: { title: "App" } },
+        renderStaticNotFoundHtml: async () => "<html></html>",
+        renderStaticFallbackHtml: () => "<html></html>",
         resolvedApp: {
           notFound: {
             hydration,
@@ -176,8 +200,8 @@ describe("validateStaticExport", () => {
 
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toContain(`hydration: "${hydration}"`);
-      expect((error as Error).message).toContain("must use full hydration");
-      expect((error as Error).message).toContain("real URL");
+      expect((error as Error).message).toContain('fallback: "200.html"');
+      expect((error as Error).message).toContain("serialized route state");
     }
   });
 
