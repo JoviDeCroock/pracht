@@ -1,5 +1,11 @@
 # create-pracht
 
+## 0.7.1
+
+### Patch Changes
+
+- [#386](https://github.com/JoviDeCroock/pracht/pull/386) [`4290f06`](https://github.com/JoviDeCroock/pracht/commit/4290f06fe4c2d0881a4342307c91ef8c704169c1) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Generated TypeScript configurations now resolve browser-specific package declarations, catching server-only `@pracht/core` root exports before client builds.
+
 ## 0.7.0
 
 ### Minor Changes

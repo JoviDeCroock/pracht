@@ -1,5 +1,11 @@
 # @pracht/capabilities
 
+## 0.5.0
+
+### Minor Changes
+
+- [#388](https://github.com/JoviDeCroock/pracht/pull/388) [`ee8b848`](https://github.com/JoviDeCroock/pracht/commit/ee8b848ce7f7d834cac5e6d72acedacfc8907476) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Standalone WebMCP registration now supports current consequential annotations and opt-in cross-origin exposure, while verify reports Chrome's advisory name budgets.
+
 ## 0.4.0
 
 ### Minor Changes
