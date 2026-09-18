@@ -30,18 +30,29 @@ describe("resolveOptions additionalExtensions", () => {
 });
 
 describe("resolveOptions client", () => {
-  it("enables every client feature by default", () => {
-    expect(resolveOptions({}).client).toEqual({ prefetch: true, navigationGuards: true });
+  it("enables every client feature by default, and no production diagnostics", () => {
+    expect(resolveOptions({}).client).toEqual({
+      prefetch: true,
+      navigationGuards: true,
+      hydrationWarnings: false,
+    });
   });
 
   it("applies an explicit override", () => {
     expect(resolveOptions({ client: { prefetch: false } }).client).toEqual({
       prefetch: false,
       navigationGuards: true,
+      hydrationWarnings: false,
     });
     expect(resolveOptions({ client: { navigationGuards: false } }).client).toEqual({
       prefetch: true,
       navigationGuards: false,
+      hydrationWarnings: false,
+    });
+    expect(resolveOptions({ client: { hydrationWarnings: true } }).client).toEqual({
+      prefetch: true,
+      navigationGuards: true,
+      hydrationWarnings: true,
     });
   });
 

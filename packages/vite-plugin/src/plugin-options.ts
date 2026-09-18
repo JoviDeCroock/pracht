@@ -71,6 +71,20 @@ export interface PrachtClientOptions {
    * back, and makes `useBlocker()` never block (it warns in development).
    */
   navigationGuards?: boolean;
+  /**
+   * Keep the hydration-mismatch reporter — the red banner and the matching
+   * `console.error`, otherwise development-only — in the production client and
+   * islands bundles, so a build can be checked for mismatches before it is
+   * deployed. Defaults to `false`.
+   *
+   * Dev and production do not render the same HTML: an SSG build goes through
+   * `@pracht/preact-ssr-precompile` and ships prerendered markup, so a
+   * mismatch that only exists in the output you are about to deploy never
+   * reaches the dev-mode banner. Build with this on, serve the output, walk
+   * the emitted pages, and fail on anything reported. Leave it off for the
+   * build you ship: it costs bytes and shows visitors the banner.
+   */
+  hydrationWarnings?: boolean;
 }
 
 export interface PrachtPluginOptions {
@@ -169,6 +183,7 @@ export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
 export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
   prefetch: true,
   navigationGuards: true,
+  hydrationWarnings: false,
 };
 
 const DEFAULTS: ResolvedPrachtPluginOptions = {

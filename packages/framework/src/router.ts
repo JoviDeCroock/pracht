@@ -103,6 +103,22 @@ declare const __PRACHT_CLIENT_BLOCKER__: boolean | undefined;
 const BLOCKER_ENABLED =
   typeof __PRACHT_CLIENT_BLOCKER__ === "undefined" || __PRACHT_CLIENT_BLOCKER__ !== false;
 
+/**
+ * Keep the hydration-mismatch reporter in a production build, opted into with
+ * `client: { hydrationWarnings: true }`. Development installs it either way.
+ *
+ * Dev and production do not render the same HTML: an SSG build goes through
+ * `@pracht/preact-ssr-precompile` and ships prerendered markup, so a mismatch
+ * that only exists in the output you are about to deploy is invisible to the
+ * dev-mode banner by construction. The flag is what makes that output
+ * checkable. Declared locally rather than shared with the islands bootstrap so
+ * each bundle folds its own `false` and drops the reporter with it.
+ */
+declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
+
+const HYDRATION_WARNINGS_FORCED =
+  typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -1068,7 +1084,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         initialShellPromise,
       );
       if (pendingState) {
-        if (import.meta.env?.DEV) installHydrationMismatchWarning();
+        if (import.meta.env?.DEV || HYDRATION_WARNINGS_FORCED) installHydrationMismatchWarning();
         hydrate(h(RouterRoot, { initialState: pendingState }), root);
       }
 
@@ -1148,7 +1164,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           // Route and shell imports have settled by this point. If either uses
           // Suspense, compat's boundary handler is now in place, so the dev
           // tracker can wrap it instead of being hidden behind it later.
-          if (import.meta.env?.DEV) installHydrationMismatchWarning();
+          if (import.meta.env?.DEV || HYDRATION_WARNINGS_FORCED) installHydrationMismatchWarning();
           markHydrating();
           hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
           onHydrationComplete(() => {

@@ -867,10 +867,20 @@ options once. The wrapped options are:
   [preact issue #4442](https://github.com/preactjs/preact/issues/4442) for
   background.
 
-The banner is only installed when `import.meta.env.DEV` is true, so the
-overhead — and the wrappers themselves — never ship to production builds. The
+The banner is installed when `import.meta.env.DEV` is true, so the overhead —
+and the wrappers themselves — never ship to a default production build. The
 islands bootstrap imports the module dynamically inside that branch, so the
 production islands bundle drops the import along with the branch.
+
+`client: { hydrationWarnings: true }` widens that branch to production. The
+vite-plugin defines `__PRACHT_HYDRATION_WARNINGS__`, which `router.ts` and
+`islands-client.ts` each declare locally (rather than importing a shared
+constant, so every bundle folds its own `false` and eliminates the reporter
+with it). It exists because dev and production do not render the same HTML —
+an SSG build ships precompiled, prerendered markup — so a probe build is the
+only way to ask whether the output about to be deployed hydrates cleanly. Every
+message is also `console.error`ed, which is what a headless browser walking the
+emitted pages collects without scraping the DOM.
 
 ### Dev error overlay (`error-overlay.ts`)
 

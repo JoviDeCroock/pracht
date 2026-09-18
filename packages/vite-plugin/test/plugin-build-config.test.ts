@@ -294,6 +294,14 @@ describe("pracht plugin build config", () => {
     expect(config.define?.__PRACHT_CLIENT_PREFETCH__).toBe("true");
   });
 
+  it("keeps hydration diagnostics out of production builds unless asked for", () => {
+    expect(runConfigHook(edgeAdapter, false).define?.__PRACHT_HYDRATION_WARNINGS__).toBe("false");
+    expect(
+      runConfigHook(edgeAdapter, false, { client: { hydrationWarnings: true } }).define
+        ?.__PRACHT_HYDRATION_WARNINGS__,
+    ).toBe("true");
+  });
+
   it("defines a disabled client feature as false in dev as well as in builds", () => {
     // The flag is declared by the app rather than derived from the manifest, so
     // unlike __PRACHT_AGENT_SURFACE__ it must not be forced on outside builds —

@@ -233,3 +233,34 @@ When the server-rendered HTML and the client's first render disagree, `pracht de
 The banner installs on every hydrating route, whichever hydration mode it uses: full-hydration routes get it from the client router, `hydration: "islands"` routes from the islands bootstrap, before the first island hydrates. `hydration: "none"` routes ship no JavaScript and never hydrate, so there is nothing to mismatch.
 
 It is development-only — the check and the code behind it are dropped from production builds.
+
+### Checking the build you are about to deploy
+
+Dev and production do not render the same HTML. An SSG build goes through `@pracht/preact-ssr-precompile` and ships prerendered markup, so a mismatch that only exists in the output you are about to deploy never reaches the dev-mode banner.
+
+`client: { hydrationWarnings: true }` keeps the reporter in the production client and islands bundles:
+
+```ts
+// vite.config.ts
+pracht({ adapter: nodeAdapter(), client: { hydrationWarnings: true } });
+```
+
+Build with it on, serve the output, and walk the pages:
+
+```bash
+pracht build          # prints a notice that this build carries diagnostics
+pracht preview
+```
+
+Every mismatch is reported twice: as a `console.error` starting with `[pracht]`, and as a list item inside `#__pracht_hydration_mismatch__` (each entry under `[data-pracht-mismatch-list]`). A headless browser can assert on either.
+
+```ts
+const errors: string[] = [];
+page.on("console", (message) => {
+  if (message.type() === "error") errors.push(message.text());
+});
+await page.goto(url);
+expect(errors.filter((text) => text.includes("Hydration mismatch"))).toEqual([]);
+```
+
+Leave the flag off for the build you ship: it costs bytes and shows visitors the banner. `pracht build` warns whenever it is on so a probe build cannot reach production unnoticed.
