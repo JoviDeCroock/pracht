@@ -220,6 +220,22 @@ repeats shared CSS instead of letting one stylesheet cache serve many pages.
 It is whole-file route CSS inlining, not selector-level extraction or runtime
 CSS-in-JS collection. Measure both variants before choosing it.
 
+Which side wins is a question about your traffic, not about your CSS:
+
+- **An app whose visitors move between pages** amortizes one cached stylesheet
+  across the whole session. Linking is right; inlining pays the same bytes on
+  every document.
+- **A static or content site** is mostly cold, single-page visits arriving from
+  search. That cache is never reused, and on a page that ships little or no
+  JavaScript the stylesheet is the only render-blocking request the app
+  controls — so the round trip lands directly on first paint. Inlining a small
+  per-route stylesheet removes it.
+
+`pracht build` says so when it can see it: a static export whose pages each link
+a stylesheet small enough to have arrived with the document prints a tip
+suggesting the flag. The default stays `false` either way, because only you
+know how your pages are visited.
+
 Under a nonce-based CSP, return `styleNonce` from `head()` and place the same
 nonce in `style-src`. Prefer linked CSS for SSG/ISG pages unless a stable hash
 policy covers the emitted inline block.

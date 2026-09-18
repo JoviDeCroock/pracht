@@ -1,7 +1,9 @@
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { buildStaticRouteStateUrl } from "@pracht/core/server";
+
+import { formatBytes } from "./bundle-report.js";
 
 /**
  * Static-export (`@pracht/adapter-static`) build pipeline: fail-closed
@@ -563,6 +565,79 @@ export function resolvePrerenderOutputPath(clientDir: string, routePath: string)
   }
 
   return filePath;
+}
+
+/**
+ * Per-page CSS at or below this many raw bytes is small enough that the extra
+ * round trip costs more than the duplication does. Roughly the initial
+ * congestion window, so a stylesheet under it would have arrived with the
+ * document had it been inlined.
+ */
+const SMALL_PAGE_CSS_BYTES = 14 * 1024;
+
+/**
+ * Advise `pracht({ inlineCss: true })` when a static export links a small
+ * stylesheet from every page.
+ *
+ * The default is right for an app whose visitors move between pages and reuse
+ * one cached stylesheet. A static export is disproportionately cold,
+ * single-page traffic from search, where that cache is never reused and the
+ * link is simply a round trip before first paint. Returns `null` unless the
+ * measurement supports the advice: pages already inlining, a page with no CSS
+ * at all, or anything above the threshold says nothing.
+ */
+export function describeInlineCssOpportunity(options: {
+  clientDir: string;
+  pages: Array<{ path: string }>;
+}): string | null {
+  const { clientDir, pages } = options;
+  if (pages.length === 0) return null;
+
+  const cssBytes = new Map<string, number>();
+  let largestPageBytes = 0;
+
+  // A handful of pages is enough to characterize a build, and reading every
+  // document of a large site would cost more than the advice is worth.
+  for (const page of pages.slice(0, 25)) {
+    let html: string;
+    try {
+      html = readFileSync(resolveStaticExportOutputPath(clientDir, page.path), "utf-8");
+    } catch {
+      return null;
+    }
+
+    if (html.includes("data-pracht-inline-css")) return null;
+
+    let pageBytes = 0;
+    for (const href of html.matchAll(/<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"/g)) {
+      const url = href[1];
+      // Only the app's own emitted assets can be measured; a cross-origin
+      // stylesheet is not pracht's to inline.
+      if (!url.startsWith("/") || url.startsWith("//")) return null;
+      let bytes = cssBytes.get(url);
+      if (bytes === undefined) {
+        try {
+          bytes = statSync(resolve(clientDir, `.${url}`)).size;
+        } catch {
+          return null;
+        }
+        cssBytes.set(url, bytes);
+      }
+      pageBytes += bytes;
+    }
+
+    if (pageBytes === 0) return null;
+    largestPageBytes = Math.max(largestPageBytes, pageBytes);
+  }
+
+  if (largestPageBytes > SMALL_PAGE_CSS_BYTES) return null;
+
+  return (
+    `  Tip: no page links more than ${formatBytes(largestPageBytes)} of CSS, and a static site is mostly ` +
+    "cold, single-page visits — that stylesheet is a round trip before first paint.\n" +
+    "  `pracht({ inlineCss: true })` puts it in the document instead, at the cost of repeating " +
+    "those bytes per page and losing the shared stylesheet cache.\n"
+  );
 }
 
 export interface StaticArtifactsResult {

@@ -50,8 +50,10 @@ The same behavior applies during development. `pracht dev` discovers the matched
 Production uses route-scoped links by default. For small emitted stylesheets,
 `pracht({ inlineCss: true })` puts the complete matched route and shell CSS in
 the document instead. That removes a render-blocking request but repeats shared
-CSS in every HTML response, so [measure the trade-off](/docs/performance#css-per-page).
-It does not collect runtime CSS-in-JS output.
+CSS in every HTML response, so [measure the trade-off](/docs/performance#css-per-page)
+— it favours a static or content site entered cold from search, where the
+stylesheet cache is never reused and that request is often the only
+render-blocking one left. It does not collect runtime CSS-in-JS output.
 
 One Vite option is incompatible: `build.cssCodeSplit: false` merges the app's
 stylesheets into a single asset that only an `index.html` would link, and a

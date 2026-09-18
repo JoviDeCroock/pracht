@@ -66,8 +66,8 @@ Production links these route-scoped files by default. For small stylesheets,
 `pracht({ inlineCss: true })` instead places the complete matched route and
 shell CSS in the initial document. This removes the parser-blocking stylesheet
 request but repeats shared CSS in every HTML response; see
-[PERFORMANCE.md](PERFORMANCE.md#inlining-route-css) for the trade-off and CSP
-requirements. It does not extract styles produced at render time by CSS-in-JS.
+[PERFORMANCE.md](PERFORMANCE.md#inlining-route-css) for the trade-off, which
+side a static site lands on, and CSP requirements. It does not extract styles produced at render time by CSS-in-JS.
 
 `build.cssCodeSplit: false` is rejected in `configResolved`, and `pracht doctor`
 reports it as an error. Vite's single-stylesheet mode attaches that asset to the

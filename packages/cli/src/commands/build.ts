@@ -20,6 +20,7 @@ import { matchRoutePath, routePathIsDynamic } from "@pracht/core";
 import { readClientBuildAssets } from "../build-metadata.js";
 import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
 import {
+  describeInlineCssOpportunity,
   isStaticExportBuild,
   resolvePrerenderOutputPath,
   resolveStaticExportOutputPath,
@@ -852,6 +853,9 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
             "when a raw-markdown corpus matters.\n",
         );
       }
+
+      const inlineCssTip = describeInlineCssOpportunity({ clientDir, pages });
+      if (inlineCssTip) log(`\n${inlineCssTip}`);
 
       log(
         "\n  Static export complete → deploy dist/client/ to any static host " +

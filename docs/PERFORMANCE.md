@@ -185,8 +185,17 @@ using Vite-served stylesheet links so HMR is unchanged.
 This is whole-file route CSS inlining, not selector-level extraction and not a
 CSS-in-JS render hook. It trades a request for larger HTML and repeats shared
 CSS in every document, so use it for small route styles and measure the result.
-Custom server entries can pass both `cssManifest` and `cssContentManifest`;
-missing content entries deliberately fall back to normal stylesheet links.
+Which side wins follows from the traffic: an app whose visitors move between
+pages amortizes one cached stylesheet across the session, while a static or
+content site is mostly cold single-page visits from search, where that cache is
+never reused and the stylesheet is often the only render-blocking request left
+on a page that ships no JavaScript. The default stays `false` — the build
+cannot know how a site is visited — but `describeInlineCssOpportunity` in
+`build-static.ts` prints a tip when a static export's pages each link a
+stylesheet small enough (≤ 14 KiB, roughly the initial congestion window) to
+have arrived with the document. Custom server entries can pass both
+`cssManifest` and `cssContentManifest`; missing content entries deliberately
+fall back to normal stylesheet links.
 
 With a nonce-based CSP, return `styleNonce` from the active shell or route
 `head()` and include the same nonce in `style-src`. Static SSG/ISG output cannot
