@@ -107,6 +107,14 @@ describe("create-pracht", () => {
     expect(gitignore).toContain(".dev.vars");
     expect(gitignore).not.toContain("\n.pracht\n");
     expect(gitignore).toContain("Keep .pracht/app-graph.json committed");
+
+    // A build image that picks its own Node routinely picks one older than
+    // pracht supports, and the failure that produces names a missing built-in
+    // rather than a version. Both files exist so the image never has to guess.
+    const nvmrc = await readFile(join(targetDir, ".nvmrc"), "utf-8");
+    expect(nvmrc.trim()).toMatch(/^\d+$/);
+    expect(Number(nvmrc.trim())).toBeGreaterThanOrEqual(22);
+    expect(parsedPackageJson.engines.node).toMatch(/^>=\d+\.\d+/);
     expect(routes).toContain('route("/", "./routes/home.tsx"');
     expect(routes).toContain('component: "./routes/not-found.tsx",');
     expect(routes).toContain('shell: "public",');
