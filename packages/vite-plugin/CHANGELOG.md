@@ -1,5 +1,18 @@
 # @pracht/vite-plugin
 
+## 0.14.0
+
+### Minor Changes
+
+- [#407](https://github.com/JoviDeCroock/pracht/pull/407) [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { hydrationWarnings: true } })` keeps the hydration-mismatch reporter in production client and islands bundles, so a build can be walked for mismatches before it is deployed. Every mismatch is now reported as a `console.error` as well as in the on-page banner; the default build still compiles the reporter out.
+
+### Patch Changes
+
+- [#406](https://github.com/JoviDeCroock/pracht/pull/406) [`5b99426`](https://github.com/JoviDeCroock/pracht/commit/5b99426728d400dc5b581867de815149d4ef6791) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep files the app manifest never names out of the client bundle, so a draft route, a scratch copy, or a route deleted from the manifest but left in `src/routes/` is no longer compiled and published with its source. A manifest that imports its routes from another module or builds a specifier at runtime keeps the previous directory-wide registry.
+- Updated dependencies [[`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4), [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950), [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831)]:
+  - @pracht/core@0.19.0
+  - @pracht/adapter-node@0.4.5
+
 ## 0.13.0
 
 ### Minor Changes
