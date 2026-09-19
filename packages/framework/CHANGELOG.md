@@ -1,5 +1,17 @@
 # @pracht/core
 
+## 0.19.0
+
+### Minor Changes
+
+- [#407](https://github.com/JoviDeCroock/pracht/pull/407) [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { hydrationWarnings: true } })` keeps the hydration-mismatch reporter in production client and islands bundles, so a build can be walked for mismatches before it is deployed. Every mismatch is now reported as a `console.error` as well as in the on-page banner; the default build still compiles the reporter out.
+
+### Patch Changes
+
+- [#405](https://github.com/JoviDeCroock/pracht/pull/405) [`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `hydration: "islands"` routes now get the development hydration-mismatch banner, which previously only installed on routes that loaded the client router.
+
+- [#404](https://github.com/JoviDeCroock/pracht/pull/404) [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Log a request failure server-side when nothing else reports it, so a deployed app no longer answers 500 with an empty log. A loader, render, or API handler failure prints the same line `pracht dev` prints — phase, route, source file, path, message — plus the stack; an expected 404 stays quiet, and a host that passes `onRouteError`/`onApiError` still owns the reporting.
+
 ## 0.18.0
 
 ### Minor Changes

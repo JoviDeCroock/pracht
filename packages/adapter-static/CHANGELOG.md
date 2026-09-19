@@ -1,5 +1,17 @@
 # @pracht/adapter-static
 
+## 0.2.0
+
+### Minor Changes
+
+- [#411](https://github.com/JoviDeCroock/pracht/pull/411) [`6f7efeb`](https://github.com/JoviDeCroock/pracht/commit/6f7efeb8ce963e70d3f6906c601a4e46dd16b529) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A static export's `notFound` page can now use `hydration: "islands"` or `"none"`, keeping the client router out of `404.html` — on an otherwise islands-only site that is the largest chunk in the build, requested by that one page. The page then shows the markup it was prerendered with, so it cannot report the requested URL; `staticAdapter({ fallback })` still requires full hydration because that document is built from the not-found page's route state.
+
+### Patch Changes
+
+- Updated dependencies [[`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4), [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950), [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831)]:
+  - @pracht/core@0.19.0
+  - @pracht/adapter-node@0.4.5
+
 ## 0.1.4
 
 ### Patch Changes
