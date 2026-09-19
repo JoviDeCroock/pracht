@@ -56,6 +56,14 @@ reference with `dist/client/.vite/manifest.json` for chunk metadata
 (file, imports, dynamicImports, css, isEntry) — needed for vendor fan-in
 analysis (Step 4) and CSS sizing, which the analyze report does not cover.
 
+Size CSS from the `cssManifest` this command reports, never from
+`dist/client/.vite/manifest.json`. A `hydration: "none"` or `"islands"` route is
+absent from the client manifest by construction, so reading it directly reports
+no CSS for a page whose document links a stylesheet — under-reporting exactly
+the routes pracht recommends. `inspect` merges `dist/server/css-manifest.json`,
+the build's own record, over the client manifest; an older build without that
+file is client-only, and the CSS column should say so rather than read as zero.
+
 ## Step 3: Interpret per-route payload
 
 From the Step 1 JSON, report:

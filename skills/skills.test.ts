@@ -79,7 +79,7 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 //   default function name "render")
 const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/(?:client|server)\/?$/,
-  /^dist\/server\/(?:server\.js|worker\.js|isg-manifest\.json|headers-manifest\.json|budget-report\.json)$/,
+  /^dist\/server\/(?:server\.js|worker\.js|isg-manifest\.json|headers-manifest\.json|budget-report\.json|css-manifest\.json)$/,
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
   /^dist\/client\/\.vite\/manifest\.json$/,

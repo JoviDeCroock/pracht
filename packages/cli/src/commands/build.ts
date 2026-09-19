@@ -582,17 +582,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
       readClientBuildAssets(root, buildBase);
 
+    // The server module's manifest additionally carries the routes that are
+    // absent from the client bundle, whose CSS the server build emitted. The
+    // freshly read client entries are layered on top: they are the ones
+    // rebuilt against the deploy base.
+    const pageCssManifest = { ...serverMod.cssManifest, ...cssManifest };
+
     const { pages, isgManifest } = await prerenderApp({
       staticExport: isStaticExport,
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
       islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
-      // The server module's manifest additionally carries the routes that are
-      // absent from the client bundle, whose CSS the server build emitted. The
-      // freshly read client entries are layered on top: they are the ones
-      // rebuilt against the deploy base.
-      cssManifest: { ...serverMod.cssManifest, ...cssManifest },
+      cssManifest: pageCssManifest,
       cssContentManifest: serverMod.cssContentManifest,
       jsManifest,
       registry: serverMod.registry,
@@ -819,6 +821,17 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
       writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
     }
+
+    // Every page's stylesheets, keyed by route or shell file. No runtime reads
+    // this: it is the one place where the mapping for routes outside the client
+    // bundle survives the build, so `pracht inspect` and anything auditing CSS
+    // weight is not left reading the client manifest, which by construction
+    // has no entry for a route that ships no JavaScript.
+    writeFileSync(
+      resolve(root, "dist/server/css-manifest.json"),
+      `${JSON.stringify(pageCssManifest, null, 2)}\n`,
+      "utf-8",
+    );
 
     if (Object.keys(isgManifest).length > 0) {
       const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");

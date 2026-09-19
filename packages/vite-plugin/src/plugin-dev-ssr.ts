@@ -942,7 +942,12 @@ async function resolveDevCssContextForPath(
   path: string,
   options: { basePathRetained?: boolean } = {},
 ): Promise<Parameters<typeof createDevCssManifest>[1]> {
-  const [framework, serverMod] = await Promise.all([
+  // `virtual:pracht/dev-metadata`, not `virtual:pracht/server`: the adapter's
+  // server entry can import worker-only modules that Vite's Node SSR
+  // environment cannot evaluate. It exports the app graph and the module
+  // registry and nothing else -- no `cssManifest`, no entry urls -- so name it
+  // for what it is rather than reaching for a field that is always undefined.
+  const [framework, devMetadata] = await Promise.all([
     server.ssrLoadModule("@pracht/core/server"),
     server.ssrLoadModule(PRACHT_DEV_MODULE_ID),
   ]);
@@ -956,14 +961,14 @@ async function resolveDevCssContextForPath(
   const route =
     pathname === null
       ? null
-      : (framework.matchAppRoute(serverMod.resolvedApp, pathname)?.route ??
-        serverMod.resolvedApp.notFound ??
+      : (framework.matchAppRoute(devMetadata.resolvedApp, pathname)?.route ??
+        devMetadata.resolvedApp.notFound ??
         null);
   return {
-    app: serverMod.resolvedApp,
+    app: devMetadata.resolvedApp,
     matchAppRoute: framework.matchAppRoute,
     pathname,
-    registry: serverMod.registry,
+    registry: devMetadata.registry,
     route,
     streaming: route?.streaming === true,
   };
