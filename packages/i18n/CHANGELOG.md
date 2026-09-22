@@ -1,5 +1,12 @@
 # @pracht/i18n
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [[`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4), [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950), [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831)]:
+  - @pracht/core@0.19.0
+
 ## 0.1.4
 
 ### Patch Changes
