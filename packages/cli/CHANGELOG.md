@@ -1,5 +1,25 @@
 # @pracht/cli
 
+## 1.15.0
+
+### Minor Changes
+
+- [#411](https://github.com/JoviDeCroock/pracht/pull/411) [`6f7efeb`](https://github.com/JoviDeCroock/pracht/commit/6f7efeb8ce963e70d3f6906c601a4e46dd16b529) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A static export's `notFound` page can now use `hydration: "islands"` or `"none"`, keeping the client router out of `404.html` — on an otherwise islands-only site that is the largest chunk in the build, requested by that one page. The page then shows the markup it was prerendered with, so it cannot report the requested URL; `staticAdapter({ fallback })` still requires full hydration because that document is built from the not-found page's route state.
+
+### Patch Changes
+
+- [#408](https://github.com/JoviDeCroock/pracht/pull/408) [`f5dce54`](https://github.com/JoviDeCroock/pracht/commit/f5dce542e7b800be92a04d3156baa9ad5968d016) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The CLI now checks the Node version before loading anything else, so an unsupported Node fails with `pracht requires Node >= 22.18 (found 18.17.1).` instead of a `SyntaxError` about a missing `node:util` export. Scaffolded apps ship an `.nvmrc` and an `engines.node` field so build images pick a supported version.
+
+- [#412](https://github.com/JoviDeCroock/pracht/pull/412) [`5acd333`](https://github.com/JoviDeCroock/pracht/commit/5acd333cb09d2d3523ba8b8c7d15d2fba5ac026d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A static export whose pages each link a small stylesheet now finishes its build with a tip pointing at `pracht({ inlineCss: true })`, which trades that render-blocking request for bytes repeated per document.
+
+- [#414](https://github.com/JoviDeCroock/pracht/pull/414) [`804ced5`](https://github.com/JoviDeCroock/pracht/commit/804ced52afa3ad29ff271656f463603982a501d5) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht inspect build` now reports the stylesheets of routes that never enter the client bundle, and `pracht build` records the full route-to-stylesheet mapping in `dist/server/css-manifest.json`. A `hydration: "none"` or `"islands"` route previously read as having no CSS, because the report was built from the client manifest alone.
+
+- [#409](https://github.com/JoviDeCroock/pracht/pull/409) [`8e1478e`](https://github.com/JoviDeCroock/pracht/commit/8e1478e456ccfb23a32c38353f8f5c19022f00e3) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht typegen --check` now compares the generated declarations rather than the exact bytes, so a project whose formatter has been over `src/pracht.d.ts` and `src/pracht-routes.ts` no longer sees them reported stale forever. Regenerating leaves an already-correct file untouched for the same reason.
+
+- [#410](https://github.com/JoviDeCroock/pracht/pull/410) [`3e77579`](https://github.com/JoviDeCroock/pracht/commit/3e77579a9fe562c1dbcd3ea2501d5498fdf1ebab) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht doctor` and `pracht verify` now warn when `tsconfig.json` uses a `moduleResolution` that predates package `exports` (`"node"`, `"node10"`, `"classic"`), which leaves every `@pracht/core` import unresolvable to `tsc` while Vite still builds the app.
+- Updated dependencies [[`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4), [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950), [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831)]:
+  - @pracht/core@0.19.0
+
 ## 1.14.0
 
 ### Minor Changes

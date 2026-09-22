@@ -1,5 +1,11 @@
 # create-pracht
 
+## 0.7.2
+
+### Patch Changes
+
+- [#408](https://github.com/JoviDeCroock/pracht/pull/408) [`f5dce54`](https://github.com/JoviDeCroock/pracht/commit/f5dce542e7b800be92a04d3156baa9ad5968d016) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The CLI now checks the Node version before loading anything else, so an unsupported Node fails with `pracht requires Node >= 22.18 (found 18.17.1).` instead of a `SyntaxError` about a missing `node:util` export. Scaffolded apps ship an `.nvmrc` and an `engines.node` field so build images pick a supported version.
+
 ## 0.7.1
 
 ### Patch Changes
