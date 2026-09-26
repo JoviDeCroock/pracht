@@ -729,6 +729,55 @@ Shells can also export `ErrorBoundary` to provide a shared fallback for routes
 inside that shell. A route-level `ErrorBoundary` takes precedence when both are
 present.
 
+### Shell loaders
+
+A shell can export `loader(args)` for layout-level data — the signed-in user in
+the nav — and `useShellData()` reads it from the shell and from every route it
+renders. Shells are only ever declared as module refs, so the loader is always
+an inline export; there is no separate-file form like `route({ loader })`.
+
+Server side (`runtime-page.ts`):
+
+- The shell loader gets the route's `BaseRouteArgs` (same request, params,
+  middleware context, signal, matched route) and runs after middleware,
+  **concurrently** with the route loader (`runPageLoaders`). Both settle before
+  either outcome is used, so the answer is deterministic: a shell error or
+  `Response` wins over the route's, because the shell wraps the route. A shell
+  loader failure is attributed to the shell file as `loaderFile`.
+- Its data (`defer()` values resolved) is rendered through the runtime
+  provider, serialized as `shellData` in the hydration state and the
+  route-state JSON (`{ data, shellData?, fontHead }`), and kept on error
+  responses when only the route loader failed. `shellData` is absent when the
+  shell has no loader or the loader did not run.
+- A route-state request carrying `x-pracht-shell-data: <name>` whose value is
+  the matched route's shell skips the shell loader and omits `shellData`. Such
+  responses add `Vary: x-pracht-shell-data` when the shell has a loader. The
+  header is client-controlled, so a shell loader is not an authorization
+  boundary; gating stays in middleware.
+- SPA documents run it (like the route loader) but render the loading tree
+  without it and mark the state `pending` so the client fetches it. Islands and
+  `hydration: "none"` render with it and serialize nothing.
+
+Client side (`router.ts`, `runtime-context.ts`):
+
+- The router records the committed shell and its data (`committedShell`,
+  `committedShellState`) and publishes the held shell name through
+  `setHeldShell()`. A navigation to a route of the same shell reuses that data,
+  claims the shell on its route-state request, and passes the provider the
+  same `shellData` reference. The provider stamps revalidated shell data with
+  the shell and the reference it replaced, so a revalidated value survives
+  same-shell navigations and is dropped when the shell changes.
+- `revalidateRouteData()` (every revalidation path) and the reload after a
+  `<Form>` redirect never claim a shell, so they refresh shell data too.
+- Prefetches claim the held shell for routes in it; the claim is part of the
+  prefetch cache key (`routeStateCacheKey`), so a response fetched without the
+  shell's data is never consumed by a navigation that needs it.
+- `hasShellLoader` is a build-time route hint (shell loader presence from the
+  loader hint table, which scans shells and pages `_app` files too). A
+  loaderless, headless, middleware-free route skips the route-state request
+  only when its shell has no loader or the client already holds its data. The
+  static export and `pracht verify` reject SPA routes whose shell has a loader.
+
 ### Containing a failure inside a page
 
 A route or shell `ErrorBoundary` replaces the whole page. When only part of an
@@ -962,6 +1011,9 @@ export function headers() {
   return { "content-security-policy": "default-src 'self'" };
 }
 ```
+
+An `_app` can export a `loader` too; it is an ordinary [shell
+loader](#shell-loaders).
 
 #### Directory-scoped shells
 

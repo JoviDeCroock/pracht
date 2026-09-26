@@ -66,6 +66,14 @@ declare module "@pracht/core" {
         data: RouteLoaderData<typeof import("./routes/settings")>;
       };
     };
+    shells: {
+      "marketing": {
+        data: RouteLoaderData<typeof import("./shells/marketing")>;
+      };
+      "app": {
+        data: RouteLoaderData<typeof import("./shells/app")>;
+      };
+    };
     apiRoutes: {
       "/api/admin/approvals": {
         path: "/api/admin/approvals";

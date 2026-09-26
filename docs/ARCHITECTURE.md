@@ -227,6 +227,12 @@ Shells are decoupled from URLs — a `/dashboard` and `/settings` can share the
 `app` shell without being nested under `/app/*`. This avoids the "layout route"
 pattern that forces URL structure to mirror component hierarchy.
 
+A shell can also export `loader(args)` for layout-level data (the signed-in
+user in the nav). It runs beside the route loader, is read with
+`useShellData()`, and outlives the route that loaded it: the client router
+keeps it across navigations that stay in the shell. See
+[ROUTING.md](ROUTING.md#shell-loaders).
+
 ### 4. Middleware
 
 Server-side wrap-around functions that surround loaders and API handlers via
@@ -312,14 +318,18 @@ Build starts
 ```
 User clicks <a> or calls navigate()
   → Client router matches new route
-  → If the route has a loader or middleware, in parallel:
+  → If the route has a loader or middleware (or its shell has a loader whose
+    data the client does not hold yet), in parallel:
       ├─ Fetch route state via GET with x-pracht-route-state-request header
+      │  (plus x-pracht-shell-data: <shell> when staying in the same shell)
       ├─ Import route module chunk
       └─ Import shell module chunk (if applicable)
   → Otherwise, import the route/shell modules only and skip the server fetch
-  → Server runs middleware + loader when needed and returns JSON (no HTML rendering)
+  → Server runs middleware, then the route and shell loaders concurrently
+    (skipping a claimed shell's loader), and returns JSON (no HTML rendering)
     with no-store by default or the route's private loaderCache duration
-  → Client updates component tree with new data + loaded modules
+  → Client updates component tree with new data + loaded modules, keeping the
+    held shell data when the shell did not change
   → Update URL via history.pushState
   → After the destination commits, replace WebMCP registrations with that route's capabilities
 ```

@@ -1,6 +1,6 @@
 ---
 name: typed-routes
-version: 1.1.1
+version: 1.2.0
 description: |
   Add or maintain pracht typed routes: run typegen, adopt route-id based links and
   navigation, and replace hard-coded hrefs with generated helpers.
@@ -152,6 +152,11 @@ generic form for projects that do not generate route types. Routes without a
 loader type their data as `undefined`. The id must be the active route: a
 mismatch throws (with a descriptive message in dev), so a shell or island that
 needs another route's data must receive it as props instead.
+
+Shell loaders register the same way: `useShellData("app")` types the result
+from the `app` shell's `loader` for every shell a route renders under. It is
+typed `| undefined` because the shell can render without its data (the SPA
+loading state), and naming a shell the active route does not use throws.
 
 ### API routes
 

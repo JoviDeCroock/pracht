@@ -113,6 +113,10 @@ await prefetch({ route: "product", params: { id: "42" } }); // typed target
 `prefetch()` warms the route's JS chunks and caches its route-state JSON. It
 is a no-op during SSR, before hydration, and for URLs that match no route.
 
+Prefetching a route in the shell already on screen leaves out that shell's
+[loader data](/docs/shells#shell-data), exactly as the navigation would; a
+route in another shell prefetches its shell's data too.
+
 ---
 
 ## Viewport Prefetching

@@ -33,7 +33,10 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
 - **Dynamic segments**: `:param` syntax, catch-all segments.
 - **Typed route links**: `pracht typegen` emits route id/param types and href helpers for `<Link>`, `useNavigate()`, and code outside components.
 - **Shells**: named layout wrappers (e.g. `public`, `app`) decoupled from URL
-  structure; assigned per route or group.
+  structure; assigned per route or group. A shell can export its own `loader`
+  for layout-level data, read with `useShellData()` from the shell and its
+  routes, run concurrently with the route loader, and reused across client
+  navigations that stay in the shell.
 - **Middleware**: named middleware defined in `src/middleware/`, applied per route
   or group; runs server-side before loaders.
 - **Route groups**: inherit shell, middleware, render mode, and path prefix.
@@ -109,7 +112,7 @@ core framework conventions. See
 
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
-- **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
+- **Client hooks**: `useRouteData()`, `useShellData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
   `useLocation()`, `useSearchParams()`, `useParams()`, `useBlocker()` (guard a
   navigation before it commits, including back/forward and document unload),

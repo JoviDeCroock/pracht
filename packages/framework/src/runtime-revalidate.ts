@@ -4,7 +4,8 @@ import type { PrachtRuntimeValue } from "./runtime-context.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
 /**
- * Re-fetch the active route's loader data and commit it to the runtime.
+ * Re-fetch the active route's and shell's loader data and commit it to the
+ * runtime.
  * Shared by `useRevalidate()`, `<Form capability>` submissions, and the
  * capability-settled listener in the runtime provider, so every mutation
  * path refreshes the page the same way.
@@ -41,7 +42,9 @@ export async function revalidateRouteData(
   if (result.fontHead && runtimeOwnsCurrentLocation(runtime)) {
     applyFontHeadFragments(result.fontHead);
   }
-  runtime?.setData(result.data);
+  // No shell is claimed on this request, so the shell loader re-ran too: a
+  // revalidation refreshes everything the page shows.
+  runtime?.setData(result.data, result.shell);
   return result.data;
 }
 

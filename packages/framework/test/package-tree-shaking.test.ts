@@ -217,11 +217,14 @@ describe("published package tree shaking", () => {
     // can be folded.
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
+    // Raised from 10,250 for shell loaders: the router tracks the shell data
+    // on screen so a navigation inside the same shell reuses it (and tells the
+    // server to skip the shell loader) instead of re-running it.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,250 gzip bytes", async () => {
+    it("keeps the router runtime below 10,600 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_250);
+      expect(gzipBytes).toBeLessThanOrEqual(10_600);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -371,9 +374,10 @@ describe("published package tree shaking", () => {
     it("lands below the pre-guard ceiling when disabled", async () => {
       // The point of the switch: an app that guards no navigation pays nothing
       // for the feature, including the index stamped on every history entry.
+      // Raised from 9,960 with the router ceiling above, for shell loaders.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_960);
+      expect(gzipBytes).toBeLessThanOrEqual(10_310);
     });
 
     it("keeps guards when the feature is enabled", async () => {

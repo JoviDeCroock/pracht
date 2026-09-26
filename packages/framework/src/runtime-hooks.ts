@@ -68,6 +68,8 @@ import type {
   RouteId,
   RouteParams,
   RouteTarget,
+  ShellDataFor,
+  ShellName,
   UntypedRouteTarget,
 } from "./types.ts";
 
@@ -258,6 +260,35 @@ export function useRouteData(routeId?: string): unknown {
     );
   }
   return runtime?.data;
+}
+
+/**
+ * Read the loader data of the shell the active route renders under, from the
+ * shell itself or from any route inside it.
+ *
+ * Like `useRouteData(id)`, the shell name is a typing shortcut that is still
+ * honoured: naming a shell the active route does not render under throws.
+ * Returns `undefined` when the shell has no loader, and wherever the shell
+ * renders before or without its data — the `render: "spa"` loading state, and
+ * an error boundary rendered after the shell loader itself failed.
+ */
+export function useShellData<TShell extends ShellName>(
+  shell: TShell,
+): ShellDataFor<TShell> | undefined;
+export function useShellData<TLoader extends LoaderLike>(): LoaderData<TLoader> | undefined;
+export function useShellData<TData = unknown>(): TData | undefined;
+export function useShellData(shell?: string): unknown {
+  const runtime = useContext(RouteDataContext);
+  if (shell !== undefined && runtime && runtime.shell !== shell) {
+    throw new Error(
+      import.meta.env?.DEV
+        ? `useShellData(${JSON.stringify(shell)}) was called while route ${JSON.stringify(runtime.routeId)} ` +
+            `renders under ${runtime.shell === undefined ? "no shell" : `shell ${JSON.stringify(runtime.shell)}`}. ` +
+            "Drop the shell name to read the active shell's data."
+        : `useShellData: ${shell} is not the active shell (${runtime.shell})`,
+    );
+  }
+  return runtime?.shellData;
 }
 
 export function useLocation(): Location {

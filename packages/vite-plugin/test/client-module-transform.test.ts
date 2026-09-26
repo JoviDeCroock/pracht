@@ -21,6 +21,8 @@ import {
   pracht,
 } from "../src/index.ts";
 import { stripServerOnlyExportsForClient } from "../src/client-module-transform.ts";
+import { createRouteHintsForVirtualModules } from "../src/plugin-codegen.ts";
+import { resolveOptions } from "../src/plugin-options.ts";
 import { GENERATED_PAGES_LAYOUT_EXPORT } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
@@ -660,6 +662,47 @@ describe("client route module build", () => {
     expect(clientSource).toContain('"/src/routes/about.tsx":false');
     expect(serverSource).toContain('"./routes/index.tsx":true');
     expect(serverSource).toContain('"./routes/about.tsx":false');
+  });
+
+  // A shell loader alone makes a loaderless route fetch route state when the
+  // shell changes, so shells contribute to the loader table the client reads.
+  it("records shell loader hints for manifest shells and pages `_app` shells", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    mkdirSync(join(root, "src", "pages", "blog"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(join(root, "src", "routes", "index.tsx"), "export default function Home() {}\n");
+    writeFileSync(
+      join(root, "src", "shells", "app.tsx"),
+      "export async function loader() { return {}; }\nexport function Shell() {}\n",
+    );
+    writeFileSync(join(root, "src", "shells", "public.tsx"), "export function Shell() {}\n");
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsx"),
+      "export async function loader() { return {}; }\nexport function Shell() {}\n",
+    );
+    writeFileSync(join(root, "src", "pages", "blog", "_app.tsx"), "export function Shell() {}\n");
+    writeFileSync(join(root, "src", "pages", "index.tsx"), "export default function Home() {}\n");
+
+    const manifest = createRouteHintsForVirtualModules(
+      resolveOptions({ appFile: "/src/routes.ts" }),
+      root,
+    ).loader;
+    expect(manifest["./shells/app.tsx"]).toBe(true);
+    expect(manifest["./shells/public.tsx"]).toBe(false);
+    expect(manifest["./routes/index.tsx"]).toBe(false);
+
+    const pages = createRouteHintsForVirtualModules(
+      resolveOptions({ pagesDir: "/src/pages" }),
+      root,
+    ).loader;
+    expect(pages["/src/pages/_app.tsx"]).toBe(true);
+    expect(pages["/src/pages/blog/_app.tsx"]).toBe(false);
+    expect(pages["/src/pages/index.tsx"]).toBe(false);
+
+    const client = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
+    expect(client).toContain("route.hasShellLoader = shellLoaderHint");
   });
 
   it("embeds head hints for implicit TSRX page shells", () => {

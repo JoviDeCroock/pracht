@@ -14,8 +14,13 @@ import {
   EMPTY_ROUTE_STATE_PROMISE,
   getCachedRouteState,
   removeCachedRouteState,
+  routeStateCacheKey,
 } from "./prefetch-cache.ts";
-import { fetchPrachtRouteState, routeNeedsServerFetch } from "./runtime-client-fetch.ts";
+import {
+  fetchPrachtRouteState,
+  getHeldShell,
+  routeNeedsServerFetch,
+} from "./runtime-client-fetch.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import type {
   ResolvedPrachtApp,
@@ -54,14 +59,22 @@ export function getPrefetchTarget(): { app: ResolvedPrachtApp; warmModules?: Mod
  * cache so a transient network error does not poison later navigations.
  */
 export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<RouteStateResult> {
-  if (route && !routeNeedsServerFetch(route)) return EMPTY_ROUTE_STATE_PROMISE;
+  // A route under the shell whose data the router already holds claims it, so
+  // the server skips that shell's loader. The claim is part of the cache key:
+  // the router only consumes an entry that makes the claim it would make.
+  const heldShell = getHeldShell();
+  const claim = route?.shell !== undefined && route.shell === heldShell ? heldShell : undefined;
+  if (route && !routeNeedsServerFetch(route, claim !== undefined)) {
+    return EMPTY_ROUTE_STATE_PROMISE;
+  }
 
-  const cached = getCachedRouteState(url);
+  const key = routeStateCacheKey(url, claim);
+  const cached = getCachedRouteState(key);
   if (cached) return cached;
 
-  const promise = fetchPrachtRouteState(url);
-  cacheRouteState(url, promise);
-  promise.catch(() => removeCachedRouteState(url, promise));
+  const promise = fetchPrachtRouteState(url, { heldShell: claim });
+  cacheRouteState(key, promise);
+  promise.catch(() => removeCachedRouteState(key, promise));
   return promise;
 }
 

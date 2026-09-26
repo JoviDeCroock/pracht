@@ -197,7 +197,7 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
   const outputs = [
     {
       path: declarationPath,
-      source: buildDeclarationSource(routes, apiRoutes, {
+      source: buildDeclarationSource(routes, apiRoutes, report.notFound ?? null, {
         appDir: dirname(resolveProjectPath(options.root, project.appFile)),
         declarationDir: dirname(declarationPath),
         root: options.root,
@@ -308,6 +308,7 @@ interface DeclarationContext {
 function buildDeclarationSource(
   routes: RouteEntry[],
   apiRoutes: ApiRouteEntry[],
+  notFound: RouteEntry | null,
   context: DeclarationContext,
 ): string {
   const importsApiMethodMap = apiRoutes.some((route) => formatModuleSpecifier(route.file, context));
@@ -333,6 +334,26 @@ function buildDeclarationSource(
     lines.push(`        params: ${formatParamsType(inferRouteParams(route.path))};`);
     lines.push("        search: SearchParamsInput;");
     lines.push(`        data: ${formatRouteDataType(route, context)};`);
+    lines.push("      };");
+  }
+
+  lines.push("    };");
+  lines.push("    shells: {");
+
+  // Every shell a page renders under, keyed by its registered name. A shell
+  // no route uses never renders, so it has no data to type.
+  const shells = new Map<string, string>();
+  for (const route of notFound ? [...routes, notFound] : routes) {
+    if (route.shell && route.shellFile && !shells.has(route.shell)) {
+      shells.set(route.shell, route.shellFile);
+    }
+  }
+  for (const [name, file] of shells) {
+    const moduleSpecifier = formatModuleSpecifier(file, context);
+    lines.push(`      ${JSON.stringify(name)}: {`);
+    lines.push(
+      `        data: ${moduleSpecifier ? `RouteLoaderData<typeof import(${moduleSpecifier})>` : "unknown"};`,
+    );
     lines.push("      };");
   }
 

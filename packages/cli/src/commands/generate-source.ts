@@ -44,8 +44,35 @@ export function buildPagesRouteModuleSource(
   return `${sections.join("\n")}\n`;
 }
 
-export function buildShellModuleSource(name: string): string {
+export function buildShellModuleSource(
+  name: string,
+  options: { includeLoader?: boolean } = {},
+): string {
   const title = titleCase(name);
+  if (options.includeLoader) {
+    return [
+      'import { useShellData, type LoaderArgs, type ShellProps } from "@pracht/core";',
+      "",
+      "export async function loader(_args: LoaderArgs) {",
+      `  return { name: ${quote(title)} };`,
+      "}",
+      "",
+      "export function Shell({ children }: ShellProps) {",
+      "  const data = useShellData<typeof loader>();",
+      "  return (",
+      `    <div class=${quote(`${name}-shell`)}>`,
+      "      <header>{data?.name}</header>",
+      "      <main>{children}</main>",
+      "    </div>",
+      "  );",
+      "}",
+      "",
+      "export function head() {",
+      `  return { title: ${quote(title)} };`,
+      "}",
+      "",
+    ].join("\n");
+  }
   return [
     'import type { ShellProps } from "@pracht/core";',
     "",
