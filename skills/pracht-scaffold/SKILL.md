@@ -82,7 +82,7 @@ agent or tool consumes the output. When the pracht MCP server is registered
 
 | Kind       | Directory         | Key exports                                                                      |
 | ---------- | ----------------- | -------------------------------------------------------------------------------- |
-| Route      | `src/routes/`     | `loader`, `head`, `Component`, `ErrorBoundary`, `getStaticPaths`                 |
+| Route      | `src/routes/`     | `loader`, `head`, `Component`, `ErrorBoundary`, `getStaticPaths`, `search`       |
 | Shell      | `src/shells/`     | `Shell`, `head`                                                                  |
 | Middleware | `src/middleware/` | `middleware`                                                                     |
 | API route  | `src/api/`        | Named method handlers (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) or one default dispatcher |
@@ -133,6 +133,12 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   return <section>{/* route UI */}</section>;
 }
 ```
+
+A route that reads query params gets a `search` export — a Standard Schema
+for the query (`z.object({ page: z.coerce.number().default(1) })`). Type the
+loader as `LoaderArgs & SearchArgs<typeof search>`, read it in components with
+`useSearch("route-id")`, and pair it with an `ErrorBoundary` for the 400 a
+rejected query renders. See the typed-routes skill.
 
 **Shell** — `Shell({ children }: ShellProps)` rendering `{children}`, plus an
 optional `head()`. Never render `<html>`, `<head>`, or `<body>`.

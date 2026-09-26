@@ -8,6 +8,8 @@ import type {
   RouteParams,
 } from "@pracht/core";
 
+import { searchParamsToRecord } from "@pracht/core";
+
 import {
   isBlobLike,
   normalizeFormNewlines,
@@ -59,11 +61,18 @@ export interface CreateLoaderArgsInput<
 > extends CreateArgsInput<TContext> {
   /** Override matched-route metadata; merged over sensible defaults. */
   route?: Partial<ResolvedRoute>;
+  /**
+   * Parsed search params, as the route's `search` schema would produce them.
+   * Defaults to the raw query record (one string per key, an array for
+   * repeated keys) — what a route without a schema receives.
+   */
+  search?: unknown;
 }
 
-export interface CreateMiddlewareArgsInput<
-  TContext = RegisteredContext,
-> extends CreateLoaderArgsInput<TContext> {}
+export interface CreateMiddlewareArgsInput<TContext = RegisteredContext> extends Omit<
+  CreateLoaderArgsInput<TContext>,
+  "search"
+> {}
 
 export interface CreateApiArgsInput<
   TContext = RegisteredContext,
@@ -262,6 +271,7 @@ export function createLoaderArgs<TContext = RegisteredContext>(
   return {
     ...base,
     route: buildResolvedRoute(base.url, input.route),
+    search: "search" in input ? input.search : searchParamsToRecord(base.url.searchParams),
   };
 }
 
@@ -272,7 +282,12 @@ export function createLoaderArgs<TContext = RegisteredContext>(
 export function createMiddlewareArgs<TContext = RegisteredContext>(
   input: CreateMiddlewareArgsInput<TContext> = {},
 ): TestMiddlewareArgs<TContext> {
-  return createLoaderArgs(input);
+  // Middleware runs before the route's search schema, so it has no `search`.
+  const base = buildBaseArgs(input);
+  return {
+    ...base,
+    route: buildResolvedRoute(base.url, input.route),
+  };
 }
 
 /**

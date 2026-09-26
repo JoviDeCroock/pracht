@@ -1,6 +1,6 @@
 ---
 name: typed-routes
-version: 1.1.1
+version: 1.2.0
 description: |
   Add or maintain pracht typed routes: run typegen, adopt route-id based links and
   navigation, and replace hard-coded hrefs with generated helpers.
@@ -153,6 +153,41 @@ loader type their data as `undefined`. The id must be the active route: a
 mismatch throws (with a descriptive message in dev), so a shell or island that
 needs another route's data must receive it as props instead.
 
+### Search params
+
+A route that reads its query string should export a `search` schema (any
+Standard Schema validator) instead of parsing `url.searchParams` by hand.
+Typegen then types `search` on `<Link>`, `navigate()`, and `href()` from the
+schema's input, and `useSearch(routeId)` returns its output:
+
+```tsx
+import { Link, useSearch, type LoaderArgs, type SearchArgs } from "@pracht/core";
+import * as z from "zod";
+
+export const search = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  q: z.string().optional(),
+});
+
+export async function loader(args: LoaderArgs & SearchArgs<typeof search>) {
+  return listProducts(args.search); // { page: number; q?: string }
+}
+
+export function Component() {
+  const { page, q } = useSearch("products");
+  return <Link route="products" search={{ page: page + 1, q }}>Next</Link>;
+}
+```
+
+- Values arrive as strings (arrays for repeated keys): coerce with
+  `z.coerce.*`, and give optional params defaults so the bare URL is valid. A
+  key that may repeat is a plain string when it appears once — accept both.
+- A rejected query answers 400 and renders the route's `ErrorBoundary` with
+  `error.issues`; client navigation does the same.
+- SSG/ISG routes are prerendered with an empty query, so the schema must
+  accept one; loaders there only ever see the defaults.
+- Keep `useSearchParams()` for raw access; it is unchanged.
+
 ### API routes
 
 After typegen, `apiFetch()` type-checks API calls end to end — paths,
@@ -186,8 +221,11 @@ Generated param types accept `RouteParamInput = string | number | boolean`
 - `:path*` requires `params: { path: RouteParamInput }`.
 - Routes with no dynamic segments should omit `params`.
 - Missing and extra params should fail at typecheck time.
-- `search` currently accepts `string`, `URLSearchParams`, or an object of
-  primitive values/arrays; route-specific search schemas can be added later.
+- `search` is typed by the route module's `search` schema input when it
+  exports one: unknown keys and wrong value types fail, keys whose input
+  cannot come from a string (`z.number()`) fail, and a required key makes
+  `search` itself required. Routes without a schema accept `string`,
+  `URLSearchParams`, or an object of primitive values/arrays.
 
 ## Step 5: Verify
 

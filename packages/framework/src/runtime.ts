@@ -127,6 +127,7 @@ export {
   useParams,
   useRevalidate,
   useRouteData,
+  useSearch,
   useSearchParams,
   type FormProps,
   type LinkHrefGuidance,

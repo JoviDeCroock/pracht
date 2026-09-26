@@ -1,3 +1,4 @@
+import type { ApiValidationIssue } from "./api-validation.ts";
 import type { PrachtHttpError, ResolvedApiRoute, ResolvedRoute } from "./types.ts";
 
 export type PrachtRuntimeDiagnosticPhase =
@@ -48,6 +49,8 @@ export interface SerializedRouteError {
   name: string;
   status: number;
   diagnostics?: PrachtRuntimeDiagnostics;
+  /** Normalized issues from a rejected route `search` schema. */
+  issues?: ApiValidationIssue[];
 }
 
 type DiagnosticRoute = ResolvedRoute | ResolvedApiRoute;
@@ -136,10 +139,12 @@ export function normalizeRouteError(
   if (isPrachtHttpError(error)) {
     const status = typeof error.status === "number" ? error.status : 500;
     if (status >= 400 && status < 500) {
+      const issues = (error as { issues?: ApiValidationIssue[] }).issues;
       return {
         message: error.message,
         name: error.name,
         status,
+        ...(issues ? { issues } : {}),
       };
     }
 
@@ -190,12 +195,12 @@ export function normalizeRouteError(
 }
 
 export function deserializeRouteError(error: SerializedRouteError): Error {
-  const result = new Error(error.message);
+  const result = new Error(error.message) as Error &
+    Pick<SerializedRouteError, "diagnostics" | "issues" | "status">;
   result.name = error.name;
-  (result as Error & { diagnostics?: PrachtRuntimeDiagnostics; status?: number }).status =
-    error.status;
-  (result as Error & { diagnostics?: PrachtRuntimeDiagnostics; status?: number }).diagnostics =
-    error.diagnostics;
+  result.status = error.status;
+  result.diagnostics = error.diagnostics;
+  if (error.issues) result.issues = error.issues;
   return result;
 }
 

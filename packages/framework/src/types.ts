@@ -10,8 +10,10 @@ import type {
   PrachtAgentsConfig,
   PrachtContextExtensions,
 } from "@pracht/capabilities/server/internal";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { ComponentChildren, FunctionComponent } from "preact";
 
+import type { ApiValidationIssue } from "./api-validation.ts";
 import type { RouteConstraint } from "./constraints.ts";
 import type { PrachtFont } from "./font.ts";
 
@@ -86,6 +88,73 @@ export type SearchParamValue =
   | readonly (SearchParamPrimitive | null | undefined)[];
 export type SearchParamsInput = string | URLSearchParams | Record<string, SearchParamValue>;
 
+/**
+ * The query string as a route's `search` schema receives it: one string per
+ * key, or an array of strings when the key repeats (`?tag=a&tag=b`). Routes
+ * without a schema see this record as their parsed search params.
+ */
+export type SearchParamsRecord = Record<string, string | string[]>;
+
+type SearchWireError = {
+  readonly "Search params arrive as strings; give this key a schema input that accepts them (e.g. z.coerce.number())": never;
+};
+
+/**
+ * What a link may pass for a route whose module exports a `search` schema:
+ * the schema's input, narrowed to values `href()` can serialize. Keys whose
+ * input has no string representation (`z.number()`) can never validate from
+ * a URL, so they become a compile-time error; opaque inputs (`unknown`, as
+ * `z.coerce.number()` declares) accept any serializable value.
+ */
+type SearchInputWireCheck<TInput> =
+  TInput extends Record<string, unknown>
+    ? {
+        [TKey in keyof TInput]: unknown extends TInput[TKey]
+          ? SearchParamValue
+          : [Extract<NonNullable<TInput[TKey]>, string | readonly string[]>] extends [never]
+            ? SearchWireError
+            : TInput[TKey] & SearchParamValue;
+      }
+    : SearchParamsInput;
+
+/**
+ * Search input accepted by `<Link search>`, `navigate()`, and `href()` for a
+ * route module. `pracht typegen` registers it per route; modules without a
+ * `search` export keep the untyped `SearchParamsInput`.
+ */
+export type RouteSearchInput<TModule> = TModule extends { search: infer TSchema }
+  ? TSchema extends StandardSchemaV1
+    ? SearchInputWireCheck<StandardSchemaV1.InferInput<TSchema>>
+    : SearchParamsInput
+  : SearchParamsInput;
+
+/**
+ * Parsed search params for a route module: the output of its `search`
+ * schema, or the raw `SearchParamsRecord` when it exports none. `useSearch()`
+ * returns this type once `pracht typegen` registers it.
+ */
+export type RouteSearchOutput<TModule> = TModule extends { search: infer TSchema }
+  ? TSchema extends StandardSchemaV1
+    ? StandardSchemaV1.InferOutput<TSchema>
+    : SearchParamsRecord
+  : SearchParamsRecord;
+
+/**
+ * Narrow `args.search` to a schema's output in a loader, `head()`, or
+ * `headers()` signature:
+ *
+ * ```ts
+ * export const search = z.object({ page: z.coerce.number().default(1) });
+ *
+ * export async function loader(args: LoaderArgs & SearchArgs<typeof search>) {
+ *   return getProducts({ page: args.search.page });
+ * }
+ * ```
+ */
+export type SearchArgs<TSchema extends StandardSchemaV1> = {
+  search: StandardSchemaV1.InferOutput<TSchema>;
+};
+
 export interface BuildHrefOptions {
   params?: Record<string, RouteParamInput>;
   search?: SearchParamsInput;
@@ -153,6 +222,14 @@ export type RouteSearchFor<TRoute extends RouteId> = HasRegisteredRoutes extends
     : never
   : SearchParamsInput;
 
+export type RouteSearchOutputFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
+  ? TRoute extends keyof RegisteredRouteMap
+    ? RegisteredRouteMap[TRoute] extends { searchOutput: infer TSearch }
+      ? TSearch
+      : unknown
+    : never
+  : unknown;
+
 export type RouteDataFor<TRoute extends RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends keyof RegisteredRouteMap
     ? RegisteredRouteMap[TRoute] extends { data: infer TData }
@@ -161,18 +238,21 @@ export type RouteDataFor<TRoute extends RouteId> = HasRegisteredRoutes extends t
     : never
   : unknown;
 
-type TypedHrefOptions<TRoute extends RouteId> =
-  IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
-    ? {
-        params?: never;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      }
-    : {
-        params: RouteParamsFor<TRoute>;
-        search?: RouteSearchFor<TRoute>;
-        hash?: string;
-      };
+// A search schema with required keys makes `search` itself required.
+type IsOptionalRouteSearch<TRoute extends RouteId> =
+  Record<never, never> extends RouteSearchFor<TRoute> ? true : false;
+
+type TypedHrefSearch<TRoute extends RouteId> =
+  IsOptionalRouteSearch<TRoute> extends true
+    ? { search?: RouteSearchFor<TRoute> }
+    : { search: RouteSearchFor<TRoute> };
+
+type TypedHrefOptions<TRoute extends RouteId> = (IsEmptyRouteParams<
+  RouteParamsFor<TRoute>
+> extends true
+  ? { params?: never; hash?: string }
+  : { params: RouteParamsFor<TRoute>; hash?: string }) &
+  TypedHrefSearch<TRoute>;
 
 export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends RouteId
@@ -182,7 +262,10 @@ export type HrefOptions<TRoute extends RouteId = RouteId> = HasRegisteredRoutes 
 
 export type HrefArgs<TRoute extends RouteId = RouteId> = HasRegisteredRoutes extends true
   ? TRoute extends RouteId
-    ? IsEmptyRouteParams<RouteParamsFor<TRoute>> extends true
+    ? [IsEmptyRouteParams<RouteParamsFor<TRoute>>, IsOptionalRouteSearch<TRoute>] extends [
+        true,
+        true,
+      ]
       ? [options?: TypedHrefOptions<TRoute>]
       : [options: TypedHrefOptions<TRoute>]
     : never
@@ -774,7 +857,17 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
   pathname?: string;
 }
 
-export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
+/**
+ * Page-route args after the route's search schema ran. `search` is the
+ * output of the route module's `search` export, or the raw
+ * `SearchParamsRecord` when it exports none. Narrow it with `SearchArgs`.
+ */
+interface SearchRouteArgs {
+  search?: unknown;
+}
+
+export interface LoaderArgs<TContext = RegisteredContext>
+  extends BaseRouteArgs<TContext>, SearchRouteArgs {}
 
 /** The matched page or API route whose middleware chain is running. */
 export type MiddlewareRoute = ResolvedRoute | ResolvedApiRoute;
@@ -822,7 +915,10 @@ export interface HeadMetadata {
 
 export type MaybePromise<T> = T | Promise<T>;
 
-export type LoaderLike = ((args: LoaderArgs<any>) => unknown) | undefined;
+// `any` args, not `LoaderArgs<any>`: a loader typed with
+// `LoaderArgs & SearchArgs<typeof search>` demands a `search` the plain args
+// only declare as optional, and must still qualify.
+export type LoaderLike = ((args: any) => unknown) | undefined;
 
 export type LoaderData<TLoader extends LoaderLike> = TLoader extends (
   ...args: any[]
@@ -846,17 +942,13 @@ export type RouteLoaderData<TModule, TFallbackModule = TModule> = TModule extend
     ? Awaited<TFallbackResult>
     : undefined;
 
-export interface HeadArgs<
-  TLoader extends LoaderLike = undefined,
-  TContext = RegisteredContext,
-> extends BaseRouteArgs<TContext> {
+export interface HeadArgs<TLoader extends LoaderLike = undefined, TContext = RegisteredContext>
+  extends BaseRouteArgs<TContext>, SearchRouteArgs {
   data: LoaderData<TLoader>;
 }
 
-export interface HeadersArgs<
-  TLoader extends LoaderLike = undefined,
-  TContext = RegisteredContext,
-> extends BaseRouteArgs<TContext> {
+export interface HeadersArgs<TLoader extends LoaderLike = undefined, TContext = RegisteredContext>
+  extends BaseRouteArgs<TContext>, SearchRouteArgs {
   data: LoaderData<TLoader>;
 }
 
@@ -867,25 +959,40 @@ export interface RouteComponentProps<TLoader extends LoaderLike = undefined> {
 }
 
 export interface ErrorBoundaryProps {
-  error: Error & { diagnostics?: unknown; status?: number };
+  /** `issues` is set when the route's `search` schema rejected the query (status 400). */
+  error: Error & { diagnostics?: unknown; issues?: ApiValidationIssue[]; status?: number };
 }
 
 export interface ShellProps {
   children: ComponentChildren;
 }
 
+/**
+ * The runtime always sets `search`, so module-facing signatures declare it
+ * present (as `any`): a loader typed `LoaderArgs & SearchArgs<typeof search>`
+ * must still satisfy `RouteModule` and the module registry.
+ */
+type RuntimeSearchArgs = { search: any };
+
 export type LoaderFn<TContext = any, TData = unknown> = (
-  args: LoaderArgs<TContext>,
+  args: LoaderArgs<TContext> & RuntimeSearchArgs,
 ) => MaybePromise<TData>;
 
 export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefined> {
   loader?: LoaderFn<TContext>;
-  head?: (args: HeadArgs<TLoader, TContext>) => MaybePromise<HeadMetadata>;
-  headers?: (args: HeadersArgs<TLoader, TContext>) => MaybePromise<HeadersInit>;
+  head?: (args: HeadArgs<TLoader, TContext> & RuntimeSearchArgs) => MaybePromise<HeadMetadata>;
+  headers?: (args: HeadersArgs<TLoader, TContext> & RuntimeSearchArgs) => MaybePromise<HeadersInit>;
   Component?: FunctionComponent<RouteComponentProps<TLoader>>;
   default?: FunctionComponent<RouteComponentProps<TLoader>>;
   ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
   getStaticPaths?: () => MaybePromise<RouteParams[]>;
+  /**
+   * Standard Schema for the query string. It receives a `SearchParamsRecord`;
+   * its output reaches loaders, `head()`, and `headers()` as `args.search` and
+   * components through `useSearch()`. A rejected query renders the route's
+   * error boundary with status 400.
+   */
+  search?: StandardSchemaV1;
   // Raw markdown served when a client requests `Accept: text/markdown`
   // (Markdown-for-Agents). The runtime returns this string with
   // `Content-Type: text/markdown` instead of rendering the component.

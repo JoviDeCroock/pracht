@@ -186,3 +186,32 @@ export const app = defineApp({
     expect(patterns).not.toContain("!/src/pages/about.tsx");
   });
 });
+
+describe("client-side search validation", () => {
+  const MANIFEST = `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({
+  routes: [route("/", "./routes/home.tsx", { id: "home" })],
+});
+`;
+
+  it("ships the parser when a route module exports a search schema", () => {
+    const root = project({
+      "src/routes.ts": MANIFEST,
+      "src/routes/home.tsx": `export const search = schema;\n${COMPONENT}`,
+    });
+
+    expect(createPrachtClientModuleSource({}, { root })).toContain(
+      "    parseSearch: parseRouteSearch,",
+    );
+  });
+
+  it("keeps the parser out of production builds when no route declares a schema", () => {
+    const root = project({ "src/routes.ts": MANIFEST, "src/routes/home.tsx": COMPONENT });
+
+    // Dev keeps it so the first `search` export works without regenerating
+    // the entry; the production build folds the branch and drops the import.
+    expect(createPrachtClientModuleSource({}, { root })).toContain(
+      "    parseSearch: import.meta.env.DEV ? parseRouteSearch : undefined,",
+    );
+  });
+});

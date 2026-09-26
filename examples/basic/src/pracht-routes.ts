@@ -28,6 +28,10 @@ export const routes = [
     path: "/pricing",
   },
   {
+    id: "catalog",
+    path: "/catalog",
+  },
+  {
     id: "gallery",
     path: "/gallery",
   },
