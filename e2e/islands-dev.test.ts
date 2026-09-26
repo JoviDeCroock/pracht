@@ -152,3 +152,17 @@ test("editing an island keeps client state while file-only asset entries exist",
   await expect(page.getByTestId("increment")).toHaveText("Increment", { timeout: 15_000 });
   await expect(page.getByTestId("count")).toHaveText("Count: 6");
 });
+
+test("view transitions emit the cross-document rule on islands and none routes in dev", async ({
+  page,
+}) => {
+  test.setTimeout(20_000);
+
+  // examples/islands enables `viewTransitions`.
+  for (const path of ["/", "/static"]) {
+    const html = (await (await page.goto(path))?.text()) ?? "";
+    expect(html).toContain(
+      "<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>",
+    );
+  }
+});

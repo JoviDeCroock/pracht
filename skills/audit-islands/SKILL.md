@@ -115,7 +115,10 @@ navigation to, from, and between them is full-document (MPA-style), and
 route-state prefetching is skipped for them. Flag apps that rely on
 client-side state surviving navigation across such routes (in-memory stores,
 module-level caches shared between pages) — every navigation is a fresh
-document.
+document. Page-change animation does not need the client router: with
+`defineApp({ viewTransitions: true })` these documents carry a
+`@view-transition` rule and animate as cross-document view transitions, so
+flag only apps that load extra JavaScript to animate such navigations.
 
 ## Step 4: Report
 
