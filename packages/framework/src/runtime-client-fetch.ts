@@ -1,11 +1,15 @@
-import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
+import { ROUTE_STATE_REQUEST_HEADER, SHELL_DATA_REQUEST_HEADER } from "./runtime-constants.ts";
 import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
 import type { FontHeadFragments } from "./font.ts";
 import type { ResolvedRoute } from "./types.ts";
 
+/**
+ * `shell` is present when the response carried the shell loader's data: the
+ * shell has a loader and the request did not claim to hold its data already.
+ */
 export type RouteStateResult =
-  | { type: "data"; data: unknown; fontHead?: FontHeadFragments }
+  | { type: "data"; data: unknown; shell?: { data: unknown }; fontHead?: FontHeadFragments }
   /**
    * `location` is absent for an opaque redirect: the fetch was made with
    * `redirect: "manual"`, and an opaque response exposes neither the status
@@ -14,7 +18,12 @@ export type RouteStateResult =
    * and let it follow the 3xx itself.
    */
   | { type: "redirect"; location?: string }
-  | { type: "error"; error: SerializedRouteError; fontHead?: FontHeadFragments };
+  | {
+      type: "error";
+      error: SerializedRouteError;
+      shell?: { data: unknown };
+      fontHead?: FontHeadFragments;
+    };
 
 const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 
@@ -41,8 +50,17 @@ export function parseSafeNavigationUrl(location: string, base: string | URL): UR
   return targetUrl;
 }
 
-export function routeNeedsServerFetch(route: ResolvedRoute): boolean {
-  if (route.hasLoader === false && route.hasHead === false && route.middlewareFiles.length === 0) {
+/**
+ * `holdsShellData` is true when the client already holds the loader data of
+ * the route's shell, so a shell loader alone is no reason to ask the server.
+ */
+export function routeNeedsServerFetch(route: ResolvedRoute, holdsShellData?: boolean): boolean {
+  if (
+    route.hasLoader === false &&
+    route.hasHead === false &&
+    route.middlewareFiles.length === 0 &&
+    (route.hasShellLoader !== true || holdsShellData === true)
+  ) {
     return false;
   }
   // A static export writes one route-state file per prerendered path. A route
@@ -70,9 +88,32 @@ export function buildRouteStateUrl(url: string): string {
   return `${url}${separator}_data=1`;
 }
 
+/**
+ * The shell whose loader data the client router currently holds, or
+ * `undefined` when it holds none. Route-state requests made by the router and
+ * the prefetcher claim it so the server can skip that shell's loader.
+ */
+let heldShell: string | undefined;
+
+/** @internal */
+export function getHeldShell(): string | undefined {
+  return heldShell;
+}
+
+/** @internal */
+export function setHeldShell(shell: string | undefined): void {
+  heldShell = shell;
+}
+
 export async function fetchPrachtRouteState(
   url: string,
-  options?: { cache?: RequestCache; signal?: AbortSignal; useDataParam?: boolean },
+  options?: {
+    cache?: RequestCache;
+    signal?: AbortSignal;
+    useDataParam?: boolean;
+    /** Ask the server to skip this shell's loader; the client already holds its data. */
+    heldShell?: string;
+  },
 ): Promise<RouteStateResult> {
   // Static-export builds have no server to answer the route-state header (or
   // the `_data=1` query form): the loader payload was serialized to a static
@@ -84,9 +125,14 @@ export async function fetchPrachtRouteState(
     : options?.useDataParam
       ? buildRouteStateUrl(url)
       : url;
+  const headers: Record<string, string> =
+    IS_STATIC_TARGET || options?.useDataParam ? {} : { [ROUTE_STATE_REQUEST_HEADER]: "1" };
+  if (!IS_STATIC_TARGET && options?.heldShell !== undefined) {
+    headers[SHELL_DATA_REQUEST_HEADER] = options.heldShell;
+  }
   const response = await fetch(fetchUrl, {
     cache: options?.cache,
-    headers: IS_STATIC_TARGET || options?.useDataParam ? {} : { [ROUTE_STATE_REQUEST_HEADER]: "1" },
+    headers,
     redirect: "manual",
     signal: options?.signal,
   });
@@ -108,6 +154,7 @@ export async function fetchPrachtRouteState(
 
   const json = (await response.json()) as {
     data?: unknown;
+    shellData?: unknown;
     fontHead?: FontHeadFragments;
     error?: SerializedRouteError;
     redirect?: string;
@@ -119,12 +166,15 @@ export async function fetchPrachtRouteState(
     };
   }
 
+  const shell = "shellData" in json ? { data: json.shellData } : undefined;
+
   if (!response.ok) {
     if (json.error) {
       return {
         error: json.error,
         fontHead: json.fontHead,
         type: "error",
+        shell,
       };
     }
 
@@ -135,6 +185,7 @@ export async function fetchPrachtRouteState(
     data: json.data,
     fontHead: json.fontHead,
     type: "data",
+    shell,
   };
 }
 

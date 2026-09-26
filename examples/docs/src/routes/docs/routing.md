@@ -330,7 +330,7 @@ export function Shell({ children }: ShellProps) {
 }
 ```
 
-See [Shells](/docs/shells) for `head()`, `headers()`, and error boundaries.
+See [Shells](/docs/shells) for [shell data](/docs/shells#shell-data), `head()`, `headers()`, and error boundaries.
 
 ---
 
@@ -447,6 +447,8 @@ export function headers() {
   return { "content-security-policy": "default-src 'self'" };
 }
 ```
+
+An `_app` can also export a `loader` for [shell data](/docs/shells#shell-data), read with `useShellData()` from the shell and every page it wraps.
 
 #### Directory-scoped shells
 

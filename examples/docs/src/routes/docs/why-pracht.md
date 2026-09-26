@@ -32,8 +32,8 @@ Gzipped client JavaScript for the same page and markup, with one setting changed
 | --- | --- |
 | `hydration: "none"` | 0 KB |
 | `hydration: "islands"` | 7.5 KB |
-| `hydration: "full"` | 17.4 KB |
-| `hydration: "full"` + `preact/compat` | 18.2 KB |
+| `hydration: "full"` | 17.7 KB |
+| `hydration: "full"` + `preact/compat` | 18.5 KB |
 
 Your application code sits on top of these. `preact/compat` adds about 0.8 KB. The numbers come from `pnpm bench`; [Performance](/docs/performance) shows how to reproduce them and measure your own app.
 

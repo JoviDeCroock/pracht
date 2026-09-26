@@ -940,6 +940,8 @@ function createApplyRouteLoaderHintsSource(): string[] {
     "    } else if (typeof route.hasLoader === 'undefined' && typeof hint === 'boolean') {",
     "      route.hasLoader = hint;",
     "    }",
+    "    const shellLoaderHint = route.shellFile ? routeLoaderHints[route.shellFile] : undefined;",
+    "    if (typeof shellLoaderHint === 'boolean') route.hasShellLoader = shellLoaderHint;",
     "    const routeHeadHint = routeHeadHints[route.file];",
     "    const shellHeadHint = route.shellFile ? routeHeadHints[route.shellFile] : undefined;",
     "    const hasCompleteHeadHints = typeof routeHeadHint === 'boolean' &&",
@@ -1015,10 +1017,10 @@ export function createRouteHintsForVirtualModules(
     hints.incomplete ||= scanned.incomplete;
     Object.assign(hints.head, scanned.head);
     Object.assign(hints.headers, scanned.headers);
-    // A shell can own neither a loader, `getStaticPaths()`, nor a search
-    // schema, so only the routes directory contributes those.
+    // Shells can own a loader too; only routes own `getStaticPaths()` and a
+    // search schema.
+    Object.assign(hints.loader, scanned.loader);
     if (prefix === routesPrefix) {
-      Object.assign(hints.loader, scanned.loader);
       Object.assign(hints.search, scanned.search);
       Object.assign(hints.staticPaths, scanned.staticPaths);
     }
@@ -1026,8 +1028,12 @@ export function createRouteHintsForVirtualModules(
 
   if (options.pagesDir) {
     // Pages routes are keyed by their manifest-relative path and carry the
-    // loader flag the pages scanner already resolved.
-    hints.loader = {};
+    // loader flag the pages scanner already resolved. `_app` shells are not
+    // routes, so they keep the flag the directory scan gave them.
+    const shellLoaders = Object.entries(hints.loader).filter(([key]) =>
+      /(?:^|\/)_app\.[^/]+$/.test(key),
+    );
+    hints.loader = Object.fromEntries(shellLoaders);
     for (const page of scanPagesDirectory(
       resolve(root, options.pagesDir.slice(1)),
       options.additionalExtensions,

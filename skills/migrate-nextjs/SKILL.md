@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.7.0
+version: 1.8.0
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -75,6 +75,7 @@ automatic**:
 | `pages/` directory              | `pagesDir` plugin option                                        | Auto-discovers routes from the file system                            |
 | `app/page.tsx`                  | `src/routes/*.tsx` + `route()` in manifest                      | File is a module; wiring is explicit                                  |
 | `app/layout.tsx`                | `src/shells/*.tsx` + `shells` in `defineApp` (pages: `_app.tsx` per directory) | Named shells; a directory `_app` replaces its parent instead of nesting |
+| Layout data fetching | Shell `loader` + `useShellData()` | Reused within the shell |
 | `app/loading.tsx`               | `Loading` export on the shell                                   | SSR placeholder for SPA routes until the client router takes over     |
 | `app/error.tsx`                 | `ErrorBoundary` export in route module                          | Same concept, different wiring                                        |
 | `app/not-found.tsx`             | `notFound:` in `defineApp` (or `pages/404.tsx` in pagesDir mode) | Not a route — never matches a URL, so it cannot shadow static assets  |

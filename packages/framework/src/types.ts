@@ -239,6 +239,30 @@ export type RouteDataFor<TRoute extends RouteId> = HasRegisteredRoutes extends t
     : never
   : unknown;
 
+type RegisteredShellMap = Register extends { shells: infer TShells }
+  ? TShells extends Record<string, unknown>
+    ? TShells
+    : {}
+  : {};
+
+type HasRegisteredShells = keyof RegisteredShellMap extends never ? false : true;
+
+/**
+ * Shell names registered by `pracht typegen` — every shell a route renders
+ * under. Falls back to `string` before typegen has run.
+ */
+export type ShellName = HasRegisteredShells extends true
+  ? Extract<keyof RegisteredShellMap, string>
+  : string;
+
+export type ShellDataFor<TShell extends ShellName> = HasRegisteredShells extends true
+  ? TShell extends keyof RegisteredShellMap
+    ? RegisteredShellMap[TShell] extends { data: infer TData }
+      ? TData
+      : unknown
+    : never
+  : unknown;
+
 // A search schema with required keys makes `search` itself required.
 type IsOptionalRouteSearch<TRoute extends RouteId> =
   Record<never, never> extends RouteSearchFor<TRoute> ? true : false;
@@ -822,6 +846,8 @@ export interface ResolvedRoute extends Omit<RouteMeta, "middleware"> {
   loaderFile?: string;
   shell?: string;
   shellFile?: string;
+  /** @internal Build-time hint: does the route's shell export a `loader`? */
+  hasShellLoader?: boolean;
   middleware: string[];
   middlewareFiles: string[];
   segments: RouteSegment[];
@@ -1018,6 +1044,12 @@ export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefi
 
 export interface ShellModule<TContext = any> {
   Shell: FunctionComponent<ShellProps>;
+  /**
+   * Layout-level data, read with `useShellData()` from the shell and from
+   * every route it renders. Runs concurrently with the route loader and is
+   * reused across client navigations that keep the same shell.
+   */
+  loader?: LoaderFn<TContext>;
   Loading?: FunctionComponent;
   ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
   head?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadMetadata>;
