@@ -295,6 +295,12 @@ Browser request
   → Browser hydrates, client router takes over
 ```
 
+Request-time regions (`src/regions/`) are the exception to "one render per
+document": on SSR pages they render inline after the page, and on SSG/ISG pages
+the document carries a fallback that the browser fills from
+`GET /__pracht/region`, which runs the page route's middleware and the region
+loader per visitor. See [REGIONS.md](REGIONS.md).
+
 ### SSG Build
 
 ```
@@ -640,6 +646,10 @@ runtime-request.ts — front half of the server pipeline: createRequestContext,
 runtime-page.ts — back half: renderPage (middleware → loader → head/headers →
                   route-state JSON, SPA shell, or server-rendered document)
     ↑
+regions-server.ts — request-time regions: registry, vnode hook, inline token
+                    substitution, and the /__pracht/region endpoint
+                    (imported by runtime-page.ts and runtime.ts)
+    ↑
 runtime.ts      — handlePrachtRequest orchestrator + the public runtime re-exports
     ↑
 prefetch-cache.ts — bounded route-state cache shared by navigation, forms, and prefetching
@@ -667,6 +677,10 @@ href.ts         — createHref helper layered on buildHref
 forwardRef.ts   — forwardRef helper (no internal deps)
 error-overlay.ts — dev error page HTML + stack-frame parsing (no internal deps)
 dev-404.ts      — dev-only 404 page HTML listing registered routes (no internal deps)
+regions-shared.ts — region wire-format constants (no internal deps)
+regions-data.ts — RegionDataContext + useRegionData (browser-safe)
+regions-client.ts — the Preact-free region swap script (imports base.ts)
+regions-component.ts — client stand-in for region modules on full-hydration pages
 ```
 
 The published core package also exposes small browser-oriented entries:
@@ -680,6 +694,10 @@ The published core package also exposes small browser-oriented entries:
 - `@pracht/core/error-overlay` and `@pracht/core/dev-404` are dev-only entries
   loaded on demand by the Vite dev middleware (via `ssrLoadModule`); no
   production entry point or generated server entry imports them.
+- `@pracht/core/regions-client` is the region swap script behind
+  `virtual:pracht/regions-client`; `@pracht/core/regions-component` is what the
+  vite plugin compiles region modules to in client bundles. They are separate
+  entries so the swap script never shares a chunk with Preact.
 - `@pracht/core/env` exposes `publicEnv` (client-safe, `PRACHT_PUBLIC_`-prefixed
   vars only); `@pracht/core/env/server` exposes `serverEnv` and is server-only —
   the vite plugin rejects client-side imports of it at build time, and its

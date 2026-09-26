@@ -3,8 +3,8 @@ title: Data Loading
 lead: pracht provides a unified data model that works across all rendering modes. Loaders fetch data on the server, API routes handle mutations, and client hooks give reactive access to route data — all with full TypeScript inference.
 breadcrumb: Data Loading
 prev:
-  href: /docs/islands
-  title: Islands
+  href: /docs/regions
+  title: Request-time Regions
 next:
   href: /docs/content
   title: Content Collections

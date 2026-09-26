@@ -17,6 +17,7 @@ export { getSuffixIndex, normalizeModulePath, resolveRegistryModule };
 // the virtual module ids in @pracht/vite-plugin (plugin-assets.ts).
 export const CLIENT_ENTRY_MANIFEST_KEY = "virtual:pracht/client";
 export const ISLANDS_ENTRY_MANIFEST_KEY = "virtual:pracht/islands-client";
+export const REGIONS_ENTRY_MANIFEST_KEY = "virtual:pracht/regions-client";
 
 /**
  * Merge an entry chunk's own static import urls into a page's modulepreload

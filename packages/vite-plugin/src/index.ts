@@ -1,6 +1,6 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire, isBuiltin } from "node:module";
 import { join, resolve } from "node:path";
 import { loadEnv, type Plugin, type UserConfig } from "vite";
@@ -23,6 +23,7 @@ import {
   PRACHT_CLIENT_MODULE_ID,
   PRACHT_DEV_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
+  PRACHT_REGIONS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
   PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
@@ -31,6 +32,7 @@ import {
   isDevModule,
   isDevPageToolsModule,
   isIslandsClientModule,
+  isRegionsClientModule,
   isServerModule,
   isWebmcpModule,
 } from "./plugin-assets.ts";
@@ -50,7 +52,9 @@ import {
 } from "./plugin-capabilities.ts";
 import {
   clearPagesAppSourceCache,
+  createClientRegionModuleSource,
   createPrachtClientModuleSource,
+  createPrachtRegionsClientModuleSource,
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
   createRouteHintsForVirtualModules,
@@ -122,6 +126,7 @@ export {
   PRACHT_CLIENT_MODULE_ID,
   PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
+  PRACHT_REGIONS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
 };
@@ -196,6 +201,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         (existsSync(resolveConfigPath(configRoot, resolved.islandsDir)) ||
           hasWebmcpCapabilities(resolved, configRoot));
 
+      // The region swap script is its own client entry too, emitted only for
+      // apps that have a regions directory: every other app ships no trace of
+      // it, and the islands bootstrap drops its region listener with it.
+      const hasRegions = existsSync(resolveConfigPath(configRoot, resolved.regionsDir));
+      const wantsRegionsEntry = env.command === "build" && !isSSRBuild && hasRegions;
+      const regionsDefine = String(env.command !== "build" || hasRegions);
+
       // `publicEnv` needs every PRACHT_PUBLIC_ key, but reading the whole
       // `import.meta.env` object to enumerate them makes Vite inline *all*
       // exposed vars — VITE_ ones included — into the client bundle. Injecting
@@ -264,6 +276,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
               (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
                 ?.output,
               resolveConfigPath(configRoot, resolved.islandsDir),
+              resolveConfigPath(configRoot, resolved.regionsDir),
             )
           : {};
       if (serverChunkConfig.warning) {
@@ -289,6 +302,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
+          __PRACHT_REGIONS__: regionsDefine,
           ...clientFeatureDefines,
         },
         // The vendor split only makes sense for the client bundle; SSR builds
@@ -301,7 +315,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           : {
               build: {
                 rollupOptions: {
-                  ...(wantsIslandsEntry ? { input: [PRACHT_ISLANDS_CLIENT_MODULE_ID] } : {}),
+                  ...(wantsIslandsEntry || wantsRegionsEntry
+                    ? {
+                        input: [
+                          ...(wantsIslandsEntry ? [PRACHT_ISLANDS_CLIENT_MODULE_ID] : []),
+                          ...(wantsRegionsEntry ? [PRACHT_REGIONS_CLIENT_MODULE_ID] : []),
+                        ],
+                      }
+                    : {}),
                   ...(clientChunkConfig.output ? { output: clientChunkConfig.output } : {}),
                 },
               },
@@ -396,6 +417,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
     resolveId(id, importer, resolveIdOptions) {
       if (isIslandsClientModule(id)) return PRACHT_ISLANDS_CLIENT_MODULE_ID;
+      if (isRegionsClientModule(id)) return PRACHT_REGIONS_CLIENT_MODULE_ID;
       if (isClientModule(id)) return PRACHT_CLIENT_MODULE_ID;
       if (isDevModule(id)) return PRACHT_DEV_MODULE_ID;
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
@@ -423,9 +445,23 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       return null;
     },
 
-    load(id) {
+    load(id, loadOptions) {
       if (isIslandsClientModule(id)) {
         return createPrachtIslandsClientModuleSource(resolved, { root });
+      }
+      if (isRegionsClientModule(id)) {
+        return createPrachtRegionsClientModuleSource();
+      }
+      // A region is server-only: the browser gets a placeholder component
+      // that fetches the region's request-time HTML instead of its code.
+      if (!loadOptions?.ssr) {
+        const regionFile = regionModuleFile(id, root, resolved.regionsDir);
+        if (regionFile) {
+          return createClientRegionModuleSource(
+            readFileSync(id.split("?")[0], "utf-8"),
+            regionFile,
+          );
+        }
       }
       if (isClientModule(id)) {
         clientRouteHints = createRouteHintsForVirtualModules(resolved, root);
@@ -687,6 +723,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         resolved.apiDir,
         resolved.serverDir,
         resolved.islandsDir,
+        resolved.regionsDir,
         resolved.capabilitiesDir,
       ];
       if (dirs.some((dir) => relative.startsWith(dir))) {
@@ -1315,6 +1352,20 @@ function isRouteOrShellFile(id: string, dirs: string[], extensions: Set<string>)
   if (!extensions.has(ext)) return false;
   const normalized = toPosixPath(path);
   return dirs.some((dir) => normalized.startsWith(dir));
+}
+
+const REGION_MODULE_RE = /\.(?:[cm]?[jt]sx?)$/;
+
+/**
+ * The project-root-relative path of a region module (the key the server's
+ * region registry uses), or null when `id` is not one.
+ */
+function regionModuleFile(id: string, root: string, regionsDir: string): string | null {
+  const file = toPosixPath(id.split("?")[0] ?? "");
+  const directory = withTrailingSep(resolveConfigPath(root, regionsDir));
+  if (!file.startsWith(directory) || !REGION_MODULE_RE.test(file)) return null;
+  const normalizedRoot = toPosixPath(root).replace(/\/$/, "");
+  return file.startsWith(`${normalizedRoot}/`) ? file.slice(normalizedRoot.length) : null;
 }
 
 function resolveConfigPath(root: string, configPath: string): string {

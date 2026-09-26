@@ -92,6 +92,11 @@ rendering. If a route `head()` returns inline `script` entries, such as JSON-LD,
 test that route with the CSP enabled and prefer route-specific hashes for exact
 inline content.
 
+[Request-time regions](/docs/regions) need nothing extra: the swap script that
+fills them on SSG/ISG pages is an external same-origin module covered by
+`script-src 'self'`, and it fetches region HTML under `connect-src 'self'`. It
+never runs inline code, so shared documents stay nonce-free.
+
 ## SSG/ISG Header Safety
 
 Headers for SSG and ISG pages are copied into the prerender header manifest so

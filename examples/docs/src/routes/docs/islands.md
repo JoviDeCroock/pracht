@@ -6,8 +6,8 @@ prev:
   href: /docs/rendering
   title: Rendering Modes
 next:
-  href: /docs/data-loading
-  title: Data Loading
+  href: /docs/regions
+  title: Request-time Regions
 ---
 
 ## Overview
@@ -120,6 +120,11 @@ the invalid prop path.
 
 Children passed from server components into islands are not supported in v1.
 Move the content inside the island or pass serializable data instead.
+
+Island props are fixed when the page renders, so on an `ssg` or `isg` page they
+are the same for every visitor. For content that depends on who is asking — a
+cart count, a greeting — render a [request-time region](/docs/regions) instead.
+A region may contain islands; they hydrate once the region's HTML arrives.
 
 ---
 
