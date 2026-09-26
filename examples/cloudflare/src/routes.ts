@@ -35,6 +35,10 @@ export const app = defineApp({
       route("/long", () => import("./routes/long.tsx"), { id: "long", render: "ssr" }),
       route("/fragment", () => import("./routes/fragment.tsx"), { id: "fragment", render: "ssr" }),
       route("/live", () => import("./routes/live.tsx"), { id: "live", render: "ssr" }),
+      route("/rich-data", () => import("./routes/rich-data.tsx"), {
+        id: "rich-data",
+        render: "ssr",
+      }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
       route("/dashboard", () => import("./routes/dashboard.tsx"), {

@@ -647,6 +647,55 @@ test("live page opens an SSE connection and renders streamed events", async ({ p
 });
 
 // ---------------------------------------------------------------------------
+// Rich loader data: Date, Map, Set, BigInt, and shared references
+// ---------------------------------------------------------------------------
+
+test("rich loader data arrives with its types on first load and after navigation", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  await page.goto("/rich-data");
+  await page.waitForFunction(() => (window as any).__PRACHT_ROUTER_READY__);
+
+  // First load: the hydration state script revives the loader's own types.
+  const initial = await page.evaluate(() => {
+    const data = (window as any).__PRACHT_STATE__.data;
+    return {
+      date: data.publishedAt instanceof Date && data.publishedAt.toISOString(),
+      map: data.stock instanceof Map && data.stock.get("widgets"),
+      set: data.tags instanceof Set && [...data.tags].join(","),
+      bigint: typeof data.views === "bigint" && data.views.toString(),
+      shared: data.owner === data.lastEditor,
+    };
+  });
+  expect(initial).toEqual({
+    date: "2026-01-15T12:00:00.000Z",
+    map: 3,
+    set: "new,sale",
+    bigint: "9007199254740993",
+    shared: true,
+  });
+
+  // Client navigation: the route-state response carries the same encoding.
+  // The component calls Date, Map, Set, and BigInt methods while rendering, so
+  // plain JSON strings/objects would throw instead of rendering these values.
+  await page.evaluate(() => {
+    (window as any).__NO_RELOAD__ = true;
+  });
+  await page.getByTestId("rich-next").click();
+  await page.waitForURL("**/rich-data?visit=2");
+  await expect(page.getByTestId("rich-visit")).toHaveText("Visit 2");
+  await expect(page.getByTestId("rich-published")).toHaveText("2026-01-15T12:00:00.000Z");
+  await expect(page.getByTestId("rich-stock")).toHaveText("3 widgets in stock");
+  await expect(page.getByTestId("rich-tags")).toHaveText("new, sale");
+  await expect(page.getByTestId("rich-views")).toHaveText("9007199254740993 views");
+  expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
 // Hydration
 // ---------------------------------------------------------------------------
 

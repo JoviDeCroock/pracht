@@ -1,6 +1,7 @@
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
+import { decodeRouteData, mayContainEncodedRouteData } from "./route-data-codec.ts";
 import type { FontHeadFragments } from "./font.ts";
 import type { ResolvedRoute } from "./types.ts";
 
@@ -78,7 +79,8 @@ export async function fetchPrachtRouteState(
   // the `_data=1` query form): the loader payload was serialized to a static
   // JSON file at build time instead. Same-origin fetch of `application/json`
   // keeps the exact escaping posture of the live endpoint — the payload is
-  // parsed as JSON, never interpreted as HTML.
+  // parsed as JSON, never interpreted as HTML — and carries the same
+  // route-data encoding, decoded below.
   const fetchUrl = IS_STATIC_TARGET
     ? buildStaticRouteStateUrl(url)
     : options?.useDataParam
@@ -106,7 +108,8 @@ export async function fetchPrachtRouteState(
     };
   }
 
-  const json = (await response.json()) as {
+  const text = await response.text();
+  const json = JSON.parse(text) as {
     data?: unknown;
     fontHead?: FontHeadFragments;
     error?: SerializedRouteError;
@@ -132,7 +135,7 @@ export async function fetchPrachtRouteState(
   }
 
   return {
-    data: json.data,
+    data: mayContainEncodedRouteData(text) ? decodeRouteData(json.data) : json.data,
     fontHead: json.fontHead,
     type: "data",
   };

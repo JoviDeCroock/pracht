@@ -24,6 +24,14 @@ and returns a small JSON envelope:
 { "data": { ... } }
 ```
 
+`data` (like `data` in the `#pracht-state` hydration script, static-export
+state files, and streamed `defer()` chunks) is loader data in the route-data
+encoding from `packages/framework/src/route-data-codec.ts`: plain JSON, with
+Dates, Maps, Sets, BigInts, `undefined`, non-finite numbers, and shared
+references written as tagged arrays. JSON-only data is byte-identical to
+`JSON.stringify`; the client decodes only when the payload contains a tag. See
+[DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return).
+
 Static exports and preload hints use the query-string form instead, `?_data=1`,
 because a `<link rel=preload>` cannot set a header. Either form selects the same
 route-state response. The marker is the framework's, not the app's: it is

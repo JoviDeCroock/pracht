@@ -93,6 +93,11 @@ See [Coding Agents](/docs/coding-agents#constraints).
 
 ## Loader Data
 
+Loaders may return JSON values plus `undefined`, `NaN`, `±Infinity`, `-0`,
+`BigInt`, `Date`, `RegExp`, `URL`, `Map`, `Set`, and shared or circular
+references; they reach the component as the same types. See
+[what a loader can return](/docs/data-loading#what-a-loader-can-return).
+
 | Export | Description |
 | --- | --- |
 | `defer(promise)` | Mark slow loader data for concurrent resolution. See [Data Loading](/docs/data-loading#deferred-values) |

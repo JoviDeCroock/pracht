@@ -289,6 +289,9 @@ test("static export serves a full app from a dumb static host with zero server",
     await page.click('nav a[href="/about"]');
     await page.waitForURL(`${origin}/about`);
     await expect(page.locator("#built-at")).toContainText("Build time");
+    // The static route-state file revives the loader's Date and Map; the
+    // component calls their methods while rendering on the client.
+    await expect(page.locator("#founded")).toHaveText("Founded 1843; Ada is the analyst");
     expect(await page.evaluate(() => (window as any).__NO_RELOAD__)).toBe(true);
     expect(stateFileRequests.some((url) => url.endsWith(buildStaticRouteStateUrl("/about")))).toBe(
       true,
@@ -332,6 +335,17 @@ test("static export serves a full app from a dumb static host with zero server",
     expect(
       stateFileRequests.some((url) => url.endsWith(buildStaticRouteStateUrl("/items/42"))),
     ).toBe(false);
+
+    // Direct load of a prerendered page: its hydration state revives the same
+    // Date and Map the static route-state file carried.
+    await page.goto(`${origin}/about`);
+    await waitForRouter(page);
+    expect(
+      await page.evaluate(() => {
+        const data = (window as any).__PRACHT_STATE__.data;
+        return [data.foundedAt instanceof Date, data.roles instanceof Map];
+      }),
+    ).toEqual([true, true]);
 
     // Direct load of an unknown URL: the host serves 404.html with a 404
     // status, and the hydrated page shows the *real* requested path.
