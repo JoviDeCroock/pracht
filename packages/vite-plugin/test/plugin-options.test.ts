@@ -2,7 +2,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  createClientRegionModuleSource,
   createPrachtDevModuleSource,
+  createPrachtRegionsClientModuleSource,
   createPrachtServerModuleSource,
 } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
@@ -287,5 +289,50 @@ describe("createPrachtServerModuleSource static target export", () => {
 
     expect(source).toContain('export const clientEntryUrl = "/app/@pracht/client.js";');
     expect(source).toContain('export const islandsEntryUrl = "/app/@pracht/islands.js";');
+  });
+});
+
+describe("request-time regions codegen", () => {
+  it("registers every module of the regions directory in the server entry", () => {
+    const source = createPrachtServerModuleSource(
+      { regionsDir: "/app/regions" },
+      { base: "/app/" },
+    );
+    expect(source).toContain(
+      'const regionModules = import.meta.glob("/app/regions/**/*.{ts,tsx,js,jsx}", { eager: true });',
+    );
+    expect(source).toContain("registerServerRegions(regionModules);");
+    // Dev serves the swap script from a stable path under the deploy base.
+    expect(source).toContain('setRegionsClientEntryUrl("/app/@pracht/regions.js");');
+  });
+
+  it("compiles a region module to a client placeholder that keeps only its stylesheets", () => {
+    const source = createClientRegionModuleSource(
+      [
+        'import "./cart.css";',
+        "import './theme.scss?inline';",
+        'import { db } from "../server/db.ts";',
+        "export async function loader() { return db.count(); }",
+        "export default function Cart() { return null; }",
+      ].join("\n"),
+      "/src/regions/Cart.tsx",
+    );
+
+    expect(source).toBe(
+      [
+        'import "./cart.css";',
+        'import "./theme.scss?inline";',
+        'import { createClientRegion } from "@pracht/core/regions-component";',
+        "",
+        'export default createClientRegion("/src/regions/Cart.tsx");',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("emits a swap entry that imports nothing from the app", () => {
+    expect(createPrachtRegionsClientModuleSource()).toBe(
+      'import { swapRegions } from "@pracht/core/regions-client";\n\nswapRegions();\n',
+    );
   });
 });

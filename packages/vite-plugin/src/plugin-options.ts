@@ -129,6 +129,12 @@ export interface PrachtPluginOptions {
    */
   islandsDir?: string;
   /**
+   * Directory containing request-time regions: components rendered per
+   * request, with the visitor's cookies and middleware context, inside
+   * otherwise cached pages. Defaults to "/src/regions".
+   */
+  regionsDir?: string;
+  /**
    * Directory containing capability modules registered in the app manifest
    * via `capabilities: { ... }`. Defaults to "/src/capabilities".
    */
@@ -198,6 +204,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   serverDir: "/src/server",
   additionalExtensions: [],
   islandsDir: "/src/islands",
+  regionsDir: "/src/regions",
   capabilitiesDir: "/src/capabilities",
   adapter: createDefaultNodeAdapter(),
   pagesDir: "",

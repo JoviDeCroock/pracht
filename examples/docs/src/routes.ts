@@ -36,6 +36,10 @@ export const app = defineApp({
         render: "ssg",
         hydration: "islands",
       }),
+      route("/docs/regions", () => import("./routes/docs/regions.md"), {
+        id: "regions",
+        render: "ssg",
+      }),
       route("/docs/data-loading", () => import("./routes/docs/data-loading.md"), {
         id: "data-loading",
         render: "ssg",

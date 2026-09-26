@@ -12,6 +12,7 @@ import {
   ISLAND_STRATEGY_ATTRIBUTE,
   ISLANDS_HYDRATED_MARKER,
 } from "./islands-shared.ts";
+import { REGION_SWAP_EVENT } from "./regions-shared.ts";
 
 /**
  * Minimal islands bootstrap for routes rendered with `hydration: "islands"`.
@@ -52,6 +53,14 @@ declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
  */
 declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
 
+/**
+ * Build-time flag: the app has a regions directory. Region HTML can arrive
+ * after this bootstrap ran and bring islands with it, so the bootstrap then
+ * listens for swapped-in regions. Apps without regions fold it to `false` and
+ * pay nothing for the listener.
+ */
+declare const __PRACHT_REGIONS__: boolean | undefined;
+
 const HYDRATION_WARNINGS_FORCED =
   typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
 
@@ -88,6 +97,13 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     bindCapabilityRevalidation();
   }
+  if (typeof __PRACHT_REGIONS__ !== "undefined" && __PRACHT_REGIONS__) {
+    document.addEventListener(REGION_SWAP_EVENT, (event) => {
+      for (const element of (event.target as Element).querySelectorAll(ISLAND_ELEMENT)) {
+        scheduleIsland(element, options);
+      }
+    });
+  }
   const elements = document.querySelectorAll(ISLAND_ELEMENT);
   const immediate: Promise<void>[] = [];
 
@@ -107,8 +123,29 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   document.documentElement.setAttribute(ISLANDS_HYDRATED_MARKER, "true");
 }
 
+/**
+ * The loop above for islands a region swap brought in. Kept separate, rather
+ * than shared, so the bootstrap of an app without regions is byte-for-byte
+ * what it was: this and its caller fold away with the flag.
+ */
+function scheduleIsland(element: Element, options: HydrateIslandsOptions): void {
+  const strategy = element.getAttribute(ISLAND_STRATEGY_ATTRIBUTE) ?? "load";
+  if (strategy === "visible") {
+    scheduleWhenVisible(element, () => hydrateIsland(element, options));
+  } else if (strategy === "idle") {
+    scheduleWhenIdle(() => hydrateIsland(element, options));
+  } else {
+    void hydrateIsland(element, options);
+  }
+}
+
 async function hydrateIsland(element: Element, options: HydrateIslandsOptions): Promise<void> {
   if (element.getAttribute(ISLAND_HYDRATED_ATTRIBUTE) === "true") return;
+  if (typeof __PRACHT_REGIONS__ !== "undefined" && __PRACHT_REGIONS__) {
+    // A region swap can scan an island the initial scan is still importing.
+    if (element.hasAttribute(ISLAND_HYDRATED_ATTRIBUTE)) return;
+    element.setAttribute(ISLAND_HYDRATED_ATTRIBUTE, "pending");
+  }
 
   const file = element.getAttribute(ISLAND_FILE_ATTRIBUTE);
   const exportName = element.getAttribute(ISLAND_EXPORT_ATTRIBUTE) ?? "default";

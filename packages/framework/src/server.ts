@@ -180,6 +180,13 @@ export {
   type IslandDescriptor,
   type IslandUsage,
 } from "./islands-server.ts";
+export {
+  registerServerRegions,
+  setRegionsClientEntryUrl,
+  type RegionDescriptor,
+} from "./regions-server.ts";
+export { PRACHT_REGION_ENDPOINT } from "./regions-shared.ts";
+export { useRegionData } from "./regions-data.ts";
 export { notFound, PrachtHttpError } from "./types.ts";
 
 export type {
@@ -241,6 +248,10 @@ export type {
   HydrationMode,
   IslandStrategy,
   IslandProps,
+  RegionLoaderArgs,
+  RegionLoaderData,
+  RegionModule,
+  RegionProps,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,

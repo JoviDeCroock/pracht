@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { islandChunkName } from "../src/chunk-groups.ts";
 import { pracht, type PrachtAdapter } from "../src/index.ts";
 
+// A project root with a regions directory and no islands directory.
+const fixtureRoot = resolve(import.meta.dirname, "fixtures/regions-app");
+
 const edgeAdapter: PrachtAdapter = {
   id: "cloudflare",
   edge: true,
@@ -352,6 +355,21 @@ describe("pracht plugin build config", () => {
     // Not a chunk of its own: a stylesheet follows the island that imports it.
     expect(name(`${islands}/counter.css`)).toBeNull();
     expect(name(resolve(process.cwd(), "src/routes/home.tsx"))).toBeNull();
+    // Regions are imported eagerly by the server entry too.
+    expect(name(resolve(process.cwd(), "src/regions/CartCount.tsx"))).toBe("regions/CartCount");
+  });
+
+  it("folds the region listener out of apps without a regions directory", () => {
+    // process.cwd() is the package root, which has no src/regions.
+    const config = runConfigHook(nodeishAdapter, false);
+    expect(config.define?.__PRACHT_REGIONS__).toBe("false");
+    expect(config.build?.rollupOptions).not.toHaveProperty("input");
+
+    const withRegions = runConfigHook(nodeishAdapter, false, {}, { root: resolve(fixtureRoot) });
+    expect(withRegions.define?.__PRACHT_REGIONS__).toBe("true");
+    expect((withRegions.build!.rollupOptions as { input?: string[] }).input).toEqual([
+      "virtual:pracht/regions-client",
+    ]);
   });
 
   it("leaves the client build and single-chunk edge servers unsplit", () => {

@@ -84,6 +84,7 @@ export function readClientBuildAssets(root: string = process.cwd(), base = "/"):
   const manifest: Record<string, ViteManifestEntry> = JSON.parse(rawManifest);
   const clientEntry = manifest["virtual:pracht/client"];
   const islandsEntry = manifest["virtual:pracht/islands-client"];
+  const regionsEntry = manifest["virtual:pracht/regions-client"];
 
   function collectTransitiveDeps(key: string): { css: string[]; js: string[] } {
     const css = new Set<string>();
@@ -144,6 +145,12 @@ export function readClientBuildAssets(root: string = process.cwd(), base = "/"):
   // server-rendered ones.
   addEntryDeps(jsManifest, "virtual:pracht/client", clientEntry, clientEntryJs, base);
   addEntryDeps(jsManifest, "virtual:pracht/islands-client", islandsEntry, islandsEntryJs, base);
+  if (regionsEntry) {
+    const regionsEntryJs = collectTransitiveDeps("virtual:pracht/regions-client").js.map((file) =>
+      assetUrl(file, base),
+    );
+    addEntryDeps(jsManifest, "virtual:pracht/regions-client", regionsEntry, regionsEntryJs, base);
+  }
 
   return {
     clientEntryUrl: clientEntry ? assetUrl(clientEntry.file, base) : null,

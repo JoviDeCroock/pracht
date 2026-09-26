@@ -70,6 +70,23 @@ for existing apps):
 Works in both the manifest router and the pages router
 (`export const HYDRATION = "islands"`). See [docs/ISLANDS.md](docs/ISLANDS.md).
 
+### Request-time Regions
+
+Cached pages with per-visitor parts, without making the route SSR:
+
+- Components in `src/regions/` (default export + optional `loader`) are used as
+  plain JSX in any page or shell, with an optional `fallback`.
+- On SSR pages they render inline. On SSG/ISG (and streamed) pages the shared
+  document carries the fallback, and the browser fills it from
+  `GET /__pracht/region`, which runs the page route's middleware and the region
+  loader with the visitor's cookies — `Cache-Control: private, no-store`.
+- Works with every hydration mode: a Preact-free swap script (~1.3 KB gzip) on
+  `none`/`islands` pages — islands inside a region hydrate after the swap — and
+  an opaque client component on full-hydration pages. Pages without a region
+  pay nothing.
+- Region props are untrusted input; a failing region renders its fallback and
+  is reported through the error hook. See [docs/REGIONS.md](docs/REGIONS.md).
+
 ### Data Loading
 
 Two styles, both fully supported — pick whichever fits your mental model:

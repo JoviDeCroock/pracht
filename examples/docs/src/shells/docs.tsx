@@ -35,6 +35,7 @@ import {
   IconLanguage,
   IconAdjustments,
   IconApps,
+  IconUserBolt,
 } from "@tabler/icons-preact";
 import "../styles/global.css";
 import { inter } from "../fonts";
@@ -54,6 +55,7 @@ const NAV = [
     links: [
       { href: "/docs/rendering", Icon: IconBolt, title: "Rendering Modes" },
       { href: "/docs/islands", Icon: IconSparkles, title: "Islands" },
+      { href: "/docs/regions", Icon: IconUserBolt, title: "Request-time Regions" },
       { href: "/docs/data-loading", Icon: IconServerBolt, title: "Data Loading" },
       { href: "/docs/content", Icon: IconFileText, title: "Content Collections" },
       { href: "/docs/api-routes", Icon: IconPlug, title: "API Routes" },

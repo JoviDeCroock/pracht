@@ -38,6 +38,9 @@ adapters for Node, Cloudflare Workers, Netlify, and Vercel.
 - \`src/server/\` — optional separate loader files wired via \`route(path, { component, loader })\`.
 - \`src/api/\` — file-based API endpoints exporting HTTP method handlers (\`GET\`, \`POST\`, ...).
 - \`src/islands/\` — islands components for routes with \`hydration: "islands"\`.
+- \`src/regions/\` — request-time regions: a default-export component plus optional
+  \`loader\` rendered per request (visitor cookies, middleware context) inside cached
+  SSG/ISG pages; SSR renders them inline. Region props are untrusted input.
 - \`src/capabilities/\` — typed application operations (see below).
 
 Pages-router apps replace the manifest with \`src/pages/\` file routing

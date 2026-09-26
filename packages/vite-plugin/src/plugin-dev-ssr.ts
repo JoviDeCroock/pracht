@@ -26,9 +26,12 @@ import {
   ISLANDS_CLIENT_BROWSER_PATH,
   PRACHT_DEV_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
+  REGIONS_CLIENT_BROWSER_PATH,
 } from "./plugin-assets.ts";
 
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
+// Marks a request-time region fragment (see @pracht/core regions-shared.ts).
+const REGION_RESPONSE_HEADER = "x-pracht-region";
 const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 const CSS_MODULE_URL_RE = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/;
 /**
@@ -68,6 +71,7 @@ export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.Ne
     if (
       pathname !== CLIENT_BROWSER_PATH &&
       pathname !== ISLANDS_CLIENT_BROWSER_PATH &&
+      pathname !== REGIONS_CLIENT_BROWSER_PATH &&
       pathname !== DEV_PAGE_TOOLS_BROWSER_PATH
     ) {
       return next();
@@ -367,7 +371,10 @@ export function createDevSSRMiddleware(
       // image, a `Uint8Array` — is forwarded as bytes, because decoding it to
       // a string and re-encoding on `res.end()` silently corrupts every
       // sequence that is not valid UTF-8.
-      if (contentType.includes("text/html")) {
+      // A region fragment is spliced into a page that already has Vite's
+      // client and its CSS; transforming it as a document would inject them
+      // again inside the page body.
+      if (contentType.includes("text/html") && !response.headers.has(REGION_RESPONSE_HEADER)) {
         const html = await transformDevHtml(server, url, await response.text(), devBase);
         res.statusCode = response.status;
         writeDevResponseHeaders(res, response.headers);
@@ -1680,6 +1687,7 @@ function isReservedDevPath(pathname: string): boolean {
   return (
     pathname === CLIENT_BROWSER_PATH ||
     pathname === ISLANDS_CLIENT_BROWSER_PATH ||
+    pathname === REGIONS_CLIENT_BROWSER_PATH ||
     pathname === DEV_PAGE_TOOLS_BROWSER_PATH ||
     pathname === "/@vite/client" ||
     pathname === "/@react-refresh" ||
