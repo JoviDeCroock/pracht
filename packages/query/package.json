@@ -1,0 +1,59 @@
+{
+  "name": "@pracht/query",
+  "version": "0.0.0",
+  "description": "TanStack Query for Pracht: a per-request QueryClient on the server, server-fetched queries hydrated into the browser cache on first load and on every client navigation, and query invalidation after capability mutations.",
+  "keywords": [
+    "pracht",
+    "preact",
+    "tanstack-query",
+    "react-query",
+    "ssr",
+    "hydration",
+    "data-fetching"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/JoviDeCroock/pracht/tree/main/packages/query",
+  "bugs": {
+    "url": "https://github.com/JoviDeCroock/pracht/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "directory": "packages/query"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
+    },
+    "./root": {
+      "types": "./dist/root.d.mts",
+      "default": "./dist/root.mjs"
+    }
+  },
+  "publishConfig": {
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsdown",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@pracht/capabilities": "workspace:*",
+    "@pracht/core": "workspace:*"
+  },
+  "peerDependencies": {
+    "@tanstack/preact-query": "^5.91.0",
+    "preact": "^10.0.0 || ^11.0.0-0"
+  },
+  "devDependencies": {
+    "@tanstack/preact-query": "^5.91.0",
+    "preact": "11.0.0-rc.1",
+    "preact-render-to-string": "^6.7.0"
+  }
+}

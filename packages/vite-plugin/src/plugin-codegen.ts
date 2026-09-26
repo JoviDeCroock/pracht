@@ -429,6 +429,12 @@ export function createPrachtClientModuleSource(
     ...ejectedPagesAppShellSources,
     `};`,
     "",
+    "// `__PRACHT_APP_ROOT__` is false for a build without a root file, which",
+    "// drops this lookup and the router's root wiring together.",
+    'const rootModule = typeof __PRACHT_APP_ROOT__ === "undefined" || __PRACHT_APP_ROOT__',
+    `  ? Object.values(import.meta.glob(${JSON.stringify(rootModuleGlob(resolved.rootFile))}, { eager: true }))[0]`,
+    "  : undefined;",
+    "",
     "const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
     "",
@@ -498,6 +504,7 @@ export function createPrachtClientModuleSource(
     "    root,",
     "    findModuleKey,",
     searchParserOption,
+    "    ...(rootModule ? { rootModule } : {}),",
     ...(webmcpEnabled ? ["    onRouteChange: syncPrachtWebmcpTools,"] : []),
     "  });",
     "}",
@@ -1173,6 +1180,7 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
     `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
     `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
+    `export const rootModules = import.meta.glob(${JSON.stringify(rootModuleGlob(resolved.rootFile))});`,
     "",
     "export const registry = {",
     "  routeModules,",
@@ -1181,8 +1189,17 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     "  apiModules,",
     "  dataModules,",
     "  capabilityModules,",
+    "  rootModules,",
     "};",
   ].join("\n");
+}
+
+/**
+ * The app root is optional: a glob that matches nothing compiles to `{}`, so
+ * an app without `src/root.tsx` ships no root code at all.
+ */
+function rootModuleGlob(rootFile: string): string {
+  return `${rootFile}.{ts,tsx,js,jsx}`;
 }
 
 const pagesAppSourceCache = new Map<string, string>();

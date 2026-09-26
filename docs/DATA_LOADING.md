@@ -134,6 +134,7 @@ The decoder costs 272 bytes gzip on full-hydration routes when enabled (see
 | `route`    | `ResolvedRoute` | Matched route metadata                                        |
 | `pathname` | `string`        | Matched pathname with the configured deployment base removed |
 | `search`   | `unknown`       | Parsed search params: the route module's `search` schema output, or the raw query record |
+| `root`     | `unknown`       | This request's [app root](#the-app-root) state, when the app has one |
 
 `search` is set once per request, after middleware and before the loader, and
 the same value reaches `head()` and `headers()`. Narrow it with
@@ -233,6 +234,50 @@ navigations inside the same shell reuse it (the request claims the shell with
 `x-pracht-shell-data` and the server skips its loader); every revalidation path
 re-runs it. Mechanics and render-mode behaviour live in
 [ROUTING.md](ROUTING.md#shell-loaders).
+
+### The app root
+
+`src/root.{ts,tsx,js,jsx}` (plugin option `rootFile`) is an optional module
+that renders above every shell and is never remounted by the client router.
+It exists for state that must survive navigations, including ones that switch
+shells — the first user is `@pracht/query`, whose browser `QueryClient` would
+otherwise be recreated on every shell change. Every export is optional:
+
+| Export | Runs | Does |
+| --- | --- | --- |
+| `setup({ request, isServer })` | once per server request; once at browser boot | creates the root state |
+| `Root({ state, children })` | every render, server and browser | wraps the shell |
+| `dehydrate(state)` | server, after a document render and after a route-state loader | JSON snapshot for the browser; `undefined` sends nothing |
+| `hydrate(state, snapshot)` | browser, before the first `hydrate()` and for every route-state response | merges the snapshot |
+
+Server side (`runtime-root.ts`): the module is loaded from
+`registry.rootModules` (at most one entry) and `setup()` runs once per
+request context, cached in a `WeakMap` keyed by it, so a `notFound()`
+re-render reuses the same state. It starts in parallel with middleware and is
+awaited just before the loader, which receives it as `args.root`. `Root` is
+placed between `PrachtRuntimeProvider` and the shell in every server tree —
+full documents, streaming documents, SPA loading shells, and route/shell
+`ErrorBoundary` documents — matching where the client router renders it, so
+hydration sees the same tree.
+
+`dehydrate()` output lands in `PrachtHydrationState.root` and in the
+route-state JSON body's `root` field. Buffered documents take the snapshot
+after the render, so queries a component started while rendering are
+included. Streaming documents commit the hydration state before the shell
+renders, so their snapshot holds only what the loader produced. Static exports
+get it for free: their route-state files are the live endpoint's JSON bodies.
+
+Browser side: `router.ts` calls `setup()` once, hydrates the initial snapshot,
+and installs the root's `hydrate()` as the route-state snapshot handler in
+`runtime-client-fetch.ts`. Every route-state fetch — navigation, prefetch,
+revalidation, SPA boot — goes through `fetchPrachtRouteState()`, which hands
+the snapshot over before returning the data, so the state is updated before
+the route that needs it commits. Islands routes never run the client router
+and so never render the root in the browser.
+
+The plugin defines `__PRACHT_APP_ROOT__` false for a build with no root file,
+which folds away the router and fetch wiring; dev keeps it on so a root file
+added while the server runs is picked up.
 
 ### Deferred values — `defer()` and `use()`
 

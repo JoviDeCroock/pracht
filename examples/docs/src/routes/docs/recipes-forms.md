@@ -6,8 +6,8 @@ prev:
   href: /docs/recipes/csp
   title: Content Security Policy
 next:
-  href: /docs/recipes/view-transitions
-  title: View Transitions
+  href: /docs/recipes/tanstack-query
+  title: TanStack Query
 ---
 
 ## Basic Form

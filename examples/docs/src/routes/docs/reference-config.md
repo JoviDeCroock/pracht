@@ -37,6 +37,7 @@ apps pass only an `adapter`.
 | `serverDir` | `"/src/server"` | Server-only modules, never bundled for the client |
 | `islandsDir` | `"/src/islands"` | Components hydrated on [`hydration: "islands"`](/docs/islands) routes |
 | `capabilitiesDir` | `"/src/capabilities"` | [Capability](/docs/capabilities) modules registered in the manifest |
+| `rootFile` | `"/src/root"` | The optional [app root](/docs/shells#the-app-root), without extension (`.ts`, `.tsx`, `.js`, `.jsx`) |
 | `additionalExtensions` | `[]` | Extra route/shell extensions to discover, e.g. `[".vue"]`. Register the plugin that transforms them yourself. `.tsrx` needs no entry |
 
 ### Routing
