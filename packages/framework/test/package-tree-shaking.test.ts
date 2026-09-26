@@ -218,10 +218,14 @@ describe("published package tree shaking", () => {
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,250 gzip bytes", async () => {
+    //
+    // Raised from 10,250 for the app root (`src/root.tsx`). The plugin defines
+    // `__PRACHT_APP_ROOT__` false for a build without a root module, so only
+    // this define-less shape carries it unconditionally.
+    it("keeps the router runtime below 10,500 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_250);
+      expect(gzipBytes).toBeLessThanOrEqual(10_500);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -346,6 +350,32 @@ describe("published package tree shaking", () => {
     });
   });
 
+  // The app root (`src/root.tsx`) is optional. The plugin defines the flag
+  // false for a build without one, so those apps ship none of its wiring.
+  describe("__PRACHT_APP_ROOT__", () => {
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops the root wiring when the app has no root module", async () => {
+      const { code } = await routerBundle({ __PRACHT_APP_ROOT__: "false" });
+
+      expect(code).not.toContain("isServer");
+    });
+
+    it("keeps the root wiring when the app has one", async () => {
+      const { code } = await routerBundle({ __PRACHT_APP_ROOT__: "true" });
+
+      expect(code).toContain("isServer");
+    });
+  });
+
   // The agent surface is opt-in: a server bundle for an app that registers no
   // capabilities and configures no agents must not contain the capability
   // dispatch or the Web Bot Auth verifier at all.
@@ -353,6 +383,7 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>

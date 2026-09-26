@@ -1,4 +1,6 @@
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { build, parseAst, resolveConfig, type Plugin } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -286,6 +288,25 @@ describe("pracht plugin build config", () => {
     expect(config.environments?.ssr?.resolve?.external).toEqual(["node:module"]);
     expect(config.environments?.ssr?.keepProcessEnv).toBeUndefined();
     expect(config.define?.["process.env.NODE_ENV"]).toBeUndefined();
+  });
+
+  it("compiles the app root out of builds that have no root module", () => {
+    const withRoot = mkdtempSync(join(tmpdir(), "pracht-root-"));
+    const withoutRoot = mkdtempSync(join(tmpdir(), "pracht-no-root-"));
+    try {
+      mkdirSync(join(withRoot, "src"));
+      writeFileSync(join(withRoot, "src/root.tsx"), "export function setup() { return {}; }\n");
+
+      expect(
+        runConfigHook(edgeAdapter, false, {}, { root: withRoot }).define?.__PRACHT_APP_ROOT__,
+      ).toBe("true");
+      expect(
+        runConfigHook(edgeAdapter, false, {}, { root: withoutRoot }).define?.__PRACHT_APP_ROOT__,
+      ).toBe("false");
+    } finally {
+      rmSync(withRoot, { force: true, recursive: true });
+      rmSync(withoutRoot, { force: true, recursive: true });
+    }
   });
 
   it("defines every client feature as enabled by default", () => {

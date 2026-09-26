@@ -42,6 +42,13 @@ export type RegisteredContext = (Register extends { context: infer T } ? T : unk
  */
 export type PrachtRequestContext = RegisteredContext;
 
+/**
+ * The state the app root's `setup()` returns, as loaders receive it through
+ * `LoaderArgs.root`. Register it with `root: ReturnType<typeof setup>` on
+ * `Register` to type it; unregistered apps see `unknown`.
+ */
+export type RegisteredRootState = Register extends { root: infer T } ? T : unknown;
+
 export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
 /**
@@ -774,7 +781,14 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
   pathname?: string;
 }
 
-export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
+export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {
+  /**
+   * This request's app root state — what `setup()` in `src/root.tsx`
+   * returned. `undefined` when the app has no root module or its root exports
+   * no `setup`.
+   */
+  root?: RegisteredRootState;
+}
 
 /** The matched page or API route whose middleware chain is running. */
 export type MiddlewareRoute = ResolvedRoute | ResolvedApiRoute;
@@ -900,6 +914,46 @@ export interface ShellModule<TContext = any> {
   headers?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadersInit>;
 }
 
+/** What an app root's `setup()` receives. */
+export interface RootSetupArgs {
+  /** The incoming request on the server; `undefined` in the browser. */
+  request: Request | undefined;
+  isServer: boolean;
+}
+
+export interface RootProps<TState = unknown> {
+  state: TState;
+  children: ComponentChildren;
+}
+
+/**
+ * The optional app root (`src/root.tsx`). It renders above every shell, on
+ * the server and in the browser, and survives every client navigation — the
+ * place for app-wide providers whose state must not reset when the shell
+ * changes.
+ */
+export interface RootModule<TState = any> {
+  /**
+   * Create the root state. Runs once per server request (never shared between
+   * requests) and once when the browser boots.
+   */
+  setup?: (args: RootSetupArgs) => TState;
+  /** Wraps every shell. Must render `children`. */
+  Root?: FunctionComponent<RootProps<TState>>;
+  /**
+   * Server only: a JSON-serializable snapshot of the state to send to the
+   * browser. Called after a document renders and after a route loader runs
+   * for a client navigation. Return `undefined` to send nothing.
+   */
+  dehydrate?: (state: TState) => unknown;
+  /**
+   * Browser only: merge a snapshot from `dehydrate` into the browser's state.
+   * Called before the first hydration and for every route-state response
+   * (navigations, prefetches, revalidations).
+   */
+  hydrate?: (state: TState, snapshot: unknown) => void;
+}
+
 export type MiddlewareNext = () => Promise<Response>;
 
 export type MiddlewareFn<TContext = any> = (
@@ -924,6 +978,8 @@ export interface ModuleRegistry {
   apiModules?: Record<string, ModuleImporter<ApiRouteModule>>;
   dataModules?: Record<string, ModuleImporter<DataModule>>;
   capabilityModules?: Record<string, ModuleImporter<CapabilityModule>>;
+  /** The app root module (`src/root.tsx`); at most one entry. */
+  rootModules?: Record<string, ModuleImporter<RootModule>>;
 }
 
 // ---------------------------------------------------------------------------

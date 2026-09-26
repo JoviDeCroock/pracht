@@ -48,7 +48,7 @@ also keep resolving to the server declarations in either program.
 | `virtual:pracht/capabilities` | The generated browser capability client. See [Capabilities](/docs/capabilities) |
 
 Companion packages — `@pracht/i18n`, `@pracht/image`, `@pracht/content`,
-`@pracht/markdown`, `@pracht/openapi`, `@pracht/test` — are separate installs
+`@pracht/markdown`, `@pracht/openapi`, `@pracht/query`, `@pracht/test` — are separate installs
 and are listed at the bottom of this page.
 
 ---
@@ -277,6 +277,7 @@ model and for `rolling`.
 | `@pracht/content` | `defineCollection`, `llmsTxtArtifacts`, `rawContentArtifacts`, `parseFrontmatter` | [Content Collections](/docs/content) |
 | `@pracht/markdown` | `defineMarkdownCollection` | [Content Collections](/docs/content) |
 | `@pracht/openapi` | `defineOpenApi`, `getOpenApiDescriptor` | [OpenAPI](/docs/openapi) |
+| `@pracht/query` | `createQueryRoot`, `getQueryClient`, `@pracht/query/root` | [TanStack Query](/docs/recipes/tanstack-query) |
 | `@pracht/session` | `createSessionStorage`, `sessionMiddleware`, `requireSession`, `createMemorySessionStore`, `hashPassword`, `verifyPassword` | [Authentication](/docs/recipes/auth) |
 | `@pracht/capabilities` | `defineCapability` | [Capabilities](/docs/capabilities) |
 | `@pracht/test` | `createLoaderArgs`, `runMiddleware`, `createFormRequest`, `submitForm`, `readJson`, `readRedirect` | [Testing](/docs/recipes/testing) |

@@ -51,6 +51,7 @@ import type {
   RouteId,
   RouteMatch,
   RouteParams,
+  RootModule,
   RouteTarget,
   UntypedRouteTarget,
 } from "./types.ts";
@@ -58,6 +59,7 @@ import {
   fetchPrachtRouteState,
   parseSafeNavigationUrl,
   routeNeedsServerFetch,
+  setRootSnapshotHandler,
 } from "./runtime-client-fetch.ts";
 import { IS_STATIC_TARGET } from "./runtime-static.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
@@ -118,6 +120,15 @@ declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
 
 const HYDRATION_WARNINGS_FORCED =
   typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
+
+/**
+ * The app root (`src/root.tsx`), compiled out by the plugin when the app has
+ * no root module, so an app without one pays nothing for it.
+ */
+declare const __PRACHT_APP_ROOT__: boolean | undefined;
+
+const APP_ROOT_ENABLED =
+  typeof __PRACHT_APP_ROOT__ === "undefined" || __PRACHT_APP_ROOT__ !== false;
 
 interface RouteRenderState {
   Shell: FunctionComponent | null;
@@ -234,6 +245,8 @@ export interface InitClientRouterOptions {
   initialState: PrachtHydrationState;
   root: HTMLElement;
   findModuleKey: (modules: ModuleMap, file: string) => string | null;
+  /** The app root module (`src/root.tsx`), when the app has one. */
+  rootModule?: RootModule;
   /** @internal Synchronize page-scoped projections after a route commits. */
   onRouteChange?: (capabilities: readonly string[]) => void;
 }
@@ -242,6 +255,22 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   const { app, routeModules, shellModules, root, findModuleKey, onRouteChange } = options;
 
   const moduleCache = new Map<string, Promise<unknown>>();
+
+  // The app root is created once per page load and rendered above every
+  // shell, so its state survives every navigation — including one that
+  // switches shells.
+  let rootState: unknown;
+  let Root: FunctionComponent<Record<string, unknown>> | null = null;
+  if (APP_ROOT_ENABLED && options.rootModule) {
+    const rootModule = options.rootModule;
+    rootState = rootModule.setup?.({ request: undefined, isServer: false });
+    Root = (rootModule.Root as FunctionComponent<Record<string, unknown>> | undefined) ?? null;
+    if (rootModule.hydrate) {
+      const hydrateRoot = (snapshot: unknown) => rootModule.hydrate!(rootState, snapshot);
+      setRootSnapshotHandler(hydrateRoot);
+      if (options.initialState.root !== undefined) hydrateRoot(options.initialState.root);
+    }
+  }
 
   function loadModule(modules: ModuleMap, key: string): Promise<unknown> {
     let cached = moduleCache.get(key);
@@ -526,13 +555,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const shellTree = Shell
       ? h(Shell as FunctionComponent<Record<string, unknown>>, null, guardedRouteElement)
       : guardedRouteElement;
-    const componentTree = ShellBoundary
+    const boundedTree = ShellBoundary
       ? h(RouteErrorBoundary, {
           key: version,
           Boundary: ShellBoundary,
           children: shellTree,
         })
       : shellTree;
+    // Same position as the server render: inside the runtime provider, above
+    // the shell.
+    const componentTree =
+      APP_ROOT_ENABLED && Root ? h(Root, { state: rootState }, boundedTree) : boundedTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,

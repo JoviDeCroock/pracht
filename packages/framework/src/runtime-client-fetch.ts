@@ -16,6 +16,26 @@ export type RouteStateResult =
   | { type: "redirect"; location?: string }
   | { type: "error"; error: SerializedRouteError; fontHead?: FontHeadFragments };
 
+/** See `router.ts`: compiled out when the app has no root module. */
+declare const __PRACHT_APP_ROOT__: boolean | undefined;
+
+const APP_ROOT_ENABLED =
+  typeof __PRACHT_APP_ROOT__ === "undefined" || __PRACHT_APP_ROOT__ !== false;
+
+let rootSnapshotHandler: ((snapshot: unknown) => void) | null = null;
+
+/**
+ * Where route-state root snapshots go: the app root's `hydrate()`, installed
+ * by the client router at boot. Every route-state response passes through
+ * `fetchPrachtRouteState()` — navigations, prefetches, revalidations — so
+ * applying the snapshot here covers all of them.
+ *
+ * @internal
+ */
+export function setRootSnapshotHandler(handler: ((snapshot: unknown) => void) | null): void {
+  rootSnapshotHandler = handler;
+}
+
 const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 
 /**
@@ -111,6 +131,7 @@ export async function fetchPrachtRouteState(
     fontHead?: FontHeadFragments;
     error?: SerializedRouteError;
     redirect?: string;
+    root?: unknown;
   };
   if (json.redirect) {
     return {
@@ -129,6 +150,16 @@ export async function fetchPrachtRouteState(
     }
 
     throw new Error(`Failed to fetch route state (${response.status})`);
+  }
+
+  if (APP_ROOT_ENABLED && json.root !== undefined && rootSnapshotHandler) {
+    try {
+      rootSnapshotHandler(json.root);
+    } catch (error) {
+      // The route data is still good; a broken snapshot only costs the
+      // client a refetch of whatever it described.
+      console.error("[pracht] The app root's hydrate() threw.", error);
+    }
   }
 
   return {

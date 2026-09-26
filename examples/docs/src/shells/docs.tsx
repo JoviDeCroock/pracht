@@ -102,6 +102,7 @@ const NAV = [
       { href: "/docs/recipes/auth", Icon: IconLock, title: "Authentication" },
       { href: "/docs/recipes/csp", Icon: IconShield, title: "CSP" },
       { href: "/docs/recipes/forms", Icon: IconForms, title: "Forms" },
+      { href: "/docs/recipes/tanstack-query", Icon: IconServerBolt, title: "TanStack Query" },
       { href: "/docs/recipes/view-transitions", Icon: IconSparkles, title: "View Transitions" },
       { href: "/docs/recipes/testing", Icon: IconTestPipe, title: "Testing" },
       { href: "/docs/recipes/logging", Icon: IconActivity, title: "Logging" },

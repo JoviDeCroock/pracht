@@ -14,6 +14,8 @@ export interface PrachtHydrationState<TData = unknown> {
   deferred?: DeferredHydrationReference[];
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
   pending?: boolean;
+  /** The app root's `dehydrate()` snapshot, when it produced one. */
+  root?: unknown;
   /**
    * Marks the static-export SPA fallback document (`200.html`). The document
    * is served for URLs with no prerendered file, so the client router ignores
