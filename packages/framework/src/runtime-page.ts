@@ -12,6 +12,7 @@
  * @internal Not part of the published API.
  */
 import { h } from "preact";
+import { parseRouteSearch } from "./api-validation.ts";
 import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
@@ -67,9 +68,11 @@ import {
   isClientDisconnect,
   type PrachtRequestContext,
 } from "./runtime-request.ts";
+import { PrachtHttpError } from "./types.ts";
 import type {
   BaseRouteArgs,
   HeadMetadata,
+  LoaderArgs,
   ResolvedPrachtApp,
   RouteMatch,
   RouteModule,
@@ -238,6 +241,17 @@ async function runPageLoader<TContext>(
   }
 
   job.phase = "loader";
+  // Validate the query before anything reads it, so the loader, head(),
+  // headers(), and the rendered tree's useSearch() all see the same parsed
+  // value — and a rejected query never reaches the loader at all.
+  const search = await parseRouteSearch(job.routeModule.search, job.routeArgs.url.href);
+  if (search.error) {
+    throw Object.assign(new PrachtHttpError(400, search.error.message), {
+      issues: search.error.issues,
+    });
+  }
+  (job.routeArgs as LoaderArgs<TContext>).search = search.value;
+
   const { loader, loaderFile: resolvedLoaderFile } = await job.dataFunctionsPromise!;
   job.loaderFile = resolvedLoaderFile;
 
@@ -245,7 +259,7 @@ async function runPageLoader<TContext>(
   const loaderStart = loader && timings ? performance.now() : 0;
   if (loader) {
     try {
-      loaderResult = await loader(job.routeArgs);
+      loaderResult = await loader(job.routeArgs as Parameters<typeof loader>[0]);
     } catch (error: unknown) {
       // A thrown Response is the loader's answer, just like a returned
       // Response. Normalize both through the same route-state path so
@@ -478,6 +492,7 @@ async function renderServerDocument<TContext>(
       params: match.params,
       routeId: match.route.id ?? "",
       routes: ctx.hrefRoutes,
+      search: (job.routeArgs as LoaderArgs<TContext>).search,
       url: ctx.requestPath,
     },
     componentTree,

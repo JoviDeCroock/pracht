@@ -322,6 +322,13 @@ export function createPrachtClientModuleSource(
   const routeHeadHints = routeHints.head;
   const routeStaticPathsHints = routeHints.staticPaths;
   const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
+  // Client-side search validation ships only when a route module can export a
+  // `search` schema. Dev keeps it regardless, so adding the first schema does
+  // not depend on the client entry being regenerated.
+  const searchParser =
+    routeHints.incomplete || Object.values(routeHints.search).some(Boolean)
+      ? "parseRouteSearch"
+      : "import.meta.env.DEV ? parseRouteSearch : undefined";
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root, "client")
@@ -406,7 +413,7 @@ export function createPrachtClientModuleSource(
   const appDir = appFileAbs.replace(/\/[^/]*$/, "") || "/";
 
   return [
-    'import { resolveApp, initClientRouter, readHydrationState, DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData } from "@pracht/core/client";',
+    'import { resolveApp, initClientRouter, readHydrationState, parseRouteSearch, DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData } from "@pracht/core/client";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -490,6 +497,7 @@ export function createPrachtClientModuleSource(
     "    initialState: state,",
     "    root,",
     "    findModuleKey,",
+    `    parseSearch: ${searchParser},`,
     ...(webmcpEnabled ? ["    onRouteChange: syncPrachtWebmcpTools,"] : []),
     "  });",
     "}",
@@ -987,6 +995,7 @@ export function createRouteHintsForVirtualModules(
     headers: {},
     incomplete: false,
     loader: {},
+    search: {},
     staticPaths: {},
   };
 
@@ -999,10 +1008,11 @@ export function createRouteHintsForVirtualModules(
     hints.incomplete ||= scanned.incomplete;
     Object.assign(hints.head, scanned.head);
     Object.assign(hints.headers, scanned.headers);
-    // A shell can own neither a loader nor `getStaticPaths()`, so only the
-    // routes directory contributes those two.
+    // A shell can own neither a loader, `getStaticPaths()`, nor a search
+    // schema, so only the routes directory contributes those.
     if (prefix === routesPrefix) {
       Object.assign(hints.loader, scanned.loader);
+      Object.assign(hints.search, scanned.search);
       Object.assign(hints.staticPaths, scanned.staticPaths);
     }
   }

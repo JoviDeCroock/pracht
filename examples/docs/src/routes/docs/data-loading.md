@@ -69,6 +69,29 @@ every concrete prerendered path for adapters, and annotates generated
 | signal  | AbortSignal   | Aborts when the client disconnects or the budget runs out |
 | url     | URL           | Parsed URL object                                    |
 | route   | ResolvedRoute | Matched route metadata                               |
+| search  | unknown       | Parsed search params — see below                     |
+
+#### `search`
+
+`search` is the output of the route module's
+[`search` schema](/docs/routing#search-params), or the raw query record
+(`{ key: "value" }`, with an array for repeated keys) when the route has
+none. Narrow its type with `SearchArgs`:
+
+```ts [src/routes/products.tsx]
+import type { LoaderArgs, SearchArgs } from "@pracht/core";
+import * as z from "zod";
+
+export const search = z.object({ page: z.coerce.number().int().min(1).default(1) });
+
+export async function loader(args: LoaderArgs & SearchArgs<typeof search>) {
+  return listProducts({ page: args.search.page });
+}
+```
+
+The schema runs after middleware and before the loader, and `head()` and
+`headers()` receive the same value. A query it rejects answers 400 through the
+route's error boundary without running the loader.
 
 #### `signal`
 
@@ -141,6 +164,9 @@ route("/pricing", "./routes/pricing.tsx", {
 A positive value sets `Cache-Control: private, max-age=<seconds>` on successful
 route-state responses. `loaderCache: false` and `loaderCache: 0` keep `no-store`
 and can opt a route out of a group default.
+
+Every query variant is its own cache entry: the route-state URL, the prefetch
+cache, and `loaderCache` all key on the full URL, query string included.
 
 Only cache data that is safe to reuse for the configured duration in the same
 browser. Avoid positive `loaderCache` values for loader data that depends on the
@@ -308,6 +334,8 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 ```
 
 Error boundaries compose — a route boundary catches route-level errors, a shell boundary catches errors from any route in that shell, and uncaught errors bubble to the global handler.
+
+A query rejected by the route's [`search` schema](/docs/routing#when-the-query-is-invalid) arrives here too, as a 400 with the validation issues on `error.issues`.
 
 #### Scoping a boundary to a subtree
 
@@ -644,6 +672,26 @@ export function Component() {
 ```
 
 An SSG page hydrates with its build-time query so its first client tree matches the static HTML. After hydration, the hook updates from the visitor's browser URL; a direct visit to `/?lang=zh` therefore re-renders with `lang=zh` while retaining prerendered route identity and loader data. Use `useIsHydrated()` or stable fallback UI to avoid a visible transition. Navigate to update the query—the returned object cannot be mutated—and use SSR when query parameters must affect loader data or initial HTML.
+
+### useSearch()
+
+Read the active route's parsed search params — the output of its
+[`search` schema](/docs/routing#search-params), or the raw query record when it
+has none:
+
+```tsx
+import { useSearch } from "@pracht/core";
+
+export function Component() {
+  const { page } = useSearch("products"); // typed by `pracht typegen`
+  return <p>Page {page}</p>;
+}
+```
+
+Like `useRouteData()`, the route id must name the active route; without
+typegen, pass the type instead (`useSearch<{ page: number }>()`). It follows the
+same hydration rule as `useSearchParams()`: an SSG page hydrates with the
+build-time (empty) query, then re-parses the visitor's.
 
 ### useRevalidate()
 

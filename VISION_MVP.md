@@ -32,6 +32,10 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
   explicit `src/routes.ts` manifest using `defineApp()`, `route()`, `group()`.
 - **Dynamic segments**: `:param` syntax, catch-all segments.
 - **Typed route links**: `pracht typegen` emits route id/param types and href helpers for `<Link>`, `useNavigate()`, and code outside components.
+- **Typed search params**: a route module exports a `search` Standard Schema;
+  loaders, `head()`, and `useSearch()` get the parsed output, links and
+  `href()` are checked against its input, and a rejected query renders the
+  route's error boundary with a 400 (server and client navigation alike).
 - **Shells**: named layout wrappers (e.g. `public`, `app`) decoupled from URL
   structure; assigned per route or group.
 - **Middleware**: named middleware defined in `src/middleware/`, applied per route
@@ -111,7 +115,8 @@ core framework conventions. See
   shell-level head.
 - **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
-  `useLocation()`, `useSearchParams()`, `useParams()`, `useBlocker()` (guard a
+  `useLocation()`, `useSearchParams()`, `useSearch()` (schema-parsed query),
+  `useParams()`, `useBlocker()` (guard a
   navigation before it commits, including back/forward and document unload),
   `<Form>` component, `<Link>`
   (with `prefetch`, `preserveScroll`, `viewTransition`, `speculate` props), and imperative

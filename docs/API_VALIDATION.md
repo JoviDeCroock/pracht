@@ -341,6 +341,10 @@ The docs use zod in examples for familiarity; nothing in pracht assumes it.
   middleware short-circuit still prevents body parsing.
 - `formDataToRecord`, `searchParamsToRecord`, and `validateStandardSchema`
   are exported for reuse in custom handlers or middleware.
+- Page routes validate their query with the same contract: a route module's
+  `search` export receives the `searchParamsToRecord()` shape, and a rejection
+  surfaces as a 400 route error whose `issues` use this `{ in: "query", ... }`
+  shape. See [ROUTING.md](ROUTING.md#search-params).
 - Both record helpers group entries in a single pass, so their cost is linear
   in the number of fields. A field that appears once maps to its value, a
   repeated field maps to an array in submission order, and the returned record

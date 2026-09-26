@@ -191,6 +191,99 @@ In `pracht dev`, apps that declare a `notFound` page render it instead of the de
 
 ---
 
+## Search Params
+
+A route module can export a `search` schema for its query string. Any
+[Standard Schema](https://standardschema.dev) validator works — the same
+contract [`defineApi()`](/docs/api-validation) uses:
+
+```tsx [src/routes/products.tsx]
+import { Link, useSearch, type LoaderArgs, type SearchArgs } from "@pracht/core";
+import * as z from "zod";
+
+export const search = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  q: z.string().optional(),
+});
+
+export async function loader(args: LoaderArgs & SearchArgs<typeof search>) {
+  const { page, q } = args.search; // { page: number; q?: string }
+  return listProducts({ page, q });
+}
+
+export function Component() {
+  const { page, q } = useSearch("products");
+  return (
+    <Link route="products" search={{ page: page + 1, q }}>
+      Next page
+    </Link>
+  );
+}
+```
+
+The schema receives the query as a plain object: one string per key, and an
+array of strings when a key repeats (`?tag=a&tag=b` → `{ tag: ["a", "b"] }`).
+Values arrive as strings, so coerce numbers and booleans in the schema
+(`z.coerce.number()`), and give optional params a default so the bare URL
+stays valid. A key that may repeat is still a single string when it appears
+once, so accept both shapes:
+
+```ts
+tag: z.array(z.string()).or(z.string().transform((tag) => [tag])).default([]),
+```
+
+- **Loaders, `head()`, and `headers()`** receive the schema's output as
+  `args.search`. Type it with `SearchArgs<typeof search>`. The schema runs after
+  middleware and before the loader.
+- **Components** read the same value with `useSearch()`. Pass the route id —
+  `useSearch("products")` — to get the output type from
+  [typed routes](#typed-routes-and-links); like `useRouteData()`, the id must
+  name the active route. `useSearchParams()` is unchanged and still returns the
+  raw `URLSearchParams`.
+- **Routes without a schema** get the raw record (`Record<string, string |
+  string[]>`) from both `args.search` and `useSearch()`.
+
+### When the query is invalid
+
+A query the schema rejects never reaches the loader. The document answers
+**400** and renders the route's `ErrorBoundary` (or the shell's), whose `error`
+carries `status: 400`, the message `"Invalid search params"`, and the
+normalized issues — the same `{ in, message, path }` shape API validation
+returns, with `in: "query"`:
+
+```tsx
+export function ErrorBoundary({ error }: ErrorBoundaryProps) {
+  return (
+    <ul>
+      {error.issues?.map((issue) => (
+        <li>{issue.path?.join(".")}: {issue.message}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+Client navigation behaves the same way: the router parses the new query with
+the same schema — including for SPA routes and routes without a loader — and a
+rejection renders the error boundary instead of the page. Without an
+`ErrorBoundary` the server answers with a plain-text 400.
+
+### Prerendered routes
+
+SSG and ISG pages are rendered without a query string, so the build parses the
+schema against an empty query: the loader and `head()` see its defaults. A
+schema that rejects an empty query cannot be prerendered — a static export
+fails the build, and other targets skip the page with a warning. After
+hydration the client parses the visitor's actual query, so `useSearch()`
+reflects it while the loader data stays the build-time result. Put
+query-dependent data behind an SSR or SPA route.
+
+The schema ships to the browser with the route module, so pick a validator
+you are happy to bundle. The router only includes its validation code when
+some route module exports a `search` schema.
+
+---
+
 ## Typed Routes and Links
 
 Run `pracht typegen` to generate a type-safe route map from the same resolved app graph used by `pracht inspect routes --json`:
@@ -226,6 +319,13 @@ export function ProductActions({ id }: { id: string }) {
 
 Explicit `id` fields are preferred for stable public APIs. Routes without ids use generated ids, and params are inferred from `:param`, `*`, and `:name*` segments. `pracht typegen --check` is useful in CI to catch stale generated files.
 
+When a route module exports a [`search` schema](#search-params), typegen
+registers its input and output types too. `<Link search>`, `navigate()`, and
+`href()` then check `search` against the schema's input — unknown keys and
+wrong value types are compile errors, and `search` becomes required when the
+schema has a required key — while `useSearch("id")` returns its output. Routes
+without a schema keep accepting any query object or string.
+
 ### `<Link>` props
 
 `<Link>` accepts every anchor attribute — `target`, `rel`, `download`, `ping`,
@@ -235,7 +335,7 @@ Explicit `id` fields are preferred for stable public APIs. Routes without ids us
 | ---------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `route`          | RouteId                                         | **Required.** The route id to navigate to                                                |
 | `params`         | Record\<string, unknown\>                       | Values for the route's dynamic segments                                                  |
-| `search`         | object \| string                                | Query string to append                                                                   |
+| `search`         | object \| string                                | Query string to append; typed by the route's [`search` schema](#search-params) when it has one |
 | `hash`           | string                                          | Fragment to append                                                                       |
 | `prefetch`       | `"intent" \| "viewport" \| "render" \| "none"`  | Override the route's [prefetch strategy](/docs/prefetching) for this link                 |
 | `speculate`      | boolean                                         | Opt this link out of / back into [speculation rules](/docs/prefetching#excluding-individual-links) |

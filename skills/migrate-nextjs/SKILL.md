@@ -87,7 +87,7 @@ automatic**:
 | `"use client"` (few, mostly-server app) | `hydration: "islands"` + `src/islands/`                 | Only islands ship JS; see Phase 4                                     |
 | `revalidatePath` / `res.revalidate()` | `webhookRevalidate()` + `POST /__pracht/revalidate`       | On-demand ISG; combinable with `timeRevalidate(seconds)`              |
 | `useRouter()` (next/navigation) | `useNavigate()`                                                 | Takes a path, or `{ route: "id" }` after `pracht typegen`             |
-| `useSearchParams()`             | `useSearchParams()`                                             | Reactive read-only params; SSG gets the browser query after hydration, loaders use `url.searchParams` |
+| `useSearchParams()`             | `useSearchParams()`                                             | Reactive read-only params; SSG gets the browser query after hydration. For validated, typed values export a `search` schema and read `args.search` / `useSearch()` |
 | `useParams()`                   | `useParams()`                                                   | Direct equivalent; also `params` in loader args                       |
 | `next/link` `<Link>`            | `<Link route="..." params={{…}}>` or plain `<a>`               | Prefer typed `<Link>` after `pracht typegen`; the router intercepts same-origin anchors |
 | `next/link` `prefetch={false}`  | `<Link prefetch="none">`                                        | Default `"intent"` (hover/focus); also `"viewport"`, `"render"`       |
