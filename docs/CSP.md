@@ -86,8 +86,12 @@ load the inline blur image.
 
 ## Framework-Generated Styles
 
-`defineFont()` emits `<style data-pracht-fonts>`, and `pracht({ inlineCss: true })`
-emits `<style data-pracht-inline-css>`. For SSR, generate a fresh nonce per
+`defineFont()` emits `<style data-pracht-fonts>`, `pracht({ inlineCss: true })`
+emits `<style data-pracht-inline-css>`, and `defineApp({ viewTransitions: true })`
+emits `<style data-pracht-view-transitions>` (a constant
+`@view-transition{navigation:auto}`; its hash is
+`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='` for nonce-less
+SSG/ISG pages). For SSR, generate a fresh nonce per
 response, expose it through request context, return it from a shared shell head,
 and include the same value in the response CSP:
 
