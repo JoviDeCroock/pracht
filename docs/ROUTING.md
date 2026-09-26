@@ -547,6 +547,33 @@ export const app = defineApp({
 Customize the animation with regular `::view-transition-*` CSS; typed route
 data and the navigation lifecycle are unaffected.
 
+**Full-document navigations.** Islands and `hydration: "none"` routes never
+load the client router, and the router hands navigations to them to the
+browser (`window.location`), so `startViewTransition()` never sees them. For
+those, `viewTransitions: true` also makes every page document (SSR, SSG/ISG,
+SPA shell, streamed; all hydration modes) emit
+`<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>`
+in the head, before route CSS so an app stylesheet can override it. Design
+notes:
+
+- **Every page, not just islands/none.** The at-rule only takes effect when both
+  the old and the new document carry it, and full → islands is a document load
+  too. On a full-hydration page it is inert for router-handled navigations
+  (same-document), so those still animate exactly once through
+  `startViewTransition()` — no double animation.
+- **App-level only.** A cross-document transition is a property of the pair of
+  pages, so there is no route/group meta; a page opts out with
+  `@view-transition { navigation: none }` in its own CSS. A meta key would also
+  have to be plumbed through resolution, the pages router, and inspect output
+  for something CSS already expresses.
+- **CSP.** The tag carries `head.styleNonce` like the other framework-generated
+  styles. Its text is the constant `VIEW_TRANSITION_CSS`, so prerendered pages
+  can allow it by hash
+  (`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`); a unit test pins
+  the hash.
+- Error-boundary documents and the static SPA fallback do not carry it;
+  navigations into them just do not animate.
+
 ---
 
 ## Route Resolution

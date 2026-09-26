@@ -682,6 +682,11 @@ export interface PrachtAppConfig {
    * Individual navigations can still opt out via
    * `navigate(to, { viewTransition: false })`. Ignored in browsers without
    * `document.startViewTransition` support.
+   *
+   * Also emits `@view-transition { navigation: auto; }` in every page
+   * document, so full-document navigations — to, from, and between
+   * `hydration: "islands"` and `"none"` routes — animate as cross-document
+   * view transitions in supporting browsers, with no client JavaScript.
    */
   viewTransitions?: boolean;
   /**
@@ -810,7 +815,8 @@ export interface HeadMetadata {
   fonts?: PrachtFont[];
   /**
    * CSP nonce for framework-generated inline styles, including build-time CSS
-   * emitted by `pracht({ inlineCss: true })` and generated font CSS.
+   * emitted by `pracht({ inlineCss: true })`, generated font CSS, and the
+   * `@view-transition` rule emitted when `viewTransitions` is enabled.
    */
   styleNonce?: string;
   /**

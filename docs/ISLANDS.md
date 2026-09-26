@@ -210,6 +210,14 @@ full-hydration route) and the user clicks a link to an islands or
 `window.location` navigation. Route-state prefetching is also skipped for
 these routes.
 
+With `defineApp({ viewTransitions: true })` those full-document navigations
+still animate: every page document — islands, `none`, and full — carries
+`<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>`
+(emitted by `buildHtmlDocumentParts()` in `runtime-html.ts`, nonce'd with
+`styleNonce`), which opts the browser into cross-document view transitions.
+Pure CSS, so it adds no JavaScript to islands or `none` routes. Details in
+ROUTING.md → View Transitions.
+
 Partial client-side rendering of islands routes is out of scope for v1.
 
 ---

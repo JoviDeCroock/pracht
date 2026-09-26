@@ -4,6 +4,9 @@ export const app = defineApp({
   shells: {
     site: () => import("./shells/site.tsx"),
   },
+  // Page changes here are full document loads, so this animates them as
+  // cross-document view transitions (zero JavaScript).
+  viewTransitions: true,
   routes: [
     group({ shell: "site" }, [
       // Mostly-static SSG page with one eagerly-hydrated counter island.
