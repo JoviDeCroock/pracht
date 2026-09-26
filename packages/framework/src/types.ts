@@ -75,6 +75,17 @@ export interface IslandProps {
   client?: IslandStrategy;
 }
 
+/**
+ * Props accepted by every region usage. Intersect with your own props type:
+ * `function CartCount(props: CartCountProps & RegionProps)`. `fallback` is
+ * consumed by the framework and never reaches the component: it is what a
+ * cached (SSG/ISG) page shows until the request-time HTML arrives, and what
+ * any page shows when the region fails.
+ */
+export interface RegionProps {
+  fallback?: ComponentChildren;
+}
+
 export type RouteParams = Record<string, string>;
 
 export type RouteParamInput = string | number | boolean;
@@ -775,6 +786,33 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
 }
 
 export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
+
+/**
+ * Arguments of a region `loader`: the embedding page's route arguments —
+ * `request` and `url` are the page's, `context` is what the page route's
+ * middleware produced — plus the props the region was rendered with.
+ *
+ * `props` are untrusted input: on a cached page they travel in the region
+ * request's query string, where any caller can change them. Treat them like
+ * query parameters and authorize from `context`, never from `props`.
+ */
+export interface RegionLoaderArgs<
+  TContext = RegisteredContext,
+  TProps extends object = Record<string, unknown>,
+> extends LoaderArgs<TContext> {
+  props: TProps;
+}
+
+/** Data a region reads with `useRegionData<typeof loader>()`. */
+export type RegionLoaderData<T> = T extends (...args: any[]) => infer TResult
+  ? Exclude<Awaited<TResult>, Response>
+  : T;
+
+/** Shape of a module in the regions directory. */
+export interface RegionModule<TContext = any> {
+  default: FunctionComponent<any>;
+  loader?: (args: RegionLoaderArgs<TContext, any>) => MaybePromise<unknown>;
+}
 
 /** The matched page or API route whose middleware chain is running. */
 export type MiddlewareRoute = ResolvedRoute | ResolvedApiRoute;

@@ -6,6 +6,7 @@ export const PRACHT_CLIENT_MODULE_ID = "virtual:pracht/client";
 export const PRACHT_SERVER_MODULE_ID = "virtual:pracht/server";
 export const PRACHT_DEV_MODULE_ID = "virtual:pracht/dev-metadata";
 export const PRACHT_ISLANDS_CLIENT_MODULE_ID = "virtual:pracht/islands-client";
+export const PRACHT_REGIONS_CLIENT_MODULE_ID = "virtual:pracht/regions-client";
 export const PRACHT_CAPABILITIES_MODULE_ID = "virtual:pracht/capabilities";
 export const PRACHT_WEBMCP_MODULE_ID = "virtual:pracht/webmcp";
 export const PRACHT_DEV_PAGE_TOOLS_MODULE_ID = "virtual:pracht/dev-page-tools";
@@ -14,6 +15,7 @@ export const PRACHT_DEV_PAGE_TOOLS_MODULE_ID = "virtual:pracht/dev-page-tools";
 // scheme by browsers, so we serve the client module from a plain path.
 export const CLIENT_BROWSER_PATH = "/@pracht/client.js";
 export const ISLANDS_CLIENT_BROWSER_PATH = "/@pracht/islands.js";
+export const REGIONS_CLIENT_BROWSER_PATH = "/@pracht/regions.js";
 /** Dev-only: the WebMCP page tools every dev document loads. Never emitted by a build. */
 export const DEV_PAGE_TOOLS_BROWSER_PATH = "/@pracht/dev-page-tools.js";
 
@@ -28,6 +30,7 @@ export interface ViteManifestEntry {
 export interface ClientBuildAssets {
   clientEntryUrl: string | null;
   islandsEntryUrl: string | null;
+  regionsEntryUrl: string | null;
   cssManifest: Record<string, string[]>;
   cssContentManifest: Record<string, string>;
   jsManifest: Record<string, string[]>;
@@ -68,6 +71,7 @@ export function readClientBuildAssets(
     return {
       clientEntryUrl: null,
       islandsEntryUrl: null,
+      regionsEntryUrl: null,
       cssManifest: {},
       cssContentManifest: {},
       jsManifest: {},
@@ -78,6 +82,7 @@ export function readClientBuildAssets(
   const manifest = JSON.parse(rawManifest) as Record<string, ViteManifestEntry>;
   const clientEntry = manifest[PRACHT_CLIENT_MODULE_ID];
   const islandsEntry = manifest[PRACHT_ISLANDS_CLIENT_MODULE_ID];
+  const regionsEntry = manifest[PRACHT_REGIONS_CLIENT_MODULE_ID];
 
   const cssManifest: Record<string, string[]> = {};
   const cssContentManifest: Record<string, string> = {};
@@ -108,10 +113,12 @@ export function readClientBuildAssets(
   // file itself is excluded — it is already the page's <script src>.
   addEntryDeps(manifest, jsManifest, PRACHT_CLIENT_MODULE_ID, clientEntry, base);
   addEntryDeps(manifest, jsManifest, PRACHT_ISLANDS_CLIENT_MODULE_ID, islandsEntry, base);
+  addEntryDeps(manifest, jsManifest, PRACHT_REGIONS_CLIENT_MODULE_ID, regionsEntry, base);
 
   return {
     clientEntryUrl: clientEntry ? assetUrl(clientEntry.file, base) : null,
     islandsEntryUrl: islandsEntry ? assetUrl(islandsEntry.file, base) : null,
+    regionsEntryUrl: regionsEntry ? assetUrl(regionsEntry.file, base) : null,
     cssManifest,
     cssContentManifest,
     jsManifest,
@@ -177,6 +184,14 @@ export function isIslandsClientModule(id: string): boolean {
     id === PRACHT_ISLANDS_CLIENT_MODULE_ID ||
     id === ISLANDS_CLIENT_BROWSER_PATH ||
     id.endsWith(PRACHT_ISLANDS_CLIENT_MODULE_ID)
+  );
+}
+
+export function isRegionsClientModule(id: string): boolean {
+  return (
+    id === PRACHT_REGIONS_CLIENT_MODULE_ID ||
+    id === REGIONS_CLIENT_BROWSER_PATH ||
+    id.endsWith(PRACHT_REGIONS_CLIENT_MODULE_ID)
   );
 }
 

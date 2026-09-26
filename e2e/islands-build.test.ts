@@ -197,6 +197,59 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     expect(jsRequests).toContain(clientEntryUrl);
     await page.getByTestId("full-button").click();
     await expect(page.getByTestId("full-button")).toHaveText("hydrated");
+
+    // (f) Request-time regions. The prerendered document carries the
+    // fallback and the swap script; the region's content is fetched per
+    // visitor from the region endpoint, so the cached HTML never changes.
+    const regionsEntryUrl = `/${manifest["virtual:pracht/regions-client"].file}`;
+    const regionsHtml = readFileSync(
+      resolve(exampleDir, "dist/client/regions/index.html"),
+      "utf-8",
+    );
+    expect(regionsHtml).toContain("<pracht-region");
+    expect(regionsHtml).toContain("Loading visitor…");
+    expect(regionsHtml).toContain(`<script type="module" src="${regionsEntryUrl}"></script>`);
+    // Pages that render no region never reference the swap script.
+    expect(staticHtml).not.toContain(regionsEntryUrl);
+    expect(homeHtml).not.toContain(regionsEntryUrl);
+
+    const anonymousDocument = await (await fetch(`${origin}/regions`)).text();
+    const visitorDocument = await (
+      await fetch(`${origin}/regions`, { headers: { cookie: "visitor=Ada" } })
+    ).text();
+    expect(visitorDocument).toBe(anonymousDocument);
+
+    jsRequests.length = 0;
+    await page.goto(`${origin}/regions`);
+    await page.waitForSelector('html[data-pracht-regions-ready="true"]');
+    await expect(page.getByTestId("visitor")).toHaveText("Signed out");
+    // A hydration: "none" page with a region loads the swap script and
+    // nothing else — no Preact, no client runtime.
+    expect(jsRequests).toContain(regionsEntryUrl);
+    expect(jsRequests.some((url) => url.includes("vendor"))).toBe(false);
+    expect(jsRequests).not.toContain(clientEntryUrl);
+
+    await page.context().addCookies([{ name: "visitor", value: "Ada", url: origin }]);
+    await page.reload();
+    await page.waitForSelector('html[data-pracht-regions-ready="true"]');
+    await expect(page.getByTestId("visitor")).toHaveText("Welcome back, Ada");
+
+    // SSR renders the region inline, in the document itself.
+    const ssrRegionHtml = await (
+      await fetch(`${origin}/regions/ssr`, { headers: { cookie: "visitor=Ada" } })
+    ).text();
+    expect(ssrRegionHtml).toContain("Welcome back, Ada");
+    expect(ssrRegionHtml).not.toContain(regionsEntryUrl);
+
+    // Islands a region brings along hydrate once it is swapped in.
+    await page.goto(`${origin}/regions/islands`);
+    await expect(page.getByTestId("visitor")).toHaveText("Hello, Ada");
+    await expect(page.locator('pracht-island[island="/src/islands/Counter.tsx"]')).toHaveAttribute(
+      "data-hydrated",
+      "true",
+    );
+    await page.getByTestId("increment").click();
+    await expect(page.getByTestId("count")).toHaveText("Count: 2");
   } finally {
     if (server) {
       server.kill("SIGTERM");

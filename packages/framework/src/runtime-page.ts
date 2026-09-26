@@ -32,10 +32,19 @@ import {
   IslandCaptureContext,
   type IslandCapture,
 } from "./islands-server.ts";
+import {
+  createRegionRenderState,
+  getRegionsClientEntryUrl,
+  hasRegisteredRegions,
+  RegionRenderContext,
+  resolveInlineRegions,
+  type RegionRenderState,
+} from "./regions-server.ts";
 import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,
   ISLANDS_ENTRY_MANIFEST_KEY,
+  REGIONS_ENTRY_MANIFEST_KEY,
   mergeEntryPreloadUrls,
   resolveManifestEntries,
   resolvePageCssAssets,
@@ -510,6 +519,22 @@ async function renderServerDocument<TContext>(
     );
   }
 
+  // Request-time regions. An SSR document renders them inline — their HTML
+  // replaces a token once the page has rendered. Every other document is
+  // shared (SSG/ISG) or already flushing (streaming), so it carries a
+  // placeholder the browser fills from the region endpoint. Apps without a
+  // regions directory never provide the context at all.
+  let regionState: RegionRenderState | null = null;
+  if (hasRegisteredRegions()) {
+    const inline = (match.route.render ?? "ssr") === "ssr" && !job.willStream;
+    regionState = createRegionRenderState(inline ? "inline" : "defer");
+    tree = h(
+      RegionRenderContext.Provider as FunctionComponent<Record<string, unknown>>,
+      { value: regionState },
+      tree,
+    );
+  }
+
   if (job.willStream) {
     // head/headers are already resolved above and the state script only
     // needs the awaited loader data, so the whole document shape is known
@@ -579,7 +604,22 @@ async function renderServerDocument<TContext>(
   }
 
   const renderToString = await getRenderToStringAsync();
-  const ssrContent = await renderToString(tree);
+  let ssrContent = await renderToString(tree);
+  if (regionState) {
+    ssrContent = await resolveInlineRegions(ssrContent, regionState, {
+      routeArgs: job.routeArgs,
+      onError: (error, region) => {
+        reportRequestError(ctx.options.onRouteError, error, ctx.requestPath, {
+          phase: "render",
+          regionFile: region.file,
+          routeFile: match.route.file,
+          routeId: match.route.id,
+          routePath: match.route.path,
+          middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+        });
+      },
+    });
+  }
 
   if (hydration !== "full") {
     const islandFiles = [
@@ -600,6 +640,20 @@ async function renderServerDocument<TContext>(
             (islandFiles.length > 0
               ? "This usually means the @pracht/vite-plugin islands entry was not built — check that your islands live in the configured islands directory."
               : "This usually means generated page-runtime metadata was not forwarded by the deployment adapter."),
+        );
+      }
+    }
+
+    // Pending regions on a page without the client runtime need the swap
+    // script; full-hydration pages fill them from the client region component.
+    let regionsEntryUrl: string | undefined;
+    if (regionState?.deferred) {
+      regionsEntryUrl = getRegionsClientEntryUrl();
+      if (!regionsEntryUrl) {
+        throw new Error(
+          `Route "${match.route.path}" rendered a request-time region, but no region swap ` +
+            "script URL is registered. This usually means the @pracht/vite-plugin regions " +
+            "entry was not built — check that your regions live in the configured regions directory.",
         );
       }
     }
@@ -629,17 +683,22 @@ async function renderServerDocument<TContext>(
         head: withCapturedScripts(head, scriptCapture),
         body: ssrContent,
         clientEntryUrl: islandsEntryUrl,
+        regionsEntryUrl,
         cssAssets: withIslandCssAssets(
           cssAssets,
           ctx.options.cssManifest,
           ctx.options.cssContentManifest,
           islandFiles,
         ),
-        modulePreloadUrls: islandsEntryUrl
-          ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
-              ...islandPreloadUrls,
-            ])
-          : [...islandPreloadUrls],
+        modulePreloadUrls: mergeEntryPreloadUrls(
+          ctx.options.jsManifest,
+          regionsEntryUrl ? REGIONS_ENTRY_MANIFEST_KEY : "",
+          islandsEntryUrl
+            ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
+                ...islandPreloadUrls,
+              ])
+            : [...islandPreloadUrls],
+        ),
         speculationRules: getAppSpeculationRules(ctx.resolvedApp),
         webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
       }),

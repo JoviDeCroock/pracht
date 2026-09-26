@@ -238,6 +238,16 @@ Partial client-side rendering of islands routes is out of scope for v1.
 
 ---
 
+## Regions
+
+Island props are fixed at render time, so on SSG/ISG pages they are shared by
+every visitor. Per-visitor content belongs in a request-time region (see
+[REGIONS.md](REGIONS.md)). Regions can contain islands: on islands pages the
+region endpoint captures them and names the bootstrap in `x-pracht-islands`,
+and the bootstrap (when the app has a regions directory) hydrates islands in
+each swapped region. In such apps `data-hydrated` is `"pending"` while an
+island's chunk loads, then `"true"`.
+
 ## Limitations (v1)
 
 - Children/slots from server components into islands: unsupported (throws).

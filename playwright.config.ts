@@ -71,6 +71,17 @@ export default defineConfig({
       },
     },
     {
+      // Same dev server as "islands", run after it: islands-dev edits source
+      // files, and the full reloads those edits broadcast would land on the
+      // region pages mid-assertion.
+      name: "regions",
+      testMatch: /regions-dev\.test\.ts/,
+      dependencies: ["islands"],
+      use: {
+        baseURL: e2eUrls.islands,
+      },
+    },
+    {
       // Both specs run against examples/basic (see the webServer entry below).
       name: "capabilities",
       testMatch: /capabilities\.test\.ts|dev-page-tools\.test\.ts|i18n\.test\.ts/,

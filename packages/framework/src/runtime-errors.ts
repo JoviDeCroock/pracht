@@ -41,6 +41,12 @@ export interface RouteErrorContext {
   loaderFile?: string;
   shellFile?: string;
   middlewareFiles?: string[];
+  /**
+   * Set when the failure happened inside a request-time region (its loader or
+   * its render) rather than in the page itself. The page still rendered; the
+   * region fell back.
+   */
+  regionFile?: string;
 }
 
 export interface SerializedRouteError {
@@ -224,6 +230,7 @@ export function describeRouteErrorModule(
   context: RouteErrorContext | undefined,
 ): string | undefined {
   if (!context) return undefined;
+  if (context.regionFile && context.phase !== "middleware") return context.regionFile;
   if (context.phase === "middleware" && context.middlewareFiles?.length) {
     return context.middlewareFiles.join(", ");
   }

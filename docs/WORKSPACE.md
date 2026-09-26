@@ -55,7 +55,7 @@ constraint; the CLI test is.
 | `packages/start`              | `create-pracht`              | Project scaffolder: router choice, adapter choice, agent tooling (`.mcp.json`, skills, `AGENTS.md`)         |
 | `examples/basic`              | `@pracht/example-basic`      | The reference app: all four render modes, loaders, API routes, `@pracht/session` auth, capabilities, forms. Builds for four adapters from one source tree |
 | `examples/showcase`           | `@pracht/example-showcase`   | *Launchpad* — the whole capability graph and agent trust layer in one app: six operations projected to browser, forms, WebMCP, signed remote callers, and `/mcp` |
-| `examples/islands`            | `@pracht/example-islands`    | Partial hydration: an island beside a server component whose handlers never hydrate                          |
+| `examples/islands`            | `@pracht/example-islands`    | Partial hydration: an island beside a server component whose handlers never hydrate; request-time regions   |
 | `examples/pages-router`       | `@pracht/example-pages-router` | File-system routing with no manifest, including the `_app.tsx` shell convention                            |
 | `examples/static`             | `@pracht/example-static`     | Pure static export: build-time loaders, `getStaticPaths()`, loaderless SPA routes, `200.html` fallback, loader-backed `404.html` |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |

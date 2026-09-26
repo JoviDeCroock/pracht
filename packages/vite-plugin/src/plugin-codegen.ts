@@ -10,6 +10,7 @@ import {
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
+  REGIONS_CLIENT_BROWSER_PATH,
   readClientBuildAssets,
 } from "./plugin-assets.ts";
 import { ROUTE_CSS_CONTENT_TOKEN, ROUTE_CSS_MANIFEST_TOKEN } from "./plugin-server-css.ts";
@@ -711,6 +712,44 @@ export function createPrachtIslandsClientModuleSource(
   ].join("\n");
 }
 
+/**
+ * Source of `virtual:pracht/regions-client` — the swap script islands and
+ * `hydration: "none"` pages load when they rendered a pending request-time
+ * region. It imports nothing from the app: it fetches each pending region's
+ * HTML and swaps it in.
+ */
+export function createPrachtRegionsClientModuleSource(): string {
+  return [
+    'import { swapRegions } from "@pracht/core/regions-client";',
+    "",
+    "swapRegions();",
+    "",
+  ].join("\n");
+}
+
+const STYLE_IMPORT_RE =
+  /^\s*import\s+(["'])([^"']+\.(?:css|scss|sass|less|styl|stylus|pcss|postcss|sss)(?:\?[^"']*)?)\1\s*;?\s*$/gm;
+
+/**
+ * What a region module compiles to in the client bundle: a placeholder
+ * component that fills itself from the region endpoint. The region's own
+ * code — its loader and whatever that imports — never reaches the browser.
+ * Bare stylesheet imports are kept so a region's CSS still ships with the
+ * page that renders it.
+ */
+export function createClientRegionModuleSource(code: string, regionFile: string): string {
+  const styleImports = [...code.matchAll(STYLE_IMPORT_RE)].map(
+    (match) => `import ${JSON.stringify(match[2])};`,
+  );
+  return [
+    ...styleImports,
+    'import { createClientRegion } from "@pracht/core/regions-component";',
+    "",
+    `export default createClientRegion(${JSON.stringify(regionFile)});`,
+    "",
+  ].join("\n");
+}
+
 export function createPrachtServerModuleSource(
   options: PrachtPluginOptions = {},
   buildOptions: {
@@ -732,6 +771,7 @@ export function createPrachtServerModuleSource(
     : {
         clientEntryUrl: null,
         islandsEntryUrl: null,
+        regionsEntryUrl: null,
         cssManifest: {},
         cssContentManifest: {},
         jsManifest: {},
@@ -768,10 +808,15 @@ export function createPrachtServerModuleSource(
     ? clientBuild.islandsEntryUrl
     : withDevBase(ISLANDS_CLIENT_BROWSER_PATH);
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
+  const regionsEntryUrl = buildOptions.isBuild
+    ? clientBuild.regionsEntryUrl
+    : withDevBase(REGIONS_CLIENT_BROWSER_PATH);
+  const regionsGlob = `${resolved.regionsDir}/**/*.{ts,tsx,js,jsx}`;
 
   const source = [
     prachtImports,
     'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
+    'import { registerServerRegions, setRegionsClientEntryUrl } from "@pracht/core/server";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -786,6 +831,11 @@ export function createPrachtServerModuleSource(
     "registerServerIslands(islandModules);",
     `setIslandsClientEntryUrl(${JSON.stringify(islandsEntryUrl ?? undefined)});`,
     "export const islandFiles = Object.keys(islandModules);",
+    "",
+    "// Request-time regions: detected like islands, rendered per request.",
+    `const regionModules = import.meta.glob(${JSON.stringify(regionsGlob)}, { eager: true });`,
+    "registerServerRegions(regionModules);",
+    `setRegionsClientEntryUrl(${JSON.stringify(regionsEntryUrl ?? undefined)});`,
     "",
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",

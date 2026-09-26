@@ -124,6 +124,12 @@ Routes that opt into `speculation` emit an inline
 `'inline-speculation-rules'` in `script-src`, or use a nonce/hash policy if your
 deployment requires tighter inline-script controls.
 
+Request-time regions (see [REGIONS.md](REGIONS.md)) are filled on SSG/ISG
+pages by the region swap script, which is emitted as an external module
+(`<script type="module" src>`), never inline, because a shared document cannot
+carry a per-request nonce. `script-src 'self'` covers it and `connect-src
+'self'` covers its `fetch` of `/__pracht/region`.
+
 For third-party analytics, prefer loading the script from an explicit origin and
 keep the vendor's collection endpoint in `connect-src`.
 

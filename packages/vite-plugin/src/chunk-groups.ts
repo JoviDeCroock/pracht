@@ -143,7 +143,11 @@ const ISLAND_MODULE_RE = /\.(?:[cm]?[jt]sx?)$/;
  * own entry: a route that renders one island must not be handed the CSS of
  * every other one.
  */
-export function islandChunkName(id: string, islandsDirectory: string): string | null {
+export function islandChunkName(
+  id: string,
+  islandsDirectory: string,
+  prefix = ISLAND_CHUNK_PREFIX,
+): string | null {
   const moduleId = id.replace(/\\/g, "/").split("?")[0] ?? "";
   const directory = islandsDirectory.replace(/\\/g, "/").replace(/\/$/, "");
   if (!moduleId.startsWith(`${directory}/`)) return null;
@@ -151,8 +155,11 @@ export function islandChunkName(id: string, islandsDirectory: string): string | 
   // Stylesheets and other assets follow the module that imported them; naming
   // them separately would split an island from its own CSS.
   if (!ISLAND_MODULE_RE.test(withinIslands)) return null;
-  return `${ISLAND_CHUNK_PREFIX}${withinIslands.replace(/\.[^./]+$/, "")}`;
+  return `${prefix}${withinIslands.replace(/\.[^./]+$/, "")}`;
 }
+
+/** Name of the chunk a request-time region module is grouped into, per region. */
+export const REGION_CHUNK_PREFIX = "regions/";
 
 /**
  * The chunking pracht contributes to the *server* build.
@@ -168,7 +175,16 @@ export function islandChunkName(id: string, islandsDirectory: string): string | 
  * Contributed in whichever form the app configured, for the same reason
  * {@link frameworkChunkConfig} is.
  */
-export function islandChunkConfig(output: unknown, islandsDirectory: string): FrameworkChunkConfig {
+export function islandChunkConfig(
+  output: unknown,
+  islandsDirectory: string,
+  regionsDirectory?: string,
+): FrameworkChunkConfig {
+  // Regions are imported eagerly by the server entry for the same reason
+  // islands are, so they get the same one-chunk-each treatment.
+  const chunkName = (id: string): string | null =>
+    islandChunkName(id, islandsDirectory) ??
+    (regionsDirectory ? islandChunkName(id, regionsDirectory, REGION_CHUNK_PREFIX) : null);
   if (Array.isArray(output)) {
     return {
       warning:
@@ -182,8 +198,8 @@ export function islandChunkConfig(output: unknown, islandsDirectory: string): Fr
 
   const groups: ChunkGroup[] = [
     {
-      name: (id: string) => islandChunkName(id, islandsDirectory),
-      test: (id: string) => islandChunkName(id, islandsDirectory) !== null,
+      name: chunkName,
+      test: (id: string) => chunkName(id) !== null,
     },
   ];
 
@@ -196,7 +212,7 @@ export function islandChunkConfig(output: unknown, islandsDirectory: string): Fr
       return {
         output: {
           manualChunks(id: string, meta: unknown) {
-            return islandChunkName(id, islandsDirectory) ?? appManualChunks(id, meta);
+            return chunkName(id) ?? appManualChunks(id, meta);
           },
         },
       };
