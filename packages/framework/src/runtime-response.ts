@@ -1,4 +1,5 @@
 import { h, options as preactOptions } from "preact";
+import { wrapWithRoot, type RequestRoot } from "./runtime-root.ts";
 import type { ComponentChildren, FunctionComponent, VNode } from "preact";
 
 import {
@@ -214,6 +215,8 @@ export async function renderRouteErrorResponse<TContext>(options: {
   shellFile: string | undefined;
   shellModule: ShellModule | undefined;
   requestPath: string;
+  /** The request's app root, when one was created before the failure. */
+  root?: RequestRoot | null;
 }): Promise<Response> {
   const exposeDetails = shouldExposeServerErrors(options.options);
   const routeError = normalizeRouteError(options.error, {
@@ -306,9 +309,10 @@ export async function renderRouteErrorResponse<TContext>(options: {
     | FunctionComponent<{ children?: ComponentChildren }>
     | undefined;
   const errorValue = deserializeRouteError(routeErrorWithDiagnostics);
-  const componentTree = Shell
-    ? h(Shell, null, h(Boundary, { error: errorValue }))
-    : h(Boundary, { error: errorValue });
+  const componentTree = wrapWithRoot(
+    options.root,
+    Shell ? h(Shell, null, h(Boundary, { error: errorValue })) : h(Boundary, { error: errorValue }),
+  );
   let tree: VNode<any> = h(
     PrachtRuntimeProvider as unknown as FunctionComponent<{
       data: null;

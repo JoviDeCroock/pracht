@@ -116,3 +116,41 @@ export const app = defineApp({
 ## Client-Side Navigation
 
 When navigating between routes that share the same shell, pracht preserves the shell and only re-renders the route content. When crossing shell boundaries, the full page tree is re-rendered.
+
+---
+
+## The App Root
+
+A shell is swapped whenever a navigation crosses shells, and everything inside it remounts. For state that has to outlive every navigation — a data cache, a theme, an analytics client — add an app root: `src/root.tsx` (or `.ts`). It renders above every shell, on the server and in the browser, and is never remounted. Every export is optional:
+
+```tsx [src/root.tsx]
+import { createContext } from "preact";
+import type { RootProps, RootSetupArgs } from "@pracht/core";
+
+export const Theme = createContext("light");
+
+// Once per server request, and once when the browser boots.
+export function setup({ request }: RootSetupArgs) {
+  return { theme: request?.headers.get("sec-ch-prefers-color-scheme") ?? "light" };
+}
+
+// Wraps every shell. Must render `children`.
+export function Root({ state, children }: RootProps<ReturnType<typeof setup>>) {
+  return <Theme.Provider value={state.theme}>{children}</Theme.Provider>;
+}
+
+// Server: what to send to the browser (JSON). Return undefined to send nothing.
+export function dehydrate(state: ReturnType<typeof setup>) {
+  return { theme: state.theme };
+}
+
+// Browser: merge what the server sent, before hydration and after every
+// route-state response (navigations, prefetches, revalidations).
+export function hydrate(state: ReturnType<typeof setup>, snapshot: unknown) {
+  state.theme = (snapshot as { theme: string }).theme;
+}
+```
+
+Loaders receive the request's state as `args.root`. `dehydrate()` runs after a document renders and after the loader of a client navigation, so whatever the loader or the render put into the state reaches the browser. [`@pracht/query`](/docs/recipes/tanstack-query) is built on exactly this.
+
+On the server, `setup()` runs for each request, so nothing in the state leaks between visitors. Islands routes do not render the app root in the browser, since each island hydrates on its own. An app without a root file ships none of this code. Change the location with the `rootFile` plugin option.

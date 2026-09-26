@@ -142,6 +142,14 @@ export const app = defineApp({
         render: "ssg",
       }),
       route(
+        "/docs/recipes/tanstack-query",
+        () => import("./routes/docs/recipes-tanstack-query.md"),
+        {
+          id: "recipes-tanstack-query",
+          render: "ssg",
+        },
+      ),
+      route(
         "/docs/recipes/view-transitions",
         () => import("./routes/docs/recipes-view-transitions.md"),
         {

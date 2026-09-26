@@ -69,6 +69,7 @@ every concrete prerendered path for adapters, and annotates generated
 | signal  | AbortSignal   | Aborts when the client disconnects or the budget runs out |
 | url     | URL           | Parsed URL object                                    |
 | route   | ResolvedRoute | Matched route metadata                               |
+| root    | unknown       | This request's [app root](/docs/shells#the-app-root) state, e.g. the `QueryClient` from [`@pracht/query`](/docs/recipes/tanstack-query) |
 
 #### `signal`
 

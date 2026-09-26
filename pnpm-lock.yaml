@@ -555,6 +555,25 @@ importers:
         specifier: ^6.7.0
         version: 6.7.0(preact@11.0.0-rc.1)
 
+  packages/query:
+    dependencies:
+      '@pracht/capabilities':
+        specifier: workspace:*
+        version: link:../capabilities
+      '@pracht/core':
+        specifier: workspace:*
+        version: link:../framework
+    devDependencies:
+      '@tanstack/preact-query':
+        specifier: ^5.91.0
+        version: 5.103.1(preact@11.0.0-rc.1)
+      preact:
+        specifier: 11.0.0-rc.1
+        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+      preact-render-to-string:
+        specifier: ^6.7.0
+        version: 6.7.0(preact@11.0.0-rc.1)
+
   packages/session:
     dependencies:
       '@pracht/core':
@@ -2147,6 +2166,14 @@ packages:
 
   '@tabler/icons@3.41.1':
     resolution: {integrity: sha512-OaRnVbRmH2nHtFeg+RmMJ/7m2oBIF9XCJAUD5gQnMrpK9f05ydj8MZrAf3NZQqOXyxGN1UBL0D5IKLLEUfr74Q==}
+
+  '@tanstack/preact-query@5.103.1':
+    resolution: {integrity: sha512-x24ZNupkOBMgsm175Jy4d9SgkCEKfgFATDSnBxxsxbR8jLtQ6/VLiC7e3HO8nKwgwTlknl8IYH2EwT0XrZVpng==}
+    peerDependencies:
+      preact: ^10.0.0
+
+  '@tanstack/query-core@5.103.1':
+    resolution: {integrity: sha512-rms8HqTGp6zA00dM+cUQ2eBcgzNJefuu5CAMB37i/6MiGT1zulPOytCFu2a0qjLqVR2n1jENPj9woqFQNuCzWA==}
 
   '@tsrx/core@0.0.8':
     resolution: {integrity: sha512-QDgfWmjiDpFV8YJU2LQracvO9bTWQcLrvhPf5/i5NrpksO+XOXt+uZUY+l4GUce8lyu2Q1Llqz65EMzAzXLbVA==}
@@ -4662,6 +4689,13 @@ snapshots:
       preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
 
   '@tabler/icons@3.41.1': {}
+
+  '@tanstack/preact-query@5.103.1(preact@11.0.0-rc.1)':
+    dependencies:
+      '@tanstack/query-core': 5.103.1
+      preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+
+  '@tanstack/query-core@5.103.1': {}
 
   '@tsrx/core@0.0.8':
     dependencies:

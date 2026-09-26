@@ -48,6 +48,7 @@ constraint; the CLI test is.
 | `packages/adapter-static`     | `@pracht/adapter-static`     | Strict SSG/loaderless-SPA export: fail-closed runtime-feature validation, SSG route-state files, 404/SPA fallback, static preview server |
 | `packages/image`              | `@pracht/image`              | Responsive, CLS-safe `<Image>` component, pluggable optimization loaders, sharp-backed Node endpoint (see `docs/IMAGES.md`) |
 | `packages/i18n`               | `@pracht/i18n`               | i18n primitives: locale-detection middleware, lazy typed dictionaries, `t()`/`tPlural()`, `localePath()`/`hreflang()` helpers (see `packages/i18n/README.md`) |
+| `packages/query`              | `@pracht/query`              | TanStack Query integration built on the app root: per-request `QueryClient`, dehydrate/hydrate through documents and route-state responses, query invalidation after capability calls (see `packages/query/README.md`) |
 | `packages/session`            | `@pracht/session`            | Sessions: AES-GCM-sealed cookie or store-backed session id, secret rotation, flash values, `sessionMiddleware()`/`requireSession()`, WebCrypto password hashing (see `docs/SESSION.md`) |
 | `packages/test`               | `@pracht/test`               | Testing utilities for app developers: typed loader/API/middleware args factories, a middleware chain runner, form submission helpers, and minimal response readers |
 | `packages/capabilities`       | `@pracht/capabilities`       | Capability primitive plus standalone server host and WebMCP registrar: contracts, validation, trust policy, HTTP/MCP dispatch, and the shared envelope/error protocol |
@@ -216,7 +217,7 @@ on it.
   `@pracht/preact-ssr-precompile`, `@pracht/adapter-node`,
   `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`,
   `@pracht/adapter-vercel`, `@pracht/adapter-static`, `@pracht/image`, `@pracht/i18n`,
-  `@pracht/session`, and `@pracht/test` from TypeScript to
+  `@pracht/query`, `@pracht/session`, and `@pracht/test` from TypeScript to
   ESM (`dist/index.mjs` + `.d.mts`). `@pracht/core` preserves its source-module
   boundaries in the published ESM so downstream builds can tree-shake named
   public imports. Its prerender module remains explicitly side-effectful because

@@ -211,6 +211,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const agentSurfaceDefine =
         env.command === "build" ? String(hasAgentSurface(resolved, configRoot)) : "true";
 
+      // The app root (`src/root.tsx`) is optional; a build without one drops
+      // the router's root wiring. Dev keeps it on so a root file added while
+      // the server runs takes effect without a restart.
+      const appRootDefine =
+        env.command === "build" ? String(hasAppRootModule(resolved.rootFile, configRoot)) : "true";
+
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
       // prerender pass emits matching preload URLs. Dev always serves the
@@ -288,6 +294,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         define: {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
+          __PRACHT_APP_ROOT__: appRootDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           ...clientFeatureDefines,
         },
@@ -1315,6 +1322,12 @@ function isRouteOrShellFile(id: string, dirs: string[], extensions: Set<string>)
   if (!extensions.has(ext)) return false;
   const normalized = toPosixPath(path);
   return dirs.some((dir) => normalized.startsWith(dir));
+}
+
+function hasAppRootModule(rootFile: string, root: string): boolean {
+  return [".ts", ".tsx", ".js", ".jsx"].some((extension) =>
+    existsSync(resolveConfigPath(root, `${rootFile}${extension}`)),
+  );
 }
 
 function resolveConfigPath(root: string, configPath: string): string {
