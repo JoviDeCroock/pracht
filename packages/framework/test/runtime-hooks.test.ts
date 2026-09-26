@@ -685,6 +685,35 @@ describe("readHydrationState() and startApp()", () => {
     expect((globalThis as Record<string, unknown>).pwned).toBeUndefined();
   });
 
+  it("revives rich loader values and shared references", () => {
+    const author = { name: "Ada" };
+    plantHydrationScript({
+      url: "/",
+      routeId: "home",
+      data: {
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        tags: new Set(["a"]),
+        counts: new Map([["</script>", 1n]]),
+        author,
+        editor: author,
+      },
+      error: null,
+    });
+
+    const data = readHydrationState<{
+      createdAt: Date;
+      tags: Set<string>;
+      counts: Map<string, bigint>;
+      author: object;
+      editor: object;
+    }>()!.data;
+    expect(data.createdAt).toBeInstanceOf(Date);
+    expect(data.createdAt.toISOString()).toBe("2026-01-02T00:00:00.000Z");
+    expect(data.tags).toEqual(new Set(["a"]));
+    expect(data.counts.get("</script>")).toBe(1n);
+    expect(data.author).toBe(data.editor);
+  });
+
   it("carries the SPA pending and fallback markers through", () => {
     plantHydrationScript({
       url: "/settings",

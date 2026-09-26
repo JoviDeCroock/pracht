@@ -506,15 +506,25 @@ describe("streaming wire metadata", () => {
     }
   });
 
-  it("serializes every occurrence of a shared object", () => {
+  it("keeps a shared object shared and records its deferred value once", () => {
     const shared = { value: defer(Promise.resolve("ok")) };
     const { data, pending } = serializeDeferred({ first: shared, second: shared });
 
     expect(data).toEqual({ first: { value: null }, second: { value: null } });
-    expect(pending.map(({ path }) => path)).toEqual([
-      ["first", "value"],
-      ["second", "value"],
-    ]);
+    const copy = data as { first: object; second: object };
+    expect(copy.first).toBe(copy.second);
+    expect(pending.map(({ path }) => path)).toEqual([["first", "value"]]);
+  });
+
+  it("keeps cycles pointing at the copy", () => {
+    const source: Record<string, unknown> = { value: defer(Promise.resolve("ok")) };
+    source.self = source;
+    const { data, pending } = serializeDeferred(source);
+
+    const copy = data as Record<string, unknown>;
+    expect(copy.self).toBe(copy);
+    expect(copy.value).toBeNull();
+    expect(pending.map(({ path }) => path)).toEqual([["value"]]);
   });
 
   it("preserves __proto__ data without polluting Object.prototype", async () => {

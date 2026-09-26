@@ -17,6 +17,7 @@ import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
+import { encodeRouteData } from "./route-data-codec.ts";
 import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
@@ -370,9 +371,10 @@ async function buildRouteStateResponse<TContext>(
   job.shellModule = await job.shellModulePromise;
   const head = await mergeHeadMetadata(job.shellModule, job.routeModule, job.routeArgs, data);
   const fontHead = collectFontHeadFragments(head.fonts ?? []);
+  const encodedData = encodeRouteData(data, `route "${job.match.route.id ?? job.match.route.path}"`);
   const body = job.shellState
-    ? { data, shellData: job.shellState.data, fontHead }
-    : { data, fontHead };
+    ? { data: encodedData, shellData: job.shellState.data, fontHead }
+    : { data: encodedData, fontHead };
   const response = withRouteResponseHeaders(Response.json(body), {
     isRouteStateRequest: true,
     loaderCache: job.match.route.loaderCache,

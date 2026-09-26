@@ -175,7 +175,7 @@ const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
   {
     Icon: IconAtom,
     title: "Preact-First",
-    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 17.4 KB gzip fully hydrated. Both measured by pnpm bench, both gated in CI.",
+    desc: "Full hooks, JSX, and the Preact ecosystem on a runtime you can size: 0 KB on a static route, 17.7 KB gzip fully hydrated. Both measured by pnpm bench, both gated in CI.",
   },
   {
     Icon: IconBolt,
@@ -212,7 +212,7 @@ const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
   },
   {
     mode: 'hydration: "full"',
-    kb: "17.4 KB",
+    kb: "17.7 KB",
     bytes: 16564,
     desc: "The page hydrates and the client router takes over navigation, prefetching, and loader fetches.",
   },

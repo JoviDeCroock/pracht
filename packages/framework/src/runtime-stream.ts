@@ -31,6 +31,7 @@ import type { VNode } from "preact";
 import { escapeHtml, escapeScriptText } from "./runtime-html.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import { normalizeRouteError } from "./runtime-errors.ts";
+import { encodeRouteData } from "./route-data-codec.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
 
 export interface StreamingHtmlResponseOptions {
@@ -182,27 +183,37 @@ export async function streamingHtmlResponse(
         await write(script);
       };
 
+      // A rejection is delivered as data and rendered by the nearest
+      // ErrorBoundary: a deferred value cannot redirect or set headers once
+      // the response is committed.
+      const errorScript = (id: string, error: unknown) => {
+        const serializedError = normalizeRouteError(error, {
+          exposeDetails: exposeErrorDetails,
+        });
+        return `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(serializedError))})</script>`;
+      };
+
       // Each deferred value gets its own script as it settles. Writing them
       // from the promise (rather than after the renderer finishes) is what
       // lets the client resume a boundary while later ones are still pending.
+      // Resolved values use the hydration-state encoding (a bare `undefined`
+      // is the one value it leaves as-is); one that cannot be encoded reaches
+      // its boundary as an error instead.
       const deferredWrites = pending.map(({ id, promise }) =>
         promise.then(
           async (value) => {
-            await writeDeferred(
-              () =>
-                `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(value) ?? "null")})</script>`,
-            );
+            await writeDeferred(() => {
+              let encoded: unknown;
+              try {
+                encoded = encodeRouteData(value, `the deferred value "${id}"`);
+              } catch (error) {
+                return errorScript(id, error);
+              }
+              return `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(encoded) ?? "undefined")})</script>`;
+            });
           },
           async (error: unknown) => {
-            // A deferred value cannot redirect or set headers -- the response
-            // is already committed -- so a rejection is delivered as data and
-            // rendered by the nearest ErrorBoundary.
-            await writeDeferred(() => {
-              const serializedError = normalizeRouteError(error, {
-                exposeDetails: exposeErrorDetails,
-              });
-              return `${scriptOpen}window.__PRACHT_DEFER__.e(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(serializedError))})</script>`;
-            });
+            await writeDeferred(() => errorScript(id, error));
           },
         ),
       );
