@@ -22,6 +22,29 @@ Platform Request (e.g. Node IncomingMessage, Worker/Function fetch)
 Every adapter implements this same flow. The differences are in how static files
 are served and how ISG revalidation state is tracked.
 
+### Background work (`waitUntil`)
+
+Every adapter passes `handlePrachtRequest({ waitUntil })` its platform's way of
+keeping work alive after the response. The runtime wraps it into the portable
+`args.waitUntil(promise)` that loaders, middleware, API routes,
+`head()`/`headers()`, and capability `run()` receive (see
+[REQUEST_FLOWS.md](./REQUEST_FLOWS.md#background-work-waituntil)). Each
+registered promise reaches the adapter already guarded: it never rejects, and
+its failure has been reported with phase `"waitUntil"` through
+`onRouteError`/`onApiError` or the console.
+
+| Adapter | `waitUntil` passed to the runtime |
+| --- | --- |
+| Cloudflare | `(p) => executionContext.waitUntil(p)` — called through the context, since workerd rejects a detached method reference. The ISG regeneration render gets the same one. |
+| Netlify | `(p) => context.waitUntil(p)` on the raw Functions v2 context, when present |
+| Vercel | The handler context's `waitUntil` (Edge functions, and the context `createVercelNodeListener` mints), else the invocation's own from `globalThis[Symbol.for("@vercel/request-context")].get()` — the slot `@vercel/functions` reads, so no runtime dependency. The Node ISG listener also forwards each task to that global context and awaits its own list before resolving. |
+| Node | A per-handler `createWaitUntilTracker()` (from `@pracht/core/server`). `handler.drain(timeoutMs)` waits for it; the generated entry calls it on `SIGTERM`/`SIGINT` after `server.close()`, bounded by `shutdownTimeoutMs` (default 10s), then re-raises the signal. Stale-ISG background regenerations are tracked in the same set. |
+| Static / prerender | `prerenderApp()` and the static 404 render collect every task and await them (including tasks registered by tasks) before returning, success or failure. No timeout. |
+| `pracht dev` | A tracker drained (5s bound) from the plugin's `closeBundle`, which Vite runs on `server.close()` — its own SIGTERM handler, and the SIGINT handler `pracht dev` installs. |
+
+Without a `waitUntil` option (custom entries), registered work runs detached;
+it is still guarded, so it never surfaces as an unhandled rejection.
+
 For page routes, adapters must preserve the distinction between document
 requests and route-state fetches (`x-pracht-route-state-request: 1` or
 `?_data=1`). Cached or prerendered HTML should never satisfy a route-state
@@ -54,7 +77,7 @@ generate the server entry module.
 // Example: Node adapter
 export function createNodeRequestHandler<TContext>(
   options: NodeAdapterOptions<TContext>,
-): (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+): NodeRequestHandler; // (req, res) => Promise<void>, plus drain(timeoutMs?) and pending
 ```
 
 ### 3. Entry module generator (for custom adapters)
@@ -355,6 +378,11 @@ The context module must export `createContext(args)`. Node passes `{ request, re
 The configure module must export `configureServer(server)` (sync or async); it
 runs with the `node:http` server before `listen()` when the generated entry is
 the process entrypoint — see [WebSockets](#websockets) above.
+
+`shutdownTimeoutMs` (default `10000`) bounds the generated entry's graceful
+shutdown: on `SIGTERM` or `SIGINT` it closes the server, waits for in-flight
+requests and `waitUntil()` work up to that deadline, then re-raises the signal
+so the exit status is the default one.
 
 ### Entry module
 
@@ -1786,8 +1814,9 @@ createContext: ({ request }) => ({
 createContext: ({ request, env, executionContext }) => ({
   db: env.DB, // D1 binding
   kv: env.CACHE, // KV binding
-  waitUntil: executionContext.waitUntil.bind(executionContext),
 });
 ```
 
 This context is available in every loader, middleware, and API route as `args.context`.
+Background work does not need the context: `args.waitUntil` is already mapped to
+the platform (see [Background work](#background-work-waituntil)).

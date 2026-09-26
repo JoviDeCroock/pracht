@@ -11,7 +11,12 @@
  * framework, DOM, or Node dependencies.
  */
 
-import type { Capability, CapabilityAgentPolicy, CapabilityEffect } from "../capability.ts";
+import type {
+  Capability,
+  CapabilityAgentPolicy,
+  CapabilityEffect,
+  WaitUntil,
+} from "../capability.ts";
 import type { PrachtAgentIdentity } from "../protocol.ts";
 
 export type AgentPolicyMode = CapabilityAgentPolicy;
@@ -344,6 +349,10 @@ export interface CapabilityAuditEvent {
   readonly agent: PrachtAgentIdentity | null;
 }
 
+/**
+ * Audit sink. An `async` sink's promise is handed to the request's
+ * `waitUntil()`, so asynchronous delivery can finish after the response.
+ */
 export type CapabilityAuditHook = (event: CapabilityAuditEvent) => void;
 
 /**
@@ -403,6 +412,8 @@ export interface MiddlewareArgs<TContext = any> {
   signal: AbortSignal;
   url: URL;
   route: any;
+  /** Keep work running after the response. See {@link WaitUntil}. */
+  waitUntil: WaitUntil;
 }
 
 export type MiddlewareFn<TContext = any> = (

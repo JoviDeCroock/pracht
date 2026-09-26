@@ -64,6 +64,7 @@ import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import {
   composeRequestSignal,
   combineRequestSignals,
+  createRequestWaitUntil,
   isClientDisconnect,
   type PrachtRequestContext,
 } from "./runtime-request.ts";
@@ -723,6 +724,14 @@ export async function renderPage<TContext>(
     url: ctx.url,
     route: match.route,
     pathname: match.pathname,
+    waitUntil: createRequestWaitUntil(options, ctx.requestPath, options.onRouteError, {
+      loaderFile: match.route.loaderFile,
+      middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+      routeFile: match.route.file,
+      routeId: match.route.id,
+      routePath: match.route.path,
+      shellFile: match.route.shellFile,
+    }),
   };
   const timings = options.timings;
   const job: PageRenderJob<TContext> = {
@@ -806,6 +815,7 @@ export async function renderPage<TContext>(
       route: match.route,
       signal: requestSignal,
       url: ctx.url,
+      waitUntil: routeArgs.waitUntil,
       terminal,
       onMiddlewareError: () => {
         job.phase = "middleware";

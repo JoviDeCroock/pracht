@@ -85,11 +85,20 @@ export interface CapabilityContext {
   [key: string]: unknown;
 }
 
+/**
+ * Register work that must be allowed to finish after the response is sent.
+ * Never delays the response; a rejection is reported through the host's error
+ * reporting and never crashes the process.
+ */
+export type WaitUntil = (promise: Promise<unknown>) => void;
+
 export interface CapabilityRunArgs<TInput = unknown, TContext = CapabilityContext> {
   input: TInput;
   context: TContext;
   request: Request;
   signal: AbortSignal;
+  /** Keep work running after the response. See {@link WaitUntil}. */
+  waitUntil: WaitUntil;
 }
 
 export interface CapabilityDefinition<

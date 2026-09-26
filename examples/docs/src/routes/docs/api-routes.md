@@ -156,7 +156,7 @@ This pattern works with both the pages router and the manifest router — it's j
 
 ## Full Control
 
-API handlers receive the same `LoaderArgs` context (request, params, context, signal) and return standard `Response` objects. You have full control over status codes, headers, and body format.
+API handlers receive the same `LoaderArgs` context (request, params, context, signal, waitUntil) and return standard `Response` objects. You have full control over status codes, headers, and body format.
 
 ```ts
 export function GET() {
@@ -166,6 +166,27 @@ export function GET() {
   });
 }
 ```
+
+### Work after the response
+
+`waitUntil(promise)` keeps work running after the handler has answered — send
+the confirmation email without making the client wait for it:
+
+```ts [src/api/signup.ts]
+import type { ApiRouteArgs } from "@pracht/core";
+
+export async function POST({ request, waitUntil }: ApiRouteArgs) {
+  const { email } = await request.json();
+  const user = await createUser(email);
+  waitUntil(sendWelcomeEmail(user)); // runs after the 201 is sent
+  return Response.json({ id: user.id }, { status: 201 });
+}
+```
+
+It maps to each platform's own mechanism (`ctx.waitUntil` on Cloudflare,
+`context.waitUntil` on Netlify and Vercel, a drained pending set on Node), and a
+rejection is reported through `onApiError` or the console instead of crashing
+the process. See [Data Loading → `waitUntil`](/docs/data-loading#waituntil).
 
 ---
 

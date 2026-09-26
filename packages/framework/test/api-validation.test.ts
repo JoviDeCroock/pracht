@@ -57,6 +57,7 @@ function apiArgs(request: Request): ApiRouteArgs<Record<string, never>> {
     params: {},
     context: {},
     signal: new AbortController().signal,
+    waitUntil: () => {},
     url,
     route: { path: url.pathname, file: "/src/api/test.ts", segments: [] },
   };

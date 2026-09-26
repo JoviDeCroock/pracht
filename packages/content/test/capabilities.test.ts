@@ -44,10 +44,11 @@ describe("content capabilities", () => {
     });
     const request = new Request("https://example.com");
     const signal = new AbortController().signal;
+    const waitUntil = () => {};
 
     expect(page.expose).toBeNull();
     await expect(
-      page.run({ context: {}, input: { path: "/docs/guide" }, request, signal }),
+      page.run({ context: {}, input: { path: "/docs/guide" }, request, signal, waitUntil }),
     ).resolves.toMatchObject({
       content: "Deploy safely with an adapter.",
       found: true,
@@ -59,6 +60,7 @@ describe("content capabilities", () => {
         input: { locale: "en", query: "deploy adapter" },
         request,
         signal,
+        waitUntil,
       }),
     ).resolves.toEqual({
       results: [
@@ -82,6 +84,7 @@ describe("content capabilities", () => {
       input: { query: "needle" },
       request: new Request("https://example.com"),
       signal: new AbortController().signal,
+      waitUntil: () => {},
     });
 
     expect(output.results[0].snippet).toContain("needle");
@@ -122,6 +125,7 @@ describe("content capabilities", () => {
       context: {},
       request: new Request("https://example.com"),
       signal: new AbortController().signal,
+      waitUntil: () => {},
     };
 
     await expect(page.run({ ...args, input: { path: "guide" } })).resolves.toMatchObject({

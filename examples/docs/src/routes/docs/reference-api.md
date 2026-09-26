@@ -101,6 +101,21 @@ See [Coding Agents](/docs/coding-agents#constraints).
 
 ---
 
+## Server Hook Args
+
+Loaders, middleware, API route handlers, `head()`/`headers()`, and a
+capability's `run()` receive the same request fields.
+
+| Field | Description |
+| --- | --- |
+| `request`, `url`, `params`, `context` | The request and what matched it. See [Data Loading](/docs/data-loading#loaderargs) |
+| `signal` | Aborts when the client disconnects or the budget runs out. See [Data Loading](/docs/data-loading#signal) |
+| `waitUntil(promise)` | Keep work running after the response, on every adapter; a rejection is reported, never thrown. See [Data Loading](/docs/data-loading#waituntil) |
+| `WaitUntil` | The type of `waitUntil` |
+| `createWaitUntilTracker()` | A drainable `waitUntil` for custom Node servers. From `@pracht/core/server`. See [Adapters](/docs/adapters#graceful-shutdown) |
+
+---
+
 ## Hooks
 
 | Export | Returns | Description |

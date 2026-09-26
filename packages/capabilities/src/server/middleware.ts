@@ -6,6 +6,7 @@
  */
 
 import { resolveRegistryModule } from "./registry.ts";
+import { detachedWaitUntil, type WaitUntil } from "./wait-until.ts";
 import type { CapabilityModuleRegistry, MiddlewareArgs, MiddlewareModule } from "./types.ts";
 
 /**
@@ -29,6 +30,8 @@ export async function runMiddlewareChain<TContext>(options: {
   route: unknown;
   signal: AbortSignal;
   url: URL;
+  /** Handed to every middleware as `args.waitUntil`; detached when omitted. */
+  waitUntil?: WaitUntil;
   terminal: () => Promise<Response>;
   /** @internal Report the middleware where a chain failure originated. */
   onMiddlewareError?: (error: unknown, file: string) => void;
@@ -104,6 +107,7 @@ export async function runMiddlewareChain<TContext>(options: {
         signal: options.signal,
         url: options.url,
         route: options.route,
+        waitUntil: options.waitUntil ?? detachedWaitUntil,
       };
 
       const response = await mwModule.middleware(args, next);

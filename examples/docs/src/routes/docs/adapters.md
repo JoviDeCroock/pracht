@@ -540,6 +540,32 @@ node dist/server/server.js
 // Server listening on http://localhost:3000
 ```
 
+### Graceful shutdown
+
+The generated server handles `SIGTERM` and `SIGINT`: it stops accepting
+connections, lets in-flight requests and work registered with
+[`waitUntil()`](/docs/data-loading#waituntil) (including background ISG
+regeneration) finish, then exits on the same signal. The wait is bounded:
+
+```ts [vite.config.ts]
+nodeAdapter({ shutdownTimeoutMs: 25_000 }); // default 10_000
+```
+
+Keep it below your platform's kill grace period (Docker and many PaaS hosts
+default to 10 seconds, Kubernetes to 30). A custom server built on
+`createNodeRequestHandler()` gets the same drain from the handler itself:
+
+```ts [server.ts]
+const handler = createNodeRequestHandler({ app, registry /* … */ });
+const server = createServer(handler).listen(3000);
+
+process.once("SIGTERM", async () => {
+  server.close();
+  await handler.drain(10_000); // true when every registered promise settled
+  process.exit(0);
+});
+```
+
 ### WebSockets
 
 Node's `http.Server` delivers upgrade requests to its `upgrade` event rather
@@ -709,6 +735,10 @@ export function createContext({ request }: { request: Request }) {
 
 The context object is available as `args.context` in every loader, middleware, and API route handler.
 
+To run work after the response, use `args.waitUntil(promise)` rather than
+reaching into `executionContext` or the platform context — it is the same call
+on every adapter. See [Data Loading → `waitUntil`](/docs/data-loading#waituntil).
+
 ---
 
 ## Writing a Custom Adapter
@@ -761,7 +791,9 @@ At the runtime level, an adapter also typically needs to:
 1. Accept a platform request and convert it to a Web `Request`
 2. Check for static assets -- serve files from `dist/client/` with appropriate headers
 3. Check for prerendered pages -- serve SSG/ISG HTML (with staleness checking for ISG when the platform supports it)
-4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`
+4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`, passing
+   the platform's `waitUntil` (or a `createWaitUntilTracker()` from
+   `@pracht/core/server` that your shutdown drains) as `waitUntil`
 5. Convert the Web `Response` back to the platform's response format
 6. Provide a context factory for platform-specific values
 7. Export an entry module generator for the Vite plugin

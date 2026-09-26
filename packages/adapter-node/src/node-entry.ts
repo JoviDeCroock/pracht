@@ -26,11 +26,25 @@ export interface NodeServerEntryModuleOptions {
    * the Node server already compresses responses.
    */
   compression?: boolean;
+  /**
+   * How long a graceful shutdown (`SIGTERM` or `SIGINT`) waits for in-flight
+   * requests and for work registered with `waitUntil()` before the process
+   * exits, in milliseconds. Default `10000`.
+   */
+  shutdownTimeoutMs?: number;
 }
+
+const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {
   const canonicalOrigin = options.canonicalOrigin ?? null;
   const port = options.port ?? 3000;
+  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+  if (!Number.isFinite(shutdownTimeoutMs) || shutdownTimeoutMs < 0) {
+    throw new Error(
+      "nodeAdapter({ shutdownTimeoutMs }) expects a non-negative number of milliseconds.",
+    );
+  }
   const contextImport = options.createContextFrom
     ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
     : "const createPrachtContext = undefined;";
@@ -91,6 +105,24 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "  server.listen(port, () => {",
     "    console.log(`pracht node server listening on http://localhost:${port}`);",
     "  });",
+    "",
+    "  // Graceful shutdown: stop accepting connections, let in-flight requests",
+    "  // and work registered with waitUntil() finish within the budget, then",
+    "  // re-raise the signal so the process exits the way it would have.",
+    "  const shutdown = async (signal) => {",
+    '    process.off("SIGTERM", shutdown);',
+    '    process.off("SIGINT", shutdown);',
+    `    const deadline = Date.now() + ${JSON.stringify(shutdownTimeoutMs)};`,
+    "    await new Promise((resolve) => {",
+    "      server.close(() => resolve());",
+    "      server.closeIdleConnections?.();",
+    "      setTimeout(resolve, Math.max(0, deadline - Date.now())).unref();",
+    "    });",
+    "    await handler.drain(Math.max(0, deadline - Date.now()));",
+    "    process.kill(process.pid, signal);",
+    "  };",
+    '  process.on("SIGTERM", shutdown);',
+    '  process.on("SIGINT", shutdown);',
     "}",
     "",
   ].join("\n");

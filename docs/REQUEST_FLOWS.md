@@ -279,6 +279,12 @@ route-state runtime, the client falls back to a full document navigation.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The background regeneration is registered with the handler's `waitUntil`
+tracker (the same one application `waitUntil()` work uses), so a graceful
+shutdown lets it finish writing the file. Work the regenerating loader
+registers goes to the same tracker. On Cloudflare the regeneration runs under
+`ctx.waitUntil`.
+
 ### Navigation to an ISG page
 
 Identical to SSR navigation — the route-state request triggers a fresh loader
@@ -455,6 +461,37 @@ route bypass MCP's transport and OAuth gates.
 
 Each stage takes one explicit `PrachtRequestContext` rather than closing over the
 handler's locals, so each is callable — and testable — on its own.
+
+### Background work (`waitUntil`)
+
+Every server hook gets a portable `waitUntil(promise)`: middleware, loaders,
+`head()`/`headers()` (all through the page's `routeArgs`), API route handlers
+and `api.middleware`, and capability middleware and `run()`. Each is built by
+`createRequestWaitUntil()` (runtime-request.ts) on top of
+`createWaitUntil()` from the capability core:
+
+```
+args.waitUntil(promise)
+  → task = Promise.resolve(promise).then(noop, report)   never rejects
+      report = reportRequestError(hook, error, requestPath, { phase: "waitUntil", …route })
+               hook: onRouteError (page stages) · onApiError (API, capabilities)
+               no hook → console.error line, same format as request failures
+  → options.waitUntil?.(task)                            the adapter's platform call
+      absent → the task just runs detached
+```
+
+The response never waits on it. Stage 2 builds one per API dispatch (route
+file and API middleware attributed); stage 4 builds one per page render (route,
+loader, shell, middleware attributed) and hands it to the page middleware chain
+too. Stage 1 binds a third, reporting through `onApiError`, onto the request's
+capability host, so capability HTTP/MCP dispatch and `invokeCapability()`
+composed from a loader resolve `waitUntil` by the Request they run on. The MCP
+transport's post-auth host refresh keeps the bound one. Capability audit
+delivery hands a sink's returned promise to the same function.
+
+Consumers that own an error hook skip phase `"waitUntil"` for their own state:
+the dev server logs it without swapping in the error overlay, and prerendering
+logs it without letting it become the render error a failed build reports.
 
 ## Server pipeline parallelism
 

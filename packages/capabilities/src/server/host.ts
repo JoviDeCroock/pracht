@@ -42,6 +42,7 @@ import {
 import { handleMcpMetadataRequest, handleMcpRequest, normalizeMcpRequestPath } from "./mcp.ts";
 import { formatUnknownNameError } from "./names.ts";
 import { isSameOriginRequest } from "./same-origin.ts";
+import { createWaitUntil, logWaitUntilFailure } from "./wait-until.ts";
 import type {
   CapabilityAuditHook,
   CapabilityModuleRegistry,
@@ -122,12 +123,20 @@ export interface CreateCapabilityHostOptions<TContext = Record<string, unknown>>
 export interface CapabilityHostFetchInit<TContext> {
   /** Explicit request context; wins over `createContext`. */
   context?: TContext;
+  /**
+   * The platform's `waitUntil` for this request (for example a Worker's
+   * `ctx.waitUntil`), behind the `waitUntil` middleware and `run()` receive.
+   * Omitted, registered work runs detached.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 export interface CapabilityHostInvokeOptions<TContext> {
   request?: Request;
   context?: TContext;
   signal?: AbortSignal;
+  /** Platform `waitUntil` behind the `waitUntil` the capability receives. */
+  waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 export interface StandaloneCapabilityHost<TContext = Record<string, unknown>> {
@@ -345,6 +354,9 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
         isMcpRequest ? "mcp" : "http",
         options.onAudit,
         agent,
+        undefined,
+        undefined,
+        createWaitUntil(init.waitUntil, logWaitUntilFailure),
       );
 
       if (isMcpRequest && agents?.mcp) {
@@ -410,7 +422,12 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
       input: unknown,
       invokeOptions: CapabilityHostInvokeOptions<TContext> = {},
     ): Promise<CapabilityEnvelope<T>> {
-      const host: ActiveCapabilityHost = { app, registry, onAudit: options.onAudit };
+      const host: ActiveCapabilityHost = {
+        app,
+        registry,
+        onAudit: options.onAudit,
+        waitUntil: createWaitUntil(invokeOptions.waitUntil, logWaitUntilFailure),
+      };
       const request = invokeOptions.request ?? new Request(`${HOST_INVOKE_ORIGIN}/`);
       const context =
         invokeOptions.context ??

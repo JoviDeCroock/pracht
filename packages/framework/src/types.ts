@@ -4,6 +4,7 @@ import type {
   CapabilityEffect,
   CapabilityEnvelope,
   PrachtAgentIdentity,
+  WaitUntil,
 } from "@pracht/capabilities";
 import type {
   CapabilityApprovalPrincipalArgs as ServerCapabilityApprovalPrincipalArgs,
@@ -772,6 +773,16 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
   route: ResolvedRoute;
   /** Matched route pathname with the configured deployment base removed. */
   pathname?: string;
+  /**
+   * Register work that must be allowed to finish after the response is sent
+   * (analytics, cache warming, flushing a log exporter). Never delays the
+   * response; a rejection is reported through the server's error reporting
+   * (`onRouteError`/`onApiError`, or the console) and never crashes the
+   * process. Each adapter maps it to its platform: `ctx.waitUntil` on
+   * Cloudflare, `context.waitUntil` on Netlify and Vercel, and a drained
+   * pending set on Node.
+   */
+  waitUntil: WaitUntil;
 }
 
 export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
@@ -949,6 +960,7 @@ export type {
   CapabilityValidation,
   CapabilityValidationResult,
   PrachtAgentIdentity,
+  WaitUntil,
 } from "@pracht/capabilities";
 
 export type PrachtCapability<TContext = any> = Capability<any, unknown, TContext>;

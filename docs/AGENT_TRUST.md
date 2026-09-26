@@ -768,21 +768,24 @@ every transport. The contract for all of them:
   Warn-once is tracked per named registration, so a broken log sink cannot
   silence a broken metrics sink even when both reuse the same callback.
 - **Never awaited.** The hook is invoked synchronously, so keep the work it does
-  before returning (or before its first `await`) cheap. The hook signature
-  returns `void`; a returned promise is not awaited, so its asynchronous
-  continuation does not add dispatch latency, but an unhandled rejection is
-  yours to catch.
+  before returning (or before its first `await`) cheap. A returned promise (an
+  `async` sink) is not awaited: it is handed to the dispatching request's
+  `waitUntil()`, so it adds no dispatch latency, is kept alive after the
+  response, and a rejection is reported through `onApiError` or the console
+  instead of going unhandled.
 - **Runs everywhere.** No Node-only APIs are involved, so the same sink works
   on Workers, Vercel, Netlify, and Node.
 
-**Workers caveat.** On Cloudflare Workers, work started inside a sink but not
-finished before the response is returned may be cancelled when the request
-context ends. Pracht does not call `ctx.waitUntil()` on your behalf — it has no
-handle on your sink's promises. Batch exporters must either flush
-synchronously-enough within the request or be handed the execution context by
-your own code (`context.executionContext.waitUntil(exporter.flush())` from a
-middleware or API route), which is why the recipes below either log
-synchronously or record into an exporter that owns its own flush.
+**Work after the response.** On Cloudflare Workers (and Netlify and Vercel),
+work unfinished when the response is returned may be cancelled when the request
+context ends. A sink that *returns* its promise is covered: delivery hands it
+to the request's portable `waitUntil()`, which each adapter maps to its
+platform (`ctx.waitUntil` on Workers; the graceful-shutdown drain on Node).
+Composed dispatches use the served request's `waitUntil`; synthetic hosts
+(test hosts, a standalone host without `fetch(request, { waitUntil })`) run it
+detached. A promise the sink starts but does not return is invisible to
+pracht, so a batch exporter that flushes on its own schedule should be flushed
+from a middleware or API route with `args.waitUntil(exporter.flush())`.
 
 ### Production recipes
 

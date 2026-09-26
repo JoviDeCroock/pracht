@@ -18,6 +18,7 @@ export type {
   CapabilityValidationResult,
   CapabilityValidation,
   CapabilityWebmcpOptions,
+  WaitUntil,
 } from "./capability.ts";
 export {
   CAPABILITY_EFFECT_HEADER,
