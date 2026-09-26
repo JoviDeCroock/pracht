@@ -50,6 +50,11 @@ export { filterPublicEnv, PRACHT_PUBLIC_ENV_PREFIX, publicEnv } from "./env.ts";
 export type { PrachtPublicEnv, PrachtServerEnv, PublicEnvOf } from "./env.ts";
 export { setServerEnv } from "./env-server.ts";
 export {
+  createWaitUntilTracker,
+  DEFAULT_WAIT_UNTIL_DRAIN_TIMEOUT_MS,
+  type WaitUntilTracker,
+} from "./runtime-wait-until.ts";
+export {
   applyDefaultSecurityHeaders,
   createBaseRedirectResponse,
   formatServerTimingHeader,
@@ -202,6 +207,7 @@ export type {
   CapabilityIssue,
   CapabilityModule,
   CapabilityRunArgs,
+  WaitUntil,
   CapabilityValidation,
   CapabilityValidationResult,
   PrachtCapability,

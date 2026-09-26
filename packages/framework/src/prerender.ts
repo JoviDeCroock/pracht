@@ -5,7 +5,11 @@ import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalida
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import { NOT_FOUND_ROUTE_ID, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { routeNeedsServerFetch } from "./runtime-client-fetch.ts";
-import type { SerializedRouteError } from "./runtime-errors.ts";
+import {
+  reportRequestError,
+  type RouteErrorContext,
+  type SerializedRouteError,
+} from "./runtime-errors.ts";
 import { buildHtmlDocument } from "./runtime-html.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { handlePrachtRequest } from "./runtime.ts";
@@ -75,6 +79,26 @@ export async function prerenderApp(
 export async function prerenderApp(
   options: PrerenderAppOptions & { withISGManifest?: boolean },
 ): Promise<PrerenderResult[] | PrerenderAppResult> {
+  // Work pages register with `waitUntil()` belongs to the build: nothing is
+  // left running once it returns, so wait for all of it — including work that
+  // registers more — before handing the pages back, whether or not rendering
+  // succeeded. Each task arrives already guarded, so none of them reject.
+  const backgroundWork: Promise<unknown>[] = [];
+  try {
+    return await prerenderAppPages(options, (task) => {
+      backgroundWork.push(task);
+    });
+  } finally {
+    while (backgroundWork.length > 0) {
+      await Promise.allSettled(backgroundWork.splice(0));
+    }
+  }
+}
+
+async function prerenderAppPages(
+  options: PrerenderAppOptions & { withISGManifest?: boolean },
+  waitUntil: (promise: Promise<unknown>) => void,
+): Promise<PrerenderResult[] | PrerenderAppResult> {
   const resolved = resolveApp(options.app);
   const results: PrerenderResult[] = [];
   const isgManifest: Record<string, ISGManifestEntry> = {};
@@ -139,7 +163,9 @@ export async function prerenderApp(
             cssManifest: options.cssManifest,
             cssContentManifest: options.cssContentManifest,
             jsManifest: options.jsManifest,
-            onRouteError: (error) => {
+            waitUntil,
+            onRouteError: (error, requestPath, context) => {
+              if (reportBackgroundFailure(error, requestPath, context)) return;
               renderError = error;
             },
           }),
@@ -218,7 +244,9 @@ export async function prerenderApp(
               headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
             }),
             registry: options.registry,
-            onRouteError: (error) => {
+            waitUntil,
+            onRouteError: (error, requestPath, context) => {
+              if (reportBackgroundFailure(error, requestPath, context)) return;
               stateError = error;
             },
           });
@@ -301,6 +329,21 @@ export async function prerenderApp(
   }
 
   return results;
+}
+
+/**
+ * A failed `waitUntil()` task says nothing about whether the page rendered, so
+ * it must not become the render error a failed build reports. Log it the way a
+ * served request would and tell the caller it was handled.
+ */
+function reportBackgroundFailure(
+  error: unknown,
+  requestPath: string,
+  context: RouteErrorContext | undefined,
+): boolean {
+  if (context?.phase !== "waitUntil") return false;
+  reportRequestError(undefined, error, requestPath, context);
+  return true;
 }
 
 /**

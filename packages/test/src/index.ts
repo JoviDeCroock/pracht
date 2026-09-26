@@ -17,6 +17,7 @@ export type {
   TestLoaderArgs,
   TestMiddlewareArgs,
   TestRequestInput,
+  TestWaitUntilControls,
 } from "./args.ts";
 export { runMiddleware } from "./middleware.ts";
 export type { RunMiddlewareOptions } from "./middleware.ts";

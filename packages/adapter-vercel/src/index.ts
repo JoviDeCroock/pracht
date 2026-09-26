@@ -105,6 +105,7 @@ export function createVercelEdgeHandler<
       cssManifest: options.cssManifest,
       cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
+      waitUntil: resolveVercelWaitUntil(context),
     } satisfies HandlePrachtRequestOptions<TContext>);
 
     // Vercel's CDN, like any shared cache, may apply heuristic freshness to a
@@ -122,6 +123,43 @@ export function createVercelEdgeHandler<
     if (isIsgRegenerationContext(context)) return response;
     return preventHeuristicCaching(request, response);
   };
+}
+
+/**
+ * Where Vercel publishes the current invocation's request context — the same
+ * slot `waitUntil()` from `@vercel/functions` reads, so the adapter reaches it
+ * without a runtime dependency on that package. Present on both Node and Edge
+ * functions.
+ */
+const VERCEL_REQUEST_CONTEXT = Symbol.for("@vercel/request-context");
+
+interface VercelRequestContextSlot {
+  get?(): { waitUntil?(promise: Promise<unknown>): void } | undefined;
+}
+
+/** The invocation's own `waitUntil` from Vercel's global request context, when present. */
+function vercelRequestContextWaitUntil(): ((promise: Promise<unknown>) => void) | undefined {
+  const slot = (globalThis as Record<symbol, VercelRequestContextSlot | undefined>)[
+    VERCEL_REQUEST_CONTEXT
+  ];
+  const requestContext = slot?.get?.();
+  if (typeof requestContext?.waitUntil !== "function") return undefined;
+  return (promise) => requestContext.waitUntil!(promise);
+}
+
+/**
+ * The platform `waitUntil` behind the portable one application code receives:
+ * the `waitUntil` on the context Vercel passes an Edge function (or the one
+ * {@link createVercelNodeListener} mints), falling back to the global request
+ * context. Called through its owner so the platform method keeps its receiver.
+ */
+function resolveVercelWaitUntil(
+  context: VercelExecutionContext | undefined,
+): ((promise: Promise<unknown>) => void) | undefined {
+  if (typeof context?.waitUntil === "function") {
+    return (promise) => context.waitUntil!(promise);
+  }
+  return vercelRequestContextWaitUntil();
 }
 
 /**
@@ -161,6 +199,11 @@ export function createVercelNodeListener(
 ): (req: VercelNodeRequest, res: VercelNodeResponse) => Promise<void> {
   return async (req, res) => {
     const waitUntilTasks: Promise<unknown>[] = [];
+    // A Node function may be frozen once its response ends. Hand the work to
+    // the invocation's own request context too, when Vercel provides one, so
+    // the platform keeps the function alive for it; the drain below covers
+    // runtimes without one.
+    const platformWaitUntil = vercelRequestContextWaitUntil();
     const context: VercelExecutionContext = {
       waitUntil(promise) {
         const task = Promise.resolve(promise);
@@ -169,6 +212,7 @@ export function createVercelNodeListener(
         // below still observes the original promise's final state.
         void task.catch(() => {});
         waitUntilTasks.push(task);
+        platformWaitUntil?.(task);
       },
     };
     // Marks this invocation as an ISG regeneration so the edge handler skips

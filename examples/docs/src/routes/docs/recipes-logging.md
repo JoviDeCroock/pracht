@@ -136,7 +136,10 @@ export const app = defineApp({
 ```ts [src/middleware/request-log.ts]
 import type { MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ context, request, route, url }, next) => {
+export const middleware: MiddlewareFn = async (
+  { context, request, route, url, waitUntil },
+  next,
+) => {
   const startedAt = performance.now();
   let response: Response | undefined;
   let thrown: unknown;
@@ -161,10 +164,11 @@ export const middleware: MiddlewareFn = async ({ context, request, route, url },
       status,
     });
 
-    // Hand the flush off to the runtime so the response can return
-    // immediately. On Cloudflare this keeps the worker alive long enough
-    // for the events to ship; on Node the helper just awaits the promise.
-    deferFlush(context, context.logger.flush());
+    // Hand the flush off so the response can return immediately. Every
+    // adapter keeps the request alive for it (ctx.waitUntil on Cloudflare,
+    // context.waitUntil on Netlify and Vercel, a drained pending set on
+    // Node), and a failed flush is reported instead of crashing anything.
+    waitUntil(context.logger.flush());
   }
 };
 
@@ -174,20 +178,6 @@ function serializeError(error: unknown) {
     return { message: error.message, name: error.name, stack: error.stack };
   }
   return { message: String(error), name: "Error" };
-}
-
-// Cloudflare's executionContext.waitUntil keeps the worker alive past the
-// response. On Node there's no equivalent — `await` would delay the
-// response, and bare fire-and-forget would lose unhandled rejections, so
-// just attach a catch handler.
-function deferFlush(context: { executionContext?: { waitUntil(p: Promise<unknown>): void } }, flushPromise: Promise<unknown>) {
-  if (context.executionContext?.waitUntil) {
-    context.executionContext.waitUntil(
-      flushPromise.catch((err) => console.error("[pracht] log flush failed", err)),
-    );
-    return;
-  }
-  flushPromise.catch((err) => console.error("[pracht] log flush failed", err));
 }
 ```
 
@@ -234,10 +224,8 @@ export function withRequestLogging(handler: ApiRouteHandler): ApiRouteHandler {
         route: args.route.path,
         status: response?.status ?? 500,
       });
-      // On Cloudflare, prefer
-      // `args.context.executionContext.waitUntil(args.context.logger.flush())`
-      // so the response is not blocked on the flush. On Node, `await` is fine.
-      await args.context.logger.flush();
+      // Ship the events after the response instead of blocking it.
+      args.waitUntil(args.context.logger.flush());
     }
   };
 }

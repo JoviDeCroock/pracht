@@ -6,7 +6,9 @@ export type PrachtRuntimeDiagnosticPhase =
   | "loader"
   | "action"
   | "render"
-  | "api";
+  | "api"
+  /** A promise registered with `waitUntil()` rejected after (or while) the response was produced. */
+  | "waitUntil";
 
 export interface PrachtRuntimeDiagnostics {
   phase: PrachtRuntimeDiagnosticPhase;

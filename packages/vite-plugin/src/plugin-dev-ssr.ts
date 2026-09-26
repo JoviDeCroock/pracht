@@ -99,7 +99,12 @@ export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.Ne
 
 export function createDevSSRMiddleware(
   server: ViteDevServer,
-  options: { maxBodySize?: number; llmsTxt?: boolean } = {},
+  options: {
+    maxBodySize?: number;
+    llmsTxt?: boolean;
+    /** Tracks `waitUntil()` work so closing the dev server can wait for it. */
+    waitUntil?: (promise: Promise<unknown>) => void;
+  } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
   // Vite's own base middleware strips the base from `req.url` before this
@@ -254,7 +259,14 @@ export function createDevSSRMiddleware(
           registry: serverMod.registry,
           request: webRequest,
           debugErrors: true,
+          waitUntil: options.waitUntil,
           onRouteError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+            // A failed `waitUntil()` task is not this response's failure: log
+            // it, but never let it turn a rendered page into the error overlay.
+            if (context?.phase === "waitUntil") {
+              logDevRequestError(server, { context, error, path: requestUrl.pathname });
+              return;
+            }
             capturedRouteError = true;
             routeError = error;
             routeErrorContext = context;
@@ -267,6 +279,10 @@ export function createDevSSRMiddleware(
             });
           },
           onApiError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+            if (context?.phase === "waitUntil") {
+              logDevRequestError(server, { context, error, path: requestUrl.pathname });
+              return;
+            }
             reportedError = error;
             hasReportedError = true;
             logDevRequestError(server, {

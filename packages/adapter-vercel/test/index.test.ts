@@ -564,3 +564,97 @@ describe("default cache-control (shared with the Node and Cloudflare adapters)",
     expect(response.headers.has("cache-control")).toBe(false);
   });
 });
+
+describe("portable waitUntil", () => {
+  const VERCEL_REQUEST_CONTEXT = Symbol.for("@vercel/request-context");
+
+  afterEach(() => {
+    delete (globalThis as Record<symbol, unknown>)[VERCEL_REQUEST_CONTEXT];
+  });
+
+  function workHandler(GET: (args: { waitUntil(promise: Promise<unknown>): void }) => Response) {
+    return createVercelEdgeHandler({
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/work.ts"]),
+      registry: { apiModules: { "/src/api/work.ts": async () => ({ GET }) } },
+    });
+  }
+
+  it("maps args.waitUntil to the Edge context's waitUntil without delaying the response", async () => {
+    const tasks: Promise<unknown>[] = [];
+    let finish!: () => void;
+    let finished = false;
+    const handler = workHandler(({ waitUntil }) => {
+      waitUntil(
+        new Promise<void>((resolve) => (finish = resolve)).then(() => {
+          finished = true;
+        }),
+      );
+      return new Response("sent");
+    });
+
+    const response = await handler(new Request("https://example.com/api/work"), {
+      waitUntil: (promise: Promise<unknown>) => tasks.push(promise),
+    });
+
+    expect(await response.text()).toBe("sent");
+    expect(tasks).toHaveLength(1);
+    expect(finished).toBe(false);
+    finish();
+    await Promise.all(tasks);
+    expect(finished).toBe(true);
+  });
+
+  it("falls back to Vercel's global request context", async () => {
+    const tasks: Promise<unknown>[] = [];
+    (globalThis as Record<symbol, unknown>)[VERCEL_REQUEST_CONTEXT] = {
+      get: () => ({ waitUntil: (promise: Promise<unknown>) => tasks.push(promise) }),
+    };
+    const handler = workHandler(({ waitUntil }) => {
+      waitUntil(Promise.resolve());
+      return new Response("sent");
+    });
+
+    const response = await handler(new Request("https://example.com/api/work"), {});
+
+    expect(response.status).toBe(200);
+    expect(tasks).toHaveLength(1);
+  });
+
+  it("reports a rejection and hands Vercel a task that resolves", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tasks: Promise<unknown>[] = [];
+    const handler = workHandler(({ waitUntil }) => {
+      waitUntil(Promise.reject(new Error("log drain failed")));
+      return new Response("sent");
+    });
+
+    const response = await handler(new Request("https://example.com/api/work"), {
+      waitUntil: (promise: Promise<unknown>) => tasks.push(promise),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(Promise.all(tasks)).resolves.toBeDefined();
+    expect(String(errors.mock.calls[0]?.[0])).toContain(
+      "[pracht] waitUntil error (/src/api/work.ts) at /api/work: log drain failed",
+    );
+  });
+
+  it("also registers Node-function work with the global request context", async () => {
+    const tasks: Promise<unknown>[] = [];
+    (globalThis as Record<symbol, unknown>)[VERCEL_REQUEST_CONTEXT] = {
+      get: () => ({ waitUntil: (promise: Promise<unknown>) => tasks.push(promise) }),
+    };
+    const listener = createVercelNodeListener(async (_request, context) => {
+      context.waitUntil?.(Promise.resolve());
+      return new Response("ok");
+    });
+
+    await listener(
+      { headers: { host: "example.com" }, method: "GET", url: "/pricing" },
+      { statusCode: 0, setHeader() {}, write() {}, end() {} },
+    );
+
+    expect(tasks).toHaveLength(1);
+  });
+});
