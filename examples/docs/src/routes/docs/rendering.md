@@ -131,7 +131,7 @@ export function Loading() {
 }
 ```
 
-This improves first paint without serializing loader data into the initial document by default.
+This improves first paint without serializing loader data into the initial document by default. The loading state renders the shell without its [shell data](/docs/shells#shell-data) too — `useShellData()` returns `undefined` there — and the route-state request brings both.
 
 ### When to use SPA
 

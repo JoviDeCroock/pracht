@@ -1,6 +1,6 @@
 ---
 name: pracht-scaffold
-version: 1.4.0
+version: 1.5.0
 description: |
   Scaffold pracht code with the native generators (`pracht generate
   route|shell|middleware|api`), falling back to manual edits only when the CLI
@@ -49,7 +49,9 @@ If the CLI can express the request, do not reimplement the scaffold by hand.
 | `--revalidate`      | ISG window in seconds (`isg` only, default 3600)                             |
 | `--json`            | Machine-readable output                                                      |
 
-`generate shell` and `generate middleware` take `--name`; `generate api` takes
+`generate shell` and `generate middleware` take `--name`; `generate shell
+--loader` adds a shell `loader` export read in the shell with `useShellData()`
+(layout-level data such as the signed-in user). `generate api` takes
 `--path` and `--methods`. All subcommands accept `--json` — use it when another
 agent or tool consumes the output. When the pracht MCP server is registered
 (docs/MCP.md), call the `generate_route`/`generate_shell`/`generate_middleware`/
@@ -83,7 +85,7 @@ agent or tool consumes the output. When the pracht MCP server is registered
 | Kind       | Directory         | Key exports                                                                      |
 | ---------- | ----------------- | -------------------------------------------------------------------------------- |
 | Route      | `src/routes/`     | `loader`, `head`, `Component`, `ErrorBoundary`, `getStaticPaths`                 |
-| Shell      | `src/shells/`     | `Shell`, `head`                                                                  |
+| Shell      | `src/shells/`     | `Shell`, `loader` (read with `useShellData()`), `head`, `headers`, `Loading`, `ErrorBoundary` |
 | Middleware | `src/middleware/` | `middleware`                                                                     |
 | API route  | `src/api/`        | Named method handlers (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) or one default dispatcher |
 

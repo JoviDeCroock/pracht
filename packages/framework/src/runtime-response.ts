@@ -106,7 +106,11 @@ interface HandleRequestOptionsLike {
 
 export function jsonErrorResponse(
   routeError: SerializedRouteError,
-  options: { fontHead?: FontHeadFragments; isRouteStateRequest: boolean },
+  options: {
+    fontHead?: FontHeadFragments;
+    isRouteStateRequest: boolean;
+    shellState?: { data: unknown };
+  },
 ): Response {
   const headers = applySecurityAndRouteHeaders(
     new Headers({ "content-type": "application/json; charset=utf-8" }),
@@ -115,6 +119,7 @@ export function jsonErrorResponse(
   return new Response(
     JSON.stringify({
       error: routeError,
+      ...(options.shellState ? { shellData: options.shellState.data } : {}),
       ...(options.fontHead ? { fontHead: options.fontHead } : {}),
     }),
     {
@@ -211,8 +216,11 @@ export async function renderRouteErrorResponse<TContext>(options: {
   routeId: string;
   routeModule: RouteModule | undefined;
   routes?: readonly HrefRouteDefinition[];
+  shell?: string;
   shellFile: string | undefined;
   shellModule: ShellModule | undefined;
+  /** The shell loader's data, when it succeeded before the failure. */
+  shellState?: { data: unknown };
   requestPath: string;
 }): Promise<Response> {
   const exposeDetails = shouldExposeServerErrors(options.options);
@@ -258,6 +266,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
     return jsonErrorResponse(routeErrorWithDiagnostics, {
       fontHead,
       isRouteStateRequest: true,
+      shellState: options.shellState,
     });
   }
 
@@ -314,10 +323,19 @@ export async function renderRouteErrorResponse<TContext>(options: {
       data: null;
       routeId: string;
       routes?: readonly HrefRouteDefinition[];
+      shell?: string;
+      shellData?: unknown;
       url: string;
       children?: ComponentChildren;
     }>,
-    { data: null, routeId: options.routeId, routes: options.routes, url: options.requestPath },
+    {
+      data: null,
+      routeId: options.routeId,
+      routes: options.routes,
+      shell: options.shell,
+      shellData: options.shellState?.data,
+      url: options.requestPath,
+    },
     componentTree,
   );
   const hydration = options.routeArgs.route.hydration ?? "full";
@@ -401,6 +419,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
         url: options.requestPath,
         routeId: options.routeId,
         data: null,
+        ...(options.shellState ? { shellData: options.shellState.data } : {}),
         error: routeErrorWithDiagnostics,
       },
       clientEntryUrl: options.options.clientEntryUrl,

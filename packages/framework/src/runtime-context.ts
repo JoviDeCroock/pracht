@@ -10,6 +10,8 @@ export interface PrachtHydrationState<TData = unknown> {
   url: string;
   routeId: string;
   data: TData;
+  /** The shell loader's data; absent when the shell has no loader. */
+  shellData?: unknown;
   /** Out-of-band locations replaced with Deferred values during streamed hydration. */
   deferred?: DeferredHydrationReference[];
   error?: import("./runtime-errors.ts").SerializedRouteError | null;
@@ -39,10 +41,15 @@ export interface PrachtRuntimeValue {
   params: RouteParams;
   routeId: string;
   routes?: readonly HrefRouteDefinition[];
+  /** Name of the shell the route renders under. */
+  shell?: string;
+  /** The shell loader's data, shared by the shell and the route. */
+  shellData?: unknown;
   url: string;
   /** True while this provider still owns the router's active route state. */
   isCurrent?: () => boolean;
-  setData: (data: unknown) => void;
+  /** Commit revalidated route data, and the shell's when `shell` is passed. */
+  setData: (data: unknown, shell?: { data: unknown }) => void;
 }
 
 export const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(undefined);
@@ -71,6 +78,8 @@ export function PrachtRuntimeProvider<TData>({
   params = EMPTY_ROUTE_PARAMS,
   routeId,
   routes,
+  shell,
+  shellData,
   stateVersion = 0,
   url,
   isCurrent,
@@ -80,6 +89,8 @@ export function PrachtRuntimeProvider<TData>({
   params?: RouteParams;
   routeId: string;
   routes?: readonly HrefRouteDefinition[];
+  shell?: string;
+  shellData?: unknown;
   stateVersion?: number;
   url: string;
   isCurrent?: () => boolean;
@@ -105,31 +116,60 @@ export function PrachtRuntimeProvider<TData>({
     routeDataState.stateVersion !== stateVersion || routeDataState.routeId !== routeId;
   const routeData = isStaleRoute ? data : routeDataState.data;
 
+  // Shell data outlives the route state: navigating between two routes of the
+  // same shell hands back the same `shellData` reference, so a revalidated
+  // value survives the navigation. It is stamped with the shell and the prop
+  // it replaced rather than the route state version for that reason.
+  const [shellDataState, setShellDataState] = useState(() => ({
+    data: shellData,
+    shell,
+    source: shellData,
+  }));
+  const currentShellData =
+    shellDataState.shell === shell && shellDataState.source === shellData
+      ? shellDataState.data
+      : shellData;
+
   const context = useMemo(
     () => ({
       data: routeData,
       params,
       routeId,
       routes,
+      shell,
+      shellData: currentShellData,
       isCurrent,
       // Stamped with the route state this context belongs to, never with
       // whatever the provider rendered last: a revalidation started on one
       // route can settle after a navigation, and the commit has to be
       // discarded as stale rather than published as the new route's data.
-      setData: (nextData: unknown) =>
+      setData: (nextData: unknown, nextShell?: { data: unknown }) => {
         setRouteDataState({
           data: nextData as TData,
           routeId,
           source: data,
           stateVersion,
           url,
-        }),
+        });
+        if (nextShell) setShellDataState({ data: nextShell.data, shell, source: shellData });
+      },
       url,
     }),
     // `data` is deliberately not a dependency: it is read only as the `source`
     // stamp, and adding it would fan out a new context value on every
     // re-render above the provider (see runtime-context.test.ts).
-    [routeData, params, routeId, routes, stateVersion, url, isCurrent],
+    [
+      routeData,
+      params,
+      routeId,
+      routes,
+      shell,
+      shellData,
+      currentShellData,
+      stateVersion,
+      url,
+      isCurrent,
+    ],
   );
 
   // A fresh `data` prop for the same route state (a re-render above the

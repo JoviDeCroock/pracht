@@ -158,6 +158,17 @@ For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state
 request resolves.
 
+### Shell loaders
+
+A shell module can export its own `loader` for data every route under it shows.
+It takes the same `LoaderArgs`, runs after middleware and concurrently with the
+route loader, and its result travels as `shellData` next to `data` in the
+hydration state and the route-state JSON. `useShellData()` reads it. Client
+navigations inside the same shell reuse it (the request claims the shell with
+`x-pracht-shell-data` and the server skips its loader); every revalidation path
+re-runs it. Mechanics and render-mode behaviour live in
+[ROUTING.md](ROUTING.md#shell-loaders).
+
 ### Deferred values — `defer()` and `use()`
 
 A loader that awaits everything is only as fast as its slowest call. Wrap the
@@ -785,6 +796,23 @@ export function Component() {
 }
 ```
 
+### `useShellData()`
+
+Read the loader data of the shell the active route renders under, from the
+shell or from any route inside it:
+
+```typescript
+const shell = useShellData("app"); // typed from the app shell's loader via typegen
+const same = useShellData<typeof loader>(); // without typegen
+```
+
+`pracht typegen` registers every shell a route renders under on
+`Register["shells"]`, so the shell name autocompletes and types the result.
+Like `useRouteData(id)`, the name is honoured: naming a shell the active route
+does not render under throws. The result is typed `| undefined` because it is
+`undefined` whenever the shell renders without its data — no loader, the SPA
+loading state, or an error boundary after the shell loader failed.
+
 ### `useSearchParams()`
 
 Read the current query string as a reactive, read-only `URLSearchParams` view:
@@ -813,7 +841,7 @@ server-loaded data or the initial HTML.
 
 ### `useRevalidate()`
 
-Imperatively re-run the current route's loader:
+Imperatively re-run the current route's loader, and its shell's:
 
 ```typescript
 export function Component() {

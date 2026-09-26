@@ -1,6 +1,6 @@
 ---
 name: audit-loaders
-version: 1.1.1
+version: 1.2.0
 description: |
   Audit pracht route loaders for serializability, leaked secrets, unsafe
   `loaderCache`, browser-only API use, and missing `AbortSignal` plumbing.
@@ -37,6 +37,10 @@ export there. Loaders may live in a separate data module wired via the
 manifest (`RouteConfig.loader`); the inspect JSON surfaces that as
 `loaderFile` (null when the loader lives in the route module itself). Reading
 only `file` misses every externalized loader.
+
+Shells can export a `loader` too. Read each distinct `shellFile` from the same
+JSON and audit its `loader` like a route's: its return value reaches the
+browser as `shellData` on every page under that shell.
 
 ## Step 2: Run the five checks
 

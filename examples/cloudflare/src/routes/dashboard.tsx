@@ -1,4 +1,12 @@
-import { Form, useRevalidate, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
+import {
+  Form,
+  useRevalidate,
+  useShellData,
+  type LoaderArgs,
+  type RouteComponentProps,
+} from "@pracht/core";
+
+import type { loader as appShellLoader } from "../shells/app.tsx";
 
 export async function loader({ request }: LoaderArgs) {
   const hasSession = request.headers.get("cookie")?.includes("session=") ?? false;
@@ -11,10 +19,12 @@ export async function loader({ request }: LoaderArgs) {
 
 export function Component({ data }: RouteComponentProps<typeof loader>) {
   const revalidate = useRevalidate();
+  const shell = useShellData<typeof appShellLoader>();
 
   return (
     <section>
       <h1>{data.user}</h1>
+      <span class="route-shell-user">Signed in as {shell?.user}</span>
       <p>Projects: {data.projectCount}</p>
       <Form
         method="post"

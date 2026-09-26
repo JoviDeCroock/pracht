@@ -90,6 +90,14 @@ declare module "@pracht/core" {
         data: RouteLoaderData<typeof import("./routes/settings")>;
       };
     };
+    shells: {
+      "public": {
+        data: RouteLoaderData<typeof import("./shells/public")>;
+      };
+      "app": {
+        data: RouteLoaderData<typeof import("./shells/app")>;
+      };
+    };
     apiRoutes: {
       "/api/_pracht/image": {
         path: "/api/_pracht/image";

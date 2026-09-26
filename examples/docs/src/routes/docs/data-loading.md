@@ -122,6 +122,10 @@ get the same composed signal, wired by hand.
 > [!NOTE]
 > Loaders **never** run in the browser. Database connections, API keys, and secrets in loader code stay server-side permanently.
 
+### Shell loaders
+
+Data every page in a shell shows — the signed-in user in the nav — does not have to be loaded by every route. A shell can export its own `loader`, which runs after middleware and concurrently with the route loader, and `useShellData()` reads its result from the shell and from any route inside it. Client navigations that stay inside the shell reuse the shell's data instead of loading it again; revalidation refreshes both. See [Shells](/docs/shells#shell-data).
+
 ### Route-state caching
 
 Client navigation fetches loader data through Pracht's route-state endpoint. By
@@ -630,6 +634,17 @@ export function Component() {
 }
 ```
 
+### useShellData()
+
+Read the loader data of the shell the active route renders under, from the shell or from any route inside it. With typegen, pass the shell name to type the result from that shell's loader; without it, pass the loader type:
+
+```ts
+const shell = useShellData("app"); // or useShellData<typeof loader>()
+return <span>{shell?.user.name}</span>;
+```
+
+It returns `undefined` when the shell has no loader and wherever the shell renders without its data, such as the SPA loading state. Naming a shell the active route does not render under throws. See [Shells](/docs/shells#shell-data).
+
 ### useSearchParams()
 
 Read the current query string as a reactive, read-only `URLSearchParams` view:
@@ -647,7 +662,7 @@ An SSG page hydrates with its build-time query so its first client tree matches 
 
 ### useRevalidate()
 
-Imperatively re-run the current route's loader:
+Imperatively re-run the current route's loader, and its shell's:
 
 ```ts
 export function Component() {

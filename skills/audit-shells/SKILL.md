@@ -1,6 +1,6 @@
 ---
 name: audit-shells
-version: 1.3.0
+version: 1.4.0
 description: |
   Audit pracht shells: missing `Loading()` on SPA routes, `<html>`/`<head>`/
   `<body>` rendered inside a shell, shells that never render `children`, unused
@@ -91,6 +91,22 @@ route `headers()`). Optional, but if present:
 - Verify the return shape is a plain `HeadersInit`.
 - Flag shells whose `headers()` returns `undefined` unconditionally — delete
   the export.
+
+### 2g. `loader` export
+
+Shells may export `loader(args)` for layout-level data, read with
+`useShellData()` in the shell and its routes. If present:
+- Run the audit-loaders checks on it: its return value is serialized into
+  every page under the shell (`shellData` in the hydration state and the
+  route-state JSON).
+- `useShellData()` returns `undefined` while the shell renders without its
+  data (SPA loading state, an error boundary after the shell loader failed).
+  Flag a shell that dereferences it unguarded.
+- Flag a shell loader used as an auth gate (redirecting anonymous users) with
+  no gating middleware on its routes: navigations inside the shell ask the
+  server to skip it. Gate in middleware.
+- Flag several routes under one shell whose loaders each fetch the same
+  layout-level value (the current user): that belongs in the shell loader.
 
 ## Step 3: Coverage and waste
 

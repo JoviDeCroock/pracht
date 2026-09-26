@@ -51,6 +51,7 @@ import {
   runMiddlewareChain,
 } from "./runtime-middleware.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
+import { SHELL_DATA_REQUEST_HEADER } from "./runtime-constants.ts";
 import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import {
   getRenderToStringAsync,
@@ -209,6 +210,8 @@ interface PageRenderJob<TContext> {
   dataFunctionsPromise: Promise<Awaited<ReturnType<typeof resolveDataFunctions>>> | undefined;
   routeModule: RouteModule | undefined;
   shellModule: ShellModule | undefined;
+  /** The shell loader's data once it succeeded; absent when it did not run. */
+  shellState: { data: unknown } | undefined;
   loaderFile: string | undefined;
   phase: PrachtRuntimeDiagnosticPhase;
 }
@@ -274,6 +277,64 @@ async function runPageLoader<TContext>(
 }
 
 /**
+ * Run the shell's loader, unless the shell has none or the route-state request
+ * says the client already holds this shell's data.
+ *
+ * Deferred values are always resolved: shell data is shared by every route in
+ * the shell and is reused across navigations, so it has no streaming slot.
+ */
+async function runShellLoader<TContext>(
+  job: PageRenderJob<TContext>,
+): Promise<{ response: Response } | undefined> {
+  const loader = (await job.shellModulePromise)?.loader;
+  if (!loader) return undefined;
+  if (
+    job.ctx.isRouteStateRequest &&
+    job.match.route.shell !== undefined &&
+    job.ctx.request.headers.get(SHELL_DATA_REQUEST_HEADER) === job.match.route.shell
+  ) {
+    return undefined;
+  }
+
+  let result: unknown;
+  try {
+    result = await loader(job.routeArgs);
+  } catch (error: unknown) {
+    if (!(error instanceof Response)) throw error;
+    result = error;
+  }
+  if (result instanceof Response) return { response: result };
+  job.shellState = { data: await resolveDeferredData(result) };
+  return undefined;
+}
+
+/**
+ * Run the shell and route loaders concurrently. Both settle before either
+ * outcome is used, so which one answers is deterministic: the shell wraps the
+ * route, and its error or `Response` wins over the route's.
+ */
+async function runPageLoaders<TContext>(
+  job: PageRenderJob<TContext>,
+): Promise<{ response: Response } | { data: unknown; hasLoader: boolean }> {
+  const [loaded, shellLoaded] = await Promise.allSettled([runPageLoader(job), runShellLoader(job)]);
+  if (shellLoaded.status === "rejected") {
+    // Attribute the failure to the shell loader only when it came from the
+    // loader; a shell module that failed to import is a render failure, as it
+    // was before shells could load data.
+    if ((await job.shellModulePromise.catch(() => undefined))?.loader) {
+      job.phase = "loader";
+      job.loaderFile = job.match.route.shellFile;
+    } else {
+      job.phase = "render";
+    }
+    throw shellLoaded.reason;
+  }
+  if (shellLoaded.value) return shellLoaded.value;
+  if (loaded.status === "rejected") throw loaded.reason;
+  return loaded.value;
+}
+
+/**
  * The route-state (`_data`) representation: loader data plus the font
  * fragments the client needs to keep route-scoped registrations in sync.
  *
@@ -288,13 +349,17 @@ async function buildRouteStateResponse<TContext>(
   job.shellModule = await job.shellModulePromise;
   const head = await mergeHeadMetadata(job.shellModule, job.routeModule, job.routeArgs, data);
   const fontHead = collectFontHeadFragments(head.fonts ?? []);
-  const body = { data, fontHead };
-  return markFrameworkFontHeadResponse(
-    withRouteResponseHeaders(Response.json(body), {
-      isRouteStateRequest: true,
-      loaderCache: job.match.route.loaderCache,
-    }),
-  );
+  const body = job.shellState
+    ? { data, shellData: job.shellState.data, fontHead }
+    : { data, fontHead };
+  const response = withRouteResponseHeaders(Response.json(body), {
+    isRouteStateRequest: true,
+    loaderCache: job.match.route.loaderCache,
+  });
+  // Whether the shell's data is in the body depends on what the request said
+  // it already holds, so a cached copy must not answer a different claim.
+  if (job.shellModule?.loader) appendVaryHeader(response.headers, SHELL_DATA_REQUEST_HEADER);
+  return markFrameworkFontHeadResponse(response);
 }
 
 /**
@@ -380,8 +445,10 @@ async function renderSpaDocument<TContext>(
   const { cssAssets, modulePreloadUrls } = resolvePageAssets(job);
   // The generated hasLoader hint can be absent for direct runtime
   // callers, but the resolved loader is authoritative here. Route
-  // middleware also participates in the route-state request.
-  const needsRouteState = hasLoader || match.route.middlewareFiles.length > 0;
+  // middleware and the shell loader also participate in the route-state
+  // request: the loading tree renders the shell without its data.
+  const needsRouteState =
+    hasLoader || match.route.middlewareFiles.length > 0 || job.shellModule?.loader != null;
   let body = "";
   const Shell = job.shellModule?.Shell as FunctionComponent | undefined;
   const Loading = job.shellModule?.Loading as FunctionComponent | undefined;
@@ -407,6 +474,7 @@ async function renderSpaDocument<TContext>(
           params: match.params,
           routeId: match.route.id ?? "",
           routes: ctx.hrefRoutes,
+          shell: match.route.shell,
           url: ctx.requestPath,
         },
         loadingTree,
@@ -478,10 +546,13 @@ async function renderServerDocument<TContext>(
       params: match.params,
       routeId: match.route.id ?? "",
       routes: ctx.hrefRoutes,
+      shell: match.route.shell,
+      shellData: job.shellState?.data,
       url: ctx.requestPath,
     },
     componentTree,
   );
+  const shellHydrationState = job.shellState ? { shellData: job.shellState.data } : undefined;
 
   const hydration = match.route.hydration ?? "full";
 
@@ -522,6 +593,7 @@ async function renderServerDocument<TContext>(
         url: ctx.requestPath,
         routeId: match.route.id ?? "",
         data: serializedData,
+        ...shellHydrationState,
         deferred: pending.map(({ id, path }) => ({ id, path })),
         error: null,
       },
@@ -656,6 +728,7 @@ async function renderServerDocument<TContext>(
         url: ctx.requestPath,
         routeId: match.route.id ?? "",
         data,
+        ...shellHydrationState,
         error: null,
       },
       clientEntryUrl: ctx.options.clientEntryUrl,
@@ -670,7 +743,7 @@ async function renderServerDocument<TContext>(
 
 /** Loader → representation. The terminal of the page middleware chain. */
 async function runPageTerminal<TContext>(job: PageRenderJob<TContext>): Promise<Response> {
-  const loaded = await runPageLoader(job);
+  const loaded = await runPageLoaders(job);
   if ("response" in loaded) return loaded.response;
   const { data, hasLoader } = loaded;
 
@@ -737,6 +810,7 @@ export async function renderPage<TContext>(
     dataFunctionsPromise: undefined,
     routeModule: undefined,
     shellModule: undefined,
+    shellState: undefined,
     loaderFile: undefined,
     phase: "middleware",
   };
@@ -921,8 +995,10 @@ export async function renderPage<TContext>(
       routeId: match.route.id ?? "",
       routeModule: job.routeModule,
       routes: ctx.hrefRoutes,
+      shell: match.route.shell,
       shellFile: match.route.shellFile,
       shellModule: job.shellModule,
+      shellState: job.shellState,
       requestPath: ctx.requestPath,
     });
   }

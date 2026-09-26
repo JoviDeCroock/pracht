@@ -106,13 +106,14 @@ See [Coding Agents](/docs/coding-agents#constraints).
 | Export | Returns | Description |
 | --- | --- | --- |
 | `useRouteData(routeId?)` | The loader's data | The active route's loader result. The optional route id types the result; passing an id other than the active route throws. See [Data Loading](/docs/data-loading#useroutedata) |
+| `useShellData(shell?)` | The shell loader's data, or `undefined` | The loader result of the shell the active route renders under, readable from the shell and its routes. The optional shell name types the result; naming another shell throws. See [Shells](/docs/shells#shell-data) |
 | `useParams()` | `Record<string, string>` | Matched dynamic segments. See [Routing](/docs/routing#reading-params) |
 | `useLocation()` | `{ pathname, search }` | The current URL as the visitor sees it, deploy base included |
 | `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws — navigate instead |
 | `useNavigate()` | `(to, options?) => Promise<void>` | Imperative navigation, by path or route object |
 | `useNavigation()` | `{ state, location?, formData? }` | Pending state for the current navigation or `<Form>` submission: `"idle"`, `"loading"`, or `"submitting"` |
 | `useBlocker(shouldBlock, options?)` | `{ state, location, proceed, reset }` | Stop a navigation before it commits — unsaved-changes guards. See [Data Loading](/docs/data-loading#useblocker) |
-| `useRevalidate()` | `() => void` | Re-run the active route's loader |
+| `useRevalidate()` | `() => void` | Re-run the active route's loader and its shell's |
 | `useIsHydrated()` | `boolean` | `false` during SSR and the first client render, `true` after |
 | `useEventSource(url, options?)` | `{ status, data, lastEventId }` | Subscribe to a server-sent event stream. `status` is `"connecting"`, `"open"`, or `"closed"`. See [Server-Sent Events & WebSockets](/docs/recipes/streaming) |
 | `useCapability(name)` | `{ call, data, error, pending, reset }` | Call state for a user-triggered [capability](/docs/capabilities) call. From `virtual:pracht/capabilities` |

@@ -1,6 +1,6 @@
 ---
 name: audit-auth
-version: 1.4.0
+version: 1.5.0
 description: |
   Find pracht routes that look protected but aren't: missing auth middleware,
   middleware that augments context but never gates, client-only checks, and
@@ -86,6 +86,13 @@ The "Augmenter" category is the silent killer: it makes loaders *think*
 auth is enforced because `request.headers.get('x-user-id')` returns a value
 when present, but unauthenticated requests just get `null` and the loader has
 to handle it. Flag every loader downstream of an Augmenter that doesn't.
+
+A shell `loader` that redirects anonymous users is **not** a gate either. A
+client that already holds the shell's data sends `x-pracht-shell-data: <shell>`
+on route-state requests and the server skips the shell loader, so the route's
+data comes back without it running. Flag any shell whose loader is the only
+thing between an anonymous request and the routes under it; the gate belongs
+in middleware.
 
 ## Step 2: Identify protected routes
 

@@ -276,7 +276,7 @@ function ButtonLink({ route, ...rest }: ButtonLinkProps) {
 Shells are Preact layout components that wrap route content. They are **decoupled from URL structure** — a flat URL like `/settings` can use the `app` shell without nesting under `/app/settings`.
 
 ```ts [src/shells/app.tsx]
-import type { ShellProps } from "@pracht/core";
+import type { LoaderArgs, ShellProps } from "@pracht/core";
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -285,6 +285,12 @@ export function Shell({ children }: ShellProps) {
       <main>{children}</main>
     </div>
   );
+}
+
+// Optional: layout-level data, read with useShellData() from the shell and
+// its routes, and reused across navigations that stay in the shell
+export async function loader({ context }: LoaderArgs) {
+  return { user: context.user };
 }
 
 // Optional: shell-level <head> metadata
@@ -302,6 +308,8 @@ export function headers() {
 > Shell head metadata merges with route-level head. Route head takes precedence for `title`. Arrays like `meta` and `link` are concatenated.
 
 Shell document headers merge with route-level `headers` exports. Route headers take precedence for matching names. These headers apply to HTML document responses, including prerendered SSG/ISG HTML, but not API routes or route-state JSON fetches.
+
+See [Shells](/docs/shells#shell-data) for how shell data loads, when it is reused, and how it behaves in each render mode.
 
 ---
 
@@ -418,6 +426,8 @@ export function headers() {
   return { "content-security-policy": "default-src 'self'" };
 }
 ```
+
+An `_app` can also export a `loader` for [shell data](/docs/shells#shell-data), read with `useShellData()` from the shell and every page it wraps.
 
 #### Directory-scoped shells
 

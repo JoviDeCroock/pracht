@@ -19,6 +19,7 @@ import { formatBytes } from "./bundle-report.js";
 interface StaticRouteView {
   file?: string;
   hasLoader?: boolean;
+  hasShellLoader?: boolean;
   hydration?: string;
   middlewareFiles?: string[];
   path: string;
@@ -211,11 +212,12 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
   }
 
   const spaWithLoaders = routes.filter(
-    (route) => route.render === "spa" && route.hasLoader !== false,
+    (route) =>
+      route.render === "spa" && (route.hasLoader !== false || route.hasShellLoader === true),
   );
   if (spaWithLoaders.length > 0) {
     problems.push(
-      `these SPA routes declare (or may declare) server loaders, but a static host cannot run them at request time:\n` +
+      `these SPA routes declare (or may declare) server loaders, their own or their shell's, but a static host cannot run them at request time:\n` +
         spaWithLoaders.map((route) => `    - ${route.path}`).join("\n") +
         "\n  Static SPA routes must be loaderless. Fetch live data from the browser, change the route to SSG for build-time data, or use a serverful adapter.",
     );

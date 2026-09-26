@@ -308,11 +308,15 @@ export function createPrachtMcpServer(): McpServer {
       inputSchema: {
         ...cwdInput,
         name: z.string().describe("Shell name, e.g. app or public"),
+        loader: z
+          .boolean()
+          .optional()
+          .describe("Include a shell loader whose data useShellData() reads."),
       },
     },
-    guard(({ cwd, name }) => {
+    guard(({ cwd, name, loader }) => {
       const root = resolveCwd(cwd);
-      return generateShell(name, readProjectConfig(root));
+      return generateShell(name, readProjectConfig(root), { loader });
     }),
   );
 

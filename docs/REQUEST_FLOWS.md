@@ -24,6 +24,18 @@ and returns a small JSON envelope:
 { "data": { ... } }
 ```
 
+When the route's shell has a loader, its result rides along as
+`"shellData": { ... }`. A client already holding that shell's data (a
+navigation inside the same shell) adds
+
+```
+x-pracht-shell-data: <shell name>
+```
+
+and the server skips the shell loader and leaves `shellData` out; such
+responses carry `Vary: x-pracht-shell-data`. Revalidation never sends the
+header, so it refreshes both. See [ROUTING.md](ROUTING.md#shell-loaders).
+
 Static exports and preload hints use the query-string form instead, `?_data=1`,
 because a `<link rel=preload>` cannot set a header. Either form selects the same
 route-state response. The marker is the framework's, not the app's: it is
@@ -35,9 +47,10 @@ the HTML and JSON variants separate. JSON responses default to
 `Cache-Control: no-store`; a positive route `loaderCache` value changes
 successful loader-data responses to `private, max-age=<seconds>`.
 
-If the target route and shell have no `head()` export and the route has neither
-a loader nor middleware, client navigation can skip the route-state request
-entirely and only load the route/shell modules.
+If the target route and shell have no `head()` export, the route has neither a
+loader nor middleware, and its shell has no loader (or the client already holds
+that shell's data), client navigation can skip the route-state request entirely
+and only load the route/shell modules.
 
 Configured custom route formats stay conservative: their Vite transform may
 synthesize `head()` from syntax such as frontmatter, so Pracht keeps the
@@ -481,13 +494,12 @@ request arrives
    await middleware ─► context
           │
           ▼
-   await route module + loader
-          │
+   ┌─ route loader(args) ───────┐  ◄── the one serial gate; both loaders
+   │  (awaits route module)      │      need the merged context, and run
+   └─ shell loader(args) ───────┘      concurrently with each other
+          │                              (shell skipped when claimed)
           ▼
-   execute loader(args)        ◄── the one serial gate; loader needs
-          │                         the merged context
-          ▼
-   await shell module (usually already resolved)
+   both settle; the shell's error or Response wins
           │
           ▼
    merge head + headers (run in parallel; shell/route halves also

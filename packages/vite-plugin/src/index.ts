@@ -539,9 +539,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteHeadSource = isPagesMode
         ? relative.startsWith(resolved.pagesDir)
         : relative.startsWith(resolved.routesDir) || relative.startsWith(resolved.shellsDir);
-      const changesRouteLoaderSource = isPagesMode
-        ? relative.startsWith(resolved.pagesDir)
-        : relative.startsWith(resolved.routesDir);
+      // Shells own loaders too, so both directories bake loader presence.
+      const changesRouteLoaderSource = changesRouteHeadSource;
       const previousServerRouteLoaderHints = serverRouteLoaderHints;
       if (!isPagesMode && relative.startsWith(resolved.serverDir)) {
         try {

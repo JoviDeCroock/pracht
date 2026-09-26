@@ -105,6 +105,47 @@ describe("@pracht/cli typegen routes", () => {
     }
   }, 30_000);
 
+  it("registers shell loader data for every shell a route renders under", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-shells-");
+    writeTypedManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "src/routes.ts",
+      `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  shells: {
+    app: "./shells/app.tsx",
+    unused: "./shells/unused.tsx",
+  },
+  routes: [route("/", "./routes/home.tsx", { id: "home", render: "ssg", shell: "app" })],
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/shells/app.tsx",
+      `export async function loader() {
+  return { user: "Ada" };
+}
+
+export function Shell({ children }) {
+  return children;
+}
+`,
+    );
+    writeProjectFile(appDir, "src/shells/unused.tsx", "export function Shell() { return null; }\n");
+
+    runCli(["typegen"], { cwd: appDir });
+    const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
+
+    expect(declaration).toContain(
+      '    shells: {\n      "app": {\n        data: RouteLoaderData<typeof import("./shells/app")>;\n      };\n    };',
+    );
+    // A shell no route renders under has no data to type.
+    expect(declaration).not.toContain('"unused"');
+  });
+
   it("generates typed route declarations for pages-router apps", () => {
     const appDir = createRepoTempDir("pracht-cli-typegen-pages-");
     writeInspectablePagesApp(appDir);

@@ -96,6 +96,18 @@ describe("@pracht/cli generate", () => {
     expect(manifest).toContain("revalidate: timeRevalidate(120)");
   });
 
+  it("scaffolds a shell with a loader read through useShellData()", () => {
+    const appDir = createTempDir("pracht-cli-shell-loader-");
+    writeManifestApp(appDir);
+
+    runCli(["generate", "shell", "--name", "app", "--loader"], { cwd: appDir });
+
+    const shellSource = readFileSync(join(appDir, "src/shells/app.tsx"), "utf-8");
+    expect(shellSource).toContain("export async function loader(_args: LoaderArgs)");
+    expect(shellSource).toContain("const data = useShellData<typeof loader>();");
+    expect(shellSource).toContain("export function Shell({ children }: ShellProps)");
+  });
+
   it("emits a Playwright smoke test alongside generated routes when e2e tooling exists", () => {
     const appDir = createTempDir("pracht-cli-smoke-");
     writeManifestApp(appDir);

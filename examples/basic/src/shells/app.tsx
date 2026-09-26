@@ -1,6 +1,17 @@
-import type { ShellProps } from "@pracht/core";
+import { useShellData, type LoaderArgs, type ShellProps } from "@pracht/core";
+
+import type { SessionContext } from "../server/session.ts";
+
+// The signed-in user every page in this shell shows. The `auth` middleware has
+// already refused anonymous requests; this runs beside the route loader, and
+// navigations between `/dashboard` and `/settings` reuse its result.
+export async function loader({ context }: LoaderArgs<SessionContext>) {
+  return { name: context.session.get("name") ?? "Guest" };
+}
 
 export function Shell({ children }: ShellProps) {
+  const shell = useShellData<typeof loader>();
+
   return (
     <div class="app-shell">
       <aside>
@@ -9,6 +20,7 @@ export function Shell({ children }: ShellProps) {
           <a href="/settings">Settings</a>
           <a href="/">Back to home</a>
         </nav>
+        {shell && <span class="shell-user">{shell.name}</span>}
       </aside>
       <main>{children}</main>
     </div>

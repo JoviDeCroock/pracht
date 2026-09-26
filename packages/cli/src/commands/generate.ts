@@ -98,12 +98,16 @@ const shellCommand = defineCommand({
   },
   args: {
     name: { type: "string", required: true, description: "Shell name" },
+    loader: { type: "boolean", description: "Include a shell loader read with useShellData()" },
     json: { type: "boolean", description: "Output as JSON" },
   },
   async run({ args }) {
     try {
       const project = readProjectConfig(process.cwd());
-      outputResult(generateShell(args.name, project), Boolean(args.json));
+      outputResult(
+        generateShell(args.name, project, { loader: Boolean(args.loader) }),
+        Boolean(args.json),
+      );
     } catch (error) {
       handleCliError(error, { json: Boolean(args.json) });
     }
@@ -432,7 +436,11 @@ function generatePagesRoute({
   };
 }
 
-export function generateShell(name: string, project: ProjectConfig): GenerateResult {
+export function generateShell(
+  name: string,
+  project: ProjectConfig,
+  options: { loader?: boolean } = {},
+): GenerateResult {
   if (project.mode === "pages") {
     throw new Error(
       "Pages router apps use a single `_app` shell. `pracht generate shell` is only available for manifest apps.",
@@ -443,7 +451,7 @@ export function generateShell(name: string, project: ProjectConfig): GenerateRes
   assertFileExists(manifestPath, `App manifest not found at ${project.appFile}.`);
 
   const shellFile = resolveScopedFile(project.root, project.shellsDir, `${name}.tsx`);
-  writeGeneratedFile(shellFile, buildShellModuleSource(name));
+  writeGeneratedFile(shellFile, buildShellModuleSource(name, { includeLoader: options.loader }));
 
   const manifestSource = readFileSync(manifestPath, "utf-8");
   const updatedSource = upsertObjectEntry(
