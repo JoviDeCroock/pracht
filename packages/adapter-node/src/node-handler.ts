@@ -9,6 +9,7 @@ import {
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   classifyRevalidationSkip,
+  createWaitUntilTracker,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   isCacheableISGResponse,
@@ -128,11 +129,28 @@ export interface NodeAdapterOptions<TContext = unknown> {
   compression?: boolean;
 }
 
+/**
+ * The `node:http` request listener, plus the handle a graceful shutdown uses
+ * to wait for work registered with `waitUntil()`.
+ */
+export interface NodeRequestHandler {
+  (req: IncomingMessage, res: ServerResponse): Promise<void>;
+  /**
+   * Wait for every promise registered through `waitUntil()` (and every
+   * background ISG regeneration) to settle, for at most `timeoutMs`
+   * (default 10s). Resolves `true` when all of it finished in time. Call it
+   * after `server.close()` when shutting down.
+   */
+  drain(timeoutMs?: number): Promise<boolean>;
+  /** Registered background work that has not settled yet. */
+  readonly pending: number;
+}
+
 let warnedAboutMissingCanonicalOrigin = false;
 
 export function createNodeRequestHandler<TContext = unknown>(
   options: NodeAdapterOptions<TContext>,
-) {
+): NodeRequestHandler {
   const isgManifest = options.isgManifest ?? {};
   const headersManifest = options.headersManifest ?? {};
   const staticDir = options.staticDir;
@@ -141,6 +159,11 @@ export function createNodeRequestHandler<TContext = unknown>(
   const maxBodySize = options.maxBodySize;
   const compressionEnabled = options.compression !== false;
   const compressedAssetCache = new CompressedAssetCache();
+  // A Node process outlives its responses, so registered work finishes on its
+  // own; the tracker is what lets a graceful shutdown wait for it instead of
+  // cutting it off.
+  const backgroundWork = createWaitUntilTracker();
+  const waitUntil = backgroundWork.waitUntil;
 
   if (maxBodySize !== undefined && (!Number.isInteger(maxBodySize) || maxBodySize <= 0)) {
     throw new Error("nodeAdapter({ maxBodySize }) expects a positive integer number of bytes.");
@@ -218,6 +241,7 @@ export function createNodeRequestHandler<TContext = unknown>(
           res,
         },
         compression,
+        waitUntil,
       );
       await writeWebResponse(res, response, compression);
       return;
@@ -264,6 +288,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         headersManifest,
         { request, req, res },
         compression,
+        waitUntil,
       );
       if (served) return;
     }
@@ -291,6 +316,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       cssManifest: options.cssManifest,
       cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
+      waitUntil,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
     const isIsgDocument =
@@ -332,7 +358,7 @@ export function createNodeRequestHandler<TContext = unknown>(
   // `http.createServer(handler)` ignores the returned promise, so a rejection
   // here would become an unhandled rejection and terminate the process. Every
   // failure has to be absorbed at this boundary.
-  return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  const listener = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       await handle(req, res);
     } catch (error) {
@@ -380,6 +406,11 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
     }
   };
+
+  return Object.defineProperties(listener, {
+    drain: { value: (timeoutMs?: number) => backgroundWork.drain(timeoutMs) },
+    pending: { get: () => backgroundWork.pending },
+  }) as NodeRequestHandler;
 }
 
 function shouldWarnAboutMissingCanonicalOrigin(staticDir: string | undefined): boolean {
@@ -603,6 +634,7 @@ async function serveISGEntry<TContext>(
   headersManifest: HeadersManifest,
   contextArgs: NodeAdapterContextArgs,
   compression: CompressionState | undefined,
+  waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
@@ -676,15 +708,20 @@ async function serveISGEntry<TContext>(
     }
 
     if (isStale) {
-      regenerateISGPageAndInvalidateCache(
-        options,
-        pathname,
-        htmlPath,
-        contextArgs,
-        compression,
-      ).catch((err) => {
-        console.error(`ISG regeneration failed for ${pathname}:`, err);
-      });
+      // Tracked like application `waitUntil()` work, so a graceful shutdown
+      // lets an in-flight regeneration finish writing its snapshot.
+      waitUntil(
+        regenerateISGPageAndInvalidateCache(
+          options,
+          pathname,
+          htmlPath,
+          contextArgs,
+          compression,
+          waitUntil,
+        ).catch((err) => {
+          console.error(`ISG regeneration failed for ${pathname}:`, err);
+        }),
+      );
     }
 
     return true;
@@ -700,6 +737,7 @@ async function handleRevalidationEndpoint<TContext>(
   isgManifest: Record<string, ISGManifestEntry>,
   contextArgs: NodeAdapterContextArgs,
   compression: CompressionState | undefined,
+  waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
   const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
   if (!parsed.ok) return parsed.response;
@@ -740,6 +778,7 @@ async function handleRevalidationEndpoint<TContext>(
           htmlPath!,
           contextArgs,
           compression,
+          waitUntil,
         )
       ) {
         report.revalidated(pathname);
@@ -761,8 +800,9 @@ async function regenerateISGPageAndInvalidateCache<TContext>(
   htmlPath: string,
   contextArgs: NodeAdapterContextArgs,
   compression: CompressionState | undefined,
+  waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
-  const regenerated = await regenerateISGPage(options, pathname, htmlPath, contextArgs);
+  const regenerated = await regenerateISGPage(options, pathname, htmlPath, contextArgs, waitUntil);
   if (regenerated) compression?.cache.invalidatePath(htmlPath);
   return regenerated;
 }

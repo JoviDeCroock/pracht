@@ -2,6 +2,7 @@ export {
   createNodeRequestHandler,
   type NodeAdapterContextArgs,
   type NodeAdapterOptions,
+  type NodeRequestHandler,
 } from "./node-handler.ts";
 export {
   createNodeServerEntryModule,

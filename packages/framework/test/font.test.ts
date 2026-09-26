@@ -474,6 +474,7 @@ function makeRouteArgs(): BaseRouteArgs<unknown> {
     params: {},
     context: {},
     signal: new AbortController().signal,
+    waitUntil: () => {},
     url: new URL(request.url),
     route: {} as BaseRouteArgs<unknown>["route"],
   };

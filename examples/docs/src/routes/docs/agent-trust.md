@@ -412,10 +412,10 @@ Every registered sink receives the same frozen snapshot for every dispatch, on e
 | Guarantee | What it means for your sink |
 | --- | --- |
 | Never throws into dispatch | A throwing sink is swallowed. Its first failure is reported via `console.warn`, naming the sink; later failures from that sink stay quiet rather than logging one line per capability call. Warn-once is per named registration, so a broken log sink cannot silence a broken metrics sink even when both reuse the same callback. |
-| Never awaited | The hook is invoked synchronously, so keep work before its return or first `await` cheap. A returned promise is not awaited; its asynchronous continuation does not add dispatch latency, but an unhandled rejection is yours to catch. |
+| Never awaited | The hook is invoked synchronously, so keep work before its return or first `await` cheap. A returned promise is not awaited — it is handed to the request's [`waitUntil()`](/docs/data-loading#waituntil), so it adds no dispatch latency, is kept alive after the response, and a rejection is reported instead of going unhandled. |
 | Runs everywhere | No Node-only APIs, so the same sink works on Node, Workers, Vercel, and Netlify. |
 
-**Cloudflare Workers caveat.** Work started inside a sink but unfinished when the response is returned may be cancelled once the request context ends. Pracht does not call `ctx.waitUntil()` for you — it holds no handle on your sink's promises. A batching exporter must either flush within the request or be handed the execution context by your own code, for example `context.executionContext.waitUntil(exporter.flush())` from a middleware or API route.
+**Work after the response.** Return the promise from the sink (make it `async`) and pracht hands it to the request's [`waitUntil()`](/docs/data-loading#waituntil) — `ctx.waitUntil` on Cloudflare Workers, `context.waitUntil` on Netlify and Vercel, the graceful-shutdown drain on Node — so it is not cancelled when the response is returned. A promise a sink starts but does not return is invisible to pracht and can still be cut off. A batching exporter that flushes on its own schedule should flush from a middleware instead: `waitUntil(exporter.flush())`.
 
 ### Production Recipes
 

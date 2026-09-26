@@ -21,7 +21,7 @@
  * names adapters use.
  */
 import { DEFAULT_LOADER_TIMEOUT_MS, matchApiRoute, resolveApp } from "./app.ts";
-import { isSameOriginRequest } from "@pracht/capabilities/server/internal";
+import { createWaitUntil, isSameOriginRequest } from "@pracht/capabilities/server/internal";
 import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
 import {
   OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
@@ -55,6 +55,7 @@ import type {
   PrachtContextExtensions,
   ResolvedApiRoute,
   ResolvedPrachtApp,
+  WaitUntil,
 } from "./types.ts";
 
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
@@ -140,6 +141,33 @@ export interface HandlePrachtRequestOptions<TContext = unknown> {
    * the sanitized response body.
    */
   onApiError?: (error: unknown, requestPath: string, context?: RouteErrorContext) => void;
+  /**
+   * The platform's way to keep work alive after the response: a Worker's
+   * `ctx.waitUntil`, a Netlify or Vercel `context.waitUntil`, or a Node
+   * adapter's pending set that graceful shutdown drains. Loaders, middleware,
+   * API routes, `head()`/`headers()`, and capabilities receive a portable
+   * `waitUntil` that forwards here. Each registered promise arrives already
+   * guarded: its rejection is reported with phase `"waitUntil"` through
+   * `onRouteError` (pages) or `onApiError` (API routes and capabilities), or
+   * the console when neither is set. Omitted, registered work runs detached.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
+}
+
+/**
+ * Build the portable `waitUntil` one pipeline stage hands to application code:
+ * it forwards to the adapter's `waitUntil` and reports a rejection through the
+ * stage's own error hook, attributed to phase `"waitUntil"`.
+ */
+export function createRequestWaitUntil<TContext>(
+  options: HandlePrachtRequestOptions<TContext>,
+  requestPath: string,
+  hook: HandlePrachtRequestOptions<TContext>["onRouteError"],
+  context: Omit<RouteErrorContext, "phase">,
+): WaitUntil {
+  return createWaitUntil(options.waitUntil, (error) => {
+    reportRequestError(hook, error, requestPath, { ...context, phase: "waitUntil" });
+  });
 }
 
 /**
@@ -413,6 +441,7 @@ async function prepareAgentSurface<TContext>(
   hasCapabilities: boolean,
   mcpConfig: NonNullable<PrachtApp["agents"]>["mcp"] | undefined,
   exposeDiagnostics: boolean,
+  requestPath: string,
 ): Promise<AgentSurfacePreparation<TContext>> {
   let requestContext = initialContext;
   let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
@@ -476,6 +505,11 @@ async function prepareAgentSurface<TContext>(
         "http",
         options.onCapabilityAudit,
         agent,
+        undefined,
+        undefined,
+        // Capability work — including capabilities composed from a loader —
+        // reports through the API hook: capabilities are API surface.
+        createRequestWaitUntil(options, requestPath, options.onApiError, {}),
       );
     }
   } else if (hasCapabilities || options.app.agents) {
@@ -566,6 +600,7 @@ export async function createRequestContext<TContext>(
     hasCapabilities,
     mcpConfig,
     exposeDiagnostics,
+    requestPath,
   );
   if (surface.response) return { response: surface.response };
 
@@ -643,6 +678,11 @@ export async function dispatchApi<TContext>(
 
   const requestSignal = composeRequestSignal(request, ctx.loaderTimeoutMs);
   const apiContext = ctx.context;
+  const waitUntil = createRequestWaitUntil(options, ctx.requestPath, options.onApiError, {
+    middlewareFiles: [...apiMiddlewareFiles],
+    routeFile: apiMatch.route.file,
+    routePath: apiMatch.route.path,
+  });
 
   const apiTerminal = async (): Promise<Response> => {
     currentPhase = "api";
@@ -673,6 +713,7 @@ export async function dispatchApi<TContext>(
       signal: requestSignal,
       url,
       route: apiMatch.route,
+      waitUntil,
     };
 
     return handler(apiRouteArgs);
@@ -689,6 +730,7 @@ export async function dispatchApi<TContext>(
       route: apiMatch.route,
       signal: requestSignal,
       url,
+      waitUntil,
       terminal: apiTerminal,
       onMiddlewareError: () => {
         currentPhase = "middleware";

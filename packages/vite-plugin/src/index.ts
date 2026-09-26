@@ -10,7 +10,11 @@ import {
 } from "./client-module-transform.ts";
 
 import type { RenderMode } from "@pracht/core";
-import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
+import {
+  createWaitUntilTracker,
+  PRACHT_GRAPH_ONLY_ENV,
+  type WaitUntilTracker,
+} from "@pracht/core/server";
 import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
@@ -160,6 +164,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   }
 
   let isBuild = false;
+  // `waitUntil()` work registered while `pracht dev` serves requests. Vite
+  // closes the plugin container when the dev server shuts down, which is where
+  // `closeBundle` below waits for it.
+  let devBackgroundWork: WaitUntilTracker | undefined;
   let base = "/";
   let configuredBase: string | undefined;
 
@@ -499,14 +507,26 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
       }
+      const backgroundWork = createWaitUntilTracker();
+      devBackgroundWork = backgroundWork;
       return () => {
         server.middlewares.use(
           createDevSSRMiddleware(server, {
             llmsTxt: !!resolved.llmsTxt,
             maxBodySize: resolved.maxBodySize,
+            waitUntil: backgroundWork.waitUntil,
           }),
         );
       };
+    },
+
+    async closeBundle() {
+      // Dev server shutdown (`server.close()`, and Vite's own SIGTERM handler)
+      // closes every environment's plugin container. Give work registered with
+      // `waitUntil()` a bounded window to finish before the process goes away.
+      if (!isBuild && devBackgroundWork) {
+        await devBackgroundWork.drain(DEV_WAIT_UNTIL_DRAIN_TIMEOUT_MS);
+      }
     },
 
     async transformIndexHtml(html, context) {
@@ -1017,6 +1037,9 @@ function collectNodeBuiltinImports(program: unknown): Set<string> {
   visit(program);
   return imports;
 }
+
+/** Upper bound on how long closing the dev server waits for `waitUntil()` work. */
+const DEV_WAIT_UNTIL_DRAIN_TIMEOUT_MS = 5_000;
 
 const MANIFEST_CORE_IMPORTS = new Set(["defineApp", "group", "route", "timeRevalidate"]);
 

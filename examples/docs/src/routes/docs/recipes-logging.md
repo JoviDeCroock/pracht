@@ -143,7 +143,10 @@ export const app = defineApp({
 ```ts [src/middleware/request-log.ts]
 import type { MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ context, request, route, url }, next) => {
+export const middleware: MiddlewareFn = async (
+  { context, request, route, url, waitUntil },
+  next,
+) => {
   const startedAt = performance.now();
   let response: Response | undefined;
   let thrown: unknown;
@@ -168,10 +171,11 @@ export const middleware: MiddlewareFn = async ({ context, request, route, url },
       status,
     });
 
-    // Hand the flush off to the runtime so the response can return
-    // immediately. On Cloudflare this keeps the worker alive long enough
-    // for the events to ship; on Node the helper just awaits the promise.
-    deferFlush(context, context.logger.flush());
+    // Hand the flush off so the response can return immediately. Every
+    // adapter keeps the request alive for it (ctx.waitUntil on Cloudflare,
+    // context.waitUntil on Netlify and Vercel, a drained pending set on
+    // Node), and a failed flush is reported instead of crashing anything.
+    waitUntil(context.logger.flush());
   }
 };
 
@@ -182,20 +186,6 @@ function serializeError(error: unknown) {
   }
   return { message: String(error), name: "Error" };
 }
-
-// Cloudflare's executionContext.waitUntil keeps the worker alive past the
-// response. On Node there's no equivalent — `await` would delay the
-// response, and bare fire-and-forget would lose unhandled rejections, so
-// just attach a catch handler.
-function deferFlush(context: { executionContext?: { waitUntil(p: Promise<unknown>): void } }, flushPromise: Promise<unknown>) {
-  if (context.executionContext?.waitUntil) {
-    context.executionContext.waitUntil(
-      flushPromise.catch((err) => console.error("[pracht] log flush failed", err)),
-    );
-    return;
-  }
-  flushPromise.catch((err) => console.error("[pracht] log flush failed", err));
-}
 ```
 
 This is the same `try / catch / finally` shape Hono and Koa users are
@@ -203,13 +193,13 @@ accustomed to. The middleware sees the final response status and any thrown
 error, and `finally` runs as part of the request — exactly what
 Honeycomb / Beeline-style libraries need.
 
-> **Cloudflare:** the `fetch` handler returns once the middleware does, and
-> the worker can be torn down at any point afterward. `await flush()` inside
-> `finally` works but blocks the response on the flush; bare fire-and-forget
-> risks the worker terminating mid-flight. The recommended pattern is
-> `context.executionContext.waitUntil(flushPromise)` — the response goes out
-> immediately and the runtime keeps the worker alive until the flush
-> resolves. The `deferFlush` helper above handles both runtimes.
+> **Why `waitUntil`:** on Cloudflare, Netlify, and Vercel the invocation can be
+> torn down once the response is returned. `await flush()` inside `finally`
+> works but blocks the response on the flush; bare fire-and-forget risks the
+> runtime stopping mid-flight and leaves a rejection unhandled.
+> [`waitUntil(promise)`](/docs/data-loading#waituntil) sends the response
+> immediately and keeps the work alive on every adapter — on Node, a graceful
+> shutdown waits for it.
 
 ---
 
@@ -244,10 +234,8 @@ export function withRequestLogging(handler: ApiRouteHandler): ApiRouteHandler {
         route: args.route.path,
         status: response?.status ?? 500,
       });
-      // On Cloudflare, prefer
-      // `args.context.executionContext.waitUntil(args.context.logger.flush())`
-      // so the response is not blocked on the flush. On Node, `await` is fine.
-      await args.context.logger.flush();
+      // Ship the events after the response instead of blocking it.
+      args.waitUntil(args.context.logger.flush());
     }
   };
 }
@@ -300,7 +288,7 @@ if (import.meta.hot) {
 
 Import the module from an eagerly loaded server module. The `createContextFrom` module configured earlier on this page is loaded with the generated adapter entry, so adding `import "./audit.ts"` there registers the sink before request handling. A custom server entry can import it directly. Do not rely on an unrelated route, API route, middleware, or `src/server/` registry module: those modules are lazy and can miss earlier capability calls. Keep the HMR disposal hook so removing the module or renaming the sink cannot leave a stale listener in the dev server.
 
-Sinks are invoked synchronously, so keep work before the callback returns or reaches its first `await` cheap. A returned promise is never awaited, and a sink that throws synchronously is swallowed (the first failure per named registration is reported once via `console.warn`). On Cloudflare Workers, a batching exporter must flush within the request or be handed the execution context by your own code — pracht does not call `ctx.waitUntil()` on a sink's behalf.
+Sinks are invoked synchronously, so keep work before the callback returns or reaches its first `await` cheap. A returned promise never delays the response: it is handed to the request's [`waitUntil()`](/docs/data-loading#waituntil), so an `async` sink finishes after the response on every adapter and its rejection is reported rather than left unhandled. A sink that throws synchronously is swallowed (the first failure per named registration is reported once via `console.warn`).
 
 The three metrics worth deriving from these events:
 

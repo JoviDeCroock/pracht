@@ -116,6 +116,10 @@ export function createCloudflareFetchHandler<
   ): Promise<Response> => {
     // Make `serverEnv` from @pracht/core/env/server resolve to this worker request's bindings.
     setServerEnv(env);
+    // The portable `waitUntil()` loaders, middleware, API routes, and
+    // capabilities receive. Called through the execution context: workerd
+    // rejects a detached `waitUntil` reference with "Illegal invocation".
+    const waitUntil = (promise: Promise<unknown>): void => executionContext.waitUntil(promise);
 
     const baseRedirect = createBaseRedirectResponse(request);
     if (baseRedirect) return baseRedirect;
@@ -146,6 +150,7 @@ export function createCloudflareFetchHandler<
         cssManifest: options.cssManifest,
         cssContentManifest: options.cssContentManifest,
         jsManifest: options.jsManifest,
+        waitUntil,
       } satisfies HandlePrachtRequestOptions<TContext>);
     };
 
@@ -232,6 +237,7 @@ export function createCloudflareFetchHandler<
       cssManifest: options.cssManifest,
       cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
+      waitUntil,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
     const finalResponse =

@@ -69,6 +69,7 @@ every concrete prerendered path for adapters, and annotates generated
 | signal  | AbortSignal   | Aborts when the client disconnects or the budget runs out |
 | url     | URL           | Parsed URL object                                    |
 | route   | ResolvedRoute | Matched route metadata                               |
+| waitUntil | `(promise) => void` | Keep work running after the response is sent |
 
 #### `signal`
 
@@ -108,6 +109,47 @@ own `Request`, whose signal already tracks the connection. The Node adapter
 wires one from the socket. Static export has no request to abandon — there the
 signal only carries the build-time budget. Runtimes without `AbortSignal.any`
 get the same composed signal, wired by hand.
+
+#### `waitUntil`
+
+`waitUntil(promise)` registers work that must be allowed to finish after the
+response is sent — analytics, cache warming, flushing a log exporter, a
+webhook. It never delays the response: the loader returns, the page renders,
+and the promise keeps running.
+
+```ts [src/routes/article.tsx]
+export async function loader({ params, waitUntil }: LoaderArgs) {
+  const article = await getArticle(params.slug);
+  waitUntil(recordView(article.id)); // not awaited — the page does not wait for it
+  return { article };
+}
+```
+
+The same function, with the same behaviour, is on the args of
+[middleware](/docs/middleware#work-after-the-response),
+[API route handlers](/docs/api-routes#work-after-the-response), `head()` and
+`headers()`, and a capability's `run()`.
+
+**A rejection never crashes the process.** It is caught and reported the way a
+request failure is: with phase `"waitUntil"` through `onRouteError` (pages) or
+`onApiError` (API routes and capabilities) when the server entry passes one,
+and to the console otherwise. The response it belonged to is unaffected.
+
+**Each adapter maps it to its platform** — no platform object to reach into:
+
+| Adapter | Mechanism |
+| --- | --- |
+| Cloudflare Workers | `ctx.waitUntil()` of the Worker's execution context |
+| Netlify | `context.waitUntil()` of the Functions v2 context |
+| Vercel | The function's `context.waitUntil()`, else Vercel's global request context — Edge and Node functions alike |
+| Node, `pracht dev`, `pracht preview` | A pending set: a graceful shutdown (`SIGTERM`, `SIGINT`, or closing the dev server) waits for it, up to a bounded timeout |
+| SSG, ISG prerender, static export | The build waits for every registered promise before it finishes |
+
+On the Node adapter the shutdown budget defaults to 10 seconds and is set with
+[`nodeAdapter({ shutdownTimeoutMs })`](/docs/adapters#graceful-shutdown). Work
+still running when it expires is cut off with the process, so keep long jobs in
+a real queue. In tests, [`@pracht/test`](/docs/recipes/testing#work-after-the-response)
+records what a loader registered and can await it.
 
 ### When loaders run
 

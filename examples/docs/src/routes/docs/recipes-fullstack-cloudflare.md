@@ -271,4 +271,4 @@ npx wrangler deploy
 - Use `render: "ssr"` for any route that reads from D1 — data changes per request.
 - Use parameterized queries (`?` placeholders with `.bind()`) to prevent SQL injection. Never interpolate user input into SQL strings.
 - D1 supports transactions via `context.env.DB.batch([...])` for atomic multi-statement writes.
-- Use `executionContext.waitUntil()` to run background work (analytics, cache warming) without blocking the response.
+- Use `args.waitUntil()` in a loader, middleware, or API route to run background work (analytics, cache warming) without blocking the response — the adapter maps it to `ctx.waitUntil()`.

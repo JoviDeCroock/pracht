@@ -50,6 +50,7 @@ import {
 } from "./confirmation.ts";
 import { resolveRegistryModule } from "./registry.ts";
 import { runMiddlewareChain } from "./middleware.ts";
+import { detachedWaitUntil, type WaitUntil } from "./wait-until.ts";
 import type { CapabilityEnvelope, CapabilityErrorPayload } from "../capability.ts";
 import type { CapabilityErrorCode, PrachtAgentIdentity } from "../protocol.ts";
 import type {
@@ -294,6 +295,8 @@ interface CapabilityPipelineOptions<TContext> {
   pathname?: string;
   /** Include internal error details (dev / direct server use). HTTP redacts in production. */
   exposeErrors: boolean;
+  /** Request-scoped `waitUntil` handed to middleware and `run()`. */
+  waitUntil: WaitUntil;
   /**
    * Runs inside the middleware chain — after every named middleware, just
    * before the capability body — so gating (e.g. the destructive prepare/commit
@@ -357,6 +360,7 @@ async function runCapabilityPipeline<TContext>(
         context: options.context,
         request: options.request,
         signal: options.signal,
+        waitUntil: options.waitUntil,
       });
     } catch (error: unknown) {
       holder.settled = {
@@ -404,6 +408,7 @@ async function runCapabilityPipeline<TContext>(
     route: syntheticRoute,
     signal: options.signal,
     url: options.url,
+    waitUntil: options.waitUntil,
     terminal,
   });
 
@@ -514,12 +519,17 @@ function deliverCapabilityAudit(
   label: string,
   hook: CapabilityAuditHook | null | undefined,
   snapshot: CapabilityAuditEvent,
+  waitUntil: WaitUntil,
   warningKey?: object,
 ): void {
   if (!hook) return;
   const sinkKey = warningKey ?? hook;
   try {
-    hook(snapshot);
+    const result: unknown = hook(snapshot);
+    // An asynchronous sink (a batching exporter, a network write) keeps
+    // running after the response; the request's `waitUntil` lets it finish on
+    // hosts that would otherwise freeze or cancel it.
+    if (isPromiseLike(result)) waitUntil(Promise.resolve(result));
   } catch (error: unknown) {
     if (warnedAuditSinks.has(sinkKey)) return;
     warnedAuditSinks.add(sinkKey);
@@ -544,8 +554,20 @@ function describeCapabilityAuditError(error: unknown): string {
   }
 }
 
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
 /** Audit hooks observe; they must never break a request. */
-function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAuditHook): void {
+function emitCapabilityAudit(
+  event: CapabilityAuditEvent,
+  extra: CapabilityAuditHook | undefined,
+  waitUntil: WaitUntil,
+): void {
   const snapshot = Object.freeze({
     ...event,
     agent: snapshotAgentIdentity(event.agent),
@@ -562,11 +584,11 @@ function emitCapabilityAudit(event: CapabilityAuditEvent, extra?: CapabilityAudi
   // additive sink itself.
   const singleSlotHook = auditHookState.hook;
   const listeners = Array.from(capabilityAuditListeners);
-  deliverCapabilityAudit("setCapabilityAuditHook", singleSlotHook, snapshot);
+  deliverCapabilityAudit("setCapabilityAuditHook", singleSlotHook, snapshot, waitUntil);
   for (const [name, registration] of listeners) {
-    deliverCapabilityAudit(name, registration.hook, snapshot, registration);
+    deliverCapabilityAudit(name, registration.hook, snapshot, waitUntil, registration);
   }
-  deliverCapabilityAudit("onCapabilityAudit", extra, snapshot);
+  deliverCapabilityAudit("onCapabilityAudit", extra, snapshot, waitUntil);
 }
 
 export interface HandleCapabilityRequestOptions<TContext> {
@@ -626,6 +648,7 @@ export async function handleCapabilityRequest<TContext>(
       tokenAuth: options.transport === "mcp" ? (options.tokenPrincipal ?? null) : null,
     },
     options.onAudit,
+    requestWaitUntil(options.request),
   );
   return responseWithEffect;
 }
@@ -721,6 +744,7 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
       route: capabilityMiddlewareRoute(options.match),
       signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
       url: options.url,
+      waitUntil: requestWaitUntil(options.request),
       terminal: async () => {
         holder.dispatched = await dispatchCapabilityHttp(options);
         return holder.dispatched.response;
@@ -870,6 +894,7 @@ async function dispatchCapabilityHttp<TContext>(
       url: options.url,
       pathname: options.pathname,
       exposeErrors: options.exposeErrors,
+      waitUntil: requestWaitUntil(options.request),
       beforeRun,
     });
 
@@ -1274,6 +1299,12 @@ export interface CapabilityHost {
    * it, from the server side.
    */
   destructiveConfirmed?: boolean;
+  /**
+   * The served request's `waitUntil`, handed to middleware and `run()` of
+   * every capability dispatched on it. Absent on synthetic hosts, which fall
+   * back to detached work.
+   */
+  waitUntil?: WaitUntil;
 }
 
 // Bind each host to the incoming Request rather than a process-global slot.
@@ -1296,6 +1327,11 @@ function markDestructiveConfirmed(request: Request): void {
   if (host) host.destructiveConfirmed = true;
 }
 
+/** The `waitUntil` of the request a dispatch is running on. */
+function requestWaitUntil(request: Request): WaitUntil {
+  return activeCapabilityHosts.get(request)?.waitUntil ?? detachedWaitUntil;
+}
+
 /** End the destructive-composition grant when the confirmed dispatch settles. */
 export function clearDestructiveConfirmed(request: Request): void {
   const host = activeCapabilityHosts.get(request);
@@ -1313,6 +1349,12 @@ export function setActiveCapabilityHost(
   tokenAuth?: McpTokenPrincipal,
   /** Another request identity that must share this request-scoped host. */
   sharedRequest?: Request,
+  /**
+   * The served request's `waitUntil`. Re-registering a request without one
+   * (the MCP transport refreshing its host after authentication) keeps the
+   * one already bound.
+   */
+  waitUntil?: WaitUntil,
 ): void {
   const sharedHost = sharedRequest ? activeCapabilityHosts.get(sharedRequest) : undefined;
   activeCapabilityHosts.set(
@@ -1324,6 +1366,7 @@ export function setActiveCapabilityHost(
       onAudit,
       agent: snapshotAgentIdentity(agent ?? null),
       tokenAuth,
+      waitUntil: waitUntil ?? activeCapabilityHosts.get(request)?.waitUntil,
     },
   );
 }
@@ -1441,6 +1484,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
         url: new URL(ctx.request.url),
         // Direct invocation stays server-side, so real error messages are safe.
         exposeErrors: true,
+        waitUntil: host.waitUntil ?? detachedWaitUntil,
       }));
   } catch (error: unknown) {
     // Middleware resolution/execution can throw (bad module, a middleware that
@@ -1464,6 +1508,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
         tokenAuth: host.via === "mcp" ? (host.tokenAuth ?? null) : null,
       },
       host.onAudit,
+      host.waitUntil ?? detachedWaitUntil,
     );
     return envelope as CapabilityEnvelope<T>;
   }
@@ -1489,6 +1534,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
       tokenAuth: host.via === "mcp" ? (host.tokenAuth ?? null) : null,
     },
     host.onAudit,
+    host.waitUntil ?? detachedWaitUntil,
   );
 
   if (outcome.kind === "envelope") {

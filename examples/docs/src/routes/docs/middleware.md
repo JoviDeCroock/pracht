@@ -95,6 +95,27 @@ Middleware from groups and routes is combined. A route inside a group with `["au
 2. `rateLimit` (from route)
 3. Loader / API route
 
+### Work after the response
+
+Middleware receives the same `waitUntil(promise)` as loaders. Use it for work
+that should not hold the response back — shipping a trace, flushing a log
+buffer:
+
+```ts [src/middleware/access-log.ts]
+import type { MiddlewareFn } from "@pracht/core";
+
+export const middleware: MiddlewareFn = async ({ request, waitUntil }, next) => {
+  const started = Date.now();
+  const response = await next();
+  waitUntil(shipAccessLog({ url: request.url, status: response.status, ms: Date.now() - started }));
+  return response;
+};
+```
+
+A rejection is reported, never thrown into the request. See
+[Data Loading → `waitUntil`](/docs/data-loading#waituntil) for how each adapter
+keeps the work alive.
+
 ---
 
 ## Middleware Results

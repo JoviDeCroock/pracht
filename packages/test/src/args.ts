@@ -52,6 +52,12 @@ export interface CreateArgsInput<TContext = RegisteredContext> extends TestReque
   context?: Partial<TContext>;
   /** Override the abort signal. When omitted, `controller.signal` is used. */
   signal?: AbortSignal;
+  /**
+   * Also forward every promise registered through `args.waitUntil()` here —
+   * for asserting on the platform side of a custom registration. The promise
+   * is still recorded on `args.waitUntilPromises` either way.
+   */
+  waitUntil?: (promise: Promise<unknown>) => void;
 }
 
 export interface CreateLoaderArgsInput<
@@ -81,18 +87,46 @@ export interface TestAbortControls {
   controller: AbortController;
 }
 
-export type TestLoaderArgs<TContext = RegisteredContext> = LoaderArgs<TContext> & TestAbortControls;
+/**
+ * The work registered through `args.waitUntil()`, so a test can inspect it or
+ * wait for it the way a host would after sending the response:
+ *
+ * ```ts
+ * const args = createApiArgs({ url: "/api/signup", body: { email } });
+ * const response = await POST(args);
+ * expect(args.waitUntilPromises).toHaveLength(1);
+ * await args.flushWaitUntil();
+ * expect(sentEmails).toContain(email);
+ * ```
+ */
+export interface TestWaitUntilControls {
+  /** Every promise registered through `args.waitUntil()`, in registration order. */
+  waitUntilPromises: Promise<unknown>[];
+  /**
+   * Wait for every registered promise, including any registered while
+   * waiting. Rejects with the first rejection once all of them have settled.
+   */
+  flushWaitUntil(): Promise<void>;
+}
+
+export type TestLoaderArgs<TContext = RegisteredContext> = LoaderArgs<TContext> &
+  TestAbortControls &
+  TestWaitUntilControls;
 export type TestMiddlewareArgs<TContext = RegisteredContext> = Omit<
   MiddlewareArgs<TContext>,
   "route"
 > &
-  TestAbortControls & { route: ResolvedRoute };
+  TestAbortControls &
+  TestWaitUntilControls & { route: ResolvedRoute };
 export type TestApiMiddlewareArgs<TContext = RegisteredContext> = Omit<
   MiddlewareArgs<TContext>,
   "route"
 > &
-  TestAbortControls & { route: ResolvedApiRoute };
-export type TestApiArgs<TContext = RegisteredContext> = ApiRouteArgs<TContext> & TestAbortControls;
+  TestAbortControls &
+  TestWaitUntilControls & { route: ResolvedApiRoute };
+export type TestApiArgs<TContext = RegisteredContext> = ApiRouteArgs<TContext> &
+  TestAbortControls &
+  TestWaitUntilControls;
 
 function hasBodyBrand(body: unknown, brand: string): body is object {
   return (
@@ -195,7 +229,7 @@ export function createTestRequest(input: TestRequestInput = {}): Request {
   return new Request(url, init);
 }
 
-interface BuiltBaseArgs<TContext> {
+interface BuiltBaseArgs<TContext> extends TestWaitUntilControls {
   request: Request;
   params: RouteParams;
   context: TContext;
@@ -203,6 +237,37 @@ interface BuiltBaseArgs<TContext> {
   url: URL;
   pathname: string;
   controller: AbortController;
+  waitUntil: (promise: Promise<unknown>) => void;
+}
+
+/** A recording `waitUntil` plus the controls that inspect and drain it. */
+function createTestWaitUntil(
+  forward: ((promise: Promise<unknown>) => void) | undefined,
+): TestWaitUntilControls & { waitUntil: (promise: Promise<unknown>) => void } {
+  const waitUntilPromises: Promise<unknown>[] = [];
+  return {
+    waitUntilPromises,
+    waitUntil(promise) {
+      const task = Promise.resolve(promise);
+      // The runtime never lets a registered rejection go unhandled; neither
+      // does this stand-in. `flushWaitUntil()` still reports it.
+      task.catch(() => {});
+      waitUntilPromises.push(task);
+      forward?.(task);
+    },
+    async flushWaitUntil() {
+      let settled = 0;
+      let failure: { error: unknown } | undefined;
+      while (settled < waitUntilPromises.length) {
+        const batch = waitUntilPromises.slice(settled);
+        settled = waitUntilPromises.length;
+        for (const result of await Promise.allSettled(batch)) {
+          if (result.status === "rejected" && !failure) failure = { error: result.reason };
+        }
+      }
+      if (failure) throw failure.error;
+    },
+  };
 }
 
 function buildBaseArgs<TContext>(input: CreateArgsInput<TContext>): BuiltBaseArgs<TContext> {
@@ -217,6 +282,7 @@ function buildBaseArgs<TContext>(input: CreateArgsInput<TContext>): BuiltBaseArg
     url,
     pathname: input.pathname ?? url.pathname,
     controller,
+    ...createTestWaitUntil(input.waitUntil),
   };
 }
 
@@ -253,7 +319,8 @@ function buildResolvedApiRoute(
  *
  * Every field has a sensible default; override only what the loader reads.
  * The returned object also carries `controller` — the `AbortController`
- * behind `args.signal` — for cancellation tests.
+ * behind `args.signal` — for cancellation tests, and `waitUntilPromises` /
+ * `flushWaitUntil()` for work the loader registered with `args.waitUntil()`.
  */
 export function createLoaderArgs<TContext = RegisteredContext>(
   input: CreateLoaderArgsInput<TContext> = {},

@@ -144,6 +144,7 @@ export {
 
 // Shared infrastructure
 export { runMiddlewareChain } from "./middleware.ts";
+export { createWaitUntil, detachedWaitUntil, type WaitUntil } from "./wait-until.ts";
 export { getSuffixIndex, normalizeModulePath, resolveRegistryModule } from "./registry.ts";
 export { closestName, formatUnknownNameError, levenshteinDistance } from "./names.ts";
 export type { UnknownNameErrorOptions } from "./names.ts";
