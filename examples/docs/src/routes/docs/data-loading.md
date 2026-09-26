@@ -40,6 +40,49 @@ The route component can be a function default export or a named `Component`
 export. Named route exports such as `loader`, `head`, `headers`, `markdown`,
 `ErrorBoundary`, and `getStaticPaths` remain separate special exports.
 
+### What a loader can return
+
+Loader data is not limited to JSON. These values reach the component as the
+same types the loader returned — on the first server-rendered load, after
+client navigation, from a static export, and from a streamed `defer()` value:
+
+- Plain objects, arrays, strings, numbers, booleans, and `null`
+- `undefined`, `NaN`, `Infinity`, `-Infinity`, `-0`, and `BigInt`
+- `Date`, `Map`, `Set`, `RegExp`, and `URL`
+- The same object referenced twice, or a cycle — identity is preserved
+
+```ts [src/routes/post.tsx]
+export async function loader({ params }: LoaderArgs) {
+  const post = await db.posts.find(params.slug);
+  return {
+    title: post.title,
+    publishedAt: post.publishedAt, // a Date in the component, not a string
+    reactions: new Map([["like", 12n]]),
+  };
+}
+
+export default function Post({ data }: RouteComponentProps<typeof loader>) {
+  return <time>{data.publishedAt.toLocaleDateString()}</time>;
+}
+```
+
+Data that is plain JSON is sent exactly as `JSON.stringify` would write it, so
+it costs nothing extra over the wire.
+
+An object with a `toJSON()` method (a decimal type, say) is sent as whatever
+`toJSON()` returns, the way `JSON.stringify` treats it — convert it yourself if
+the component should receive a different shape. Anything else is rejected:
+functions, symbols, class instances, and DOM nodes fail the request with an
+error naming the route and the path, for example
+`data.user.save is a function`. This happens in production too — the request
+takes the normal error path (a 500 with a sanitized message, reported to
+`onRouteError`) instead of shipping data that no longer matches its type.
+
+Only data that reaches the browser is checked. Routes with
+`hydration: "islands"` or `hydration: "none"` send no loader data to the
+client, so their loaders can return anything the server render can use.
+[Island props](/docs/islands) are separate and stay JSON-only.
+
 A `markdown` string export lets the runtime return the raw source when a
 request prefers `Accept: text/markdown`; middleware, loaders, and document
 headers still run first. If middleware owns that negotiation instead, declare

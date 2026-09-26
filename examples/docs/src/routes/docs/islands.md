@@ -116,7 +116,10 @@ and plain objects.
 
 Do not pass functions, class instances like `Date`, JSX elements, symbols,
 bigints, or circular objects as island props. Pracht throws an error that names
-the invalid prop path.
+the invalid prop path. (Route loader data is richer — Dates, Maps, and Sets
+arrive intact; see [what a loader can return](/docs/data-loading#what-a-loader-can-return).
+Island props stay JSON-only to keep the islands runtime small, so pass a date
+as an ISO string and parse it inside the island.)
 
 Children passed from server components into islands are not supported in v1.
 Move the content inside the island or pass serializable data instead.

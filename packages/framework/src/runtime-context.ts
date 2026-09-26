@@ -4,6 +4,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 
 import { EMPTY_ROUTE_PARAMS, HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
+import { decodeRouteData, mayContainEncodedRouteData } from "./route-data-codec.ts";
 import type { HrefRouteDefinition, RouteParams } from "./types.ts";
 
 export interface PrachtHydrationState<TData = unknown> {
@@ -202,8 +203,10 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
   }
 
   const state = JSON.parse(raw) as PrachtHydrationState<TData>;
-  // Streamed documents carry unresolved defer() locations out of band; restore
-  // them here, the one place the client reads initial loader data.
+  // This is the one place the client reads initial loader data: revive rich
+  // values, then restore the defer() locations streamed documents carry out
+  // of band.
+  if (mayContainEncodedRouteData(raw)) state.data = decodeRouteData(state.data);
   state.data = rehydrateDeferredData(state.data, state.deferred);
   window.__PRACHT_STATE__ = state as PrachtHydrationState;
   return state;

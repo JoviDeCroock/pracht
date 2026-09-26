@@ -144,6 +144,11 @@ arrays, and plain objects. Functions, symbols, bigints, class instances
 (`Date`, `Map`, ...), JSX elements, and circular structures throw a descriptive
 error during rendering that names the offending prop path.
 
+Island props deliberately do not use the richer route-data encoding that loader
+data uses (see [DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return)).
+Props already fail loudly instead of changing type silently, and the islands
+bootstrap would pay for the decoder on every islands page.
+
 ### Children / slots
 
 Passing children into an island from a server component is **not supported in

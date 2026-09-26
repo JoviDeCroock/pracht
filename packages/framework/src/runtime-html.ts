@@ -2,6 +2,7 @@ import { collectFontHeadFragments } from "./font.ts";
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
+import { encodeRouteData } from "./route-data-codec.ts";
 import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
 import { escapeScriptChildren } from "./script-escape.ts";
 import type { HeadMetadata } from "./types.ts";
@@ -254,7 +255,13 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     : "";
 
   const stateScript = hydrationState
-    ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`
+    ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml({
+        ...hydrationState,
+        data: encodeRouteData(
+          hydrationState.data,
+          `route "${hydrationState.routeId || hydrationState.url}"`,
+        ),
+      })}</script>`
     : "";
   const bootstrapScript = inlineBootstrapScript
     ? `<script${inlineBootstrapScript.nonce ? ` nonce="${escapeHtml(inlineBootstrapScript.nonce)}"` : ""}>${escapeScriptChildren(inlineBootstrapScript.source)}</script>`

@@ -218,10 +218,14 @@ describe("published package tree shaking", () => {
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,250 gzip bytes", async () => {
+    //
+    // Raised from 10,250 for the route-data decoder (Date, Map, Set, BigInt,
+    // shared references, …). It has to be synchronous — hydration reads the
+    // state script before the first render — so it cannot move to a lazy chunk.
+    it("keeps the router runtime below 10,530 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_250);
+      expect(gzipBytes).toBeLessThanOrEqual(10_530);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -371,9 +375,10 @@ describe("published package tree shaking", () => {
     it("lands below the pre-guard ceiling when disabled", async () => {
       // The point of the switch: an app that guards no navigation pays nothing
       // for the feature, including the index stamped on every history entry.
+      // (The ceiling moved with the route-data decoder, like the one above.)
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_960);
+      expect(gzipBytes).toBeLessThanOrEqual(10_235);
     });
 
     it("keeps guards when the feature is enabled", async () => {
