@@ -39,6 +39,8 @@ export interface PrachtRuntimeValue {
   params: RouteParams;
   routeId: string;
   routes?: readonly HrefRouteDefinition[];
+  /** Parsed search params of the active route (see `useSearch()`). */
+  search?: unknown;
   url: string;
   /** True while this provider still owns the router's active route state. */
   isCurrent?: () => boolean;
@@ -71,6 +73,7 @@ export function PrachtRuntimeProvider<TData>({
   params = EMPTY_ROUTE_PARAMS,
   routeId,
   routes,
+  search,
   stateVersion = 0,
   url,
   isCurrent,
@@ -80,6 +83,7 @@ export function PrachtRuntimeProvider<TData>({
   params?: RouteParams;
   routeId: string;
   routes?: readonly HrefRouteDefinition[];
+  search?: unknown;
   stateVersion?: number;
   url: string;
   isCurrent?: () => boolean;
@@ -111,6 +115,7 @@ export function PrachtRuntimeProvider<TData>({
       params,
       routeId,
       routes,
+      search,
       isCurrent,
       // Stamped with the route state this context belongs to, never with
       // whatever the provider rendered last: a revalidation started on one
@@ -129,7 +134,7 @@ export function PrachtRuntimeProvider<TData>({
     // `data` is deliberately not a dependency: it is read only as the `source`
     // stamp, and adding it would fan out a new context value on every
     // re-render above the provider (see runtime-context.test.ts).
-    [routeData, params, routeId, routes, stateVersion, url, isCurrent],
+    [routeData, params, routeId, routes, search, stateVersion, url, isCurrent],
   );
 
   // A fresh `data` prop for the same route state (a re-render above the

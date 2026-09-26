@@ -34,6 +34,14 @@ describe("createLoaderArgs", () => {
     expect(args.pathname).toBe("/blog/hello");
     expect(args.url.searchParams.get("draft")).toBe("1");
     expect(args.route.path).toBe("/blog/hello");
+    // Without an explicit value, `search` is the raw query record.
+    expect(args.search).toEqual({ draft: "1" });
+  });
+
+  it("passes parsed search params through for loaders typed with SearchArgs", () => {
+    const args = createLoaderArgs({ url: "/products?page=2", search: { page: 2 } });
+
+    expect(args.search).toEqual({ page: 2 });
   });
 
   it("accepts a matched base-free pathname independent of the request URL", () => {

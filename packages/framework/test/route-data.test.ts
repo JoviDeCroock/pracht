@@ -3,7 +3,7 @@ import { Component, h, render } from "preact";
 import type { ComponentChildren } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PrachtRuntimeProvider, useRouteData } from "../src/index.ts";
+import { PrachtRuntimeProvider, useRouteData, useSearch } from "../src/index.ts";
 import type { LoaderArgs, RouteLoaderData } from "../src/index.ts";
 
 let scratch: HTMLDivElement;
@@ -110,6 +110,62 @@ describe("useRouteData", () => {
     );
 
     expect(captured).toEqual({ user: { name: "Ada" } });
+  });
+});
+
+describe("useSearch", () => {
+  beforeEach(() => {
+    scratch = document.createElement("div");
+    document.body.appendChild(scratch);
+  });
+
+  afterEach(() => {
+    render(null, scratch);
+    scratch.remove();
+  });
+
+  it("returns the parsed value, or the raw query record without one", () => {
+    const captured: unknown[] = [];
+
+    function Consumer() {
+      captured.push(useSearch("catalog"));
+      return null;
+    }
+
+    for (const search of [{ page: 2 }, undefined]) {
+      render(
+        h(PrachtRuntimeProvider, {
+          children: h(Consumer, null),
+          data: null,
+          routeId: "catalog",
+          search,
+          url: "/catalog?page=2&tag=a&tag=b",
+        }),
+        scratch,
+      );
+      render(null, scratch);
+    }
+
+    expect(captured).toEqual([{ page: 2 }, { page: "2", tag: ["a", "b"] }]);
+  });
+
+  it("throws when the route id is not the active route", () => {
+    function Consumer() {
+      useSearch("settings");
+      return null;
+    }
+
+    expect(() =>
+      render(
+        h(PrachtRuntimeProvider, {
+          children: h(Consumer, null),
+          data: null,
+          routeId: "dashboard",
+          url: "/dashboard",
+        }),
+        scratch,
+      ),
+    ).toThrow(/useSearch.*settings.*dashboard/);
   });
 });
 

@@ -218,10 +218,16 @@ describe("published package tree shaking", () => {
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,250 gzip bytes", async () => {
+    //
+    // Raised from 10,250 for typed search params: the parsed value has to
+    // travel with each route state into `useSearch()`, and the query of a
+    // prerendered document is re-parsed after hydration. The validation code
+    // itself is not counted here — the generated client entry passes it in
+    // only when a route module exports a `search` schema.
+    it("keeps the router runtime below 10,340 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_250);
+      expect(gzipBytes).toBeLessThanOrEqual(10_340);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -373,7 +379,8 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(9_960);
+      // Was 9,960 before typed search params (see the router ceiling above).
+      expect(gzipBytes).toBeLessThanOrEqual(10_040);
     });
 
     it("keeps guards when the feature is enabled", async () => {

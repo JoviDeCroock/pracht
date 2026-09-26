@@ -24,6 +24,7 @@ function namedDeclarationRe(exportName: string): RegExp {
 const HEAD_DECLARATION_RE = namedDeclarationRe("head");
 const HEADERS_DECLARATION_RE = namedDeclarationRe("headers");
 const STATIC_PATHS_DECLARATION_RE = namedDeclarationRe("getStaticPaths");
+const SEARCH_DECLARATION_RE = namedDeclarationRe("search");
 const EXPORT_BLOCK_RE = /export\s*\{([^}]*)\}\s*(?:from\s*["'][^"']+["'])?/g;
 const EXPORT_ALL_RE = /export\s+\*\s+from\b/;
 const EXPORT_VARIABLE_DECLARATION_RE = /export\s+(?:const|let|var)\b/g;
@@ -474,10 +475,12 @@ export interface RouteHints {
   /** True when the walk skipped an entry, so these tables are partial. */
   incomplete: boolean;
   loader: Record<string, boolean>;
+  /** Whether the route module exports a `search` schema. */
+  search: Record<string, boolean>;
   staticPaths: Record<string, boolean>;
 }
 
-const ROUTE_HINT_EXPORTS = ["loader", "head", "headers", "getStaticPaths"] as const;
+const ROUTE_HINT_EXPORTS = ["loader", "head", "headers", "getStaticPaths", "search"] as const;
 
 function analyzeRouteExports(source: string): Record<string, boolean> {
   const parsed = inspectParsedModuleExports(source, ROUTE_HINT_EXPORTS);
@@ -496,6 +499,7 @@ function analyzeRouteExports(source: string): Record<string, boolean> {
     head: detectNamedExportInMasked(analysisSource, "head", HEAD_DECLARATION_RE),
     headers: detectNamedExportInMasked(analysisSource, "headers", HEADERS_DECLARATION_RE),
     loader: detectLoaderExportWithoutParser(source),
+    search: detectNamedExportInMasked(analysisSource, "search", SEARCH_DECLARATION_RE),
   };
 }
 
@@ -524,6 +528,7 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
     headers: {},
     incomplete: scan.incomplete,
     loader: {},
+    search: {},
     staticPaths: {},
   };
 
@@ -559,6 +564,7 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
       head: compiledFormat || synthesizable || exports.head,
       headers: compiledFormat || synthesizable || exports.headers,
       loader: exports.loader,
+      search: exports.search,
       staticPaths: synthesizable || exports.getStaticPaths,
     };
 
@@ -567,6 +573,7 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
       hints.head[key] = values.head;
       hints.headers[key] = values.headers;
       hints.loader[key] = values.loader;
+      hints.search[key] = values.search;
       hints.staticPaths[key] = values.staticPaths;
     }
   }

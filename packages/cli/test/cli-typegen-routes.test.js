@@ -33,7 +33,7 @@ describe("@pracht/cli typegen routes", () => {
       routes: 3,
     });
     expect(declaration).toContain(
-      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, SearchParamsInput } from "@pracht/core";',
+      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, RouteSearchInput, RouteSearchOutput } from "@pracht/core";',
     );
     expect(declaration).toContain('"home": {');
     expect(declaration).toContain("params: Record<never, never>;");
@@ -44,6 +44,12 @@ describe("@pracht/cli typegen routes", () => {
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./routes/home")>;');
     // Inline loader.
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./routes/product")>;');
+    // Search types always come from the route module, which owns the
+    // `search` schema even when the loader lives in a separate file.
+    expect(declaration).toContain('search: RouteSearchInput<typeof import("./routes/product")>;');
+    expect(declaration).toContain(
+      'searchOutput: RouteSearchOutput<typeof import("./routes/dashboard")>;',
+    );
     // Manifest-wired separate loader file wins over the route module.
     expect(declaration).toContain(
       'data: RouteLoaderData<typeof import("./server/dashboard-loader"), typeof import("./routes/dashboard")>;',
@@ -118,5 +124,8 @@ describe("@pracht/cli typegen routes", () => {
     expect(declaration).toContain('params: { "slug": RouteParamInput; };');
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/index")>;');
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/blog/[slug]")>;');
+    expect(declaration).toContain(
+      'searchOutput: RouteSearchOutput<typeof import("./pages/blog/[slug]")>;',
+    );
   }, 30_000);
 });

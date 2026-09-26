@@ -322,9 +322,17 @@ export function ProductActions({ id }: { id: string }) {
 
 Generated types infer required params from `:param`, `*`, and `:name*`
 segments, so missing or extra params fail at compile time. Search params are
-currently typed as `SearchParamsInput` (`string`, `URLSearchParams`, or an
-object of primitive values/arrays); route-specific search schemas can be added
-later through route metadata without changing the runtime helper shape.
+typed per route: each registration carries
+`search: RouteSearchInput<typeof import("./routes/…")>` and
+`searchOutput: RouteSearchOutput<typeof import("./routes/…")>`. For a module
+that exports a [`search` schema](#search-params) the input side is the
+schema's input narrowed to values `href()` can serialize (keys with no string
+representation, such as a `z.number()` input, become a compile error), and
+`search` turns required when the input has a required key. Modules without a
+schema keep `SearchParamsInput` (`string`, `URLSearchParams`, or an object of
+primitive values/arrays) and a `SearchParamsRecord` output. Both halves come
+from the route module, never a separate loader file, because the schema is a
+route-module export. The runtime helper shape is unchanged.
 
 The declaration also registers each route's loader data type, so
 `useRouteData("product")` returns the awaited return type of that route's
@@ -343,6 +351,61 @@ stale. While `pracht dev` runs, the generated files refresh automatically when
 route files are added, removed, or renamed, and when the route manifest or one
 of its imported definition modules changes. The dev banner prompts for the
 first `pracht typegen` run when `src/pracht.d.ts` does not exist yet.
+
+### Search params
+
+A route module may export `search`, a Standard Schema for its query string
+(the same validator contract as `defineApi()`; see
+[API_VALIDATION.md](API_VALIDATION.md)).
+
+**Why a module export, not manifest metadata.** The manifest is bundled into
+the client and holds serializable data only, and the pages router has no
+manifest entry to put it in. A module export works identically in both
+routers, sits next to the loader that consumes it, is typed by
+`typeof import(...)` the same way loader data is, and — because the vite
+plugin's client transform strips only `loader`/`head`/`headers`/
+`getStaticPaths`/`markdown` — is already in the browser copy of every
+full-hydration route, so the client router can run it without extra
+machinery.
+
+**Input.** `parseRouteSearch()` (`api-validation.ts`) turns the URL's query
+into `searchParamsToRecord()`'s shape — one string per key, a string array for
+repeated keys — and validates it. An export that is not a Standard Schema is
+ignored, and a route without one gets the raw record.
+
+**Server.** `runPageLoader()` (`runtime-page.ts`) parses after middleware
+(which never sees `search`) and before the loader, then stores the output on
+the shared route args. The loader, `head()`, `headers()`, and the
+`PrachtRuntimeProvider` behind `useSearch()` all read that one value. A
+rejection throws `PrachtHttpError(400, "Invalid search params")` carrying the
+normalized issues (`in: "query"`); `normalizeRouteError()` keeps `issues` for
+4xx errors, so the error boundary document, the hydration state, and the
+route-state JSON all carry them. The default request-error logger stays quiet
+for it like any other 4xx.
+
+**Client.** `resolveRouteState()` (`router.ts`) parses the target URL with the
+route module's schema on every navigation and on hydration; a rejection
+becomes the same serialized 400 error and renders the error boundary. That
+covers SPA routes and routes that skip the route-state fetch. The parser is an
+`initClientRouter()` option: the generated client entry passes
+`parseRouteSearch` only when the route hint scan (`route-loader-hints.ts`)
+finds a `search` export (or cannot finish the scan), and always in dev. An app
+without a schema compiles the validation code out. `useSearch()` returns the
+parsed value, or derives the raw record from the current URL when there is
+none.
+
+**Prerendering.** SSG/ISG documents are rendered from the bare path, so the
+build sees the schema's output for an empty query. A schema that rejects an
+empty query fails that route's prerender (a 400 is a skip with a warning, and
+a static export fails). Hydration renders against the serialized URL, then the
+post-hydration URL adoption re-parses the visitor's query through
+`resolveRouteState()` — keeping the route-state version so revalidated data
+survives — and swaps in the error boundary if it is rejected.
+
+**Caching.** Route-state fetches, the prefetch cache, and `loaderCache`
+responses are all keyed by the full request URL, query included, so each query
+variant is fetched and cached separately. Static route-state files drop the
+query by design (they hold build-time data).
 
 ---
 

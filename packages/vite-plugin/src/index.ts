@@ -87,6 +87,7 @@ function emptyRouteHints(): RouteHints {
     headers: {},
     incomplete: false,
     loader: {},
+    search: {},
     staticPaths: {},
   };
 }

@@ -94,6 +94,10 @@ export const app = defineApp({
         revalidate: [timeRevalidate(3600), webhookRevalidate()],
         speculation: "prefetch",
       }),
+      route("/catalog", () => import("./routes/catalog.tsx"), {
+        id: "catalog",
+        render: "ssr",
+      }),
       route("/gallery", () => import("./routes/gallery.tsx"), {
         id: "gallery",
         render: "ssr",

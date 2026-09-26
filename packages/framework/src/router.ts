@@ -6,6 +6,7 @@ import type { ComponentChildren, FunctionComponent } from "preact";
 import type { FontHeadFragments } from "./font.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
+import type { parseRouteSearch } from "./api-validation.ts";
 import { stripBase } from "./base.ts";
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
@@ -128,6 +129,7 @@ interface RouteRenderState {
   data: unknown;
   params: RouteParams;
   routeId: string;
+  search: unknown;
   url: string;
   version: number;
 }
@@ -236,10 +238,17 @@ export interface InitClientRouterOptions {
   findModuleKey: (modules: ModuleMap, file: string) => string | null;
   /** @internal Synchronize page-scoped projections after a route commits. */
   onRouteChange?: (capabilities: readonly string[]) => void;
+  /**
+   * @internal Validates a route module's `search` schema. The generated client
+   * entry passes it only when some route module exports one, so an app that
+   * never declares a schema ships none of the validation code.
+   */
+  parseSearch?: typeof parseRouteSearch;
 }
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
-  const { app, routeModules, shellModules, root, findModuleKey, onRouteChange } = options;
+  const { app, routeModules, shellModules, root, findModuleKey, onRouteChange, parseSearch } =
+    options;
 
   const moduleCache = new Map<string, Promise<unknown>>();
 
@@ -502,6 +511,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data,
       params,
       routeId,
+      search,
       url,
       version,
     } = routeState;
@@ -544,6 +554,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           params,
           routeId,
           routes: app.routes,
+          search,
           stateVersion: version,
           url,
           isCurrent: () => activeRouteStateVersion === version,
@@ -579,6 +590,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       Shell = resolvedShell.Shell;
     }
 
+    // Parse the query with the same schema the server ran. A rejection takes
+    // the route's error boundary, exactly like a 400 from the server would.
+    // Routes without a schema leave `search` unset and `useSearch()` reads
+    // the raw query itself.
+    let search: unknown;
+    if (parseSearch && routeMod.search && !state.error) {
+      const parsed = await parseSearch(routeMod.search, currentUrl);
+      if (parsed.error) state = { data: undefined, error: parsed.error };
+      search = parsed.value;
+    }
+
     const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
     const RouteBoundary = routeMod.ErrorBoundary as FunctionComponent | undefined;
     const ShellBoundary = resolvedShell?.ErrorBoundary as FunctionComponent | undefined;
@@ -601,6 +623,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: state.data,
       params: match.params,
       routeId: match.route.id ?? "",
+      search,
       url: currentUrl,
       version: ++routeStateVersion,
     };
@@ -628,6 +651,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: undefined,
       params: match.params,
       routeId: match.route.id ?? "",
+      search: undefined,
       url: currentUrl,
       version: ++routeStateVersion,
     };
@@ -1167,33 +1191,29 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (import.meta.env?.DEV || HYDRATION_WARNINGS_FORCED) installHydrationMismatchWarning();
           markHydrating();
           hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
-          onHydrationComplete(() => {
-            if (!hydrationBrowserTarget || !updateRouteState) return;
+          onHydrationComplete(async () => {
+            // Serialized route-state URLs are browser URLs (base included),
+            // matching what a client-side navigation commits. `404.html`
+            // renders at a synthetic path, so it adopts the visitor's URL
+            // wholesale rather than keeping its own path.
+            const hydratedTarget = isStaticNotFoundDocument
+              ? hydrationBrowserTarget
+              : resolveBrowserRouteTarget(initialRouteState.url);
+            if (!hydrationBrowserTarget || !hydratedTarget) return;
+            const nextRequestUrl = hydratedTarget.urlPathname + hydrationBrowserTarget.search;
+            if (initialRouteState.url === nextRequestUrl) return;
+            // The visitor's query — absent from a prerendered document — is
+            // parsed again; a rejected one swaps in the error boundary.
+            const nextState = await resolveRouteState(initialMatch, state, nextRequestUrl);
 
-            updateRouteState((currentState) => {
-              // Serialized route-state URLs are browser URLs (base included),
-              // matching what a client-side navigation commits. `404.html`
-              // renders at a synthetic path, so it adopts the visitor's URL
-              // wholesale rather than keeping its own path.
-              const hydratedTarget = isStaticNotFoundDocument
-                ? hydrationBrowserTarget
-                : resolveBrowserRouteTarget(currentState.url);
-              if (!hydratedTarget) return currentState;
-              const nextRequestUrl = hydratedTarget.urlPathname + hydrationBrowserTarget.search;
-              // A navigation that committed while a Suspense boundary was
-              // hydrating owns the newer state. Revalidated data lives in the
-              // runtime provider and survives this URL-only update.
-              if (
-                currentState.version !== initialRouteState.version ||
-                currentState.url === nextRequestUrl
-              ) {
-                return currentState;
-              }
-              return {
-                ...currentState,
-                url: nextRequestUrl,
-              };
-            });
+            // A navigation that committed while a Suspense boundary was
+            // hydrating owns the newer state. Keeping the version makes this a
+            // URL-only update, so data revalidated meanwhile survives it.
+            updateRouteState?.((currentState) =>
+              nextState && currentState.version === initialRouteState.version
+                ? { ...nextState, version: currentState.version }
+                : currentState,
+            );
           });
         }
       }

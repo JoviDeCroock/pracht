@@ -1,3 +1,4 @@
+export { parseRouteSearch } from "./api-validation.ts";
 export { resolveApp } from "./app.ts";
 export { initClientRouter } from "./router.ts";
 export { readHydrationState } from "./runtime-context.ts";
