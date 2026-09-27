@@ -94,7 +94,7 @@ app.use("*", async (context, next) => {
 });
 ```
 
-The host owns unknown URLs below `/api/capabilities/` and answers them with a typed 404 envelope. URLs outside its generated and custom capability paths fall through. An explicit application route therefore cannot accidentally trigger context creation, authentication, or capability middleware.
+The host owns unknown URLs below `/api/capabilities/` and answers them with a typed 404 envelope. URLs outside its generated and custom capability paths fall through to your router.
 
 The default protections match the framework host: non-GET browser calls require same-origin provenance, errors are redacted, and default security headers are applied. Set `requireSameOrigin`, `exposeErrors`, or `securityHeaders` only when the embedding server deliberately owns that policy.
 
@@ -179,9 +179,9 @@ registerWebmcpTools(
 registrations.abort();
 ```
 
-Registration is a no-op when `document.modelContext` is absent. Each descriptor derives WebMCP's `readOnlyHint` and can carry `untrustedContentHint` or an explicit `consequentialHint`; remote MCP derives its additional MCP annotations separately. Destructive page tools are refused because browser registration is not a server-verified confirmation boundary.
+Registration is a no-op when `document.modelContext` is absent. Each descriptor derives WebMCP's `readOnlyHint` and can carry `untrustedContentHint` or an explicit `consequentialHint`. Destructive page tools are refused.
 
-The optional registration object also accepts `exposedTo`, but omit it unless a secure cross-origin document genuinely needs access. The default keeps tools restricted to their origin and browser-provided agents. Chrome recommends compact metadata and results: 30 characters per tool or parameter name, 500 per tool description, 150 per parameter description, and 1.5K per result.
+The optional registration object also accepts `exposedTo`; omit it unless a secure cross-origin document needs access, and tools stay restricted to their origin. Chrome recommends compact metadata and results: 30 characters per tool or parameter name, 500 per tool description, 150 per parameter description, and 1.5K per result.
 
 ## Moving to Pracht Later
 

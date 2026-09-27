@@ -1,6 +1,6 @@
 ---
 title: Migrating from Next.js
-lead: A practical guide to moving your Next.js App Router project to pracht. Covers routing, data loading, rendering modes, middleware, layouts, and API routes — with side-by-side code examples.
+lead: Move a Next.js App Router project to pracht, with side-by-side examples for routing, layouts, data loading, rendering modes, middleware, and API routes.
 breadcrumb: Migrate from Next.js
 prev:
   href: /docs/recipes/fullstack-vercel
@@ -12,7 +12,7 @@ next:
 
 ## Overview
 
-Next.js and pracht share many of the same concepts — server rendering, file-based conventions, loaders, middleware — but pracht takes a more explicit approach. This guide walks through the key differences so you can migrate incrementally.
+Next.js and pracht share most concepts, but pracht wires them explicitly. The key differences:
 
 | Concept         | Next.js (App Router)                  | pracht                                   |
 | --------------- | ------------------------------------- | ---------------------------------------- |
@@ -30,7 +30,7 @@ Next.js and pracht share many of the same concepts — server rendering, file-ba
 
 ## React → Preact
 
-Preact is API-compatible with React for the vast majority of components. The main changes:
+Most React components work in Preact unchanged. The main changes:
 
 1. **Replace imports** — `react` → `preact` and `react-dom` → `preact/compat`
 2. **`className` → `class`** — Preact supports both, but `class` is idiomatic
@@ -85,7 +85,7 @@ export const app = defineApp({
 });
 ```
 
-**Why?** The manifest gives you full control: URL structure is independent of file layout, shell and middleware assignment is explicit, and render modes are visible at a glance.
+URLs are independent of file layout, and shells, middleware, and render modes are visible in one file. If you prefer file-based routing, the [pages router](/docs/routing#pages-router-auto-discovery) derives routes from `src/pages/`.
 
 ### Dynamic Routes
 
@@ -130,7 +130,7 @@ export function head() {
 }
 ```
 
-**Key difference:** Shells are decoupled from URL structure. A flat route like `/settings` can use the `app` shell without being nested under `/app/settings` in the file system.
+Shells are decoupled from URLs: a flat route like `/settings` can use the `app` shell without living under `/app/settings`.
 
 ---
 
@@ -300,7 +300,7 @@ group({ middleware: ["auth"], shell: "app" }, [
 ]);
 ```
 
-**Advantage:** Multiple named middleware can be composed per-group. No regex matchers — assignment is explicit.
+Groups can compose several named middleware, with no path matchers.
 
 ---
 
@@ -352,7 +352,7 @@ export default {
 
 | Target             | Adapter                      | Notes                                |
 | ------------------ | ---------------------------- | ------------------------------------ |
-| Node.js            | `@pracht/adapter-node`       | Express-compatible, ISG revalidation |
+| Node.js            | `@pracht/adapter-node`       | Node `http` server, ISG revalidation |
 | Cloudflare Workers | `@pracht/adapter-cloudflare` | KV, D1, R2 bindings via context      |
 | Netlify            | `@pracht/adapter-netlify`    | Functions v2, durable CDN caching    |
 | Vercel             | `@pracht/adapter-vercel`     | Edge Functions, Build Output API v3  |

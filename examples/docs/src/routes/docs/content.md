@@ -1,6 +1,6 @@
 ---
 title: Content Collections
-lead: Use one server-only registry for route/source mapping, locales, source and compiled representations, build iteration, and generated static assets.
+lead: One server-only registry for content routes, locales, source and compiled documents, and generated static files.
 breadcrumb: Content
 prev:
   href: /docs/data-loading
@@ -12,9 +12,9 @@ next:
 
 ## Install
 
-`@pracht/content` is an opt-in companion package. It owns content data; it does
-not choose your route structure or public agent surface. Add
-`@pracht/markdown` when you want Pracht's official Markdown route compiler.
+`@pracht/content` is an opt-in companion package that owns content data. Add
+`@pracht/markdown` for Pracht's official Markdown route compiler, and
+`@pracht/image` with `sharp` to optimize Markdown images.
 
 ```sh
 pnpm add @pracht/content @pracht/markdown @pracht/image
@@ -23,10 +23,12 @@ pnpm add -D sharp
 
 ## Define one collection
 
-For Markdown documentation, start with `defineMarkdownCollection()`. It wraps
-the lower-level collection primitive, preserves raw Markdown for content
-negotiation, and compiles normal relative Markdown images into intrinsic,
-responsive markup through `prachtImage()`.
+Define the collection next to the Vite config so every server and build
+consumer imports the same registry.
+
+For Markdown, start with `defineMarkdownCollection()`. It keeps the raw Markdown
+for content negotiation and compiles relative Markdown images into responsive
+markup through `prachtImage()`.
 
 ```ts [content.ts]
 import { defineMarkdownCollection } from "@pracht/markdown";
@@ -39,16 +41,9 @@ export const docs = defineMarkdownCollection({
 });
 ```
 
-Use the lower-level `defineCollection()` API when the compiled representation
-is not Markdown HTML or when the application needs a completely custom module
-shape:
-
-Define the collection next to the Vite config so every server/build consumer
-imports the same registry. Sources can be listed explicitly, or discovered
-recursively from `root`.
-
-The root can be a symbolic link; Vite's canonical module IDs still map back to
-the collection registry. Symbolic links inside it cannot escape the root.
+Use the lower-level `defineCollection()` when the compiled value is not Markdown
+HTML or you need a custom module shape. Sources are discovered recursively from
+`root`, or listed explicitly.
 
 ```ts [content.ts]
 import { defineCollection, llmsTxtArtifacts } from "@pracht/content";
@@ -89,15 +84,10 @@ Every document has one stable shape:
 - `frontmatter` is the parsed YAML mapping;
 - `compiled` is whatever your compiler returns.
 
-The compiler is memoized per source. Filesystem reads reuse the compiled value
-until the file's mtime or size changes; Vite transforms invalidate the matching
-entry on add, change, or unlink.
-
 ### Emit the sources themselves
 
-`rawContentArtifacts()` publishes selected documents as ordinary static assets —
-useful for serving the Markdown behind a page so an agent (or a `curl`) can read
-the source instead of scraping the rendered HTML:
+`rawContentArtifacts()` publishes selected documents as static files, so an
+agent (or `curl`) can read the Markdown behind a page instead of scraping HTML:
 
 ```ts [content.ts]
 import { defineCollection, rawContentArtifacts } from "@pracht/content";
@@ -113,14 +103,14 @@ artifacts: [
 ];
 ```
 
-Like `llmsTxtArtifacts()`, the generator runs in development against the live
-files and is emitted to `dist/client/` at build time.
+Like every artifact, it is served live in development and emitted to
+`dist/client/` at build time.
 
 ### Parsing frontmatter yourself
 
-`compile()` already receives `body` with frontmatter removed and `frontmatter`
-parsed. `parseFrontmatter()` is the same parser exported on its own, for code
-outside a collection — a script, a test, a custom loader:
+`compile()` already receives `body` and `frontmatter`. For code outside a
+collection, such as a script, a test, or a custom loader, use
+`parseFrontmatter()`:
 
 ```ts
 import { parseFrontmatter } from "@pracht/content";
@@ -128,15 +118,12 @@ import { parseFrontmatter } from "@pracht/content";
 const { frontmatter, body } = parseFrontmatter<{ title: string }>(raw);
 ```
 
-It throws a `TypeError` when the frontmatter block is not a YAML mapping, and
-returns `{ frontmatter: {}, body: raw }` when there is no block at all.
+It throws a `TypeError` when the frontmatter is not a YAML mapping, and returns
+`{ frontmatter: {}, body: raw }` when there is none.
 
 ## Add the Vite integration
 
-Place `prachtContent()` and `prachtImage()` before `pracht()`. They transform
-registered source modules in both client and server graphs, serve generated
-artifacts and image variants live in development, and emit the same files for
-production.
+Place `prachtContent()` and `prachtImage()` before `pracht()`:
 
 ```ts [vite.config.ts]
 import { prachtContent } from "@pracht/content/vite";
@@ -152,10 +139,8 @@ export default defineConfig({
 
 ## Resolve content on the server
 
-The package is server-only. Loaders and other deployed server code consume a
-filesystem-free snapshot generated from the same registry. Import it by
-collection name so Cloudflare, Vercel, and dist-only Node deployments do not
-need the source tree at request time.
+The package is server-only. Loaders import a filesystem-free snapshot by
+collection name, so deployments do not need the source tree at request time.
 
 ```ts [src/server/docs-loader.ts]
 import { contentLoader } from "@pracht/content/runtime";
@@ -172,46 +157,60 @@ export const loader = contentLoader(docs, {
 ```
 
 Snapshot frontmatter and compiled values must be JSON-serializable. Add
-`@pracht/content/virtual` to `compilerOptions.types` for the generic virtual
-module declaration; applications can augment it when they want exact compiled
-and frontmatter types.
+`@pracht/content/virtual` to `compilerOptions.types` for the virtual module's
+types; augment it when you want exact compiled and frontmatter types.
 
-Locale lookup falls back to the default locale unless `fallback: false` is
-requested. `resolveById()` and `resolveByRoute()` additionally report whether
-the returned document is a fallback, so applications can make that visible or
-redirect to the canonical locale URL. Every configured fallback target must be
-included in `supported`; invalid fallback configuration is rejected when the
-collection is defined. `routePrefix: "never"` deliberately shares one route
-between translations; pass `locale` during lookup to select one.
+Lookups fall back to the default locale unless you pass `fallback: false`.
+`resolveById()` and `resolveByRoute()` also report whether the result is a
+fallback, so you can show that or redirect to the canonical locale URL.
+Fallback targets must be listed in `supported`.
+
+With `routePrefix: "never"`, translations share one route; pass `locale` during
+lookup to pick one.
 
 ## Agent-facing surfaces stay opt-in
 
-`llmsTxtArtifacts()` generates curated `/llms.txt` and `/llms-full.txt` files
-from collection metadata and source. It is separate from Pracht's app-graph
-`llmsTxt` option: use the framework option for a route/API/capability index, and
-the collection helper when titles, descriptions, sections, and full source are
-the desired policy. Enabling both at `/llms.txt` fails the build instead of
-silently overwriting the collection output. Generated artifacts also cannot
-share a path with a file in `public/`; the build rejects the collision before a
-later copy can replace generated bytes while retaining their generated headers.
-The same preflight rejects prerendered-page overlaps, exact request-time page
-or API paths, clean-URL `index.html` aliases, concrete ISG paths served by an
-adapter function, Pracht's internal content-header path, and portable
-case-folded or file/directory collisions, including Netlify control-file paths.
-Custom artifact content types are also applied to non-HTML static assets by the
-Node, Cloudflare, Netlify, and Vercel adapters. Artifacts inside an `/assets/`
-path use revalidation caching because their filenames are not required to
-contain a content hash.
+A collection publishes nothing on its own. Raw sources, `llms.txt`, and
+capabilities each need an explicit opt-in.
 
-`@pracht/content/capabilities` also exports page and basic full-text-search
-field factories. Wrap their `input`, `output`, and `run` fields in an app-owned
-literal `defineCapability({ ... })` call. That keeps the effect, middleware,
-exposure, and `agentPolicy` visible to `pracht verify`; omitting `expose` keeps
-the capability private. The page helper returns a missing result for malformed
-routes and unsupported locales instead of turning agent input into an execution
-failure. Both helpers advertise supported locales for localized collections,
-while the search helper leaves unlocalized results intact when a locale hint is
-supplied.
+`llmsTxtArtifacts()` generates curated `/llms.txt` and `/llms-full.txt` from
+collection titles, descriptions, sections, and source. Pracht's app-graph
+`llmsTxt` option is different: it indexes routes, API routes, and capabilities.
+Enabling both at `/llms.txt` fails the build; set a different `summaryPath` or
+pick one.
+
+The build also fails when an artifact path collides with a file in `public/`, a
+prerendered page, or a request-time page or API route. The error names the
+collision.
+
+The Node, Cloudflare, Netlify, and Vercel adapters serve artifacts with the
+`contentType` you set.
+
+`@pracht/content/capabilities` exports `createContentPageCapability()` and
+`createContentSearchCapability()`. They return `input`, `output`, and `run`
+fields for a capability you define:
+
+```ts
+import { defineCapability } from "@pracht/capabilities";
+import { createContentPageCapability } from "@pracht/content/capabilities";
+import docs from "virtual:pracht/content/docs";
+
+const page = createContentPageCapability(docs);
+
+export default defineCapability({
+  title: "Read docs page",
+  description: "Return one public documentation page by route.",
+  effect: "read",
+  input: page.input,
+  output: page.output,
+  run: page.run,
+  // expose, middleware, and agentPolicy remain explicit app policy.
+});
+```
+
+Keep the `defineCapability({ ... })` call literal so `pracht verify` can audit
+its effect, middleware, exposure, and `agentPolicy`. Without `expose`, the
+capability stays private.
 
 The complete API and extension points live in
 [`packages/content/README.md`](https://github.com/JoviDeCroock/pracht/tree/main/packages/content).

@@ -12,13 +12,11 @@ next:
 
 ## Design philosophy
 
-Most full-stack frameworks infer behaviour from file-system conventions and render the result for one audience: a browser. Pracht takes a different approach on both counts.
+Most full-stack frameworks infer behaviour from file-system conventions and render for one audience: a browser. Pracht differs on both counts.
 
-**The app is written down as one explicit graph.** `defineApp()` declares routes, shells, middleware, API routes, and capabilities in a typed manifest, and the framework resolves that into a single graph. Nothing is inferred from a folder name, so the graph can be read by you, by a reviewer, by `pracht verify`, and by a machine.
+**The app is one explicit graph.** `defineApp()` declares routes, shells, middleware, API routes, and capabilities in a typed manifest. Nothing is inferred from a folder name, so you, a reviewer, `pracht verify`, and a machine all read the same graph.
 
-**That graph is projected to both of the web's audiences.** Browsers get components. Agents get the same operations as typed, validated, trust-gated tools — over HTTP, [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents), your app's own [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), and a generated [`llms.txt`](/docs/agents#discovery-markdown-and-llmstxt) index. The human UI and the agent surface cannot drift, because they run the same function.
-
-**Every route declares its own rendering mode.** A marketing page can be SSG, a dashboard can be SSR, a settings page can be SPA, and a product catalog can use ISG — all in the same app, the same build, the same deploy. No separate projects, no framework-specific workarounds.
+**That graph serves both of the web's audiences.** Browsers get components. Agents get the same operations as typed, validated tools over HTTP, [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents), [remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), and a generated [`llms.txt`](/docs/agents#discovery-markdown-and-llmstxt). Both run the same function, so they cannot drift.
 
 ---
 
@@ -26,9 +24,9 @@ Most full-stack frameworks infer behaviour from file-system conventions and rend
 
 ### Preact-first, not React-compatible
 
-Pracht is built on Preact — a 3kB alternative to React with the same API. If you want small bundles and fast hydration without giving up the component model you know, this is the tradeoff: you get a lighter runtime, but you don't get the full React ecosystem (some libraries need a compatibility layer).
+Pracht is built on Preact, a 3 KB alternative to React with the same API. You get a lighter runtime; some React libraries need a compatibility layer.
 
-That tradeoff has a price you can read off a table rather than take on faith. The same page, rendering the same markup, with one thing changed each time:
+Gzipped client JavaScript for the same page and markup, with one setting changed:
 
 | Route setting | Gzip client JS |
 | --- | --- |
@@ -37,7 +35,7 @@ That tradeoff has a price you can read off a table rather than take on faith. Th
 | `hydration: "full"` | 17.4 KB |
 | `hydration: "full"` + `preact/compat` | 18.2 KB |
 
-Your application code sits on top of these; they are a floor, not a budget. The `preact/compat` row is the cost of keeping the React ecosystem — 1.5 KB, which is usually the right trade when a dependency needs it. All four come from `pnpm bench` in the repository; [Performance](/docs/performance) explains how they are measured and how to measure your own app.
+Your application code sits on top of these. `preact/compat` adds about 0.8 KB. The numbers come from `pnpm bench`; [Performance](/docs/performance) shows how to reproduce them and measure your own app.
 
 ### Explicit routing manifest
 
@@ -50,15 +48,15 @@ export const app = defineApp({
 });
 ```
 
-The manifest tells you exactly which file handles which path, what shell wraps it, which middleware runs, and how it renders. No `"use client"` directives, no folder-name magic, no guessing. If you prefer file-based routing, the [pages router](/docs/routing) is available as an opt-in alternative.
+The manifest shows which file handles each path, its shell, its middleware, and how it renders. File-based routing is available as the opt-in [pages router](/docs/routing).
 
 ### Per-route render modes
 
-Other frameworks typically default to one mode globally (SSR in Next.js, SSG in Astro) and make you opt out per page. Pracht treats the render mode as a first-class route config — `"ssg"`, `"ssr"`, `"isg"`, or `"spa"` — so the decision is always visible and intentional.
+Other frameworks usually default to one mode (SSR in Next.js, SSG in Astro) and make you opt out per page. In pracht every route declares `"ssg"`, `"ssr"`, `"isg"`, or `"spa"`, and all four can share one build and deploy.
 
 ### Per-route hydration modes
 
-Hydration is a separate axis from rendering. Every route also declares `hydration` — `"full"` (the default), `"islands"`, or `"none"` — so a route can be server-rendered every request and still ship almost no JavaScript:
+Hydration is a separate axis: `"full"` (the default), `"islands"`, or `"none"`. A route can render on every request and still ship almost no JavaScript:
 
 ```ts
 route("/", "./routes/home.tsx", { render: "ssg", hydration: "none" }),
@@ -66,31 +64,31 @@ route("/pricing", "./routes/pricing.tsx", { render: "isg", hydration: "islands" 
 route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" }),
 ```
 
-With `"islands"`, only components in `src/islands/` hydrate, each as its own code-split chunk loaded by a small bootstrap, with per-usage `client` strategies (`load`, `idle`, `visible`). With `"none"`, the route ships no framework JavaScript at all. See [Islands](/docs/islands).
+With `"islands"`, only components in `src/islands/` hydrate. With `"none"`, the route ships no framework JavaScript. See [Islands](/docs/islands).
 
 ### Multi-adapter deployment
 
-One codebase deploys to Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static host with a one-line adapter swap. Adapters handle platform-specific concerns (static file serving, request conversion, edge bindings, and per-platform ISG invalidation) so your application code stays portable.
+One codebase deploys to Node.js, Cloudflare Workers, Netlify, Vercel, or a static host by swapping one adapter. The adapter handles platform details such as edge bindings and ISG invalidation.
 
 ---
 
 ## See it in a real app
 
-Read the [Launchpad walkthrough](/docs/demo-comparison) for a worked example that uses every render mode in one codebase: SSG marketing, SSG blog posts, ISG pricing, SSR dashboards, and SPA settings, all behind shared shells and auth middleware.
+The [Launchpad walkthrough](/docs/demo-comparison) uses every render mode in one codebase — SSG marketing and blog posts, ISG pricing, SSR dashboards, SPA settings — behind shared shells and auth middleware.
 
 ## Why not Vite + preact-iso?
 
-This is the honest first objection, and for a lot of sites it is the right answer. `preact-iso` gives you a router, `lazy()`, an error boundary, `prerender()`, and `hydrate()`. Wire those into a Vite app yourself and you have client routing plus prerendering in an afternoon, with no framework in the middle.
+For many sites this is the right answer. `preact-iso` gives you a router, `lazy()`, an error boundary, `prerender()`, and `hydrate()`. Wire them into Vite and you have client routing plus prerendering in an afternoon.
 
-What you are choosing not to have is the shared graph and everything that reads it:
+What you give up is one shared graph and everything that reads it:
 
-- **One resolved app graph.** Hand-wired apps keep the route table in the router, the render strategy in a build script, the auth check in a component, and the API surface in a server file. Nothing can answer "which routes require auth" because nothing holds all four. `defineApp()` does, which is what makes `pracht verify`, [`defineApp({ constraints })`](/docs/coding-agents#constraints), and `pracht plan`'s intent-level diff possible at all.
-- **Per-route render and hydration modes.** `prerender()` is one mode. Mixing SSG, SSR, ISG, and SPA — and full, islands, or no hydration — per route in one build is the wiring you would be writing.
-- **Loaders and route state.** Server-only data fetching that flows typed into the component, revalidates after mutations, and is fetched as JSON on client navigation, rather than a `useEffect` per page.
-- **Adapters.** One build that targets Node, Cloudflare Workers, Netlify, Vercel, or a static host, including per-platform ISG invalidation.
-- **The agent projections.** Capabilities, WebMCP, remote MCP, `llms.txt`, Web Bot Auth, the confirmation gate, and `pracht eval` all derive from the graph. There is no version of these you bolt onto a hand-wired router, because there is no declared surface to project.
+- **One app graph.** A hand-wired app spreads routes, render strategy, auth checks, and API surface across four places, so nothing can answer "which routes require auth". `defineApp()` holds all four, which is what `pracht verify`, [`defineApp({ constraints })`](/docs/coding-agents#constraints), and `pracht plan` read.
+- **Per-route render and hydration modes.** `prerender()` is one mode; mixing modes per route is wiring you would write.
+- **Loaders.** Typed server-only data that revalidates after mutations and loads as JSON on navigation, instead of a `useEffect` per page.
+- **Adapters.** One build for five deploy targets, with per-platform ISG invalidation.
+- **Agent projections.** Capabilities, WebMCP, remote MCP, `llms.txt`, Web Bot Auth, and `pracht eval` all derive from the graph. A hand-wired router has nothing to project.
 
-If your site is a handful of pages and a fetch, use `preact-iso` and keep the dependency count low. Reach for pracht when more than one thing needs to read the same description of your app.
+If your site is a handful of pages and a fetch, use `preact-iso`. Reach for pracht when more than one thing needs to read the same description of your app.
 
 ---
 
@@ -98,47 +96,49 @@ If your site is a handful of pages and a fetch, use `preact-iso` and keep the de
 
 ### Next.js
 
-Next.js is a React framework with a massive ecosystem. Pracht is smaller and more opinionated: Preact instead of React, an explicit manifest instead of file-system routing (by default), and per-route render modes as a core primitive. If you need the React ecosystem or Vercel-native features like `next/image`, Next.js is the better choice. If you want smaller bundles and explicit control over what runs where, try pracht.
+Next.js is a React framework with a huge ecosystem. Pracht is smaller and more explicit: Preact, a manifest by default, and per-route render modes. Choose Next.js for the React ecosystem or Vercel-native features like `next/image`. Choose pracht for smaller bundles and explicit control over what runs where.
 
 ### Remix / React Router
 
-Remix pioneered loader/action patterns for data loading. Pracht adopts a similar loader model but differs in two ways: it uses Preact, and it supports SSG/ISG alongside SSR. Remix is server-first; pracht lets you pick per route.
+Remix pioneered the loader/action pattern, and pracht's loaders follow a similar model. The differences: pracht uses Preact, and it supports SSG and ISG alongside SSR, chosen per route.
 
 ### Astro
 
-Astro is built for content sites: islands and zero JavaScript by default, with UI frameworks as an integration. Pracht supports the same shapes through `hydration: "islands"` and `hydration: "none"`, but treats them as one axis of a route's configuration rather than the default posture — the client router, full hydration, and per-route render modes are all first-class. If your site is almost entirely content and you want a framework whose defaults enforce that, Astro fits well. If you have a mix of static pages and app-like pages that should share one codebase, shells, middleware, and deploy, pracht lets each route pick its own point on both axes.
+Astro is built for content sites: islands and zero JavaScript by default. Pracht offers the same shapes through `hydration: "islands"` and `"none"`, as per-route options beside full hydration and a client router. Choose Astro when the site is almost all content and you want defaults that enforce that. Choose pracht when static and app-like pages should share one codebase, shells, middleware, and deploy.
 
 ### SvelteKit
 
-SvelteKit has great DX and small bundles thanks to Svelte's compiler approach. If you're in the Svelte ecosystem, SvelteKit is the obvious choice. Pracht targets the Preact/React mental model and offers similar adapter-based deployment.
+SvelteKit has great DX and small bundles thanks to Svelte's compiler. In the Svelte ecosystem it is the obvious choice. Pracht targets the Preact/React mental model, with similar adapter-based deployment.
 
 ### TanStack Start
 
-TanStack Start is a full-stack React framework built on TanStack Router, with type-safe routing, loaders, and server functions. It is the closest neighbour on the type-safety axis: both treat the route tree as a typed artifact rather than a folder convention. The differences are the runtime and the exposure model — pracht is Preact rather than React, declares the tree in a manifest rather than generating it from files, and treats render mode as per-route configuration rather than a mostly-SSR default. Server functions are also an RPC seam for your own client, not a declared, effect-classed contract with an agent projection. If you are already on TanStack Query and Router and want React, TanStack Start is the natural continuation.
+TanStack Start is a full-stack React framework on TanStack Router, with type-safe routing, loaders, and server functions. It is the closest neighbour on type safety: both treat the route tree as a typed artifact.
+
+Pracht uses Preact, declares the tree in a manifest instead of generating it from files, and sets render mode per route instead of defaulting mostly to SSR. Server functions are RPC for your own client, not declared contracts agents can call. If you want React and already use TanStack Router and Query, Start is the natural next step.
 
 ### Fresh (Deno)
 
-Fresh is a Preact framework for Deno built around island hydration. Pracht's islands mode is directly inspired by it, but pracht runs on Node.js, Cloudflare Workers, Netlify, Vercel, and static hosts, and adds SSG/ISG/SPA render modes alongside SSR. If you're on Deno, Fresh is the natural choice. If you want broader deployment targets and per-route control over both rendering and hydration, pracht fits better.
+Fresh is a Preact framework for Deno built around islands, and pracht's islands mode is inspired by it. Pracht runs on Node.js, Cloudflare Workers, Netlify, Vercel, and static hosts, and adds SSG, ISG, and SPA modes. On Deno, choose Fresh. For more deployment targets and per-route rendering and hydration, choose pracht.
 
 ### On the agent axis
 
-The comparisons above are all on the human axis, where every one of these frameworks is mature and several are better resourced than pracht. On the second axis they sit closer together: as of this writing, none of Next.js, Astro, SvelteKit, Fresh, or TanStack Start ships a declared operation surface for agents. They render your app for a browser, and an agent that wants to *do* something in it loads the page, reads the DOM, and guesses which button is real. Each has a server-function or API-route seam you could hand-build one on top of; what none of them has is a first-class declaration of what the app can do, separate from what it renders — which is the thing a tool projection, a trust policy, and an audit log all need to read.
+Every framework above is mature for human visitors, and several are better resourced than pracht. For agents, as of this writing, none of Next.js, Astro, SvelteKit, Fresh, or TanStack Start ships a declared operation surface. Each has a server-function or API seam you could build one on, but an agent that wants to act still loads the page, reads the DOM, and guesses which button is real.
 
-That gap is the whole reason to pick pracht. A [capability](/docs/capabilities) is one contract — JSON Schema in and out, an effect class, named middleware, a server-only body — and pracht serves it as a direct server call, an HTTP endpoint, a WebMCP page tool for an agent in the user's tab, and a tool on your app's own remote MCP endpoint for agents that never open a browser. What you get for writing it down:
+That gap is the reason to pick pracht. A [capability](/docs/capabilities) is one contract — JSON Schema in and out, an effect class, named middleware, a server-only body — served as a server call, an HTTP endpoint, a WebMCP tool, and a remote MCP tool. What you get:
 
-- Agents call a validated operation instead of driving your UI, so a redesign does not break them and a wrong input comes back path-scoped (`/limit: must be <= 20`) instead of as a broken click.
-- You can tell agents from humans. [Web Bot Auth](/docs/agent-trust) puts a cryptographically verified identity on the request, per capability you choose observe or require, and `destructive` effects cannot run on first contact — they need a server-verified prepare/commit exchange.
-- You find out what happened. One structured audit event per dispatch, with transport, outcome, latency, and identity.
-- It stays working. [`pracht eval`](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) runs scripted agent tasks in CI over HTTP or over real MCP `tools/call`, and `pracht plan` flags any change that widened what agents can reach.
+- **Agents call a validated operation instead of driving your UI.** A redesign does not break them, and bad input returns a path-scoped error (`/limit: must be <= 20`).
+- **You can tell agents from humans.** [Web Bot Auth](/docs/agent-trust) verifies the caller; per capability you choose observe or require. `destructive` effects need a server-verified prepare/commit exchange.
+- **You find out what happened.** One structured audit event per dispatch, with transport, outcome, latency, and identity.
+- **It stays working.** [`pracht eval`](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) runs scripted agent tasks in CI, and `pracht plan` flags changes that widen what agents can reach.
 
-None of this is on by default: an app that registers no capabilities and no `agents` config ships none of it, and the build drops the code. See [The Agentic Web](/docs/agents) for the shape of the whole thing.
+None of this is on by default: an app with no capabilities and no `agents` config ships none of it. See [The Agentic Web](/docs/agents).
 
 ---
 
 ## When to choose pracht
 
-- You want Preact's small footprint for a full-stack app, and want it measured rather than asserted
-- Different pages in your app need different rendering strategies
+- You want Preact's small footprint for a full-stack app, measured rather than asserted
+- Different pages need different rendering strategies
 - Different pages need different amounts of client JavaScript, from full hydration down to none
 - You value seeing route → file → render mode in one place
 - You want agents to call declared, validated, audited operations instead of scraping your UI

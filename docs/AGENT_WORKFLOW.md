@@ -156,6 +156,14 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
 - **Constraints live in the manifest** so they travel with the graph, appear in
   plan diffs when they change (`+ constraint ...`), and are resolved by the same
   `resolveApp()` path the runtime uses.
+- **Graph commands load modules strictly.** `pracht inspect`, `pracht plan`, the
+  MCP inspection tools, and verify's live graph checks load registered API and
+  capability modules with `strict: true` (`graph-snapshot.ts`,
+  `commands/inspect.ts`): a module-init error, unsupported runtime import, or
+  invoked graph-only helper fails the command under the original route, file, or
+  capability name instead of degrading to inferred or `null` metadata.
+  Capability typegen loads contracts the same way; API typegen reads route paths
+  without executing API modules.
 - **Weakening a constraint is a policy change.** The authoring guide instructs
   agents to never delete or loosen a constraint to make verification pass;
   constraint edits surface as their own plan lines for the reviewer.

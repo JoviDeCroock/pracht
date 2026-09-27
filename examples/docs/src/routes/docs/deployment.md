@@ -1,6 +1,6 @@
 ---
 title: Deployment
-lead: pracht apps deploy anywhere via platform adapters. Each adapter handles request conversion, asset serving, and the runtime's supported ISG revalidation strategy.
+lead: pracht apps deploy anywhere via platform adapters. Pick one, build, and ship; the Adapters reference covers each platform's options in depth.
 breadcrumb: Deployment
 prev:
   href: /docs/cli
@@ -12,13 +12,14 @@ next:
 
 ## Node on the build image
 
-Whatever you deploy to, the machine that runs `pracht build` needs **Node 22.18 or newer**. Hosted build images pick a version themselves, and the default is often older: Cloudflare Pages and Netlify read `.nvmrc`, Vercel reads `engines.node` from `package.json`. `create-pracht` writes both, so a scaffolded app never has to say it twice — add them by hand when you are migrating an existing project.
+The machine that runs `pracht build` needs **Node 22.18 or newer**. Hosted build
+images often default to something older: Cloudflare Pages and Netlify read
+`.nvmrc`, and Vercel reads `engines.node` from `package.json`. `create-pracht`
+writes both; add them yourself when migrating an existing project.
 
 ```txt [.nvmrc]
 22
 ```
-
-The CLI checks the running version before it loads anything else, so an unsupported Node fails with `pracht requires Node >= 22.18 (found 18.17.1).` instead of a `SyntaxError` about a missing `node:util` export.
 
 ## Node.js
 
@@ -40,58 +41,16 @@ export default defineConfig({
 });
 ```
 
-`canonicalOrigin` prevents Host-derived request URLs in production. The Node
-adapter also accepts `maxBodySize`; custom entries can pass `trustProxy: true`
-to `createNodeRequestHandler()` only when a trusted reverse proxy overwrites
-forwarded headers. When the proxy strips Vite's deploy base from the forwarded
-path, set `nodeAdapter({ basePathStripped: true })` so a matching first route
-segment is not stripped a second time.
-
-Responses are compressed by default: the adapter negotiates `Accept-Encoding`
-(highest q-value wins, including an explicitly higher `identity` preference,
-with brotli preferred on ties) and streams dynamic HTML, route-state JSON, and
-other compressible text types through `node:zlib`, while static assets and ISG
-snapshots are compressed once per file version and served from an in-memory
-LRU; successful ISG writes use an atomic file replacement whose filesystem
-identity stays private to local cache keys, while content-derived public
-validators remain stable across sibling handlers and deployment replicas and
-local cache generations discard old compressed bytes. Response reads stay bound to the
-same open file version that supplied their size and validator, so concurrent
-replacement cannot mix bytes with stale metadata or bypass the cold-work byte
-budget. This remains correct when coarse filesystem timestamps do not change
-and a request reaches a restarted or sibling worker. Date-only validation is
-conservatively bypassed for mutable ISG snapshots while compression is enabled.
-Buffered cold work is byte- and concurrency-bounded, including content-derived
-validator hashing; same-snapshot requests share one hash, and an overloaded
-response omits its ETag rather than queuing an unbounded whole-file read.
-Overflowed compression jobs fall back to streaming. Static WebAssembly is
-served as `application/wasm` and follows the same compression path.
-Compressible responses carry `Vary: Accept-Encoding`, including on
-application-generated `304` responses; encoded variants get their own
-collision-resistant weak ETag, with encoded dynamic requests performing
-`If-Match` / `If-None-Match` / `If-Modified-Since` validation after
-representation selection so identity and encoded validators cannot cross.
-`If-Match` uses strong comparison and preserves its precedence over
-`If-Unmodified-Since`. Requests carrying `Range` retain their original
-validators and remain identity-encoded even when the application returns a full
-`200`; `206` responses are likewise never transformed. `HEAD` advertises the
-same negotiated metadata as `GET`, including buffered compressed lengths, and
-already-encoded, `no-transform`, Range, integrity-protected (`Content-Digest`,
-`Repr-Digest`, legacy
-`Digest`/`Content-MD5`), and sub-1 KiB responses whose size is known are left
-alone. If a reverse proxy or CDN in front of the server already compresses
-responses, turn it off:
-
-```ts [vite.config.ts]
-nodeAdapter({ compression: false });
-```
-
 ```sh
 # Build and run
 pracht build
 pracht preview
 # or: node dist/server/server.js
 ```
+
+Set `canonicalOrigin` so request URLs never come from the `Host` header.
+Proxy, body-size, and compression options are in the
+[adapter reference](/docs/adapters#nodejs).
 
 ---
 
@@ -115,34 +74,19 @@ pracht build
 wrangler deploy
 ```
 
-Configure bindings (KV, D1, R2) in `wrangler.jsonc`. They are available via `context.env` in loaders and API routes.
-For named primitives such as Durable Object and Workflow classes, re-export
-them from a dedicated module and pass that module through
-`workerExportsFrom`. Queue, scheduled, and email consumers live on the
-Worker's default export; provide those separately through
-`workerHandlersFrom`. See the [adapter reference](/docs/adapters#exporting-bindings-and-event-handlers) for both examples.
+Configure bindings (KV, D1, R2) in `wrangler.jsonc`; loaders and API routes
+read them from `context.env`. `pracht preview` runs Wrangler locally and reads
+local secrets from a gitignored `.dev.vars` file.
 
-For a production-style local smoke test, run `pracht preview`. It delegates to
-Wrangler, so put local-only Worker secrets in a gitignored `.dev.vars` file:
-
-```dotenv [.dev.vars]
-PRACHT_CONFIRMATION_SECRET=local-only-secret
-```
-
-A host-prefixed environment variable is not automatically a Worker binding.
-Also note that a configured custom-domain route can make the Worker see that
-domain in `request.url` even while preview listens on localhost; Web Bot Auth
-clients must sign the effective `@authority`.
-
-Cloudflare supports runtime ISG through its Cache API, or through opt-in
-Workers Caching with `cloudflareAdapter({ cache: true })`. Canonicalize query
-strings and trailing slashes before enabling shared edge caching.
+Durable Objects, Workflows, queue and cron handlers, and ISG caching are
+covered in the [adapter reference](/docs/adapters#exporting-bindings-and-event-handlers).
 
 ---
 
 ## Vercel
 
-Deploys as a Vercel Edge Function with static assets served from the CDN.
+Deploys with Vercel's Build Output API: static SSG pages, an Edge Function for
+SSR and API routes, and Vercel's native ISR for ISG routes.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -160,23 +104,16 @@ pracht build
 vercel deploy --prebuilt
 ```
 
-SSG pages are static, SSR/API routes use the Edge Function, and ISG routes use
-Vercel's native ISR on Node Serverless Functions. When using webhook
-revalidation, set `PRACHT_REVALIDATE_TOKEN` during the build so the same token
-is embedded in Vercel's prerender configuration; time-only ISR does not require
-it. Use `functionName` to rename the default `render` Edge Function if it would
-collide with an ISG route.
-
-`pracht preview` deliberately does not emulate Vercel production. Use
-`vercel build` to reproduce the Build Output and `vercel dev` for Vercel's
-local development runtime.
+For webhook revalidation, set `PRACHT_REVALIDATE_TOKEN` at build time, not only
+at runtime. `pracht preview` doesn't emulate Vercel; use `vercel build` and
+`vercel dev`. See the [adapter reference](/docs/adapters#vercel).
 
 ---
 
 ## Netlify
 
-Deploys through a fetch-style Netlify Functions v2 handler with SSG documents
-and ISG responses stored in Netlify's durable CDN cache.
+Deploys through a Netlify Functions v2 handler, with SSG and ISG pages stored in
+Netlify's durable CDN cache.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -202,25 +139,19 @@ pracht build && netlify dev
 netlify deploy --build --prod
 ```
 
-The generated function preserves Markdown negotiation and client route-state
-requests while hashed assets bypass it. Time-based ISG uses durable
-stale-while-revalidate caching; authenticated webhook revalidation purges
-per-path cache tags. Use `netlifyAdapter({ excludedPath: [...] })` for extra
-static prefixes, but do not exclude page URLs. Prefix-shaped exclusions also
-stay outside the generated function bundle.
-
-`pracht preview` deliberately does not emulate Netlify's Functions and CDN
-behavior; build the generated function before using `netlify dev` for the
-platform-shaped local runtime.
+Add extra static prefixes with `netlifyAdapter({ excludedPath: [...] })`, but
+never exclude page URLs. `pracht preview` doesn't emulate Netlify; use
+`netlify dev` after building. See the
+[adapter reference](/docs/adapters#netlify-functions).
 
 ---
 
 ## Static hosts
 
-Apps whose routes are all `ssg` (or loaderless, full-hydration `spa`), with no request
-middleware, API routes, or network-exposed capabilities, can skip servers
-entirely with `@pracht/adapter-static` — GitHub Pages, S3, nginx, Netlify, any
-file host.
+An app whose routes are all `ssg` (or loaderless `spa` with full hydration),
+with no middleware, API routes, or exposed capabilities, can deploy as plain
+files with `@pracht/adapter-static` — GitHub Pages, S3, nginx, Netlify, any file
+host.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -238,52 +169,11 @@ pracht build      # dist/client/ is the whole deployment
 pracht preview
 ```
 
-The build serializes each full-hydration SSG route whose loader or route/shell
-`head()` metadata participates in navigation to collision-safe bounded opaque
-`.json` files under `_pracht/state/` so client-side navigation works without a
-server, emits the `notFound` page as `404.html`, and — with
-`staticAdapter({ fallback: "200.html" })` — an SPA fallback document for hosts
-that can rewrite unmatched URLs. Explicitly loaderless and headless routes
-fetch no Pracht state; loaderless routes with head metadata fetch static state
-for font-head fragments and can still call external APIs directly from the
-browser. Static `notFound` pages
-must use full hydration so they can adopt the requested URL; the SPA fallback
-reuses their build-time loader data when it renders an unknown URL. Anything that needs a
-runtime server (`ssr` or `isg` routes, SPA loaders, middleware, API routes,
-exposed capabilities) fails the build with an error naming the offenders. See
-the [Adapters Reference](/docs/adapters) for host configuration details.
-
----
-
-## Custom Context
-
-Generated adapter entries can import a context factory that enriches the context passed to loaders, API routes, and middleware:
-
-```ts [vite.config.ts]
-import { defineConfig } from "vite";
-import { pracht } from "@pracht/vite-plugin";
-import { nodeAdapter } from "@pracht/adapter-node";
-
-export default defineConfig({
-  plugins: [
-    pracht({
-      adapter: nodeAdapter({ createContextFrom: "/src/server/context.ts" }),
-    }),
-  ],
-});
-```
-
-```ts [src/server/context.ts]
-export async function createContext({ request }: { request: Request }) {
-  const session = await getSession(request);
-  return { session };
-}
-
-// In a loader:
-export async function loader({ context }: LoaderArgs) {
-  const user = context.session?.user;
-}
-```
+The build fails with a list of offenders when something needs a server. It
+writes the `notFound` page as `404.html` and, with
+`staticAdapter({ fallback: "200.html" })`, an SPA fallback for hosts that can
+rewrite unknown URLs. See the [adapter reference](/docs/adapters#static-export)
+for host configuration.
 
 ---
 
@@ -300,31 +190,23 @@ export default defineConfig({
 });
 ```
 
-The base is where the deploy is *served*, not part of the output tree.
-`dist/client/` still contains `about/index.html`, and the whole directory is
-uploaded to the sub-path. What changes is every URL the build emits: `<script
-src>`, CSS and modulepreload links, `/_pracht/state/…` fetches, `llms.txt`
-links, the default `@pracht/image` optimization endpoint, the generated OpenAPI
-document and UI, and every href produced by `<Link route>`, `href()`,
+The output tree doesn't change: `dist/client/` still contains
+`about/index.html`, and you upload the whole directory to the sub-path. Every
+URL the build emits includes the base: scripts, stylesheets, route-state
+fetches, `llms.txt` links, and hrefs from `<Link route>`, `href()`,
 `useNavigate()`, and `prefetch()`.
 
-Route paths in the manifest stay base-free — the router strips the base before
-matching — while `useLocation()` reports the URL as the visitor sees it, base
-included.
-
-`pracht dev` and `pracht preview` both serve the app under the same base, so
-local checks exercise the deployed shape. A bare `/my-project` is redirected to
-`/my-project/`, preserving the query. That trailing slash matters for the root
-document: without it, a relative link like `assets/app.js` would resolve at the
-origin root.
+Route paths in the manifest stay base-free, while `useLocation()` reports the
+URL as the visitor sees it, base included. `pracht dev` and `pracht preview`
+serve the app under the same base, and redirect a bare `/my-project` to
+`/my-project/`.
 
 ### Hand-written links do not get the base
 
 `<a href="/about">` means the origin root in HTML, and pracht does not rewrite
 it — the same rule as Next's `basePath` and SvelteKit's `base`. Use
 `<Link route="about">` or `href("about")` for internal navigation and the base
-is applied for you. A same-origin link that falls outside the base is handed to
-the browser rather than matched as a route.
+is applied for you.
 
 For the paths you do write by hand — a root-absolute `<a href>`, a `fetch()` to
 your own endpoint, an asset URL built at runtime — three helpers move a path
@@ -344,37 +226,31 @@ way costs nothing until the app moves under a sub-path.
 
 ### Base values that are build errors
 
+Use `/` or a root-absolute path such as `/my-project/`.
+
 | Value | Why it fails |
 | --- | --- |
 | `https://cdn.example.com/`, `//cdn…` | A CDN base only relocates assets; documents and the route-state tree stay at the origin root |
 | `"./"`, `""` | A document-relative base makes nested pages resolve assets beneath their own directory |
-| Repeated slashes, malformed percent escapes, segments decoding to `/`, `\`, `.`, `..`, NUL, or a control character | Unsafe URL segments |
-
-Use `/` or a root-absolute path such as `/my-project/`. Equivalent
-percent-escape spellings are accepted and matched canonically at runtime.
 
 ### Behind a proxy that strips the base
 
-The Node adapter assumes the deploy base is still present on the forwarded
-path, and maps base-prefixed asset, document, and ISG URLs onto the base-free
-paths in the build output. When a trusted proxy removes the base before
-forwarding, tell the adapter so it stops looking for it — and note that the
-proxy then owns the trailing-slash redirect:
+The Node adapter expects the base to still be on the forwarded path. When a
+trusted proxy removes it first, say so; the proxy then owns the trailing-slash
+redirect:
 
 ```ts [vite.config.ts]
 pracht({ adapter: nodeAdapter({ basePathStripped: true }) });
 ```
 
-This has to be declared rather than detected: a forwarded `/my-project/about`
-is ambiguous by inspection — it could be a retained base followed by `/about`,
-or a stripped-base request for a route whose own path is `/my-project/about`.
+Pracht can't detect this: a forwarded `/my-project/about` could be the base
+plus `/about`, or a route whose own path is `/my-project/about`.
 
-Cloudflare, Netlify, and Vercel deployments always retain the base and apply the
-redirect themselves. Custom serverful adapters get it from
-`handlePrachtRequest()`.
+Cloudflare, Netlify, and Vercel deployments always keep the base and handle the
+redirect themselves.
 
 ### Static hosts
 
-The [static adapter](/docs/adapters) requires `/` or a root-absolute base for
-the reasons in the table above. `pracht preview` answers anything outside the
-base with a 404, matching what a correctly configured host does.
+The [static adapter](/docs/adapters#static-export) requires `/` or a
+root-absolute base. `pracht preview` answers anything outside the base with a
+404, matching what a correctly configured host does.

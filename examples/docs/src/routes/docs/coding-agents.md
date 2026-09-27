@@ -12,34 +12,29 @@ next:
 
 ## Two Different Kinds of Agent
 
-"Agent" means two unrelated things in a pracht app, and the two MCP servers involved are the usual source of confusion. This page is entirely about the development rows:
+"Agent" means two unrelated things in a pracht app. This page covers the development rows:
 
 | | Audience | When | What it exposes |
 | --- | --- | --- | --- |
 | **`pracht dev-mcp`** (this page) | Your coding agent — Claude Code, Cursor, an MCP client on your machine | **Development** | Your app's *graph*: routes, API endpoints, capabilities, diagnostics, scaffolding |
-| **[Dev page tools](#debugging-in-the-tab-dev-page-tools)** (this page) | A WebMCP-compatible agent or test harness driving your app | **Development** | *This tab*: the matched route, its loader data, islands, the last error, and the app's own page tools — as WebMCP tools on every dev document |
+| **[Dev page tools](#debugging-in-the-tab-dev-page-tools)** (this page) | A WebMCP-compatible agent or test harness driving your app | **Development** | *This tab*: matched route, loader data, islands, last error, and page tools |
 | **[Remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser)** | End-user agents calling your deployed app | **Production** | Your app's *operations*: capabilities served as MCP tools over Streamable HTTP |
 
-`pracht dev-mcp` never ships. It is part of `@pracht/cli`, it runs on your machine, and it is not reachable from your deployed app. Remote MCP is the opposite on every count.
+The development tools never ship: they run on your machine, not in your deployed app.
 
-> [!NOTE]
-> The command was called `pracht mcp` in earlier releases. That spelling still works as a deprecated alias; new setups should use `pracht dev-mcp`.
-
-Everything below is about making an agent's changes to a pracht app *provable*: LLMs write plausible code, and the interesting review question is rarely "is this valid TypeScript?" — it is "did the intent survive?" Did the new dashboard route keep the auth middleware? Did a route quietly switch from SSR to SSG? Did an API endpoint disappear? Did a capability just become reachable by anyone on the internet?
-
-Those are app-graph questions, and pracht resolves the entire app graph from the manifest, so they are checkable by machine instead of by hoping a reviewer notices.
+The rest of this page makes an agent's changes *provable*. The real review question is "did the intent survive?" Did the new route keep its auth middleware? Did a capability become public? pracht resolves the whole app graph, so a machine can answer.
 
 ---
 
 ## The Authoring MCP Server
 
-Without it, an agent asked to "add a route" globs `src/`, guesses at the manifest shape, and edits by pattern-match. Every tool on the server is a thin wrapper over the CLI internals and returns the same JSON as `pracht inspect --json`, `pracht doctor --json`, and `pracht verify --json` — so the agent reads the *resolved* graph rather than reconstructing it from source.
+`pracht dev-mcp` hands an agent the *resolved* app graph, so it does not glob `src/` and guess. Each tool returns the same output as the matching CLI command.
 
 ```sh
 pracht dev-mcp
 ```
 
-It speaks MCP over stdin/stdout, logs to stderr, and runs until stdin closes. You normally never start it by hand — your MCP client does.
+It speaks MCP over stdio and runs until the client disconnects, so your MCP client starts it, not you. `pracht mcp` is a deprecated alias. See the [CLI reference](/docs/cli#pracht-dev-mcp).
 
 ### Registering It
 
@@ -49,7 +44,7 @@ With Claude Code, from an app directory that has `@pracht/cli` installed:
 claude mcp add pracht -- npx --no-install pracht dev-mcp
 ```
 
-Or check an `.mcp.json` into the repository root so every collaborator and CI agent picks it up automatically:
+Or commit an `.mcp.json` at the repository root so every collaborator and CI agent picks it up:
 
 ```json [.mcp.json]
 {
@@ -62,102 +57,71 @@ Or check an `.mcp.json` into the repository root so every collaborator and CI ag
 }
 ```
 
-`--no-install` is load-bearing, not a speed optimization: it pins the server to the `@pracht/cli` this project depends on and fails loudly when that binary is missing. Without it, `npx pracht` falls back to fetching an unrelated registry package literally named `pracht`, and an agent ends up describing a CLI the app does not build with.
+Keep `--no-install`. It pins the server to the `@pracht/cli` this project depends on and fails loudly when it is missing. Without it, `npx pracht` can fetch an unrelated registry package named `pracht`.
 
-Apps scaffolded with `create-pracht` get this file — plus the [skills](#agent-skills) in `.claude/skills/` — unless you pass `--no-agent-tools`.
-
-Any client that supports stdio servers works the same way. Cursor (`.cursor/mcp.json`) and VS Code (`.vscode/mcp.json`) take the same `command`/`args` shape; point the working directory at the app root.
+Apps scaffolded with `create-pracht` get this file and the [core skills](#agent-skills) unless you pass `--no-agent-tools`. Cursor (`.cursor/mcp.json`), VS Code (`.vscode/mcp.json`), and other stdio clients take the same `command`/`args` shape; run it from the app root.
 
 ### Tools
 
-Every tool accepts an optional `cwd` (absolute path to the app root). When omitted, the server's own working directory is used — which is the app root when the client started it from the project directory.
+Every tool accepts an optional `cwd` (absolute path to the app root). It defaults to the server's working directory.
 
-**Inspection**
+**Inspection:** `inspect_routes`, `inspect_api`, `inspect_capabilities`, `inspect_agents`, and `inspect_build` return the same payload as [`pracht inspect <target> --json`](/docs/cli#pracht-inspect). `inspect_build` needs a prior `pracht build`.
 
-| Tool | Inputs | Returns |
-| --- | --- | --- |
-| `inspect_routes` | `cwd?` | Resolved page routes: path, id, render mode, hydration mode, prefetch strategy, speculation rules, shell, middleware, loader file, plus `notFound` (or `null`). Unset options serialize as `null` |
-| `inspect_api` | `cwd?` | Resolved API routes: endpoint path, source file, exported HTTP methods, `hasDefaultHandler` |
-| `inspect_capabilities` | `cwd?` | Registered capabilities: name, effect class, exposure transports, HTTP path, middleware, source file, input/output JSON Schemas, plus `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and `mcpUnavailableReasons` |
-| `inspect_agents` | `cwd?` | Configured agent surface: Web Bot Auth policy/keys, confirmation mode, remote MCP endpoint, `llms.txt`, per-capability transports and exposure counts |
-| `inspect_build` | `cwd?` | Build metadata: adapter target, client entry URL, CSS/JS manifests. Requires a prior `pracht build` |
-
-**Diagnosis and review**
+**Diagnosis and review:**
 
 | Tool | Inputs | Returns |
 | --- | --- | --- |
-| `doctor` | `cwd?` | Wiring diagnostics with per-check status |
-| `verify` | `cwd?`, `changed?` | Framework verification with scope info, including `defineApp({ constraints })` enforcement and app-graph snapshot freshness |
-| `plan` | `cwd?`, `base?` (git ref, default `origin/main`), `write?` | Semantic app-graph diff against the base ref's committed `.pracht/app-graph.json`: routes, API, capabilities and constraints added, removed, or changed — plus `widensAgentSurface` when a change widened the agent-reachable surface. `write: true` refreshes the snapshot instead |
-| `report` | `cwd?`, `base?` | PR-ready markdown assembled from machine truth: the graph diff, verify results, and client JS budgets |
-| `get_docs` | — | The embedded pracht authoring guide, the same text as `pracht llms`. Agents should read this before writing pracht code |
+| `doctor` | — | Wiring diagnostics with per-check status |
+| `verify` | `changed?` | Verification results, including [constraints](#constraints) and snapshot freshness |
+| `plan` | `base?` (default `origin/main`), `write?` | The [app-graph diff](#the-route-graph-lockfile), with `widensAgentSurface`. `write: true` refreshes the snapshot |
+| `report` | `base?` | [PR-ready markdown](#pr-reports-from-machine-truth) |
+| `typegen` | `check?` | Regenerates typed routes and capability types; `check: true` only reports staleness |
+| `eval` | `url`, `files?` | Runs eval scenarios against an app you already started |
+| `get_docs` | — | The authoring guide from `pracht llms`. Agents should read it first |
 
-**Scaffolding**
-
-| Tool | Inputs |
-| --- | --- |
-| `generate_route` | `cwd?`, `path`, `render?`, `shell?`, `middleware?`, `loader?`, `errorBoundary?`, `staticPaths?`, `title?`, `revalidate?`, `test?` |
-| `generate_shell` | `cwd?`, `name` — manifest apps only |
-| `generate_middleware` | `cwd?`, `name` — manifest apps only |
-| `generate_api` | `cwd?`, `path`, `methods?` (defaults to `["GET"]`) |
-| `generate_capability` | `cwd?`, `name`, `effect?`, `expose?`, `title?`, `description?` — manifest apps only |
-
-Each returns the files created and updated as `{ kind, created, updated }`. `generate_route` emits a Playwright smoke test in `e2e/` when the app has a Playwright setup, which `test` overrides either way. `generate_capability` starts with dependency-free inline JSON Schema. You may replace `input` and `output` with imported Standard JSON Schema validators (including a Zod 4 schema shared with `defineApi()` or `<Form schema>`); keep `expose` and `effect` inline because those still define the browser endpoint table statically.
+**Scaffolding:** `generate_route`, `generate_shell`, `generate_middleware`, `generate_api`, and `generate_capability` take the [`pracht generate`](/docs/cli#pracht-generate) flags as camelCase inputs (`errorBoundary`, `staticPaths`), with lists as arrays. Each returns `{ kind, created, updated }`. When you edit a generated capability, keep `expose` and `effect` inline literals.
 
 ### Error Handling
 
-Tool failures — a missing manifest, an unknown shell, a refusal to overwrite an existing file — come back as MCP `isError` results carrying the message. The server never crashes on a failed call, so an agent can read the error, correct its input, and retry.
+A failed call — a missing manifest, an unknown shell, a refusal to overwrite a file — returns an MCP `isError` result with the message. The server keeps running, so the agent can correct its input and retry.
 
 ---
 
 ## Debugging in the Tab: Dev Page Tools
 
-A WebMCP-compatible agent or test harness driving a browser against `pracht dev` has the page in front of it but not the framework's view of that page. Which route matched? What did the loader actually return? Did the island hydrate? What was the server error behind this 500? Answering those from the outside means correlating server logs, or finding and configuring a separate MCP server, with the tab under test.
-
-So the tab answers them itself. Every document `pracht dev` serves registers five read-only [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents) page tools with the browser's model context, scoped to that document:
+An agent driving a browser against `pracht dev` sees the page but not the framework's view of it. So every document `pracht dev` serves registers five read-only [WebMCP](/docs/capabilities#webmcp-tools-for-in-browser-agents) page tools that describe it:
 
 | Tool | Answers |
 | --- | --- |
-| `pracht_route` | The matched route: id, URL, params, render and hydration mode, streaming, shell chain, route and loader files, middleware, declared capabilities, and whether this is the not-found page |
-| `pracht_loader_data` | The loader data the page holds right now — after client navigation and revalidation, not just the initial document. Pass `{ path: "notes.0.title" }` to read one value |
-| `pracht_islands` | The route's hydration mode and every `<pracht-island>` on the page with its source file, client strategy, serialized props, and hydration status |
-| `pracht_last_error` | The server error this document rendered (the dev error overlay, structured, or the `ErrorBoundary` state), plus the most recent uncaught client errors with stacks |
-| `pracht_page_tools` | The app's own WebMCP tools active on this route — the production agent surface — and the declared capabilities that are *not* page tools, with the reason |
+| `pracht_route` | The matched route: id, URL, params, render and hydration mode, streaming, shells, files, middleware, capabilities, and whether it is the not-found page |
+| `pracht_loader_data` | The loader data the page holds now, including after client navigation and revalidation. Pass `{ path: "notes.0.title" }` to read one value |
+| `pracht_islands` | Every `<pracht-island>` on the page with its source file, client strategy, props, and hydration status |
+| `pracht_last_error` | The server error this document rendered (dev overlay or `ErrorBoundary` state), plus recent uncaught client errors with stacks |
+| `pracht_page_tools` | The app's own WebMCP tools on this route, and why any declared capability is *not* one |
 
-Each resolves to the same `{ ok, data }` / `{ ok: false, error }` envelope as a pracht capability. The tools follow committed client-side navigation, so after an agent clicks a link, `pracht_route` describes the destination.
+Each returns a capability's `{ ok, data }` / `{ ok: false, error }` envelope. They follow client-side navigation, so after a click `pracht_route` describes the new page.
 
-There is nothing to install in the app, but the browser or harness must provide WebMCP; no mainstream browser agent consumes arbitrary page tools in broad production availability yet. The dev SSR middleware injects one `<script type="module" src="/@pracht/dev-page-tools.js">` into every HTML document it serves — full-hydration routes, islands routes, `hydration: "none"` routes, the dev 404 page, and the error overlay alike. That module feature-detects `document.modelContext` before importing anything, so a browser without the WebMCP API pays for the feature check and nothing else. No build step emits the tag or the module; a production bundle cannot contain them. To turn them off, set `pracht({ devPageTools: false })` in `vite.config.ts`.
+Nothing needs installing, but the browser or test harness must support WebMCP. `pracht dev` injects their script into every HTML document, including the 404 page and error overlay; production builds never contain it. Turn it off with `pracht({ devPageTools: false })` in `vite.config.ts`.
 
 ```sh
 pracht dev
-# then, from an agent-driven browser on http://localhost:5173/notes:
+# then, from an agent-driven browser on http://localhost:3000/notes:
 # pracht_route        → { ok: true, data: { routeId: "notes", render: "ssr", hydration: "full", … } }
 # pracht_loader_data  → { ok: true, data: { data: { notes: [ … ] } } }
 # pracht_last_error   → { ok: true, data: { server: null, client: [] } }
 ```
 
-Two things to know before pointing an agent at it:
-
-- **Loader data is what the browser has.** Routes with `hydration: "islands"` or `"none"` never ship their loader data, so `pracht_loader_data` answers with an error that says so and names the request the client router makes (the route URL with the `x-pracht-route-state-request: 1` header) to read the serialized route state from the server instead.
-- **It is a debugging surface, not a security boundary.** Loader data and stack traces can contain whatever your loaders return. The tools are read-only, exist only on the dev origin, and are gone from every build — the same rule that keeps the Agents traffic panel on `/_pracht` out of production — but treat a dev server like the dev server it is.
-
-Together with the [WebMCP page tools](/docs/capabilities#webmcp-tools-for-in-browser-agents) your app already exposes, this makes `pracht dev` plus an agent-driven browser a complete loop: the agent exercises the production tools on the page and, when something looks wrong, asks the same page why.
+- **Loader data is what the browser has.** Routes with `hydration: "islands"` or `"none"` never ship loader data. `pracht_loader_data` returns an error naming the request that reads the route state from the server instead: the route URL with the `x-pracht-route-state-request: 1` header.
+- **It is a debugging surface, not a security boundary.** Loader data and stack traces contain whatever your loaders return. The tools are read-only and exist only on the dev server, so keep that server private.
 
 ---
 
 ## Teaching the Agent: pracht llms
 
-`pracht llms` prints an embedded authoring guide for coding agents — project layout, conventions, constraints, and the verify/plan/report loop. `--write` saves it as `llms.txt` in the app root so agents working in the repo pick it up:
-
-```sh
-pracht llms
-pracht llms --write
-```
-
-The `get_docs` tool serves the same text over MCP, for clients that prefer a tool call to a shell command.
+[`pracht llms`](/docs/cli#pracht-llms) prints pracht's authoring guide for coding agents: project layout, conventions, constraints, and the verify/plan/report loop. `pracht llms --write` saves it as `llms.txt` in the app root, and the `get_docs` MCP tool serves the same text.
 
 > [!NOTE]
-> This is the *framework's* guide, written for an agent editing your source. It is unrelated to the [`llms.txt` your app generates](/docs/agents#llmstxt) from its own graph for agents *using* your deployed site. Same filename, opposite direction.
+> This is the *framework's* guide, for an agent editing your source. It is unrelated to the [`llms.txt` your app generates](/docs/agents#llmstxt) for agents *using* your deployed site. Same filename, opposite direction.
 
 ---
 
@@ -193,33 +157,28 @@ export const app = defineApp({
 | `forbidRenderMode(pattern, ...modes)`   | Matching routes use none of the given render modes              |
 | `requireHead(pattern)`                  | Matching routes export `head()` — directly or via their shell   |
 
-Patterns match route paths segment-wise: `*` matches exactly one segment, a trailing `**` matches zero or more segments, and `"**"` on its own matches every route. Literal segments compare against the declared path, so `/blog/*` matches `/blog/:slug`.
+Patterns match route paths segment by segment: `*` matches one segment, a trailing `**` matches zero or more, and `"**"` alone matches every route. `/blog/*` matches `/blog/:slug`.
 
-`pracht verify` evaluates constraints deterministically; violations are errors:
+`pracht verify` reports each violation as an error:
 
 ```
 ✖ Route "/app/billing" is missing required middleware "auth" (constraint pattern "/app/**").
 ```
 
-An agent that scaffolds a new route under `/app` without the auth middleware fails verification immediately — no reviewer vigilance required. Manifest apps declare constraints in `defineApp()`; pages apps export them from the root `src/pages/_app.config.ts`. Either way, weakening one is a visible, reviewable policy change rather than a silent drift.
+So an agent that scaffolds a route under `/app` without `auth` fails verification immediately. Manifest apps declare constraints in `defineApp()`; pages apps export them from the root `src/pages/_app.config.ts`. A changed constraint appears in the `pracht plan` diff, so weakening one is a visible policy change.
 
 ---
 
 ## The Route-Graph Lockfile
 
-`pracht plan --write` snapshots the resolved app graph to `.pracht/app-graph.json` — commit it like a lockfile:
+`pracht plan --write` snapshots the resolved app graph to `.pracht/app-graph.json`. Commit it like a lockfile:
 
 ```sh
 pracht plan --write
 git add .pracht/app-graph.json
 ```
 
-From then on, `pracht plan` diffs the live graph against the snapshot committed at a base ref (default `origin/main`) and prints what actually changed at the app level:
-
-```sh
-pracht plan
-pracht plan --base origin/release
-```
+From then on, `pracht plan` diffs the live graph against the snapshot committed at a base ref (default `origin/main`). Flags are in the [CLI reference](/docs/cli#pracht-plan).
 
 ```
 Pracht plan (base: origin/main)
@@ -231,40 +190,40 @@ Pracht plan (base: origin/main)
 + constraint require-middleware /app/**  middleware=["auth"]
 ```
 
-That is the review artifact: added, removed, and changed routes, API endpoints, capabilities, and constraints — not four hundred lines of moved imports. `--json` emits the full report for tooling, and `--markdown` formats the diff for PR comments.
+That is the review artifact: the routes, API endpoints, capabilities, and constraints that changed — not four hundred lines of moved imports. `--markdown` formats it for a PR comment.
 
 ### The Line You Cannot Afford to Miss
 
-A `!` marks a change that widened what agents can reach or weakened one of their guards: a new exposure, a `destructive` capability reclassified out of the confirmation flow, an `agentPolicy` downgraded from `require`, middleware dropped, or an input schema that now accepts more than it used to — a removed `required` field, an opened `additionalProperties`, a raised bound, including nested ones (`input.limit: maximum raised (50 → 5000)`). Narrowings and removals stay quiet.
+A `!` marks a change that widened what agents can reach or weakened a guard:
 
-These are precisely the edits a line diff hides. Moving `mcp: true` into an `expose` object is one word; loosening a schema bound is one number. When anything widened, `--markdown` puts a callout above the diff so a reviewer meets it before the fence, and `pracht report` carries it into the PR body.
+- a new exposure
+- a `destructive` capability reclassified out of the confirmation flow
+- an `agentPolicy` downgraded from `require`
+- dropped middleware
+- an input schema that accepts more: a removed `required` field, an opened `additionalProperties`, or a raised bound, including nested ones (`input.limit: maximum raised (50 → 5000)`)
+- enabling `agents.mcp`, or `agents.mcp.destructive` once a destructive MCP tool can be served
 
-Projection switches are part of that graph too. Enabling `agents.mcp` turns declared MCP exposures into remotely served tools; enabling `agents.mcp.destructive` makes the declared destructive subset reachable as well. `pracht plan` records both as `!` widenings, while disabling either stays an ordinary narrowing. The destructive switch is only recorded when at least one declared destructive MCP capability can actually be served, so enabling it in advance does not claim the agent surface widened before a tool exists.
+Narrowings and removals stay quiet. A line diff hides these one-word edits; the plan flags them. When anything widened, `--markdown` adds a callout above the diff, and `pracht report` carries it into the PR body.
 
-`pracht verify` fails when the committed snapshot no longer matches the live graph, with the fix in the message: run `pracht plan --write`. So route changes cannot land without the snapshot — and therefore the reviewable diff — updating alongside them.
+`pracht verify` fails when the committed snapshot is stale and tells you to run `pracht plan --write`, so graph changes cannot land without the reviewable diff.
 
 ---
 
 ## PR Reports from Machine Truth
 
-`pracht report` assembles a PR-ready markdown report from three machine-derived sections:
-
-```sh
-pracht report
-pracht report --base origin/release --out report.md
-```
+[`pracht report`](/docs/cli#pracht-report) assembles PR-ready markdown from three machine-derived sections:
 
 - **App graph changes** — the same diff `pracht plan --markdown` produces.
-- **Verification** — the current `pracht verify` result, with any errors and warnings listed.
-- **Client JS budgets** — per-route gzip sizes versus their limits, from the last `pracht build`.
+- **Verification** — the current `pracht verify` result, with any errors and warnings.
+- **Client JS budgets** — per-route gzip sizes against their limits, from the last `pracht build`.
 
-Use it as the factual half of a PR description; the author (human or agent) adds the "why". The report footer marks the sections as machine-derived, so reviewers know which claims they do not need to re-check by hand.
+Use it as the factual half of a PR description; the author adds the "why". Its footer marks these sections as machine-derived.
 
 ---
 
 ## Generated Smoke Tests
 
-`pracht generate route` emits a Playwright smoke test alongside the route whenever the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory):
+`pracht generate route` emits a Playwright smoke test alongside the route when the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory):
 
 ```sh
 pracht generate route --path /blog/:slug --render ssg --shell public
@@ -284,15 +243,13 @@ test("renders /blog/:slug", async ({ page }) => {
 });
 ```
 
-`--test` forces the test even without a detected Playwright setup; `--no-test` skips it. Generated tests import `@playwright/test`, so install it first with `pnpm add -D @playwright/test` when the app does not already use Playwright; the generator prints this follow-up when needed. The `generate_route` MCP tool accepts a matching `test` boolean.
-
-It is a floor, not a ceiling — but it means every agent-scaffolded route starts life with a failing-loudly check instead of zero coverage.
+`--test` forces the test and `--no-test` skips it (`test` in the MCP tool). Without Playwright installed, the generator prints the `@playwright/test` install command. It is a floor, not a ceiling, but every agent-scaffolded route starts with a check that fails loudly.
 
 ---
 
 ## Agent Skills
 
-pracht publishes 33 [Claude Code skills](https://code.claude.com/docs/en/skills) for scaffolding, auditing, testing, and deploying pracht apps. Each is a single `SKILL.md` — frontmatter (`name`, `version`, `description`, `allowed-tools`) plus an action-oriented body — that Claude Code loads from `.claude/skills/<name>/SKILL.md` and invokes with `/<skill-name>`.
+pracht publishes 33 [Claude Code skills](https://code.claude.com/docs/en/skills). Claude Code loads each from `.claude/skills/<name>/SKILL.md` and runs it with `/<skill-name>`.
 
 | Category                | Skills                                                                                                                                                                                        |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -301,15 +258,11 @@ pracht publishes 33 [Claude Code skills](https://code.claude.com/docs/en/skills)
 | Testing scaffolds       | `/scaffold-tests`, `/scaffold-e2e`, `/pracht-test-api`                                                                                                                                          |
 | App primitives          | `/add-auth`, `/add-db`, `/add-i18n`, `/add-observability`, `/add-content`, `/add-images`, `/add-capabilities`, `/add-openapi`, `/typed-routes`, `/configure-isg`                                 |
 
-The source of truth lives in the repo's [skills/ directory](https://github.com/JoviDeCroock/pracht/tree/main/skills), with per-skill descriptions in [skills/README.md](https://github.com/JoviDeCroock/pracht/blob/main/skills/README.md). Instead of globbing `src/`, the skills read the resolved app graph via `pracht inspect routes|api|build --json`.
-
-Skills and the MCP server overlap but are not interchangeable. [`pracht dev-mcp`](#the-authoring-mcp-server) exposes graph inspection, `doctor`, `verify`, and the generators as native tools, and nothing else. A skill reaches the same commands by shelling out to `pracht inspect ... --json`, `pracht doctor`, and `pracht verify`, then reads source where the check needs something the graph does not carry — `/audit-islands` opens `src/routes.ts` to see inherited hydration, `/audit-secrets` scans `src/server/**` for values that must not cross to the client. Start from the resolved graph either way; use whichever fits your client, or both.
+Sources and descriptions live in the repo's [skills/ directory](https://github.com/JoviDeCroock/pracht/tree/main/skills) ([README](https://github.com/JoviDeCroock/pracht/blob/main/skills/README.md)). Skills shell out to the same commands [`pracht dev-mcp`](#the-authoring-mcp-server) wraps, such as `pracht inspect … --json`, and read source where a check needs more than the graph. Use either, or both.
 
 ### Context Cost
 
-Installing the catalog is not free: an agent keeps every skill's `name` and `description` in its system prompt for the whole session, whether or not you invoke anything. The body of a `SKILL.md` is different — it is loaded only when you run `/<skill-name>`.
-
-Both are budgeted, and the budgets are enforced in CI:
+An agent keeps every installed skill's `name` and `description` in context all session; a `SKILL.md` body loads only when run. CI enforces both budgets:
 
 | Budget | Limit | Paid |
 | ------ | ----- | ---- |
@@ -317,13 +270,11 @@ Both are budgeted, and the budgets are enforced in CI:
 | All 33 descriptions | 12,000 characters (~3k tokens) | Every session |
 | One `SKILL.md` | 20,000 bytes | Per invocation |
 
-So the whole catalog costs roughly 3k tokens of standing context, and a typical skill costs about 2k more when you actually run it. Descriptions are written as one sentence of what the skill does plus the phrases that should trigger it — the detail lives in the body, where you only pay for it on use.
-
-Installing a subset works fine if you want the bill smaller: each skill is a standalone file with no cross-file dependencies.
+A typical skill costs about 2k tokens when run. The standing cost is why `create-pracht` seeds only five core skills; each skill is standalone, so install just the ones you use.
 
 ### Discovery Endpoint
 
-The skills are published following the [agent skills discovery RFC](https://github.com/cloudflare/agent-skills-discovery-rfc). A well-known manifest lists every skill with a canonical URL and a SHA-256 digest of its source:
+The skills follow the [agent skills discovery RFC](https://github.com/cloudflare/agent-skills-discovery-rfc). A well-known manifest lists each skill's URL and SHA-256 digest:
 
 ```sh
 curl https://pracht.resynapse.dev/.well-known/agent-skills/index.json
@@ -344,17 +295,15 @@ curl https://pracht.resynapse.dev/.well-known/agent-skills/index.json
 }
 ```
 
-Agents landing on the home page can find the manifest without prior knowledge — it is advertised with an [RFC 8288](https://datatracker.ietf.org/doc/html/rfc8288) `Link` header:
+The home page advertises it with an [RFC 8288](https://datatracker.ietf.org/doc/html/rfc8288) `Link` header:
 
 ```
 Link: </.well-known/agent-skills/index.json>; rel="agent-skills"
 ```
 
-Both are emitted by a small Vite plugin ([`vite-plugin-agent-skills.ts`](https://github.com/JoviDeCroock/pracht/blob/main/examples/docs/vite-plugin-agent-skills.ts)) that reads the repo skills at build time, computes the digests, and serves each `SKILL.md` as a public asset.
-
 ### Installing One by Hand
 
-Each skill is a plain Markdown file at a stable URL, so installing one into any app is a single `curl` into your `.claude/skills/` directory:
+In a pracht app, [`pracht skills add`](/docs/cli#pracht-skills) installs a skill and checks its digest. Elsewhere, download it:
 
 ```sh
 mkdir -p .claude/skills/audit-csrf
@@ -362,7 +311,7 @@ curl -o .claude/skills/audit-csrf/SKILL.md \
   https://pracht.resynapse.dev/skills/audit-csrf/SKILL.md
 ```
 
-Restart Claude Code (or start a new session) and invoke it with `/audit-csrf`. Verify a download against the manifest's `sha256` if you want integrity checking:
+Compare its digest with the manifest's `sha256`, then start a new Claude Code session and run `/audit-csrf`:
 
 ```sh
 shasum -a 256 .claude/skills/audit-csrf/SKILL.md
@@ -370,13 +319,13 @@ shasum -a 256 .claude/skills/audit-csrf/SKILL.md
 
 ### Seeded by create-pracht
 
-New apps do not need to install anything manually. `npm create pracht@latest` asks — with a yes default — whether to set up agent tooling:
+`create-pracht` asks, defaulting to yes:
 
 ```
 Set up Claude Code skills + MCP? (Y/n):
 ```
 
-Accepting seeds two things into the scaffold: the full skill catalog under `.claude/skills/<name>/SKILL.md`, and an `.mcp.json` registering the authoring MCP server so MCP clients pick it up automatically. Pass `--agent-tools` / `--no-agent-tools` to skip the prompt in scripted runs; `--yes` includes the tooling.
+Yes writes the five core skills, an `.mcp.json` for `pracht dev-mcp`, and `AGENTS.md` with a `CLAUDE.md` alias. `--agent-tools=full` seeds the whole catalog and `--no-agent-tools` skips it all; see [create-pracht](/docs/cli#create-pracht).
 
 ---
 
@@ -410,15 +359,10 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
 ```
 
-With that in place the review contract is simple: constraints hold (verify passed), the snapshot is fresh (verify passed), and the intent-level diff is sitting in the PR thread. The human review can spend its attention on whether the change is a good idea — the machine already checked whether it is the change it claims to be.
+A passing verify means the constraints hold and the snapshot is fresh, and the intent-level diff sits in the PR. Reviewers can focus on whether the change is a good idea.
 
-If the app exposes [capabilities](/docs/capabilities), add [`pracht eval`](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) to the same workflow. `plan` tells you the agent surface changed; `eval` tells you it still works.
+If the app exposes [capabilities](/docs/capabilities), add [`pracht eval`](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci): `plan` says the agent surface changed; `eval` says it still works.
 
 ### Published docs revision
 
-The docs site exposes its source commit and content hashes at
-[`.well-known/pracht-build.json`](/.well-known/pracht-build.json).
-Use the revision to check which framework checkout the published guidance
-comes from. Publication verifies the live pages, `llms.txt`, and skill assets
-against the build, so a successful deployment includes the matching agent
-reference material.
+[`.well-known/pracht-build.json`](/.well-known/pracht-build.json) gives the docs site's source commit and content hashes, so you can tell which framework revision the published guidance, `llms.txt`, and skills come from.

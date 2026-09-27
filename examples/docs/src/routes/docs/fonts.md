@@ -39,7 +39,7 @@ export function Shell({ children }) {
 }
 ```
 
-The server expands each font into head HTML — routes with `hydration: "none"` get the exact same output, since no JavaScript is involved:
+The server expands each font into head HTML, so routes with `hydration: "none"` get the same output:
 
 ```html
 <link data-pracht-font-preload rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossorigin="anonymous">
@@ -48,8 +48,6 @@ The server expands each font into head HTML — routes with `hydration: "none"` 
 .pracht-font-inter-xxxx{font-family:"Inter", "Arial", sans-serif}
 </style>
 ```
-
-Font preloads always carry `crossorigin="anonymous"` — fonts are fetched in CORS mode even from your own origin, and a preload without it would be fetched twice.
 
 ## Using the Font in Components
 
@@ -73,10 +71,10 @@ export default function Home() {
 ```
 
 `inter.fontFamily` is the full stack including fallbacks, e.g. `"Inter", "Arial", sans-serif`.
-Importing a font or using its `className` does not register it by itself: list
-the font in the active shell or route `head().fonts`. Pracht updates generated
-font CSS and preload links when client navigation changes the active route,
-including clearing both when the destination registers no fonts.
+
+Importing a font or using its `className` does not register it: list the font
+in the active shell or route `head().fonts`. Client navigation updates the font
+CSS and preload links to match the new route.
 
 ## Options
 
@@ -100,12 +98,8 @@ defineFont({
 ```
 
 `src` accepts multiple variants of the same face. `woff2` is assumed unless a
-`format` is given. Pracht emits WOFF2 variants before fallback formats and
-preloads the first WOFF2 source (or the first source when no WOFF2 variant is
-present), so the preload and browser-selected source stay aligned without
-downloading every fallback. Legacy variable-font hints such as
-`woff2-variations` stay intact in the generated `format()` descriptor while
-their preload uses the underlying container MIME type (`font/woff2`):
+`format` is given. Pracht lists WOFF2 variants first and preloads one source:
+the first WOFF2, or the first variant when there is none.
 
 ```ts
 defineFont({
@@ -117,7 +111,7 @@ defineFont({
 });
 ```
 
-One `defineFont()` call describes one face. For multiple weights of a static font, define one font per weight file. Faces using the same local metrics fallback share one font stack and class; weight/style descriptors keep their adjusted fallback metrics separate:
+One `defineFont()` call describes one face. For a static font with several weights, define one font per weight file:
 
 ```ts
 export const interRegular = defineFont({ family: "Inter", src: "/fonts/inter-400.woff2", weight: 400 });
@@ -127,11 +121,13 @@ export const interBold = defineFont({ family: "Inter", src: "/fonts/inter-700.wo
 
 ## Deduplication
 
-The same font registered by a shell and a route (or by several routes sharing a shell) emits exactly one preload link and one `@font-face` block. Preloads dedupe by `href`; `@font-face` blocks, fallback faces, and class rules dedupe by content, so unicode-range subsets of one family (same family, weight, and style — only `src` and `unicodeRange` differ) each keep their own face. Register site-wide fonts once in the shell's `head()` and page-specific fonts in the route's `head()` — overlap is free.
+A font registered by both a shell and a route emits one preload link and one `@font-face` block. Unicode-range subsets of one family still keep a face each.
+
+Register site-wide fonts in the shell's `head()` and page-specific fonts in the route's `head()`; overlap is free.
 
 ## Fallback Metrics (no layout shift)
 
-With `font-display: swap`, text renders in a fallback font first and swaps when the web font loads. If the fallback has different metrics, the page shifts. The metric override options generate an adjusted fallback face that reshapes a local font to match your web font:
+With `font-display: swap`, text renders in a fallback font first and swaps when the web font loads. If the metrics differ, the page shifts. The metric overrides generate a fallback face that reshapes a local font to match:
 
 ```ts
 export const inter = defineFont({
@@ -145,7 +141,7 @@ export const inter = defineFont({
 });
 ```
 
-This emits an extra face — `local()` requires a real installed font, so the first entry in `fallbacks` that is neither a generic family (`sans-serif`, `system-ui`, ...) nor a vendor keyword (`-apple-system`) is used. When your stack starts with names `local()` cannot match, point `metricsFallback` at the font the numbers were computed against:
+The extra face needs a real font for `local()`, so it uses the first `fallbacks` entry that is not a generic family (`sans-serif`, `system-ui`, ...) or vendor keyword (`-apple-system`). To pick a different one, point `metricsFallback` at the font the numbers were computed against:
 
 ```ts
 fallbacks: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Arial", "sans-serif"],
@@ -166,23 +162,21 @@ The generated face:
 }
 ```
 
-and the stack becomes `"Inter", "Inter Fallback 1a2b3c", "Arial", sans-serif`. The name carries a short hash of the local font. Faces that use that same local font share the stack and generated class, while their weight, style, and unicode-range descriptors select the correct per-face metric values.
+and the stack becomes `"Inter", "Inter Fallback 1a2b3c", "Arial", sans-serif`.
 
 **Computing the values:** the overrides are ratios of the web font's metrics (`ascent`, `descent`, `lineGap`, per-glyph advance widths) to the fallback font's, expressed as percentages. You can:
 
 - copy them from [Fontaine](https://github.com/nuxt-modules/fontaine) or the [fallback metrics tables](https://github.com/seek-oss/capsize/blob/master/packages/metrics/README.md) published by Capsize (`@capsizecss/metrics` has data for common families),
 - or compute them once with `npx fontpie ./public/fonts/inter-latin.woff2 --fallback arial`.
 
-Pracht deliberately does not read the font binary at build time, so these stay explicit inputs. Automatic metric extraction (and a Google Fonts downloader) are candidates for future work.
+Pracht does not read font files, so you supply these values yourself.
 
 ## Security Notes
 
-Everything interpolated into the generated CSS is escaped or validated: family names and URLs are CSS-string-escaped (including `<`, so the inline `<style>` can never be closed early), and descriptor values like `weight`, `display`, `unicodeRange`, and the metric overrides are validated against strict grammars — invalid values throw at `defineFont()` time rather than reaching the document.
+Family names and URLs are escaped in the generated CSS. Invalid descriptor values, such as a malformed `weight`, `unicodeRange`, or metric override, throw when `defineFont()` runs.
 
-For a nonce-based Content Security Policy, return the request-specific nonce as
-`styleNonce` from a shared shell `head()` and include the same nonce in
-`style-src`. Pracht places it on the generated font style and preserves that
-style element across client navigation:
+For a nonce-based Content Security Policy, return the request's nonce as
+`styleNonce` from a shared shell `head()` and include it in `style-src`:
 
 ```ts
 export function head({ context }) {
@@ -190,11 +184,9 @@ export function head({ context }) {
 }
 ```
 
-The older `fontNonce` field remains a font-only override for backwards
-compatibility. Use `styleNonce` in new code so the same nonce also covers
-`pracht({ inlineCss: true })`.
+`fontNonce` also works but covers only font styles. Prefer `styleNonce`, which
+also covers `pracht({ inlineCss: true })`.
 
-Use `font.className` rather than `font.style` under a strict policy, because
-inline style attributes need a separate CSP allowance. Static SSG/ISG output
-cannot safely reuse a request nonce; use a stable style hash or an external
-stylesheet policy for those routes.
+Under a strict policy, use `font.className` rather than `font.style`: inline
+style attributes need a separate CSP allowance. SSG and ISG pages cannot reuse a
+request nonce, so use a style hash or an external stylesheet policy there.

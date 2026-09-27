@@ -83,9 +83,7 @@ import { Link } from "@pracht/core";
 </Link>;
 ```
 
-The prop is rendered as a `data-pracht-view-transition` attribute on the
-underlying anchor, so the client router can read it from delegated click
-handlers.
+The prop renders as a `data-pracht-view-transition` attribute on the anchor.
 
 For imperative navigation, pass the same option to `navigate()`:
 
@@ -178,9 +176,8 @@ unique.
 
 ## Loading, Prefetching, And Scroll
 
-Pracht resolves the target route first: route-state data is fetched and the
-route and shell modules are imported before the DOM commit is wrapped in a view
-transition. Redirects, loader errors, and full document fallbacks keep their
+Pracht loads the target route's data and modules before the transition
+starts. Redirects, loader errors, and full document fallbacks keep their
 normal behavior.
 
 That means slow data still makes the user wait before the transition starts.

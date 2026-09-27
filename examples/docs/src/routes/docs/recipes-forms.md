@@ -98,7 +98,7 @@ export function Component() {
 1. `<Form method="post" action="/api/contact">` intercepts the submit event and sends data via `fetch` (no full reload).
 2. The API route handler runs server-side, validates, and returns a `Response`.
 3. `onResponse` receives the raw `Response` — read the body yourself with `await response.json()` — and the component re-renders with the result.
-4. Without JavaScript the browser performs a native form POST and navigates to whatever the handler returns. The handler above returns JSON, so that lands the visitor on a raw JSON page. See [Working without JavaScript](#working-without-javascript).
+4. Without JavaScript the browser performs a native form POST and navigates to the response, so the JSON handler above shows a raw JSON page. See [Working without JavaScript](#working-without-javascript).
 
 ---
 
@@ -147,9 +147,8 @@ export async function POST({ request }: ApiRouteArgs) {
 }
 ```
 
-If you do not need the no-JS path, say so and keep the JSON-only handler — an
-API that only ever answers `fetch` is a reasonable choice. What is not
-reasonable is claiming both and shipping one.
+If you do not need the no-JS path, keep the JSON-only handler: an API that
+only answers `fetch` is a valid choice.
 
 ---
 
@@ -259,9 +258,9 @@ export async function POST({ request }: ApiRouteArgs) {
 `<Form schema>` accepts any Standard Schema for client-side feedback. Share the
 same object with `defineApi({ body })` so the server remains authoritative. If
 that validator also implements Standard JSON Schema (Zod 4 does), it can be the
-`input` of a Pracht capability too: the form, API route, and agent tool then use
-one validation contract, while Pracht emits only derived JSON Schema to
-WebMCP. See [Capabilities](/docs/capabilities#define-the-contract).
+`input` of a Pracht capability too, so the form, API route, and agent tool
+share one validation contract. See
+[Capabilities](/docs/capabilities#define-the-contract).
 
 ---
 

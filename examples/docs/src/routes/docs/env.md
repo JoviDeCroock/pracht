@@ -12,8 +12,8 @@ next:
 
 ## The Model
 
-Pracht splits environment access into two surfaces so a secret can never
-accidentally ship to the browser:
+Pracht splits environment access into two surfaces so a secret cannot ship to
+the browser by accident:
 
 | Surface     | Import                     | Contents                              | Where it works   |
 | ----------- | -------------------------- | ------------------------------------- | ---------------- |
@@ -38,15 +38,13 @@ export const apiBase = publicEnv.PRACHT_PUBLIC_API_BASE;
 
 ## The Prefix Rule
 
-Only variables prefixed with `PRACHT_PUBLIC_` are exposed through `publicEnv`.
-The pracht Vite plugin adds `PRACHT_PUBLIC_` to Vite's
-[`envPrefix`](https://vite.dev/config/shared-options#envprefix) (alongside the
-default `VITE_`), so prefixed variables are also available directly as
-`import.meta.env.PRACHT_PUBLIC_*` in dev and are statically inlined at build
-time.
+Only `PRACHT_PUBLIC_` variables reach `publicEnv`. They are also readable as
+`import.meta.env.PRACHT_PUBLIC_*`, and are inlined into the client bundle at
+build time, so **never put a secret behind the prefix.**
 
-Because these values are inlined into the client bundle, **never put a secret
-behind the prefix.**
+Vite's own `VITE_` prefix still loads, but pracht does not treat it as public: a
+client reference to a `VITE_` variable fails the
+[leak check](#client-leak-detection) unless you allowlist it.
 
 ```sh [.env]
 # Server-only — reachable through serverEnv, never shipped to the browser
@@ -58,17 +56,15 @@ PRACHT_PUBLIC_APP_NAME=Acme
 PRACHT_PUBLIC_API_BASE=https://api.example.com
 ```
 
-In builds, `publicEnv` reads a `PRACHT_PUBLIC_`-only snapshot the pracht Vite
-plugin injects; in dev it reads Vite's live env, and outside Vite (plain Node
-entries, tests) it falls back to `process.env`. It is a frozen snapshot of
-build-time values on the client.
+In builds, client and server alike, `publicEnv` is a frozen snapshot of the
+`PRACHT_PUBLIC_` values present at build time, so set them where you build, not
+only at runtime. Outside Vite (tests, unbundled scripts) it reads `process.env`.
 
 ### Read One Key at a Time
 
-Vite only replaces single-key `import.meta.env.KEY` accesses with their value.
-Any other read — a bare reference, destructuring, a spread, or bracket
-access — is replaced by an object literal holding **every** exposed variable,
-including the `VITE_` values Pracht does not treat as public:
+Vite replaces only single-key `import.meta.env.KEY` reads with their value. Any
+other read — a bare reference, destructuring, a spread, or bracket access —
+inlines an object holding **every** exposed variable, `VITE_` ones included:
 
 ```ts
 // Leaks every VITE_ value into the client bundle.
@@ -81,15 +77,15 @@ const apiBase = import.meta.env.PRACHT_PUBLIC_API_BASE;
 const isDev = import.meta.env?.DEV;
 ```
 
-Env leak detection fails the build on whole-object reads in first-party client
-code. Use `publicEnv` when you need to enumerate public values.
+The build fails on whole-object reads in your client code. Use `publicEnv` to
+enumerate public values.
 
 ---
 
 ## Typing Your Env Once
 
-Declare the env shape with the same `Register` declaration-merging pattern used
-for routes and context:
+Declare the env shape with the same `Register` declaration merging used for
+routes and context:
 
 ```ts [src/env.d.ts]
 declare module "@pracht/core" {
@@ -104,86 +100,71 @@ declare module "@pracht/core" {
 }
 ```
 
-`serverEnv` is then typed as the full shape, and `publicEnv` automatically
-narrows to the `PRACHT_PUBLIC_`-prefixed subset — referencing
-`publicEnv.DATABASE_URL` is a type error. Without a registration both fall back
-to `Record<string, string | undefined>`.
+`serverEnv` is then typed as the full shape, and `publicEnv` narrows to the
+`PRACHT_PUBLIC_` subset, so `publicEnv.DATABASE_URL` is a type error. Without a
+registration both are `Record<string, string | undefined>`.
 
 ---
 
 ## Per-Adapter Behavior of `serverEnv`
 
-- **Node** (`@pracht/adapter-node`) — resolves to `process.env`. Available at
-  module top level.
-- **Netlify** (`@pracht/adapter-netlify`) — resolves to `process.env`, populated
-  by the Netlify Functions runtime. Available at module top level.
-- **Vercel** (`@pracht/adapter-vercel`) — resolves to `process.env`, which the
-  Vercel runtime populates in both Node and edge functions. Available at module
-  top level.
-- **Cloudflare** (`@pracht/adapter-cloudflare`) — Workers have no ambient env;
-  bindings arrive per request. The adapter installs the worker `env` bindings
-  when a request enters the fetch handler, so `serverEnv` works inside loaders,
-  middleware, and API routes but **not at module top level** (it throws before
-  the first request with a message explaining this). Non-string bindings (KV,
-  D1, …) are reachable through `serverEnv` too, but `context.env` remains the
-  canonical way to access bindings.
+- **Node, Netlify, Vercel** — `process.env`, available at module top level.
+- **Cloudflare** — Worker bindings arrive per request, so `serverEnv` works in
+  loaders, middleware, and API routes but **not at module top level**, where it
+  throws. Non-string bindings (KV, D1, …) are reachable too, but `context.env`
+  is the canonical way to use them.
 
-Custom setups can call `setServerEnv(env)` (exported from
-`@pracht/core/env/server` and `@pracht/core/server`) to install another source.
+Custom setups can call `setServerEnv(env)` (from `@pracht/core/env/server` or
+`@pracht/core/server`) to install another source.
 
 ---
 
 ## Local Environment Files
 
 `pracht dev` loads `.env` files into `process.env` for process-based runtimes;
-real environment variables win. For development mode, precedence is
-`.env.development.local`, `.env.development`, `.env.local`, then `.env`.
+real environment variables win. Precedence is `.env.development.local`,
+`.env.development`, `.env.local`, then `.env`.
 
-Cloudflare Worker bindings are different: Wrangler owns them. For
-`pracht preview`, put local-only values such as
-`PRACHT_CONFIRMATION_SECRET` and `PRACHT_REVALIDATE_TOKEN` in a gitignored
-`.dev.vars` file. Prefixing the host command with those variables does not
-automatically create Worker bindings. Use `wrangler secret` for production.
+Wrangler owns Cloudflare Worker bindings. For `pracht preview`, put local-only
+values such as `PRACHT_CONFIRMATION_SECRET` and `PRACHT_REVALIDATE_TOKEN` in a
+gitignored `.dev.vars` file; prefixing the command with them does not create
+bindings. Use `wrangler secret` for production.
 
-`pracht build` does not copy unprefixed `.env` values into `process.env`, and
-`pracht verify` / `pracht doctor` do not use those files to satisfy deployment
-secret checks. This keeps missing server-only configuration visible.
-`PRACHT_PUBLIC_` and `VITE_` values remain different: Vite intentionally loads
-them from `.env` at build time and compiles them into the client bundle.
+`.env` files are for development. `pracht build` does not copy unprefixed values
+from them into `process.env`, and `pracht verify` / `pracht doctor` ignore them
+when checking deployment secrets, so set server-only values in the platform
+environment. `PRACHT_PUBLIC_` values in `.env` are still inlined at build time.
 
 ---
 
 ## Client-Leak Detection
 
-During `pracht build` the plugin scans every client chunk for references to
-`process.env.X` / `import.meta.env.X` (including `["X"]` bracket access) where
-`X` is not `PRACHT_PUBLIC_`- or `VITE_`-prefixed and not a Vite built-in
-(`MODE`, `DEV`, `PROD`, `SSR`, `BASE_URL`, `NODE_ENV`). A hit **fails the build**
-naming the variable, the chunk, and the likely source module:
+During `pracht build`, a client-code reference to `process.env.X` or
+`import.meta.env.X` **fails the build** unless `X` is `PRACHT_PUBLIC_`-prefixed
+or a Vite built-in (`MODE`, `DEV`, `PROD`, `SSR`, `BASE_URL`, `NODE_ENV`). The
+error names the variable, the chunk, and the likely source module:
 
 ```
 [pracht] Environment variable leak detected in the client bundle:
   - process.env.DATABASE_URL in chunk "assets/dashboard-a1b2c3.js" (likely from "/src/routes/dashboard.tsx")
 
-Only PRACHT_PUBLIC_- or VITE_-prefixed variables may be referenced in client code
-(prefer publicEnv from "@pracht/core" for typed PRACHT_PUBLIC_ values).
+Only PRACHT_PUBLIC_-prefixed variables may be referenced in client code (prefer publicEnv from "@pracht/core" for typed public values).
+Move server-only reads into loaders/API routes and access them via serverEnv from "@pracht/core/env/server",
+or allowlist intentionally-safe names with pracht({ envSafety: { allow: [...] } }).
 ```
 
-Importing `@pracht/core/env/server` from client code also fails the build
-immediately. Route files may import it freely for `loader` / `headers` /
-`getStaticPaths` — the client transform strips those exports and the import
-along with them.
+Importing `@pracht/core/env/server` from client code also fails the build. Route
+files may import it for `loader`, `headers`, and `getStaticPaths`; the client
+build strips those exports along with the import.
 
-`pracht verify` (and `pracht doctor`) read the build-time env-safety report
-emitted to `dist/client/_pracht/env-safety.json` and re-run the leak scan
-against an existing `dist/client` output.
+`pracht verify` and `pracht doctor` re-check an existing `dist/client` build for
+the same leaks.
 
 ---
 
 ## Escape Hatch
 
-Intentional, known-safe references can be allowlisted, or the check disabled
-entirely in your Vite config:
+Allowlist known-safe references, or disable the check, in your Vite config:
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -203,17 +184,7 @@ export default defineConfig({
 
 ## Limits
 
-The check detects **references**, not values. A secret returned from a loader
-still reaches the client through hydration state, and a value inlined via a
-custom Vite `define` is invisible to the scan. Keep secrets out of loader
-return data, and use the `audit-secrets` skill for dataflow-level review of what
-your loaders send to the browser.
-
-
-### Verification and build checks
-
-`pracht verify` and `pracht build` recognize the same environment access syntax,
-including optional chaining and bracket access. Comments, string contents, and
-regular-expression literals do not count as reads; expressions inside template
-strings do. Verification checks source files, while the build also checks the
-emitted client bundles.
+The check sees **references**, not values. A secret returned from a loader still
+reaches the client through hydration state, and a value inlined by a custom
+Vite `define` is invisible to the scan. Keep secrets out of loader data; the
+`audit-secrets` skill reviews what your loaders send to the browser.

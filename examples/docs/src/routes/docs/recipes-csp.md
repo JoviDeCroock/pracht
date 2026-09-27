@@ -81,9 +81,9 @@ export function headers({ context }) {
 }
 ```
 
-`fontNonce` remains available as a backwards-compatible font-only override.
-SSG/ISG output cannot safely reuse a request nonce; keep linked CSS and use a
-stable hash or external stylesheet policy for static documents.
+`fontNonce` overrides the nonce for fonts only; prefer `styleNonce`. SSG/ISG
+output cannot reuse a request nonce, so keep linked CSS and use a stable hash
+or external stylesheet policy for static documents.
 
 ## Inline Script Entries
 
@@ -94,13 +94,12 @@ inline content.
 
 ## SSG/ISG Header Safety
 
-Headers for SSG and ISG pages are copied into the prerender header manifest so
-adapters can apply them to static HTML. That manifest is public static output
-for some adapters, so it must only contain public, replay-safe headers.
+Headers on SSG and ISG pages are stored with the static output, replayed to
+every visitor, and public on some adapters. Keep them to public, replay-safe
+values.
 
-Pracht fails SSG/ISG prerendering when document headers include dangerous names
-such as `Set-Cookie`, `Authorization`, `Proxy-Authenticate`,
-`WWW-Authenticate`, or secret-shaped custom `x-*` headers. Set cookies from API
+Prerendering fails if they include `Set-Cookie`, authentication headers such as
+`Authorization`, or secret-shaped custom `x-*` headers. Set cookies from API
 routes, middleware `Response`s, or SSR-only routes instead.
 
 ## Verify

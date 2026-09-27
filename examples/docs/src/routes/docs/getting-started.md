@@ -1,6 +1,6 @@
 ---
 title: Getting Started
-lead: Get a pracht app running in under a minute. This guide covers project creation, development, and your first production build.
+lead: Create a pracht app, run it locally, and ship your first production build.
 breadcrumb: Getting Started
 next:
   href: /docs/why-pracht
@@ -9,11 +9,10 @@ next:
 
 ## Requirements
 
-pracht needs **Node 22.18 or newer** — every package declares it in `engines.node`, and the CLI checks it before it loads anything else, so an older Node fails with the version rather than with a missing built-in. Scaffolded apps ship an `.nvmrc` and an `engines.node` field so build images (Cloudflare Pages, Netlify, Vercel, CI) pick a supported version instead of their own default.
+Node 22.18 or newer. Scaffolded apps include an `.nvmrc` and an `engines.node`
+field, so hosts and CI pick a supported version.
 
 ## Create a Project
-
-The fastest way to start is with `create-pracht`. It scaffolds a working app with routing, a shell, an API route, and your choice of deployment adapter.
 
 ```sh
 # pnpm
@@ -29,9 +28,19 @@ yarn create pracht my-app
 bunx create-pracht my-app
 ```
 
-The CLI will ask you to choose an adapter (Node.js, Cloudflare Workers, Netlify, Vercel, or a pure static export), whether to use the explicit manifest router or the file-system pages router, whether to add Tailwind CSS, and whether to seed the agent tooling. Adapters can be changed later in `vite.config.ts`. Moving from pages routing to manifest routing is an explicit ejection step when you need per-route shell or middleware assignment, explicit route ids, path-prefix groups, or webhook ISG policies; see [Pages Router](/docs/routing#pages-router-auto-discovery).
+The CLI asks for:
 
-For reproducible setup in CI, demos, or agents, pass the same choices as flags:
+- an adapter: Node.js, Cloudflare Workers, Netlify, Vercel, or a static export
+  (you can switch later in `vite.config.ts`);
+- a router: the explicit `src/routes.ts` manifest, or file-system `src/pages/`;
+- whether to add Tailwind CSS;
+- whether to add agent tooling.
+
+The pages router can be ejected to a manifest later, when you need per-route
+shells or middleware, explicit route ids, path-prefix groups, or webhook ISG.
+See [Pages Router](/docs/routing#pages-router-auto-discovery).
+
+For CI, demos, or agents, pass the choices as flags:
 
 ```sh
 pnpm create pracht my-app --adapter=node --router=manifest --template=tailwind --yes
@@ -39,13 +48,13 @@ pnpm create pracht my-app --adapter=cf --router=pages --no-tailwind --no-agent-t
 pnpm create pracht my-app --adapter=vercel --skip-install --yes
 ```
 
-Useful creation flags:
-
-- `--adapter=node|cf|vercel` chooses the deployment target.
-- `--router=manifest|pages` chooses explicit `src/routes.ts` routing or file-system `src/pages/` routing.
-- `--template=minimal|tailwind`, `--tailwind`, and `--no-tailwind` control styling setup.
-- `--agent-tools[=core|full]` and `--no-agent-tools` control `.claude/skills/`, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md` setup.
-- `--skip-install`, `--no-git`, `--json`, and `--dry-run` are handy for automation.
+- `--adapter=node|cf|netlify|vercel|static` chooses the deployment target.
+- `--router=manifest|pages` chooses the router.
+- `--template=minimal|tailwind`, `--tailwind`, and `--no-tailwind` control styling.
+- `--agent-tools[=core|full]` and `--no-agent-tools` control `.claude/skills/`,
+  `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`.
+- `--yes` accepts defaults. `--skip-install`, `--no-git`, `--json`, and
+  `--dry-run` help with automation.
 
 ---
 
@@ -78,11 +87,14 @@ my-app/
   package.json
 ```
 
-Depending on your choices, the starter can also include Tailwind's `src/styles/global.css`, adapter files such as `wrangler.jsonc` or `Dockerfile`, and agent files under `.claude/skills/` plus `.mcp.json`.
+Depending on your choices, the starter also includes Tailwind's
+`src/styles/global.css`, adapter files such as `wrangler.jsonc` or `Dockerfile`,
+and agent files under `.claude/skills/` plus `.mcp.json`.
 
 ### TypeScript settings pracht requires
 
-pracht's packages are ESM-only and publish their types through `exports`, so your `tsconfig.json` needs a resolver that reads it:
+pracht's packages are ESM-only and publish their types through `exports`, so
+`tsconfig.json` needs a resolver that reads it:
 
 ```json [tsconfig.json]
 {
@@ -95,19 +107,23 @@ pracht's packages are ESM-only and publish their types through `exports`, so you
 }
 ```
 
-`"node16"` and `"nodenext"` work too. The legacy `"moduleResolution": "Node"` (node10) does not — it predates `exports`, and every import of `@pracht/core` fails with `TS2307: Cannot find module '@pracht/core' or its corresponding type declarations`. Nothing else notices: Vite resolves `exports` and the app builds and runs, so the errors only appear when someone runs `tsc`. `create-pracht` scaffolds the right value; `pracht doctor` warns when an existing project carries the old one. See [Import Paths](/docs/reference/api#import-paths) for the browser-conditioned `tsconfig.client.json` that goes with it.
+`"node16"` and `"nodenext"` work too. The legacy `"moduleResolution": "Node"`
+does not: the app still builds and runs, but `tsc` fails every `@pracht/core`
+import with `TS2307`. `create-pracht` scaffolds the right value, and
+`pracht doctor` warns about the old one.
+
+See [Import Paths](/docs/reference/api#import-paths) for the matching
+`tsconfig.client.json`.
 
 ---
 
 ## Development
 
-Start the dev server with HMR. Changes to routes, shells, and loaders are reflected instantly.
-
 ```sh
 pnpm dev
 ```
 
-Open `http://localhost:3000` to see your app. Edit `src/routes/home.tsx` and watch it update.
+Open `http://localhost:3000`, edit `src/routes/home.tsx`, and watch it update.
 
 ---
 
@@ -118,9 +134,9 @@ Open `http://localhost:3000` to see your app. Edit `src/routes/home.tsx` and wat
 pnpm build
 ```
 
-The build writes `dist/client/` (static assets and prerendered SSG pages) and
-`dist/server/` (the server bundle in whatever shape the adapter needs). For a
-Node.js target you can run it straight away:
+The build writes `dist/client/` (static assets and prerendered pages) and
+`dist/server/` (the server bundle in the shape your adapter needs). For a
+Node.js target, run it directly:
 
 ```sh
 node dist/server/server.js
@@ -130,13 +146,10 @@ node dist/server/server.js
 
 ## Deploy
 
-The scaffold already contains the platform config and a `deploy` script for the
-adapter you chose, so getting a public URL is one command.
+Cloudflare, Netlify, and Vercel scaffolds include the platform config and a
+`deploy` script.
 
 ### Cloudflare Workers — the shortest path
-
-Scaffold with the Cloudflare adapter and you get a `wrangler.jsonc` and
-`wrangler` as a dev dependency, already installed. Nothing else to write:
 
 ```sh
 pnpm create pracht my-app --adapter=cf --yes
@@ -144,27 +157,19 @@ cd my-app
 pnpm run deploy
 ```
 
-That script is `pracht build && wrangler deploy`. The first run opens a browser
-to authorize Wrangler against your Cloudflare account (or set
-`CLOUDFLARE_API_TOKEN` in CI instead), then prints the live URL —
-`https://my-app.<your-subdomain>.workers.dev`. Redeploy with the same command.
+The script runs `pracht build && wrangler deploy`. The first run opens a browser
+to authorize Wrangler (in CI, set `CLOUDFLARE_API_TOKEN` instead), then prints
+your `https://my-app.<your-subdomain>.workers.dev` URL.
 
 > [!NOTE]
 > Use `pnpm run deploy`, not `pnpm deploy`: pnpm has a built-in `deploy`
-> command of its own that would run instead of the script.
+> command that would run instead of the script.
 
-Static assets are served from `dist/client` through the Worker's `ASSETS`
-binding, and the Worker itself handles SSR, API routes, and ISG. Add KV, D1, R2,
-or cron triggers by editing `wrangler.jsonc`; bindings arrive as `context.env`
-in loaders and API routes.
-
-For a production-shaped local run first, `pracht preview` delegates to Wrangler
-and serves the built app on `localhost`.
+Add KV, D1, R2, or cron triggers in `wrangler.jsonc`; bindings arrive as
+`context.env` in loaders and API routes. `pracht preview` serves the built app
+locally through Wrangler.
 
 ### Vercel
-
-Equally short, with one extra interaction — the first deploy asks which Vercel
-project to link the directory to:
 
 ```sh
 pnpm create pracht my-app --adapter=vercel --yes
@@ -172,23 +177,20 @@ cd my-app
 pnpm run deploy
 ```
 
-That script is `pracht build && vercel deploy --prebuilt`. `pracht build`
-already emits Vercel's Build Output API structure, which is what `--prebuilt`
-consumes — SSG pages as static files, SSR and API routes on an Edge Function,
-ISG routes on Vercel's native ISR.
+The script runs `pracht build && vercel deploy --prebuilt`. The first deploy asks
+which Vercel project to link.
 
 ### Everything else
 
-Node.js (including Docker), Netlify, and pure static hosts are each one adapter
-swap in `vite.config.ts`. See [Deployment](/docs/deployment) for the per-platform
-commands, ISG behaviour, and deploy-base handling, and
-[Adapters](/docs/adapters) for what each adapter emits.
+Node.js (including Docker), Netlify, and static hosts are each one adapter swap
+in `vite.config.ts`. See [Deployment](/docs/deployment) for per-platform
+commands and [Adapters](/docs/adapters) for what each adapter emits.
 
 ---
 
-## Key Concepts
+## Next Steps
 
-- **Route manifest** — `src/routes.ts` declares all routes, their shells, middleware, and render modes. See [Routing](/docs/routing).
+- **Route manifest** — `src/routes.ts` declares routes, shells, middleware, and render modes. See [Routing](/docs/routing).
 - **Render modes** — each route can be SSR, SSG, ISG, or SPA. See [Rendering Modes](/docs/rendering).
 - **Loaders & API routes** — server-side data fetching and mutations. See [Data Loading](/docs/data-loading).
 - **Adapters** — deploy to Node.js, Cloudflare Workers, Netlify, Vercel, or a static host. See [Adapters](/docs/adapters).

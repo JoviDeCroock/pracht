@@ -12,7 +12,7 @@ next:
 
 ## create-pracht
 
-`create-pracht` bootstraps a new application. It can run interactively, or fully non-interactively for agents and CI.
+`create-pracht` bootstraps a new application, interactively or fully non-interactively for agents and CI.
 
 ```sh
 # Interactive
@@ -30,10 +30,11 @@ pnpm create pracht my-app --adapter=vercel --template=tailwind --yes
 
 Options:
 
-- `--adapter=node|cf|netlify|vercel|static` — choose Node.js, Cloudflare Workers, Netlify, Vercel, or pure static output.
-- `--router=manifest|pages` — choose explicit `src/routes.ts` routing or file-system `src/pages/` routing.
-- `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — control Tailwind setup.
+- `--adapter=node|cf|netlify|vercel|static` — Node.js, Cloudflare Workers, Netlify, Vercel, or pure static output.
+- `--router=manifest|pages` — explicit `src/routes.ts` routing or file-system `src/pages/` routing.
+- `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — Tailwind setup.
 - `--agent-tools[=core|full]`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`. `core` (the default) seeds five skills; `full` seeds the whole catalog. Add more later with [`pracht skills add`](#pracht-skills).
+- `--yes` — skip the prompts and use the defaults for anything not passed: a `pracht-app` directory, Node, manifest router, no Tailwind, core agent tools.
 - `--skip-install` — write files without installing dependencies.
 - `--no-git` — skip `git init` and the initial commit.
 - `--json` — print a machine-readable summary.
@@ -45,27 +46,25 @@ Generated apps include `dev`, `build`, and `typecheck` scripts. Node and Cloudfl
 
 ## pracht dev
 
-Starts the Vite dev server with SSR middleware, HMR, and instant feedback.
+Starts the Vite dev server with SSR and HMR.
 
 ```sh
 pracht dev
 
-# Custom port
-pracht dev --port 4000    # or PORT=4000 pracht dev
+# Custom port (default: $PORT or 3000)
+pracht dev --port 4000
 
 # Isolate Vite's optimizer cache for concurrent dev servers
 pracht dev --cache-dir /tmp/pracht-vite-cache
 ```
 
-Routes are rendered server-side on each request. Changes to routes, shells, loaders, and components are reflected immediately via HMR.
+Routes render server-side on each request. Changes to routes, shells, loaders, and components apply via HMR.
 
-A failing loader, middleware, or render prints one line to the terminal — phase, route id, request path, and message — alongside the browser error overlay, so failures on a client-side navigation, a `curl`, or a test run are visible server-side too. Failures that name no file of yours also print their stack; set `DEBUG` to print it for every failure.
+A failing loader, middleware, or render prints one terminal line — phase, route id, request path, and message — next to the browser error overlay. Failures that name none of your files also print their stack; set `DEBUG` to print it for every failure.
 
-Vite normally writes its optimizer cache to `node_modules/.vite`. When multiple
-dev servers use the same checkout, pass a distinct `--cache-dir` to each one so
-their atomic cache updates cannot race.
+When several dev servers share one checkout, give each its own `--cache-dir` so they do not race on Vite's optimizer cache (default `node_modules/.vite`).
 
-The startup banner prints the resolved app graph: every route with its render mode, shell, and middleware, every API endpoint with its methods, and — when the app registers any — every [capability](/docs/capabilities) with its effect class, exposure, and dispatch path.
+The startup banner prints the resolved app graph: routes with render mode, shell, and middleware; API endpoints with methods; and any [capabilities](/docs/capabilities) with effect class, exposure, and dispatch path.
 
 ---
 
@@ -75,31 +74,24 @@ Runs a production build: client bundle, server bundle, and SSG/ISG prerendering.
 
 ```sh
 pracht build
+pracht build --analyze          # per-route client JS report
+pracht build --json             # the same report as JSON (implies --analyze)
+pracht build --no-budget-fail   # warn instead of failing on an exceeded budget
 ```
 
 Output:
 
-- `dist/client/` — static assets with hashed filenames
+- `dist/client/` — static assets with hashed filenames, plus prerendered SSG HTML
 - `dist/server/server.js` — server entry module
-- SSG routes are pre-rendered as static HTML in `dist/client/`
 
----
-
-After `pracht build`, Node.js targets can run the generated server with:
-
-```sh
-node dist/server/server.js
-```
-
-Cloudflare and Vercel targets should use their platform tooling against the
-generated build output.
+Node targets run the build with `node dist/server/server.js`. Cloudflare and Vercel targets use their platform tooling against the build output. Per-route client JS limits are set with [`budgets`](/docs/reference/config).
 
 ---
 
 ## pracht preview
 
-Builds and serves the production target locally. Reuse an existing build for a
-faster smoke test with `--skip-build`:
+Builds and serves the production target locally. `--skip-build` reuses an
+existing build for a faster smoke test:
 
 ```sh
 pracht preview
@@ -107,44 +99,54 @@ pracht preview --port 4000
 pracht preview --skip-build
 ```
 
-- **Node** runs `dist/server/server.js` and inherits the host environment.
-- **Cloudflare** delegates to `wrangler dev` and requires Wrangler plus a
-  Wrangler config whose `main` points at `dist/server/worker.js`. Put local
-  Worker secrets in a gitignored `.dev.vars`; shell-prefixed host variables are
-  not automatically Worker bindings.
-- **Vercel** has no faithful local production runtime. The command exits 1 with
-  guidance to use `vercel build` or `vercel dev` instead.
+- **Node** runs `dist/server/server.js` with the host environment. **Static**
+  serves `dist/client/`.
+- **Cloudflare** runs `wrangler dev`. It needs Wrangler and a Wrangler config
+  whose `main` is `dist/server/worker.js`. Put local Worker secrets in a
+  gitignored `.dev.vars`; shell environment variables are not Worker bindings.
+- **Netlify** and **Vercel** have no faithful local runtime. The command exits 1
+  and points you to `netlify dev`, or `vercel build` and `vercel dev`.
 
-The command stays attached to the preview process and exits with that process's
-status. It has no JSON mode because it is a long-running server command.
+The command stays attached to the preview process and exits with its status.
 
 ---
 
 ## pracht generate
 
-Framework-native scaffolding keeps route, shell, middleware, and API module conventions in one place.
+Scaffolds routes, shells, middleware, API routes, and capabilities using the framework's own conventions.
 
 ```sh
 pracht generate shell --name app
 pracht generate middleware --name auth
 pracht generate route --path /dashboard --render ssr --shell app --middleware auth
 pracht generate api --path /health --methods GET,POST
+pracht generate capability --name notes.search --expose http --description "Find notes matching a query."
 ```
 
-> On Windows Git Bash/MSYS shells, leading `/` arguments may be rewritten as absolute Windows paths before Node sees them. If `--path /dashboard` reports that it would write outside `src/routes`, use PowerShell/CMD or pass `MSYS_NO_PATHCONV=1` when invoking the `pracht` binary directly.
+| Subcommand | Flags |
+| --- | --- |
+| `route` | `--path` (required), `--render` (`ssr` default, `spa`, `ssg`, `isg`), `--shell`, `--middleware` (comma-separated), `--loader`, `--error-boundary`, `--static-paths`, `--title`, `--revalidate <seconds>` (ISG only), `--test` / `--no-test` |
+| `shell` | `--name` (required) |
+| `middleware` | `--name` (required) |
+| `api` | `--path` (required), `--methods` (comma-separated, default `GET`) |
+| `capability` | `--name` (required, e.g. `notes.search`), `--effect` (`read` default, `write`, `destructive`), `--expose` (comma-separated `http`, `webmcp`, `mcp`; omit to keep it private), `--title`, `--description` (required with `--expose`) |
 
-- Manifest apps update `src/routes.ts` automatically for routes, shells, and middleware.
-- Pages-router apps scaffold route files into `src/pages/`; with a serverful adapter, `generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts` (the only middleware seam in pages mode). Pure static exports cannot use request middleware.
-- `generate capability` works in both modes. Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the generated module declares its own `name` and no manifest is written. `generate shell` stays manifest-only — pages apps add an `_app.tsx` to the directory they want it to wrap.
-- Add `--json` when another tool or agent needs machine-readable output.
+Every subcommand accepts `--json` for machine-readable output.
 
-`generate route` also emits a Playwright smoke test at `e2e/<route-id>.spec.ts` whenever the app has a Playwright setup (a `playwright.config.*` file or an `e2e/` directory). The test visits the route with example values for dynamic params (`/blog/:slug` → `/blog/example-slug`), asserts the response status is below 400, and checks the `h1` text. `--test` forces the test, `--no-test` skips it. Generated tests import `@playwright/test`; if it is not installed, the generator prints the required follow-up (`pnpm add -D @playwright/test`).
+- Manifest apps register routes, shells, middleware, and capabilities in `src/routes.ts`.
+- Pages-router apps get route files in `src/pages/`. Capabilities are auto-discovered from `src/capabilities/`, so the module declares its own `name`.
+- In pages mode, `generate middleware --name _middleware` scaffolds the root `src/pages/_middleware.ts`, the only middleware seam; it needs a serverful adapter. `generate shell` is manifest-only; pages apps add an `_app.tsx` to the directory it should wrap.
+
+`generate route` also writes a Playwright smoke test to `e2e/<route-id>.spec.ts` when the app has a Playwright setup. `--test` forces it and `--no-test` skips it. See [Generated Smoke Tests](/docs/coding-agents#generated-smoke-tests).
+
+> [!NOTE]
+> Git Bash/MSYS on Windows may rewrite a leading `/` in `--path /dashboard` into a Windows path. Use PowerShell or CMD, or set `MSYS_NO_PATHCONV=1` when invoking the `pracht` binary directly.
 
 ---
 
 ## pracht typegen
 
-Generates typed declarations from the same resolved app graph the dev banner and `pracht inspect` read, so navigation, API calls, and capability calls all check at compile time.
+Generates typed declarations from the resolved app graph, so navigation, API calls, and capability calls check at compile time.
 
 ```sh
 pracht typegen
@@ -159,37 +161,36 @@ It writes up to three files:
 | `src/pracht-routes.ts` | the runtime [`href()`](/docs/routing) helper |
 | `src/pracht-capabilities.d.ts` | each [capability](/docs/capabilities)'s input/output types, effect class, and exposure — written only when the app registers capabilities |
 
-Override any path with `--out`, `--runtime-out`, and `--capabilities-out`; add `--json` for machine-readable output. Removing the last capability rewrites an existing declaration to the empty registration rather than leaving it stale.
+Override any path with `--out`, `--runtime-out`, and `--capabilities-out`; add `--json` for machine-readable output.
 
-`--check` asks whether the declarations are stale, not whether the bytes changed: the files are compared by their declarations, so a formatter that reindents them, swaps the quotes, or drops the semicolons does not make the check fail. Regenerating leaves an already-correct file alone for the same reason, so `pracht typegen` and your formatter cannot undo each other. Editing what the file says — a route id, a path, a capability's description — is still reported.
+`--check` compares declarations, not bytes, so reformatting the generated files never fails it. Regenerating leaves a correct file untouched, so `pracht typegen` and your formatter do not undo each other.
 
-After the first run, `pracht dev` refreshes the generated types automatically when route files are added, removed, or renamed and when the manifest or an imported definition module changes. Re-run it after upgrading pracht — a declaration file generated by an older version keeps working but misses newer checks.
+After the first run, `pracht dev` refreshes the types when route files, the manifest, or an imported definition module change. Re-run `pracht typegen` after upgrading pracht to pick up newer checks.
 
 ---
 
 ## pracht doctor
 
-Validate the current app wiring and surface missing files or configuration drift.
+Validates app wiring and reports missing files or configuration drift.
 
 ```sh
 pracht doctor
 pracht doctor --json
 ```
 
-The doctor command checks:
+It checks:
 
-- `vite.config.*` presence and `pracht()` registration
-- App manifest or pages-router directory wiring
+- `vite.config.*` exists and registers `pracht()`
+- The app manifest or pages-router directory wiring
 - Referenced shell, middleware, and route modules
-- Package-level CLI and adapter dependencies
-- A `tsconfig.json` whose `moduleResolution` predates package `exports` (`"node"`, `"node10"`, `"classic"`), which makes every `@pracht/core` import unresolvable to `tsc` while Vite still builds the app
+- CLI and adapter package dependencies
+- A `tsconfig.json` whose `moduleResolution` predates package `exports` (`"node"`, `"node10"`, `"classic"`), which breaks `@pracht/core` imports under `tsc` while Vite still builds
 
 ---
 
 ## pracht inspect
 
-Reads the resolved app graph instead of inferring application structure from
-file names:
+Prints the resolved app graph instead of inferring structure from file names:
 
 ```sh
 pracht inspect                 # all targets
@@ -201,50 +202,34 @@ pracht inspect build
 pracht inspect all --json
 ```
 
-Targets are `routes`, `api`, `capabilities`, `agents`, `build`, and `all`. The
-`agents` target summarizes the configured agent surface rather than one graph
-slice: the Web Bot Auth policy and trusted keys, the destructive-confirmation
-mode, whether remote MCP and `llms.txt` are enabled, and which capabilities are
-exposed on which transports (with capabilities that have no `expose` config
-counted as `private`). The `llms.txt` state comes from the Vite plugin's resolved
-production server-build configuration, so computed, build-only, and
-production-only options are reported accurately. If the CLI is newer than the
-installed Vite plugin and that plugin does not expose the resolved flag, JSON
-reports `null` and text reports `unknown` instead of incorrectly saying the
-feature is off; upgrade `@pracht/vite-plugin` to resolve it. It also flags
-capabilities that set `expose.mcp` while the manifest leaves `agents.mcp`
-unconfigured — exposure recorded in the graph that nothing serves. An empty
-capability list means there are no capability operations; it does not erase the
-separately reported `llms.txt`, MCP endpoint, or Web Bot Auth surfaces. The `build`
-target reports the adapter, client entry, and asset manifests and is most useful
-after `pracht build` — its CSS manifest covers routes that never enter the client
-bundle, which `dist/client/.vite/manifest.json` cannot; the other targets evaluate the live Vite app graph. Use
-`--json` for stable machine-readable output. Unknown targets and graph-loading
-errors exit non-zero. Registered API and capability modules are loaded strictly
-for live inspection: a module initialization error, unsupported runtime import,
-or invoked graph-only helper keeps its original route, file, module, or API name
-instead of falling back to inferred or null metadata. The same fail-closed
-behavior applies to `pracht plan`, MCP inspection tools, and the live graph checks
-in `pracht verify`. Capability type generation also loads capability contracts
-strictly; API type generation deliberately reads route paths without executing
-API modules.
+| Target | Reports |
+| --- | --- |
+| `routes` | Page routes: render and hydration mode, shell, middleware, loader |
+| `api` | API endpoints and their methods |
+| `capabilities` | Capabilities: effect class, exposure, HTTP path, middleware, remote MCP status |
+| `agents` | The agent surface: Web Bot Auth policy and keys, confirmation mode, remote MCP, `llms.txt`, and per-transport exposure counts |
+| `build` | Adapter, client entry, and CSS/JS manifests, including CSS for routes that ship no JavaScript. Run it after `pracht build` |
+| `all` | Everything (the default) |
 
-The capabilities and agents targets also report effective remote MCP status.
-Their JSON objects include `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`, and
-`mcpUnavailableReasons`. Graph-only text output labels affected declarations
-`mcp(unverified)` when a missing precondition may be registered by the skipped
-adapter server entry, and prints the locally unmet preconditions. A runtime-backed
-`/_pracht` graph uses `blocked` and `mcp(unserved)` for a verified failure.
+The `agents` target also flags capabilities that set `expose.mcp` while
+`agents.mcp` is unconfigured, so nothing serves them.
 
-For Cloudflare apps, graph inspection provides fail-closed placeholders rather
-than a fake Worker runtime. Importing `env`/`exports` and importing or subclassing
-runtime classes is safe, but reading any binding property or constructing a
-runtime class fails with the exact unavailable API. This is intentionally
-stricter than Workers itself: capability and API modules that participate in the
-app graph must read bindings inside `run()`, the API handler, or another
-request-time function — never during module initialization. Graph tools cannot
-supply authoritative bindings, and an opaque JavaScript value cannot intercept
-Boolean checks, `typeof`, or strict equality without risking false graph metadata.
+For remote MCP, the JSON output includes `mcpEndpoint`, `mcpDestructive`,
+`mcpRuntimeStatus`, and `mcpUnavailableReasons`. Text output marks an exposure
+`mcp(unserved)` when a requirement is verifiably missing and `mcp(unverified)`
+when inspection cannot confirm it. See [Remote
+MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser).
+
+Use `--json` for stable machine-readable output. Unknown targets and
+graph-loading errors exit non-zero. If a registered API or capability module
+fails to load, `inspect`, `plan`, `verify`, and the MCP inspection tools fail
+and name it rather than report partial metadata.
+
+On Cloudflare, read bindings inside a handler or `run()`, never at module top
+level. Graph commands load your modules without real bindings, so a top-level
+binding read or Workers runtime-class construction fails with the API named.
+Importing `env` is fine. See [Accessing Cloudflare
+bindings](/docs/adapters#accessing-cloudflare-bindings).
 
 ---
 
@@ -265,48 +250,46 @@ pracht plan --json
 pracht plan --markdown
 ```
 
-The snapshot works like a lockfile for the route graph: `pracht verify` fails when `.pracht/app-graph.json` is stale, with the fix in the message (run `pracht plan --write`). See [Coding Agents](/docs/coding-agents#the-route-graph-lockfile) for the full workflow.
-
-Capability changes are marked `!` when they widen what agents can reach — a new exposure, a downgraded `agentPolicy`, dropped middleware, or a loosened input schema — and `--markdown` puts a callout above the diff so the line is not missed.
+`pracht verify` fails when the committed snapshot is stale; run `pracht plan --write` to refresh it. A `!` marks a capability change that widens what agents can reach. See [The Route-Graph Lockfile](/docs/coding-agents#the-route-graph-lockfile) for the workflow.
 
 ---
 
 ## pracht verify
 
-Runs deterministic, framework-aware checks over adapter wiring, route and API
-modules, capability contracts, declared graph constraints, environment safety,
-and app-graph snapshot freshness:
+Runs deterministic checks over adapter wiring, route and API modules,
+capability contracts, declared [constraints](/docs/coding-agents#constraints),
+environment safety, and app-graph snapshot freshness:
 
 ```sh
 pracht verify
 pracht verify --changed
 pracht verify --json
-pracht verify webmcp --url http://localhost:3000
-pracht verify webmcp --start "pracht preview" --json
 ```
 
-`--changed` narrows file-oriented checks for a fast local loop; use the default
-full scope before committing. The command exits 1 when any blocking check
-fails. `--json` emits the same checks, scope, and final `ok` value for CI and
-agents. Adapter-specific checks use the target resolved from the app's Vite
-configuration.
+`--changed` narrows file-oriented checks to changed files for a fast local
+loop; run the full scope before committing. The command exits 1 when a blocking
+check fails. `--json` emits the checks, scope, and final `ok` value.
 
-`pracht verify webmcp` is the live complement to those static checks. It finds
-an installed Chrome/Chromium build, launches it with WebMCP testing enabled,
-visits routes that activate page tools, and compares the browser-owned registry
-with the resolved capability graph. It also navigates to a route without tools
-to prove old route registrations are removed. Framework-owned `pracht_*`
-development page tools are excluded from app-graph parity; other unexpected
-registrations still fail as drift. Pracht does not download a browser: use
-Chrome 150+ and pass `--browser /pinned/path/to/chrome` in CI.
-`--url` points at a running app; `--start` uses the same managed-server shape as
-`pracht eval`. The command exits 1 for startup failure, unsupported APIs,
-registration failure, or drift. JSON includes the browser/version, each route,
-expected and observed descriptors, and focused mismatches.
+`pracht verify webmcp` checks the live browser against the capability graph:
 
-To prove a known-safe invocation too, pass
-`--scenario evals/notes-webmcp.eval.json`. Only explicitly listed scenario
-steps run; the report includes their results and cancellation proof.
+```sh
+pracht verify webmcp --url http://localhost:3000
+pracht verify webmcp --start "pracht preview" --json
+pracht verify webmcp --start "pracht preview" --scenario evals/notes-webmcp.eval.json
+```
+
+It launches an installed Chrome 150+ with WebMCP testing enabled, visits each
+route that activates page tools, and exits 1 on startup failure, unsupported
+APIs, registration failure, or drift — including tools left behind after
+navigation. The dev-only `pracht_*` tools are ignored. Pracht never downloads a
+browser; pin one in CI with `--browser`.
+
+- `--url` — the running app (default `http://localhost:3000`).
+- `--start "<command>"` — start the app, verify, then stop it, as in `pracht eval`.
+- `--browser <path>` — Chrome/Chromium executable; auto-detected when omitted.
+- `--timeout <ms>` — browser, navigation, and startup timeout (default 10000).
+- `--scenario <files>` — comma-separated WebMCP eval scenarios whose listed steps also run.
+- `--json` — machine-readable report.
 
 ---
 
@@ -319,7 +302,7 @@ pracht report
 pracht report --base origin/release --out report.md
 ```
 
-Use it as the factual half of a PR description — the author adds the "why".
+`--base` sets the git ref (default `origin/main`); `--out` writes to a file instead of stdout. See [PR Reports from Machine Truth](/docs/coding-agents#pr-reports-from-machine-truth).
 
 ---
 
@@ -337,20 +320,19 @@ pracht eval evals/notes-webmcp.eval.json --browser /pinned/path/to/chrome
 pracht eval --json
 ```
 
-A scenario picks its transport: the capability HTTP projection by default, the
-app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with `"transport": "mcp"`,
-or a browser-owned page-tool registry with `"transport": "webmcp"` and
-`"webmcpRoute": "/notes"`. MCP performs an `initialize` handshake and
-`tools/call`; WebMCP uses native `getTools()` / `executeTool()` and supports an
-explicit per-step `cancelAfterMs`. See [Agent Trust](/docs/agent-trust) for the
-scenario format.
+A scenario calls the capability HTTP projection by default, the app's [remote
+MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser)
+with `"transport": "mcp"`, or the browser's page tools with `"transport":
+"webmcp"` and a `"webmcpRoute"`. See [pracht
+eval](/docs/agent-trust#pracht-eval-prove-agent-flows-in-ci) for the scenario
+format.
 
-Each scenario may declare its own URL, or `--url` can override all of them.
-`--start` launches one server for the entire run, waits for it to answer, and
-stops its process group afterward. Choose a start command that matches the
-adapter: `pracht preview` works for Node and Cloudflare, while Vercel needs a
-deployed URL or a separately managed `vercel dev`. `--json` emits the overall
-status and every scenario/step result.
+`--url` overrides every scenario's own URL. `--start` launches one server for
+the run, waits for it to answer, and stops it afterward. `pracht preview` works
+for Node, Cloudflare, and static; Netlify and Vercel need a deployed URL or your
+own `netlify dev` / `vercel dev`.
+`--browser` pins Chrome for WebMCP scenarios, and `--json` reports every
+scenario and step.
 
 ---
 
@@ -363,41 +345,34 @@ pracht llms
 
 # Write the guide to llms.txt in the app root
 pracht llms --write
+
+# Write it somewhere else (implies --write)
+pracht llms --out docs/pracht-guide.md
 ```
 
-The same guide is available from the authoring MCP server (`pracht dev-mcp`) via the `get_docs` tool, alongside `plan` and `report` tools and the existing `inspect_*`, `doctor`, `verify`, and `generate_*` tools.
+The `get_docs` tool of [`pracht dev-mcp`](#pracht-dev-mcp) serves the same guide.
 
 ---
 
 ## pracht dev-mcp
 
-Starts a Model Context Protocol server over stdio for coding agents:
+Starts the authoring Model Context Protocol server over stdio for coding agents:
 
 ```sh
 pracht dev-mcp
 ```
 
-This is the **authoring** server: it exposes your app's *graph* to the agent
-writing the code. It is not your app's own [remote MCP
-endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), which exposes your app's *operations* to end-user
-agents in production. The command was called `pracht mcp` through v1.12; that
-name still works and behaves identically, printing a deprecation notice to
-stderr.
+It gives the agent writing your code your app's *graph*: docs, inspection,
+doctor, verify, plan, report, typegen, eval, and generators. Register it as a
+local MCP server in your client instead of running it by hand; it runs until
+the client disconnects. `pracht mcp` is a deprecated alias that behaves
+identically and prints a notice to stderr.
 
-Configure the command as a local MCP server rather than running it as a human
-interactive prompt. The protocol owns stdout; diagnostics go to stderr so they
-cannot corrupt JSON-RPC frames. It serves docs, graph inspection, doctor,
-verify, plan/report, and generation tools against the current app. The command
-runs until its MCP client disconnects and exits non-zero on startup or protocol
-failure. There is no `--json` flag because MCP frames are already structured
-protocol output. It is adapter-independent, although individual inspection and
-verification results reflect the configured target.
-
-See [Coding Agents](/docs/coding-agents#the-authoring-mcp-server) for client
-registration and the full tool reference. This is the *development-time* server;
-serving your app's own capabilities to end-user agents in production is
-[remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser),
-a different thing entirely.
+This is not your app's own [remote MCP
+endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser),
+which serves your app's *operations* to end-user agents in production. See
+[The Authoring MCP Server](/docs/coding-agents#the-authoring-mcp-server) for
+client registration and the tool reference.
 
 ---
 
@@ -414,32 +389,24 @@ pracht skills list
 pracht skills add audit-loaders add-db
 ```
 
-`create-pracht` seeds a small core set — `pracht-scaffold`, `pracht-debug`,
-`pracht-deploy`, `upgrade-pracht`, `add-capabilities` — because every skill
-description sits in the agent's system prompt for every session whether the
-skill runs or not. `pracht skills add` is how you take the rest, one at a time.
-Pass `--agent-tools=full` at scaffold time to start with all of them.
+`create-pracht` seeds five core skills; `pracht skills add` installs others one
+at a time. See [Context Cost](/docs/coding-agents#context-cost) for why the
+default set is small.
 
-The index is treated as untrusted input, because its contents land in the
-directory your coding agent reads instructions from:
+`add` treats the index as untrusted:
 
-- Every entry must carry a 64-character hex SHA-256, and `add` verifies the
-  downloaded body against it. An index missing a digest on any entry is
-  rejected whole, before anything is written.
-- The index and every skill URL must be `https` (plain `http` is allowed only
-  for `localhost`, so you can serve an offline mirror).
-- Skill names must match `[a-z0-9][a-z0-9-]*`, so a name from the index can
-  never resolve outside `.claude/skills/`.
-- If `.claude/skills` is a symlink, `add` refuses rather than writing through
-  it — this repository points its own at the canonical `skills/` sources, and
-  a stray `add` there would rewrite the published catalog. `--force` allows it
-  when the link still resolves inside the project; a link escaping the project
-  is always refused.
+- It verifies every download against the index's SHA-256 digest, and rejects
+  the whole index if any entry lacks one.
+- The index and skill URLs must use `https`; `http` is allowed only for
+  `localhost`, e.g. an offline mirror.
+- It refuses to write through a symlinked `.claude/skills` or skill directory.
+  `--force` allows a link that stays inside the project; one that leaves it is
+  always refused.
 
-An already-installed skill is skipped unless you pass `--force`. `--index <url>`
-points both subcommands at a different catalog, and `--json` gives both
-machine-readable output — `add --json` always reports `installed`, `skipped`,
-and `failed`, and exits non-zero if anything failed.
+An installed skill is skipped unless you pass `--force`. `--index <url>` points
+either subcommand at a different catalog. `--json` gives machine-readable
+output; `add --json` reports `installed`, `skipped`, and `failed`, and exits
+non-zero if anything failed.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: Testing
-lead: Test your pracht app at every level — unit test loaders, API routes, middleware, and form submissions with Vitest and `@pracht/test`, run full E2E tests with Playwright to verify rendering, navigation, and hydration, and prove your agent surfaces with capability tests and `pracht eval`.
+lead: Unit test loaders, API routes, middleware, and forms with Vitest and `@pracht/test`, verify rendering and hydration end to end with Playwright, and prove your agent surfaces with capability tests and `pracht eval`.
 breadcrumb: Testing
 prev:
   href: /docs/recipes/view-transitions
@@ -12,7 +12,7 @@ next:
 
 ## Recommended Setup
 
-Pracht apps are built on Vite, so **Vitest** is the natural choice for unit and integration tests. For E2E browser tests, use **Playwright**. `@pracht/test` ships the first-party unit-test helpers: typed args factories, a middleware chain runner, form submission helpers, and minimal response readers.
+Use **Vitest** for unit and integration tests and **Playwright** for E2E browser tests. `@pracht/test` adds typed args factories, a middleware chain runner, form submission helpers, and response readers.
 
 ```sh
 # Install test dependencies
@@ -23,7 +23,7 @@ pnpm add -D vitest @playwright/test @pracht/test
 
 ## Unit Testing Loaders & API Routes
 
-Loaders and API route handlers are plain async functions. `@pracht/test` builds their args objects — a complete `LoaderArgs`/`ApiRouteArgs` with a `Request`, `params`, `url` (derived from the request), `context`, `signal`, and route metadata — from a small shorthand. Every field has a sensible default; override only what the code under test reads.
+Loaders and API route handlers are plain async functions. `@pracht/test` builds their full args (`request`, `params`, `url`, `context`, `signal`, route metadata) from a shorthand, with a default for every field.
 
 ### Testing a loader
 
@@ -50,7 +50,7 @@ describe("dashboard loader", () => {
 });
 ```
 
-The shorthand accepts `url` (relative paths resolve against `http://localhost`), `method`, `headers`, `body` (a plain object is JSON-encoded; `BodyInit` values pass through, with Blob/File and `URLSearchParams` normalized across JSDOM/Node realms), `params`, a partial `context`, and `route` overrides — or a fully-formed `request` that wins over all of them. The returned args also expose `controller`, the `AbortController` behind `args.signal`:
+The shorthand accepts `url` (relative paths resolve against `http://localhost`), `method`, `headers`, `body` (plain objects are JSON-encoded), `params`, a partial `context`, and `route` overrides. A full `request` overrides them all. `args.controller` aborts `args.signal`:
 
 <!-- snippet: partial -->
 ```ts
@@ -62,7 +62,7 @@ await expect(pending).rejects.toThrow();
 
 ### Testing an API route
 
-`createApiArgs()` builds the same shape for API handlers — plain or `defineApi()`-wrapped — and `readJson()` reads a response body without consuming it:
+`createApiArgs()` builds the same shape for API handlers, plain or `defineApi()`-wrapped. `readJson()` reads a response body without consuming it:
 
 ```ts [src/api/items.test.ts]
 import type { ApiValidationErrorBody } from "@pracht/core";
@@ -98,7 +98,7 @@ describe("items API route", () => {
 
 ### Testing form submissions
 
-`submitForm()` builds the request a form submission actually sends — `application/x-www-form-urlencoded` by default, switching to `multipart/form-data` automatically when any field is a `File` — and calls the handler with it. This exercises the same `FormData` parsing path `defineApi()` applies to real `<Form>` and native submissions. The underlying async `createFormRequest()` serializes fields to realm-neutral text/bytes, so it also works when Vitest's JSDOM environment owns `File` and `FormData` while Node owns `Request`:
+`submitForm()` builds the request a browser form sends and calls the handler with it. It encodes `application/x-www-form-urlencoded`, or `multipart/form-data` when any field is a `File`. `createFormRequest()` resolves to the same request without calling a handler. Both work under Vitest's JSDOM environment:
 
 ```ts [src/api/contact.test.ts]
 import { describe, it, expect } from "vitest";
@@ -134,13 +134,13 @@ describe("contact API route", () => {
 });
 ```
 
-Repeated fields (multi-selects, checkbox groups) are passed as arrays: `{ tag: ["a", "b"] }` produces two `tag` entries, which `formDataToRecord()` on the server groups back into an array. Field names and string values receive the same CRLF newline normalization as a browser form submission. A `method: "GET"` form carries no body — like a browser, the fields are serialized into the URL query string, which exercises a `defineApi()` `query` schema instead of `body`.
+Pass repeated fields (multi-selects, checkbox groups) as arrays: `{ tag: ["a", "b"] }` sends two `tag` entries. With `method: "GET"`, the fields go into the query string, exercising a `defineApi()` `query` schema instead of `body`.
 
 ---
 
 ## Testing Middleware
 
-`runMiddleware()` executes one middleware — or a chain — exactly the way the runtime does: sequentially, with `next()` callable at most once per middleware, short-circuiting when a middleware returns its own `Response`. The optional final handler stands in for the loader at the end of the chain (default: an empty 200):
+`runMiddleware()` runs one middleware, or a chain, the way the runtime does: a middleware that returns its own `Response` short-circuits the chain. The optional final handler stands in for the loader (default: an empty 200):
 
 ```ts [src/middleware/auth.test.ts]
 import { describe, it, expect } from "vitest";
@@ -169,9 +169,9 @@ describe("auth middleware", () => {
 });
 ```
 
-`createMiddlewareArgs()` supplies page-route metadata. For middleware attached through `defineApp({ api: { middleware: [...] } })`, use `createApiMiddlewareArgs()` instead; its `route` matches the `ResolvedApiRoute` shape production passes.
+For middleware attached through `defineApp({ api: { middleware: [...] } })`, build args with `createApiMiddlewareArgs()` instead of `createMiddlewareArgs()`.
 
-Page and API dispatch catch a **thrown** `Response` outside the middleware chain and send it as-is, so `runMiddleware()` resolves that response by default. The raw capability middleware chain instead rejects the value and maps it to an `internal_error` envelope; use `createCapabilityTestHost()` to test that full pipeline, or opt into raw-chain behavior explicitly:
+A **thrown** `Response` resolves as the result, as page and API dispatch send it as-is. Capability dispatch maps it to an `internal_error` instead: test that with `createCapabilityTestHost()`, or opt into rejection:
 
 <!-- snippet: partial -->
 ```ts
@@ -181,9 +181,9 @@ await expect(
 ).rejects.toBeInstanceOf(Response);
 ```
 
-Thrown non-`Response` errors, including `notFound()`, always reject.
+Other thrown errors, including `notFound()`, always reject.
 
-Chains work the same way, including `context` mutations flowing downstream — pass the middleware in the order the manifest applies them:
+For a chain, pass the middleware in manifest order; `context` changes flow downstream:
 
 <!-- snippet: partial -->
 ```ts
@@ -198,7 +198,7 @@ const response = await runMiddleware([logging, auth, requireAdmin], args, async 
 
 ## Testing the Request Pipeline
 
-For integration tests, use `handlePrachtRequest()` to test the full server pipeline — middleware, loaders, rendering — without a browser:
+For integration tests, `handlePrachtRequest()` runs the full server pipeline (middleware, loaders, rendering) without a browser:
 
 ```ts [test/integration.test.ts]
 import { describe, it, expect } from "vitest";
@@ -260,7 +260,7 @@ describe("request pipeline", () => {
 
 ## E2E Testing with Playwright
 
-E2E tests run your full app in a real browser. This is the best way to verify hydration, client navigation, and form submissions.
+E2E tests run your app in a real browser to verify hydration, client navigation, and form submissions.
 
 ### Configuration
 
@@ -395,7 +395,7 @@ test("unsupported methods return 405", async ({ request }) => {
 
 ## Testing Route Data (JSON Endpoint)
 
-During client navigation, pracht fetches loader data as JSON. You can test this directly:
+Client navigation fetches loader data as JSON when it sends `x-pracht-route-state-request: 1`. Test it directly:
 
 ```ts
 test("loader returns JSON for client navigation requests", async ({ request }) => {
@@ -417,7 +417,7 @@ test("loader returns JSON for client navigation requests", async ({ request }) =
 
 ### Unit testing run()
 
-A capability module's default export carries its `run()` function — call it directly to test the business logic:
+A capability module's default export carries `run()`. Call it directly to test the business logic:
 
 ```ts [src/capabilities/notes-search.test.ts]
 import { describe, it, expect } from "vitest";
@@ -445,13 +445,16 @@ describe("notes.search", () => {
 });
 ```
 
-The object `defineCapability()` returns also carries `validateInput()` / `validateOutput()` — the exact validators the dispatch pipeline uses, including schema defaults — so contract behavior is unit-testable without a server.
-
-Note the boundary: calling `run()` directly skips validation, the middleware chain, and the confirmation flow. For those, build a test host.
+It also carries `validateInput()` / `validateOutput()`, the validators dispatch uses, schema defaults included. Calling `run()` directly skips validation, middleware, and the confirmation flow; for those, use a test host.
 
 ### The full pipeline without a server
 
-`createCapabilityTestHost()` runs the real dispatch pipeline in-process — no manifest, no Vite, no port. `invoke()` mirrors `invokeCapability()` and reads names plus the input/output generics preserved by the capability map supplied to that host, including test-only aliases; `request()` mirrors the generated HTTP endpoints, including agent policy, immutable simulated agent identity, and the confirmation flow. Define capabilities with a `CapabilityRunArgs<Input>` annotation (which lets the output infer) or with both `defineCapability<Input, Output>` generics — supplying only the input generic leaves the default output as `unknown`:
+`createCapabilityTestHost()` runs the real dispatch pipeline in-process, without a server.
+
+- `invoke()` mirrors `invokeCapability()`, typed from the capability map you pass the host.
+- `request()` mirrors the HTTP endpoints, including agent policy, simulated agent identity, and the confirmation flow.
+
+For typed output, annotate `run` with `CapabilityRunArgs<Input>` or pass both `defineCapability<Input, Output>` generics. Passing only `Input` leaves the output `unknown`:
 
 ```ts [src/capabilities/notes.test.ts]
 import { CONFIRMATION_HEADER, createCapabilityTestHost, setCapabilityConfirmationSecret } from "@pracht/core/server";
@@ -482,7 +485,7 @@ it("walks the prepare/commit confirmation flow", async () => {
 });
 ```
 
-To test `agentPolicy: "require"` and `context.agent`, inject a simulated verified identity — no request signing needed:
+To test `agentPolicy: "require"` and `context.agent`, inject a simulated verified identity instead of signing requests:
 
 ```ts
 const response = await host.request("agent.ping", {}, {
@@ -493,7 +496,7 @@ expect(response.status).toBe(200);
 
 ### E2E testing the HTTP projection
 
-Every exposed capability answers at `POST /api/capabilities/<name>` with a typed envelope, which makes Playwright request tests precise:
+Every exposed capability answers at `POST /api/capabilities/<name>` with a typed envelope:
 
 ```ts [e2e/capabilities.test.ts]
 import { test, expect } from "@playwright/test";
@@ -526,7 +529,7 @@ test("invalid input returns path-scoped issues", async ({ request }) => {
 
 ### Testing the destructive confirmation flow
 
-`destructive` capabilities need `PRACHT_CONFIRMATION_SECRET` in the server environment — set it on Playwright's `webServer` so the flow works in CI:
+`destructive` capabilities need `PRACHT_CONFIRMATION_SECRET` in the server environment. Set it on Playwright's `webServer`:
 
 <!-- snippet: partial -->
 ```ts [playwright.config.ts]
@@ -537,7 +540,7 @@ webServer: {
 },
 ```
 
-Then assert the prepare/commit handshake — the first call must not run the capability:
+Then assert the prepare/commit handshake. The first call must not run the capability:
 
 ```ts [e2e/confirmation.test.ts]
 import { CONFIRMATION_HEADER } from "@pracht/capabilities";
@@ -560,12 +563,12 @@ test("destructive capability requires confirmation, then commits", async ({ requ
 });
 ```
 
-Worth asserting too: a tampered token and a same-token-different-input call both answer `403`.
+Also assert that a tampered token, or the same token with different input, gets a `403`.
 
 ### Verify native WebMCP in Chrome
 
-The ordinary `pracht verify` command checks declarations and graph wiring
-without opening a browser. Add the live check when routes expose WebMCP:
+`pracht verify` checks declarations and graph wiring without a browser. When
+routes expose WebMCP, add the live check:
 
 ```sh
 pracht verify webmcp --start "pracht preview"
@@ -575,15 +578,13 @@ pracht verify webmcp --start "pracht preview" \
   --browser /path/to/chrome --json
 ```
 
-The verifier enables Chrome's WebMCP testing feature, enumerates the native
-page-tool registry on every activating route, compares tool names, descriptions,
-schemas, titles, and read-only hints with Pracht's graph, and navigates to a
-neutral route to verify cleanup. Chrome 150+ is required for the
-`document.modelContext` API Pracht targets. Unsupported builds and startup,
-registration, or graph-drift failures are distinct non-zero results.
+It loads every tool-registering route in Chrome 150+, compares the registered
+tools with pracht's graph, and checks cleanup after navigation. Each failure
+(unsupported build, startup, registration, graph drift) exits non-zero with its
+own report `status`.
 
-Registration never implies permission to execute arbitrary operations. Add an
-explicit WebMCP eval scenario only for inputs known to be safe:
+A registered tool is not necessarily safe to call. Add a WebMCP eval scenario
+only for inputs known to be safe:
 
 ```json [evals/notes-webmcp.eval.json]
 {
@@ -606,15 +607,15 @@ explicit WebMCP eval scenario only for inputs known to be safe:
 }
 ```
 
-Run it through `pracht eval`, or include invocation results in the verifier's
-JSON with `pracht verify webmcp --scenario evals/notes-webmcp.eval.json`.
+Run it with `pracht eval`, or add its results to the verifier's JSON with
+`pracht verify webmcp --scenario evals/notes-webmcp.eval.json`.
 
-### Fast WebMCP tests with a fake registry
+### Faking WebMCP in the browser
 
-For fast tests that do not require a compatible Chrome build, install a fake
-`document.modelContext` before any page script runs. The client runtime's
-feature detection registers tools against it, and `execute()` still
-round-trips through the real HTTP projection:
+For fast tests without a compatible Chrome, install a fake
+`document.modelContext` before any page script runs. The client runtime
+registers tools against it, and `execute()` still goes through the real HTTP
+projection:
 
 ```ts [e2e/webmcp.test.ts]
 test("webmcp tools register and execute", async ({ page }) => {
@@ -642,7 +643,7 @@ test("webmcp tools register and execute", async ({ page }) => {
 
 ### Signing Web Bot Auth requests in tests
 
-The test host's `agent` option covers pipeline behavior; to test the *verifier itself* over the wire, sign requests the way a real agent would. Generate an Ed25519 test keypair, put the *public* JWK in your manifest's `agents.webBotAuth.keys`, and sign with the private part in tests:
+The test host's `agent` option covers the pipeline. To test the *verifier itself* over the wire, sign requests like a real agent: generate an Ed25519 test keypair, put the *public* JWK in `agents.webBotAuth.keys`, and sign with the private half:
 
 ```ts [e2e/web-bot-auth.ts]
 import { createPrivateKey, sign } from "node:crypto";
@@ -692,7 +693,7 @@ test("unsigned requests are rejected", async ({ request }) => {
 
 ### Scripted agent flows with pracht eval
 
-`pracht eval` runs multi-step scenarios against a live server and exits `1` on any failed expectation — regression tests for your agent UX. Scenarios live in `evals/**/*.eval.json`; `$steps[n].<path>` references thread values (like confirmation tokens) between steps:
+`pracht eval` runs multi-step scenarios against a live server and exits `1` on any failed expectation. Scenarios live in `evals/**/*.eval.json`; `$steps[n].<path>` passes values such as confirmation tokens between steps:
 
 ```sh
 # One command: start the app, wait for it, run the scenarios, stop it.
@@ -702,9 +703,9 @@ pracht eval --start "pracht preview"    # add --json for machine-readable CI out
 pracht eval --url http://localhost:3000
 ```
 
-A scenario that sets `"transport": "mcp"` runs the same steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) instead — a real `initialize` handshake followed by one `tools/call` per step. `"transport": "webmcp"` plus `"webmcpRoute"` launches compatible Chrome and invokes the page-owned tool; `cancelAfterMs` supplies explicit cancellation proof.
+Set `"transport": "mcp"` to run the steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), or `"transport": "webmcp"` plus `"webmcpRoute"` to call the page tool in Chrome. A step's `cancelAfterMs` tests cancellation.
 
-See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for a complete worked example — five capabilities with unit, E2E, and eval coverage over HTTP, remote MCP, and WebMCP.
+See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for unit, E2E, and eval coverage over HTTP, remote MCP, and WebMCP.
 
 ---
 
@@ -744,9 +745,6 @@ Add these to your `package.json`:
 
 ## Tips
 
-- **Test loaders directly** — they're plain functions. `createLoaderArgs()` from `@pracht/test` builds their args; no server needed for data logic tests.
-- **Test API routes directly** — they take a `Request` and return a `Response`. `createApiArgs()` and `submitForm()` build the requests without any framework setup.
-- **Use E2E for hydration** — unit tests can't verify that client-side routing and hydration work correctly. That's what Playwright is for.
-- Check for `(window as any).__PRACHT_ROUTER_READY__` in Playwright tests to wait for hydration before interacting with the page.
-- **Test the JSON endpoint** — send `x-pracht-route-state-request: 1` to get loader data as JSON. Great for verifying data without parsing HTML.
-- Keep E2E tests focused on behavior (navigation, form flows, error states) rather than visual assertions.
+- Unit tests cannot verify hydration or client routing; use Playwright for those.
+- Wait for `(window as any).__PRACHT_ROUTER_READY__` before interacting with the page in Playwright.
+- Keep E2E tests on behavior (navigation, form flows, error states), not visuals.

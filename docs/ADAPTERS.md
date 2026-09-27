@@ -160,7 +160,9 @@ legitimate route whose base-free path is `/my-project`.
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
-`dist/server/headers-manifest.json`. Exact routes with raw Markdown
+`dist/server/headers-manifest.json`. Node, Cloudflare, and Netlify look recorded
+headers up by the exact pathname, then without a trailing slash, then without
+`/index.html`. Exact routes with raw Markdown
 representations are recorded separately in `dist/server/markdown-manifest.json`.
 SSG/ISG prerendering rejects dangerous
 document headers such as `Set-Cookie`, `Authorization`, `Proxy-Authenticate`,

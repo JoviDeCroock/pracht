@@ -11,11 +11,9 @@ next:
 ---
 
 The examples live under [`examples/`](https://github.com/JoviDeCroock/pracht/tree/main/examples)
-in the repository. They are part of the workspace, so they build against the
-framework in the same run you do and cannot drift into stale sample code. Six of
-them — `basic`, `cloudflare`, `islands`, `pages-router`, `static`, and `tsrx` —
-are also driven by the [e2e suite](https://github.com/JoviDeCroock/pracht/tree/main/e2e);
-`showcase` and `docs` are covered by their own builds rather than by e2e specs.
+and build against the framework in the same workspace, so they stay current. All
+but `showcase` and `docs` also run in the
+[e2e suite](https://github.com/JoviDeCroock/pracht/tree/main/e2e).
 
 ```sh
 git clone https://github.com/JoviDeCroock/pracht
@@ -67,10 +65,9 @@ routes in `src/api/`. The runnable counterpart to
 ### [`static`](https://github.com/JoviDeCroock/pracht/tree/main/examples/static)
 
 A pure [static export](/docs/adapters): SSG routes with build-time loaders, a
-dynamic SSG route driven by `getStaticPaths()`, loaderless SPA routes including
-one that relies on the `200.html` fallback, and a loader-backed `notFound` page
-emitted as `404.html` whose data survives fallback rendering. Every static-host
-edge case in one project.
+dynamic SSG route driven by `getStaticPaths()`, SPA routes including one served
+by the `200.html` fallback, and a loader-backed `notFound` page emitted as
+`404.html`.
 
 ### [`cloudflare`](https://github.com/JoviDeCroock/pracht/tree/main/examples/cloudflare)
 

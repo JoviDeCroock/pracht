@@ -43,14 +43,14 @@ export const app = defineApp({
 
 ### Why explicit over file-based?
 
-File-based routing (Next.js, SvelteKit) couples URL structure to directory structure. This forces awkward nesting for layout groups and makes middleware assignment implicit. pracht's hybrid approach:
+File-based routing couples URLs to directories, which forces awkward nesting for layouts and makes middleware assignment implicit. In pracht:
 
-- Route modules live in `src/routes/` (discoverable by convention)
-- Route _wiring_ is explicit in `src/routes.ts` (auditable, type-checked)
-- Shells and middleware are named references (reusable across groups)
-- URL structure is independent of file system layout
+- Route modules live in `src/routes/` by convention
+- Route _wiring_ is explicit and type-checked in `src/routes.ts`
+- Shells and middleware are named, reusable references
+- URL structure is independent of file layout
 
-The manifest is also what reaches the browser. The client resolves a route's module through a registry built from the manifest's refs, so a file in `src/routes/` or `src/shells/` that the manifest never names is not compiled into the client bundle — a draft, a scratch copy, or a route you deleted from the manifest but left on disk stays out of `dist/client`, and so does a shared module you keep under `src/routes/`. If a ref could live somewhere the manifest file does not show — you import your routes from another module, or build a specifier at runtime — the registry covers both directories whole instead, since dropping a module a route needs would break navigation to it.
+When `src/routes.ts` lists its route files inline, a file it never names, such as a draft, stays out of the client bundle.
 
 ---
 
@@ -58,21 +58,11 @@ The manifest is also what reaches the browser. The client resolves a route's mod
 
 ### defineApp(config)
 
-| Field      | Type                                   | Description                                                   |
-| ---------- | -------------------------------------- | ------------------------------------------------------------- |
-| shells     | Record\<string, string\>               | Named shell modules — key is the name, value is the file path |
-| middleware | Record\<string, string\>               | Named middleware modules                                      |
-| routes     | (RouteDefinition \| GroupDefinition)[] | The route tree                                                |
+`shells` and `middleware` map names to module paths, and `routes` is the route tree. The [config reference](/docs/reference/config) lists every `defineApp` field.
 
 ### route(path, file, meta?)
 
-| Param | Type      | Description                                           |
-| ----- | --------- | ----------------------------------------------------- |
-| path  | string    | URL pattern, e.g. `/blog/:slug`                       |
-| file  | string    | Relative path to the route module                     |
-| meta  | RouteMeta | Optional render mode, shell, middleware, WebMCP tools, Markdown capability, revalidation |
-
-`RouteMeta` fields:
+`path` is a URL pattern such as `/blog/:slug`, `file` is the route module's relative path, and `meta` is an optional `RouteMeta`:
 
 | Field         | Type                                     | Description                                                                                        |
 | ------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -91,12 +81,7 @@ The manifest is also what reaches the browser. The client resolves a route's mod
 
 ### group(meta, routes)
 
-Groups routes with shared configuration. Properties cascade to children; a route's own meta overrides the group's.
-
-| Param  | Type              | Description                                           |
-| ------ | ----------------- | ----------------------------------------------------- |
-| meta   | GroupMeta         | Shell, middleware, render mode, streaming, pathPrefix to inherit |
-| routes | RouteDefinition[] | Routes in this group                                  |
+Groups routes with shared meta — shell, middleware, render and hydration modes, capabilities, `loaderCache`, speculation, streaming — plus an optional [`pathPrefix`](#path-prefix-groups). Children inherit it: a route's own scalar settings win, while `middleware` and `capabilities` add to the group's.
 
 ---
 
@@ -151,10 +136,8 @@ export default function BlogPost() {
 }
 ```
 
-It returns `{}` when no route is active, and re-renders on client-side
-navigation, so a component shared across several routes can read whichever
-params the current one matched. Prefer the loader's `params` when the value is
-only needed to fetch data — that path runs on the server and needs no hydration.
+It returns `{}` when no route is active. Prefer the loader's `params` when you
+only need the value to fetch data.
 
 A catch-all segment is exposed under the key `"*"`:
 
@@ -179,21 +162,19 @@ export const app = defineApp({
 });
 ```
 
-New apps ship with this wired already: `create-pracht` generates `src/routes/not-found.tsx` and the matching `notFound` entry, or `src/pages/404.tsx` in pages mode. Edit or delete it like any other page.
+`create-pracht` generates this entry and `src/routes/not-found.tsx` (`src/pages/404.tsx` in pages mode).
 
-The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the module ref directly; the full form also accepts `loader`, `middleware`, and `hydration`. The module is a normal route module — `Component`, `loader`, `head`, `headers` — and the page hydrates like any other.
+The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the module directly. The full form also accepts `loader`, `middleware`, and `hydration`. The module is a normal route module.
 
-It is deliberately **not** a route. A trailing catch-all (`route("/*", ...)`) matches every URL, so it shadows static assets and paths you add later, and it shows up in typed routes, prefetching, speculation rules, and SSG path enumeration. `notFound` sits outside the route table: it runs only after matching fails, and after the adapter has already tried static assets.
+Prefer `notFound` over a trailing `route("/*", ...)`: a catch-all shadows static assets and later routes, and appears in typed routes, prefetching, and SSG paths. `notFound` runs only after routes and static assets both miss.
 
-It also renders when a loader or middleware throws [`notFound()`](/docs/data-loading#custom-404-page), unless the route module exports its own `ErrorBoundary`. Route-state (JSON) requests and non-GET requests keep their existing 404 behavior, and apps without a `notFound` page still get a plain-text 404.
-
-In `pracht dev`, apps that declare a `notFound` page render it instead of the dev-only route-table 404, so dev matches production.
+It also renders when a loader or middleware throws [`notFound()`](/docs/data-loading#custom-404-page), unless the route exports its own `ErrorBoundary`. Route-state and non-GET requests keep their usual 404; apps without `notFound` get a plain-text 404.
 
 ---
 
 ## Typed Routes and Links
 
-Run `pracht typegen` to generate a type-safe route map from the same resolved app graph used by `pracht inspect routes --json`:
+Run `pracht typegen` to generate a type-safe route map:
 
 ```bash
 pracht typegen
@@ -224,7 +205,7 @@ export function ProductActions({ id }: { id: string }) {
 }
 ```
 
-Explicit `id` fields are preferred for stable public APIs. Routes without ids use generated ids, and params are inferred from `:param`, `*`, and `:name*` segments. `pracht typegen --check` is useful in CI to catch stale generated files.
+Routes without an explicit `id` get one generated from the path. Run `pracht typegen --check` in CI to catch stale generated files.
 
 ### `<Link>` props
 
@@ -244,20 +225,16 @@ Explicit `id` fields are preferred for stable public APIs. Routes without ids us
 
 ### `href` is not a `<Link>` prop
 
-`<Link>` builds its own `href` from `route` and `params`, so passing one is
-always a mistake — and it used to be a silent one, because the built href
-overwrote it. It is now a compile error that names the fix:
+`<Link>` builds its own `href` from `route` and `params`, so passing one is a
+compile error:
 
 ```tsx
 <Link href="/blog/hello">Read</Link>   // ✗ does not typecheck
 <Link route="blog-post" params={{ slug: "hello" }}>Read</Link>  // ✓
 ```
 
-Use a plain `<a href>` for external and user-provided URLs — the client router
-leaves those alone.
-
-The rule also applies to spreads. A wrapper component that forwards anchor props
-must not carry `href` in its own props type, or the spread fails to typecheck:
+Use a plain `<a href>` for external and user-provided URLs. A wrapper that
+spreads anchor props onto `<Link>` must omit `href` from its props type:
 
 ```tsx
 type ButtonLinkProps = Omit<JSX.IntrinsicElements["a"], "href"> & {
@@ -273,7 +250,7 @@ function ButtonLink({ route, ...rest }: ButtonLinkProps) {
 
 ## Shells
 
-Shells are Preact layout components that wrap route content. They are **decoupled from URL structure** — a flat URL like `/settings` can use the `app` shell without nesting under `/app/settings`.
+Shells are layout components that wrap route content, **decoupled from URL structure**: `/settings` can use the `app` shell without living under `/app`.
 
 ```ts [src/shells/app.tsx]
 import type { ShellProps } from "@pracht/core";
@@ -286,30 +263,16 @@ export function Shell({ children }: ShellProps) {
     </div>
   );
 }
-
-// Optional: shell-level <head> metadata
-export function head() {
-  return { title: "My App" };
-}
-
-// Optional: shell-level document headers
-export function headers() {
-  return { "content-security-policy": "default-src 'self'" };
-}
 ```
 
-> [!NOTE]
-> Shell head metadata merges with route-level head. Route head takes precedence for `title`. Arrays like `meta` and `link` are concatenated.
-
-Shell document headers merge with route-level `headers` exports. Route headers take precedence for matching names. These headers apply to HTML document responses, including prerendered SSG/ISG HTML, but not API routes or route-state JSON fetches.
+See [Shells](/docs/shells) for `head()`, `headers()`, and error boundaries.
 
 ---
 
 ## Middleware
 
-Middleware wraps the rest of the request — loaders, API handlers, and inner
-middleware — using a `next()` callback. It can redirect, mutate context,
-short-circuit, or wrap the handler in `try / catch / finally`.
+Middleware wraps the rest of the request through a `next()` callback. It can
+redirect, mutate context, or short-circuit.
 
 ```ts [src/middleware/auth.ts]
 import { redirect, type MiddlewareFn } from "@pracht/core";
@@ -321,13 +284,14 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 };
 ```
 
-Middleware stacks within groups — a route inside a group with `["auth"]` that also declares `["rateLimit"]` runs both in order. See [Middleware](/docs/middleware) for the full guide.
+Group and route middleware stack in order. See [Middleware](/docs/middleware)
+for the full guide.
 
 ---
 
 ## Path Prefix Groups
 
-Groups can add a URL prefix to all child routes, keeping route files flat while grouping URLs logically:
+Groups can add a URL prefix to every child route:
 
 ```ts
 group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
@@ -337,17 +301,17 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 ]);
 ```
 
-`capabilities` also inherits through groups, but unlike scalar settings it is additive: a route keeps the group's names and adds its own, with duplicates removed. Initial hydration registers the matched route's tools; after client navigation commits, pracht replaces them with the destination route's set. `hydration: "none"` routes cannot activate page tools.
+`capabilities` is additive: a route keeps its group's page tools and adds its own. Navigation swaps in the destination route's tools. `hydration: "none"` routes cannot activate page tools.
 
 ---
 
 ## Pages Router (Auto-Discovery)
 
-For projects that prefer file-system routing — especially when migrating from Next.js — pracht offers an optional pages-based routing mode. Instead of writing a route manifest, set `pagesDir` and pracht auto-discovers routes from the file system.
+For file-system routing, especially when migrating from Next.js, set `pagesDir` instead of writing a manifest.
 
 ### What the pages router supports and how
 
-Auto-discovery replaces the manifest, so everything a manifest registers by name is registered by file instead. The two routers reach the same runtime: the plugin generates a `defineApp()` manifest from the file system, and every feature below runs through it unchanged.
+The plugin generates a `defineApp()` manifest from your files, so both routers share one runtime:
 
 | Feature | Pages router |
 | --- | --- |
@@ -357,15 +321,15 @@ Auto-discovery replaces the manifest, so everything a manifest registers by name
 | [Capabilities](/docs/capabilities) | every module in [`src/capabilities/`](#capabilities-via-srccapabilities) — HTTP endpoints, [WebMCP page tools](/docs/agents), [remote MCP](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), `<Form capability>`, typed clients, and `pracht eval` all work |
 | [`agents`](/docs/agent-trust) (Web Bot Auth, confirmation, MCP) and [`constraints`](/docs/coding-agents#constraints) | named exports from [`src/pages/_app.config.ts`](#app-config-via-appconfigts) |
 
-What still requires an explicit manifest — the things whose whole point is that they differ per route:
+What still requires an explicit manifest:
 
-- **Per-route middleware assignment.** `_middleware.ts` runs on every page route. Gating only `/app/**` means [ejecting](#ejecting-to-explicit-manifest) and using `group({ middleware: [...] })`, or branching on `stripBase(url.pathname)` inside the one file.
-- **Per-route shell overrides.** A shell is chosen by directory. One page opting out of its directory's shell needs a manifest.
-- **Named middleware beyond the one file**, and capabilities registered from outside `src/capabilities/`.
-- **Path prefixes and route ids** — `group({ pathPrefix })` and explicit `route(..., { id })` have no file-system spelling.
+- **Per-route middleware assignment.** `_middleware.ts` runs on every page route. To gate only `/app/**`, [eject](#ejecting-to-explicit-manifest), or branch on `stripBase(url.pathname)` inside the file.
+- **Per-route shell overrides.** A shell is chosen by directory.
+- **Named middleware beyond the one file**, and capabilities outside `src/capabilities/`.
+- **Path prefixes and explicit route ids** (`group({ pathPrefix })`, `route(..., { id })`).
 - **Webhook and combined ISG policies.** Pages ISG is time-based only.
 
-Ejecting is a one-time codegen, so starting with pages routing does not close any of these off.
+Ejecting is a one-time codegen, so starting with the pages router closes none of these off.
 
 ### Setup
 
@@ -378,7 +342,7 @@ export default defineConfig({
 });
 ```
 
-When `pagesDir` is set, the `appFile` option is ignored. The plugin scans the pages directory and generates the route manifest automatically.
+When `pagesDir` is set, the `appFile` option is ignored.
 
 ### File Conventions
 
@@ -396,11 +360,11 @@ When `pagesDir` is set, the `appFile` option is ignored. The plugin scans the pa
 | `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
 | `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
 
-The underscore prefix reserves both files and directory trees for non-route implementation details. Pracht never creates routes from their contents, so `pages/_components/button.tsx` is ignored rather than exposed at `/_components/button`. `_app` is recognized in any directory outside a reserved tree; `_middleware` is recognized only at the pages root, and `_middleware/` remains a hard error because silently ignoring a directory that looks like an authorization boundary would fail open.
+A leading underscore reserves a file or directory for helpers. `_app` works in any directory; `_middleware` and `_app.config` only at the pages root.
 
 ### Shell via `_app.tsx`
 
-If `pages/_app.tsx` exists, it is registered as a shell named `"pages"` and all discovered routes are automatically wrapped in it:
+`pages/_app.tsx` is registered as a shell named `"pages"` that wraps every route without a closer `_app`:
 
 ```tsx [src/pages/_app.tsx]
 import type { ShellProps } from "@pracht/core";
@@ -421,7 +385,7 @@ export function headers() {
 
 #### Directory-scoped shells
 
-An `_app` in a subdirectory owns every route in that subtree. `pages/blog/_app.tsx` is registered as `"pages:blog"` and wraps `/blog`, `/blog/:slug`, and everything below it:
+An `_app` in a subdirectory owns that subtree. `pages/blog/_app.tsx` is registered as `"pages:blog"`:
 
 ```
 src/pages/
@@ -434,16 +398,12 @@ src/pages/
     [slug].tsx
 ```
 
-**Shells replace, they do not nest.** The nearest `_app` above a route is the only shell that renders it — `blog/_app.tsx` does not render inside the root `_app.tsx`. This is the same rule an explicit manifest follows: `resolveApp()` gives every route exactly one shell, and a nested `group({ shell })` overrides its parent rather than composing with it. A directory shell therefore owns the whole document chrome for its subtree, including its own `head()` and `headers()`; copy what it needs from the parent.
-
-`pracht inspect routes` prints the resolved shell per route (`shell=pages:blog`), and the ejected manifest names the same shells. One `_app` per directory: two files that resolve to the same name (`blog/_app.tsx` and `blog/_app.jsx`) fail build, `doctor`, and `verify` rather than letting one silently win. An `_app` inside a reserved tree such as `pages/_components/_app.tsx` stays an ordinary helper.
-
-Per-route shell assignment — one route in a directory opting out of its directory's shell — still requires [ejecting to an explicit manifest](#ejecting-to-explicit-manifest).
+**Shells replace, they do not nest.** The nearest `_app` is a route's only shell, so a directory shell must supply its own chrome, `head()`, and `headers()`. `pracht inspect routes` prints each route's shell.
 
 ### Additional Route Extensions
 
-Custom route and shell formats can opt into discovery with dot-prefixed
-`additionalExtensions` values:
+Custom route and shell formats opt into discovery, in either router, with
+`additionalExtensions`:
 
 ```ts [vite.config.ts]
 pracht({
@@ -452,27 +412,14 @@ pracht({
 });
 ```
 
-This works in both pages and manifest mode. Pracht discovers the files and
-applies its route client/server handling; register the format's Vite transform
-plugin separately and add an ambient TypeScript module declaration if its
-tooling does not provide one. Keep the array inline or in a directly referenced
-`const` so `pracht verify` and the development type watcher can classify custom
-files statically. Dynamic expressions still build through Vite but produce a
-verification warning. Vite-scannable component formats participate in initial
-dependency scanning automatically; other format plugins must configure Vite's
-dependency optimizer themselves.
-
-Configured formats remain conservatively head-bearing because their transform
-may synthesize `head()` from frontmatter or other format-specific metadata.
-Client navigation therefore keeps the route-state request for custom modules
-even when their raw source appears headless.
-
-Existing `.tsrx` routes remain discovered without this option for backward
-compatibility and retain Pracht's ambient module declaration.
+Register the format's Vite plugin yourself and, if needed, an ambient
+TypeScript module declaration. Keep the array inline or in a `const` so
+`pracht verify` can read it. Formats Vite cannot scan need their own
+`optimizeDeps` setup. `.tsrx` is discovered without this option.
 
 ### Middleware via `_middleware.ts`
 
-With a serverful adapter, a root-level `pages/_middleware.ts` exports the same [`MiddlewareFn` contract](/docs/middleware) as manifest middleware and runs on every page route. Pure static exports cannot use request middleware:
+On a serverful adapter, a root-level `pages/_middleware.ts` exports a [`MiddlewareFn`](/docs/middleware) that runs on every page route. Scaffold it with `pracht generate middleware --name _middleware`:
 
 ```ts [src/pages/_middleware.ts]
 import { redirect, stripBase, type MiddlewareFn } from "@pracht/core";
@@ -485,25 +432,19 @@ export const middleware: MiddlewareFn = async ({ request, url }, next) => {
 };
 ```
 
-Internally it is registered as a named middleware called `"pages"` and attached to every page route through the generated manifest, so `pracht inspect routes`, the dev banner, `/_pracht` devtools, and the [ejected manifest](#ejecting-to-explicit-manifest) all show it.
+Tooling such as `pracht inspect routes` shows it as the middleware named `"pages"`.
 
-Scope and limits:
-
-- **Keep the CLI and Vite plugin compatible.** `pracht generate middleware --name _middleware` verifies that the loaded `@pracht/vite-plugin` supports pages middleware and asks you to upgrade when it does not. This prevents an independently upgraded CLI from scaffolding an auth boundary that an older plugin would ignore.
-- **Page routes only.** API routes under `src/api` are not wrapped — the same independent-by-default behavior an explicit manifest has. Wrap API handlers in [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions) instead.
-- **Match route paths without the deploy base.** `url.pathname` is the public browser pathname and includes Vite's configured `base`. Pass it through `stripBase()` before comparing it with route paths such as `/legacy`.
-- **Root level only, single file.** A `_middleware.ts` inside a subdirectory, a `_middleware/` directory, and middleware-shaped files using unsupported page extensions (including Markdown/MDX, `.tsrx`, and configured custom formats) are hard errors at build, `doctor`, and `verify` time — never silently ignored files that look like an auth gate. Per-group middleware requires [ejecting to an explicit manifest](#ejecting-to-explicit-manifest).
-- **Server-only helpers stay server-only.** Middleware implementations can live in an underscore-reserved helper such as `pages/_server/auth.ts` and be imported or re-exported by `_middleware.ts`. Reserved files and directory trees are excluded from the client route/shell registries, and the dedicated `_middleware.ts` module becomes empty if client code imports it directly. Helper files still enter a browser bundle if client code imports those files directly.
-- **Export names are checked statically; values are checked at runtime.** The module must declare a named `middleware` export. Build, doctor, and verify reject an absent export but do not model its value; value `export *` declarations are treated as unknown. The request runtime performs the authoritative `typeof middleware === "function"` check and fails closed when it is not callable.
-- **Runs for page rendering and route state.** For `ssr` (the default) and `spa` routes that is every document and client-side route-state request. `ssg` and `isg` documents render at build/revalidation time on a sanitized request (`GET`, path only — no visitor cookies), and any headers the middleware sets are baked into the static output and replayed for every visitor. Their client-side route-state JSON fetches are separate live requests and still traverse middleware with the visitor request. That can vary the JSON response but cannot protect the already-public static HTML, so cookie- or session-based gating belongs on `ssr`/`spa` routes.
-- The module must export `middleware`; a module that does not fails build, `doctor`, and `verify`, and requests to page routes fail closed at runtime.
-- The [404 page](#404-page) renders without middleware — it is a not-found response, not a route.
-
-Like every other `_`-prefixed file, `_middleware.ts` never becomes a route.
+- **Page routes only.** Guard API routes with [higher-order functions](/docs/middleware#without-a-manifest-higher-order-functions).
+- **Compare paths with `stripBase()`.** `url.pathname` includes Vite's `base`.
+- **One file, at the root.** A nested `_middleware` fails the build.
+- **Helpers can live in a reserved file** such as `pages/_server/auth.ts`. They stay server-only unless client code imports them.
+- **A missing `middleware` export fails the build.**
+- **Prerendered pages see a build-time request**, so gate by cookie or session only on `ssr`/`spa` pages. See [Middleware](/docs/middleware#middleware-on-prerendered-routes).
+- The [404 page](#404-page) renders without middleware.
 
 ### Capabilities via `src/capabilities/`
 
-Every module in `src/capabilities/` is registered as a [capability](/docs/capabilities). The directory *is* the registry — there is no second place to repeat the name — so a module is reachable exactly when it is in that directory:
+Every module in `src/capabilities/` is registered as a [capability](/docs/capabilities):
 
 ```ts [src/capabilities/notes-search.ts]
 import { defineCapability, type CapabilityRunArgs } from "@pracht/capabilities";
@@ -527,23 +468,21 @@ export default defineCapability({
 });
 ```
 
-`pracht generate capability --name notes.search --expose http` scaffolds this file, including the `name`.
+`pracht generate capability --name notes.search --expose http,mcp --description "Find notes whose title or body matches the query."` scaffolds this file.
 
-**Naming.** The name comes from `defineCapability({ name })`. Without one it is the file stem, so `src/capabilities/ping.ts` registers `ping`. A declared name must map back to its own file with dots written as hyphens — `notes.search` ↔ `notes-search.ts` — so the file a name resolves to is readable from the name alone. A mismatch, an unusable file name, and two modules claiming the same name are all build, `doctor`, and `verify` errors.
+**Naming.** Without a `name`, the file stem is the name. A declared name must match its file with dots as hyphens: `notes.search` ↔ `notes-search.ts`. Mismatches fail the build.
 
-Everything downstream is the manifest router's, unchanged: the HTTP endpoint at `/api/capabilities/notes/search`, the remote MCP projection, `pracht eval` scenarios, `<Form capability>`, and the typed client `pracht typegen` generates. WebMCP activation is route-scoped, so each page that should expose a tool exports an inline list:
+The HTTP endpoint, remote MCP, `pracht eval`, `<Form capability>`, and typed clients work as in a manifest app. WebMCP tools are route-scoped, so each page that exposes one exports an inline list:
 
 ```ts [src/pages/notes.tsx]
 export const CAPABILITIES = ["notes.search"];
 ```
 
-The export is compiled into the same `capabilities` route metadata an explicit manifest uses. It must contain only non-empty registered capability names and belongs on a page, not `_app.tsx` or `404.tsx`. It cannot be combined with `HYDRATION = "none"`. Navigating away removes these tools; the destination page then registers its own list.
-
-Capability modules are server-only. They are not routes, they never enter a client bundle, and `pracht verify` checks the same contract rules a manifest app gets — an exposed capability needs a full contract, and a `destructive` one still needs the confirmation secret.
+`CAPABILITIES` belongs on a page (not `_app.tsx` or `404.tsx`) and cannot be combined with `HYDRATION = "none"`. Capability modules never enter a client bundle.
 
 ### App config via `_app.config.ts`
 
-`agents` and `constraints` are app-wide, so they live in one root-level `src/pages/_app.config.ts` rather than being derived from the file system:
+App-wide `agents` and `constraints` live in a root-level `src/pages/_app.config.ts`:
 
 ```ts [src/pages/_app.config.ts]
 import type { PrachtAgentsConfig } from "@pracht/core";
@@ -558,17 +497,13 @@ export const agents: PrachtAgentsConfig = {
 };
 ```
 
-The generated manifest passes these to `defineApp()` verbatim, which is what makes the pages router's [agent trust](/docs/agent-trust) surface identical to a manifest app's.
+The generated manifest passes these to `defineApp()` verbatim, so [agent trust](/docs/agent-trust) works as in a manifest app.
 
-Three named exports are read — `agents`, `constraints`, and `notFound` — and only those. Routes, shells, middleware, and capabilities stay file-discovered, so the config file cannot quietly redefine them. `notFound` is a fallback: when `pages/404.tsx` exists it wins, because it is the more specific declaration.
-
-The file fails closed on every shape that would leave an app looking configured while nothing is registered. A nested copy, an unsupported extension, duplicates, a default export instead of named ones, a module exporting none of the three keys, and `export * from …` (whose names cannot be read without loading the module) are all build, `doctor`, and `verify` errors. Delete the file rather than leaving an empty one.
-
-It is not a route, never enters a client bundle, and `pracht inspect agents` reports the resulting surface exactly as it does for a manifest app.
+Only these two named exports are read. `export *`, or a file with neither named export (a default export alone counts as neither), fails the build; delete the file rather than leave it empty. It never enters a client bundle.
 
 ### Per-Route Render Mode
 
-Page files can export a `RENDER_MODE` constant to override the rendering strategy:
+A page file can export `RENDER_MODE`:
 
 ```tsx [src/pages/about.tsx]
 export const RENDER_MODE = "ssg";
@@ -584,28 +519,26 @@ Valid values: `"ssr"` | `"ssg"` | `"isg"` | `"spa"`. The default is `"ssr"`, ove
 pracht({ pagesDir: "/src/pages", pagesDefaultRender: "ssg" });
 ```
 
-ISG pages must also export a positive integer time policy:
+ISG pages must also export a positive integer number of seconds:
 
 ```tsx [src/pages/pricing.tsx]
 export const RENDER_MODE = "isg";
 export const REVALIDATE = 3600;
 ```
 
-`REVALIDATE` is a statically analyzable number of seconds. Missing, zero, dynamic, or non-ISG policies fail build, `doctor`, and `verify` instead of silently freezing the page. Pages mode supports time revalidation only; webhook or combined policies require ejection to a manifest.
-
-Put the policy on the page route, not `_app.tsx` or `404.tsx`. Declarations inside comments, strings, and Markdown/MDX fenced examples are ignored, while top-level MDX exports work. `pagesDefaultRender` can be an inline string or a quoted `const`; more dynamic composition produces a `doctor` warning and is evaluated authoritatively by the build. Export `RENDER_MODE = "isg"` next to `REVALIDATE` when the default cannot be resolved statically.
+Write `REVALIDATE` as a literal on the page; a missing or invalid policy fails the build. If `pagesDefaultRender` is not an inline string or string `const`, also export `RENDER_MODE = "isg"` next to `REVALIDATE`.
 
 ### Route Priority
 
-Routes are sorted: static routes first, then dynamic (`:param`), then catch-all (`*`). This matches Next.js resolution order.
+Static routes match first, then dynamic (`:param`), then catch-all (`*`), as in Next.js.
 
 ### 404 page
 
-`pages/404.tsx` becomes the app's [not-found page](#not-found-page) automatically. It is removed from the route table, so — unlike in Next.js — `/404` is not a URL of its own.
+`pages/404.tsx` becomes the [not-found page](#not-found-page). Unlike in Next.js, `/404` is not a URL of its own.
 
 ### Ejecting to Explicit Manifest
 
-When you outgrow auto-discovery and want full manifest control, eject with a one-time codegen:
+To take full manifest control, eject with a one-time codegen:
 
 ```ts
 import { generateRoutesFile } from "@pracht/vite-plugin/pages-router";
@@ -618,9 +551,7 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-The generated manifest carries everything auto-discovery registered: every `_app` as a named shell, `_middleware` as the `pages` middleware, every `src/capabilities/` module under its resolved name, and the `agents` / `constraints` exports of `_app.config.ts` as ordinary imports. `pages/404.tsx` remains the not-found page, so nothing has to be re-declared by hand.
-
-Then remove `pagesDir` from your pracht config and point the discovery directories at the files the ejected manifest references — the runtime resolves manifest refs through those directory registries, so a manifest pointing outside them fails closed at request time:
+The generated manifest carries everything auto-discovery registered. Remove `pagesDir` from your pracht config and point the discovery directories at the files it references; refs outside them fail at request time:
 
 ```ts
 pracht({
@@ -631,4 +562,6 @@ pracht({
 });
 ```
 
-Alternatively, move the files into the conventional `src/routes`, `src/shells`, and `src/middleware` directories and update the manifest refs. The generated `src/routes.ts` is a standard manifest you can customize freely, but keep its exported `__PRACHT_EJECTED_PAGES_LAYOUT__ = true` marker while it retains pages-router layout semantics. The client build uses that explicit marker to exclude underscore-reserved helpers and strip the dedicated middleware module without guessing from registry syntax, including when registries use computed keys, spreads, or helper variables. Header comments may be edited or removed; retain the exported marker when `_app` or `_middleware` moves to a conventional directory too.
+Or move the files into `src/routes`, `src/shells`, and `src/middleware` and update the refs.
+
+Keep the exported `__PRACHT_EJECTED_PAGES_LAYOUT__ = true` marker while `_app` or `_middleware` files remain. Without it, underscore files count as route modules and the middleware source can reach the browser bundle; `pracht verify` warns when that happens.

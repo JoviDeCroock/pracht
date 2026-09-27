@@ -1,6 +1,6 @@
 ---
 title: Data Loading
-lead: pracht provides a unified data model that works across all rendering modes. Loaders fetch data on the server, API routes handle mutations, and client hooks give reactive access to route data — all with full TypeScript inference.
+lead: Loaders fetch data on the server, API routes handle mutations, and client hooks give reactive access to route data — in every render mode, with full TypeScript inference.
 breadcrumb: Data Loading
 prev:
   href: /docs/islands
@@ -12,7 +12,7 @@ next:
 
 ## Loaders
 
-A **loader** is an async function exported from a route module. It runs server-side and returns serializable data that flows into the route component.
+A **loader** is an async function exported from a route module. It runs on the server and returns serializable data for the route component.
 
 ```ts [src/routes/dashboard.tsx]
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
@@ -36,47 +36,29 @@ export default function Dashboard({ data }: RouteComponentProps<typeof loader>) 
 }
 ```
 
-The route component can be a function default export or a named `Component`
-export. Named route exports such as `loader`, `head`, `headers`, `markdown`,
-`ErrorBoundary`, and `getStaticPaths` remain separate special exports.
-
-A `markdown` string export lets the runtime return the raw source when a
-request prefers `Accept: text/markdown`; middleware, loaders, and document
-headers still run first. If middleware owns that negotiation instead, declare
-it on the route so the build and adapters do not mistake the prerendered HTML
-for the only representation:
-
-```ts [src/routes.ts]
-route("/guide/:version/:name", "./routes/guide.tsx", {
-  markdown: true,
-  middleware: ["guideMarkdown"],
-  render: "ssg",
-});
-```
-
-The middleware must inspect `Accept` and return the Markdown response;
-`markdown: true` supplies capability metadata, adds `Vary: Accept`, records
-every concrete prerendered path for adapters, and annotates generated
-`llms.txt`. A module `markdown` export is detected automatically.
+The component can be the default export or a named `Component` export. The
+other special exports are `loader`, `head`, `headers`, `markdown`,
+`ErrorBoundary`, and `getStaticPaths`. A `markdown` export serves the raw
+source to requests that prefer `Accept: text/markdown`; see
+[Markdown for agents](/docs/agents#discovery-markdown-and-llmstxt).
 
 ### LoaderArgs
 
-| Field   | Type          | Description                                          |
-| ------- | ------------- | ---------------------------------------------------- |
-| request | Request       | The incoming Web Request                             |
-| params  | RouteParams   | Dynamic URL params, e.g. `{ slug: "hello" }`         |
-| context | TContext      | App-level context from the adapter's context factory |
-| signal  | AbortSignal   | Aborts when the client disconnects or the budget runs out |
-| url     | URL           | Parsed URL object                                    |
-| route   | ResolvedRoute | Matched route metadata                               |
+| Field    | Type          | Description                                          |
+| -------- | ------------- | ---------------------------------------------------- |
+| request  | Request       | The incoming Web Request                             |
+| params   | RouteParams   | Dynamic URL params, e.g. `{ slug: "hello" }`         |
+| context  | TContext      | App-level context from the adapter's context factory |
+| signal   | AbortSignal   | Aborts when the client disconnects or the budget runs out |
+| url      | URL           | Parsed URL object                                    |
+| route    | ResolvedRoute | Matched route metadata                               |
+| pathname | string \| undefined | Matched pathname with the deployment base removed |
 
 #### `signal`
 
-`signal` aborts for either of two reasons, whichever comes first: the client
-went away, or the request ran out of its budget. Pass it to `fetch()`, to a
-database driver, or to anything else that accepts an `AbortSignal`, and work
-stops instead of running to completion for a visitor who has already navigated
-away.
+`signal` aborts when the client goes away or the request runs out of budget,
+whichever comes first. Pass it to `fetch()`, a database driver, or anything
+else that accepts an `AbortSignal`:
 
 ```ts [src/routes/search.tsx]
 export async function loader({ signal, url }: LoaderArgs) {
@@ -87,27 +69,19 @@ export async function loader({ signal, url }: LoaderArgs) {
 }
 ```
 
-The budget defaults to 30 seconds and is configurable app-wide with
+The budget defaults to 30 seconds; set it app-wide with
 [`defineApp({ loaderTimeoutMs })`](/docs/reference/config#defineapp--the-route-manifest).
-One budget covers the whole request: middleware, the loader, and — when a
-loader throws `notFound()` — rendering the not-found page all run on what is
-left of it. The same signal reaches [API route](/docs/api-routes) handlers.
+One budget covers the whole request: middleware, the loader, and the not-found
+page after `notFound()`. [API route](/docs/api-routes) handlers get the same
+signal.
 
-**It applies at build time too.** SSG and ISG prerendering run loaders through
-the same request pipeline, so a budget tuned down for an edge runtime will fail
-the *build* for any loader slower than it. The build error names the route and
-says the loader ran past the budget.
-
-**A client disconnect is not an error.** When the visitor goes away, pracht
-skips `onRouteError` and answers 499 rather than rendering an error page, so an
-abandoned navigation does not appear in Sentry or OpenTelemetry as an
-application fault. A budget expiry still reports normally.
-
-**Adapter support.** Cloudflare, Netlify, and Vercel hand pracht the platform's
-own `Request`, whose signal already tracks the connection. The Node adapter
-wires one from the socket. Static export has no request to abandon — there the
-signal only carries the build-time budget. Runtimes without `AbortSignal.any`
-get the same composed signal, wired by hand.
+- **It applies at build time.** SSG and ISG prerendering run loaders with the
+  same budget, so a short edge budget fails the build for slower loaders.
+- **A client disconnect is not an error.** Pracht answers 499 and skips
+  `onRouteError`, so abandoned navigations stay out of your error tracker. A
+  budget expiry reports normally.
+- **Static export** has no live request, so the signal only carries the
+  build-time budget.
 
 ### When loaders run
 
@@ -120,16 +94,13 @@ get the same composed signal, wired by hand.
 | Client navigation | Server (fetched as JSON)                                         |
 
 > [!NOTE]
-> Loaders **never** run in the browser. Database connections, API keys, and secrets in loader code stay server-side permanently.
+> Loaders **never** run in the browser. Database connections, API keys, and secrets in loader code stay on the server.
 
 ### Route-state caching
 
-Client navigation fetches loader data through Pracht's route-state endpoint. By
-default those JSON responses use `Cache-Control: no-store`, so every navigation
-asks the server for fresh loader data.
-
-Use `loaderCache` in route metadata when the returned data can safely be reused
-by the same browser for a short time:
+Client navigation fetches loader data as JSON with `Cache-Control: no-store`
+by default. Set `loaderCache` when the same browser may reuse that data for a
+while:
 
 ```ts [src/routes.ts]
 route("/pricing", "./routes/pricing.tsx", {
@@ -139,19 +110,17 @@ route("/pricing", "./routes/pricing.tsx", {
 ```
 
 A positive value sets `Cache-Control: private, max-age=<seconds>` on successful
-route-state responses. `loaderCache: false` and `loaderCache: 0` keep `no-store`
-and can opt a route out of a group default.
+responses. `false` or `0` keeps `no-store`, which also opts a route out of a
+group default.
 
-Only cache data that is safe to reuse for the configured duration in the same
-browser. Avoid positive `loaderCache` values for loader data that depends on the
-current user, permissions, session, or cookies. `loaderCache` does not change
-ISG `revalidate`, and it is separate from Pracht's short in-memory prefetch
-cache.
+Don't set it for data that depends on the current user, session, cookies, or
+permissions. `loaderCache` is separate from ISG `revalidate` and from the
+prefetch cache.
 
 ### Deferred values
 
-A loader is only as fast as its slowest `await`. Wrap the slow fields in
-`defer()` so they stay out of that critical path:
+A loader is only as fast as its slowest `await`. Wrap slow fields in `defer()`
+to take them off that critical path:
 
 ```ts [src/routes/product.tsx]
 import { defer } from "@pracht/core";
@@ -165,10 +134,6 @@ export async function loader({ params }: LoaderArgs) {
   };
 }
 ```
-
-The marker goes on the value rather than around the whole return, so the object
-keeps its shape and the type records exactly which fields defer. A route that
-never calls `defer()` behaves exactly as it did before.
 
 Read a deferred value with `use()` inside a `<Suspense>` boundary:
 
@@ -193,40 +158,33 @@ function Reviews({ reviews }: { reviews: Deferred<Review[]> }) {
 }
 ```
 
-`Deferred<T>` stays in the loader data type, so passing `data.reviews` where
-`Review[]` is expected is a compile error — reading it goes through `use()`.
-Boundaries are always explicit; Pracht never wraps a component for you.
+The loader data type keeps `Deferred<T>`, so passing `data.reviews` where
+`Review[]` is expected is a compile error. You always place the `<Suspense>`
+boundary yourself.
 
-`defer()` takes a promise, or a function returning one when the work should not
-start until something reads the value. It is memoized, so two reads never do
-the work twice.
+`defer()` takes a promise, or a function returning one to delay the work until
+something reads the value. Reads are memoized.
 
-By default every render mode resolves deferred values before the response is
-written. Even then `defer()` earns its keep: independent fields resolve
-concurrently, so two 300 ms calls cost 300 ms instead of 600 ms.
+By default every render mode resolves deferred values before writing the
+response. Independent fields still resolve concurrently: two 300 ms calls cost
+300 ms, not 600 ms. To send the page before they settle, turn on
+[streaming](#streaming-the-document).
 
-Three rules:
+Rules:
 
-- **A deferred value cannot redirect, throw `PrachtHttpError`, or set response
-  status or headers.** By the time it settles, the status and headers are
-  already sent. Auth belongs in middleware or in the awaited part of the loader.
-- **`head()` and `headers()` cannot depend on deferred fields.** On a streaming
-  route they run before deferred work settles and receive the same `Deferred`
-  markers as the component. Their argument types keep those markers visible,
-  so keep metadata, status, and cache-header inputs in the awaited part of the
-  loader.
-- **A suspending `<Suspense>` boundary must resolve to exactly one DOM
-  element** on Preact 10 — not `null`, not a multi-child fragment. Preact 11 supports empty and multi-child boundaries; the workspace exercises
-  `11.0.0-rc.1`, and Pracht skips the legacy single-node development warning
-  when that newer hydration runtime is active.
-- Return `defer()` from an enumerable data property, not from a getter. Pracht
-  does not eagerly invoke loader getters to discover hidden deferred values and
-  throws instead of silently serializing an unresolved marker.
+- **A deferred value cannot redirect, throw `PrachtHttpError`, or set status
+  or headers.** Put auth in middleware or in the awaited part of the loader.
+- **`head()` and `headers()` cannot depend on deferred fields.** On a
+  streaming route they run before deferred work settles. Keep metadata and
+  header inputs in the awaited part.
+- **On Preact 10, a suspending `<Suspense>` boundary must resolve to exactly
+  one DOM element** — not `null`, not a multi-child fragment. Preact 11 lifts
+  this limit.
 
 ### Streaming the document
 
-Add `streaming: true` to an SSR route and the shell is flushed *before* the
-deferred values settle, instead of after:
+Add `streaming: true` to an SSR route to flush the page *before* deferred
+values settle:
 
 ```ts [src/routes.ts]
 route("/product/:id", () => import("./routes/product.tsx"), {
@@ -235,53 +193,26 @@ route("/product/:id", () => import("./routes/product.tsx"), {
 });
 ```
 
-Pages routes use `export const STREAMING = true` with SSR and full hydration.
+It also works as a group option. Pages routes use `export const STREAMING = true`.
+Your `defer()` and `use()` code stays the same either way.
 
-It is a group option too, so a whole section can opt in at once. Your route
-source does not change — the same `defer()` and `use()` code streams or
-buffers depending on this one flag.
+The browser first gets the head, styles, and the page with each unresolved
+boundary showing its fallback. Each deferred value then streams in as it
+settles. Hydration starts once the document is complete.
 
-The response is written in this order:
+Streaming needs `render: "ssr"` with `hydration: "full"`; any other combination
+is rejected. It also needs `preact-render-to-string` 6.7 or newer.
 
-1. The document head and opening root element, followed by the shell with every
-   unresolved boundary showing its fallback. The shell is prepared before the
-   response commits, so an early render failure can still produce a normal
-   error page while styles and preloads arrive before deferred work completes.
-2. The hydration state and defer-channel bootstrap. Deferred locations live in
-   framework metadata beside the loader data; no user object shape or property
-   name is reserved.
-3. Each deferred value as it settles.
-4. The client entry and closing tags. The entry is preloaded with the document
-   assets, but hydration starts after the streamed content so a
-   `beforeHydration` script inside a deferred subtree still runs first.
+What changes when a route streams:
 
-Streaming is rejected for any other combination: `ssg` and `isg` write files,
-and a `hydration` mode other than `"full"` ships no client runtime to resume a
-boundary with.
-
-Streaming requires `preact-render-to-string` 6.7 or newer. That is the first
-release with the streamed-boundary markers Preact 11 hydration expects;
-`@pracht/core` declares the matching peer range.
-
-`pracht dev` preserves the same behavior: Vite transforms the initial document
-prefix, then passes later renderer and deferred-data chunks through directly.
-
-Two behaviour changes worth knowing:
-
-- **A deferred rejection no longer fails the response.** Before the first flush
-  a failure still renders a normal error document. After it, the status is
-  already sent, so the rejection travels with the data and surfaces where the
-  value is read. The route or shell `ErrorBoundary` export renders, or a nearer
-  standalone `<ErrorBoundary>` can recover just that subtree; the response
-  stays `200`. Unexpected server failures remain sanitized in production, just
-  like buffered route errors.
-- **`<Script strategy="beforeHydration">` is emitted in place** rather than
-  hoisted into `<head>`, which has already been sent. It still runs before
-  hydration.
-
-Streaming also needs a `script-src` that permits the renderer's inline
-bootstrap script, which has no nonce hook yet — see [CSP](/docs/recipes/csp).
-Non-streaming routes are unaffected, which is why this is opt-in.
+- **A deferred rejection keeps the `200` status.** It surfaces where the value
+  is read: the route or shell `ErrorBoundary` renders, or a nearer
+  `<ErrorBoundary>` recovers just that subtree. Failures before the first flush
+  still render a normal error page.
+- **`<Script strategy="beforeHydration">` is emitted in place** instead of in
+  `<head>`. It still runs before hydration.
+- **CSP needs a `script-src` that allows the renderer's inline bootstrap
+  script**, which has no nonce hook yet. See [CSP](/docs/recipes/csp).
 
 ### Error handling
 
@@ -307,14 +238,13 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 }
 ```
 
-Error boundaries compose — a route boundary catches route-level errors, a shell boundary catches errors from any route in that shell, and uncaught errors bubble to the global handler.
+A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler.
 
 #### Scoping a boundary to a subtree
 
-The `ErrorBoundary` *export* takes over the whole route. When only part of a
-working page should be replaced — an embedded widget, a lazy island, a
-third-party integration — render the `<ErrorBoundary>` *component* around that
-subtree instead:
+The `ErrorBoundary` *export* replaces the whole route. To replace only part of
+a page — a widget, a lazy island, a third-party embed — wrap it in the
+`<ErrorBoundary>` *component*:
 
 ```tsx
 import { ErrorBoundary } from "@pracht/core";
@@ -331,8 +261,8 @@ export function Component() {
 }
 ```
 
-A function `fallback` receives the error and a `retry` callback that clears the
-captured error and re-renders the children:
+A function `fallback` receives the error and a `retry` callback that re-renders
+the children:
 
 ```tsx
 <ErrorBoundary
@@ -353,9 +283,8 @@ captured error and re-renders the children:
 | `fallback` | ComponentChildren \| (error, retry) => ComponentChildren         | Rendered in place of the children once an error is caught |
 | `onError`  | (error: Error) => void                                          | Called with every caught error, before the fallback renders |
 
-It works during SSR as well as on the client. Promises thrown for suspension
-pass straight through, so a `<Suspense>` ancestor still sees them — wrapping a
-`lazy()` component in this boundary does not break its loading state.
+It works during SSR and on the client. Suspense still passes through it, so a
+wrapped `lazy()` component keeps its loading state.
 
 #### Custom 404 page
 
@@ -371,18 +300,16 @@ export async function loader({ params }: LoaderArgs) {
 }
 ```
 
-A route module's own `ErrorBoundary` still wins for that route. Shell-level boundaries do not intercept 404s once a `notFound` page is configured — "not found" is an outcome, not a failure.
-
-Declaring that page is a manifest concern rather than a data-loading one: see [Routing](/docs/routing#not-found-page) for the `notFound` entry, why it is deliberately not a route, and the pages-router equivalent (`pages/404.tsx`).
+The route's own `ErrorBoundary` still wins. Shell boundaries do not catch 404s once a `notFound` page is configured. To declare that page, see [Routing](/docs/routing#not-found-page).
 
 > [!NOTE]
-> Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages are shown to users. Pass `debugErrors: true` to `handlePrachtRequest()` to see full error details during development; it is ignored when `NODE_ENV=production`.
+> Unexpected 5xx errors are sanitized by default — only `PrachtHttpError` messages reach users. Pass `debugErrors: true` to `handlePrachtRequest()` for full details in development; it is ignored when `NODE_ENV=production`.
 
 ---
 
 ## Mutations
 
-A loader cannot mutate: it runs on GET, it may be replayed from a prerendered page, and it has no place to put a response status. Writes go to an [API route](/docs/api-routes), and the framework's `<Form>` connects the two — it intercepts the submission and posts it over `fetch` with no page reload, exposes the in-flight state through `useNavigation()`, and still submits natively when JavaScript has not loaded.
+Loaders only read. Writes go to an [API route](/docs/api-routes). The `<Form>` component posts to it over `fetch` without a page reload, exposes the pending state through `useNavigation()`, and falls back to a native submit before JavaScript loads.
 
 ```ts [src/api/projects.ts]
 import { redirect } from "@pracht/core";
@@ -434,9 +361,9 @@ export function Component() {
 }
 ```
 
-**Refreshing the page after a write is your call, not an automatic one.** A `<Form action>` submission that gets a 2xx back leaves loader data exactly as it was. Two ways to refresh it:
+**Loader data does not refresh on its own.** A `<Form action>` submission that gets a 2xx leaves it unchanged. Two ways to refresh:
 
-- **Redirect from the handler**, as above. API dispatch converts the 3xx into a handshake the client router understands, so it navigates and refetches route state instead of letting `fetch` follow the redirect itself. This is the one that also works with JavaScript disabled.
+- **Redirect from the handler**, as above. The client router follows the redirect and refetches route state. This also works without JavaScript.
 - **Call `useRevalidate()`** from `onResponse` when the page should stay put:
 
 ```tsx
@@ -451,15 +378,15 @@ const revalidate = useRevalidate();
 >
 ```
 
-A `<Form capability>` submission is the exception: capabilities carry an effect class, so any successful non-`read` call revalidates the active route on its own. That is one reason to reach for a [capability](/docs/capabilities) when the same operation should also be callable by an agent.
+A `<Form capability>` submission is the exception: any successful non-`read` [capability](/docs/capabilities) call revalidates the active route automatically.
 
-`navigation.formData` holds the submitted fields while the request is in flight, which is what optimistic UI reads. For client-side `schema` validation, rendering server validation issues, file uploads, and multi-button forms, see the [Forms recipe](/docs/recipes/forms).
+For optimistic UI, read `navigation.formData` while the request is in flight. For client-side `schema` validation, server validation issues, file uploads, and multi-button forms, see the [Forms recipe](/docs/recipes/forms).
 
 ---
 
 ## Head Metadata
 
-The `head` export controls `<head>` content for the route. It receives the loader data as its argument:
+The `head` export controls the route's `<head>`. It receives the loader data:
 
 ```ts
 export function head({ data }: HeadArgs<typeof loader>) {
@@ -477,7 +404,7 @@ export function head({ data }: HeadArgs<typeof loader>) {
 
 ### SEO & Open Graph
 
-Use the `meta` array to set Open Graph, Twitter Card, and other SEO tags. Because `head` receives loader data, every tag can be dynamic per page:
+Put Open Graph, Twitter Card, and other SEO tags in `meta`. Each can use the page's loader data:
 
 ```ts
 export function head({ data }: HeadArgs<typeof loader>) {
@@ -503,7 +430,7 @@ export function head({ data }: HeadArgs<typeof loader>) {
 
 ### Structured data (JSON-LD)
 
-Include a `script` entry with `type: "application/ld+json"` for search engine structured data:
+Add a `script` entry with `type: "application/ld+json"`:
 
 ```ts
 export function head({ data }: HeadArgs<typeof loader>) {
@@ -528,7 +455,7 @@ export function head({ data }: HeadArgs<typeof loader>) {
 
 ### Shell-level defaults
 
-Shells can also export `head` to set site-wide defaults. Route-level `title` overrides the shell's `title`; `meta` and `link` arrays are concatenated:
+Shells can export `head` for site-wide defaults. A route's `title` overrides the shell's; `meta` and `link` arrays are concatenated:
 
 ```ts
 // src/shells/public.tsx
@@ -543,7 +470,7 @@ export function head() {
 
 ### Third-party scripts — `<Script>`
 
-For scripts that need loading-strategy control (analytics, chat widgets, ad tags), use the `<Script>` component inside route or shell components instead of a hand-written `head()` `script[]` entry:
+For analytics, chat widgets, and ad tags, render `<Script>` in a route or shell component. It gives you a loading strategy that a `head()` `script` entry does not:
 
 ```tsx
 import { Script } from "@pracht/core";
@@ -573,20 +500,19 @@ export function Component() {
 | `"idle"` | Injected in `requestIdleCallback` (setTimeout fallback) |
 | `"visible"` | Injected when its placeholder enters the viewport |
 
-Props: `src`, `id`, `async`, `defer`, `type`, `nonce`, `integrity`, `crossorigin`, `referrerpolicy`, client-only `onLoad`/`onError`, and inline string children as an alternative to `src`. Attributes pass through the same allowlist as `head()` scripts — `on*` attributes never reach SSR HTML.
+Props: `src`, `id`, `async`, `defer`, `type`, `nonce`, `integrity`, `crossorigin`, `referrerpolicy`, client-only `onLoad`/`onError`, and inline string children instead of `src`. `on*` attributes never reach SSR HTML.
 
-A script identified by `id`, `src`, or its inline content is never injected twice: dedupe spans re-renders, client-side navigations, `head()` entries, and tags the server already emitted. Constraints to know:
+A script with the same `id`, `src`, or inline content is injected only once, across re-renders, navigations, and `head()` entries.
 
-- `"beforeHydration"` only applies to server-rendered documents. When such a component first mounts via a client-side navigation, the script is injected immediately instead (with a dev warning).
-- On `hydration: "none"` routes no client JavaScript ships, so only `"beforeHydration"` can run; client strategies warn in dev and do nothing.
-- On `hydration: "islands"` routes, client strategies run for `<Script>` usages inside islands (they hydrate); `"beforeHydration"` works anywhere on the page. A client strategy outside an island can never run and warns in dev.
-- Inline JavaScript children preserve string, regex, and comparison semantics while HTML parser breakout sequences (`</script`, `<script`, `<!--`) are neutralized. JSON script types (e.g. `type="application/ld+json"`) get full JSON-safe `\uXXXX` escaping instead.
+- `"beforeHydration"` only applies to server-rendered documents. Mounted by a client-side navigation, the script is injected immediately (with a dev warning).
+- On `hydration: "none"` routes only `"beforeHydration"` runs; client strategies warn in dev and do nothing.
+- On `hydration: "islands"` routes, client strategies only run inside islands. `"beforeHydration"` works anywhere.
 
 ---
 
 ## Document Headers
 
-The `headers` export controls HTTP headers for the route's document response. It receives the same data-aware arguments as `head`:
+The `headers` export sets HTTP headers on the route's document response. It receives the same arguments as `head`:
 
 ```ts
 export function headers({ data }: HeadersArgs<typeof loader>) {
@@ -596,7 +522,7 @@ export function headers({ data }: HeadersArgs<typeof loader>) {
 }
 ```
 
-Headers merge with the shell's `headers` export. Route-level headers override shell headers with the same name. They apply to HTML document responses, including prerendered SSG/ISG HTML, but not API routes or route-state JSON fetches.
+Route headers merge with the shell's `headers` export and win on a name clash. They apply to HTML documents, including prerendered SSG/ISG pages, but not to API routes or route-state JSON.
 
 ---
 
@@ -604,9 +530,9 @@ Headers merge with the shell's `headers` export. Route-level headers override sh
 
 ### useRouteData()
 
-Access the current route's loader data reactively. Updates automatically on navigation and revalidation.
+Reads the current route's loader data. It updates on navigation and revalidation.
 
-If your project runs `pracht typegen`, pass the route id and the data type is inferred from that route's loader — no generic needed:
+If your project runs `pracht typegen`, pass the route id and the type is inferred from that route's loader:
 
 ```ts
 export function Component() {
@@ -615,13 +541,9 @@ export function Component() {
 }
 ```
 
-The runtime holds one route's data — the one on screen — so the route id is a
-typing shortcut, not a lookup. It is still honoured: passing the id of a route
-other than the active one throws, rather than handing back another route's data
-under the requested route's type. To read data across routes, pass it down as a
-prop.
+The id only sets the type. Passing an id other than the active route throws; to share data across routes, pass it down as a prop.
 
-For projects that do not run typegen, pass the loader type explicitly as a generic instead:
+Without typegen, pass the loader type as a generic:
 
 ```ts
 export function Component() {
@@ -632,7 +554,7 @@ export function Component() {
 
 ### useSearchParams()
 
-Read the current query string as a reactive, read-only `URLSearchParams` view:
+Read the current query string as a reactive, read-only `URLSearchParams`:
 
 ```tsx
 import { useSearchParams } from "@pracht/core";
@@ -643,11 +565,11 @@ export function Component() {
 }
 ```
 
-An SSG page hydrates with its build-time query so its first client tree matches the static HTML. After hydration, the hook updates from the visitor's browser URL; a direct visit to `/?lang=zh` therefore re-renders with `lang=zh` while retaining prerendered route identity and loader data. Use `useIsHydrated()` or stable fallback UI to avoid a visible transition. Navigate to update the query—the returned object cannot be mutated—and use SSR when query parameters must affect loader data or initial HTML.
+To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML.
 
 ### useRevalidate()
 
-Imperatively re-run the current route's loader:
+Re-run the current route's loader:
 
 ```ts
 export function Component() {
@@ -656,14 +578,12 @@ export function Component() {
 }
 ```
 
-Manual revalidation bypasses route-state browser caching, including
-`loaderCache`, so refresh buttons and post-mutation reloads fetch fresh loader
-data.
+Revalidation bypasses `loaderCache` and always fetches fresh data.
 
 ### useNavigation()
 
-Reactive pending state for the current navigation or `<Form>` submission — the
-building block for global progress bars, pending buttons, and optimistic UI:
+Pending state for the current navigation or `<Form>` submission. Use it for
+progress bars, pending buttons, and optimistic UI:
 
 ```ts
 import { useNavigation } from "@pracht/core";
@@ -677,13 +597,11 @@ function NavigationProgress() {
 
 - `state` — `"idle"`, `"loading"` (navigation in flight), or `"submitting"` (`<Form>` awaiting its response)
 - `location` — the target `{ pathname, search, hash, href }` while not idle
-- `formData` — the submitted `FormData` while a submission is pending (great for optimistic UI)
+- `formData` — the submitted `FormData` while a submission is pending
 
 ### useBlocker()
 
-Stop a navigation before it commits — the "you have unsaved changes" guard.
-`useNavigation()` reports that a navigation is happening; `useBlocker()` is how
-you say no to one.
+Stop a navigation before it commits, for example to guard unsaved changes:
 
 ```tsx
 import { useBlocker } from "@pracht/core";
@@ -723,42 +641,35 @@ const blocker = useBlocker(
 The predicate receives `{ currentLocation, nextLocation, historyAction }`, where
 `historyAction` is `"push"`, `"replace"`, `"pop"` (back/forward), or `"unload"`.
 
-**What is guarded.** `<Link>` clicks, `useNavigate()` calls, and back/forward
-traversals. Full document unloads — reloads, closed tabs, links to another
-origin — go through the browser's own `beforeunload` dialog, whose text is not
-yours to choose; those calls get `nextLocation: null` and
-`historyAction: "unload"`. Opt out with `useBlocker(dirty, { beforeUnload: false })`.
+**What is guarded.** `<Link>` clicks, `useNavigate()` calls, and back/forward.
+Reloads, closed tabs, and cross-origin links show the browser's own
+`beforeunload` dialog; the predicate sees `nextLocation: null` and
+`historyAction: "unload"`. Opt out with
+`useBlocker(dirty, { beforeUnload: false })`.
 
-**Shipping less JavaScript.** The guard checks are two branches, but the
-per-history-entry index the router stamps so a refused back/forward traversal
-can be put back is unconditional — a guard mounted later still has to measure
-traversals across entries created earlier. An app that guards no navigation
-compiles all of it out:
+**What is not.** `<Form>` submissions, and back/forward onto history entries
+your code created with `history.pushState()`. Render at most one blocker at a
+time; a second one wins and warns in development.
+
+**Shipping less JavaScript.** An app that never blocks navigation can compile
+the guards out:
 
 ```ts [vite.config.ts]
 pracht({ client: { navigationGuards: false } });
 ```
 
-With it off `useBlocker()` stays importable but never blocks, and says so in
-development.
-
-**Limits.** Render at most one blocker at a time — a second registration wins
-and warns in development. A back/forward traversal onto a history entry pracht
-did not create (app code calling `history.pushState()` directly) is not
-guarded, because the router cannot measure how far the browser moved and so
-cannot put the entry back. `<Form>` submissions are not navigations and are not
-guarded.
+`useBlocker()` then stays importable but never blocks, and warns in development.
 
 ### \<Form\> Component
 
-Declarative form submission with progressive enhancement, shown in full under [Mutations](#mutations). It intercepts same-origin submissions and sends them via `fetch` (no full page reload), while cross-origin actions retain native form navigation so they do not require a custom-header CORS preflight. It falls back to native submission if JavaScript fails, and drives `useNavigation()`'s `"submitting"` state.
+Submits forms over `fetch` with progressive enhancement; see [Mutations](#mutations) for a full example. Same-origin submissions skip the page reload; cross-origin actions submit natively. Without JavaScript it submits natively too. It drives `useNavigation()`'s `"submitting"` state.
 
-Set `action` to an API route path, or `capability` to post straight to a [capability](/docs/capabilities) endpoint.
+Set `action` to an API route path, or `capability` to post to a [capability](/docs/capabilities) endpoint.
 
 ---
 
 ## API Routes
 
-Loaders read; API routes write. Files in `src/api/` are auto-discovered, export named HTTP method handlers, return native `Response` objects, share the same context system as page routes, and never enter the client bundle. See [API Routes](/docs/api-routes) for the file convention, method handlers, API middleware, same-origin protection, and WebSockets, and [API Validation](/docs/api-validation) for Standard Schema validation and typed `apiFetch()`.
+Loaders read; API routes write. Files in `src/api/` export named HTTP method handlers that return `Response` objects, share the page routes' context, and never reach the client bundle. See [API Routes](/docs/api-routes) and [API Validation](/docs/api-validation).
 
-For an operation you also want agents to call, define it once as a [capability](/docs/capabilities) instead: same validation and middleware pipeline, plus an HTTP endpoint, a WebMCP page tool, and a remote MCP tool generated from one contract.
+To let agents call the same operation, define it as a [capability](/docs/capabilities) instead: one contract becomes an HTTP endpoint, a WebMCP page tool, and a remote MCP tool.

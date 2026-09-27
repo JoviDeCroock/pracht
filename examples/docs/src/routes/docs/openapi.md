@@ -12,8 +12,7 @@ next:
 
 ## Install the companion package
 
-OpenAPI support is opt-in through `@pracht/openapi`. Add its Vite plugin after `pracht()` so it can
-inspect Pracht's generated API graph:
+OpenAPI support is opt-in through `@pracht/openapi`. Add its Vite plugin after `pracht()`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -35,13 +34,9 @@ export default defineConfig({
 });
 ```
 
-The plugin serves `/openapi.json` during development. Enabling `ui: "scalar"` or `ui: "swagger"`
-also serves `/docs`. Both paths accept `GET` and `HEAD`; other methods receive `405`.
-
-During `pracht build`, the same resources become static files at
-`dist/client/openapi.json` and `dist/client/docs/index.html`. Node and Cloudflare serve them through
-their normal static-asset paths, while Vercel also receives an explicit route for the directory-index
-UI page.
+In development the plugin serves `/openapi.json`, and `ui: "scalar"` or `ui: "swagger"` adds a
+reference page at `/docs`. `pracht build` writes them as static files, `dist/client/openapi.json` and
+`dist/client/docs/index.html`.
 
 Use custom paths when these defaults overlap with app routes:
 
@@ -55,12 +50,9 @@ prachtOpenApi({
 
 ## Document response contracts
 
-Pracht can discover API paths, named HTTP methods, path parameters, and convertible `defineApi()`
-request schemas. Arbitrary `Response` objects and erased TypeScript types do not expose enough
-information to infer response statuses and payloads honestly.
-
-Wrap a validated handler with `defineOpenApi()` to attach that documentation without changing its
-runtime behavior or `apiFetch()` inference:
+Pracht discovers API paths, named HTTP methods, path parameters, and `defineApi()` request schemas.
+It cannot infer response statuses or payloads, so wrap the handler with `defineOpenApi()` to document
+them. Runtime behavior and `apiFetch()` types are unchanged:
 
 ```ts [src/api/items.ts]
 import { defineApi, json } from "@pracht/core";
@@ -82,14 +74,12 @@ export const POST = defineOpenApi(
 );
 ```
 
-Standard JSON Schema request validators use their input projection. Request bodies are marked
-optional when their validator accepts the `undefined` value that `defineApi()` receives for an empty
-body. Response schemas use their output projection. Raw JSON Schema objects also work for response
-bodies.
+Request schemas are documented by their input type and response schemas by their output type.
+Response bodies also accept raw JSON Schema objects. A request body is optional when its validator
+accepts `undefined`.
 
-Pracht adds its known `400` body-parsing and `422` validation responses. A handler without an
-explicit response descriptor receives a valid undocumented `default` response and a scoped warning,
-so one incomplete route does not erase the rest of the document.
+Pracht adds the `400` and `422` validation responses itself. A handler without a response descriptor
+gets an undocumented `default` response and a warning.
 
 Set `failOnWarnings: true` when documentation completeness should fail development requests and
 production builds:
@@ -125,44 +115,33 @@ mark one operation public, or provide another named security requirement.
 
 ## Choose and deploy a reference UI
 
-The generated JSON document is the stable integration point. The optional UI is a small static HTML
-shell backed by that endpoint:
+The UI is an optional static page that renders the JSON document:
 
-- `ui: "scalar"` loads the pinned Scalar browser bundle.
-- `ui: "swagger"` loads pinned Swagger UI assets, enables deep links, and disables Swagger's remote
-  validator.
-- An options object can override `scriptUrl` for either provider and `styleUrl` for Swagger, allowing
-  the assets to be self-hosted from `public/`.
+- `ui: "scalar"` loads a pinned Scalar bundle.
+- `ui: "swagger"` loads pinned Swagger UI assets, with deep links on and the remote validator off.
+- An options object can set `scriptUrl` for either provider and `styleUrl` for Swagger, to self-host
+  the assets from `public/`.
 
-The default bundles come from jsDelivr, and the shell contains a small inline initialization script.
-Strict Content Security Policy deployments must allow the selected asset origin and the inline
-script by hash, or use an app-owned UI page with the required nonce policy.
+The default assets come from jsDelivr, and the page has a small inline script. Under a strict Content
+Security Policy, allow that origin and the script's hash, or serve your own UI page with a nonce.
 
-Treat emitted OpenAPI files as public unless the hosting layer protects them. Avoid secrets and
-internal credentials in descriptions or examples, and remember that “Try it out” sends real requests
-to API handlers with their normal authentication, authorization, CSRF, rate-limit, and confirmation
-requirements.
+Treat emitted OpenAPI files as public unless the host protects them, and keep secrets out of
+descriptions and examples. “Try it out” sends real requests, subject to your API's normal
+authentication, CSRF, and rate limits.
 
 ## Generating the document yourself
 
-`prachtOpenApi()` serves the document and the UI page for you. When you want to
-own the endpoint — to gate it behind auth middleware, or to write the spec into
-a repository at build time — the two functions it generates into the server
-entry are exported:
+To serve the spec from your own API route, for example behind auth middleware,
+or to write it into a repository at build time, call the functions directly:
 
 ```ts
 import { generateOpenApiDocument, createOpenApiUiHtml } from "@pracht/openapi";
 ```
 
 `generateOpenApiDocument()` builds the OpenAPI 3.1 document from the resolved
-app graph and resolves to `{ document, warnings }` — the same warnings
+app graph and resolves to `{ document, warnings }`, the warnings
 `failOnWarnings` acts on. `createOpenApiUiHtml({ provider, documentUrl, title?,
-scriptUrl?, styleUrl? })` returns the Scalar or Swagger page that renders it;
-pin `scriptUrl` (and `styleUrl` for Swagger) to self-host instead of using the
-default CDN delivery.
-
-Serving them from your own API route is the supported way to put the spec behind
-a middleware.
+scriptUrl?, styleUrl? })` returns the Scalar or Swagger page for it.
 
 ## Current boundaries
 
@@ -170,5 +149,4 @@ a middleware.
 - Catch-all paths become a single `{path}` parameter and warn about slash encoding.
 - Request bodies currently default to `application/json`.
 - Capability HTTP projections are not included yet.
-- Drift enforcement uses deterministic build output and `failOnWarnings`; there is no dedicated diff
-  command yet.
+- There is no dedicated drift-diff command; use `failOnWarnings` and the deterministic build output.

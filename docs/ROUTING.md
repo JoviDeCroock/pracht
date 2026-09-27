@@ -831,6 +831,11 @@ A middleware module must export `middleware`; a module that does not is a hard
 error at request time rather than a silently skipped step, and `pracht verify`
 reports it before you ever send a request.
 
+On `ssg`/`isg` routes middleware runs only while prerendering (build or
+revalidation, on the sanitized request) and on live route-state requests;
+served static HTML never traverses it. This holds for manifest and pages
+`_middleware.ts` alike — the site documents it once, on `/docs/middleware`.
+
 Client-side navigations honor same-origin middleware redirects too. If a redirect
 lands on the page the user is already on, the router treats it as a no-op
 instead of forcing a reload loop.

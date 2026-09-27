@@ -86,6 +86,11 @@ on `examples/basic`, where the shared client JS also carries Preact, a cold load
 drops from 21,087 to 18,692 gzip bytes (−11.4%) — and one fewer request, since
 the lazily imported chunk is gone.
 
+Because that chunk attaches after hydration, `prefetch.ts` cannot rely on DOM
+events alone: on setup it checks `a:hover` to catch a hover that began while the
+chunk was loading, and a `MutationObserver` rescans only added subtrees and
+changed link attributes (`rel`, `data-pracht-speculate`, …) afterwards.
+
 ### What turning it off actually changes
 
 The router stops honouring `route({ prefetch })` and `<Link prefetch>`, and the
