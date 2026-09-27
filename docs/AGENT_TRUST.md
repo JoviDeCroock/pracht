@@ -570,6 +570,12 @@ proposal rather than taking that policy from the replica handling the commit.
 Cloudflare KV cannot provide these conditional writes; D1, Durable Objects,
 Postgres, and Redis can.
 
+- `get()` and `listPending()` return copies, never references to stored state
+  (the memory store `structuredClone`s on the way in and out), and
+  `listPending()` returns only unexpired `pending` proposals.
+- `decide()` atomically moves an unexpired `pending` proposal to `approved` or
+  `rejected` and returns `false` for anything else.
+
 Two operational consequences worth knowing before you turn this on:
 
 - **Prepare and commit must reach the same store.** With a store registered, a
@@ -1123,7 +1129,7 @@ example):
   about it, rather than passing quietly.
   `examples/basic/evals/notes-mcp.eval.json` exercises the complete round trip.
 - **WebMCP transport**: `"transport": "webmcp"` launches a compatible Chrome
-  process with the testing feature enabled, opens `webmcpRoute`, discovers the
+  (150+) process with the testing feature enabled, opens `webmcpRoute`, discovers the
   registered tool, and invokes it through `document.modelContext.executeTool()`.
   Only explicit steps run. `cancelAfterMs` aborts the browser-host call and is
   reported as status `499` / error code `cancelled`; use it to prove the

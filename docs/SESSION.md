@@ -65,6 +65,10 @@ envelope:
 - **Rotation has no key id.** `open()` tries every configured key, newest
   first. An id in the token would tell an attacker which secret to attack and
   buys nothing at the handful of secrets a rotation involves.
+- **Re-sealing happens only on commit.** An unchanged session keeps its
+  old-key seal until it expires, so the recipe keeps a retired secret until
+  cookies sealed with it have expired (`maxAge` after the rotation), not for a
+  fixed number of releases.
 - **Base64url must be canonical.** `atob` drops the unused low bits of the
   final character, so several strings decode to identical bytes;
   `fromBase64Url` re-encodes and compares, which keeps the token string a

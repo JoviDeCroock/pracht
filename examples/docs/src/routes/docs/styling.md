@@ -12,7 +12,7 @@ next:
 
 ## Recommended Approaches
 
-Any of these produce real CSS files that Vite tracks through its module graph. Pracht uses that graph to inject only the stylesheets a route actually needs — no unused CSS is sent, and the critical styles ship in the initial HTML.
+These all produce real CSS files that Vite tracks. Pracht uses that module graph to link only the stylesheets a route needs, in the initial HTML.
 
 - **CSS Modules** — co-located, automatically scoped per file
 - **Tailwind CSS** via `@tailwindcss/vite` — utility-first, single generated stylesheet
@@ -39,44 +39,46 @@ export default defineConfig({
 
 See [Performance → CSS Per Page](/docs/performance) for how pracht maps routes to their transitive CSS dependencies.
 
-This holds for every hydration mode. A `hydration: "none"` or `hydration: "islands"` route ships little or no JavaScript and so is absent from the client bundle, but its CSS is collected from the server build instead and served like any other asset — importing a CSS module from a route works the same whatever that route hydrates. Whatever that CSS references — a background image, a self-hosted font, an `@import`ed stylesheet — is served alongside it.
+Route CSS works the same in every hydration mode. A `hydration: "none"` or `"islands"` route still gets the CSS it imports, plus the images, fonts, and `@import`ed stylesheets that CSS references.
 
-Assets such a route imports directly are served too. `import dots from "./dots.svg"` in a `hydration: "none"` route, or the file behind a `?pracht` image import, resolves to a URL the page renders even though nothing about that route reaches the client build; the file is published with the route's CSS. Only what routes, shells and islands import travels this way — an asset that only an API route or a loader reads stays server-side.
+Assets those routes import directly are published too, like `import dots from "./dots.svg"` or a `?pracht` image. An asset that only an API route or a loader reads stays server-side.
 
-Islands are covered too. An island is its own client entry, so its CSS belongs to neither the route nor the shell; pracht adds the stylesheets of the islands a page rendered to that page's document. A route that renders an island without hydrating it — an island is an ordinary component outside an islands-mode render — links the same stylesheet, and it is the same file at the same URL, not a second copy. Without this an island's styles arrive only once its chunk is imported — after hydration, so its server-rendered markup paints unstyled first. Deferred islands (`client="visible"`, `client="idle"`) still get their CSS up front, because the strategy defers the island's JavaScript, not its markup.
+Each page also links the CSS of the islands it rendered, including deferred islands (`client="visible"`, `client="idle"`), so island markup does not paint unstyled first.
 
-`pracht build` records the finished mapping in `dist/server/css-manifest.json`: every route and shell file, with the stylesheet URLs its documents link. That file is the one place the mapping for routes outside the client bundle survives the build, so `pracht inspect build` and anything auditing CSS weight report them instead of reading `dist/client/.vite/manifest.json`, which by construction has no entry for a route that ships no JavaScript. Nothing at runtime reads it.
+`pracht build` writes the route-to-stylesheet mapping to `dist/server/css-manifest.json`, which `pracht inspect build` reads. Nothing reads it at runtime.
 
-The same behavior applies during development. `pracht dev` discovers the matched route and shell's CSS through Vite's live module graph and places stylesheet links in the initial HTML before the client entry runs. Import the CSS normally from your route or shell; you do not need a development-only `<link>` in `head()`. Island stylesheets are covered by the same walk, since a rendered island is a static import of the route or shell that placed it, so a dev page links exactly the island CSS it uses.
+`pracht dev` links the same CSS in the initial HTML. Import CSS from a route or shell; you do not need a development-only `<link>` in `head()`.
 
-Production uses route-scoped links by default. For small emitted stylesheets,
-`pracht({ inlineCss: true })` puts the complete matched route and shell CSS in
-the document instead. That removes a render-blocking request but repeats shared
-CSS in every HTML response, so [measure the trade-off](/docs/performance#css-per-page)
-— it favours a static or content site entered cold from search, where the
-stylesheet cache is never reused and that request is often the only
-render-blocking one left. It does not collect runtime CSS-in-JS output.
+Production links route-scoped stylesheets by default. For small stylesheets,
+`pracht({ inlineCss: true })` puts the matched route and shell CSS in the
+document instead. That removes a render-blocking request but repeats shared CSS
+in every HTML response, so [measure the trade-off](/docs/performance#css-per-page).
+It tends to win on static or content sites that visitors enter cold from search.
 
-One Vite option is incompatible: `build.cssCodeSplit: false` merges the app's
-stylesheets into a single asset that only an `index.html` would link, and a
-pracht app assembles its documents from the per-route manifest instead. The
-build refuses it rather than shipping pages with no stylesheet at all.
+`build.cssCodeSplit: false` is not supported: it merges all CSS into one file
+that pracht's per-route documents never link, so the build refuses it.
 
 ---
 
 ## CSS-in-JS — Use With Care
 
-Runtime CSS-in-JS libraries like **styled-components**, **Emotion**, and **goober** work in a pracht app, but the framework currently cannot collect their runtime-generated styles and inline them into the server-rendered HTML.
+Runtime CSS-in-JS libraries like **styled-components**, **Emotion**, and **goober** work in a pracht app, but pracht cannot collect their runtime-generated styles into the server-rendered HTML.
 
 | Route mode        | CSS-in-JS support                                                 |
 | ----------------- | ----------------------------------------------------------------- |
 | `spa` (CSR only)  | ✅ Works — styles are injected on the client after mount           |
 | `ssr` / `ssg` / `isg` | ⚠️ Flash of unstyled content until hydration catches up       |
 
-> [!WARNING]
-> On server-rendered routes, runtime CSS-in-JS produces HTML without the matching `<style>` tags. The page paints unstyled, then re-paints after hydration — a noticeable flash, and not good for Core Web Vitals.
+On server-rendered routes:
 
-**Guidance:** pick a build-time approach (CSS Modules, Tailwind, plain CSS) for any route that runs on the server. Keep CSS-in-JS for SPA-only routes if you really want it.
+1. The server renders HTML without the matching `<style>` tags.
+2. The browser paints the unstyled HTML.
+3. Client JavaScript runs and injects the styles.
+4. The browser repaints: a visible flash of unstyled content that hurts Core Web Vitals.
+
+**Guidance:** use a build-time approach (CSS Modules, Tailwind, plain CSS) for any route that runs on the server. Keep CSS-in-JS for SPA-only routes if you really want it.
+
+First-class CSS-in-JS support, with styles extracted during SSR, depends on upstream work tracked in [pracht#30](https://github.com/JoviDeCroock/pracht/issues/30).
 
 ---
 
@@ -137,24 +139,3 @@ Import Tailwind in your global CSS or shell:
 ```
 
 Tailwind classes work in any route regardless of render mode — the generated stylesheet is a static asset that the framework includes in the HTML.
-
----
-
-## CSS-in-JS Trade-offs for SSR
-
-Runtime CSS-in-JS libraries generate styles in JavaScript at render time. This creates a fundamental SSR problem:
-
-1. Server renders HTML without matching `<style>` tags
-2. Browser paints the unstyled HTML
-3. Client-side JavaScript runs and injects styles
-4. Browser repaints — visible flash of unstyled content (FOUC)
-
-This hurts Core Web Vitals (CLS) and perceived quality. For SPA routes (client-only), CSS-in-JS works fine. For server-rendered routes (SSR/SSG/ISG), use build-time CSS instead.
-
----
-
-## Future Work
-
-First-class CSS-in-JS support — where pracht extracts critical styles during SSR and inlines them into the HTML — is contingent on upstream work tracked in [pracht#30](https://github.com/JoviDeCroock/pracht/issues/30). Once that lands, runtime CSS-in-JS libraries will have a path to render without a flash on server-rendered routes, and this recommendation will be revisited.
-
-Until then, reach for CSS Modules or Tailwind first.

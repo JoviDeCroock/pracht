@@ -1,6 +1,6 @@
 ---
 title: Adapters
-lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel Edge Functions, Node.js, and pure static export.
+lead: Adapters are thin layers that translate between a platform's native request handling and pracht's Web Request/Response interface. pracht ships adapters for Cloudflare Workers, Vercel, Netlify, Node.js, and pure static export.
 breadcrumb: Adapters
 prev:
   href: /docs/deployment
@@ -23,9 +23,17 @@ Platform request (Node / CF / Vercel)
   → Convert Web Response back to platform response
 ```
 
-Adapters also preserve route and shell document headers for prerendered HTML so static SSG/ISG responses match dynamic document responses.
+Prerendered pages are served with the same document headers their route and
+shell would set on a dynamic response.
 
-For prerendered routes that export `markdown`, or declare `markdown: true` when middleware owns negotiation, the Node, Cloudflare, and Netlify adapters bypass the static document only when the request prefers `text/markdown` over HTML and the exact route appears in the generated Markdown manifest. Routes without a Markdown representation stay on the static fast path even when an agent requests Markdown; SSR-only builds emit an empty manifest so public assets receive the same protection, while custom entries without manifest metadata preserve negotiation by falling through to the framework.
+ISG pages render on a sanitized request — path only, with no cookies,
+credentials, query string, or body — because the result is cached and served
+to every visitor. Anything that depends on the visitor belongs on an SSR route.
+
+On Node, Cloudflare, and Netlify, a prerendered route that exports `markdown`
+(or sets `markdown: true` when middleware handles negotiation) is served as
+Markdown when the request prefers `text/markdown`. Every other request gets the
+static HTML.
 
 ---
 
@@ -71,16 +79,11 @@ dist/
     worker.js      // clean Wrangler deploy entry
 ```
 
-Prerendered HTML receives document headers from the generated `_pracht/headers.json` asset.
+Keep your `wrangler.jsonc` in the project root so you can add bindings without
+the build overwriting them.
 
-Every shared-cache ISG render, including a cold render with `cloudflareAdapter({ cache: true })`, uses a sanitized request: path only, a canonical HTML or markdown `Accept` header, and no cookies, credentials, query string, or body. This prevents the visitor who triggers the render from personalizing the stored response.
-
-Keep your `wrangler.jsonc` in the project root so you can add bindings without the build overwriting them.
-
-Cloudflare chooses a local inspector port automatically in dev. Concurrent
-Vite dev servers can race that availability probe, so give each server a
-distinct port (or disable the inspector). Local binding state also needs a
-distinct persistence path or must be disabled:
+To run several dev servers at once, give each its own inspector port and local
+state path, or turn them off:
 
 ```ts
 cloudflareAdapter({ inspectorPort: 9230 });
@@ -90,10 +93,9 @@ cloudflareAdapter({ persistState: { path: ".wrangler/state-dev-a" } });
 
 ### ISG and Workers Caching
 
-By default, Cloudflare runtime ISG stores regenerated pages in the per-colo
-Cache API and uses `ASSETS` as its build-time fallback. Opt into Cloudflare's
-cache in front of the Worker when time-revalidated routes should render on
-demand at the edge:
+By default, ISG stores regenerated pages in the per-colo Cache API. Opt into
+Cloudflare's cache in front of the Worker when time-revalidated routes should
+render on demand at the edge:
 
 ```ts [vite.config.ts]
 cloudflareAdapter({ cache: true });
@@ -106,18 +108,14 @@ cloudflareAdapter({ cache: { staleWhileRevalidate: 86_400 } });
 { "cache": { "enabled": true } }
 ```
 
-Workers Caching keys the exact path and query string. Query ordering and
-trailing slashes therefore create distinct cache entries, and arbitrary query
-values can create unbounded cold renders. Keep shared ISG query shapes bounded
-and canonical; use SSR when query parameters or visitor credentials affect the
-render. Cached hits also bypass middleware, so per-visitor policy belongs on
-SSR routes.
+Workers Caching keys on the exact path and query string. Query order and
+trailing slashes create separate entries, and arbitrary query values create
+unbounded cold renders, so keep query shapes on shared ISG routes bounded.
+Cached hits skip middleware, so per-visitor policy belongs on SSR routes.
 
-The assets binding's default HTML handling may redirect a nested prerendered
-route from `/guide` to `/guide/`, while Node serves `/guide` directly. Set
-`assets.html_handling` in `wrangler.jsonc` when the same canonical URL must be
-preserved across adapters. When Vite uses a deploy base, the adapter keeps the
-redirect inside that base (`/app/guide → /app/guide/`).
+The assets binding may redirect `/guide` to `/guide/`, while Node serves
+`/guide` directly. Set `assets.html_handling` in `wrangler.jsonc` (for example
+to `"drop-trailing-slash"`) to keep one canonical URL across adapters.
 
 ### Exporting bindings and event handlers
 
@@ -174,33 +172,27 @@ middleware.
 
 ### Local preview and Worker bindings
 
-`pracht preview` builds the Worker and delegates to `wrangler dev`. Local
-Worker secrets must come through Wrangler, for example from a gitignored
-`.dev.vars` file:
+`pracht preview` builds the Worker and runs `wrangler dev`. Local secrets come
+from a gitignored `.dev.vars` file, not from your shell environment; keep
+production values in `wrangler secret`.
 
 ```dotenv [.dev.vars]
 PRACHT_CONFIRMATION_SECRET=local-only-secret
 PRACHT_REVALIDATE_TOKEN=local-only-revalidation-token
 ```
 
-Prefixing the host command with either variable does not automatically expose
-it on the Worker's `env` binding. Keep production values in `wrangler secret`.
+With a custom-domain route in `wrangler.jsonc`, the Worker sees that domain in
+`request.url` even though preview listens on localhost. That changes absolute
+redirects and Web Bot Auth signatures, which cover `@authority`.
 
-When the Wrangler config includes a custom-domain route, preview may print a
-localhost URL while the `Request` inside the Worker uses the custom domain in
-`request.url`. Web Bot Auth signatures cover `@authority`, so sign that
-effective Worker authority or temporarily disable the custom route. To select
-a separate config, build and invoke Wrangler directly:
+`pracht preview` does not forward Wrangler's `--config` flag. To preview with a
+separate config that omits the production route, run Wrangler yourself; that
+config must keep `main: "dist/server/worker.js"`:
 
 ```sh
 pracht build
 npx wrangler dev --config wrangler.local.jsonc --port 3000
 ```
-
-That config must keep `main: "dist/server/worker.js"` and omit the production
-route. `pracht preview` does not forward Wrangler's `--config` flag. The same
-authority distinction affects absolute redirects and other origin-derived
-behavior.
 
 ### WebSockets
 
@@ -239,13 +231,8 @@ export class ChatRoom extends DurableObject {
 }
 ```
 
-Pracht returns the `101` exactly as the handler produced it — copying it would
-drop the `webSocket` handle, since that property is a Cloudflare extension to
-`ResponseInit` rather than part of the fetch standard. Upgrades work in
-`pracht dev` too, because workerd serves dev for this adapter.
-
-Cross-origin upgrades are rejected by default: browsers do not apply CORS to
-WebSocket, so the check that guards mutations guards handshakes as well.
+Upgrades work in `pracht dev` too. Cross-origin upgrades are rejected by
+default, the same way cross-origin mutations are.
 
 ### Accessing Cloudflare bindings
 
@@ -262,13 +249,10 @@ export async function loader({ context }: LoaderArgs) {
 }
 ```
 
-Cloudflare Workers itself allows top-level access through
-`import { env } from "cloudflare:workers"`, but Pracht graph inspection cannot
-provide authoritative bindings. In API and capability modules, read `env.DB`,
-`env.MY_KV`, or `exports.*` inside the handler, capability `run()`, or another
-request-time function — not during module initialization. Importing `env` is
-safe; a top-level property read fails closed with the binding name so a fake
-value cannot silently alter inspected security or transport metadata.
+`import { env } from "cloudflare:workers"` also works, but in API and
+capability modules read `env.DB` inside the handler or `run()`, not at module
+top level. Pracht inspects those modules without real bindings, and a top-level
+read fails with the binding's name.
 
 ### Deploy
 
@@ -279,9 +263,11 @@ npx wrangler deploy
 
 ---
 
-## Vercel Edge Functions
+## Vercel
 
-Deploy using Vercel's Build Output API v3. SSG pages are served from the static file system and SSR/API routes go through the Edge Function. ISG routes get one Serverless Function each — Vercel only supports ISR (`.prerender-config.json`) on serverless, and rejects a deployment that pairs it with an Edge Function.
+Deploys with Vercel's Build Output API v3. SSG pages are served as static
+files, SSR and API routes run in an Edge Function, and each ISG route gets its
+own Node Serverless Function, because Vercel supports ISR only on serverless.
 
 ### Setup
 
@@ -294,17 +280,14 @@ pracht({ adapter: vercelAdapter() })
 "@pracht/adapter-vercel": "*"
 ```
 
-Static prerendered routes receive document headers through the generated Build Output `headers` config.
+With `vercelAdapter({ regions: "all" })`, the Edge Function stays global and ISG
+functions run in the project's default Serverless region, because Serverless
+functions need concrete region ids.
 
-ISG Serverless invocations render on a sanitized request — path only, `Accept: text/html`, no cookies, credentials, query string, or body — because Vercel keys the prerender cache on the path alone and replays the stored response to every visitor. Credential headers on the rendered response (`Set-Cookie`, `Authorization`, secret-shaped `x-*`) are stripped before Vercel stores it.
-
-If `vercelAdapter({ regions: "all" })` is configured, the Edge function remains global while Node ISG functions use the project's default Serverless region. Node functions require concrete region identifiers and cannot use Edge's `all` sentinel.
-
-When using webhook revalidation, `PRACHT_REVALIDATE_TOKEN` must be present **at
-build time**. Vercel's `bypassToken` is embedded in each
-`.prerender-config.json`; setting the variable only at runtime authenticates
-Pracht's webhook but cannot bypass the prerender cache until the app is
-rebuilt. Time-only ISR does not require this secret.
+For webhook revalidation, `PRACHT_REVALIDATE_TOKEN` must be set **at build
+time**: Vercel embeds it in each ISG route's prerender config, so a token set
+only at runtime cannot bypass the cache until you rebuild. Time-only ISR does
+not need it.
 
 ### Build output
 
@@ -329,17 +312,14 @@ npx vercel deploy --prebuilt
 ### Preview and generated functions
 
 Vercel has no faithful local production runtime, so `pracht preview` exits with
-guidance instead of emulating one. Use `vercel build` to reproduce production
-output and `vercel dev` for Vercel's local development environment.
+guidance instead. Use `vercel build` to reproduce production output and
+`vercel dev` for local development.
 
-The main Edge Function defaults to
-`.vercel/output/functions/render.func`. Use
+The Edge Function is named `render` by default. Use
 `vercelAdapter({ functionName: "app" })` if an ISG route would collide with
-that name. Runtime ISG routes are Node Serverless Functions because Vercel
-does not support native ISR on Edge Functions. Generated entries export
-`nodeListener`, built with `createVercelNodeListener(handle)`, so those Node
-functions can run the same Web API handler and drain `waitUntil()` work. A
-custom Vercel server entry must provide the same export.
+that name. A custom Vercel server entry must export `nodeListener`, built with
+`createVercelNodeListener(handle)`, so the ISG functions can run the same
+handler.
 
 ---
 
@@ -368,66 +348,33 @@ export default defineConfig({
   directory = "netlify/functions"
 ```
 
-The generated catch-all function owns page URLs so Markdown negotiation and
-route-state requests still reach Pracht. `/assets/*` and `/_pracht/*` bypass
-the function by default at the origin root. Under a Vite deploy base those
-base-free publish paths cannot satisfy `/app/...` URLs, so the function bundles
-and serves the framework asset and state trees after stripping the base. Add
-app-specific static prefixes with `excludedPath`, but do not exclude page URLs.
-At the origin root, default and prefix-shaped exclusions are also omitted from
-the generated function bundle, so large static asset trees do not count against
-Netlify's function size limit. With a deploy base, custom exclusions still
-bypass their literal root URLs, while matching files remain bundled for
-base-prefixed requests. The generated config enumerates the required client
-files and roots applicable bundle exclusions at the function file so the
-Functions v2 tracer cannot pull bypassed trees back into the bundle.
-An exact exclusion omits only the matching file; it does not omit an
-`index.html` representation for a trailing-slash URL that can still invoke the
-function.
+The generated catch-all function serves page URLs, so Markdown negotiation and
+route-state requests reach pracht; `/assets/*` and `/_pracht/*` bypass it. Add
+other static prefixes with `netlifyAdapter({ excludedPath: [...] })` — they
+stay out of the function bundle too — but never exclude page URLs.
 
 ### Caching and revalidation
 
-SSG documents use `Netlify-CDN-Cache-Control` with durable caching. ISG routes
-use their Pracht time window as the CDN `max-age` and serve stale responses
-while a fresh render completes. Webhook-capable routes receive per-path cache
-tags, including when they provide a cacheable custom policy; authenticated
-requests to `/__pracht/revalidate` purge those tags. Explicit SSG and ISG cache
-policies expressed through `Cache-Control`, `CDN-Cache-Control`, or
-`Netlify-CDN-Cache-Control` remain authoritative; headers for another CDN do
-not disable Netlify's default. Both adapter cache windows accept `0`, disabling
-stale serving or the SSG fresh lifetime respectively.
-A document request with one trailing slash permanently redirects to the
-slashless ISG URL before rendering, so only the canonical URL enters the
-durable cache. Webhook revalidation accepts either spelling and purges the
-canonical cache tag.
+- SSG documents are cached durably on Netlify's CDN.
+- ISG routes use their revalidation window as the CDN `max-age` and serve the
+  stale page while a fresh render runs. Authenticated calls to
+  `/__pracht/revalidate` purge a page's cache tag.
+- SSR and API responses with `Cache-Control: public` are cached on the CDN too,
+  unless they set a cookie or vary on `Cookie` or `Authorization`; those stay
+  private.
+- On SSG and ISG pages, your own `Cache-Control`, `CDN-Cache-Control`, or
+  `Netlify-CDN-Cache-Control` takes precedence over these defaults. On SSR and
+  API responses, set `Netlify-CDN-Cache-Control` to control CDN caching; a
+  `public` `Cache-Control` is otherwise copied into it.
+- An ISG URL with a trailing slash redirects to the slashless one, so only one
+  copy is cached. Unrelated query parameters, such as tracking tags, share the
+  page's cache entry. A custom `Netlify-Vary` header replaces pracht's default
+  key.
 
-SSR and API responses that declare `Cache-Control: public` are promoted into
-the durable cache with the same route-state `Netlify-Vary` protection.
-Promotion fails closed: responses to route-state requests and responses that
-carry `Set-Cookie` or `Vary: Cookie`/`Authorization` get
-`Netlify-CDN-Cache-Control: private` instead, so a personalized render can
-never become the CDN's shared answer.
-
-Cached page HTML sets `Netlify-Vary:
-query=_data,header=x-pracht-route-state-request` so both route-state transports
-(query param and request header) keep their own cache variant, while tracking
-and other unrelated query parameters collapse onto the pathname entry. Netlify
-combines that key with Pracht's standard `Vary: Accept` header on routes that
-export `markdown`; `Accept` is not a valid `Netlify-Vary` directive. A custom
-`Netlify-Vary` header takes precedence.
-
-Because `/assets/*` and other excluded prefixes bypass the function, the build
-also emits `dist/client/_headers` with the immutable asset cache policy and
-pracht's default security headers for Netlify's static layer. A hand-authored
-`public/_headers` file wins; pracht skips generating one and warns. Default and
-prefix-shaped exclusions are also omitted from the function's `includedFiles`;
-the remaining client files are listed explicitly.
-
-Shared ISG renders sanitize both the request and Netlify context before loaders
-and context factories run. Visitor cookies, authorization, query strings,
-bodies, IP/geolocation, request IDs, and arbitrary request-local context cannot
-personalize the cached response. Deployment-wide site/server metadata and
-`waitUntil()` remain available.
+Because excluded prefixes bypass the function, the build also writes
+`dist/client/_headers` with immutable asset caching and pracht's default
+security headers. A `public/_headers` file of your own replaces it, and the
+build warns.
 
 ### Local preview and deploy
 
@@ -436,17 +383,16 @@ pracht build && netlify dev
 netlify deploy --build --prod
 ```
 
-`pracht preview` does not emulate Netlify's Functions or CDN cache behavior.
-Build the generated function before using `netlify dev` for a platform-shaped
-local runtime.
+`pracht preview` does not emulate Netlify's Functions or CDN cache. Build first,
+then use `netlify dev` for a platform-shaped local runtime.
 
 ---
 
 ## Node.js
 
-Run pracht as a standard Node.js HTTP server. The adapter handles static file serving, ISG stale-while-revalidate, request translation, and the generated `dist/server/server.js` entry boots the production server directly.
-
-Prerendered HTML receives document headers from `dist/server/headers-manifest.json`; `dist/server/markdown-manifest.json` records the exact routes with raw Markdown representations.
+Run pracht as a standard Node.js HTTP server. The adapter handles static file
+serving, ISG stale-while-revalidate, and request translation, and the generated
+`dist/server/server.js` entry boots the production server directly.
 
 ### Setup
 
@@ -471,62 +417,25 @@ nodeAdapter({
 });
 ```
 
-`maxBodySize` defaults to 1 MiB. Without `canonicalOrigin`, built servers warn
-that the URL is Host-derived. Applications with a custom entry can instead
-pass `trustProxy: true` to `createNodeRequestHandler()` when they are behind a
-trusted reverse proxy that overwrites `Forwarded` or `X-Forwarded-*` headers.
-Never enable it on a directly reachable server; `canonicalOrigin` is safer
-when the public origin is fixed.
+`maxBodySize` defaults to 1 MiB. Without `canonicalOrigin`, the built server
+warns that the URL comes from the `Host` header.
 
-If that trusted proxy also strips Vite's deploy base from the forwarded path,
-declare the rewrite separately with `nodeAdapter({ basePathStripped: true })`.
-The flag prevents a route whose first segment matches the base from being
-stripped twice.
+Behind a trusted reverse proxy that overwrites `Forwarded` or `X-Forwarded-*`,
+a custom entry can instead pass `trustProxy: true` to
+`createNodeRequestHandler()`. Never enable it on a directly reachable server.
+If the proxy also strips Vite's deploy base from the path, set
+`nodeAdapter({ basePathStripped: true })`.
 
 ### Response compression
 
-Responses are compressed by default via `Accept-Encoding` negotiation — the
-highest q-value wins (including an explicitly higher `identity` preference),
-with brotli preferred on ties. Dynamic documents, route-state JSON, and other
-compressible text types (`text/*`, JSON, JavaScript, SVG, and other
-`+json`/`+xml` types) stream through `node:zlib` with per-chunk flushing, so
-streamed bodies such as SSE are delivered incrementally; static assets and ISG
-snapshots are compressed once per file version and served from an in-memory
-LRU. Successful ISG writes use an atomic file replacement whose filesystem
-identity stays private to local cache keys; content-derived public validators
-remain stable across sibling handlers and deployment replicas, while local
-cache generations discard old compressed bytes. Each response reads through
-the same open file handle that supplied its size and validator, so a concurrent
-replacement cannot mix bytes with stale metadata or bypass the cold-work byte
-budget. This covers same-size rewrites on coarse-timestamp filesystems and
-revalidation after a handler restart or in a sibling worker. Date-only
-validation is conservatively bypassed for mutable ISG snapshots while
-compression is enabled. Buffered cold work is byte- and concurrency-bounded,
-including content-derived validator hashing; same-snapshot requests share one
-hash, and an overloaded response safely omits its ETag instead of queuing an
-unbounded whole-file read. Excess distinct compression jobs fall back to
-streaming compression. Static WebAssembly is served as `application/wasm`
-and follows that static compression path. Compressible responses carry
-`Vary: Accept-Encoding` (merged with existing `Vary` values), including on an
-application-generated `304`; encoded variants use their own collision-resistant
-weak ETag, and encoded dynamic requests run `If-Match` / `If-None-Match` /
-`If-Modified-Since` validation after the adapter selects the representation so
-identity and encoded validators cannot cross. `If-Match`
-uses strong comparison and preserves its precedence over
-`If-Unmodified-Since`. Requests carrying `Range` retain
-their original validators and remain identity-encoded even when the application
-returns a full `200`; `206` responses are likewise never transformed. `HEAD`
-advertises the same negotiated metadata as `GET`, including buffered compressed
-lengths.
-Already-encoded responses, `Cache-Control: no-transform`, Range/`204`/`304`
-responses, integrity-protected responses (`Content-Digest`, `Repr-Digest`,
-legacy `Digest`/`Content-MD5`), binary media, and bodies under 1 KiB when their
-size is known are never compressed. If a dynamic body fails before sending
-bytes, the fallback 500 is sent without the abandoned response's compression
-metadata.
+Responses are compressed by default, negotiated from `Accept-Encoding` with
+brotli preferred. Streamed responses such as SSE are flushed chunk by chunk, so
+they still arrive incrementally. Static files are compressed once and served
+from memory.
 
-When a reverse proxy or CDN in front of the server already compresses
-responses, disable the adapter's compression and let the proxy own it:
+Already-encoded responses, `Cache-Control: no-transform`, range requests,
+binary media, and bodies under 1 KiB are sent as-is. If a reverse proxy or CDN
+in front of the server already compresses, turn it off:
 
 ```ts [vite.config.ts]
 nodeAdapter({ compression: false });
@@ -542,11 +451,10 @@ node dist/server/server.js
 
 ### WebSockets
 
-Node's `http.Server` delivers upgrade requests to its `upgrade` event rather
-than to the request handler, so a handshake never reaches pracht. Attach a
-WebSocket server to the same HTTP server instead — the generated entry exports
-`handler`, and only starts a server of its own when run as the process
-entrypoint:
+Node delivers upgrade requests to the server's `upgrade` event, not to the
+request handler, so they never reach pracht. Attach a WebSocket server to the
+same HTTP server instead. The generated entry exports `handler`, and only
+starts its own server when run as the process entrypoint:
 
 ```js
 import { createServer } from "node:http";
@@ -569,7 +477,9 @@ server.listen(3000);
 
 ## Static export
 
-`@pracht/adapter-static` prerenders every route into `dist/client/` and stops there: no server bundle is deployed, and the directory works on any static host — GitHub Pages, S3, nginx, Netlify.
+`@pracht/adapter-static` prerenders every route into `dist/client/` and stops
+there: no server bundle is deployed, and the directory works on any static
+host — GitHub Pages, S3, nginx, Netlify.
 
 ### Setup
 
@@ -591,30 +501,37 @@ pracht({
 
 ### What must hold
 
-The build fails closed — before prerendering, with every offender listed — when the app needs a server:
+The build checks that the app can run without a server, and fails with a list
+of every offender when it can't:
 
-- every route must be `render: "ssg"` or loaderless, full-hydration `"spa"`; SSG loaders must produce HTML plus valid JSON route state at build time, and dynamic SSG routes must export `getStaticPaths()`;
-- no route or not-found middleware;
-- the `notFound` page must use full hydration when `fallback` is configured, because that document is built from the page's serialized route state (see [Dropping the router from `404.html`](#dropping-the-router-from-404html));
-- no API routes;
-- no manifest-registered capabilities exposed over HTTP/MCP/WebMCP (unexposed capabilities invoked from build-time loaders are fine); registered capability modules must load successfully so the build can establish that exposure safely;
-- neither route patterns nor concrete paths returned by `getStaticPaths()` may write under the reserved `/_pracht/` namespace; concrete output is checked before any page is written;
-- Vite `base` must be `/` or a safe root-absolute path such as `/my-project/`;
-  CDN and document-relative bases are rejected.
+- Routes are `render: "ssg"`, or loaderless `"spa"` routes with full hydration.
+  Dynamic `ssg` routes export `getStaticPaths()`.
+- No middleware, API routes, or capabilities exposed over HTTP, MCP, or WebMCP.
+- With `fallback`, the `notFound` page uses full hydration.
+- Vite `base` is `/` or a root-absolute path such as `/my-project/`.
 
-`ssr` and `isg` routes belong on the Node, Cloudflare, or Vercel adapters.
+`ssr` and `isg` routes need the Node, Cloudflare, Netlify, or Vercel adapter.
 
 ### Client navigation from static files
 
-Client-side navigation normally fetches route-state JSON from the server. A static export has none, so the build serializes each full-hydration SSG route whose loader or route/shell `head()` metadata participates in navigation to a bounded, collision-safe opaque `.json` file under `dist/client/_pracht/state/`, and the client bundle — compiled with the adapter's `staticTarget` flag — fetches those files instead. Equivalent URL segment spellings (raw Unicode, lowercase percent escapes, and escaped unreserved characters) are canonicalized to the same state file. The CLI reads that same flag independently of the adapter id, so custom static adapters enter the same artifact pipeline; they must reuse `staticAdapter()` or `createStaticServerEntryModule()` so the generated server entry exposes the 404/fallback render hooks, and the build fails when a required hook is missing. Explicitly loaderless and headless routes fetch no Pracht state; loaderless routes with head metadata fetch static state for font-head fragments while their components and data remain browser-only. Islands pages keep their MPA navigation.
+With no server to answer client-side navigation, the build writes each
+full-hydration route's state to `dist/client/_pracht/state/`, and the client
+fetches those files instead. Islands pages keep plain full-page navigation.
 
 ### 404 and SPA fallback
 
-The app's `notFound` page is rendered to `404.html` independently of ordinary route matching (the GitHub Pages / S3 convention); the full-hydration page adopts the URL actually visited. With `fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into dynamic `render: "spa"` routes boot the client router and resolve the route from `window.location`.
+The app's `notFound` page is rendered to `404.html` (the GitHub Pages / S3
+convention), and the full-hydration page adopts the URL actually visited. With
+`fallback: "200.html"` plus a host rewrite for unmatched URLs, deep links into
+dynamic `render: "spa"` routes boot the client router and resolve the route
+from `window.location`.
 
 #### Dropping the router from `404.html`
 
-Adopting the URL is the only thing the client router does on that page, and on a site whose other pages are islands or static it is the single largest chunk in the build — requested by `404.html` and nothing else. A 404 that shows fixed markup does not need it:
+Adopting the URL is the only thing the client router does on that page, and on
+a site whose other pages are islands or static it is the single largest chunk
+in the build — requested by `404.html` and nothing else. A 404 that shows fixed
+markup does not need it:
 
 ```ts
 notFound: {
@@ -624,7 +541,10 @@ notFound: {
 }
 ```
 
-The tradeoff is the URL. The page is prerendered at a synthetic path, so `useLocation()` reports that path rather than the one the visitor typed, and without the router nothing corrects it afterwards. Say nothing about the URL, or read it in an island — `hydration: "islands"` costs the islands bootstrap (a few kB) instead of the router:
+The tradeoff is the URL. The page is prerendered at a synthetic path, so
+`useLocation()` reports that path rather than the one the visitor typed. Say
+nothing about the URL, or read it in an island — `hydration: "islands"` costs
+the islands bootstrap (a few kB) instead of the router:
 
 ```tsx
 // src/islands/RequestedPath.tsx
@@ -633,13 +553,19 @@ export default function RequestedPath() {
 }
 ```
 
-`fallback` is the one thing that still requires full hydration: that document is built from the not-found page's serialized route state, and the build fails closed if the state is not there.
+This does not work with `fallback`, which needs a full-hydration `notFound`
+page.
 
-The fallback is one document shared by every rewritten URL, so it cannot run a route-, shell-, or not-found-specific `head()` export. If a fallback-rendered route declares one, configure explicit generic `fallbackHead` metadata shared by every fallback URL; the build fails closed when it is omitted. Fonts in that generic head remain registered while the fallback commits a loaderless dynamic SPA route.
+#### How the fallback behaves
 
-The fallback only client-renders matched SPA routes. A path that matches a dynamic SSG pattern but was not emitted by `getStaticPaths()` renders the app's `notFound` page instead of running without its missing build-time state. That client render reuses the build-time `notFound` loader data or handled error state serialized into `404.html`.
-
-The rewrite answers unknown URLs with status 200, so they become soft 404s; and with no `notFound` page and no unshadowed client-routable SPA catch-all, they render blank (the build warns). Prerendered pages must map to distinct portable filesystem paths: the build rejects duplicate, case-folded, and Unicode-normalization-equivalent outputs; Windows-invalid or overlong filename components; file/directory conflicts such as `/` with `/index.html`; and route directories that occupy `404.html` or the configured fallback file path before writing any page. Files copied from `public/` or emitted by Vite also may not occupy the generated `404.html` or configured fallback path, including a case- or Unicode-normalization-equivalent spelling; the build rejects those portable collisions instead of overwriting existing output. Fallback filenames also reject Windows reserved device names and the portable 255-byte/code-unit component limit.
+- It is one document shared by every rewritten URL, so it can't run a route's
+  `head()`. If a fallback-rendered route exports one, set a generic
+  `fallbackHead`; the build fails without it.
+- A URL that matches a dynamic `ssg` route but wasn't prerendered by
+  `getStaticPaths()` renders the `notFound` page.
+- Unknown URLs get status 200 from the rewrite, so they are soft 404s. Without
+  a `notFound` page or a catch-all SPA route they render blank, and the build
+  warns.
 
 ### Build, preview, deploy
 
@@ -648,40 +574,23 @@ pracht build      # dist/client/ is the deployable site
 pracht preview    # serves dist/client/ with a tiny static file server
 ```
 
-Pages are emitted as `<path>/index.html` at the percent-decoded path (`/posts/caf%C3%A9` → `posts/café/index.html`), so the host must serve `index.html` for directory URLs (clean URLs). `pracht preview` decodes request segments to that same filesystem spelling. Response headers each prerendered route would have carried are recorded in `dist/server/headers-manifest.json` (build tooling, not published) — mirror the ones you need in the host's header config.
+Pages are written as `<path>/index.html`, so the host must serve `index.html`
+for directory URLs (clean URLs). Paths are written decoded
+(`/posts/caf%C3%A9` → `posts/café/index.html`), matching how static hosts look
+files up.
 
-Two limitations are inherent to having no server:
+The host, not pracht, sets response headers. The headers each route would have
+sent are recorded in `dist/server/headers-manifest.json`; mirror the ones you
+need in the host's config.
 
-- **Markdown negotiation.** Routes exporting `markdown` rely on server-side `Accept` negotiation, and a static host always answers with the HTML file. The build prints a note when this applies. Publish `.md` files under `public/` when a raw-markdown corpus matters.
-- **Non-ASCII dynamic params.** Prerender output directories use the *decoded* form, because every mainstream static host decodes the request before the filesystem lookup. The build prints the decoded target next to each route path. Escapes that would decode into a path separator (`%2F`), a relative segment (`%2E%2E`), or the reserved `_pracht` namespace are build errors, as is malformed percent-encoding.
+A static host always answers with the HTML file, so routes that export
+`markdown` lose `Accept` negotiation; the build prints a note. Publish `.md`
+files under `public/` when a raw-Markdown corpus matters.
 
-To serve a static export under a sub-path, see [Sub-Path Deploys](/docs/deployment#sub-path-deploys).
+To serve a static export under a sub-path, see
+[Sub-Path Deploys](/docs/deployment#sub-path-deploys).
 
 ---
-
-## Null-body responses
-
-Pracht removes `Content-Length` from any application Fetch `Response` whose
-body is actually null before it reaches the development or production
-transport. This keeps explicit nonzero lengths from leaking onto bodyless HEAD,
-204, 205, and 304 responses; Node may replace the removed value with its own
-`Content-Length: 0` for a 205. A HEAD response that still carries the GET
-representation keeps its valid length metadata while the transport suppresses
-the bytes.
-
-If you write a custom response transport, apply the same policy at its final
-boundary:
-
-```ts
-import { normalizeResponseHeaders } from "@pracht/core/server";
-
-const response = normalizeResponseHeaders(
-  await handlePrachtRequest({ app, registry, request }),
-);
-```
-
-Protocol-switch responses are returned untouched so runtime-specific handles,
-such as Cloudflare's `webSocket`, remain attached.
 
 ## Context Factory
 
@@ -751,10 +660,9 @@ export default async function handle(request) {
 }
 ```
 
-`pracht inspect`, `plan`, `verify`, `report`, `doctor`, and `typegen` run a
-short-lived graph-only Vite server. They never load an adapter's regular
-`vitePlugins()`. If `graphVitePlugins()` is omitted, they load no
-adapter-contributed plugins.
+`pracht inspect`, `plan`, `verify`, `report`, `doctor`, and `typegen` never load
+an adapter's `vitePlugins()`. They call `graphVitePlugins()` instead, or load no
+adapter plugins when it is omitted.
 
 At the runtime level, an adapter also typically needs to:
 
@@ -766,13 +674,22 @@ At the runtime level, an adapter also typically needs to:
 6. Provide a context factory for platform-specific values
 7. Export an entry module generator for the Vite plugin
 
+A static-export adapter sets `staticTarget: true` and builds its entry with
+`createStaticServerEntryModule()` from `@pracht/adapter-static`, so the build
+can render `404.html` and the SPA fallback.
+
+If your transport sends responses itself, pass them through
+`normalizeResponseHeaders()` so bodyless responses (`HEAD`, `204`, `304`) don't
+carry a stale `Content-Length`. It leaves protocol-switch responses, such as
+Cloudflare's WebSocket `101`, untouched:
+
+```ts
+import { normalizeResponseHeaders } from "@pracht/core/server";
+
+const response = normalizeResponseHeaders(
+  await handlePrachtRequest({ app, registry, request }),
+);
+```
+
 > [!INFO]
 > See the source of `@pracht/adapter-cloudflare`, `@pracht/adapter-netlify`, or `@pracht/adapter-node` in the monorepo for a concrete reference implementation.
-
-
-## Prerendered document headers
-
-Node, Cloudflare, and Netlify apply recorded document headers using the same
-lookup order: the exact requested pathname, then that path without a trailing
-slash, then that path without `/index.html`. Platform-specific cache headers
-and ISG regeneration still follow the adapter behavior described above.

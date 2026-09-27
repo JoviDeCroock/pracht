@@ -12,35 +12,23 @@ next:
 
 ## How It Works
 
-After hydration, pracht loads the prefetch setup and registers document-level
-listeners that watch for user interaction with internal links. When a prefetch
-is triggered, the route's server data (the same JSON payload used during
-client-side navigation) is fetched in the background and cached. When the user
-actually clicks the link, the cached data is used immediately — no second
-network request. If hover begins while the lazy setup chunk is still loading,
-pracht catches up when setup completes if the pointer is still over the link.
-
-Prefetched data is held in a small client-side LRU cache with a 30-second TTL. Stale entries are discarded and re-fetched on the next interaction.
+After hydration, pracht watches for interaction with internal links. When a
+prefetch triggers, it fetches the route's data (the same JSON a client-side
+navigation uses) in the background and caches it. When the user clicks, the
+cached data is used with no second request.
 
 ---
 
 ## Strategies
 
-Each route can declare a `prefetch` strategy in its route meta:
+Each route can declare a `prefetch` strategy in its route meta. The default for every route is `"intent"`, so most apps configure nothing.
 
 | Strategy     | Trigger                                       | Best For                                  |
 | ------------ | --------------------------------------------- | ----------------------------------------- |
-| `"intent"`   | Mouse hover or keyboard focus (50ms debounce) | Most routes — low overhead, high hit rate |
+| `"intent"`   | Mouse hover (50ms debounce) or keyboard focus | Most routes — low overhead, high hit rate |
 | `"viewport"` | Link scrolls into view (IntersectionObserver) | Navigation menus, link-heavy pages        |
 | `"hover"`    | Same as intent (hover + focus)                | Alias for intent                          |
 | `"none"`     | Disabled                                      | Rarely visited pages                      |
-
----
-
-## Defaults
-
-You don't need to configure anything for most apps. The default for all routes
-is `"intent"` (prefetch on hover/focus).
 
 ---
 
@@ -94,8 +82,7 @@ import { Link } from "@pracht/core";
 | `"render"`   | Immediately when the link is rendered            |
 | `"none"`     | Never — overrides the route default              |
 
-The prop renders as a `data-pracht-prefetch` attribute, so plain `<a>`
-elements can opt in the same way.
+On a plain `<a>`, set the `data-pracht-prefetch` attribute to the same values.
 
 ---
 
@@ -117,28 +104,25 @@ is a no-op during SSR, before hydration, and for URLs that match no route.
 
 ## Viewport Prefetching
 
-When a route uses `"viewport"`, pracht observes all `<a>` elements pointing to that route via an `IntersectionObserver` with a 200px root margin. As soon as the link scrolls near the viewport, the route data is prefetched. Each link is only observed once — after the first intersection, it is unobserved to avoid redundant work.
-
-After client-side navigation updates the DOM, a `MutationObserver` observes only newly-added DOM subtrees for viewport-prefetch links automatically.
+A `"viewport"` link is prefetched once, when it comes within 200px of the viewport. Links added by client-side navigation are picked up automatically.
 
 ---
 
 ## Cache Behavior
 
-- Prefetch results are cached for **30 seconds** in a bounded client-side LRU cache. After that, the entry is evicted and re-fetched on the next trigger.
-- The cache is keyed by URL (pathname + search). Different query parameters are cached separately.
-- If a prefetch is in flight when the user clicks the link, the in-flight promise is reused — no duplicate request.
-- The cache is shared across all prefetch strategies. A viewport prefetch can be consumed by a subsequent click, and vice versa.
+- Prefetch results are cached for **30 seconds** in a bounded client-side LRU cache, then re-fetched on the next trigger.
+- The cache is keyed by pathname and search, so different query parameters are cached separately.
+- Clicking a link whose prefetch is still in flight reuses that request.
+- All strategies and navigations share the cache. A viewport prefetch can be consumed by a later click.
 
 ---
 
 ## Speculation Rules
 
-`prefetch` is the framework's JS-side warming: it fills the route-state cache
-and imports route chunks so an SPA navigation completes without a round-trip.
-`speculation` is the browser-side analogue. Opt a route in and pracht emits a
-single `<script type="speculationrules">` block into the SSR/SSG HTML listing
-every opted-in route as a URLPattern under `href_matches`.
+`prefetch` warms pracht's own route-state cache and route chunks for SPA
+navigation. `speculation` asks the browser to do the warming instead. Opt a
+route in and pracht emits one `<script type="speculationrules">` block into
+the SSR/SSG HTML covering every opted-in route.
 
 ```ts [src/routes.ts]
 import { defineApp, route, group } from "@pracht/core";
@@ -166,23 +150,22 @@ export const app = defineApp({
 });
 ```
 
-Reach for `prerender` on landing and marketing pages, where activating an
-already-rendered document makes the click instant. Reach for `prefetch` when
+Use `prerender` on landing and marketing pages, where activating an
+already-rendered document makes the click instant. Use `prefetch` when
 navigations leave the SPA — full page loads, middle-clicks, new tabs — since it
-fills the browser's HTTP cache with the document itself.
+fills the browser's HTTP cache with the document.
 
-Routes flagged `prerender` are dropped from JS hover-prefetch in browsers that
-support speculation rules, so the page does not fetch twice. Set both fields
-explicitly when you want the JS prefetch to keep running alongside a
-speculation `prefetch`.
+In browsers that support speculation rules, `prerender` routes skip JS
+prefetching so the page is not fetched twice. A speculation `prefetch` leaves
+the JS strategy running.
 
 ---
 
 ## Excluding Individual Links
 
-Speculation rules match by URL pattern, so every `<a>` — and every image-map
-`<area>` — pointing at an opted-in route is a candidate. Two attributes take a
-link back out, and one puts it back:
+Speculation rules match by URL pattern, so every `<a>` and image-map `<area>`
+pointing at an opted-in route is a candidate. Two attributes take a link back
+out, and one puts it back:
 
 | Opt-out | Effect |
 | --- | --- |
@@ -204,46 +187,33 @@ link back out, and one puts it back:
 <Link route="logout" speculate={false} prefetch="none">Log out</Link>
 ```
 
-Reach for this on any link with a side effect — a GET that logs the user out,
-consumes a one-time token, or records a view. A `prerender` speculation runs the
-destination's JavaScript, and a JS prefetch can run its loader and middleware,
-so either path can fire that effect before the user clicks.
+Use this on any link with a side effect — a GET that logs the user out,
+consumes a one-time token, or records a view. A `prerender` speculation runs
+the destination's JavaScript, and a JS prefetch can run its loader and
+middleware, so either can fire the effect before the user clicks.
 
-The two switches are independent. An excluded link keeps the ordinary SPA path:
-the JS `prefetch` strategy still applies to it, and the router still intercepts
-the click rather than waiting for a prerendered document that will never exist.
-Set `prefetch="none"` as well to stop both.
+The two switches are independent. An excluded link still gets its JS
+`prefetch` strategy and SPA navigation. Set `prefetch="none"` as well to stop
+both.
 
-Exclusions are emitted as a `not: { selector_matches: [...] }` clause on every
-rule, and the client mirrors the same selectors, so browser and router always
-agree. `"off"` wins over a `"on"` container at any nesting depth — the semantics
-are fail-closed on purpose, because CSS selectors cannot express nearest-ancestor
-precedence. Changing `rel` or `data-pracht-speculate` at runtime updates both
-sides, including a page-wide opt-out set on `<html>`.
+Only a link itself can opt back in: `"on"` on a container does not override an
+`"off"` ancestor. Changes to `rel` or `data-pracht-speculate` at runtime take
+effect, including a page-wide `"off"` on `<html>`.
 
 > [!NOTE]
 > If your app sets a Content Security Policy, allow the generated script with
 > `'inline-speculation-rules'` in `script-src`. See [CSP](/docs/recipes/csp).
 
-**Browser support.** Chromium-based browsers (Chrome/Edge 121+). Pracht emits
-*document rules* — `href_matches` plus `eagerness`, and `and`/`not`/
-`selector_matches` for the exclusions — which landed in Chrome 121. Earlier
-versions only understood explicit URL lists and ignore the script; Firefox and
-Safari ignore it too. The JS `prefetch` strategy is the cross-browser fallback
-and keeps working everywhere.
+**Browser support.** Chromium-based browsers (Chrome/Edge 121+) honour the
+rules. Older versions, Firefox, and Safari ignore them. The JS `prefetch`
+strategy keeps working everywhere.
 
 ---
 
 ## Shipping Less JavaScript
 
-The prefetch listeners live in a chunk the router lazily imports on every page.
 Setting every route to `prefetch: "none"` stops the fetching but still ships
-that chunk — `initClientRouter()` reaches the prefetch runtime directly, so no
-bundler can prove nothing uses it.
-
-`client.prefetch` gates it on a compile-time flag instead, which turns the
-branch, the modules only it reaches, and the lazily imported chunk into dead
-code:
+the prefetch runtime. To compile it out, turn off `client.prefetch`:
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -254,11 +224,9 @@ export default defineConfig({
 });
 ```
 
-On `examples/basic` this drops the router runtime from 9,917 to 7,286 gzip
-bytes and a cold load from 21,087 to 18,692, with one fewer request.
+That saves about 1.5 KB gzip and one request on a cold load; see
+[Performance](/docs/performance#what-pracht-costs-a-page).
 
-The flag defaults to `true`, so apps that configure nothing are unchanged byte
-for byte. Turn it off only when the app really does not prefetch: with it off
-the router silently stops honouring `route({ prefetch })` and `<Link prefetch>`,
-and the imperative `prefetch()` export becomes a no-op. Speculation rules are
-emitted server-side and are unaffected.
+The flag defaults to `true`. Turn it off only when the app does not prefetch:
+the router then silently ignores `route({ prefetch })` and `<Link prefetch>`,
+and `prefetch()` becomes a no-op. Speculation rules are unaffected.

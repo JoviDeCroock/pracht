@@ -16,10 +16,9 @@ next:
 ## Server-Sent Events
 
 For server→client streaming — live dashboards, progress updates, notification
-feeds, LLM token streams — Server-Sent Events are the simplest tool that works
-on **every adapter**: it is an ordinary HTTP response that never ends, so Node,
-Cloudflare Workers, and Vercel all stream it without platform-specific code.
-The browser side is plain `EventSource`, which even reconnects automatically.
+feeds, LLM token streams — Server-Sent Events work on **every adapter**
+without platform-specific code: the response is ordinary HTTP that never ends.
+The browser side is plain `EventSource`, which reconnects automatically.
 
 Reach for [WebSockets](#websockets) only when the *client* also needs to push a
 continuous stream of messages; for occasional client→server writes, a normal
@@ -56,22 +55,14 @@ export function GET({ request }: BaseRouteArgs) {
 What the helper takes care of:
 
 - **Wire format.** `send({ data, event?, id?, retry? })` serializes the SSE
-  frame: strings pass through (multi-line values become one `data:` line per
-  line), everything else is `JSON.stringify`ed. `event:`/`id:` values
-  containing CR/LF are rejected — a newline there would let untrusted input
-  forge extra protocol lines.
-- **Disconnect cleanup.** Both disconnect paths a runtime can deliver are
-  wired: `request.signal` aborting (Cloudflare, Vercel Edge) and the response
-  stream being cancelled (the Node adapter tears the pipe down when the client
-  hangs up). Either way `send()` starts returning `false` and the keep-alive
-  timer is cleared — use the return value as your producer's stop condition.
+  frame: strings pass through, everything else is `JSON.stringify`ed.
+- **Disconnect cleanup.** When the client disconnects, on any adapter, `send()`
+  starts returning `false`. Use that as your producer's stop condition.
 - **Headers.** `Content-Type: text/event-stream`, plus
-  `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no` so
-  shared caches never store the stream and compressing/buffering proxies
-  (nginx and friends) leave the framing alone.
-- **Proxy idle timeouts.** `keepAlive: 15` emits a comment line
-  (`:keep-alive`) every 15 seconds so load balancers with idle timeouts keep
-  the connection open.
+  `Cache-Control: no-store, no-transform` and `X-Accel-Buffering: no` so caches
+  and buffering proxies (nginx and friends) leave the stream alone.
+- **Proxy idle timeouts.** `keepAlive: 15` emits a `:keep-alive` comment every
+  15 seconds so load balancers with idle timeouts keep the connection open.
 
 Try it with curl (`-N` disables curl's own buffering):
 
@@ -86,12 +77,10 @@ curl -N http://localhost:5173/api/live
 # ...
 ```
 
-One thing the helper deliberately does not do: apply backpressure. Messages
-sent faster than the client reads them buffer in the stream — without bound.
-SSE frames are small, so this is fine for event feeds; a producer pushing
-serious volume should watch `stream.desiredSize` (the response stream's
-remaining queue capacity, `null` once closed) and pause or drop messages while
-it is zero or negative:
+The helper applies no backpressure: messages sent faster than the client
+reads them buffer without bound. That is fine for event feeds. A high-volume
+producer should watch `stream.desiredSize` (remaining queue capacity, `null`
+once closed) and pause or drop messages while it is zero or negative:
 
 <!-- snippet: partial -->
 ```ts
@@ -104,12 +93,11 @@ stream.send({ data: frame });
 Two more things worth knowing before you ship an SSE endpoint:
 
 - **Producer lifetime is yours.** The handler returns `stream.response`
-  immediately; middleware wrapping the route (a `try`/`finally` around
-  `next()`, a duration logger) completes then too, while the stream stays
-  open. Key your producer's shutdown on `send()` returning `false` (or
-  `stream.closed`), not on middleware finishing. And prefer `request` over
-  the handler's `signal` argument for anything long-lived — that signal is a
-  request-phase timeout, not the stream's lifetime.
+  immediately, and wrapping middleware finishes then too while the stream stays
+  open. Stop your producer when `send()` returns `false` (or on
+  `stream.closed`), not when middleware finishes. For anything long-lived, rely
+  on `request`, not the handler's `signal` argument: that signal is a
+  request-phase timeout.
 - **Resuming after reconnects.** The browser replays the last `id:` it saw in
   a `Last-Event-ID` request header when it reconnects. Send meaningful ids
   and read the header to resume instead of restarting:
@@ -122,10 +110,9 @@ Two more things worth knowing before you ship an SSE endpoint:
 ### The component
 
 `useEventSource(url, options?)` wraps `EventSource`: it connects on mount,
-disconnects on unmount (which is exactly when the server's `send()` starts
-returning `false`), tracks connection state, and optionally JSON-parses
-payloads. Pass `null` as the URL to stay disconnected and clear the previous
-payload/id — handy for gating the subscription on user state.
+disconnects on unmount, tracks connection state, and optionally JSON-parses
+payloads. Pass `null` as the URL to stay disconnected and clear the last
+payload, for example until the user is signed in.
 
 ```tsx [src/routes/live.tsx]
 import { useEventSource } from "@pracht/core";
@@ -145,20 +132,16 @@ export function Component() {
 }
 ```
 
-The browser reconnects dropped SSE connections on its own (tune the delay by
-sending `retry:`), so `status` may bounce between `"open"` and `"connecting"`
-on a flaky network without any code on your part. During SSR the hook renders
-`{ status: "connecting" }` and never connects — the subscription is
-client-only by nature. Changing `url` (or the options) tears the connection
-down and starts the new subscription clean: `data` and `lastEventId` reset to
-`undefined` rather than showing the previous endpoint's payload.
+The browser reconnects dropped connections itself (tune the delay by sending
+`retry:`), so `status` may bounce between `"open"` and `"connecting"`. During
+SSR the hook renders `{ status: "connecting" }` and never connects. Changing
+`url` or the options starts a fresh subscription, resetting `data` and
+`lastEventId` to `undefined`.
 
-Each `useEventSource` call owns one `EventSource` connection. Two components
-subscribing to the same URL open two connections — and over HTTP/1.1 browsers
-allow only ~6 connections per origin, *shared with every other request to
-your app*, so a handful of SSE subscriptions can starve the page. Lift a
-shared subscription into a parent (context or props), and serve production
-traffic over HTTP/2/3 where the limit does not apply.
+Each `useEventSource` call opens its own connection. Over HTTP/1.1, browsers
+allow about 6 connections per origin, shared with every other request, so a
+few SSE subscriptions can starve the page. Lift a shared subscription into a
+parent (context or props), and serve production traffic over HTTP/2 or 3.
 
 The working example lives in the repo's `examples/basic` app: route `/live`,
 endpoint `src/api/live.ts`.
@@ -175,8 +158,7 @@ upgrade requests by default (`api.requireSameOrigin`).
 
 The Cloudflare adapter serves upgrades **through** pracht routing: an API
 route returns the `101` handshake response and the runtime passes it through
-untouched (identity-preserved — the `webSocket` handle survives). For
-connection state, forward to a Durable Object:
+untouched. For connection state, forward to a Durable Object:
 
 ```ts [src/api/ws.ts]
 import type { BaseRouteArgs } from "@pracht/core";

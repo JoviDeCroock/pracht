@@ -12,10 +12,9 @@ next:
 
 ## What pracht costs a page
 
-Hydration is a per-route setting, so the framework's runtime cost is something
-you pick rather than something you inherit. These are the gzipped client
-JavaScript totals for the *same page*, rendering the *same markup*, with one
-thing changed each time.
+Hydration is a per-route setting, so you pick the framework's runtime cost.
+These are the client JavaScript totals for the *same page*, rendering the
+*same markup*, with one thing changed each time.
 
 | Route setting | Gzip | Raw | What reaches the browser |
 | --- | --- | --- | --- |
@@ -26,60 +25,41 @@ thing changed each time.
 | `hydration: "full"`, navigation guards off | **17.2 KB** | 41.7 KB | Full hydration with `client: { navigationGuards: false }`. |
 | `hydration: "full"` + `preact/compat` | **18.2 KB** | 44.9 KB | Full hydration with the React compatibility layer in the graph. |
 
-Gzip is a cold load — the route's chunks plus the one the router fetches after
-hydration. Raw is the route's chunks. Both come straight from
-`bench/baseline.json`, so every number here is one command away from being
-checked. This baseline uses Preact `11.0.0-rc.1` and render-to-string `6.7.0`.
+Gzip is a cold load: the route's chunks plus the chunk the router imports
+after hydration. Raw is the route's chunks only. Both come from
+`bench/baseline.json`, measured with Preact `11.0.0-rc.1` and
+render-to-string `6.7.0`. Your application code sits on top of these.
 
-Your application code sits on top of these. They are a floor, not a budget.
+What to read off the table:
 
-Three things worth reading off the table. Going from full hydration to islands
-is the single largest lever — it removes the router, not just some of it.
-[Turning prefetching off](/docs/prefetching) is worth about 1.5 KB, which is
-more than it looks: the router `import()`s the prefetch runtime *after*
-hydration, so those bytes are part of a cold load without showing up in any
-route's chunk list. And
-[turning navigation guards off](/docs/data-loading#useblocker) is worth about
-0.3 KB — small, but it is the entire cost of a feature an app either uses or
-does not.
-
-### Link-heavy server rendering
-
-Typed links do not scan the route list on every server render. The first
-`<Link>` for an app compiles its immutable route table into an id index;
-subsequent links use an O(1) lookup. Static route paths are reused whole, and
-dynamic links validate and substitute their parameters without rebuilding
-intermediate segment arrays, sets, and objects for each link. The same resolver
-backs generated `href()`, typed navigation, and typed prefetch targets.
-
-This optimization is deliberately server-only. Browser builds keep the smaller
-resolver, so faster SSR does not add client JavaScript to hydrated pages.
+- **Islands is the biggest lever.** Going from full hydration to islands
+  removes the whole client router.
+- **[Prefetching off](/docs/prefetching#shipping-less-javascript) saves about
+  1.5 KB.** The router loads the prefetch runtime after hydration, so it counts
+  on a cold load without appearing in any route's chunk list.
+- **[Navigation guards off](/docs/data-loading#useblocker) saves about
+  0.25 KB**, the full cost of `useBlocker()`.
 
 ### How these numbers are measured
 
-They come from `pnpm bench`, which lives in the repository and anyone can run:
+Run the harness from the repository:
 
 ```bash
 pnpm bench              # bytes and timings, printed as a table
 pnpm bench:check        # bytes only, fails when they drift
 ```
 
-The fixture is one app whose routes render identical markup and share a single
-interactive component. The only variable between rows is the hydration mode, so
-a delta is framework runtime rather than application code. `preact/compat` is
-measured in a separate app on purpose: it lands in the shared vendor chunk, and
-measuring it in the same build would inflate every other row.
+The fixture's routes render identical markup and share one interactive
+component; only the hydration mode varies, so each delta is framework runtime.
+`preact/compat` is measured in a separate app so it does not inflate the other
+rows.
 
-Byte sizes are deterministic for a given commit, so they are recorded in a
-baseline and CI fails when they move — a stray import that pulls a new module
-into the client entry becomes a failing pull request. Timings are not
-deterministic, so the harness reports a median with its observed spread and
-nothing in CI gates on them.
+Byte sizes are deterministic, so CI fails when they move. Timings are not, so
+the harness reports a median and spread and CI does not gate on them.
 
 ### Measuring your own app
 
-`pracht build --analyze` prints the same shape of report for the app you are
-actually building, per route:
+`pracht build --analyze` prints the same report for your app, per route:
 
 ```bash
 pracht build --analyze
@@ -96,19 +76,17 @@ Route / chunk                        Gzip     Raw
 Add `--json` for machine-readable output, and set per-route
 [budgets](/docs/reference/config) to fail a build when a route ships too much.
 
-One caveat the report shares with every bundle analyzer: it accounts for the
-chunks a route loads *to hydrate*. Runtime the router imports afterwards — the
-prefetch runtime today, roughly 1.1 KB gzip — is fetched by the browser on a
-full-hydration route without appearing in a route total. The table above quotes
-the cold-load number, which includes it.
+Route totals count the chunks a route loads *to hydrate*. On a full-hydration
+route, the browser also fetches the prefetch runtime afterwards, about 1.1 KB
+gzip, which no route total includes.
 
 ---
 
 ## Route-Level Code Splitting
 
-Every route and shell module is loaded via `import.meta.glob()`, which Vite compiles into dynamic imports. Each route becomes its own JS chunk, loaded only when needed.
+Each route and shell becomes its own JS chunk, loaded only when needed.
 
-On the server, pracht knows which route and shell are being rendered. It uses this to emit `<link rel="modulepreload">` hints in the HTML `<head>` so the browser can start downloading the matched route's JS chunks immediately — before the client entry script even executes.
+The server knows which route and shell it is rendering, so it adds `<link rel="modulepreload">` hints to `<head>`. The browser starts downloading the route's chunks before the client entry runs.
 
 ```html
 <!-- Automatically injected for the matched route -->
@@ -128,10 +106,9 @@ Preact and its hook/compat entry points are extracted into a shared `vendor` chu
 
 ### Composing with your own chunking
 
-The framework group is *contributed*, not imposed. Whatever you configure in
-`build.rollupOptions.output` stays, and pracht appends its Preact group in the
-same form you used — so grouping a feature into its own chunk does not cost you
-the vendor chunk:
+Pracht adds its Preact group to whatever you configure in
+`build.rollupOptions.output`, in the same form you used. Your own groups keep
+working alongside the vendor chunk:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -148,18 +125,16 @@ export default defineConfig({
 });
 ```
 
-Precedence is Rolldown's own: higher `priority` first, then declaration order.
-Your groups are declared first, so a group that would also capture Preact wins
-at equal priority and pracht's group takes only what nothing else claimed.
+Rolldown applies higher `priority` first, then declaration order. Your groups
+come first, so at equal priority a group of yours that also matches Preact wins.
 
-Check the prerendered HTML after a grouping change, not only the sizes. A broad
-group — `entriesAware` over everything, for instance — can reshuffle entry
-chunks enough that the per-route `<link rel="stylesheet">` tags pracht injects
-disappear from `dist/client/**/index.html`. Targeted groups do not have this
-problem; measure the pages, not just the bundle report.
+After a grouping change, check the prerendered HTML, not just the sizes. A broad
+group, such as `entriesAware` over everything, can drop the per-route
+`<link rel="stylesheet">` tags from `dist/client/**/index.html`. Targeted groups
+do not.
 
-To place the framework group yourself — at a different priority, or merged into
-one of your own — turn the automatic one off and use the exported definition:
+To place the framework group yourself, turn the automatic one off and use the
+exported definition:
 
 ```ts [vite.config.ts]
 import { frameworkChunkGroups, pracht } from "@pracht/vite-plugin";
@@ -181,28 +156,22 @@ export default defineConfig({
 });
 ```
 
-`vendorChunk: false` on its own makes pracht contribute no chunking config at
-all, which is what you want if Preact belongs in your app chunks.
+`vendorChunk: false` on its own adds no chunking config, which is what you want
+if Preact belongs in your app chunks.
 
 ## Core Runtime Splitting
 
-The generated client entry imports a lean browser bootstrap from `@pracht/core/client`.
-Route and shell modules still import the normal `@pracht/core` API, but browser
-builds resolve that public API through a client-safe entry so server-only
-runtime code is not part of the default browser graph.
-
-Prefetch listener setup is also loaded after the router is initialized. The
-small route-state cache remains available synchronously for navigation and
-forms, while the hover/focus and viewport observers move out of the hydration
-critical path.
+Browser builds resolve `@pracht/core` through a client-safe entry, so
+server-only runtime code stays out of the browser bundle. The prefetch listeners
+load after the router starts, off the hydration critical path.
 
 ---
 
 ## CSS Per Page
 
-pracht builds a CSS manifest that maps each source file to its transitive CSS dependencies. At request time, only the CSS needed for the matched route, its shell, and the islands it rendered is injected as `<link rel="stylesheet">` tags — no unused CSS is sent.
+Each response links only the CSS for the matched route, its shell, and the islands it rendered.
 
-For a small site, opt into inlining those complete route-scoped files:
+For a small site, you can inline those route stylesheets instead:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -211,34 +180,26 @@ export default defineConfig({
 ```
 
 Production HTML then contains `<style data-pracht-inline-css>` instead of the
-matched stylesheet links. This works for the manifest and pages routers, every
-render/hydration mode, error boundaries, prerendering, and every built-in
-adapter. Development keeps links so Vite HMR works normally.
+stylesheet links. It works with both routers, every render and hydration mode,
+and every built-in adapter. Development keeps links so HMR works.
 
 Inlining saves a render-blocking request but enlarges every HTML response and
-repeats shared CSS instead of letting one stylesheet cache serve many pages.
-It is whole-file route CSS inlining, not selector-level extraction or runtime
-CSS-in-JS collection. Measure both variants before choosing it.
+repeats shared CSS on every page. It inlines whole files, not critical
+selectors. Choose by how your pages are visited:
 
-Which side wins is a question about your traffic, not about your CSS:
+- **Visitors move between pages** (most apps): link. One cached stylesheet
+  serves the whole session.
+- **Cold, single-page visits** (static and content sites from search): inline.
+  The cache is never reused, and on a page with little JavaScript the
+  stylesheet is the render-blocking request that delays first paint.
 
-- **An app whose visitors move between pages** amortizes one cached stylesheet
-  across the whole session. Linking is right; inlining pays the same bytes on
-  every document.
-- **A static or content site** is mostly cold, single-page visits arriving from
-  search. That cache is never reused, and on a page that ships little or no
-  JavaScript the stylesheet is the only render-blocking request the app
-  controls — so the round trip lands directly on first paint. Inlining a small
-  per-route stylesheet removes it.
+The default is `false`. When a static export's pages each link a small
+stylesheet, `pracht build` prints a tip suggesting the flag. Measure both
+before choosing.
 
-`pracht build` says so when it can see it: a static export whose pages each link
-a stylesheet small enough to have arrived with the document prints a tip
-suggesting the flag. The default stays `false` either way, because only you
-know how your pages are visited.
-
-Under a nonce-based CSP, return `styleNonce` from `head()` and place the same
-nonce in `style-src`. Prefer linked CSS for SSG/ISG pages unless a stable hash
-policy covers the emitted inline block.
+Under a nonce-based CSP, return `styleNonce` from `head()` and put the same
+nonce in `style-src`. For SSG/ISG pages, prefer linked CSS unless a stable hash
+policy covers the inline block.
 
 ---
 
@@ -267,28 +228,18 @@ export function Vitals() {
 }
 ```
 
-The hook is SSR-safe: it starts from an effect and lazy-loads the measurement
-chunk after mount. Multiple callers share one observer set, callbacks can
-change across renders, and apps that never use the hook ship none of that code.
-The browser API may report some metrics only after interaction, visibility
-changes, or page exit, so use `sendBeacon()` or another unload-safe transport.
+The hook is SSR-safe and loads its measurement code after mount; apps that
+never call it ship none. Some metrics arrive only after interaction or on page
+exit, so send them with `sendBeacon()` or another unload-safe transport.
 
 ---
 
 ## Error Overlay in Dev
 
-During development, if a loader or component throws an error during server-side rendering, pracht renders a framework-aware error overlay instead of a generic Vite error page.
-
-The overlay shows:
-
-- The error message and name
-- A source-mapped stack trace (with Vite's SSR stack fix applied)
-- The route ID and file path that failed (when available)
-
-The overlay auto-reloads when you save a fix — it listens for Vite's HMR full-reload event and refreshes the page automatically.
+When a loader or component throws during SSR in `pracht dev`, pracht shows an error overlay with the error message, a source-mapped stack trace, and the failing route ID and file when known. It reloads automatically when you save a fix.
 
 > [!NOTE]
-> The error overlay only appears during `pracht dev`. Production builds return standard error responses (or render your `ErrorBoundary` component if one is exported from the route module).
+> Production builds return standard error responses, or render your route's `ErrorBoundary` if it exports one.
 
 ---
 

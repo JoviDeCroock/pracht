@@ -1,6 +1,6 @@
 ---
 title: Rendering Modes
-lead: pracht supports four rendering modes configured per route. Each route declares how and when its HTML is generated — giving you the right performance and freshness trade-off for every page in one app.
+lead: pracht supports four rendering modes, configured per route. Each route declares how and when its HTML is generated, so every page gets its own performance and freshness trade-off.
 breadcrumb: Rendering Modes
 prev:
   href: /docs/routing
@@ -27,7 +27,7 @@ next:
 route("/about", "./routes/about.tsx", { render: "ssg" });
 ```
 
-HTML is generated at build time. The loader runs once during the build, and the output is written to `dist/client/about/index.html`. No server required for this route — it's served as a static file from your CDN.
+HTML is generated at build time. The loader runs once during the build, and the output is written to `dist/client/about/index.html` and served as a static file.
 
 ### Dynamic SSG paths
 
@@ -48,13 +48,13 @@ export function Component({ data }) {
 }
 ```
 
-The build calls `getStaticPaths()` to enumerate params, constructs full paths from the route pattern, then runs the loader and renderer for each. Prerendering runs concurrently (default: 10 parallel renders), configurable with `pracht({ prerenderConcurrency })`.
+The build runs the loader and renderer for each returned path, 10 at a time by
+default (`pracht({ prerenderConcurrency })`).
 
-With a serverful adapter, a path that returns a non-200 response during SSG/ISG
-is warned about and skipped because the runtime server can still answer it. If
-every attempted prerender fails, `pracht build` exits non-zero rather than
-produce empty prerender output. Partial output is still allowed. A static
-export fails on the first bad path because it has no runtime fallback.
+With a serverful adapter, a path that prerenders a redirect or 4xx is skipped
+with a warning and rendered live instead. A 5xx fails the build, and so does a
+build where every path was skipped. A static export fails on the first non-200
+path.
 
 ---
 
@@ -64,9 +64,7 @@ export fails on the first bad path because it has no runtime fallback.
 route("/dashboard", "./routes/dashboard.tsx", { render: "ssr" });
 ```
 
-HTML is generated fresh on every request. The loader runs server-side, the component renders to a string, and the full HTML response includes the serialized hydration state.
-
-After the initial load, client-side navigation takes over — subsequent navigations fetch only the loader data as JSON, not full HTML.
+HTML is generated fresh on every request, with the loader's data serialized for hydration. Later client-side navigations fetch only the loader data as JSON.
 
 ### When to use SSR
 
@@ -87,14 +85,10 @@ route("/pricing", "./routes/pricing.tsx", {
 });
 ```
 
-ISG generates HTML at build time (like SSG) and, on adapters with persistent
-platform state, regenerates it after a configurable time window or an
-authenticated webhook. Node and Cloudflare serve stale pages immediately while a
-new version regenerates in the background; Vercel uses native Build Output API
-prerender functions.
-
-> [!INFO]
-> ISG revalidation is implemented at the adapter level. Node uses file `mtime`, Cloudflare stores regenerated pages in the Workers Cache API with `env.ASSETS` as fallback, and Vercel emits native prerender configs.
+ISG generates HTML at build time, like SSG, then regenerates it after a time
+window or an authenticated webhook. Node and Cloudflare serve the stale page
+immediately and regenerate in the background; Vercel uses native Build Output
+API prerender functions. [Adapters](/docs/adapters) covers each platform.
 
 ### Webhook revalidation
 
@@ -117,7 +111,7 @@ Set `PRACHT_REVALIDATE_TOKEN`, then POST concrete paths to
 route("/settings", "./routes/settings.tsx", { render: "spa" });
 ```
 
-The route component is not server-rendered. On the first document request, pracht renders the assigned shell immediately and includes an optional shell `Loading` export if you provide one. The route component still renders entirely in the browser after the client router fetches route-state JSON.
+The route component is not server-rendered. The first document contains the route's shell and the shell's optional `Loading` export; the component renders in the browser after the client router fetches its route state.
 
 ```ts
 import type { ShellProps } from "@pracht/core";
@@ -131,8 +125,6 @@ export function Loading() {
 }
 ```
 
-This improves first paint without serializing loader data into the initial document by default.
-
 ### When to use SPA
 
 - Auth-gated pages where SEO doesn't matter, but shell chrome should paint fast
@@ -143,7 +135,7 @@ This improves first paint without serializing loader data into the initial docum
 
 ## Mixing Modes
 
-The real power is mixing modes in a single app without separate deployments or frameworks:
+Modes mix freely in one app and one deployment:
 
 ```ts
 export const app = defineApp({
@@ -168,26 +160,26 @@ export const app = defineApp({
 
 ## Client Navigation
 
-After the initial page load — regardless of render mode — the client router handles all navigation. Route transitions use the same flow:
+After the first page load, the client router handles navigation for full-hydration routes, whatever their render mode:
 
 1. Client matches the new route
-2. Fetches loader data as JSON via `x-pracht-route-state-request` header
+2. Fetches loader data as JSON
 3. Updates the component tree with new data
 4. Pushes to browser history
 
-This means even SSG routes get fresh loader data during client navigation. The static HTML is only for the initial load and crawlers.
+On a serverful adapter, even SSG routes get fresh loader data during client navigation; the static HTML serves the first load and crawlers. [Islands](/docs/islands#navigation) routes use full-document navigation instead.
 
 ---
 
 ## Hydration & `useIsHydrated`
 
-When pracht server-renders a page (SSR, SSG, ISG), the browser receives fully rendered HTML. The client then **hydrates** — it attaches event listeners and Preact's component tree to the existing DOM without re-rendering it.
+For SSR, SSG, and ISG pages the browser receives rendered HTML, then **hydrates** it: Preact attaches event listeners to the existing DOM without re-rendering it.
 
-During hydration, `Suspense` boundaries behave differently than on the client: lazy components throw promises, but Suspense keeps the server-rendered HTML alive instead of swapping to the fallback. The resolved content stays visible while the component code loads.
+While a lazy component's code loads during hydration, `Suspense` keeps the server-rendered HTML on screen instead of showing the fallback.
 
 ### Detecting hydration state
 
-`useIsHydrated()` returns `false` during server rendering and the initial hydration pass, then `true` once the component has mounted on the client:
+`useIsHydrated()` returns `false` during server rendering and the initial hydration pass, then `true` once the component has mounted:
 
 ```tsx
 import { useIsHydrated } from "@pracht/core";
@@ -204,21 +196,7 @@ export function Component({ data }) {
 }
 ```
 
-### How it works
-
-The framework tracks in-flight Suspense boundaries during hydration. Each thrown promise increments a counter; each settled promise decrements it. After a render cycle completes with zero pending suspensions, hydration is marked as finished.
-
-The hook itself is simple:
-
-```ts
-const [hydrated, setHydrated] = useState(_hydrated);
-useEffect(() => {
-  setHydrated(true);
-}, []);
-return hydrated;
-```
-
-`useState(_hydrated)` captures the global flag at render time. If the component renders while suspensions are still pending, it starts with `false`. Components that mount after hydration has finished (e.g. a lazy-loaded route component that just resolved) start with `true` immediately.
+Hydration counts as finished once every pending Suspense boundary has resolved. Components that mount after that, such as the next route after client navigation, start with `true`.
 
 ### Common use cases
 
@@ -228,17 +206,13 @@ return hydrated;
 
 ## Hydration mismatch warnings
 
-When the server-rendered HTML and the client's first render disagree, `pracht dev` puts a red banner at the top of the page naming the element or component Preact stopped at, plus any Suspense boundary that resolved during hydration while rendering a number of top-level DOM nodes other than one.
+When the server HTML and the client's first render disagree, `pracht dev` shows a red banner naming the element or component where Preact stopped. It also flags a Suspense boundary that resolved during hydration into more or fewer than one top-level DOM node.
 
-The banner installs on every hydrating route, whichever hydration mode it uses: full-hydration routes get it from the client router, `hydration: "islands"` routes from the islands bootstrap, before the first island hydrates. `hydration: "none"` routes ship no JavaScript and never hydrate, so there is nothing to mismatch.
-
-It is development-only — the check and the code behind it are dropped from production builds.
+The banner covers full-hydration and islands routes. It is development-only; production builds drop the check.
 
 ### Checking the build you are about to deploy
 
-Dev and production do not render the same HTML. An SSG build goes through `@pracht/preact-ssr-precompile` and ships prerendered markup, so a mismatch that only exists in the output you are about to deploy never reaches the dev-mode banner.
-
-`client: { hydrationWarnings: true }` keeps the reporter in the production client and islands bundles:
+A production build can render different HTML than dev, so some mismatches only show up in the output you deploy. `client: { hydrationWarnings: true }` keeps the reporter in the production client and islands bundles:
 
 ```ts
 // vite.config.ts
@@ -252,7 +226,7 @@ pracht build          # prints a notice that this build carries diagnostics
 pracht preview
 ```
 
-Every mismatch is reported twice: as a `console.error` starting with `[pracht]`, and as a list item inside `#__pracht_hydration_mismatch__` (each entry under `[data-pracht-mismatch-list]`). A headless browser can assert on either.
+Each mismatch is logged as a `console.error` starting with `[pracht]` and listed inside `#__pracht_hydration_mismatch__` (entries under `[data-pracht-mismatch-list]`). A headless browser can assert on either:
 
 ```ts
 const errors: string[] = [];
@@ -263,4 +237,4 @@ await page.goto(url);
 expect(errors.filter((text) => text.includes("Hydration mismatch"))).toEqual([]);
 ```
 
-Leave the flag off for the build you ship: it costs bytes and shows visitors the banner. `pracht build` warns whenever it is on so a probe build cannot reach production unnoticed.
+Leave the flag off for the build you ship: it costs bytes and shows visitors the banner. `pracht build` warns whenever it is on.

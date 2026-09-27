@@ -37,15 +37,13 @@ strings, so numeric inputs need coercion or a transform. Generated calls reject 
 params schema keys that cannot accept strings. Repeated query keys arrive as string arrays.
 
 When the validator also implements Standard JSON Schema (Zod 4 does), the same object can be a
-capability `input` or `output`. The API route and capability each run the original validator; Pracht
-derives the agent-facing JSON Schema and keeps the validator out of the WebMCP client chunk. This is
-the shortest path from an existing validated form/API operation to an agent contract without
-maintaining a second schema.
+[capability](/docs/capabilities) `input` or `output`, so an existing validated API operation becomes
+an agent contract without a second schema.
 
-Handlers can return JSON-safe values directly. Use `json(value, init)` when you need a custom status
-or headers without losing the response payload type. Values that change during JSON serialization —
-such as `Date`, `BigInt`, `undefined`, class instances, sparse arrays, and `NaN` — are rejected. Convert
-them to an explicit wire shape, or return a plain `Response` for a custom format.
+Handlers can return JSON-safe values directly. Use `json(value, init)` for a custom status or
+headers without losing the payload type. Values that JSON would change, such as `Date`, `BigInt`,
+`undefined`, class instances, and `NaN`, are rejected: convert them first, or return a plain
+`Response`.
 
 ## Generate the route contract
 
@@ -55,10 +53,9 @@ Run type generation once after adding pracht to a project:
 pracht typegen
 ```
 
-This creates `src/pracht.d.ts` and `src/pracht-routes.ts`. Once those default files exist,
-`pracht dev` keeps them current when route files are added, removed, or renamed and when the route
-manifest or one of its imported definition modules changes. Before the first run, the dev banner
-prints a setup tip. Run `pracht typegen --check` in CI to catch stale generated files.
+This creates `src/pracht.d.ts` and `src/pracht-routes.ts`. From then on, `pracht dev` keeps them
+current as route files and the route manifest change. Run `pracht typegen --check` in CI to catch
+stale generated files.
 
 ## Call the route with `apiFetch()`
 

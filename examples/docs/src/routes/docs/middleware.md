@@ -99,7 +99,7 @@ Middleware from groups and routes is combined. A route inside a group with `["au
 
 ## Middleware Results
 
-Middleware always returns a `Response`. There are two ways to produce one:
+Middleware always returns a `Response`:
 
 | Return                | Effect                                                                |
 | --------------------- | --------------------------------------------------------------------- |
@@ -107,8 +107,8 @@ Middleware always returns a `Response`. There are two ways to produce one:
 | `return redirect(...)` | Short-circuit with a redirect; pass `{ request }` for method-aware 302/303 defaults |
 | `return new Response(...)` | Short-circuit with any custom response                          |
 
-If middleware returns without calling `next()`, the rest of the chain — and
-the loader/handler — is skipped.
+Returning without calling `next()` skips the rest of the chain and the
+loader/handler.
 
 ### Mutating context
 
@@ -126,9 +126,24 @@ The `context` object is shared by reference — there's no merge step.
 
 ---
 
+## Middleware on Prerendered Routes
+
+`ssg` and `isg` pages render at build or revalidation time on a sanitized
+request: `GET`, path only, no visitor cookies. Visitors then get the stored
+HTML without middleware running, and any headers middleware set are replayed
+to everyone.
+
+Client-side route-state requests for those pages do run middleware with the
+visitor's request, but that cannot protect HTML that is already public. Gate
+by cookie or session only on `ssr` and `spa` routes.
+
+---
+
 ## Without a Manifest (Higher-Order Functions)
 
-When using the **pages router** with a serverful adapter, page routes get middleware through a root-level [`_middleware.ts`](/docs/routing#middleware-via-middlewarets) file — the same `MiddlewareFn` contract, applied to every page route. Pure static exports have no request runtime and cannot use middleware. API routes are not wrapped by it (matching the manifest's independent-by-default behavior). To guard API handlers in pages mode — or per-handler in any mode — wrap them with plain higher-order functions:
+With the **pages router** on a serverful adapter, a root-level [`_middleware.ts`](/docs/routing#middleware-via-middlewarets) applies the same `MiddlewareFn` contract to every page route. Pure static exports cannot use middleware.
+
+API routes are not wrapped by it. To guard API handlers in pages mode, or per handler in any mode, wrap them in higher-order functions:
 
 ```ts [src/lib/with-auth.ts]
 import type { ApiRouteArgs, ApiRouteHandler } from "@pracht/core";

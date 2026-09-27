@@ -165,6 +165,11 @@ with them (see `docs/ARCHITECTURE.md`, client module transform).
 emitted to `dist/client/_pracht/env-safety.json` and also re-run the literal
 chunk scan against an existing `dist/client` output when one is present.
 
+- Build and verify share one scanner (`scanCodeForEnvLeaks` in
+  `@pracht/capabilities/static`). It recognizes optional chaining and
+  bracket-string access, masks comments, string contents, and regex literals
+  (never reads), and scans expressions inside template strings (reads).
+
 ### Escape hatch
 
 Intentional, known-safe references can be allowlisted, or the check disabled:

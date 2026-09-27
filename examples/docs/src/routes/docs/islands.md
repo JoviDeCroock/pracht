@@ -12,10 +12,9 @@ next:
 
 ## Overview
 
-Most pages are not equally interactive. A docs page might need a search box, a
-pricing page might need a calculator, and a marketing page might need a sign-up
-form. Islands hydration lets the route render the full HTML on the server while
-shipping JavaScript only for those interactive widgets.
+A docs page might need only a search box, and a pricing page only a
+calculator. Islands hydration renders the full HTML on the server and ships
+JavaScript only for those interactive widgets.
 
 ```ts [src/routes.ts]
 route("/", "./routes/home.tsx", {
@@ -98,13 +97,11 @@ Set the framework-owned `client` prop per island usage:
 | `idle` | Hydrates when the browser is idle. |
 | `visible` | Hydrates after the island scrolls into view. |
 
-`idle` and `visible` islands are not preloaded, so below-the-fold widgets do
-not fetch their chunks until they are needed.
+`idle` and `visible` islands are not preloaded, so below-the-fold widgets
+fetch their chunks only when needed.
 
-A strategy defers an island's JavaScript, never its styles. Every island a page
-renders has its CSS in that page's document, because its markup is server
-rendered and painted long before its chunk loads. See
-[Styling](/docs/styling).
+A strategy defers an island's JavaScript, never its styles: every rendered
+island's CSS is in the page's document. See [Styling](/docs/styling).
 
 ---
 
@@ -125,14 +122,9 @@ Move the content inside the island or pass serializable data instead.
 
 ## Navigation
 
-Islands routes are document-first. They do not load the full client router, so
-navigation to, from, and between islands routes uses normal full-document
-navigation. This keeps the route's JavaScript boundary simple and predictable:
-only the islands on the page hydrate.
-
-When a full-hydration route links to an islands or `hydration: "none"` route,
-Pracht intentionally falls back to `window.location` navigation instead of a
-client-side route transition.
+Islands routes do not load the client router, so navigation to, from, and
+between them is a normal full-document navigation. That includes links from a
+full-hydration route to an islands or `hydration: "none"` route.
 
 ---
 
@@ -144,10 +136,8 @@ routes:
 - `"islands"` routes include the islands bootstrap plus island chunks, with no
   shared client entry.
 - `"none"` routes report `0b` of client JavaScript.
-- Island chunks are reported as an upper bound because exact island usage is
-  known at render time.
-
-This makes route budgets line up with the JavaScript users can actually load.
+- Island chunks are reported as an upper bound, because which islands render
+  is only known at render time.
 
 > [!NOTE]
 > This documentation page is itself wired with `hydration: "islands"` in the

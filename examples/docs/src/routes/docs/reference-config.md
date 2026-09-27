@@ -22,8 +22,8 @@ export default defineConfig({
 });
 ```
 
-Everything below is optional. The defaults are the conventions a `create-pracht`
-app already follows, so most apps pass only an `adapter`.
+Everything below is optional. The defaults match a `create-pracht` app, so most
+apps pass only an `adapter`.
 
 ### Project layout
 
@@ -37,7 +37,7 @@ app already follows, so most apps pass only an `adapter`.
 | `serverDir` | `"/src/server"` | Server-only modules, never bundled for the client |
 | `islandsDir` | `"/src/islands"` | Components hydrated on [`hydration: "islands"`](/docs/islands) routes |
 | `capabilitiesDir` | `"/src/capabilities"` | [Capability](/docs/capabilities) modules registered in the manifest |
-| `additionalExtensions` | `[]` | Extra dot-prefixed route/shell extensions to discover, e.g. `[".vue"]`. Register the transforming plugin separately; pracht only discovers the modules. `.tsrx` is discovered without configuration |
+| `additionalExtensions` | `[]` | Extra route/shell extensions to discover, e.g. `[".vue"]`. Register the plugin that transforms them yourself. `.tsrx` needs no entry |
 
 ### Routing
 
@@ -53,32 +53,31 @@ app already follows, so most apps pass only an `adapter`.
 | --- | --- | --- |
 | `prerenderConcurrency` | `10` | Maximum SSG/ISG pages rendered in parallel by `pracht build` |
 | `maxBodySize` | `1048576` (1 MiB) | Largest request body the dev SSR middleware accepts |
-| `inlineCss` | `false` | Inline the complete matched route/shell production CSS in each HTML document instead of linking it. See [Performance](/docs/performance#css-per-page) |
-| `budgets` | `{}` | Per-route gzip client-JS budgets, e.g. `{ "*": "120kb", "/dashboard": "200kb" }`. `"*"` applies everywhere; explicit paths override it. Exceeding one fails the build unless you pass `pracht build --no-budget-fail` |
-| `precompileSsrJsx` | `false` | Precompile safe Preact JSX DOM subtrees in SSR/SSG server bundles. Client bundles keep the normal transform for hydration |
+| `inlineCss` | `false` | Inline each page's route and shell CSS into the HTML instead of linking it. See [Performance](/docs/performance#css-per-page) |
+| `budgets` | `{}` | Per-route gzip client-JS budgets, e.g. `{ "*": "120kb", "/dashboard": "200kb" }`; explicit paths override `"*"`. Exceeding one fails the build unless you pass `pracht build --no-budget-fail` |
+| `precompileSsrJsx` | `false` | Precompile safe Preact JSX DOM subtrees in server (SSR/SSG) bundles. Client bundles are unchanged |
 | `envSafety` | `{}` (enabled) | Fail the build when a production client chunk references a non-public env var. `{ allow: ["NAME"] }` permits specific ones; `false` disables the check. See [Environment Variables](/docs/env) |
 
 ### Client bundle
 
-`client` switches off router features so they are compiled out of the client
-bundle, and switches on the one diagnostic a production build can carry. Turn a
-feature off only when the app really does not use it — the router then silently
-stops honouring the corresponding route options and `<Link>` props.
+`client` compiles unused router features out of the client bundle, and can keep
+one diagnostic in a production build. Turn a feature off only if the app does
+not use it: the router then ignores the matching route options and `<Link>`
+props.
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) driven by `route({ prefetch })` and `<Link prefetch>`. Off also drops the separate prefetch chunk and makes `prefetch()` a no-op |
-| `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off also drops the per-history-entry index the router stamps so a refused back/forward traversal can be put back, and makes `useBlocker()` never block (it warns in development) |
-| `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in the production client and islands bundles, so a build can be checked before it is deployed. Not for the build you ship |
+| `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) from `route({ prefetch })` and `<Link prefetch>`. Off makes `prefetch()` a no-op |
+| `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off makes `useBlocker()` never block; it warns in development |
+| `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in production client and islands bundles, to check a build before deploying it. Not for the build you ship |
 
-An unknown key here is an error rather than a silent no-op, so a typo cannot
-quietly ship the feature you meant to remove.
+An unknown `client` key is an error.
 
 ### Chunking
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `vendorChunk` | `true` | Contribute the Preact [vendor chunk group](/docs/performance#composing-with-your-own-chunking) to whatever the app configured in `build.rollupOptions.output`. `false` contributes nothing |
+| `vendorChunk` | `true` | Add the Preact [vendor chunk group](/docs/performance#composing-with-your-own-chunking) to the app's own `build.rollupOptions.output`. `false` adds nothing |
 
 ### Agent surfaces
 
@@ -90,13 +89,12 @@ quietly ship the feature you meant to remove.
 | `llmsTxt.origin` | *(unset)* | Origin prepended to every link, e.g. `"https://example.com"`. Links stay root-relative when omitted |
 | `llmsTxt.include` | `["pages", "api", "capabilities"]` | Which sections to emit |
 | `llmsTxt.exclude` | `[]` | Path patterns to leave out, using the same segment globs as `constraints` (`*` is one segment, trailing `**` is the rest) |
-| `devPageTools` | `true` | Register the dev-only, read-only `pracht_*` WebMCP page tools on every document `pracht dev` serves. `false` skips them. Never part of a build. See [Dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools) |
+| `devPageTools` | `true` | Register the read-only `pracht_*` WebMCP [dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools) on pages `pracht dev` serves. Never part of a build |
 
 > [!NOTE]
-> `llms.txt` invites agents to fetch every URL it lists. Exclude anything an
-> anonymous agent cannot use — pages behind auth middleware, internal tooling,
-> deliberate error routes. Capabilities are matched by their dispatch path
-> (`/api/capabilities/**`).
+> Agents fetch every URL `llms.txt` lists. Exclude what an anonymous agent
+> cannot use, such as pages behind auth or internal tooling. Capabilities match
+> by their dispatch path (`/api/capabilities/**`).
 
 ### Vite options that matter
 
@@ -122,19 +120,19 @@ export const app = defineApp({
 | `shells` | Record\<string, ModuleRef\> | Named [shell](/docs/shells) modules |
 | `middleware` | Record\<string, ModuleRef\> | Named [middleware](/docs/middleware) modules |
 | `capabilities` | Record\<string, ModuleRef\> | Named [capabilities](/docs/capabilities), e.g. `{ "notes.search": () => import("./capabilities/notes-search.ts") }`. Server-only and private unless they declare `expose` |
-| `notFound` | ModuleRef \| NotFoundConfig | The [404 page](/docs/data-loading#custom-404-page). Deliberately not a route |
+| `notFound` | ModuleRef \| NotFoundConfig | The [404 page](/docs/data-loading#custom-404-page) |
 | `api` | ApiConfig | App-wide API policy — see below |
 | `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with its optional OAuth resource-server config. Serializable data and module references only |
 | `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Coding Agents](/docs/coding-agents#constraints) |
 | `viewTransitions` | boolean | Enable the View Transitions API for every client navigation by default. See [View Transitions](/docs/recipes/view-transitions) |
-| `loaderTimeoutMs` | number | Budget in milliseconds for the `signal` passed to middleware, loaders, and API handlers. Default `30000`. The signal aborts when the budget runs out or the client disconnects, whichever comes first; one budget covers the whole request, including the not-found render after `notFound()`. It applies to SSG/ISG prerendering too, so a short edge budget can fail the build. See [Data Loading](/docs/data-loading#signal) |
+| `loaderTimeoutMs` | number | Per-request budget in milliseconds for the `signal` passed to middleware, loaders, and API handlers; it also aborts when the client disconnects. Default `30000`. Applies to SSG/ISG prerendering too, so a short budget can fail the build. See [Data Loading](/docs/data-loading#signal) |
 
 ### `api`
 
 | Field | Default | Description |
 | --- | --- | --- |
 | `middleware` | `[]` | Named middleware applied to every API route |
-| `requireSameOrigin` | `true` | Reject state-changing API requests (POST/PUT/PATCH/DELETE) unless the browser signals an exact same-origin fetch, or Origin/Referer matches the request URL's origin. `same-site` is deliberately not accepted, because sibling subdomains can be attacker-controlled. Set `false` only if your middleware implements its own CSRF protection |
+| `requireSameOrigin` | `true` | Reject cross-origin state-changing API requests and WebSocket upgrades with `403`. Set `false` only if your middleware does its own CSRF protection. See [Same-Origin Protection](/docs/api-routes#same-origin-protection-csrf) |
 
 ### Route and group meta
 

@@ -1,6 +1,6 @@
 ---
 title: A full pracht app, end to end
-lead: A walkthrough of Launchpad — a realistic SaaS example that uses every render mode, both shells, auth middleware, and Markdown content negotiation in one codebase.
+lead: A walkthrough of Launchpad — a realistic SaaS example that mixes render modes, two shells, auth middleware, and Markdown content negotiation in one codebase.
 breadcrumb: Demo Comparison
 prev:
   href: /docs/why-pracht
@@ -10,9 +10,9 @@ next:
   title: Routing
 ---
 
-The pieces of pracht are easier to understand once you see them composed in a real app. Launchpad is a fictional product-management SaaS we use as a reference. It has the surfaces every real product has — marketing pages, a blog, pricing, an authenticated dashboard, project pages, settings, and a Markdown briefing for agents — and each one picks the render mode that fits.
+Launchpad is a fictional product-management SaaS that shows pracht's pieces composed in one app. It has marketing pages, a blog, pricing, an authenticated dashboard, project pages, settings, and a Markdown briefing for agents, and each picks the render mode that fits.
 
-The showcase is deployed at [showcase-ten-eosin.vercel.app](https://showcase-ten-eosin.vercel.app/) — open it in one tab and follow along here. The same code lives in `examples/showcase`.
+The showcase is deployed at [showcase-ten-eosin.vercel.app](https://showcase-ten-eosin.vercel.app/); open it alongside this page. The code lives in `examples/showcase`; the manifest below leaves out its capabilities, agent config, and a few routes.
 
 ## What Launchpad covers
 
@@ -20,18 +20,18 @@ The showcase is deployed at [showcase-ten-eosin.vercel.app](https://showcase-ten
 | --- | --- | --- |
 | `/` | SSG | Landing page should be instant and CDN-cheap. |
 | `/blog/:slug` | SSG | SEO content is generated at build time with `getStaticPaths()`. |
-| `/pricing` | ISG | Pricing is fast like static, but revalidates hourly so edits go live without a rebuild. |
+| `/pricing` | SSG | Plans are hard-coded, so there is nothing to revalidate. |
 | `/agents` | SSG + Markdown | Humans see a polished page; agents request the same URL with `Accept: text/markdown`. |
 | `/app` | SSR + auth | Personalized dashboard needs request-time data. |
 | `/app/projects/:projectId` | SSR + auth | Project detail needs fresh, protected data per request. |
 | `/app/settings` | SPA + auth shell | Heavily interactive, no SEO requirement, paints inside the app shell. |
 
-Most apps land somewhere on this matrix. The point of the example is that you don't split into multiple projects to get there.
+Most apps land somewhere on this matrix, without splitting into multiple projects.
 
 ## The whole app in one file
 
 ```ts [examples/showcase/src/routes.ts]
-import { defineApp, group, route, timeRevalidate } from "@pracht/core";
+import { defineApp, group, route } from "@pracht/core";
 
 export const app = defineApp({
   shells: {
@@ -45,10 +45,7 @@ export const app = defineApp({
     group({ shell: "marketing" }, [
       route("/", () => import("./routes/home.tsx"), { render: "ssg" }),
       route("/blog/:slug", () => import("./routes/blog-post.tsx"), { render: "ssg" }),
-      route("/pricing", () => import("./routes/pricing.tsx"), {
-        render: "isg",
-        revalidate: timeRevalidate(3600),
-      }),
+      route("/pricing", () => import("./routes/pricing.tsx"), { render: "ssg" }),
       route("/agents", () => import("./routes/agents.tsx"), { render: "ssg" }),
     ]),
     group({ shell: "app", middleware: ["auth"] }, [
@@ -60,9 +57,9 @@ export const app = defineApp({
 });
 ```
 
-A few things worth pointing out:
+Things to notice:
 
-- **Render mode is right next to the route.** You can read off which pages are static, which revalidate, which need a server, and which are client-only.
+- **Render mode is right next to the route.** You can read off which pages are static, which need a server, and which are client-only.
 - **Shells are reusable layouts.** Marketing pages share one chrome; the authenticated app shares another. Switching a route between them is a one-word change.
 - **Middleware is opt-in per group.** Auth applies to the `/app/*` block and nowhere else. There's no implicit inheritance to trace through.
 - **No file-system magic.** The URL → component mapping is in the manifest, not in folder names.
@@ -98,7 +95,7 @@ export default function Agents() {
 }
 ```
 
-This is useful well beyond AI tooling. Documentation crawlers, search indexers, and internal scripts can all consume the same URL without scraping HTML.
+Crawlers, search indexers, and internal scripts can consume the same URL without scraping HTML.
 
 ## Things to try in the example
 
@@ -109,16 +106,16 @@ cd examples/showcase
 pnpm pracht dev
 ```
 
-A few exercises that exercise different parts of the framework:
+Some exercises:
 
 1. **Add a public `/security` page.** Use the marketing shell, render mode `"ssg"`, and export `markdown` so it's available to tools. It's a single entry in the manifest.
-2. **Tighten or relax the pricing cache.** Change `timeRevalidate(3600)` on `/pricing` to a different window. No folder migration, no second build target.
+2. **Make pricing revalidate.** Switch `/pricing` to `render: "isg"` with `revalidate: timeRevalidate(3600)` (import `timeRevalidate` from `@pracht/core`). No folder migration, no second build target.
 3. **Inspect the app graph from the CLI.** `pnpm pracht inspect routes --json` prints the resolved manifest. Useful for codemods, audits, or just answering "which routes are auth-protected?".
 4. **Move `/app/settings` from SPA to SSR.** As long as its loader is server-safe, it's a one-word change.
 
 ## How this compares to convention-heavy frameworks
 
-The Launchpad layout is meant to make a few framework tradeoffs concrete. The questions on the left come up in code review and architecture discussions all the time:
+Launchpad makes a few framework trade-offs concrete. These questions come up in code review all the time:
 
 | Question | Convention-heavy answer | pracht answer |
 | --- | --- | --- |
@@ -137,6 +134,6 @@ The Launchpad layout is a good template for products that have:
 - A need to expose structured content to tools, crawlers, or agents.
 - A deployment target that may change (Node today, Workers or Vercel later).
 
-If your app only does one of these — for example, it's a pure content site, or a single-page app with no marketing surface — pracht still works, but the multi-mode story is less of a draw. The [Why Pracht?](/docs/why-pracht) page covers those tradeoffs head-on.
+If your app only does one of these, such as a pure content site or an SPA with no marketing surface, pracht still works, but the multi-mode story matters less. [Why Pracht?](/docs/why-pracht) covers those trade-offs.
 
 When you're ready to build, [Routing](/docs/routing) goes through the manifest in detail.

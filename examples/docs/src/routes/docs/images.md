@@ -19,7 +19,7 @@ pnpm add @pracht/image
 pnpm add sharp
 ```
 
-`@pracht/image` is split into a framework-agnostic component entry (`@pracht/image`), a Node endpoint entry (`@pracht/image/node`), and a Vite plugin for build-time image imports (`@pracht/image/vite`).
+The package has three entries: `@pracht/image` (the component and loaders), `@pracht/image/node` (the optimization endpoint), and `@pracht/image/vite` (build-time image imports).
 
 ---
 
@@ -42,14 +42,13 @@ export function Component() {
 }
 ```
 
-The component renders plain `<img>` markup, so it works during SSR and SSG without adding client runtime. `loading="lazy"` and `decoding="async"` are the defaults. Use `priority` for above-the-fold images; it switches the image to eager loading and adds `fetchpriority="high"`.
+The component renders plain `<img>` markup with no client runtime. Images default to `loading="lazy"` and `decoding="async"`. Use `priority` for above-the-fold images: it loads eagerly with `fetchpriority="high"`.
 
 Always provide meaningful `alt` text, or `alt=""` for decorative images.
 
 ### Without the component
 
-`getImageProps()` resolves the same `<img>` attributes and returns them as a
-plain object. `<Image>` is a one-line wrapper around it:
+`getImageProps()` returns the same `<img>` attributes as a plain object:
 
 ```ts
 import { getImageProps } from "@pracht/image";
@@ -58,10 +57,8 @@ const props = getImageProps({ src: "/banner.jpg", alt: "", width: 1200, height: 
 // → { src, srcset, sizes, width, height, loading, decoding, style, ... }
 ```
 
-Reach for it when you are emitting HTML rather than Preact — a Markdown
-compiler, a static template, an email — and want identical sizing, loader,
-placeholder, and priority behaviour without mounting a second renderer.
-`@pracht/markdown` uses it for exactly that.
+Use it when you emit HTML rather than Preact, such as a Markdown compiler, a
+static template, or an email. `@pracht/markdown` uses it this way.
 
 ---
 
@@ -87,7 +84,7 @@ For background-style images, use `fill` inside a positioned parent:
 </div>
 ```
 
-`fill` images stretch with `position: absolute; inset: 0`. The parent controls the rendered size, so give the parent a stable height or aspect ratio.
+`fill` images stretch with `position: absolute; inset: 0`, so give the parent a stable height or aspect ratio.
 
 ---
 
@@ -97,11 +94,11 @@ Markdown routes use the same pipeline automatically for relative source images:
 
 ![A sunset optimized by the Pracht Markdown pipeline.](./markdown-image.jpg "Pracht Markdown image dogfood")
 
-The source file lives beside this Markdown page. The build emits cached,
-content-hashed WebP candidates, adds intrinsic dimensions and responsive
-`srcset` markup, and leaves root-relative `public/` images untouched.
+The source file sits beside this Markdown page. The build emits
+content-hashed WebP candidates with intrinsic dimensions and a `srcset`.
+Root-relative `public/` images are left untouched.
 
-Add `prachtImage()` from `@pracht/image/vite` to your Vite config to import images with the `?pracht` query. It is opt-in — the main `pracht()` plugin does not include it:
+To import images with the `?pracht` query, add `prachtImage()` from `@pracht/image/vite`. The main `pracht()` plugin does not include it:
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite";
@@ -134,14 +131,14 @@ import hero from "../assets/hero.jpg?pracht&pracht-static";
 <Image src={hero} alt="Sunset over water" sizes="100vw" />;
 ```
 
-Passing the metadata object as `src` gives the image intrinsic `width`/`height` automatically — no layout shift, no hand-maintained dimensions. The pieces:
+Passing the metadata object as `src` sets `width` and `height` for you, so there is no layout shift. The fields:
 
-- `src` goes through Vite's regular asset pipeline: source-directory imports get hashed file names in production, root-relative imports from `publicDir` keep their stable public names, and both get `base`-aware URLs plus normal dev serving.
-- `width` and `height` come from `sharp` metadata with EXIF orientation applied, so rotated photos report their display dimensions.
-- `blurDataURL` is a tiny (8px wide) inline WebP generated at build time, used by `placeholder="blur"`.
-- `variants` is present on static imports and supplies content-hashed WebP candidates directly to the rendered `srcset`.
+- `src` is a regular Vite asset URL: hashed in production for source-directory imports, stable for `publicDir` imports, and `base`-aware.
+- `width` and `height` come from `sharp` with EXIF orientation applied, so rotated photos report their display size.
+- `blurDataURL` is a tiny (8px wide) inline WebP used by `placeholder="blur"`.
+- `variants` (static imports only) supplies content-hashed WebP candidates to the `srcset`.
 
-`sharp` must be installed at build time (`pnpm add -D sharp`); it never ships to a runtime bundle, so this works for Cloudflare and Vercel targets too. SVG imports provide dimensions but skip the blur (vectors scale cleanly), animated GIFs blur their first frame, and editing the source image invalidates the transform in dev.
+`sharp` is needed at build time only (`pnpm add -D sharp`), so this works on Cloudflare and Vercel too. SVG imports get dimensions but no blur, and animated GIFs blur their first frame.
 
 For TypeScript, reference the shipped declaration for the `?pracht` query once, in any `.d.ts` file in your app:
 
@@ -169,9 +166,13 @@ For TypeScript, reference the shipped declaration for the `?pracht` query once, 
 />
 ```
 
-The placeholder is CSS-only on purpose: it needs no hydration (it works with `hydration: "none"`), uses no inline event handlers, and disappears the instant the browser paints the real image over it. Caveats: there is no fade-out animation; images with transparency show the placeholder through transparent regions — keep the default `placeholder="empty"` for those; and because the placeholder is an inline `style` attribute, a Content-Security-Policy needs `style-src-attr 'unsafe-inline'` (or `'unsafe-inline'` in `style-src`) plus `data:` in `img-src`, or the blur (and `fill` positioning, which uses the same mechanism) is silently dropped while the image itself still renders.
+The placeholder is CSS-only, so it works with `hydration: "none"`. The real image paints over it with no fade.
 
-`blurDataURL` values are validated as well-formed `data:image/…` URIs before they are interpolated into the style attribute; invalid values are ignored with a dev warning. Using `placeholder="blur"` without any `blurDataURL` also warns in dev.
+Images with transparency show the blur through transparent regions; keep the default `placeholder="empty"` for those.
+
+Under a Content-Security-Policy, allow `style-src-attr 'unsafe-inline'` (or `'unsafe-inline'` in `style-src`) and `data:` in `img-src`. Otherwise the browser drops the blur and `fill` positioning, though the image still renders.
+
+Invalid `blurDataURL` values are ignored. In dev, they log a warning, as does `placeholder="blur"` without a `blurDataURL`.
 
 ---
 
@@ -190,13 +191,15 @@ export const GET = imageHandler;
 export const HEAD = imageHandler;
 ```
 
-This endpoint works in `pracht dev`, adapter-node, and Node-compatible runtimes. Set `localOrigin` to the same trusted URL used by `nodeAdapter({ canonicalOrigin })` in every environment (for example, `http://localhost:3000` in local development). Relative sources fail closed when it is missing; the request `Host` is never trusted. The endpoint returns cacheable, revalidated responses, varies on `Accept`, and negotiates modern output formats such as WebP.
+The endpoint runs in `pracht dev`, adapter-node, and Node-compatible runtimes. It returns cacheable responses that vary on `Accept` and negotiates modern formats such as WebP.
+
+Set `localOrigin` in every environment, to the same trusted URL as `nodeAdapter({ canonicalOrigin })` (in development, for example, `http://localhost:3000`). Without it, relative sources fail; the request `Host` is never trusted. `PRACHT_ORIGIN` is your own variable, not one pracht sets.
 
 ---
 
 ## Configure Loaders
 
-Loaders turn `{ src, width, quality }` into a URL. Configure one globally when your deployment platform should serve image variants:
+A loader turns `{ src, width, quality }` into a URL. Configure one globally when your platform serves image variants:
 
 ```ts [src/routes.ts]
 import { cloudflareLoader, configureImage } from "@pracht/image";
@@ -236,7 +239,7 @@ export const GET = imageHandler;
 export const HEAD = imageHandler;
 ```
 
-Every redirect destination is checked before it is requested. Widths are also restricted to configured breakpoints, which keeps attackers from filling your cache with arbitrary image variants.
+Every redirect destination is checked against the same allowlist. The endpoint serves only the default breakpoint widths, so callers cannot fill your cache with arbitrary variants. Pass `allowedWidths` when you customize breakpoints with `configureImage()`.
 
 ---
 

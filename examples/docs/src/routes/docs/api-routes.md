@@ -81,22 +81,19 @@ API middleware runs before the handler, just like page middleware runs before lo
 
 ## Development Errors
 
-When an API handler or API middleware throws during `pracht dev`, the request
-still receives the normal API error response, and the terminal logs the raw
-failure once. The log identifies the `api` or `middleware` phase together with
-the matched API route or middleware source file, so failures from `fetch()`,
-`curl`, and tests remain visible even though API responses do not use the page
-error overlay.
+When an API handler or API middleware throws during `pracht dev`, the caller gets the normal API error response and the terminal logs the error once, naming the phase and the source file. API responses do not use the page error overlay.
 
 ---
 
 ## Same-Origin Protection (CSRF)
 
-By default, pracht rejects state-changing API requests (`POST`, `PUT`, `PATCH`, `DELETE`) that come from another origin with a `403` — before any API middleware runs. A request is considered same-origin when the browser says so (`Sec-Fetch-Site: same-origin`) or its `Origin`/`Referer` header matches the request URL's origin. `Sec-Fetch-Site: same-site` is not accepted, since sibling subdomains can be attacker-controlled. Requests without any browser provenance headers — curl, server-to-server calls, tests — pass through, because a browser form can't produce them.
+By default, pracht rejects cross-origin state-changing API requests (`POST`, `PUT`, `PATCH`, `DELETE`) with a `403`, before any API middleware runs. A request counts as same-origin when `Sec-Fetch-Site` is `same-origin` or its `Origin`/`Referer` matches the request URL's origin. `same-site` is not enough, since sibling subdomains can be attacker-controlled.
 
-**WebSocket upgrade requests get the same check**, even though they are `GET`. Browsers do not apply CORS to WebSocket, so without it any page on the web could open a socket to your app with the user's cookies attached (cross-site WebSocket hijacking).
+Requests without any of those headers — curl, server-to-server calls, tests — pass through.
 
-This is controlled by `requireSameOrigin` on the API config and defaults to `true`:
+**WebSocket upgrade requests get the same check**, even though they are `GET`, because browsers do not apply CORS to WebSockets.
+
+Turn it off with `requireSameOrigin` on the API config:
 
 ```ts [src/routes.ts]
 export const app = defineApp({
@@ -106,13 +103,13 @@ export const app = defineApp({
 });
 ```
 
-Only opt out if you implement your own CSRF protection in middleware — for example to allowlist trusted cross-origin callers. See the [authentication recipe](/docs/recipes/auth) for the full CSRF layering guide.
+Only opt out if your middleware implements its own CSRF protection, for example to allowlist trusted cross-origin callers. See the [authentication recipe](/docs/recipes/auth) for the full CSRF layering guide.
 
 ---
 
 ## Middleware Without a Manifest (Higher-Order Functions)
 
-When using the **pages router** or any setup without a `routes.ts` manifest, you can apply middleware to individual API routes with a plain higher-order function — no framework API required:
+Without a `routes.ts` manifest, as with the **pages router**, apply middleware to individual API routes with a plain higher-order function:
 
 ```ts [src/lib/with-auth.ts]
 import type { ApiRouteArgs, ApiRouteHandler } from "@pracht/core";
@@ -138,7 +135,7 @@ export const GET = withAuth(({ request }) => {
 });
 ```
 
-You can compose multiple wrappers for stacking:
+Wrappers compose:
 
 ```ts [src/api/admin.ts]
 import { withAuth } from "../lib/with-auth";
@@ -150,13 +147,13 @@ export const POST = withAuth(withRateLimit(async ({ request }) => {
 }));
 ```
 
-This pattern works with both the pages router and the manifest router — it's just JavaScript.
+The pattern works with the manifest router too.
 
 ---
 
 ## Full Control
 
-API handlers receive the same `LoaderArgs` context (request, params, context, signal) and return standard `Response` objects. You have full control over status codes, headers, and body format.
+API handlers receive the same arguments as loaders (`request`, `params`, `context`, `signal`, `url`) and return a standard `Response`, so status codes, headers, and body format are yours.
 
 ```ts
 export function GET() {
@@ -171,9 +168,9 @@ export function GET() {
 
 ## WebSockets
 
-API routes are also where WebSocket upgrades belong. Return a `101` response and pracht passes it through untouched — no security headers, no cache headers, and crucially no reconstruction, which would drop the response's `webSocket` handle.
+WebSocket upgrades belong in API routes. Return a `101` response and pracht passes it through untouched.
 
-This requires a runtime that can hold a connection open, which today means the **Cloudflare adapter** with a Durable Object owning the socket:
+This needs a runtime that can hold a connection open, which today means the **Cloudflare adapter** with a Durable Object owning the socket:
 
 ```ts [src/api/ws.ts]
 import type { ApiRouteArgs } from "@pracht/core";
@@ -189,13 +186,15 @@ export async function GET({ context, request, url }: ApiRouteArgs) {
 }
 ```
 
-Cross-origin upgrades are blocked by default (see [Same-Origin Protection](#same-origin-protection-csrf)), but authenticating the connection is still yours to do — the handshake is an ordinary request carrying cookies, so API middleware works normally. The Node and Vercel adapters cannot serve upgrades; see [Adapters](/docs/adapters) for the Durable Object and `ws`-on-Node patterns.
+Cross-origin upgrades are blocked by default (see [Same-Origin Protection](#same-origin-protection-csrf)), but authenticating the connection is yours to do. The handshake is an ordinary request carrying cookies, so API middleware works normally.
+
+The Node and Vercel adapters cannot serve upgrades; see [Adapters](/docs/adapters) for the Durable Object and `ws`-on-Node patterns.
 
 ---
 
 ## Validation and Typed Fetch
 
-Wrap a handler with `defineApi()` to validate the request with any [Standard Schema](https://standardschema.dev) validator (zod, valibot, arktype, …) before it runs. Invalid requests get a standardized 422 response (`{ error: "validation", issues }`); handlers can return JSON-safe primitives, arrays, and plain objects, sent as `Response.json()`. Serialize values such as `Date` explicitly, or return a `Response` for custom wire formats.
+Wrap a handler with `defineApi()` to validate the request with any [Standard Schema](https://standardschema.dev) validator (zod, valibot, arktype, …) before it runs. Invalid requests get a `422` response (`{ error: "validation", issues }`), and handlers can return plain JSON-safe values.
 
 ```ts [src/api/items.ts]
 import { defineApi } from "@pracht/core";
@@ -207,7 +206,7 @@ export const POST = defineApi({
 });
 ```
 
-Run `pracht typegen` and the `apiFetch()` client checks every call at compile time — paths, methods, params, bodies, queries — and returns the handler's response type:
+Run `pracht typegen` and `apiFetch()` checks every call's path, method, params, body, and query at compile time, and returns the handler's response type:
 
 ```ts
 import { apiFetch } from "@pracht/core";
@@ -218,6 +217,4 @@ const created = await apiFetch("/api/items", {
 });
 ```
 
-Query and params values reach their schemas as strings (the URL wire format) — use string-accepting inputs like `z.coerce.number()`, never `z.number()`; generated calls reject concrete schema keys that cannot accept strings. Handlers that need a custom status code keep their typed payload with `json(value, { status: 201 })` instead of `Response.json()`. After the first `pracht typegen` run, `pracht dev` refreshes the generated types automatically when route files are added, removed, or renamed and when the route manifest or an imported definition module changes; before it, the dev banner prints a setup tip.
-
-Non-2xx responses throw `ApiFetchError`; validation failures expose the normalized `issues` for form error display. `<Form>` accepts the same schemas via its `schema` and `onValidationIssues` props, so client-side and server-side validation share one schema module; its `onResponse` prop receives every non-redirect response for success payloads and non-validation failures.
+[API Validation & Typed Fetch](/docs/api-validation) covers string-typed query and params, custom status codes, `ApiFetchError`, and sharing schemas with `<Form>`.
