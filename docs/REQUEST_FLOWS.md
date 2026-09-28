@@ -36,6 +36,16 @@ and the server skips the shell loader and leaves `shellData` out; such
 responses carry `Vary: x-pracht-shell-data`. Revalidation never sends the
 header, so it refreshes both. See [ROUTING.md](ROUTING.md#shell-loaders).
 
+`data` and `shellData` (like the same fields in the `#pracht-state` hydration
+script, static-export state files, route-state error bodies, and streamed
+`defer()` chunks) are `JSON.stringify` output of the loader data. With
+`client.richData` on, they use the route-data encoding from
+`packages/framework/src/route-data-codec.ts` instead: plain JSON, with Dates,
+Maps, Sets, BigInts, `undefined`, non-finite numbers, and shared references
+written as tagged arrays. JSON-only data is byte-identical either way; the
+client decodes only when the payload contains a tag. See
+[DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return).
+
 Static exports and preload hints use the query-string form instead, `?_data=1`,
 because a `<link rel=preload>` cannot set a header. Either form selects the same
 route-state response. The marker is the framework's, not the app's: it is

@@ -53,9 +53,10 @@ export interface PrachtLlmsTxtOptions {
 
 /**
  * Optional client-router features, compiled out of the client bundle when
- * disabled. Every one defaults to `true`. Turn a feature off only when the app
- * really does not use it: the router silently stops honouring the
- * corresponding route options and `<Link>` props.
+ * disabled. `prefetch` and `navigationGuards` default to `true`: turn one off
+ * only when the app really does not use it, since the router silently stops
+ * honouring the corresponding route options and `<Link>` props.
+ * `hydrationWarnings` and `richData` add bytes and default to `false`.
  */
 export interface PrachtClientOptions {
   /**
@@ -85,6 +86,16 @@ export interface PrachtClientOptions {
    * build you ship: it costs bytes and shows visitors the banner.
    */
   hydrationWarnings?: boolean;
+  /**
+   * Send loader data to the browser with its types intact: `Date`, `Map`,
+   * `Set`, `BigInt`, `RegExp`, `URL`, `undefined`, non-finite numbers, and
+   * shared or circular references arrive as what the loader returned instead
+   * of their `JSON.stringify` form. Adds the route-data decoder to the client
+   * bundle (about 0.3 KB gzip on full-hydration routes), and makes a loader
+   * that returns a function, symbol, or class instance without `toJSON()`
+   * fail with an error naming the path. Defaults to `false`.
+   */
+  richData?: boolean;
 }
 
 export interface PrachtPluginOptions {
@@ -184,6 +195,7 @@ export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
   prefetch: true,
   navigationGuards: true,
   hydrationWarnings: false,
+  richData: false,
 };
 
 const DEFAULTS: ResolvedPrachtPluginOptions = {

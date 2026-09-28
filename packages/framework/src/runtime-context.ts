@@ -4,7 +4,20 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 
 import { EMPTY_ROUTE_PARAMS, HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
+import { decodeRouteData, mayContainEncodedRouteData } from "./route-data-codec.ts";
 import type { HrefRouteDefinition, RouteParams } from "./types.ts";
+
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+// Shell loader support (see runtime-client-fetch.ts), `false` when no shell in
+// the build exports a `loader`.
+declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
+const SHELL_LOADERS_ENABLED =
+  typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
 
 export interface PrachtHydrationState<TData = unknown> {
   url: string;
@@ -211,8 +224,15 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
   }
 
   const state = JSON.parse(raw) as PrachtHydrationState<TData>;
-  // Streamed documents carry unresolved defer() locations out of band; restore
-  // them here, the one place the client reads initial loader data.
+  // This is the one place the client reads initial loader data: revive rich
+  // values in route and shell data (when the app opted in), then restore the
+  // defer() locations streamed documents carry out of band.
+  if (RICH_ROUTE_DATA && mayContainEncodedRouteData(raw)) {
+    state.data = decodeRouteData(state.data);
+    if (SHELL_LOADERS_ENABLED && "shellData" in state) {
+      state.shellData = decodeRouteData(state.shellData);
+    }
+  }
   state.data = rehydrateDeferredData(state.data, state.deferred);
   window.__PRACHT_STATE__ = state as PrachtHydrationState;
   return state;

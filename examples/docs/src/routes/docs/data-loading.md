@@ -42,6 +42,45 @@ other special exports are `loader`, `head`, `headers`, `markdown`,
 source to requests that prefer `Accept: text/markdown`; see
 [Markdown for agents](/docs/agents#discovery-markdown-and-llmstxt).
 
+### Dates, Maps, and other rich values
+
+By default, loader data reaches the browser as JSON. A `Date` arrives as its
+ISO string, even though `RouteComponentProps<typeof loader>` types it as a
+`Date`, and a `Map` arrives as `{}`. Turn on rich data to receive what the
+loader returned instead:
+
+```ts [vite.config.ts]
+pracht({ client: { richData: true } });
+```
+
+Then components get the same types from route and
+[shell](/docs/shells#shell-data) loaders alike: on the first load, after client
+navigation, from a static export, and from a streamed `defer()` value:
+
+- `Date`, `Map`, `Set`, `RegExp`, `URL`, and `BigInt`
+- `undefined`, `NaN`, `Infinity`, `-Infinity`, and `-0`
+- The same object referenced twice, or a cycle, with identity preserved
+
+```ts [src/routes/post.tsx]
+export async function loader({ params }: LoaderArgs) {
+  const post = await db.posts.find(params.slug);
+  return {
+    publishedAt: post.publishedAt, // a Date in the component, not a string
+    reactions: new Map([["like", 12n]]),
+  };
+}
+
+export default function Post({ data }: RouteComponentProps<typeof loader>) {
+  return <time>{data.publishedAt.toLocaleDateString()}</time>;
+}
+```
+
+It adds about 0.3 KB gzip to fully hydrated pages, and plain JSON data is
+sent exactly as before. An object with a `toJSON()` method, such as a decimal
+type, arrives as what `toJSON()` returns. Any other value, like a function or
+a class instance, fails the request with an error that names its path.
+[Island props](/docs/islands) stay JSON-only either way.
+
 ### LoaderArgs
 
 | Field    | Type          | Description                                          |

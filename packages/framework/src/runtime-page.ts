@@ -17,6 +17,7 @@ import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
+import { encodeRouteData } from "./route-data-codec.ts";
 import {
   buildRuntimeDiagnostics,
   createSerializedRouteError,
@@ -81,6 +82,13 @@ import type {
   RouteModule,
   ShellModule,
 } from "./types.ts";
+
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
 
 const BODY_REPRESENTATION_HEADERS = [
   "content-digest",
@@ -215,8 +223,12 @@ interface PageRenderJob<TContext> {
   dataFunctionsPromise: Promise<Awaited<ReturnType<typeof resolveDataFunctions>>> | undefined;
   routeModule: RouteModule | undefined;
   shellModule: ShellModule | undefined;
-  /** The shell loader's data once it succeeded; absent when it did not run. */
-  shellState: { data: unknown } | undefined;
+  /**
+   * The shell loader's data once it succeeded; absent when it did not run.
+   * `wire` is what the browser receives: `data` itself, or its route-data
+   * encoding when the app opted in to rich data.
+   */
+  shellState: { data: unknown; wire: unknown } | undefined;
   loaderFile: string | undefined;
   phase: PrachtRuntimeDiagnosticPhase;
 }
@@ -325,7 +337,17 @@ async function runShellLoader<TContext>(
     result = error;
   }
   if (result instanceof Response) return { response: result };
-  job.shellState = { data: await resolveDeferredData(result) };
+  const data = await resolveDeferredData(result);
+  // Encoded once, here, so a value the browser cannot receive fails as this
+  // loader's error instead of while the error page is being rendered. Like
+  // route data, it is only checked when it ships: islands and `none` pages
+  // render shell data on the server alone.
+  const ships = job.ctx.isRouteStateRequest || (job.match.route.hydration ?? "full") === "full";
+  job.shellState = {
+    data,
+    wire:
+      RICH_ROUTE_DATA && ships ? encodeRouteData(data, `shell "${job.match.route.shell}"`) : data,
+  };
   return undefined;
 }
 
@@ -370,9 +392,12 @@ async function buildRouteStateResponse<TContext>(
   job.shellModule = await job.shellModulePromise;
   const head = await mergeHeadMetadata(job.shellModule, job.routeModule, job.routeArgs, data);
   const fontHead = collectFontHeadFragments(head.fonts ?? []);
+  const encodedData = RICH_ROUTE_DATA
+    ? encodeRouteData(data, `route "${job.match.route.id ?? job.match.route.path}"`)
+    : data;
   const body = job.shellState
-    ? { data, shellData: job.shellState.data, fontHead }
-    : { data, fontHead };
+    ? { data: encodedData, shellData: job.shellState.wire, fontHead }
+    : { data: encodedData, fontHead };
   const response = withRouteResponseHeaders(Response.json(body), {
     isRouteStateRequest: true,
     loaderCache: job.match.route.loaderCache,
@@ -584,7 +609,7 @@ async function renderServerDocument<TContext>(
       ),
     ),
   );
-  const shellHydrationState = job.shellState ? { shellData: job.shellState.data } : undefined;
+  const shellHydrationState = job.shellState ? { shellData: job.shellState.wire } : undefined;
 
   const hydration = match.route.hydration ?? "full";
 

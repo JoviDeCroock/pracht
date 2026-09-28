@@ -2,9 +2,17 @@ import { collectFontHeadFragments } from "./font.ts";
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
+import { encodeRouteData } from "./route-data-codec.ts";
 import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
 import { escapeScriptChildren } from "./script-escape.ts";
 import type { HeadMetadata } from "./types.ts";
+
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
 
 export { escapeScriptChildren };
 
@@ -272,7 +280,19 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     : "";
 
   const stateScript = hydrationState
-    ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`
+    ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(
+        // `shellData` arrives already encoded: the shell loader's result is
+        // encoded once, where the loader runs (runtime-page.ts).
+        RICH_ROUTE_DATA
+          ? {
+              ...hydrationState,
+              data: encodeRouteData(
+                hydrationState.data,
+                `route "${hydrationState.routeId || hydrationState.url}"`,
+              ),
+            }
+          : hydrationState,
+      )}</script>`
     : "";
   const bootstrapScript = inlineBootstrapScript
     ? `<script${inlineBootstrapScript.nonce ? ` nonce="${escapeHtml(inlineBootstrapScript.nonce)}"` : ""}>${escapeScriptChildren(inlineBootstrapScript.source)}</script>`

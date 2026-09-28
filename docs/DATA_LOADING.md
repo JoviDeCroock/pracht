@@ -8,7 +8,8 @@ Loaders fetch data and client hooks provide reactive access.
 ## Loaders
 
 A loader is an async function exported from a route module. It runs server-side
-and returns serializable data that flows into the route component.
+and returns serializable data (see [What a loader can return](#what-a-loader-can-return))
+that flows into the route component.
 
 ```typescript
 // src/routes/dashboard.tsx
@@ -63,6 +64,63 @@ route option. Routes that use neither mechanism do not vary on `Accept`, and
 their prerendered document keeps answering markdown-preferring requests instead
 of falling through to a render (see
 [ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path)).
+
+### What a loader can return
+
+Route loader data travels to the browser in the hydration-state script,
+route-state (`_data`) responses, static-export state files, and streamed
+`defer()` chunks; shell loader data (`shellData`) travels in the first three
+and in route-state error bodies. By default all of them carry plain
+`JSON.stringify` output: a `Date` arrives as
+its ISO string, a `Map` as `{}`, a class instance as its own enumerable
+fields, and a function not at all. The component types still say `Date`,
+because `LoaderData<typeof loader>` is the loader's return type, not its JSON
+form.
+
+`pracht({ client: { richData: true } })` switches all of them to one encoding,
+defined in `src/route-data-codec.ts` (`encodeRouteData()` on the server,
+`decodeRouteData()` in the browser). The option sets the
+`__PRACHT_RICH_DATA__` define (`RICH_ROUTE_DATA` in the runtime) for the
+client and server bundles alike, so both sides always agree on the wire format,
+and a default build dead-code-eliminates the decoder. With it on, a value
+arrives as the type the loader returned:
+
+- JSON values: plain objects, arrays, strings, finite numbers, booleans, `null`
+- `undefined` (object properties keep their key; array slots stay `undefined`)
+- `NaN`, `Infinity`, `-Infinity`, `-0`, and `BigInt`
+- `Date` (including an invalid one), `RegExp`, `URL`, `Map`, `Set`
+- Shared references and cycles, with object identity preserved
+
+The format is JSON with tagged arrays: a value JSON cannot represent becomes an
+array whose first element starts with U+0000 (`["\u0000D", 1767225600000]`),
+the first occurrence of a shared object is wrapped with an id, and later
+occurrences point back at it. User strings that start with U+0000 are escaped,
+so no object shape or key is reserved. JSON-only data is byte-identical to
+`JSON.stringify`, and the client skips the decode walk when the payload holds
+no `\u0000` escape. Decoding never evaluates code, and the inline-script
+escaping (`<`, `>`, `&`, U+2028, U+2029) is unchanged.
+
+An object with a `toJSON()` method is sent as its JSON representation, as with
+`JSON.stringify`: each occurrence is converted separately, so it takes no part
+in identity tracking, and it arrives as that representation, not as its class.
+Anything else (functions, symbols, class instances, `Error`s, boxed primitives,
+DOM nodes, an unresolved `defer()` marker inside a `Map`/`Set`) throws a
+`TypeError` naming the route and the path (`data.user.save is a function`).
+This check runs in development and production alike: the error takes the
+normal route-error path (500, sanitized in production, reported to
+`onRouteError`). A deferred value that fails to encode on a streaming route is
+delivered to its boundary as an error instead. The server has already rendered
+that boundary from the raw value by then, so its streamed HTML shows the
+success state until the client hydrates the error; a client navigation to the
+same route fails the whole route-state request instead.
+
+Only data that ships is encoded. `hydration: "islands"` and `"none"` routes
+emit no hydration state, so their loaders may return anything the component
+can render on the server. Island props use their own JSON-only validation (see
+[ISLANDS.md](ISLANDS.md)).
+
+The decoder costs 272 bytes gzip on full-hydration routes when enabled (see
+[PERFORMANCE.md](PERFORMANCE.md#rich-loader-data-is-opt-in)).
 
 ### LoaderArgs
 
@@ -275,7 +333,8 @@ With it on, the response is written in this order:
    travel as framework metadata beside the user-owned loader data, so no user
    object shape or property name is reserved by the wire format.
 3. Each deferred value as it settles — the resolved markup from the renderer,
-   plus a small script carrying the data so the client has it too.
+   plus a small script carrying the data (serialized like the hydration
+   state) so the client has it too.
 4. The client entry, then `</body></html>`. The entry is preloaded with the
    document assets, but hydration starts after the streamed content so even a
    `beforeHydration` script inside a deferred subtree keeps its guarantee.

@@ -85,7 +85,9 @@ Two styles, both fully supported — pick whichever fits your mental model:
 **Inline (co-located in the route file):**
 
 - **Loaders**: `export function loader(args)` — runs at build (SSG), request (SSR),
-  or client navigation time. Returns typed, serializable data.
+  or client navigation time. Returns typed, serializable data — JSON, or with
+  `client.richData` also Date, Map, Set, BigInt, and shared references, which
+  then arrive in the browser as the same types.
 - **Form**: A component that allows posting to one of our API routes
 
 **Separate files (manifest-wired):**

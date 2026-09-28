@@ -1,6 +1,7 @@
 import { ROUTE_STATE_REQUEST_HEADER, SHELL_DATA_REQUEST_HEADER } from "./runtime-constants.ts";
 import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
+import { decodeRouteData, mayContainEncodedRouteData } from "./route-data-codec.ts";
 import type { FontHeadFragments } from "./font.ts";
 import type { ResolvedRoute } from "./types.ts";
 
@@ -13,6 +14,13 @@ declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
 
 const SHELL_LOADERS_ENABLED =
   typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
+
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
 
 /**
  * `shell` is present when the response carried the shell loader's data: the
@@ -133,7 +141,8 @@ export async function fetchPrachtRouteState(
   // the `_data=1` query form): the loader payload was serialized to a static
   // JSON file at build time instead. Same-origin fetch of `application/json`
   // keeps the exact escaping posture of the live endpoint — the payload is
-  // parsed as JSON, never interpreted as HTML.
+  // parsed as JSON, never interpreted as HTML — and carries the same
+  // route-data encoding, decoded below when the app opted in to rich data.
   const fetchUrl = IS_STATIC_TARGET
     ? buildStaticRouteStateUrl(url)
     : options?.useDataParam
@@ -166,7 +175,11 @@ export async function fetchPrachtRouteState(
     };
   }
 
-  const json = (await response.json()) as {
+  // Rich data needs the raw text to tell whether the payload holds any tag.
+  // Route and shell data share the encoding, so both are revived.
+  const text = RICH_ROUTE_DATA ? await response.text() : "";
+  const tagged = RICH_ROUTE_DATA && mayContainEncodedRouteData(text);
+  const json = (RICH_ROUTE_DATA ? JSON.parse(text) : await response.json()) as {
     data?: unknown;
     shellData?: unknown;
     fontHead?: FontHeadFragments;
@@ -187,7 +200,7 @@ export async function fetchPrachtRouteState(
         fontHead: json.fontHead,
         type: "error",
         ...(SHELL_LOADERS_ENABLED && "shellData" in json
-          ? { shell: { data: json.shellData } }
+          ? { shell: { data: tagged ? decodeRouteData(json.shellData) : json.shellData } }
           : null),
       };
     }
@@ -196,10 +209,12 @@ export async function fetchPrachtRouteState(
   }
 
   return {
-    data: json.data,
+    data: tagged ? decodeRouteData(json.data) : json.data,
     fontHead: json.fontHead,
     type: "data",
-    ...(SHELL_LOADERS_ENABLED && "shellData" in json ? { shell: { data: json.shellData } } : null),
+    ...(SHELL_LOADERS_ENABLED && "shellData" in json
+      ? { shell: { data: tagged ? decodeRouteData(json.shellData) : json.shellData } }
+      : null),
   };
 }
 

@@ -48,7 +48,12 @@ For each `loader` (and `getStaticPaths` when present):
 
 ### 2a. Serializability
 
-Flag returns that contain any of:
+Skip this check for `hydration: "islands"` and `"none"` routes: they ship no
+loader data. Otherwise, check `vite.config.*` for
+`pracht({ client: { richData: true } })` first.
+
+Without `richData` (the default), loader data is `JSON.stringify`'d while the
+component's types still promise the original. Flag returns that contain any of:
 
 | Construct                    | Why it breaks                       |
 | ---------------------------- | ----------------------------------- |
@@ -60,6 +65,13 @@ Flag returns that contain any of:
 | `Buffer` / typed arrays      | Becomes `{}` or numeric keys        |
 | `bigint`                     | `JSON.stringify` throws             |
 | `undefined` in arrays/object | Drops keys; arrays become `null`    |
+
+With `richData`, `Date`, `Map`, `Set`, `URL`, `RegExp`, `bigint`, `undefined`,
+and shared or circular references arrive intact: do not flag them. Flag
+functions, symbols, typed arrays, and class instances without `toJSON()`
+(`Error` included) instead: each fails the request with a 500 naming the path,
+in production too. A class instance with `toJSON()` arrives as its output, so
+its type lies.
 
 A bare promise in loader data is always a bug — it serializes to `{}`. The fix
 is `defer(promise)`, which marks the field as deferred and is read in the
@@ -77,7 +89,8 @@ Two `defer()` rules worth checking while you are in the loader:
   behind a getter. An unresolved marker throws during serialization.
 
 Recommend converting to `string` (ISO for dates), plain arrays, or plain objects
-before return.
+before return, or turning on `client.richData` when an app returns many dates
+or maps.
 
 ### 2b. Secret leaks
 

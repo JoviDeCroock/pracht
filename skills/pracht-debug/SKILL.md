@@ -92,7 +92,9 @@ Work in order; stop at the root cause.
 ### 3. Loader / API errors
 
 - On slow pages, read `Server-Timing` before reading code.
-- Loaders must return serializable data — no functions, no circular refs.
+- Loaders must return serializable data — no functions, no circular refs. A
+  `Date` arrives as a string unless `pracht({ client: { richData: true } })` is
+  set; with it, an unsupported value fails with an error naming its path.
 - API handlers must return `Response` objects, and a default export must branch
   on `request.method`.
 - Look for unhandled rejections or thrown errors.

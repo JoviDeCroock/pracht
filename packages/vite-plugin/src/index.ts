@@ -250,6 +250,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         __PRACHT_CLIENT_BLOCKER__: String(resolved.client.navigationGuards),
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
         __PRACHT_HYDRATION_WARNINGS__: String(resolved.client.hydrationWarnings),
+        // Read by the server bundle too: it must only send the rich encoding
+        // to a client that carries the decoder.
+        __PRACHT_RICH_DATA__: String(resolved.client.richData),
       };
 
       // A probe build ships diagnostics to visitors, so say so rather than
