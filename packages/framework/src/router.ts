@@ -1348,6 +1348,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
                 ? {
                     ...currentState,
                     ...(nextState && { ...nextState, version: currentState.version }),
+                    // Shell data a revalidation committed meanwhile survives.
+                    ...(SHELL_LOADERS_ENABLED ? { shellState: currentState.shellState } : null),
                     url: nextRequestUrl,
                   }
                 : currentState,

@@ -12,7 +12,7 @@
  * @internal Not part of the published API.
  */
 import { h } from "preact";
-import { parseRouteSearch } from "./api-validation.ts";
+import { parseRouteSearch, searchParamsToRecord } from "./api-validation.ts";
 import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
@@ -314,7 +314,12 @@ async function runShellLoader<TContext>(
 
   let result: unknown;
   try {
-    result = await loader(job.routeArgs);
+    // A shell has no search schema, so it sees the raw query, never the
+    // route's parsed `search`: the route loader sets that concurrently.
+    result = await loader({
+      ...job.routeArgs,
+      search: searchParamsToRecord(job.routeArgs.url.searchParams),
+    });
   } catch (error: unknown) {
     if (!(error instanceof Response)) throw error;
     result = error;

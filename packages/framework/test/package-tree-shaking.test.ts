@@ -477,15 +477,14 @@ describe("published package tree shaking", () => {
     });
 
     // Both opt-in router features at once: a route with a `search` schema
-    // under a shell with a loader.
+    // under a shell with a loader. Measured 10,752.
     it("stays within budget with search params on as well", async () => {
       const { gzipBytes } = await routerBundle({
         __PRACHT_ROUTE_SEARCH__: "true",
         __PRACHT_SHELL_LOADERS__: "true",
       });
 
-      console.log("ALLON", gzipBytes);
-      expect(gzipBytes).toBeLessThanOrEqual(10_850);
+      expect(gzipBytes).toBeLessThanOrEqual(10_800);
     });
   });
 

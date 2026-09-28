@@ -17,6 +17,7 @@ import { getMountedRuntimes } from "../src/runtime-context.ts";
 import { SHELL_DATA_REQUEST_HEADER } from "../src/runtime-constants.ts";
 import { setHeldShell } from "../src/runtime-client-fetch.ts";
 import { revalidateRouteData } from "../src/runtime-revalidate.ts";
+import { parseRouteSearch } from "../src/api-validation.ts";
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
@@ -96,6 +97,7 @@ describe("client router shell data", () => {
           route("/a", "./routes/a.tsx", { id: "a", shell: "app", render: initialRender }),
           route("/b", "./routes/b.tsx", { id: "b", shell: "app", render: "ssr" }),
           route("/c", "./routes/c.tsx", { id: "c", shell: "public", render: "ssr" }),
+          route("/s", "./routes/s.tsx", { id: "s", shell: "app", render: "ssr" }),
         ],
       }),
     );
@@ -106,7 +108,21 @@ describe("client router shell data", () => {
         "./routes/a.tsx": page("a"),
         "./routes/b.tsx": page("b"),
         "./routes/c.tsx": page("c"),
+        // A route with a search schema that rejects `?n=bad`.
+        "./routes/s.tsx": async () => ({
+          search: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: (value: Record<string, unknown>) =>
+                value.n === "bad" ? { issues: [{ message: "bad n", path: ["n"] }] } : { value },
+            },
+          },
+          default: () => h("main", null, "s"),
+          ErrorBoundary: () => h("main", null, "search-error"),
+        }),
       },
+      parseSearch: parseRouteSearch,
       shellModules: {
         "./shells/app.tsx": async () => ({ Shell: ShellView }),
         "./shells/public.tsx": async () => ({ Shell: ShellView }),
@@ -180,6 +196,16 @@ describe("client router shell data", () => {
     await flush();
     expect(claimOf(fetchSpy.mock.calls[1]!)).toBe("app");
     expect(root.textContent).toContain("user:Grace");
+  });
+
+  it("keeps shell data when the client rejects the route's search params", async () => {
+    await initRouter();
+
+    fetchSpy.mockResolvedValueOnce(json({ data: null }));
+    await window.__PRACHT_NAVIGATE__!("/s?n=bad");
+    await flush();
+    expect(root.textContent).toContain("search-error");
+    expect(root.textContent).toContain("user:Ada");
   });
 
   it("refreshes shell data on revalidation", async () => {
