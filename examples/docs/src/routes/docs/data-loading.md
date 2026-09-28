@@ -120,7 +120,7 @@ never fails the response.
 
 ### Shell loaders
 
-Data every page in a shell shows — the signed-in user in the nav — does not have to be loaded by every route. A shell can export its own `loader`, which runs after middleware and concurrently with the route loader, and `useShellData()` reads its result from the shell and from any route inside it. Client navigations that stay inside the shell reuse the shell's data instead of loading it again; revalidation refreshes both. See [Shells](/docs/shells#shell-data).
+Data every page in a shell shows, like the signed-in user, can come from a [shell loader](/docs/shells#shell-data) instead of every route's loader.
 
 ### Route-state caching
 
@@ -580,14 +580,11 @@ export function Component() {
 
 ### useShellData()
 
-Read the loader data of the shell the active route renders under, from the shell or from any route inside it. With typegen, pass the shell name to type the result from that shell's loader; without it, pass the loader type:
+Read the [shell loader's](/docs/shells#shell-data) data from the shell or any route inside it. It is `undefined` when the shell has no loader:
 
 ```ts
 const shell = useShellData("app"); // or useShellData<typeof loader>()
-return <span>{shell?.user.name}</span>;
 ```
-
-It returns `undefined` when the shell has no loader and wherever the shell renders without its data, such as the SPA loading state. Naming a shell the active route does not render under throws. See [Shells](/docs/shells#shell-data).
 
 ### useSearchParams()
 
