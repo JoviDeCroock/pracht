@@ -398,7 +398,10 @@ See [bench/README.md](../bench/README.md) for the fixture layout and what to do
 when the baseline moves.
 
 The streaming baseline exercises Preact `11.0.0-rc.1` and render-to-string `6.7.0`.
-Cold gzip totals are 0 bytes without hydration, 7,687 for islands, and 17,812
+Cold gzip totals are 0 bytes without hydration, 7,687 for islands, and 17,814
 for full hydration. Streamed error handling and hydration readiness add about 0.3 KB gzip to the
 router measured with Preact external; the end-to-end baseline also includes
-the Preact version change.
+the Preact version change. Typed search params cost an app nothing until a
+route module exports a `search` schema: `__PRACHT_ROUTE_SEARCH__` compiles the
+router glue out, and the validation code is passed in by the client entry only
+then (see [ROUTING.md](ROUTING.md#search-params)).

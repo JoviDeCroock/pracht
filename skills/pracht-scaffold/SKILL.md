@@ -82,7 +82,7 @@ agent or tool consumes the output. When the pracht MCP server is registered
 
 | Kind       | Directory         | Key exports                                                                      |
 | ---------- | ----------------- | -------------------------------------------------------------------------------- |
-| Route      | `src/routes/`     | `loader`, `head`, `Component`, `ErrorBoundary`, `getStaticPaths`                 |
+| Route      | `src/routes/`     | `loader`, `head`, `Component`, `ErrorBoundary`, `getStaticPaths`, `search`       |
 | Shell      | `src/shells/`     | `Shell`, `head`                                                                  |
 | Middleware | `src/middleware/` | `middleware`                                                                     |
 | API route  | `src/api/`        | Named method handlers (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) or one default dispatcher |

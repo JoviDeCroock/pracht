@@ -53,6 +53,7 @@ source to requests that prefer `Accept: text/markdown`; see
 | url      | URL           | Parsed URL object                                    |
 | route    | ResolvedRoute | Matched route metadata                               |
 | pathname | string \| undefined | Matched pathname with the deployment base removed |
+| search   | unknown       | The query, parsed by the route's [`search` schema](/docs/routing#search-params) |
 | waitUntil | `(promise) => void` | Keep work running after the response is sent |
 
 #### `signal`
@@ -586,7 +587,7 @@ export function Component() {
 }
 ```
 
-To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML.
+To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML, and a [`search` schema](/docs/routing#search-params) when you want it validated and typed.
 
 ### useRevalidate()
 

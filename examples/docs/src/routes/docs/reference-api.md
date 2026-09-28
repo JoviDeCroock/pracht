@@ -91,6 +91,7 @@ See [Coding Agents](/docs/coding-agents#constraints).
 | `defer(promise)` | Mark slow loader data for concurrent resolution. See [Data Loading](/docs/data-loading#deferred-values) |
 | `use(value)` | Read a `Deferred<T>`, promise, or settled value inside `<Suspense>` |
 | `Deferred<T>` | The typed marker returned by `defer()` |
+| `SearchArgs<typeof search>` | Types `args.search` as the route's `search` schema output. See [Routing](/docs/routing#search-params) |
 
 ---
 
@@ -102,6 +103,7 @@ See [Coding Agents](/docs/coding-agents#constraints).
 | `useParams()` | `Record<string, string>` | Matched dynamic segments. See [Routing](/docs/routing#reading-params) |
 | `useLocation()` | `{ pathname, search }` | The current URL as the visitor sees it, deploy base included |
 | `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws — navigate instead |
+| `useSearch(routeId?)` | The parsed query | The active route's `search` schema output, or the raw query without one. See [Routing](/docs/routing#search-params) |
 | `useNavigate()` | `(to, options?) => Promise<void>` | Imperative navigation, by path or route object |
 | `useNavigation()` | `{ state, location?, formData? }` | Pending state for the current navigation or `<Form>` submission: `"idle"`, `"loading"`, or `"submitting"` |
 | `useBlocker(shouldBlock, options?)` | `{ state, location, proceed, reset }` | Stop a navigation before it commits, e.g. unsaved changes. See [Data Loading](/docs/data-loading#useblocker) |

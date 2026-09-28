@@ -193,9 +193,15 @@ describe("published package tree shaking", () => {
     // the Suspense chain it needs) is dead code in a real app bundle, so
     // counting it would hide what ships. `__PRACHT_HYDRATION_WARNINGS__` is
     // part of that shape — the plugin always emits it, and only
-    // `client: { hydrationWarnings: true }` keeps the reporter.
+    // `client: { hydrationWarnings: true }` keeps the reporter. So is
+    // `__PRACHT_ROUTE_SEARCH__`: the plugin sets it from the route modules, and
+    // only an app whose routes export a `search` schema keeps that glue.
     const production = {
-      define: { "import.meta.env.DEV": "false", __PRACHT_HYDRATION_WARNINGS__: "false" },
+      define: {
+        "import.meta.env.DEV": "false",
+        __PRACHT_HYDRATION_WARNINGS__: "false",
+        __PRACHT_ROUTE_SEARCH__: "false",
+      },
       entry: clientEntry,
     };
 
@@ -353,6 +359,7 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_ROUTE_SEARCH__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -389,6 +396,48 @@ describe("published package tree shaking", () => {
       const { code } = await routerBundle({});
 
       expect(code).toContain("__PRACHT_BLOCK_NAVIGATION__");
+    });
+  });
+
+  // Typed search params: the plugin sets the define from the route modules, so
+  // an app whose routes export no `search` schema compiles the router's parse
+  // and post-hydration re-parse out. The validation code itself never reaches
+  // the router; the generated client entry passes it in.
+  describe("__PRACHT_ROUTE_SEARCH__", () => {
+    const PRODUCTION = {
+      "import.meta.env.DEV": "false",
+      __PRACHT_HYDRATION_WARNINGS__: "false",
+    };
+
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: { ...PRODUCTION, ...define },
+        entry: clientEntry,
+      });
+
+    it("drops the search glue when no route exports a schema", async () => {
+      const { code } = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
+
+      expect(code).not.toContain("parseSearch");
+    });
+
+    it("keeps the search glue when a route exports a schema", async () => {
+      const { code } = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "true" });
+
+      expect(code).toContain("parseSearch");
+    });
+
+    it("keeps the glue when the define is absent", async () => {
+      const { code } = await routerBundle({});
+
+      expect(code).toContain("parseSearch");
+    });
+
+    it("adds at most 150 gzip bytes when enabled", async () => {
+      const on = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "true" });
+      const off = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
+
+      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(150);
     });
   });
 

@@ -75,6 +75,13 @@ of falling through to a render (see
 | `url`      | `URL`           | Parsed URL                                                    |
 | `route`    | `ResolvedRoute` | Matched route metadata                                        |
 | `pathname` | `string`        | Matched pathname with the configured deployment base removed |
+| `search`   | `unknown`       | Parsed search params: the route module's `search` schema output, or the raw query record |
+
+`search` is set once per request, after middleware and before the loader, and
+the same value reaches `head()` and `headers()`. Narrow it with
+`LoaderArgs & SearchArgs<typeof search>`; a query the schema rejects answers
+400 before the loader runs. See [ROUTING.md](ROUTING.md#search-params) for the
+pipeline and the prerendering rules.
 
 `signal` composes two independent reasons to stop: the request's own
 `AbortSignal` (the client went away) and a server-side budget. The budget
@@ -416,6 +423,10 @@ has no boundary, the error bubbles up to the shell, then to the global handler.
 [`notFound` page](#custom-404-pages): a route boundary still wins, but the
 not-found page takes over from there instead of the shell boundary. "Not
 found" is an outcome, not a failure.
+
+A query rejected by the route's `search` schema reaches the boundary as a 400
+whose `error.issues` holds the normalized validation issues (`in: "query"`),
+both from the server and on client navigation.
 
 #### Custom 404 pages
 
@@ -810,6 +821,26 @@ Changing the returned object is intentionally unsupported; navigate to a new
 URL to update the query string. SSG loader data remains build-time data and is
 not rerun for the visitor query. Use SSR when query parameters must affect
 server-loaded data or the initial HTML.
+
+### `useSearch()`
+
+Read the active route's parsed search params — the output of its `search`
+schema, or the raw query record (`Record<string, string | string[]>`) when it
+declares none:
+
+```typescript
+import { useSearch } from "@pracht/core";
+
+export function Component() {
+  const { page } = useSearch("products"); // typed by `pracht typegen`
+  return <p>Page {page}</p>;
+}
+```
+
+As with `useRouteData()`, the route id is a typing shortcut that must name the
+active route. The value follows the same hydration rule as `useSearchParams()`:
+an SSG page hydrates with the build-time (empty) query and re-parses the
+visitor's query afterwards.
 
 ### `useRevalidate()`
 

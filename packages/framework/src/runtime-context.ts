@@ -48,6 +48,13 @@ export interface PrachtRuntimeValue {
 export const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(undefined);
 
 /**
+ * The active route's parsed search params (see `useSearch()`). Kept out of
+ * `RouteDataContext` so an app whose routes export no `search` schema renders
+ * no provider for it, and its client bundle carries none of this plumbing.
+ */
+export const RouteSearchContext = /* @__PURE__ */ createContext<unknown>(undefined);
+
+/**
  * Runtime values of every mounted provider, in mount order.
  *
  * Effect-driven revalidation (`runtime-capability-revalidate.ts`) reads this

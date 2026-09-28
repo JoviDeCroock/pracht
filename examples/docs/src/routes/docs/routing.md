@@ -172,6 +172,69 @@ It also renders when a loader or middleware throws [`notFound()`](/docs/data-loa
 
 ---
 
+## Search Params
+
+Export a `search` schema from a route module to validate its query string. Any
+[Standard Schema](https://standardschema.dev) validator works, the same contract
+[`defineApi()`](/docs/api-validation) uses:
+
+```tsx [src/routes/products.tsx]
+import { Link, useSearch, type ErrorBoundaryProps, type LoaderArgs, type SearchArgs } from "@pracht/core";
+import * as z from "zod";
+
+export const search = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  q: z.string().optional(),
+});
+
+export async function loader(args: LoaderArgs & SearchArgs<typeof search>) {
+  return listProducts(args.search); // { page: number; q?: string }
+}
+
+export function Component() {
+  const { page, q } = useSearch("products");
+  return <Link route="products" search={{ page: page + 1, q }}>Next page</Link>;
+}
+
+// A query the schema rejects renders here, with status 400.
+export function ErrorBoundary({ error }: ErrorBoundaryProps) {
+  return <ul>{error.issues?.map((issue) => <li>{issue.path?.join(".")}: {issue.message}</li>)}</ul>;
+}
+```
+
+The loader, `head()`, and `headers()` receive the parsed value as `args.search`,
+and components read it with `useSearch()`. After [typegen](#typed-routes-and-links),
+`useSearch("products")` returns the schema's output, and `<Link search>`,
+`navigate()`, and `href()` accept only the keys its input declares. Routes
+without a schema get the raw query from both. `useSearchParams()` is unchanged.
+
+The schema receives one string per key, or an array when a key repeats
+(`?tag=a&tag=b`). Coerce numbers and booleans (`z.coerce.number()`), and give
+optional keys a default so the bare URL stays valid. A key that may repeat
+arrives as a single string when it appears once:
+
+```ts
+tag: z.array(z.string()).or(z.string().transform((tag) => [tag])).default([]),
+```
+
+A rejected query never reaches the loader. The route's `ErrorBoundary` renders
+instead, with `error.status` 400 and the validation issues on `error.issues`,
+on the first request and on client navigation alike.
+
+### On prerendered routes
+
+SSG and ISG pages are built without a query, so their loader and `head()` see
+the schema's defaults, and a schema that rejects an empty query fails to
+prerender. After hydration `useSearch()` switches to the visitor's query while
+the loader data stays the build-time result; a query the schema rejects then
+swaps in the `ErrorBoundary`, even though the page was served with a 200. Keep
+query-dependent data on SSR or SPA routes.
+
+The schema ships to the browser with the route module. An app where no route
+exports `search` ships none of this.
+
+---
+
 ## Typed Routes and Links
 
 Run `pracht typegen` to generate a type-safe route map:
@@ -207,6 +270,8 @@ export function ProductActions({ id }: { id: string }) {
 
 Routes without an explicit `id` get one generated from the path. Run `pracht typegen --check` in CI to catch stale generated files.
 
+A route with a [`search` schema](#search-params) gets its `search` option typed from the schema's input, required when the schema has a required key.
+
 ### `<Link>` props
 
 `<Link>` accepts every anchor attribute — `target`, `rel`, `download`, `ping`,
@@ -216,7 +281,7 @@ Routes without an explicit `id` get one generated from the path. Run `pracht typ
 | ---------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `route`          | RouteId                                         | **Required.** The route id to navigate to                                                |
 | `params`         | Record\<string, unknown\>                       | Values for the route's dynamic segments                                                  |
-| `search`         | object \| string                                | Query string to append                                                                   |
+| `search`         | object \| string                                | Query string to append, typed by the route's [`search` schema](#search-params)           |
 | `hash`           | string                                          | Fragment to append                                                                       |
 | `prefetch`       | `"intent" \| "viewport" \| "render" \| "none"`  | Override the route's [prefetch strategy](/docs/prefetching) for this link                 |
 | `speculate`      | boolean                                         | Opt this link out of / back into [speculation rules](/docs/prefetching#excluding-individual-links) |
