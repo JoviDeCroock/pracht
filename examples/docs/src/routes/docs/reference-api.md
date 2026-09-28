@@ -91,10 +91,10 @@ See [Coding Agents](/docs/coding-agents#constraints).
 | `defer(promise)` | Mark slow loader data for concurrent resolution. See [Data Loading](/docs/data-loading#deferred-values) |
 | `use(value)` | Read a `Deferred<T>`, promise, or settled value inside `<Suspense>` |
 | `Deferred<T>` | The typed marker returned by `defer()` |
-| `serverOnly(value)` | Mark a loader field the SSR document should not carry a second copy of. See [Data Loading](/docs/data-loading#server-only-values) |
-| `readServerOnly(value)` | Read a `ServerOnly<T>`; throws on the placeholder the browser holds during hydration |
+| `serverOnly(value)` | Keep a loader field out of the SSR document's hydration state. See [Data Loading](/docs/data-loading#server-only-values) |
+| `readServerOnly(value)` | Read a `ServerOnly<T>` in server code such as `head()` |
 | `ServerOnly<T>` | The typed marker returned by `serverOnly()` |
-| `<StaticHtml>` | Server-rendered subtree that is adopted rather than hydrated; renders a `serverOnly()` string |
+| `<StaticHtml html>` | Render trusted HTML the server already wrote, without hydrating it |
 
 ---
 

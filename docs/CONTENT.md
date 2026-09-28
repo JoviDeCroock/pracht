@@ -119,6 +119,12 @@ Two consequences worth knowing:
   the imports live behind `loader`. `prachtImage()` already publishes
   server-discovered static variants into the client directory from
   `writeBundle()` — the same path `hydration: "none"` routes use.
+- Route hints still read the raw `.md` source, so a Markdown route reports
+  `hasLoader: false` although its compiled module exports `loader`. Navigation
+  is unaffected (the `head` hint is always true for `.md`), but a Markdown route
+  declared `render: "spa"` on the static adapter passes the "static SPA routes
+  must be loaderless" check, finds no route-state file, and renders an empty
+  boundary.
 
 ## Registry and paths
 

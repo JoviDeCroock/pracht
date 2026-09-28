@@ -348,9 +348,10 @@ How it fits together:
   emits it through `dangerouslySetInnerHTML`, exactly as a hand-written
   boundary would.
 - **The inline hydration state** replaces the marker with
-  `{"__prachtServerOnly":true}` — `stripServerOnlyValues()` runs at the single
-  `buildHtmlDocument()` call that carries loader data, next to where
-  `resolveDeferredData()` runs for `defer()`.
+  `{"__prachtServerOnly":true}` — `renderServerDocument()` in
+  `runtime-page.ts` runs `stripServerOnlyValues()` on both document paths that
+  carry loader data: the buffered `buildHtmlDocument()` call, and the streamed
+  one after `serializeDeferred()` has taken out the deferred markers.
 - **Hydration** hands the browser that placeholder, and `<StaticHtml>` renders
   an empty `dangerouslySetInnerHTML`. Preact does not write into one while
   hydrating (`diff/index.js` guards the assignment on `!isHydrating`), so the
@@ -391,8 +392,10 @@ Rules:
   `toJSON()` then writes the value into the document as though it were never
   marked.
 - **Route-state responses are not immutable-cached the way a hashed JS chunk
-  is.** For a content route whose data never changes between deploys,
-  `route({ loaderCache })` puts a `max-age` on them.
+  is.** They default to `Cache-Control: no-store`, so the HTTP cache never
+  reuses the markup the way it reuses an immutable route chunk. For a content
+  route whose data never changes between deploys, `route({ loaderCache })` puts
+  a `max-age` on them.
 
 One edge worth knowing: the static-export fallback document
 (`buildStaticFallbackHtml()`) copies its `notFoundData` out of the already
