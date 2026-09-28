@@ -233,7 +233,11 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
   that renders a region inline is the app's own response. An app that sets a
   public `Cache-Control` on such a page caches one visitor's region for all.
 - On the static adapter, a region inside an `spa` route is only reached in the
-  browser, so the build cannot reject it; the fetch 404s and the fallback stays.
+  browser, so the build cannot reject it. The fetch 404s and the fallback
+  stays, unless the host rewrites unknown URLs to an SPA `fallback` document
+  with status 200: the swap then renders that document inside the region,
+  because the browser half checks only the status, not the
+  `x-pracht-region: 1` response marker.
 - On a client-navigation mount, the fallback is rendered into the region
   element as its own Preact root, so it does not see router context.
 
