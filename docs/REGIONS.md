@@ -85,7 +85,9 @@ those defer.
 ### The endpoint
 
 `handlePrachtRequest()` answers `GET /__pracht/region` (base-free path) right
-after the request context is built, before API routes. `handleRegionRequest()`:
+after the request context is built, before API routes, but only when the app
+registered at least one region. In an app without a regions directory the path
+is routed like any other URL. `handleRegionRequest()`:
 
 1. requires `x-pracht-region: 1` (a custom header a cross-site page cannot send
    without a CORS preflight) and `GET`;
@@ -162,11 +164,21 @@ On an SSR page the region is part of the one document response.
   available at build time and at runtime on every adapter, and client
   navigation on full-hydration pages would have no signature to send. The docs
   instead say plainly: treat props like query parameters.
-- **The caller chooses the page path**, therefore which route's middleware runs.
-  Middleware builds `context`; region loaders must authorize from `context`
-  themselves, like API routes. A build-time route↔region binding (from the
-  module graph) could narrow this later; it was left out to keep dev and prod
-  identical and the surface small.
+- **The caller chooses the page path**, therefore which route's middleware runs
+  and which `params` the loader sees. Middleware builds `context`; region
+  loaders must authorize from `context` themselves, like API routes. Concretely:
+  a region rendered only on an `admin`-gated page, whose loader skips its own
+  check because "the page is gated", answers anonymous callers who name any
+  ungated path (verified against a Node build). Region file paths are not
+  secret either: a full-hydration route's public client chunk contains
+  `createClientRegion("/src/regions/X.tsx")`. The same goes for `params`: a
+  loader that trusts `params.org` because the hosting route's middleware checked
+  membership can be called under any other route with an `:org` segment.
+  A build-time route↔region binding (from the module graph: the endpoint only
+  runs a region under routes whose route or shell module imports it) would close
+  this class; it was left out to keep dev and prod identical and the surface
+  small. The site page states the rule as "props are untrusted input; authorize
+  from `context` inside the loader".
 - **GET-only, custom header required.** A top-level navigation or a cross-site
   `fetch` cannot reach a region, so the endpoint is not a reflected-content or
   CSRF vector. Region loaders should still be side-effect free.
@@ -212,6 +224,18 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
   an island would be filled twice (swap script and placeholder).
 - A region's data is not part of route-state JSON; on full-hydration pages a
   client navigation mounts the region fresh and fetches it.
+- A region refetches only when its props or the page URL change, not after
+  `useRevalidate()` or a `<Form>` submission, so a cart count stays stale
+  until the next navigation.
+- Regions in the shell of a not-found or error document never fill: the
+  endpoint finds no route for that path and the fallback stays.
+- The endpoint pins `private, no-store` on region responses, but an SSR page
+  that renders a region inline is the app's own response. An app that sets a
+  public `Cache-Control` on such a page caches one visitor's region for all.
+- On the static adapter, a region inside an `spa` route is only reached in the
+  browser, so the build cannot reject it; the fetch 404s and the fallback stays.
+- On a client-navigation mount, the fallback is rendered into the region
+  element as its own Preact root, so it does not see router context.
 
 ## Tests
 

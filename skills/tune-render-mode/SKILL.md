@@ -60,13 +60,11 @@ For each route:
 
 5b. **Personal data is confined to a small, self-contained part of the page**
    → keep the route **`ssg`/`isg`** and move that part into `src/regions/`:
-   a default-export component plus a `loader` that reads `context` (set by the
-   route's middleware) instead of the page loader. Use it as JSX with a
-   `fallback`. The page stays cached for everyone; the region is filled per
-   visitor from `/__pracht/region` (`private, no-store`) and rendered inline if
-   the route is ever `ssr`. See `docs/REGIONS.md`. Not available on the static
-   adapter (no server). Region props are untrusted input — the region loader
-   must authorize from `context`, not from props.
+   a default-export component plus a `loader` that reads `context` instead of
+   the page loader, used as JSX with a `fallback`. See
+   <https://pracht.resynapse.dev/docs/regions>. Not available on the static
+   adapter. Region props are untrusted input — the region loader must
+   authorize from `context` itself.
 
 6. **Heavy client interactivity, no SEO need, auth-gated** → **`spa`**
    - Internal admin tools, post-login dashboards where the first paint can be a

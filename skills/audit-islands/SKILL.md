@@ -123,7 +123,8 @@ Island props on an `ssg`/`isg` route are fixed at build or regeneration time
 and shared by every visitor. Flag islands that exist only to fetch per-visitor
 content after load (a hand-rolled `fetch` of the session, cart, or "signed in
 as" data in `useEffect`) and islands whose props look personal. Suggest a
-request-time region instead (`src/regions/`, see `docs/REGIONS.md`): its
+request-time region instead (`src/regions/`, see
+<https://pracht.resynapse.dev/docs/regions>): its
 loader runs per request with the route's middleware context, and it may
 contain islands, which hydrate once the region is swapped in. On
 full-hydration pages islands inside a region stay static HTML — flag those

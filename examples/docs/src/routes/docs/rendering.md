@@ -73,10 +73,9 @@ HTML is generated fresh on every request, with the loader's data serialized for 
 - Pages where SEO matters and data is dynamic
 
 > [!TIP]
-> If only a small part of the page is personal — a cart count, "signed in as …",
-> a recommendation strip — keep the page `ssg` or `isg` and render that part as a
-> [request-time region](/docs/regions). The page stays cached for everyone and
-> the region is filled per visitor with their cookies and middleware context.
+> If only a small part of the page is personal, such as a cart count or "signed
+> in as …", keep the page `ssg` or `isg` and render that part as a
+> [request-time region](/docs/regions).
 
 ---
 
