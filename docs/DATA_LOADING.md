@@ -107,7 +107,10 @@ DOM nodes, an unresolved `defer()` marker inside a `Map`/`Set`) throws a
 This check runs in development and production alike: the error takes the
 normal route-error path (500, sanitized in production, reported to
 `onRouteError`). A deferred value that fails to encode on a streaming route is
-delivered to its boundary as an error instead.
+delivered to its boundary as an error instead. The server has already rendered
+that boundary from the raw value by then, so its streamed HTML shows the
+success state until the client hydrates the error; a client navigation to the
+same route fails the whole route-state request instead.
 
 Only data that ships is encoded. `hydration: "islands"` and `"none"` routes
 emit no hydration state, so their loaders may return anything the component
