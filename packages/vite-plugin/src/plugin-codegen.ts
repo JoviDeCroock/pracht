@@ -14,6 +14,7 @@ import {
   readClientBuildAssets,
 } from "./plugin-assets.ts";
 import { ROUTE_CSS_CONTENT_TOKEN, ROUTE_CSS_MANIFEST_TOKEN } from "./plugin-server-css.ts";
+import { REGION_BINDINGS_TOKEN } from "./region-bindings.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -817,6 +818,9 @@ export function createPrachtServerModuleSource(
     prachtImports,
     'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
     'import { registerServerRegions, setRegionsClientEntryUrl } from "@pracht/core/server";',
+    buildOptions.isBuild
+      ? 'import { setRegionBindings } from "@pracht/core/server";'
+      : 'import { readRegionBindingsFromDevServer } from "@pracht/core/server";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -836,6 +840,13 @@ export function createPrachtServerModuleSource(
     `const regionModules = import.meta.glob(${JSON.stringify(regionsGlob)}, { eager: true });`,
     "registerServerRegions(regionModules);",
     `setRegionsClientEntryUrl(${JSON.stringify(regionsEntryUrl ?? undefined)});`,
+    // Which regions each route and shell module imports. The region endpoint
+    // runs a region only under a route that renders it. A build splices the
+    // map in from its module graph (see region-bindings.ts); the dev server
+    // computes it per region request.
+    buildOptions.isBuild
+      ? `setRegionBindings(${JSON.stringify(REGION_BINDINGS_TOKEN)});`
+      : "readRegionBindingsFromDevServer();",
     "",
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",

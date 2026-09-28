@@ -250,6 +250,19 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     );
     await page.getByTestId("increment").click();
     await expect(page.getByTestId("count")).toHaveText("Count: 2");
+
+    // Route binding: the build ships which routes render which regions, and
+    // the endpoint refuses a region for a page whose route does not render it
+    // exactly as it refuses one that does not exist.
+    const regionAt = (region: string, path: string) =>
+      fetch(`${origin}/__pracht/region?${new URLSearchParams({ region, path })}`, {
+        headers: { "x-pracht-region": "1", cookie: "visitor=Ada" },
+      });
+    const unbound = await regionAt("/src/regions/Visitor.tsx", "/static");
+    const unknown = await regionAt("/src/regions/Nope.tsx", "/static");
+    expect(unbound.status).toBe(404);
+    expect(await unbound.text()).toBe(await unknown.text());
+    expect((await regionAt("/src/regions/Visitor.tsx", "/regions")).status).toBe(200);
   } finally {
     if (server) {
       server.kill("SIGTERM");

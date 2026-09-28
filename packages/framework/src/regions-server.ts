@@ -12,6 +12,7 @@ import {
 } from "./islands-server.ts";
 import { RegionDataContext } from "./regions-data.ts";
 import {
+  DEV_REGION_BINDINGS_HEADER,
   MAX_REGION_PROPS_LENGTH,
   REGION_ELEMENT,
   REGION_FILE_ATTRIBUTE,
@@ -30,6 +31,7 @@ import {
 } from "./runtime-context.ts";
 import { reportRequestError, type PrachtRuntimeDiagnosticPhase } from "./runtime-errors.ts";
 import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
+import { getSuffixIndex, normalizeModulePath } from "./runtime-manifest.ts";
 import { runMiddlewareChain } from "./runtime-middleware.ts";
 import {
   composeRequestSignal,
@@ -39,7 +41,14 @@ import {
 import { getRenderToStringAsync } from "./runtime-response.ts";
 import { IS_STATIC_TARGET } from "./runtime-static.ts";
 import { ScriptCaptureContext, type ScriptCapture } from "./script.ts";
-import type { BaseRouteArgs, HydrationMode, RegionLoaderArgs, RegionModule } from "./types.ts";
+import type {
+  BaseRouteArgs,
+  HydrationMode,
+  ModuleRegistry,
+  RegionLoaderArgs,
+  RegionModule,
+  ResolvedRoute,
+} from "./types.ts";
 
 /**
  * Server-side request-time regions.
@@ -111,6 +120,25 @@ const MAX_REGION_DEPTH = 8;
 const regionRegistry = new Map<ComponentType<any>, RegionDescriptor>();
 const regionsByFile = new Map<string, RegionDescriptor>();
 let regionsClientEntryUrl: string | undefined;
+
+/**
+ * The regions each route and shell module reaches through its static imports,
+ * keyed by the module's registry key ("/src/routes/admin.tsx") and listing
+ * region files ("/src/regions/AdminStats.tsx"). The region endpoint runs a
+ * region only under a route whose own module or shell is in this map with
+ * that region — see docs/REGIONS.md, "Route binding".
+ */
+export type RegionBindings = Readonly<Record<string, readonly string[]>>;
+
+/**
+ * Where the endpoint reads the bindings from. A build ships them in the server
+ * bundle; the dev server computes them per request and passes them in a
+ * header it controls. Unset means neither, and every region request is
+ * refused.
+ */
+type RegionBindingSource = { kind: "manifest"; bindings: RegionBindings } | { kind: "dev-server" };
+
+let regionBindingSource: RegionBindingSource | undefined;
 let vnodeHookInstalled = false;
 
 // Same set-then-consume sentinel as islands: `h()` is synchronous, so the
@@ -165,11 +193,88 @@ export function hasRegisteredRegions(): boolean {
   return regionRegistry.size > 0;
 }
 
+/**
+ * Install the route↔region bindings a build computed from its module graph.
+ * Accepts the JSON the build spliced into the server bundle; anything that is
+ * not a map of string arrays binds nothing, so a build that never filled it
+ * in refuses every region request instead of serving them all.
+ */
+export function setRegionBindings(bindings: RegionBindings | string): void {
+  regionBindingSource = { kind: "manifest", bindings: parseRegionBindings(bindings) };
+}
+
+/**
+ * Development: read each region request's bindings from the header the dev
+ * server sets (it strips any copy the client sent first). Only the generated
+ * development server module calls this.
+ */
+export function readRegionBindingsFromDevServer(): void {
+  regionBindingSource = { kind: "dev-server" };
+}
+
+function parseRegionBindings(raw: unknown): RegionBindings {
+  let value = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return {};
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const bindings: Record<string, readonly string[]> = Object.create(null);
+  for (const [key, files] of Object.entries(value)) {
+    if (Array.isArray(files) && files.every((file) => typeof file === "string")) {
+      bindings[key] = files;
+    }
+  }
+  return bindings;
+}
+
+/** The registry key the runtime loads `file` from — `resolveRegistryModule()`'s lookup. */
+function registryKeyFor(
+  modules: Record<string, unknown> | undefined,
+  file: string | undefined,
+): string | undefined {
+  if (!modules || !file) return undefined;
+  if (Object.hasOwn(modules, file)) return file;
+  return getSuffixIndex(modules).get(normalizeModulePath(file));
+}
+
+/**
+ * The region files `route` may run: those its own module or its shell module
+ * imports statically. These are the modules that render its document, so a
+ * region is never reachable under a route — its middleware, its params — that
+ * would not render it itself.
+ */
+function boundRegionsFor(
+  route: ResolvedRoute,
+  registry: ModuleRegistry,
+  request: Request,
+): ReadonlySet<string> {
+  const bindings =
+    regionBindingSource?.kind === "manifest"
+      ? regionBindingSource.bindings
+      : regionBindingSource?.kind === "dev-server"
+        ? parseRegionBindings(request.headers.get(DEV_REGION_BINDINGS_HEADER) ?? "")
+        : {};
+  const bound = new Set<string>();
+  for (const key of [
+    registryKeyFor(registry.routeModules, route.file),
+    registryKeyFor(registry.shellModules, route.shellFile),
+  ]) {
+    if (key === undefined || !Object.hasOwn(bindings, key)) continue;
+    for (const file of bindings[key]!) bound.add(file);
+  }
+  return bound;
+}
+
 /** @internal Reset module state for tests. */
 export function _resetRegionsForTesting(): void {
   regionRegistry.clear();
   regionsByFile.clear();
   regionsClientEntryUrl = undefined;
+  regionBindingSource = undefined;
   skipWrapForType = null;
 }
 
@@ -396,17 +501,20 @@ function regionTextResponse(message: string, status: number, headers?: HeadersIn
  * page the browser is on.
  *
  * The request names the region, its props, and the page path. The page path
- * is matched against the route table and that route's middleware chain runs
- * around the region, with a request whose URL is the page's and whose
- * headers (cookies included) are the region request's — so session and auth
- * middleware populate `context` exactly as they did, or would have, for the
- * page. Then the region loader runs and the region renders to an HTML
- * fragment.
+ * is matched against the route table, and the region must be bound to that
+ * route: imported by its route module or shell module (`boundRegionsFor`).
+ * That route's middleware chain then runs around the region, with a request
+ * whose URL is the page's and whose headers (cookies included) are the region
+ * request's — so session and auth middleware populate `context` exactly as
+ * they did, or would have, for the page. Then the region loader runs and the
+ * region renders to an HTML fragment.
  *
  * - `200` — the fragment. Always `Cache-Control: private, no-store`.
  * - `204` — middleware or the loader answered with a `Response` (a redirect,
  *   a 401): the page keeps the fallback.
- * - `4xx` — malformed request, unknown region, or a path no route matches.
+ * - `404` — a path no route matches, or a region that route does not render
+ *   (identical to a region that does not exist).
+ * - `4xx` — otherwise malformed request.
  * - `500` — the loader or render threw; reported through `onRouteError`.
  */
 export async function handleRegionRequest<TContext>(
@@ -419,10 +527,6 @@ export async function handleRegionRequest<TContext>(
   if (request.headers.get(REGION_REQUEST_HEADER) !== "1") {
     return regionTextResponse(`Region requests must send ${REGION_REQUEST_HEADER}: 1`, 400);
   }
-
-  const file = url.searchParams.get(REGION_QUERY_FILE) ?? "";
-  const descriptor = regionsByFile.get(file);
-  if (!descriptor) return regionTextResponse("Unknown region", 404);
 
   const rawProps = url.searchParams.get(REGION_QUERY_PROPS) ?? "{}";
   if (rawProps.length > MAX_REGION_PROPS_LENGTH) {
@@ -451,11 +555,23 @@ export async function handleRegionRequest<TContext>(
   const match = routePathname === null ? undefined : matchAppRoute(ctx.resolvedApp, routePathname);
   if (!match) return regionTextResponse("No route matches the region path", 404);
 
+  // Route binding: the region must be one this route's own module or shell
+  // imports. A region that does not exist and one the route does not render
+  // get the same answer, checked at the same point, so a caller cannot tell
+  // them apart or probe for region names.
+  const file = url.searchParams.get(REGION_QUERY_FILE) ?? "";
+  const descriptor = regionsByFile.get(file);
+  if (!descriptor || !boundRegionsFor(match.route, ctx.registry, request).has(descriptor.file)) {
+    return regionTextResponse("Unknown region", 404);
+  }
+
   // The page's URL with the region request's headers: middleware and the
   // loader see the page they are rendering for, and the visitor's cookies.
+  const pageHeaders = new Headers(request.headers);
+  pageHeaders.delete(DEV_REGION_BINDINGS_HEADER);
   const pageRequest = new Request(pageUrl, {
     method: "GET",
-    headers: request.headers,
+    headers: pageHeaders,
     signal: request.signal,
   });
   const signal = composeRequestSignal(pageRequest, ctx.loaderTimeoutMs);

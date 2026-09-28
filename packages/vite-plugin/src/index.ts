@@ -14,6 +14,10 @@ import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
 import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
+import {
+  createDevRegionBindingsMiddleware,
+  createRegionBindingsPlugin,
+} from "./region-bindings.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
@@ -531,11 +535,25 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
 
       if (resolved.adapter.ownsDevServer) {
+        // First, ahead of the adapter's own request handling: it strips the
+        // route↔region bindings header from every request before setting it.
+        server.middlewares.use(
+          createDevRegionBindingsMiddleware(server, {
+            regionsDir: resolved.regionsDir,
+            basePathRetained: true,
+          }),
+        );
         server.middlewares.use(createOwnedDevEntryMiddleware(server));
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
       }
       return () => {
+        server.middlewares.use(
+          createDevRegionBindingsMiddleware(server, {
+            regionsDir: resolved.regionsDir,
+            basePathRetained: false,
+          }),
+        );
         server.middlewares.use(
           createDevSSRMiddleware(server, {
             llmsTxt: !!resolved.llmsTxt,
@@ -841,6 +859,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     inlineCss: resolved.inlineCss,
   });
 
+  const regionBindingsPlugin = createRegionBindingsPlugin({
+    regionsDir: resolved.regionsDir,
+    routesDir: resolved.routesDir,
+    shellsDir: resolved.shellsDir,
+    pagesDir: resolved.pagesDir,
+  });
+
   const optimizeDepsEntriesPlugin: Plugin = {
     name: "pracht:optimize-deps-entries",
     enforce: "post",
@@ -877,6 +902,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...(clientModulePrefreshPlugin ? [clientModulePrefreshPlugin] : []),
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     serverCssAssetsPlugin,
+    regionBindingsPlugin,
     createEnvSafetyPlugin(resolved.envSafety),
   ];
 

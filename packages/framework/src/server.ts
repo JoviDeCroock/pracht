@@ -181,8 +181,11 @@ export {
   type IslandUsage,
 } from "./islands-server.ts";
 export {
+  readRegionBindingsFromDevServer,
   registerServerRegions,
+  setRegionBindings,
   setRegionsClientEntryUrl,
+  type RegionBindings,
   type RegionDescriptor,
 } from "./regions-server.ts";
 export { PRACHT_REGION_ENDPOINT } from "./regions-shared.ts";

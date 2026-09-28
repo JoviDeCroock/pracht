@@ -126,3 +126,30 @@ test("the region endpoint is private and only answers same-origin scripts", asyn
   const withoutHeader = await request.get(`/__pracht/region?${query}`);
   expect(withoutHeader.status()).toBe(400);
 });
+
+test("the region endpoint refuses a region for a page that does not render it", async ({
+  request,
+}) => {
+  const regionAt = (region: string, path: string, headers: Record<string, string> = {}) =>
+    request.get(`/__pracht/region?${new URLSearchParams({ region, path })}`, {
+      headers: { "x-pracht-region": "1", cookie: "visitor=Ada", ...headers },
+    });
+
+  // /static renders no region, so the Visitor region never runs under it —
+  // and the answer is the one a region that does not exist gets.
+  const unbound = await regionAt("/src/regions/Visitor.tsx", "/static");
+  const unknown = await regionAt("/src/regions/Nope.tsx", "/static");
+  expect(unbound.status()).toBe(404);
+  expect(await unbound.text()).toBe(await unknown.text());
+
+  // The development bindings travel in a header the dev server owns; a copy
+  // sent by the client is dropped before the app sees the request.
+  const spoofed = await regionAt("/src/regions/Visitor.tsx", "/static", {
+    "x-pracht-dev-region-bindings": JSON.stringify({
+      "/src/routes/static-page.tsx": ["/src/regions/Visitor.tsx"],
+    }),
+  });
+  expect(spoofed.status()).toBe(404);
+
+  expect((await regionAt("/src/regions/Visitor.tsx", "/regions")).status()).toBe(200);
+});

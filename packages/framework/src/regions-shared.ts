@@ -46,6 +46,21 @@ export const REGION_ISLANDS_HEADER = "x-pracht-islands";
 /** Dispatched (bubbling) on a region element after its HTML was swapped in. */
 export const REGION_SWAP_EVENT = "pracht:region";
 
+/**
+ * Dispatched on `window` after route data was refreshed in place — by
+ * `useRevalidate()`, a capability call, or a `<Form>` submission — so the
+ * regions on a full-hydration page fetch their HTML again.
+ */
+export const REGION_REFRESH_EVENT = "pracht:regions-refresh";
+
+/**
+ * Development only. The dev server computes which regions the requested
+ * page's route and shell modules import, and hands that map to the runtime in
+ * this request header — after removing any copy the client sent. A built app
+ * never reads it: its bindings ship in the server bundle.
+ */
+export const DEV_REGION_BINDINGS_HEADER = "x-pracht-dev-region-bindings";
+
 /** Query parameters of the region endpoint. */
 export const REGION_QUERY_FILE = "region";
 export const REGION_QUERY_PROPS = "props";

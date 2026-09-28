@@ -9,7 +9,9 @@ import {
 } from "../src/islands-server.ts";
 import {
   _resetRegionsForTesting,
+  readRegionBindingsFromDevServer,
   registerServerRegions,
+  setRegionBindings,
   setRegionsClientEntryUrl,
 } from "../src/regions-server.ts";
 import type { MiddlewareFn, RegionLoaderArgs, RenderMode, HydrationMode } from "../src/index.ts";
@@ -63,6 +65,8 @@ function registerVisitorRegion(setup: Setup = {}) {
   }
   registerServerRegions({ "/src/regions/Visitor.tsx": { default: Region, loader } });
   setRegionsClientEntryUrl(REGIONS_ENTRY);
+  // Both routes of `createApp()` render `./routes/page.tsx`, which renders it.
+  setRegionBindings({ "./routes/page.tsx": ["/src/regions/Visitor.tsx"] });
   return { Region, loader };
 }
 
@@ -397,9 +401,9 @@ describe("region endpoint", () => {
     expect(response.headers.get("x-robots-tag")).toBeNull();
   });
 
-  it("runs the middleware of the route the path names, not the embedding one", async () => {
-    // `/public` has no `visitor` middleware: the caller picks the route, so a
-    // region must authorize from context rather than rely on a route's gate.
+  it("runs the middleware of the route the path names when that route renders the region", async () => {
+    // `/public` renders the same page module without the `visitor` middleware.
+    // Its region answers exactly what the page would have rendered inline.
     const { response } = await request(
       regionRequest(
         { ...params, path: "/public" },
@@ -408,5 +412,221 @@ describe("region endpoint", () => {
     );
 
     expect(await response.text()).toBe('<p class="visitor">Signed out</p>');
+  });
+});
+
+describe("region endpoint route binding", () => {
+  const ADMIN_STATS = "/src/regions/AdminStats.tsx";
+  const ORG_DATA = "/src/regions/OrgData.tsx";
+  const CART = "/src/regions/Cart.tsx";
+
+  // Registry keys are what `import.meta.glob` produces; the manifest names
+  // modules relative to it, and the runtime resolves one to the other.
+  const BINDINGS = {
+    "/src/routes/admin.tsx": [ADMIN_STATS],
+    "/src/routes/org.tsx": [ORG_DATA],
+    "/src/shells/site.tsx": [CART],
+  };
+
+  const hasCookie = (request: Request, pattern: RegExp) =>
+    pattern.test(request.headers.get("cookie") ?? "");
+  const redirectHome = () => new Response(null, { status: 302, headers: { location: "/" } });
+
+  function setup(bindings: Parameters<typeof setRegionBindings>[0] | "dev" | null = BINDINGS) {
+    const loaders = {
+      adminStats: vi.fn(() => ({ revenue: "SECRET-REVENUE" })),
+      orgData: vi.fn(({ params }: RegionLoaderArgs) => ({ secret: `org-${params.org}` })),
+      cart: vi.fn(() => ({ count: 3 })),
+    };
+    const middleware = {
+      admin: vi.fn<MiddlewareFn>(({ request }, next) =>
+        hasCookie(request, /role=admin/) ? next() : redirectHome(),
+      ),
+      org: vi.fn<MiddlewareFn>(({ request, params }, next) =>
+        hasCookie(request, new RegExp(`org=${params.org}(;|$)`)) ? next() : redirectHome(),
+      ),
+    };
+    function AdminStats() {
+      return h("p", null, useRegionData<{ revenue: string }>().revenue);
+    }
+    function OrgData() {
+      return h("p", null, useRegionData<{ secret: string }>().secret);
+    }
+    function Cart() {
+      return h("p", null, `Cart (${useRegionData<{ count: number }>().count})`);
+    }
+    registerServerRegions({
+      [ADMIN_STATS]: { default: AdminStats, loader: loaders.adminStats },
+      [ORG_DATA]: { default: OrgData, loader: loaders.orgData },
+      [CART]: { default: Cart, loader: loaders.cart },
+    });
+    if (bindings === "dev") readRegionBindingsFromDevServer();
+    else if (bindings !== null) setRegionBindings(bindings);
+
+    const app = defineApp({
+      shells: { site: "./shells/site.tsx", plain: "./shells/plain.tsx" },
+      middleware: { admin: "./middleware/admin.ts", org: "./middleware/org.ts" },
+      routes: [
+        route("/admin", "./routes/admin.tsx", { render: "ssg", middleware: ["admin"] }),
+        route("/static", "./routes/static.tsx", { render: "ssg" }),
+        route("/org/:org/dash", "./routes/org.tsx", { render: "ssg", middleware: ["org"] }),
+        route("/invite/:org", "./routes/invite.tsx", { render: "ssg" }),
+        // One page module under two shells: only the `site` shell renders Cart.
+        group({ shell: "site" }, [route("/news", "./routes/news.tsx", { render: "ssg" })]),
+        group({ shell: "plain" }, [route("/plain-news", "./routes/news.tsx", { render: "ssg" })]),
+      ],
+    });
+    const page = async () => ({ Component: () => null });
+    const shell = async () => ({
+      Shell: ({ children }: { children: ComponentChildren }) => children,
+    });
+    const registry = {
+      routeModules: Object.fromEntries(
+        ["admin", "static", "org", "invite", "news"].map((name) => [
+          `/src/routes/${name}.tsx`,
+          page,
+        ]),
+      ),
+      shellModules: { "/src/shells/site.tsx": shell, "/src/shells/plain.tsx": shell },
+      middlewareModules: {
+        "/src/middleware/admin.ts": async () => ({ middleware: middleware.admin }),
+        "/src/middleware/org.ts": async () => ({ middleware: middleware.org }),
+      },
+    };
+    const send = (query: Record<string, string>, headers: Record<string, string> = {}) =>
+      handlePrachtRequest({
+        app,
+        registry,
+        request: regionRequest(query, { "x-pracht-region": "1", ...headers }),
+      });
+    return { loaders, middleware, send };
+  }
+
+  async function snapshot(response: Response) {
+    const headers = Object.fromEntries(response.headers);
+    delete headers.date;
+    return { status: response.status, body: await response.text(), headers };
+  }
+
+  it("refuses a gated page's region under a route that does not render it", async () => {
+    // The exploit: AdminStats is rendered only on /admin, behind `admin`
+    // middleware, and its loader does no check of its own.
+    const { loaders, middleware, send } = setup();
+
+    const refused = await send({ region: ADMIN_STATS, path: "/static" });
+    const unknown = await send({ region: "/src/regions/Nope.tsx", path: "/static" });
+
+    expect(refused.status).toBe(404);
+    // Identical to a region that does not exist: nothing to probe for.
+    expect(await snapshot(refused)).toEqual(await snapshot(unknown));
+    expect(loaders.adminStats).not.toHaveBeenCalled();
+    expect(middleware.admin).not.toHaveBeenCalled();
+  });
+
+  it("runs a bound region behind its own route's middleware", async () => {
+    const { loaders, send } = setup();
+
+    const anonymous = await send({ region: ADMIN_STATS, path: "/admin" });
+    expect(anonymous.status).toBe(204);
+    expect(loaders.adminStats).not.toHaveBeenCalled();
+
+    const admin = await send({ region: ADMIN_STATS, path: "/admin" }, { cookie: "role=admin" });
+    expect(admin.status).toBe(200);
+    expect(await admin.text()).toBe("<p>SECRET-REVENUE</p>");
+  });
+
+  it("never hands a region params from a route that does not render it", async () => {
+    // OrgData trusts `params.org` because /org/:org/dash checks membership;
+    // /invite/:org has the same param and no such check.
+    const { loaders, send } = setup();
+
+    const viaInvite = await send({ region: ORG_DATA, path: "/invite/victim" });
+    expect(viaInvite.status).toBe(404);
+
+    const viaDash = await send(
+      { region: ORG_DATA, path: "/org/victim/dash" },
+      { cookie: "org=mine" },
+    );
+    expect(viaDash.status).toBe(204);
+    expect(loaders.orgData).not.toHaveBeenCalled();
+
+    const member = await send({ region: ORG_DATA, path: "/org/mine/dash" }, { cookie: "org=mine" });
+    expect(await member.text()).toBe("<p>org-mine</p>");
+  });
+
+  it("binds a shell's region to the routes using that shell only", async () => {
+    const { send } = setup();
+
+    expect((await send({ region: CART, path: "/news" })).status).toBe(200);
+    // The same page module under a shell that does not render Cart.
+    expect((await send({ region: CART, path: "/plain-news" })).status).toBe(404);
+    expect((await send({ region: CART, path: "/static" })).status).toBe(404);
+  });
+
+  it("refuses every region when no bindings were installed or they do not parse", async () => {
+    for (const bindings of [null, "not json", "__PRACHT_REGION_BINDINGS__", "[]", '{"a":1}']) {
+      const { loaders, send } = setup(bindings);
+      const response = await send({ region: CART, path: "/news" });
+      expect({ bindings, status: response.status }).toEqual({ bindings, status: 404 });
+      expect(loaders.cart).not.toHaveBeenCalled();
+      _resetRegionsForTesting();
+    }
+  });
+
+  it("gives an unknown and an unbound region the same answer for every malformed request", async () => {
+    const { send } = setup();
+    const malformed: Array<Record<string, string>> = [
+      { path: "/static", props: "[1]" },
+      { path: "/static", props: JSON.stringify({ pad: "x".repeat(5000) }) },
+      { path: "//evil.example/admin" },
+      { path: "/nowhere" },
+    ];
+
+    for (const query of malformed) {
+      const known = await snapshot(await send({ ...query, region: ADMIN_STATS }));
+      const unknown = await snapshot(await send({ ...query, region: "/src/regions/Nope.tsx" }));
+      expect(known).toEqual(unknown);
+    }
+  });
+
+  it("ignores a client-sent development bindings header in a built app", async () => {
+    const { loaders, send } = setup();
+
+    const response = await send(
+      { region: ADMIN_STATS, path: "/static" },
+      {
+        "x-pracht-dev-region-bindings": JSON.stringify({ "/src/routes/static.tsx": [ADMIN_STATS] }),
+      },
+    );
+
+    expect(response.status).toBe(404);
+    expect(loaders.adminStats).not.toHaveBeenCalled();
+  });
+
+  it("reads development bindings from the dev server's header, and nothing else", async () => {
+    const { loaders, middleware, send } = setup("dev");
+    const header = (bindings: object) => ({
+      "x-pracht-dev-region-bindings": JSON.stringify(bindings),
+      cookie: "role=admin",
+    });
+
+    expect(
+      (await send({ region: ADMIN_STATS, path: "/admin" }, { cookie: "role=admin" })).status,
+    ).toBe(404);
+    expect(
+      (
+        await send(
+          { region: ADMIN_STATS, path: "/admin" },
+          header({ "/src/routes/static.tsx": [ADMIN_STATS] }),
+        )
+      ).status,
+    ).toBe(404);
+
+    const bound = await send({ region: ADMIN_STATS, path: "/admin" }, header(BINDINGS));
+    expect(bound.status).toBe(200);
+    // Middleware and the loader never see the header.
+    const [args] = middleware.admin.mock.calls[0]!;
+    expect(args.request.headers.has("x-pracht-dev-region-bindings")).toBe(false);
+    expect(loaders.adminStats).toHaveBeenCalledOnce();
   });
 });
