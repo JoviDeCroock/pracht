@@ -56,12 +56,18 @@ describe("cross-document view transitions", () => {
   ] as const)(
     "emits the at-rule on %s/%s documents when enabled app-wide",
     async (render, hydration) => {
-      const html = await renderPage({ render, hydration, viewTransitions: true });
+      const html = await renderPage({
+        render,
+        hydration,
+        viewTransitions: true,
+        head: { link: [{ rel: "stylesheet", href: "/page.css" }] },
+      });
       expect(html).toContain(VIEW_TRANSITION_TAG);
-      // Ahead of route CSS, so an app stylesheet can override it.
-      expect(html.indexOf(VIEW_TRANSITION_TAG)).toBeLessThan(
-        html.indexOf('href="/assets/home.css"'),
-      );
+      // Ahead of every app stylesheet — route CSS and `head()` links — so a
+      // page's own `@view-transition` rule comes later and wins.
+      const tagIndex = html.indexOf(VIEW_TRANSITION_TAG);
+      expect(tagIndex).toBeLessThan(html.indexOf('href="/assets/home.css"'));
+      expect(tagIndex).toBeLessThan(html.indexOf('href="/page.css"'));
     },
   );
 

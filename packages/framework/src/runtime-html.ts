@@ -205,8 +205,9 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
       ? `<style data-pracht-fonts${fontNonce ? ` nonce="${escapeHtml(fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
       : "";
 
-  // Placed before route CSS so an app stylesheet can still override it (e.g.
-  // `@view-transition { navigation: none }` on a single page).
+  // Placed ahead of every stylesheet the app contributes — `head().link` as
+  // well as route CSS — because the last `@view-transition` rule wins, so a
+  // page's own `@view-transition { navigation: none }` must come after it.
   const viewTransitionStyleTag = viewTransitions
     ? `<style data-pracht-view-transitions${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${VIEW_TRANSITION_CSS}</style>`
     : "";
@@ -292,10 +293,10 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
       '<meta charset="utf-8">',
       titleTag,
       metaTags,
+      viewTransitionStyleTag,
       linkTags,
       fontLinkTags,
       fontStyleTag,
-      viewTransitionStyleTag,
       scriptTags,
       cssTags,
       modulePreloadTags,
