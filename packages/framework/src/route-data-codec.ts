@@ -87,7 +87,14 @@ export function encodeRouteData(value: unknown, owner?: string): unknown {
     path.pop();
   };
 
-  const encode = (v: unknown, parent: Record<PropertyKey, unknown>, key: PropertyKey): void => {
+  // `fromToJSON` marks a value a toJSON() call just returned: like
+  // JSON.stringify, it is written as it stands rather than converted again.
+  const encode = (
+    v: unknown,
+    parent: Record<PropertyKey, unknown>,
+    key: PropertyKey,
+    fromToJSON?: boolean,
+  ): void => {
     switch (typeof v) {
       case "string":
         parent[key] = v[0] === TAG ? [`${TAG}$`, v] : v;
@@ -161,16 +168,20 @@ export function encodeRouteData(value: unknown, owner?: string): unknown {
       parent[key] = out;
       let index = 0;
       for (const entry of v) child(entry, out as never, out.length, [`.values()[${index++}]`]);
-    } else if (typeof (v as { toJSON?: unknown }).toJSON === "function") {
+    } else if (!fromToJSON && typeof (v as { toJSON?: unknown }).toJSON === "function") {
       // An explicit JSON representation wins, as it does for JSON.stringify.
       // The value arrives as that representation, not as the original type.
-      encode((v as { toJSON(): unknown }).toJSON(), parent, key);
+      // Every occurrence gets its own toJSON() result, so the source object
+      // takes no part in identity tracking: a second occurrence must not
+      // point back at a result that may be a primitive.
+      slots.delete(v);
+      encode((v as { toJSON(): unknown }).toJSON(), parent, key, true);
     } else {
       if (typeof (v as { then?: unknown }).then === "function") {
         return fail("is a promise. Await it, or wrap it in defer() to stream it");
       }
       const proto = Object.getPrototypeOf(v);
-      if (proto !== Object.prototype && proto !== null) {
+      if (!fromToJSON && proto !== Object.prototype && proto !== null) {
         const name = (v as { constructor?: { name?: unknown } }).constructor?.name;
         return fail(
           typeof name === "string" && name !== ""

@@ -219,6 +219,30 @@ describe("encodeRouteData() / decodeRouteData()", () => {
     expect(result.plain).toBe("plain");
   });
 
+  it("converts every occurrence of a shared toJSON() object", () => {
+    // A decimal or ObjectId referenced twice: each occurrence is its own
+    // toJSON() result, as with JSON.stringify, rather than a back-reference to
+    // a primitive that cannot carry one.
+    const price = { toJSON: () => "9.99" };
+    const empty = { toJSON: () => null };
+    expect(roundTrip({ a: price, b: [price], c: empty, d: empty })).toEqual({
+      a: "9.99",
+      b: ["9.99"],
+      c: null,
+      d: null,
+    });
+  });
+
+  it("writes an object whose toJSON() returns itself as its own fields", () => {
+    class Row {
+      id = 1;
+      toJSON() {
+        return this;
+      }
+    }
+    expect(roundTrip({ row: new Row() })).toEqual({ row: { id: 1 } });
+  });
+
   it("does not mutate the encoded input", () => {
     const value = { map: new Map([["a", 1]]), list: [undefined] };
     encodeRouteData(value);
