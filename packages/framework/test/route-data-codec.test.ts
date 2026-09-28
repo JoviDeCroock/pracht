@@ -32,6 +32,16 @@ describe("encodeRouteData() / decodeRouteData()", () => {
     expect(encoded).toBe(JSON.stringify(value));
     expect(mayContainEncodedRouteData(encoded)).toBe(false);
     expect(roundTrip(value)).toEqual(value);
+    // Plain JSON is sent as it is, without building a copy.
+    expect(encodeRouteData(value)).toBe(value);
+  });
+
+  it("copies plain JSON once it holds anything the encoding changes", () => {
+    const shared = { id: 1 };
+    const tagged = { nested: [{ at: "\u0000x" }] };
+    for (const value of [{ a: shared, b: shared }, tagged, { list: [1, undefined, 3] }]) {
+      expect(encodeRouteData(value)).not.toBe(value);
+    }
   });
 
   it("round-trips primitives JSON cannot represent", () => {

@@ -189,17 +189,60 @@ export function encodeRouteData(value: unknown, owner?: string): unknown {
             : "is an object with a custom prototype and no toJSON() method",
         );
       }
-      // A null-prototype copy, so an own `__proto__` key stays a plain key.
-      const out = Object.create(null) as Record<string, unknown>;
+      // An ordinary object keeps V8's fast properties, which JSON.stringify
+      // relies on; an own `__proto__` key is defined rather than assigned, so
+      // it stays a plain key instead of setting the copy's prototype.
+      const out: Record<string, unknown> = {};
       parent[key] = out;
-      for (const k of Object.keys(v)) child((v as Record<string, unknown>)[k], out, k, k);
+      for (const k of Object.keys(v)) {
+        if (k === "__proto__") {
+          Object.defineProperty(out, k, { configurable: true, enumerable: true, writable: true });
+        }
+        child((v as Record<string, unknown>)[k], out, k, k);
+      }
     }
   };
 
   // A loader-less route's `undefined` stays absent from the envelope, as before.
   if (value === undefined) return undefined;
+  // Most loader data is already plain JSON: send it as it is, without a copy.
+  if (isPlainJson(value, new Set())) return value;
   encode(value, root as never, 0);
   return root[0];
+}
+
+/**
+ * Whether the encoding would copy `value` unchanged: nothing that needs a tag,
+ * no string that needs escaping, no object reached twice, and no `toJSON()`
+ * to call.
+ */
+function isPlainJson(value: unknown, seen: Set<object>): boolean {
+  switch (typeof value) {
+    case "string":
+      return value[0] !== TAG;
+    case "boolean":
+      return true;
+    case "number":
+      return Number.isFinite(value) && !Object.is(value, -0);
+    case "object":
+      break;
+    default:
+      return false;
+  }
+  if (value === null) return true;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) if (!isPlainJson(value[i], seen)) return false;
+    return true;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
+  if (typeof (value as { toJSON?: unknown }).toJSON === "function") return false;
+  for (const key of Object.keys(value)) {
+    if (!isPlainJson((value as Record<string, unknown>)[key], seen)) return false;
+  }
+  return true;
 }
 
 /**

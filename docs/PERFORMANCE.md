@@ -146,6 +146,14 @@ render. A prototype that `import()`ed it only when a payload held a tag still
 left about 125 bytes of call sites in every full-hydration bundle, and cost
 rich-data pages a 375-byte chunk and a round trip before hydrating.
 
+On the server, `encodeRouteData()` first checks whether the data is plain JSON
+with no shared objects, and returns it untouched when it is; only data that
+needs a tag is copied. Measured in-process on a 540 KB plain-JSON loader
+result, the check costs about as much as the `JSON.stringify` that follows it
+(roughly 1.3 ms, turning ~615 into ~345 document renders per second), and the
+same data with a `Date` per row serializes about three to five times slower
+than plain `JSON.stringify`. Off, the server does no extra work.
+
 ## Composing with the app's chunking
 
 Pracht has one chunking opinion — Preact belongs in a shared `vendor` chunk —
