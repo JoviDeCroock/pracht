@@ -38,7 +38,8 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
   or group; runs server-side before loaders.
 - **Route groups**: inherit shell, middleware, render mode, and path prefix.
 - **Navigation UX**: automatic scroll restoration, link prefetching
-  (`intent`/`viewport`/`render`), and opt-in View Transitions.
+  (`intent`/`viewport`/`render`), and opt-in View Transitions (client navigations
+  plus cross-document transitions for full page loads to islands/static pages).
 
 ### Rendering Modes
 

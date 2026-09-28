@@ -19,7 +19,10 @@ import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
 // (e) `hydration: "none"` routes ship zero JavaScript and still receive their
 //     stylesheet together with the assets it references and the ones they
 //     import into their markup, including the CSS of an island they render as
-//     a plain component.
+//     a plain component, and
+// (f) with `viewTransitions` enabled, every document — islands, none, and
+//     full — carries the cross-document `@view-transition` rule, so those
+//     full page loads animate without any client JavaScript.
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureDir = resolve(repoRoot, "examples/islands");
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
@@ -121,6 +124,13 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
 
     expect(existsSync(resolve(exampleDir, "dist/client/lazy/index.html"))).toBe(true);
 
+    const viewTransitionStyle =
+      "<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>";
+    const fullHtml = readFileSync(resolve(exampleDir, "dist/client/full/index.html"), "utf-8");
+    for (const html of [homeHtml, staticHtml, fullHtml]) {
+      expect(html).toContain(viewTransitionStyle);
+    }
+
     // --- Behavior in a real browser --------------------------------------
     portLease = await acquireE2EWorkerPort();
     const { port } = portLease;
@@ -128,6 +138,14 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
       cwd: exampleDir,
       env: { ...process.env, PORT: String(port) },
       stdio: "pipe",
+    });
+
+    // Record whether each document was revealed through a view transition.
+    await page.addInitScript(() => {
+      addEventListener("pagereveal", (event) => {
+        const transition = (event as Event & { viewTransition?: unknown }).viewTransition;
+        sessionStorage.setItem(`reveal:${location.pathname}`, transition ? "transition" : "none");
+      });
     });
 
     const jsRequests: string[] = [];
@@ -197,6 +215,20 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     expect(jsRequests).toContain(clientEntryUrl);
     await page.getByTestId("full-button").click();
     await expect(page.getByTestId("full-button")).toHaveText("hydrated");
+
+    // (f) Following a link out of the full-hydration page is a full document
+    // load to an islands route; Chromium animates it as a cross-document view
+    // transition, and so does the load from there to a hydration: "none" page.
+    const revealedBy = (path: string) =>
+      page.evaluate((key) => sessionStorage.getItem(key), `reveal:${path}`);
+    await page.click('nav a[href="/ssr"]');
+    await page.waitForURL(`${origin}/ssr`);
+    await expect.poll(() => revealedBy("/ssr")).toBe("transition");
+    jsRequests.length = 0;
+    await page.click('nav a[href="/static"]');
+    await page.waitForURL(`${origin}/static`);
+    await expect.poll(() => revealedBy("/static")).toBe("transition");
+    expect(jsRequests).toEqual([]);
   } finally {
     if (server) {
       server.kill("SIGTERM");

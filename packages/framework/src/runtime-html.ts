@@ -127,7 +127,17 @@ export interface HtmlDocumentOptions {
   speculationRules?: SpeculationRulesDocument | null;
   /** Page-scoped WebMCP tools consumed by the islands bootstrap. */
   webmcpCapabilities?: readonly string[];
+  /** Opt the document into cross-document view transitions (`defineApp({ viewTransitions })`). */
+  viewTransitions?: boolean;
 }
+
+/**
+ * The at-rule behind cross-document view transitions. It must be present on
+ * both the old and the new document, so every page document carries it when
+ * the app enables view transitions. Kept constant so a CSP can allow it by
+ * hash on prerendered pages that cannot carry a per-request nonce.
+ */
+export const VIEW_TRANSITION_CSS = "@view-transition{navigation:auto}";
 
 /**
  * Assemble the document as three pieces so the streaming renderer can write
@@ -160,6 +170,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     routeStatePreloadUrl,
     speculationRules,
     webmcpCapabilities = [],
+    viewTransitions = false,
   } = options;
 
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
@@ -193,6 +204,13 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     fontFragments?.css || fontNonce
       ? `<style data-pracht-fonts${fontNonce ? ` nonce="${escapeHtml(fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
       : "";
+
+  // Placed ahead of every stylesheet the app contributes — `head().link` as
+  // well as route CSS — because the last `@view-transition` rule wins, so a
+  // page's own `@view-transition { navigation: none }` must come after it.
+  const viewTransitionStyleTag = viewTransitions
+    ? `<style data-pracht-view-transitions${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${VIEW_TRANSITION_CSS}</style>`
+    : "";
 
   const scriptTags = (head.script ?? [])
     .map((script) => {
@@ -275,6 +293,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
       '<meta charset="utf-8">',
       titleTag,
       metaTags,
+      viewTransitionStyleTag,
       linkTags,
       fontLinkTags,
       fontStyleTag,

@@ -438,6 +438,7 @@ async function renderSpaDocument<TContext>(
           : buildRouteStateUrl(ctx.requestPath)
         : undefined,
       speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+      viewTransitions: ctx.resolvedApp.viewTransitions === true,
     }),
     pageOptions.status,
     documentHeaders,
@@ -543,6 +544,7 @@ async function renderServerDocument<TContext>(
         ? [...new Set([ctx.options.clientEntryUrl, ...modulePreloadUrls])]
         : modulePreloadUrls,
       speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+      viewTransitions: ctx.resolvedApp.viewTransitions === true,
     });
 
     return await streamingHtmlResponse({
@@ -641,6 +643,7 @@ async function renderServerDocument<TContext>(
             ])
           : [...islandPreloadUrls],
         speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+        viewTransitions: ctx.resolvedApp.viewTransitions === true,
         webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
       }),
       pageOptions.status,
@@ -662,6 +665,7 @@ async function renderServerDocument<TContext>(
       cssAssets,
       modulePreloadUrls,
       speculationRules: getAppSpeculationRules(ctx.resolvedApp),
+      viewTransitions: ctx.resolvedApp.viewTransitions === true,
     }),
     pageOptions.status,
     documentHeaders,
