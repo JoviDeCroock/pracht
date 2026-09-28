@@ -449,6 +449,21 @@ node dist/server/server.js
 // Server listening on http://localhost:3000
 ```
 
+### Graceful shutdown
+
+On `SIGTERM` or `SIGINT`, the generated server stops accepting connections,
+lets in-flight requests and [`waitUntil()`](/docs/data-loading#waituntil) work
+finish, then exits. Open SSE streams and WebSockets hold it until the limit, and
+a second signal exits at once. Keep the limit below your platform's kill grace
+period:
+
+```ts [vite.config.ts]
+nodeAdapter({ shutdownTimeoutMs: 8_000 }); // default 10_000
+```
+
+A custom server built on `createNodeRequestHandler()` calls
+`await handler.drain(timeoutMs)` after `server.close()`.
+
 ### WebSockets
 
 Node delivers upgrade requests to the server's `upgrade` event, not to the
@@ -669,7 +684,7 @@ At the runtime level, an adapter also typically needs to:
 1. Accept a platform request and convert it to a Web `Request`
 2. Check for static assets -- serve files from `dist/client/` with appropriate headers
 3. Check for prerendered pages -- serve SSG/ISG HTML (with staleness checking for ISG when the platform supports it)
-4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`
+4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`, passing the platform's `waitUntil`
 5. Convert the Web `Response` back to the platform's response format
 6. Provide a context factory for platform-specific values
 7. Export an entry module generator for the Vite plugin

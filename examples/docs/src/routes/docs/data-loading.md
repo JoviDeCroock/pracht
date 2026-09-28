@@ -53,6 +53,7 @@ source to requests that prefer `Accept: text/markdown`; see
 | url      | URL           | Parsed URL object                                    |
 | route    | ResolvedRoute | Matched route metadata                               |
 | pathname | string \| undefined | Matched pathname with the deployment base removed |
+| waitUntil | `(promise) => void` | Keep work running after the response is sent |
 
 #### `signal`
 
@@ -82,6 +83,26 @@ signal.
   budget expiry reports normally.
 - **Static export** has no live request, so the signal only carries the
   build-time budget.
+
+#### `waitUntil`
+
+`waitUntil(promise)` keeps work running after the response is sent, such as
+analytics, cache warming, or a webhook. The response does not wait for it:
+
+```ts [src/routes/article.tsx]
+export async function loader({ params, waitUntil }: LoaderArgs) {
+  const article = await getArticle(params.slug);
+  waitUntil(recordView(article.id)); // the page does not wait for this
+  return { article };
+}
+```
+
+Middleware, API route handlers, `head()`, `headers()`, and a capability's
+`run()` receive the same function, and it works on every adapter. Prerendering
+waits for it before the build moves on. On Node, the server waits for it on
+shutdown, up to [`shutdownTimeoutMs`](/docs/adapters#graceful-shutdown), so put
+long jobs in a queue. A rejected promise is logged as a `waitUntil` error and
+never fails the response.
 
 ### When loaders run
 

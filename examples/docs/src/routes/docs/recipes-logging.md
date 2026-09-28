@@ -136,7 +136,10 @@ export const app = defineApp({
 ```ts [src/middleware/request-log.ts]
 import type { MiddlewareFn } from "@pracht/core";
 
-export const middleware: MiddlewareFn = async ({ context, request, route, url }, next) => {
+export const middleware: MiddlewareFn = async (
+  { context, request, route, url, waitUntil },
+  next,
+) => {
   const startedAt = performance.now();
   let response: Response | undefined;
   let thrown: unknown;
@@ -161,10 +164,8 @@ export const middleware: MiddlewareFn = async ({ context, request, route, url },
       status,
     });
 
-    // Hand the flush off to the runtime so the response can return
-    // immediately. On Cloudflare this keeps the worker alive long enough
-    // for the events to ship; on Node the helper just awaits the promise.
-    deferFlush(context, context.logger.flush());
+    // Ship the events after the response instead of blocking it.
+    waitUntil(context.logger.flush());
   }
 };
 
@@ -175,31 +176,11 @@ function serializeError(error: unknown) {
   }
   return { message: String(error), name: "Error" };
 }
-
-// Cloudflare's executionContext.waitUntil keeps the worker alive past the
-// response. On Node there's no equivalent — `await` would delay the
-// response, and bare fire-and-forget would lose unhandled rejections, so
-// just attach a catch handler.
-function deferFlush(context: { executionContext?: { waitUntil(p: Promise<unknown>): void } }, flushPromise: Promise<unknown>) {
-  if (context.executionContext?.waitUntil) {
-    context.executionContext.waitUntil(
-      flushPromise.catch((err) => console.error("[pracht] log flush failed", err)),
-    );
-    return;
-  }
-  flushPromise.catch((err) => console.error("[pracht] log flush failed", err));
-}
 ```
 
-The middleware sees the final response status and any thrown error, and
-`finally` runs as part of the request.
-
-> [!NOTE]
-> On Cloudflare the worker can be torn down once the response is returned.
-> `await flush()` blocks the response, and fire-and-forget can be cut off.
-> `context.executionContext.waitUntil(flushPromise)` sends the response and
-> keeps the worker alive until the flush resolves; `deferFlush` above uses it
-> when available.
+The middleware sees the final response status and any thrown error.
+[`waitUntil()`](/docs/data-loading#waituntil) sends the response first and keeps
+the flush alive on every adapter, where `await flush()` would delay the response.
 
 ---
 
@@ -234,10 +215,8 @@ export function withRequestLogging(handler: ApiRouteHandler): ApiRouteHandler {
         route: args.route.path,
         status: response?.status ?? 500,
       });
-      // On Cloudflare, prefer
-      // `args.context.executionContext.waitUntil(args.context.logger.flush())`
-      // so the response is not blocked on the flush. On Node, `await` is fine.
-      await args.context.logger.flush();
+      // Ship the events after the response instead of blocking it.
+      args.waitUntil(args.context.logger.flush());
     }
   };
 }
@@ -290,7 +269,7 @@ if (import.meta.hot) {
 
 Import it from an eagerly loaded module: add `import "./audit.ts"` to the `createContextFrom` module above, or import it from a custom server entry. Route, API route, middleware, and `src/server/` registry modules load lazily and can miss earlier calls. Keep the HMR `dispose` hook so the dev server never keeps a stale listener.
 
-Sinks run synchronously, so keep the work before the first `await` cheap. A returned promise is not awaited, and a sink that throws is swallowed, with one `console.warn` per named registration. On Cloudflare Workers, flush a batching exporter within the request or pass it the execution context yourself; pracht does not call `ctx.waitUntil()` for sinks.
+Sinks run synchronously, so keep the work before the first `await` cheap. A returned promise goes to [`waitUntil()`](/docs/data-loading#waituntil), so an `async` exporter finishes after the response on every adapter. A sink that throws is swallowed, with one `console.warn` per named registration.
 
 The three metrics worth deriving from these events:
 

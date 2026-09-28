@@ -982,3 +982,74 @@ describe("WebSocket upgrades", () => {
     expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
   });
 });
+
+describe("portable waitUntil", () => {
+  function createWorkApp(GET: (args: { waitUntil(promise: Promise<unknown>): void }) => Response) {
+    return {
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/work.ts"]),
+      registry: { apiModules: { "/src/api/work.ts": async () => ({ GET }) } } as ModuleRegistry,
+    };
+  }
+
+  it("maps args.waitUntil to ctx.waitUntil without delaying the response", async () => {
+    // workerd rejects a detached `waitUntil` reference, so the adapter must
+    // call it through the execution context.
+    class StrictExecutionContext {
+      readonly tasks: Promise<unknown>[] = [];
+      waitUntil(promise: Promise<unknown>) {
+        if (!(this instanceof StrictExecutionContext)) throw new TypeError("Illegal invocation");
+        this.tasks.push(promise);
+      }
+    }
+    const executionContext = new StrictExecutionContext();
+    let finish!: () => void;
+    let finished = false;
+    const handler = createCloudflareFetchHandler(
+      createWorkApp(({ waitUntil }) => {
+        waitUntil(
+          new Promise<void>((resolve) => (finish = resolve)).then(() => {
+            finished = true;
+          }),
+        );
+        return new Response("sent");
+      }),
+    );
+
+    const response = await handler(
+      new Request("https://example.com/api/work"),
+      {},
+      executionContext,
+    );
+
+    expect(await response.text()).toBe("sent");
+    expect(executionContext.tasks).toHaveLength(1);
+    expect(finished).toBe(false);
+    finish();
+    await Promise.all(executionContext.tasks);
+    expect(finished).toBe(true);
+  });
+
+  it("hands workerd a task that resolves even when the work rejects, and reports it", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { executionContext, waitUntils } = createExecutionContext();
+    const handler = createCloudflareFetchHandler(
+      createWorkApp(({ waitUntil }) => {
+        waitUntil(Promise.reject(new Error("queue send failed")));
+        return new Response("sent");
+      }),
+    );
+
+    const response = await handler(
+      new Request("https://example.com/api/work"),
+      {},
+      executionContext,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(Promise.all(waitUntils)).resolves.toBeDefined();
+    expect(String(errors.mock.calls[0]?.[0])).toContain(
+      "[pracht] waitUntil error (/src/api/work.ts) at /api/work: queue send failed",
+    );
+  });
+});

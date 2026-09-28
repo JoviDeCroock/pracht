@@ -380,10 +380,8 @@ Registering the same name again replaces that sink. Register at module top level
 | Guarantee | What it means for your sink |
 | --- | --- |
 | Never throws into dispatch | Errors are swallowed; the first one logs a `console.warn` naming the sink. |
-| Never awaited | It runs synchronously, so keep work before its first `await` cheap. Catch your own rejections. |
+| Never awaited | It runs synchronously, so keep work before its first `await` cheap. A returned promise goes to [`waitUntil()`](/docs/data-loading#waituntil), so an `async` sink finishes after the response on every adapter. |
 | Runs everywhere | One sink works on Node, Workers, Vercel, and Netlify. |
-
-**Cloudflare Workers caveat.** Unfinished async work in a sink may be cancelled when the request ends. pracht does not call `ctx.waitUntil()` for you. Flush within the request, or call `context.executionContext.waitUntil(exporter.flush())` from middleware or an API route.
 
 ### Production Recipes
 

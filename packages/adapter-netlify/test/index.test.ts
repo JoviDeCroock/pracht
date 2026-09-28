@@ -1231,3 +1231,62 @@ describe("null-body response headers", () => {
     expect(response.body).toBeNull();
   });
 });
+
+describe("portable waitUntil", () => {
+  function workHandler(GET: (args: { waitUntil(promise: Promise<unknown>): void }) => Response) {
+    return createNetlifyHandler({
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/work.ts"]),
+      registry: { apiModules: { "/src/api/work.ts": async () => ({ GET }) } },
+    });
+  }
+
+  it("maps args.waitUntil to context.waitUntil without delaying the response", async () => {
+    const tasks: Promise<unknown>[] = [];
+    const platformContext = {
+      waitUntil(this: unknown, promise: Promise<unknown>) {
+        // Netlify's method keeps its receiver.
+        expect(this).toBe(platformContext);
+        tasks.push(promise);
+      },
+    };
+    let finish!: () => void;
+    let finished = false;
+    const handler = workHandler(({ waitUntil }) => {
+      waitUntil(
+        new Promise<void>((resolve) => (finish = resolve)).then(() => {
+          finished = true;
+        }),
+      );
+      return new Response("sent");
+    });
+
+    const response = await handler(new Request("https://example.com/api/work"), platformContext);
+
+    expect(await response.text()).toBe("sent");
+    expect(tasks).toHaveLength(1);
+    expect(finished).toBe(false);
+    finish();
+    await Promise.all(tasks);
+    expect(finished).toBe(true);
+  });
+
+  it("reports a rejection and hands Netlify a task that resolves", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const tasks: Promise<unknown>[] = [];
+    const handler = workHandler(({ waitUntil }) => {
+      waitUntil(Promise.reject(new Error("purge failed")));
+      return new Response("sent");
+    });
+
+    const response = await handler(new Request("https://example.com/api/work"), {
+      waitUntil: (promise: Promise<unknown>) => tasks.push(promise),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(Promise.all(tasks)).resolves.toBeDefined();
+    expect(String(errors.mock.calls[0]?.[0])).toContain(
+      "[pracht] waitUntil error (/src/api/work.ts) at /api/work: purge failed",
+    );
+  });
+});
