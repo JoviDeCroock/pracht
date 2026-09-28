@@ -224,6 +224,9 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     await page.click('nav a[href="/ssr"]');
     await page.waitForURL(`${origin}/ssr`);
     await expect.poll(() => revealedBy("/ssr")).toBe("transition");
+    // The /ssr island hydrates on idle; let its chunk load before counting
+    // requests for the next page, or it lands after the reset below.
+    await page.waitForSelector('pracht-island[data-hydrated="true"]');
     jsRequests.length = 0;
     await page.click('nav a[href="/static"]');
     await page.waitForURL(`${origin}/static`);
