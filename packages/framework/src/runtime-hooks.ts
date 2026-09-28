@@ -58,6 +58,7 @@ import {
 import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
+import { ShellDataContext } from "./runtime-shell-data.ts";
 import type {
   ApiPath,
   CapabilityEnvelope,
@@ -71,6 +72,8 @@ import type {
   RouteParams,
   RouteSearchOutputFor,
   RouteTarget,
+  ShellDataFor,
+  ShellName,
   UntypedRouteTarget,
 } from "./types.ts";
 
@@ -285,6 +288,36 @@ function useActiveRuntime(hook: string, routeId: string | undefined) {
     );
   }
   return runtime;
+}
+
+/**
+ * Read the loader data of the shell the active route renders under, from the
+ * shell itself or from any route inside it.
+ *
+ * Like `useRouteData(id)`, the shell name is a typing shortcut that is still
+ * honoured: naming a shell the active route does not render under throws.
+ * Returns `undefined` when the shell has no loader, and wherever the shell
+ * renders before or without its data — the `render: "spa"` loading state, and
+ * an error boundary rendered after the shell loader itself failed.
+ */
+export function useShellData<TShell extends ShellName>(
+  shell: TShell,
+): ShellDataFor<TShell> | undefined;
+export function useShellData<TLoader extends LoaderLike>(): LoaderData<TLoader> | undefined;
+export function useShellData<TData = unknown>(): TData | undefined;
+export function useShellData(shell?: string): unknown {
+  const runtime = useContext(RouteDataContext);
+  const shellData = useContext(ShellDataContext);
+  if (shell !== undefined && shellData && shellData.shell !== shell) {
+    throw new Error(
+      import.meta.env?.DEV
+        ? `useShellData(${JSON.stringify(shell)}) was called while route ${JSON.stringify(runtime?.routeId)} ` +
+            `renders under ${shellData.shell === undefined ? "no shell" : `shell ${JSON.stringify(shellData.shell)}`}. ` +
+            "Drop the shell name to read the active shell's data."
+        : `useShellData: ${shell} is not the active shell (${shellData.shell})`,
+    );
+  }
+  return shellData?.data;
 }
 
 export function useLocation(): Location {

@@ -41,7 +41,11 @@ metadata for the failure phase and matched framework files when available.
 - `useRouteData()` — access loader data inside a route component; pass a route
   id for fully typed data after `pracht typegen`, or a `typeof loader` generic
   otherwise
-- `useRevalidate()` — trigger a revalidation of the current route's data
+- `useShellData()` — read the active shell's `loader` data from the shell or
+  any route inside it; pass the shell name for typed data after
+  `pracht typegen`
+- `useRevalidate()` — trigger a revalidation of the current route's (and
+  shell's) data
 - `<Form>` — progressive enhancement form component
 
 ### Types

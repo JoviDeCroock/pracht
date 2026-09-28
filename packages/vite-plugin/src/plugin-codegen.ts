@@ -318,7 +318,8 @@ export function createPrachtClientModuleSource(
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
   const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
-  const routeLoaderHints = routeHints.loader;
+  // An app whose shells export no loader ships no shell hints to the browser.
+  const routeLoaderHints = routeHints.shellLoaders ? routeHints.loader : routeHints.routeLoader;
   const routeHeadHints = routeHints.head;
   const routeStaticPathsHints = routeHints.staticPaths;
   const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
@@ -431,7 +432,7 @@ export function createPrachtClientModuleSource(
     "const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
     "",
-    ...createApplyRouteLoaderHintsSource(),
+    ...createApplyRouteLoaderHintsSource(routeHints.shellLoaders),
     `const APP_DIR = ${JSON.stringify(appDir)};`,
     "",
     "// Manifest refs are written relative to the app manifest file",
@@ -930,7 +931,7 @@ function resolveLlmsTxtConfig(
   return config;
 }
 
-function createApplyRouteLoaderHintsSource(): string[] {
+function createApplyRouteLoaderHintsSource(shellLoaders = true): string[] {
   return [
     "function applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints) {",
     "  for (const route of resolvedApp.routes) {",
@@ -940,6 +941,12 @@ function createApplyRouteLoaderHintsSource(): string[] {
     "    } else if (typeof route.hasLoader === 'undefined' && typeof hint === 'boolean') {",
     "      route.hasLoader = hint;",
     "    }",
+    ...(shellLoaders
+      ? [
+          "    const shellLoaderHint = route.shellFile ? routeLoaderHints[route.shellFile] : undefined;",
+          "    if (typeof shellLoaderHint === 'boolean') route.hasShellLoader = shellLoaderHint;",
+        ]
+      : []),
     "    const routeHeadHint = routeHeadHints[route.file];",
     "    const shellHeadHint = route.shellFile ? routeHeadHints[route.shellFile] : undefined;",
     "    const hasCompleteHeadHints = typeof routeHeadHint === 'boolean' &&",
@@ -978,10 +985,24 @@ export function routeHintsHaveSearch(hints: RouteHints): boolean {
  * used to be built independently, which walked the routes directory four times
  * and re-parsed every route module four times — on each file of each save.
  */
+export interface VirtualModuleRouteHints extends RouteHints {
+  /**
+   * The loader table without the shells' entries: what the browser needs when
+   * no shell has a loader, so an app that uses none ships no shell hints.
+   */
+  routeLoader: Record<string, boolean>;
+  /**
+   * Whether any shell may export a `loader`. Fail-closed: an incomplete scan
+   * answers `true`. Drives `__PRACHT_SHELL_LOADERS__`, which compiles the
+   * client's shell-data handling out of apps that have none.
+   */
+  shellLoaders: boolean;
+}
+
 export function createRouteHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
-): RouteHints {
+): VirtualModuleRouteHints {
   const appFileAbs = resolve(root, options.appFile.slice(1));
   const appFileDir = dirname(appFileAbs);
   // `pagesDir` defaults to "" rather than undefined, so test truthiness.
@@ -996,13 +1017,15 @@ export function createRouteHintsForVirtualModules(
         [options.shellsDir, resolve(root, options.shellsDir.slice(1))] as const,
       ];
 
-  const hints: RouteHints = {
+  const hints: VirtualModuleRouteHints = {
     capabilities: {},
     head: {},
     headers: {},
     incomplete: false,
     loader: {},
+    routeLoader: {},
     search: {},
+    shellLoaders: false,
     staticPaths: {},
   };
 
@@ -1015,28 +1038,39 @@ export function createRouteHintsForVirtualModules(
     hints.incomplete ||= scanned.incomplete;
     Object.assign(hints.head, scanned.head);
     Object.assign(hints.headers, scanned.headers);
-    // A shell can own neither a loader, `getStaticPaths()`, nor a search
-    // schema, so only the routes directory contributes those.
+    // Shells can own a loader too; only routes own `getStaticPaths()` and a
+    // search schema.
+    Object.assign(hints.loader, scanned.loader);
     if (prefix === routesPrefix) {
-      Object.assign(hints.loader, scanned.loader);
+      Object.assign(hints.routeLoader, scanned.loader);
       Object.assign(hints.search, scanned.search);
       Object.assign(hints.staticPaths, scanned.staticPaths);
+    }
+    if (prefix !== routesPrefix || prefix === options.shellsDir) {
+      hints.shellLoaders ||= Object.values(scanned.loader).includes(true);
     }
   }
 
   if (options.pagesDir) {
     // Pages routes are keyed by their manifest-relative path and carry the
-    // loader flag the pages scanner already resolved.
-    hints.loader = {};
+    // loader flag the pages scanner already resolved. `_app` shells are not
+    // routes, so they keep the flag the directory scan gave them.
+    const shellLoaders = Object.entries(hints.loader).filter(([key]) =>
+      /(?:^|\/)_app\.[^/]+$/.test(key),
+    );
+    hints.shellLoaders = shellLoaders.some(([, hasLoader]) => hasLoader);
+    hints.loader = Object.fromEntries(shellLoaders);
+    hints.routeLoader = {};
     for (const page of scanPagesDirectory(
       resolve(root, options.pagesDir.slice(1)),
       options.additionalExtensions,
     )) {
-      hints.loader[`${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`] =
-        !!page.hasLoader;
+      const key = `${options.pagesDir}/${page.relativePath.replace(/\\/g, "/")}`;
+      hints.loader[key] = hints.routeLoader[key] = !!page.hasLoader;
     }
   }
 
+  hints.shellLoaders ||= hints.incomplete;
   return hints;
 }
 

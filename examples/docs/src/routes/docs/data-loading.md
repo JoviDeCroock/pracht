@@ -118,6 +118,10 @@ never fails the response.
 > [!NOTE]
 > Loaders **never** run in the browser. Database connections, API keys, and secrets in loader code stay on the server.
 
+### Shell loaders
+
+Data every page in a shell shows, like the signed-in user, can come from a [shell loader](/docs/shells#shell-data) instead of every route's loader.
+
 ### Route-state caching
 
 Client navigation fetches loader data as JSON with `Cache-Control: no-store`
@@ -574,6 +578,14 @@ export function Component() {
 }
 ```
 
+### useShellData()
+
+Read the [shell loader's](/docs/shells#shell-data) data from the shell or any route inside it. It is `undefined` when the shell has no loader:
+
+```ts
+const shell = useShellData("app"); // or useShellData<typeof loader>()
+```
+
 ### useSearchParams()
 
 Read the current query string as a reactive, read-only `URLSearchParams`:
@@ -591,7 +603,7 @@ To change the query, navigate. On an SSG page the hook returns the build-time qu
 
 ### useRevalidate()
 
-Re-run the current route's loader:
+Re-run the current route's loader and its shell's:
 
 ```ts
 export function Component() {

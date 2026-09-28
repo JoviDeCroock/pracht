@@ -32,6 +32,48 @@ export function Shell({ children }: ShellProps) {
 
 ---
 
+## Shell Data
+
+Data every page in a shell shows, like the signed-in user in the nav, can load once in the shell instead of in every route. Export a `loader` from the shell and read its result with `useShellData()`:
+
+```tsx [src/shells/app.tsx]
+import { useShellData, type LoaderArgs, type ShellProps } from "@pracht/core";
+
+export async function loader({ context }: LoaderArgs) {
+  return { user: await getUser(context.session) };
+}
+
+export function Shell({ children }: ShellProps) {
+  const shell = useShellData<typeof loader>();
+  return (
+    <div class="app-layout">
+      <nav class="sidebar">{shell?.user.name}</nav>
+      <main>{children}</main>
+    </div>
+  );
+}
+```
+
+Routes inside the shell read the same value. After [`pracht typegen`](/docs/routing#typed-routes-and-links), pass the shell name to type it; a name the route does not render under throws:
+
+```tsx [src/routes/dashboard.tsx]
+export function Component() {
+  const shell = useShellData("app");
+  return <h1>Welcome back, {shell?.user.name}</h1>;
+}
+```
+
+A shell loader gets the same `LoaderArgs` as a [route loader](/docs/data-loading#loaders), runs after middleware alongside it, and handles `redirect()`, `notFound()`, and errors the same way. A pages-router `_app.tsx` exports `loader` the same way.
+
+Client navigations between routes of the same shell keep its data on screen without running the shell loader again; entering another shell loads that shell's data. `useRevalidate()`, capability calls, and a `<Form>` that redirects refresh it.
+
+> [!WARNING]
+> A shell loader is not an access check, because navigations inside the shell skip it. Protect routes with [middleware](/docs/middleware).
+
+`useShellData()` returns `undefined` when the shell has no loader, in an SPA route's loading state, and in an error boundary shown because the shell loader failed. Islands and `hydration: "none"` pages get shell data on the server only.
+
+---
+
 ## Shell Head Metadata
 
 Shells can contribute to `<head>` by exporting a `head` function. Shell metadata merges with route-level metadata:

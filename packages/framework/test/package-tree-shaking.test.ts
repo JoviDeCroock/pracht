@@ -195,12 +195,14 @@ describe("published package tree shaking", () => {
     // part of that shape — the plugin always emits it, and only
     // `client: { hydrationWarnings: true }` keeps the reporter. So is
     // `__PRACHT_ROUTE_SEARCH__`: the plugin sets it from the route modules, and
-    // only an app whose routes export a `search` schema keeps that glue.
+    // only an app whose routes export a `search` schema keeps that glue. And
+    // `__PRACHT_SHELL_LOADERS__`, `false` unless a shell exports a loader.
     const production = {
       define: {
         "import.meta.env.DEV": "false",
         __PRACHT_HYDRATION_WARNINGS__: "false",
         __PRACHT_ROUTE_SEARCH__: "false",
+        __PRACHT_SHELL_LOADERS__: "false",
       },
       entry: clientEntry,
     };
@@ -312,6 +314,7 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -360,6 +363,7 @@ describe("published package tree shaking", () => {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_ROUTE_SEARCH__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -407,6 +411,7 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -438,6 +443,48 @@ describe("published package tree shaking", () => {
       const off = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
 
       expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(150);
+    });
+  });
+
+  // The plugin sets `__PRACHT_SHELL_LOADERS__` to `false` when no shell exports
+  // a `loader`, so shell data costs the client nothing until an app uses it.
+  describe("__PRACHT_SHELL_LOADERS__", () => {
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          __PRACHT_ROUTE_SEARCH__: "false",
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops shell data handling when no shell has a loader", async () => {
+      const { code } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "false" });
+
+      expect(code).not.toContain("x-pracht-shell-data");
+      expect(code).not.toContain("shellData");
+    });
+
+    // About 400 bytes over the router ceiling above: an app pays for shell
+    // data only once one of its shells exports a loader.
+    it("keeps it, within budget, when a shell has a loader", async () => {
+      const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
+
+      expect(code).toContain("x-pracht-shell-data");
+      expect(gzipBytes).toBeLessThanOrEqual(10_700);
+    });
+
+    // Both opt-in router features at once: a route with a `search` schema
+    // under a shell with a loader. Measured 10,752.
+    it("stays within budget with search params on as well", async () => {
+      const { gzipBytes } = await routerBundle({
+        __PRACHT_ROUTE_SEARCH__: "true",
+        __PRACHT_SHELL_LOADERS__: "true",
+      });
+
+      expect(gzipBytes).toBeLessThanOrEqual(10_800);
     });
   });
 

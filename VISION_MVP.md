@@ -37,7 +37,10 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
   `href()` are checked against its input, and a rejected query renders the
   route's error boundary with a 400 (server and client navigation alike).
 - **Shells**: named layout wrappers (e.g. `public`, `app`) decoupled from URL
-  structure; assigned per route or group.
+  structure; assigned per route or group. A shell can export its own `loader`
+  for layout-level data, read with `useShellData()` from the shell and its
+  routes, run concurrently with the route loader, and reused across client
+  navigations that stay in the shell.
 - **Middleware**: named middleware defined in `src/middleware/`, applied per route
   or group; runs server-side before loaders.
 - **Route groups**: inherit shell, middleware, render mode, and path prefix.
@@ -114,7 +117,7 @@ core framework conventions. See
 
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
-- **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
+- **Client hooks**: `useRouteData()`, `useShellData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
   `useLocation()`, `useSearchParams()`, `useSearch()` (schema-parsed query),
   `useParams()`, `useBlocker()` (guard a

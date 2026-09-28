@@ -10,6 +10,8 @@ export interface PrachtHydrationState<TData = unknown> {
   url: string;
   routeId: string;
   data: TData;
+  /** The shell loader's data; absent when the shell has no loader. */
+  shellData?: unknown;
   /** Out-of-band locations replaced with Deferred values during streamed hydration. */
   deferred?: DeferredHydrationReference[];
   error?: import("./runtime-errors.ts").SerializedRouteError | null;

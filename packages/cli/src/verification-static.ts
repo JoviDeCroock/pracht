@@ -65,7 +65,7 @@ export function collectStaticExportChecks(
     checks.push(
       createCheck(
         "error",
-        `Static export: these SPA routes declare server loaders, but a static host cannot run them at request time: ` +
+        `Static export: these SPA routes declare server loaders, their own or their shell's, but a static host cannot run them at request time: ` +
           `${list(spaWithLoaders.map((route) => route.path))}. ` +
           "Static SPA routes must be loaderless. Fetch live data from the browser, change the route to SSG " +
           "for build-time data, or use a serverful adapter.",
