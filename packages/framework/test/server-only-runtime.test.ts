@@ -87,4 +87,19 @@ describe("serverOnly() through the SSR document path", () => {
     const state = parseHydrationState(await response.text());
     expect(state.data).toEqual({ title: "Plain" });
   });
+
+  it("strips the marked field from a streamed document's state too", async () => {
+    const streamed = defineApp({
+      routes: [route("/docs/data-loading", "./routes/doc.tsx", { render: "ssr", streaming: true })],
+    });
+    const response = await handlePrachtRequest({
+      app: streamed,
+      registry,
+      request: new Request("http://localhost/docs/data-loading"),
+    });
+
+    const html = await response.text();
+    expect(html.split("Loaders run on the server.").length - 1).toBe(1);
+    expect(parseHydrationState(html).data.html).toEqual({ __prachtServerOnly: true });
+  });
 });
