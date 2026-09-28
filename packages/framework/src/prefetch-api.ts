@@ -20,6 +20,7 @@ import {
   fetchPrachtRouteState,
   getHeldShell,
   routeNeedsServerFetch,
+  routeNeedsShellData,
 } from "./runtime-client-fetch.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 import type {
@@ -30,6 +31,12 @@ import type {
   RouteTarget,
   UntypedRouteTarget,
 } from "./types.ts";
+
+/** Shell loader support; see `runtime-client-fetch.ts`. */
+declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
+
+const SHELL_LOADERS_ENABLED =
+  typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
 
 export type ModuleWarmFn = (match: RouteMatch) => void;
 
@@ -60,19 +67,42 @@ export function getPrefetchTarget(): { app: ResolvedPrachtApp; warmModules?: Mod
  */
 export function prefetchRouteState(url: string, route?: ResolvedRoute): Promise<RouteStateResult> {
   // A route under the shell whose data the router already holds claims it, so
-  // the server skips that shell's loader. The claim is part of the cache key:
-  // the router only consumes an entry that makes the claim it would make.
-  const heldShell = getHeldShell();
-  const claim = route?.shell !== undefined && route.shell === heldShell ? heldShell : undefined;
-  if (route && !routeNeedsServerFetch(route, claim !== undefined)) {
+  // the server skips that shell's loader.
+  const claim =
+    SHELL_LOADERS_ENABLED && route?.shell !== undefined && route.shell === getHeldShell()
+      ? route.shell
+      : undefined;
+  if (
+    route &&
+    !routeNeedsServerFetch(route) &&
+    !(SHELL_LOADERS_ENABLED && routeNeedsShellData(route, claim !== undefined))
+  ) {
     return EMPTY_ROUTE_STATE_PROMISE;
   }
+  if (SHELL_LOADERS_ENABLED) return prefetchClaimedRouteState(url, claim);
 
-  const key = routeStateCacheKey(url, claim);
+  const cached = getCachedRouteState(url);
+  if (cached) return cached;
+
+  const promise = fetchPrachtRouteState(url);
+  cacheRouteState(url, promise);
+  promise.catch(() => removeCachedRouteState(url, promise));
+  return promise;
+}
+
+/**
+ * A response fetched while claiming a shell leaves that shell's data out, so
+ * it is cached under the claim and only satisfies a navigation making it too.
+ */
+function prefetchClaimedRouteState(
+  url: string,
+  heldShell: string | undefined,
+): Promise<RouteStateResult> {
+  const key = routeStateCacheKey(url, heldShell);
   const cached = getCachedRouteState(key);
   if (cached) return cached;
 
-  const promise = fetchPrachtRouteState(url, { heldShell: claim });
+  const promise = fetchPrachtRouteState(url, { heldShell });
   cacheRouteState(key, promise);
   promise.catch(() => removeCachedRouteState(key, promise));
   return promise;

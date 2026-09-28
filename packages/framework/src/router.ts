@@ -59,8 +59,10 @@ import {
   fetchPrachtRouteState,
   parseSafeNavigationUrl,
   routeNeedsServerFetch,
+  routeNeedsShellData,
   setHeldShell,
 } from "./runtime-client-fetch.ts";
+import { setShellDataCommitter, ShellDataContext } from "./runtime-shell-data.ts";
 import { IS_STATIC_TARGET } from "./runtime-static.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
 import {
@@ -133,6 +135,17 @@ declare const __PRACHT_ROUTE_SEARCH__: boolean | undefined;
 const SEARCH_ENABLED =
   typeof __PRACHT_ROUTE_SEARCH__ === "undefined" || __PRACHT_ROUTE_SEARCH__ !== false;
 
+/**
+ * Shell loader data: carried with the route state, kept across navigations
+ * that stay in one shell, and provided to the tree. The plugin sets the define
+ * to `false` for a build in which no shell exports a `loader`, which compiles
+ * every bit of it out of the router.
+ */
+declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
+
+const SHELL_LOADERS_ENABLED =
+  typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -144,14 +157,19 @@ interface RouteRenderState {
   routeId: string;
   search?: unknown;
   /** Name of the shell the route renders under. */
-  shell: string | undefined;
+  shell?: string;
   /** The shell loader's data; absent when the shell has no loader or it did not run. */
-  shellState: RouteShellState | undefined;
+  shellState?: RouteShellState;
   url: string;
   version: number;
 }
 
-type RouteShellState = { data: unknown };
+/**
+ * `prerendered` marks shell data baked into an SSG or ISG document at build or
+ * regeneration time rather than loaded for this visitor, so the router does
+ * not reuse it for the next navigation.
+ */
+type RouteShellState = { data: unknown; prerendered?: boolean };
 
 /** Route state as fetched or serialized, before modules are resolved. */
 interface LoadedRouteState {
@@ -304,10 +322,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   let activeRouteStateVersion = 0;
 
   // The shell data on screen. A navigation to another route of the same shell
-  // reuses it instead of asking the server to run the shell loader again, and
-  // hands the provider the same reference so a revalidated value survives.
+  // reuses it instead of asking the server to run the shell loader again.
   let committedShell: string | undefined;
   let committedShellState: RouteShellState | undefined;
+  // A revalidation replaces it on the route state on screen, so the navigations
+  // that follow reuse the fresh value.
+  if (SHELL_LOADERS_ENABLED) {
+    setShellDataCommitter((data) =>
+      updateRouteState?.((current) => ({ ...current, shellState: { data } })),
+    );
+  }
 
   // Which navigation is the live one. `latestNavigationId` is compared at every
   // await point in `navigate()` — a superseded navigation must not commit — and
@@ -542,17 +566,19 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data,
       params,
       routeId,
-      shell,
-      shellState,
       url,
       version,
     } = routeState;
     const [RouteBoundary, ShellBoundary] = ErrorBoundaries;
     activeRouteStateVersion = version;
-    // Every committed state passes through here, the hydrated one included.
-    committedShell = shell;
-    committedShellState = shellState;
-    setHeldShell(shellState ? shell : undefined);
+    if (SHELL_LOADERS_ENABLED) {
+      // Every committed state passes through here, the hydrated one included.
+      committedShell = routeState.shell;
+      committedShellState = routeState.shellState;
+      setHeldShell(
+        committedShellState && !committedShellState.prerendered ? committedShell : undefined,
+      );
+    }
 
     useLayoutEffect(() => {
       onRouteChange?.(capabilities);
@@ -593,13 +619,17 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           params,
           routeId,
           routes: app.routes,
-          shell,
-          shellData: shellState?.data,
           stateVersion: version,
           url,
           isCurrent: () => activeRouteStateVersion === version,
         },
-        componentTree,
+        SHELL_LOADERS_ENABLED
+          ? h(
+              ShellDataContext.Provider,
+              { value: { data: routeState.shellState?.data, shell: routeState.shell } },
+              componentTree,
+            )
+          : componentTree,
       ),
     );
   }
@@ -637,7 +667,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     let search: unknown;
     if (SEARCH_ENABLED && options.parseSearch && routeMod.search && !state.error) {
       const parsed = await options.parseSearch(routeMod.search, currentUrl);
-      if (parsed.error) state = { data: undefined, error: parsed.error, shell: state.shell };
+      if (parsed.error) {
+        // The shell's data stays: only the route's half of the state failed.
+        state = {
+          data: undefined,
+          error: parsed.error,
+          ...(SHELL_LOADERS_ENABLED ? { shell: state.shell } : null),
+        };
+      }
       search = parsed.value;
     }
 
@@ -654,7 +691,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       ? { error: deserializeRouteError(state.error) }
       : { data: state.data, params: match.params };
 
-    return {
+    const routeState: RouteRenderState = {
       Shell,
       Component,
       ErrorBoundaries: state.error ? [null, null] : [RouteBoundary ?? null, ShellBoundary ?? null],
@@ -664,11 +701,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       params: match.params,
       routeId: match.route.id ?? "",
       ...(SEARCH_ENABLED ? { search } : null),
-      shell: match.route.shell,
-      shellState: state.shell,
       url: currentUrl,
       version: ++routeStateVersion,
     };
+    if (SHELL_LOADERS_ENABLED) {
+      routeState.shell = match.route.shell;
+      routeState.shellState = state.shell;
+    }
+    return routeState;
   }
 
   async function resolveSpaPendingState(
@@ -684,7 +724,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     if (!Shell && !Loading) return null;
 
-    return {
+    const routeState: RouteRenderState = {
       Shell,
       Component: Loading ?? (() => null),
       ErrorBoundaries: [null, null],
@@ -693,11 +733,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: undefined,
       params: match.params,
       routeId: match.route.id ?? "",
-      shell: match.route.shell,
-      shellState: undefined,
       url: currentUrl,
       version: ++routeStateVersion,
     };
+    // The loading state renders the shell without its data.
+    if (SHELL_LOADERS_ENABLED) routeState.shell = match.route.shell;
+    return routeState;
   }
 
   async function navigate(
@@ -761,26 +802,41 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // tells the server so it can skip the shell loader. A reload (the
       // navigation after a mutation) refreshes the shell like it does the route.
       const reusedShellState =
-        committedShellState && match.route.shell === committedShell && !opts?._reloadRouteState
+        SHELL_LOADERS_ENABLED &&
+        committedShellState &&
+        !committedShellState.prerendered &&
+        match.route.shell === committedShell &&
+        !opts?._reloadRouteState
           ? committedShellState
           : undefined;
       const heldShell = reusedShellState ? committedShell : undefined;
 
       // Start route-state fetch and module imports in parallel
       let statePromise: Promise<RouteStateResult>;
-      if (routeNeedsServerFetch(match.route, reusedShellState !== undefined)) {
+      if (
+        SHELL_LOADERS_ENABLED
+          ? routeNeedsServerFetch(match.route) ||
+            routeNeedsShellData(match.route, reusedShellState !== undefined)
+          : routeNeedsServerFetch(match.route)
+      ) {
         statePromise = opts?._reloadRouteState
           ? fetchPrachtRouteState(target.requestUrl, {
               cache: "reload",
               signal: abortController.signal,
             })
           : ((PREFETCH_ENABLED
-              ? getCachedRouteState(routeStateCacheKey(target.requestUrl, heldShell))
+              ? getCachedRouteState(
+                  SHELL_LOADERS_ENABLED
+                    ? routeStateCacheKey(target.requestUrl, heldShell)
+                    : target.requestUrl,
+                )
               : undefined) ??
-            fetchPrachtRouteState(target.requestUrl, {
-              signal: abortController.signal,
-              heldShell,
-            }));
+            fetchPrachtRouteState(
+              target.requestUrl,
+              SHELL_LOADERS_ENABLED
+                ? { signal: abortController.signal, heldShell }
+                : { signal: abortController.signal },
+            ));
       } else {
         statePromise = Promise.resolve({
           type: "data" as const,
@@ -795,7 +851,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       let state: LoadedRouteState = {
         data: undefined,
         error: null,
-        shell: reusedShellState,
+        ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState } : null),
       };
       let fontHead: FontHeadFragments | undefined =
         match.route.hasHead === false ? { preloadLinks: [], css: "" } : undefined;
@@ -862,14 +918,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           state = {
             data: undefined,
             error: result.error,
-            shell: reusedShellState ?? result.shell,
+            ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState ?? result.shell } : null),
           };
           fontHead = result.fontHead ?? { preloadLinks: [], css: "" };
         } else {
           state = {
             data: result.data,
             error: null,
-            shell: reusedShellState ?? result.shell,
+            ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState ?? result.shell } : null),
           };
           if (result.fontHead) fontHead = result.fontHead;
         }
@@ -1148,8 +1204,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
           ? { route: app.notFound, params: {}, pathname: initialPathname }
           : undefined));
+  // Shell data baked into an SSG or ISG document was not loaded for this
+  // visitor, so the first navigation loads the shell's own. A static export
+  // serves only build-time data, so there it stays.
   const initialShellState: RouteShellState | undefined =
-    "shellData" in options.initialState ? { data: options.initialState.shellData } : undefined;
+    SHELL_LOADERS_ENABLED && "shellData" in options.initialState
+      ? {
+          data: options.initialState.shellData,
+          prerendered:
+            !IS_STATIC_TARGET &&
+            (initialMatch?.route.render === "ssg" || initialMatch?.route.render === "isg"),
+        }
+      : undefined;
   if (initialMatch) {
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending
@@ -1158,7 +1224,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     let state: LoadedRouteState = {
       data: options.initialState.data,
       error: options.initialState.error ?? null,
-      shell: initialShellState,
+      ...(SHELL_LOADERS_ENABLED ? { shell: initialShellState } : null),
     };
 
     if (initialMatch.route.render === "spa" && options.initialState.pending) {
@@ -1197,14 +1263,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           state = {
             data: undefined,
             error: result.error,
-            shell: result.shell,
+            ...(SHELL_LOADERS_ENABLED ? { shell: result.shell } : null),
           };
           applyFontHeadFragments(result.fontHead ?? { preloadLinks: [], css: "" });
         } else {
           state = {
             data: result.data,
             error: null,
-            shell: result.shell,
+            ...(SHELL_LOADERS_ENABLED ? { shell: result.shell } : null),
           };
           if (result.fontHead) applyFontHeadFragments(result.fontHead);
         }
@@ -1320,7 +1386,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         {
           data: options.initialState.data,
           error: options.initialState.error ?? null,
-          shell: initialShellState,
+          ...(SHELL_LOADERS_ENABLED ? { shell: initialShellState } : null),
         },
         window.location.pathname + window.location.search,
       );

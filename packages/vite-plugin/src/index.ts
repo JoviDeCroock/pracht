@@ -221,13 +221,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const agentSurfaceDefine =
         env.command === "build" ? String(hasAgentSurface(resolved, configRoot)) : "true";
 
+      // Build-time route hints decide two client compile-outs. Build only, like
+      // the agent surface: in dev a search schema or a shell loader can be
+      // added without a restart, so both stay on.
+      const buildRouteHints =
+        env.command === "build" ? createRouteHintsForVirtualModules(resolved, configRoot) : null;
       // The client router's search-param glue ships only when some route
-      // module exports a `search` schema. Build only, like the agent surface:
-      // in dev the first schema can be added without a restart.
-      const routeSearchDefine =
-        env.command === "build"
-          ? String(routeHintsHaveSearch(createRouteHintsForVirtualModules(resolved, configRoot)))
-          : "true";
+      // module exports a `search` schema.
+      const routeSearchDefine = buildRouteHints
+        ? String(routeHintsHaveSearch(buildRouteHints))
+        : "true";
+      // Apps whose shells export no loader drop the client router's shell-data
+      // handling.
+      const shellLoadersDefine = buildRouteHints ? String(buildRouteHints.shellLoaders) : "true";
 
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
@@ -307,6 +313,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
           __PRACHT_ROUTE_SEARCH__: routeSearchDefine,
+          __PRACHT_SHELL_LOADERS__: shellLoadersDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           ...clientFeatureDefines,
         },

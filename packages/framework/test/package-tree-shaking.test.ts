@@ -195,12 +195,14 @@ describe("published package tree shaking", () => {
     // part of that shape — the plugin always emits it, and only
     // `client: { hydrationWarnings: true }` keeps the reporter. So is
     // `__PRACHT_ROUTE_SEARCH__`: the plugin sets it from the route modules, and
-    // only an app whose routes export a `search` schema keeps that glue.
+    // only an app whose routes export a `search` schema keeps that glue. And
+    // `__PRACHT_SHELL_LOADERS__`, `false` unless a shell exports a loader.
     const production = {
       define: {
         "import.meta.env.DEV": "false",
         __PRACHT_HYDRATION_WARNINGS__: "false",
         __PRACHT_ROUTE_SEARCH__: "false",
+        __PRACHT_SHELL_LOADERS__: "false",
       },
       entry: clientEntry,
     };
@@ -223,14 +225,11 @@ describe("published package tree shaking", () => {
     // can be folded.
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
-    // Raised from 10,250 for shell loaders: the router tracks the shell data
-    // on screen so a navigation inside the same shell reuses it (and tells the
-    // server to skip the shell loader) instead of re-running it.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,600 gzip bytes", async () => {
+    it("keeps the router runtime below 10,250 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_600);
+      expect(gzipBytes).toBeLessThanOrEqual(10_250);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -315,6 +314,7 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -363,6 +363,7 @@ describe("published package tree shaking", () => {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_ROUTE_SEARCH__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -381,10 +382,9 @@ describe("published package tree shaking", () => {
     it("lands below the pre-guard ceiling when disabled", async () => {
       // The point of the switch: an app that guards no navigation pays nothing
       // for the feature, including the index stamped on every history entry.
-      // Raised from 9,960 with the router ceiling above, for shell loaders.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_310);
+      expect(gzipBytes).toBeLessThanOrEqual(9_960);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -411,6 +411,7 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -442,6 +443,49 @@ describe("published package tree shaking", () => {
       const off = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
 
       expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(150);
+    });
+  });
+
+  // The plugin sets `__PRACHT_SHELL_LOADERS__` to `false` when no shell exports
+  // a `loader`, so shell data costs the client nothing until an app uses it.
+  describe("__PRACHT_SHELL_LOADERS__", () => {
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          __PRACHT_ROUTE_SEARCH__: "false",
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops shell data handling when no shell has a loader", async () => {
+      const { code } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "false" });
+
+      expect(code).not.toContain("x-pracht-shell-data");
+      expect(code).not.toContain("shellData");
+    });
+
+    // About 400 bytes over the router ceiling above: an app pays for shell
+    // data only once one of its shells exports a loader.
+    it("keeps it, within budget, when a shell has a loader", async () => {
+      const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
+
+      expect(code).toContain("x-pracht-shell-data");
+      expect(gzipBytes).toBeLessThanOrEqual(10_700);
+    });
+
+    // Both opt-in router features at once: a route with a `search` schema
+    // under a shell with a loader.
+    it("stays within budget with search params on as well", async () => {
+      const { gzipBytes } = await routerBundle({
+        __PRACHT_ROUTE_SEARCH__: "true",
+        __PRACHT_SHELL_LOADERS__: "true",
+      });
+
+      console.log("ALLON", gzipBytes);
+      expect(gzipBytes).toBeLessThanOrEqual(10_850);
     });
   });
 

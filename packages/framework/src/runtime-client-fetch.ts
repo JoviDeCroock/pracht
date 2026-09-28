@@ -5,6 +5,16 @@ import type { FontHeadFragments } from "./font.ts";
 import type { ResolvedRoute } from "./types.ts";
 
 /**
+ * Shell loader support, compiled out by the plugin (`false`) when no shell in
+ * the build exports a `loader`. Declared per module so each folds its own
+ * branches; absent (unit tests, direct imports) it stays on.
+ */
+declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
+
+const SHELL_LOADERS_ENABLED =
+  typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
+
+/**
  * `shell` is present when the response carried the shell loader's data: the
  * shell has a loader and the request did not claim to hold its data already.
  */
@@ -50,17 +60,8 @@ export function parseSafeNavigationUrl(location: string, base: string | URL): UR
   return targetUrl;
 }
 
-/**
- * `holdsShellData` is true when the client already holds the loader data of
- * the route's shell, so a shell loader alone is no reason to ask the server.
- */
-export function routeNeedsServerFetch(route: ResolvedRoute, holdsShellData?: boolean): boolean {
-  if (
-    route.hasLoader === false &&
-    route.hasHead === false &&
-    route.middlewareFiles.length === 0 &&
-    (route.hasShellLoader !== true || holdsShellData === true)
-  ) {
+export function routeNeedsServerFetch(route: ResolvedRoute): boolean {
+  if (route.hasLoader === false && route.hasHead === false && route.middlewareFiles.length === 0) {
     return false;
   }
   // A static export writes one route-state file per prerendered path. A route
@@ -77,6 +78,19 @@ export function routeNeedsServerFetch(route: ResolvedRoute, holdsShellData?: boo
     return false;
   }
   return true;
+}
+
+/**
+ * Whether a navigation to `route` needs its route state for the shell's loader
+ * data alone: the shell has a loader and the client does not hold its data
+ * yet. Callers combine it with `routeNeedsServerFetch()`.
+ */
+export function routeNeedsShellData(route: ResolvedRoute, holdsShellData: boolean): boolean {
+  return (
+    route.hasShellLoader === true &&
+    !holdsShellData &&
+    !(IS_STATIC_TARGET && route.hasStaticPaths === false && routeHasDynamicSegments(route))
+  );
 }
 
 function routeHasDynamicSegments(route: ResolvedRoute): boolean {
@@ -125,14 +139,14 @@ export async function fetchPrachtRouteState(
     : options?.useDataParam
       ? buildRouteStateUrl(url)
       : url;
-  const headers: Record<string, string> =
-    IS_STATIC_TARGET || options?.useDataParam ? {} : { [ROUTE_STATE_REQUEST_HEADER]: "1" };
-  if (!IS_STATIC_TARGET && options?.heldShell !== undefined) {
-    headers[SHELL_DATA_REQUEST_HEADER] = options.heldShell;
-  }
   const response = await fetch(fetchUrl, {
     cache: options?.cache,
-    headers,
+    headers:
+      SHELL_LOADERS_ENABLED && !IS_STATIC_TARGET && options?.heldShell !== undefined
+        ? { [ROUTE_STATE_REQUEST_HEADER]: "1", [SHELL_DATA_REQUEST_HEADER]: options.heldShell }
+        : IS_STATIC_TARGET || options?.useDataParam
+          ? {}
+          : { [ROUTE_STATE_REQUEST_HEADER]: "1" },
     redirect: "manual",
     signal: options?.signal,
   });
@@ -166,15 +180,15 @@ export async function fetchPrachtRouteState(
     };
   }
 
-  const shell = "shellData" in json ? { data: json.shellData } : undefined;
-
   if (!response.ok) {
     if (json.error) {
       return {
         error: json.error,
         fontHead: json.fontHead,
         type: "error",
-        shell,
+        ...(SHELL_LOADERS_ENABLED && "shellData" in json
+          ? { shell: { data: json.shellData } }
+          : null),
       };
     }
 
@@ -185,7 +199,7 @@ export async function fetchPrachtRouteState(
     data: json.data,
     fontHead: json.fontHead,
     type: "data",
-    shell,
+    ...(SHELL_LOADERS_ENABLED && "shellData" in json ? { shell: { data: json.shellData } } : null),
   };
 }
 

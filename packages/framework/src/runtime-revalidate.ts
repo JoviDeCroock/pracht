@@ -2,10 +2,16 @@ import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
 import type { PrachtRuntimeValue } from "./runtime-context.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
+import { commitShellData } from "./runtime-shell-data.ts";
+
+/** Shell loader support; see `runtime-client-fetch.ts`. */
+declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
+
+const SHELL_LOADERS_ENABLED =
+  typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
 
 /**
- * Re-fetch the active route's and shell's loader data and commit it to the
- * runtime.
+ * Re-fetch the active route's loader data, and its shell's, and commit it.
  * Shared by `useRevalidate()`, `<Form capability>` submissions, and the
  * capability-settled listener in the runtime provider, so every mutation
  * path refreshes the page the same way.
@@ -42,9 +48,11 @@ export async function revalidateRouteData(
   if (result.fontHead && runtimeOwnsCurrentLocation(runtime)) {
     applyFontHeadFragments(result.fontHead);
   }
-  // No shell is claimed on this request, so the shell loader re-ran too: a
-  // revalidation refreshes everything the page shows.
-  runtime?.setData(result.data, result.shell);
+  runtime?.setData(result.data);
+  // No shell is claimed on this request, so the shell loader ran too.
+  if (SHELL_LOADERS_ENABLED && result.shell && runtimeOwnsCurrentLocation(runtime)) {
+    commitShellData(result.shell.data);
+  }
   return result.data;
 }
 

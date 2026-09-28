@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { h, render } from "preact";
 import type { ComponentChildren } from "preact";
-import { useContext } from "preact/hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,12 +11,9 @@ import {
   route,
   useShellData,
 } from "../src/index.ts";
+import { ShellDataContext } from "../src/runtime-shell-data.ts";
 import { clearPrefetchCache } from "../src/prefetch-cache.ts";
-import {
-  getMountedRuntimes,
-  RouteDataContext,
-  type PrachtRuntimeValue,
-} from "../src/runtime-context.ts";
+import { getMountedRuntimes } from "../src/runtime-context.ts";
 import { SHELL_DATA_REQUEST_HEADER } from "../src/runtime-constants.ts";
 import { setHeldShell } from "../src/runtime-client-fetch.ts";
 import { revalidateRouteData } from "../src/runtime-revalidate.ts";
@@ -65,11 +61,13 @@ describe("useShellData", () => {
 
     const tree = (name?: string) =>
       h(PrachtRuntimeProvider, {
-        children: h(Consumer, { name }),
+        children: h(
+          ShellDataContext.Provider,
+          { value: { data: { user: "Ada" }, shell: "app" } },
+          h(Consumer, { name }),
+        ),
         data: null,
         routeId: "dashboard",
-        shell: "app",
-        shellData: { user: "Ada" },
         url: "/dashboard",
       });
 
@@ -78,40 +76,6 @@ describe("useShellData", () => {
 
     render(tree("public"), scratch);
     expect(String(thrown)).toContain("public");
-  });
-
-  it("keeps revalidated shell data across route states of the same shell", async () => {
-    const initial = { user: "Ada" };
-    let runtime: PrachtRuntimeValue | undefined;
-
-    function Consumer() {
-      runtime = useContext(RouteDataContext);
-      return h("span", null, (useShellData() as { user: string } | undefined)?.user);
-    }
-
-    const tree = (props: { shell: string; shellData: unknown; stateVersion: number }) =>
-      h(PrachtRuntimeProvider, {
-        children: h(Consumer, null) as ComponentChildren,
-        data: null,
-        routeId: "r",
-        url: "/r",
-        ...props,
-      });
-
-    render(tree({ shell: "app", shellData: initial, stateVersion: 1 }), scratch);
-    runtime!.setData(null, { data: { user: "Grace" } });
-    await flush();
-    expect(scratch.textContent).toBe("Grace");
-
-    // A navigation inside the shell hands back the same shell data reference.
-    render(tree({ shell: "app", shellData: initial, stateVersion: 2 }), scratch);
-    await flush();
-    expect(scratch.textContent).toBe("Grace");
-
-    // A different shell's data replaces it.
-    render(tree({ shell: "public", shellData: { user: "Linus" }, stateVersion: 3 }), scratch);
-    await flush();
-    expect(scratch.textContent).toBe("Linus");
   });
 });
 
@@ -124,12 +88,12 @@ describe("client router shell data", () => {
     return h("div", null, h("nav", null, `user:${shell?.user ?? "none"}`), children);
   }
 
-  async function initRouter() {
+  async function initRouter(initialRender: "ssr" | "ssg" = "ssr") {
     const app = resolveApp(
       defineApp({
         shells: { app: "./shells/app.tsx", public: "./shells/public.tsx" },
         routes: [
-          route("/a", "./routes/a.tsx", { id: "a", shell: "app", render: "ssr" }),
+          route("/a", "./routes/a.tsx", { id: "a", shell: "app", render: initialRender }),
           route("/b", "./routes/b.tsx", { id: "b", shell: "app", render: "ssr" }),
           route("/c", "./routes/c.tsx", { id: "c", shell: "public", render: "ssr" }),
         ],
@@ -196,6 +160,25 @@ describe("client router shell data", () => {
     await window.__PRACHT_NAVIGATE__!("/a");
     await flush();
     expect(claimOf(fetchSpy.mock.calls[2]!)).toBeUndefined();
+    expect(root.textContent).toContain("user:Grace");
+  });
+
+  it("loads the visitor's shell data after a prerendered document instead of reusing it", async () => {
+    // An SSG document carries build-time shell data (no session at build).
+    await initRouter("ssg");
+    expect(root.textContent).toContain("user:Ada");
+
+    fetchSpy.mockResolvedValueOnce(json({ data: null, shellData: { user: "Grace" } }));
+    await window.__PRACHT_NAVIGATE__!("/b");
+    await flush();
+    expect(claimOf(fetchSpy.mock.calls[0]!)).toBeUndefined();
+    expect(root.textContent).toContain("user:Grace");
+
+    // Data loaded for this visitor is reused from then on.
+    fetchSpy.mockResolvedValueOnce(json({ data: null }));
+    await window.__PRACHT_NAVIGATE__!("/a");
+    await flush();
+    expect(claimOf(fetchSpy.mock.calls[1]!)).toBe("app");
     expect(root.textContent).toContain("user:Grace");
   });
 

@@ -11,7 +11,11 @@ import {
   useRouteData,
   useShellData,
 } from "../src/index.ts";
-import { fetchPrachtRouteState, routeNeedsServerFetch } from "../src/runtime-client-fetch.ts";
+import {
+  fetchPrachtRouteState,
+  routeNeedsServerFetch,
+  routeNeedsShellData,
+} from "../src/runtime-client-fetch.ts";
 import { SHELL_DATA_REQUEST_HEADER } from "../src/runtime-constants.ts";
 import {
   getCachedRouteState,
@@ -411,8 +415,9 @@ describe("shell data on the client", () => {
       file: "./routes/about.tsx",
     } as unknown as ResolvedRoute;
 
-    expect(routeNeedsServerFetch(route)).toBe(true);
-    expect(routeNeedsServerFetch(route, true)).toBe(false);
-    expect(routeNeedsServerFetch({ ...route, hasShellLoader: false })).toBe(false);
+    expect(routeNeedsServerFetch(route)).toBe(false);
+    expect(routeNeedsShellData(route, false)).toBe(true);
+    expect(routeNeedsShellData(route, true)).toBe(false);
+    expect(routeNeedsShellData({ ...route, hasShellLoader: false }, false)).toBe(false);
   });
 });

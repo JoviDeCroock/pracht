@@ -4,7 +4,7 @@ import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import { NOT_FOUND_ROUTE_ID, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
-import { routeNeedsServerFetch } from "./runtime-client-fetch.ts";
+import { routeNeedsServerFetch, routeNeedsShellData } from "./runtime-client-fetch.ts";
 import {
   reportRequestError,
   type RouteErrorContext,
@@ -234,7 +234,7 @@ async function prerenderAppPages(
           options.staticExport === true &&
           item.route.hydration !== "islands" &&
           item.route.hydration !== "none" &&
-          routeNeedsServerFetch(item.route)
+          (routeNeedsServerFetch(item.route) || routeNeedsShellData(item.route, false))
         ) {
           let stateError: unknown;
           const stateResponse = await handlePrachtRequest({

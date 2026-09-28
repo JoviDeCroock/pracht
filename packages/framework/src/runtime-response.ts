@@ -28,6 +28,7 @@ import {
 } from "./runtime-manifest.ts";
 import { mergeDocumentHeaders, mergeErrorHeadMetadata } from "./runtime-middleware.ts";
 import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
+import { ShellDataContext } from "./runtime-shell-data.ts";
 import {
   getIslandsClientEntryUrl,
   IslandCaptureContext,
@@ -323,8 +324,6 @@ export async function renderRouteErrorResponse<TContext>(options: {
       data: null;
       routeId: string;
       routes?: readonly HrefRouteDefinition[];
-      shell?: string;
-      shellData?: unknown;
       url: string;
       children?: ComponentChildren;
     }>,
@@ -332,11 +331,13 @@ export async function renderRouteErrorResponse<TContext>(options: {
       data: null,
       routeId: options.routeId,
       routes: options.routes,
-      shell: options.shell,
-      shellData: options.shellState?.data,
       url: options.requestPath,
     },
-    componentTree,
+    h(
+      ShellDataContext.Provider,
+      { value: { data: options.shellState?.data, shell: options.shell } },
+      componentTree,
+    ),
   );
   const hydration = options.routeArgs.route.hydration ?? "full";
   let islandCapture: IslandCapture | null = null;

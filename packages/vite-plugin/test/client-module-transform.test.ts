@@ -705,6 +705,48 @@ describe("client route module build", () => {
     expect(client).toContain("route.hasShellLoader = shellLoaderHint");
   });
 
+  // `__PRACHT_SHELL_LOADERS__` and the client entry both follow this flag, so
+  // an app whose shells export no loader ships no shell-data code or hints.
+  it("reports whether any shell has a loader, and keeps shell hints out of the client when none does", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "index.tsx"),
+      "export async function loader() { return {}; }\nexport default function Home() {}\n",
+    );
+    writeFileSync(join(root, "src", "shells", "app.tsx"), "export function Shell() {}\n");
+    writeFileSync(join(root, "src", "pages", "_app.tsx"), "export function Shell() {}\n");
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export async function loader() { return {}; }\nexport default function Home() {}\n",
+    );
+
+    const manifestOptions = resolveOptions({ appFile: "/src/routes.ts" });
+    expect(createRouteHintsForVirtualModules(manifestOptions, root).shellLoaders).toBe(false);
+    const client = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
+    expect(client).not.toContain("hasShellLoader");
+    expect(client).toContain(
+      'const routeLoaderHints = {"./routes/index.tsx":true,"/src/routes/index.tsx":true};',
+    );
+
+    const pagesOptions = resolveOptions({ pagesDir: "/src/pages" });
+    expect(createRouteHintsForVirtualModules(pagesOptions, root).shellLoaders).toBe(false);
+
+    writeFileSync(
+      join(root, "src", "shells", "app.tsx"),
+      "export const loader = async () => ({});\nexport function Shell() {}\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsx"),
+      "export { loader } from './shared';\nexport function Shell() {}\n",
+    );
+    expect(createRouteHintsForVirtualModules(manifestOptions, root).shellLoaders).toBe(true);
+    expect(createRouteHintsForVirtualModules(pagesOptions, root).shellLoaders).toBe(true);
+  });
+
   it("embeds head hints for implicit TSRX page shells", () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "pages"), { recursive: true });

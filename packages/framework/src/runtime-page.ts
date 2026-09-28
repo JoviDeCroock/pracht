@@ -26,6 +26,7 @@ import {
 } from "./runtime-errors.ts";
 import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider, RouteSearchContext } from "./runtime-context.ts";
+import { ShellDataContext } from "./runtime-shell-data.ts";
 import { buildHtmlDocument, buildHtmlDocumentParts, htmlResponse } from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
@@ -489,10 +490,14 @@ async function renderSpaDocument<TContext>(
           params: match.params,
           routeId: match.route.id ?? "",
           routes: ctx.hrefRoutes,
-          shell: match.route.shell,
           url: ctx.requestPath,
         },
-        loadingTree,
+        // The loading state renders the shell without its data.
+        h(
+          ShellDataContext.Provider,
+          { value: { data: undefined, shell: match.route.shell } },
+          loadingTree,
+        ),
       ),
     );
     const renderFn = await getRenderToStringAsync();
@@ -562,14 +567,16 @@ async function renderServerDocument<TContext>(
       params: match.params,
       routeId: match.route.id ?? "",
       routes: ctx.hrefRoutes,
-      shell: match.route.shell,
-      shellData: job.shellState?.data,
       url: ctx.requestPath,
     },
     h(
-      RouteSearchContext.Provider,
-      { value: (job.routeArgs as LoaderArgs<TContext>).search },
-      componentTree,
+      ShellDataContext.Provider,
+      { value: { data: job.shellState?.data, shell: match.route.shell } },
+      h(
+        RouteSearchContext.Provider,
+        { value: (job.routeArgs as LoaderArgs<TContext>).search },
+        componentTree,
+      ),
     ),
   );
   const shellHydrationState = job.shellState ? { shellData: job.shellState.data } : undefined;
