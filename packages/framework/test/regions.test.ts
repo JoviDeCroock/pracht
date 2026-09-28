@@ -384,6 +384,19 @@ describe("region endpoint", () => {
     }
   });
 
+  it("is not an endpoint at all in an app without regions", async () => {
+    const response = await handlePrachtRequest({
+      app: createApp("ssg"),
+      registry: createRegistry(() => null),
+      request: regionRequest(params),
+    });
+
+    // The app's own not-found answer, not the endpoint's "Unknown region".
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toMatch(/region/i);
+    expect(response.headers.get("x-robots-tag")).toBeNull();
+  });
+
   it("runs the middleware of the route the path names, not the embedding one", async () => {
     // `/public` has no `visitor` middleware: the caller picks the route, so a
     // region must authorize from context rather than rely on a route's gate.

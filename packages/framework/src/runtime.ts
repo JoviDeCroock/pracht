@@ -1,5 +1,5 @@
 import { matchAppRoute } from "./app.ts";
-import { handleRegionRequest } from "./regions-server.ts";
+import { handleRegionRequest, hasRegisteredRegions } from "./regions-server.ts";
 import { PRACHT_REGION_ENDPOINT } from "./regions-shared.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -32,8 +32,9 @@ export type { HandlePrachtRequestOptions };
  *
  *   1. Normalize the request (base path, canonical URL, agent surface), or
  *      answer it outright when the URL never belonged to this app.
- *   2. The request-time region endpoint (`/__pracht/region`), which runs a
- *      page route's middleware around one region — see `regions-server.ts`.
+ *   2. The request-time region endpoint (`/__pracht/region`) when the app has
+ *      regions, which runs a page route's middleware around one region — see
+ *      `regions-server.ts`.
  *   3. API routes — explicit route files win over generated projections.
  *   4. The agent surface — remote MCP, then capability HTTP endpoints.
  *   5. The page router.
@@ -51,7 +52,11 @@ async function handlePrachtRequestPipeline<TContext>(
   if (prepared.response) return prepared.response;
   const ctx = prepared.ctx;
 
-  if (ctx.routePathname === PRACHT_REGION_ENDPOINT) return handleRegionRequest(ctx);
+  // Only apps with a regions directory own this path; every other app routes
+  // it like any other URL.
+  if (ctx.routePathname === PRACHT_REGION_ENDPOINT && hasRegisteredRegions()) {
+    return handleRegionRequest(ctx);
+  }
 
   const apiResponse = await dispatchApi(ctx);
   if (apiResponse) return apiResponse;
