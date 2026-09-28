@@ -48,29 +48,32 @@ For each `loader` (and `getStaticPaths` when present):
 
 ### 2a. Serializability
 
-Loader data reaches the browser through pracht's route-data encoding, not bare
-JSON. It round-trips JSON values plus `undefined`, `NaN`, `±Infinity`, `-0`,
-`bigint`, `Date`, `RegExp`, `URL`, `Map`, `Set`, and shared or circular
-references (identity preserved) — do not flag those. Objects with a `toJSON()`
-method are sent as its result, as with `JSON.stringify`.
+Skip this check for `hydration: "islands"` and `"none"` routes: they ship no
+loader data. Otherwise, check `vite.config.*` for
+`pracht({ client: { richData: true } })` first.
 
-Flag returns that contain any of:
+Without `richData` (the default), loader data is `JSON.stringify`'d while the
+component's types still promise the original. Flag returns that contain any of:
 
-| Construct                         | Why it breaks                                   |
-| --------------------------------- | ----------------------------------------------- |
-| Class instances without `toJSON`  | The request fails naming the path               |
-| Class instances with `toJSON`     | Arrive as `toJSON()` output; the type lies      |
-| `Function` / arrow values         | The request fails naming the path               |
-| `Symbol` values                   | The request fails naming the path               |
-| `Promise` (bare)                  | Not serializable — wrap in `defer()`            |
-| `Buffer` / typed arrays           | The request fails naming the path               |
-| `defer()` inside a `Map`/`Set`    | Never resolved; fails as an unresolved marker   |
+| Construct                    | Why it breaks                       |
+| ---------------------------- | ----------------------------------- |
+| `Date`, `Map`, `Set`, `URL`  | Not preserved by `JSON.stringify`   |
+| Class instances              | Lose prototype on the client        |
+| `Function` / arrow values    | Stripped silently                   |
+| `Promise` (bare)             | Becomes `{}` — wrap in `defer()`    |
+| Circular refs                | Throws at serialize time            |
+| `Buffer` / typed arrays      | Becomes `{}` or numeric keys        |
+| `bigint`                     | `JSON.stringify` throws             |
+| `undefined` in arrays/object | Drops keys; arrays become `null`    |
 
-These failures happen in production too (a 500 on the route). Routes with
-`hydration: "islands"` or `"none"` ship no loader data, so their returns are
-not checked — skip 2a for them.
+With `richData`, `Date`, `Map`, `Set`, `URL`, `RegExp`, `bigint`, `undefined`,
+and shared or circular references arrive intact: do not flag them. Flag
+functions, symbols, typed arrays, and class instances without `toJSON()`
+(`Error` included) instead: each fails the request with a 500 naming the path,
+in production too. A class instance with `toJSON()` arrives as its output, so
+its type lies.
 
-A bare promise in loader data is always a bug — it fails the request. The fix
+A bare promise in loader data is always a bug — it serializes to `{}`. The fix
 is `defer(promise)`, which marks the field as deferred and is read in the
 component with `use()` inside a `<Suspense>` boundary. Flag a bare promise as an
 `error` and point at `defer()`; a `defer()`ed field is correct and must not be
@@ -85,8 +88,9 @@ Two `defer()` rules worth checking while you are in the loader:
 - `defer()` must be returned from an enumerable data property, not hidden
   behind a getter. An unresolved marker throws during serialization.
 
-Recommend converting unsupported values to plain objects or one of the
-supported types before return.
+Recommend converting to `string` (ISO for dates), plain arrays, or plain objects
+before return, or turning on `client.richData` when an app returns many dates
+or maps.
 
 ### 2b. Secret leaks
 

@@ -37,11 +37,12 @@ responses carry `Vary: x-pracht-shell-data`. Revalidation never sends the
 header, so it refreshes both. See [ROUTING.md](ROUTING.md#shell-loaders).
 
 `data` (like `data` in the `#pracht-state` hydration script, static-export
-state files, and streamed `defer()` chunks) is loader data in the route-data
-encoding from `packages/framework/src/route-data-codec.ts`: plain JSON, with
-Dates, Maps, Sets, BigInts, `undefined`, non-finite numbers, and shared
-references written as tagged arrays. JSON-only data is byte-identical to
-`JSON.stringify`; the client decodes only when the payload contains a tag. See
+state files, and streamed `defer()` chunks) is `JSON.stringify` output of the
+loader data. With `client.richData` on, it is the route-data encoding from
+`packages/framework/src/route-data-codec.ts` instead: plain JSON, with Dates,
+Maps, Sets, BigInts, `undefined`, non-finite numbers, and shared references
+written as tagged arrays. JSON-only data is byte-identical either way; the
+client decodes only when the payload contains a tag. See
 [DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return).
 
 Static exports and preload hints use the query-string form instead, `?_data=1`,

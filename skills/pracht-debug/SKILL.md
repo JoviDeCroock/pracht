@@ -92,10 +92,9 @@ Work in order; stop at the root cause.
 ### 3. Loader / API errors
 
 - On slow pages, read `Server-Timing` before reading code.
-- Loader data may hold JSON values plus `Date`, `Map`, `Set`, `BigInt`,
-  `RegExp`, `URL`, `undefined`, non-finite numbers, and shared/circular
-  references. A function, symbol, or class instance (without `toJSON()`) fails
-  the request with an error naming the path, e.g. `data.user.save is a function`.
+- Loaders must return serializable data — no functions, no circular refs. A
+  `Date` arrives as a string unless `pracht({ client: { richData: true } })` is
+  set; with it, an unsupported value fails with an error naming its path.
 - API handlers must return `Response` objects, and a default export must branch
   on `request.method`.
 - Look for unhandled rejections or thrown errors.

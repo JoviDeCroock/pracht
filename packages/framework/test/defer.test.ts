@@ -506,14 +506,18 @@ describe("streaming wire metadata", () => {
     }
   });
 
-  it("keeps a shared object shared and records its deferred value once", () => {
+  // Plain JSON writes a shared object once per path, so each path records its
+  // own deferred value. Rich data keeps it shared instead
+  // (route-data-transport.test.ts).
+  it("serializes every occurrence of a shared object", () => {
     const shared = { value: defer(Promise.resolve("ok")) };
     const { data, pending } = serializeDeferred({ first: shared, second: shared });
 
     expect(data).toEqual({ first: { value: null }, second: { value: null } });
-    const copy = data as { first: object; second: object };
-    expect(copy.first).toBe(copy.second);
-    expect(pending.map(({ path }) => path)).toEqual([["first", "value"]]);
+    expect(pending.map(({ path }) => path)).toEqual([
+      ["first", "value"],
+      ["second", "value"],
+    ]);
   });
 
   it("keeps cycles pointing at the copy", () => {

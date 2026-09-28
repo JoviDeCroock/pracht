@@ -83,6 +83,13 @@ import type {
   ShellModule,
 } from "./types.ts";
 
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+
 const BODY_REPRESENTATION_HEADERS = [
   "content-digest",
   "content-encoding",
@@ -371,7 +378,9 @@ async function buildRouteStateResponse<TContext>(
   job.shellModule = await job.shellModulePromise;
   const head = await mergeHeadMetadata(job.shellModule, job.routeModule, job.routeArgs, data);
   const fontHead = collectFontHeadFragments(head.fonts ?? []);
-  const encodedData = encodeRouteData(data, `route "${job.match.route.id ?? job.match.route.path}"`);
+  const encodedData = RICH_ROUTE_DATA
+    ? encodeRouteData(data, `route "${job.match.route.id ?? job.match.route.path}"`)
+    : data;
   const body = job.shellState
     ? { data: encodedData, shellData: job.shellState.data, fontHead }
     : { data: encodedData, fontHead };

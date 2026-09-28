@@ -15,6 +15,13 @@ declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
 const SHELL_LOADERS_ENABLED =
   typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
 
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+
 /**
  * `shell` is present when the response carried the shell loader's data: the
  * shell has a loader and the request did not claim to hold its data already.
@@ -135,7 +142,7 @@ export async function fetchPrachtRouteState(
   // JSON file at build time instead. Same-origin fetch of `application/json`
   // keeps the exact escaping posture of the live endpoint — the payload is
   // parsed as JSON, never interpreted as HTML — and carries the same
-  // route-data encoding, decoded below.
+  // route-data encoding, decoded below when the app opted in to rich data.
   const fetchUrl = IS_STATIC_TARGET
     ? buildStaticRouteStateUrl(url)
     : options?.useDataParam
@@ -168,8 +175,9 @@ export async function fetchPrachtRouteState(
     };
   }
 
-  const text = await response.text();
-  const json = JSON.parse(text) as {
+  // Rich data needs the raw text to tell whether the payload holds any tag.
+  const text = RICH_ROUTE_DATA ? await response.text() : "";
+  const json = (RICH_ROUTE_DATA ? JSON.parse(text) : await response.json()) as {
     data?: unknown;
     shellData?: unknown;
     fontHead?: FontHeadFragments;
@@ -199,7 +207,8 @@ export async function fetchPrachtRouteState(
   }
 
   return {
-    data: mayContainEncodedRouteData(text) ? decodeRouteData(json.data) : json.data,
+    data:
+      RICH_ROUTE_DATA && mayContainEncodedRouteData(text) ? decodeRouteData(json.data) : json.data,
     fontHead: json.fontHead,
     type: "data",
     ...(SHELL_LOADERS_ENABLED && "shellData" in json ? { shell: { data: json.shellData } } : null),

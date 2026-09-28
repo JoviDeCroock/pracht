@@ -60,16 +60,17 @@ apps pass only an `adapter`.
 
 ### Client bundle
 
-`client` compiles unused router features out of the client bundle, and can keep
-one diagnostic in a production build. Turn a feature off only if the app does
-not use it: the router then ignores the matching route options and `<Link>`
-props.
+`client` compiles unused router features out of the client bundle, and adds
+two that cost bytes only when you turn them on. Turn a feature off only if the
+app does not use it: the router then ignores the matching route options and
+`<Link>` props.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) from `route({ prefetch })` and `<Link prefetch>`. Off makes `prefetch()` a no-op |
 | `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off makes `useBlocker()` never block; it warns in development |
 | `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in production client and islands bundles, to check a build before deploying it. Not for the build you ship |
+| `client.richData` | `false` | Send loader `Date`, `Map`, `Set`, `BigInt`, and shared references to the browser [as those types](/docs/data-loading#dates-maps-and-other-rich-values) instead of as JSON |
 
 An unknown `client` key is an error.
 

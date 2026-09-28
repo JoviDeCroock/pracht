@@ -1,6 +1,13 @@
 import { h } from "preact";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+// `pracht({ client: { richData: true } })` sets this define in both bundles.
+// Hoisted above the imports: the runtime reads it once, at module load.
+vi.hoisted(() => {
+  (globalThis as { __PRACHT_RICH_DATA__?: boolean }).__PRACHT_RICH_DATA__ = true;
+});
+
+import { serializeDeferred } from "../src/defer.ts";
 import {
   Suspense,
   defer,
@@ -14,8 +21,9 @@ import { decodeRouteData } from "../src/route-data-codec.ts";
 import type { RouteMeta } from "../src/types.ts";
 
 /**
- * Loader data reaches the browser through several transports. Each must carry
- * the same encoding, so a Date is a Date whichever way it arrived.
+ * Loader data reaches the browser through several transports. With rich data
+ * on, each must carry the same encoding, so a Date is a Date whichever way it
+ * arrived. The default (plain JSON) is covered in route-data-default.test.ts.
  */
 
 const createdAt = new Date("2026-03-04T05:06:07.000Z");
@@ -200,6 +208,16 @@ describe("rich loader data transports", () => {
     expect(stateResponse.status).toBe(500);
     const body = (await stateResponse.json()) as { error: { message: string } };
     expect(body.error.message).toContain("data.user.save is a function");
+  });
+
+  it("keeps a shared object shared across defer() and records its deferred value once", () => {
+    const shared = { value: defer(Promise.resolve("ok")) };
+    const { data, pending } = serializeDeferred({ first: shared, second: shared });
+
+    expect(data).toEqual({ first: { value: null }, second: { value: null } });
+    const copy = data as { first: object; second: object };
+    expect(copy.first).toBe(copy.second);
+    expect(pending.map(({ path }) => path)).toEqual([["first", "value"]]);
   });
 
   it("does not serialize data for routes that ship no hydration state", async () => {

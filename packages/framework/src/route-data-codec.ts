@@ -36,6 +36,15 @@
  * Decoding never evaluates code: it walks parsed JSON and calls constructors.
  * Embedding the JSON in an inline `<script>` stays the caller's job (see
  * `escapeScriptText()`).
+ *
+ * The encoding is opt-in: `pracht({ client: { richData: true } })` sets the
+ * `__PRACHT_RICH_DATA__` define for the client and server bundles alike. Off
+ * (the default), every transport sends loader data as plain `JSON.stringify`
+ * output, exactly as before the codec existed, and this module is
+ * dead-code-eliminated from the client bundle — an app that never returns a
+ * `Date` pays nothing for the ability to. Each call site reads the define
+ * itself (`RICH_ROUTE_DATA`), behind a `typeof` guard that keeps the runtime
+ * loadable without it (unit tests, direct Node imports).
  */
 
 const TAG = "\u0000";

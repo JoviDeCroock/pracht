@@ -34,6 +34,13 @@ import { normalizeRouteError } from "./runtime-errors.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
 
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+
 export interface StreamingHtmlResponseOptions {
   /** The tree to render — route component inside its shell, as SSR builds it. */
   tree: VNode;
@@ -196,20 +203,24 @@ export async function streamingHtmlResponse(
       // Each deferred value gets its own script as it settles. Writing them
       // from the promise (rather than after the renderer finishes) is what
       // lets the client resume a boundary while later ones are still pending.
-      // Resolved values use the hydration-state encoding (a bare `undefined`
-      // is the one value it leaves as-is); one that cannot be encoded reaches
-      // its boundary as an error instead.
+      // Resolved values are serialized like the hydration state (with rich
+      // data on, a bare `undefined` is the one value the encoding leaves
+      // as-is); one that cannot be serialized reaches its boundary as an error
+      // instead.
       const deferredWrites = pending.map(({ id, promise }) =>
         promise.then(
           async (value) => {
             await writeDeferred(() => {
-              let encoded: unknown;
+              let json: string;
               try {
-                encoded = encodeRouteData(value, `the deferred value "${id}"`);
+                json = RICH_ROUTE_DATA
+                  ? (JSON.stringify(encodeRouteData(value, `the deferred value "${id}"`)) ??
+                    "undefined")
+                  : (JSON.stringify(value) ?? "null");
               } catch (error) {
                 return errorScript(id, error);
               }
-              return `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(JSON.stringify(encoded) ?? "undefined")})</script>`;
+              return `${scriptOpen}window.__PRACHT_DEFER__.r(${escapeScriptText(JSON.stringify(id))},${escapeScriptText(json)})</script>`;
             });
           },
           async (error: unknown) => {

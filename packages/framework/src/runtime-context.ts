@@ -7,6 +7,13 @@ import { EMPTY_ROUTE_PARAMS, HYDRATION_STATE_ELEMENT_ID } from "./runtime-consta
 import { decodeRouteData, mayContainEncodedRouteData } from "./route-data-codec.ts";
 import type { HrefRouteDefinition, RouteParams } from "./types.ts";
 
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+
 export interface PrachtHydrationState<TData = unknown> {
   url: string;
   routeId: string;
@@ -213,9 +220,11 @@ export function readHydrationState<TData = unknown>(): PrachtHydrationState<TDat
 
   const state = JSON.parse(raw) as PrachtHydrationState<TData>;
   // This is the one place the client reads initial loader data: revive rich
-  // values, then restore the defer() locations streamed documents carry out
-  // of band.
-  if (mayContainEncodedRouteData(raw)) state.data = decodeRouteData(state.data);
+  // values (when the app opted in), then restore the defer() locations
+  // streamed documents carry out of band.
+  if (RICH_ROUTE_DATA && mayContainEncodedRouteData(raw)) {
+    state.data = decodeRouteData(state.data);
+  }
   state.data = rehydrateDeferredData(state.data, state.deferred);
   window.__PRACHT_STATE__ = state as PrachtHydrationState;
   return state;

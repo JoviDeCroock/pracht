@@ -69,9 +69,19 @@ of falling through to a render (see
 
 Loader data travels to the browser in the hydration-state script, route-state
 (`_data`) responses, static-export state files, and streamed `defer()` chunks.
-All four use one encoding, defined in `src/route-data-codec.ts`
-(`encodeRouteData()` on the server, `decodeRouteData()` in the browser), so a
-value arrives as the type the loader returned:
+By default all four carry plain `JSON.stringify` output: a `Date` arrives as
+its ISO string, a `Map` as `{}`, a class instance as its own enumerable
+fields, and a function not at all. The component types still say `Date`,
+because `LoaderData<typeof loader>` is the loader's return type, not its JSON
+form.
+
+`pracht({ client: { richData: true } })` switches all four to one encoding,
+defined in `src/route-data-codec.ts` (`encodeRouteData()` on the server,
+`decodeRouteData()` in the browser). The option sets the
+`__PRACHT_RICH_DATA__` define (`RICH_ROUTE_DATA` in the runtime) for the
+client and server bundles alike, so both sides always agree on the wire format,
+and a default build dead-code-eliminates the decoder. With it on, a value
+arrives as the type the loader returned:
 
 - JSON values: plain objects, arrays, strings, finite numbers, booleans, `null`
 - `undefined` (object properties keep their key; array slots stay `undefined`)
@@ -89,9 +99,10 @@ no `\u0000` escape. Decoding never evaluates code, and the inline-script
 escaping (`<`, `>`, `&`, U+2028, U+2029) is unchanged.
 
 An object with a `toJSON()` method is sent as its JSON representation, as with
-`JSON.stringify` — it arrives as that representation, not as its class.
-Anything else — functions, symbols, class instances, boxed primitives, DOM
-nodes, an unresolved `defer()` marker inside a `Map`/`Set` — throws a
+`JSON.stringify`: each occurrence is converted separately, so it takes no part
+in identity tracking, and it arrives as that representation, not as its class.
+Anything else (functions, symbols, class instances, `Error`s, boxed primitives,
+DOM nodes, an unresolved `defer()` marker inside a `Map`/`Set`) throws a
 `TypeError` naming the route and the path (`data.user.save is a function`).
 This check runs in development and production alike: the error takes the
 normal route-error path (500, sanitized in production, reported to
@@ -103,8 +114,8 @@ emit no hydration state, so their loaders may return anything the component
 can render on the server. Island props use their own JSON-only validation (see
 [ISLANDS.md](ISLANDS.md)).
 
-The decoder is part of the client router and costs about 265 bytes gzip on
-full-hydration routes (see [PERFORMANCE.md](PERFORMANCE.md)).
+The decoder costs 265 bytes gzip on full-hydration routes when enabled (see
+[PERFORMANCE.md](PERFORMANCE.md#rich-loader-data-is-opt-in)).
 
 ### LoaderArgs
 
@@ -317,8 +328,8 @@ With it on, the response is written in this order:
    travel as framework metadata beside the user-owned loader data, so no user
    object shape or property name is reserved by the wire format.
 3. Each deferred value as it settles — the resolved markup from the renderer,
-   plus a small script carrying the data (in the same route-data encoding as
-   the hydration state) so the client has it too.
+   plus a small script carrying the data (serialized like the hydration
+   state) so the client has it too.
 4. The client entry, then `</body></html>`. The entry is preloaded with the
    document assets, but hydration starts after the streamed content so even a
    `beforeHydration` script inside a deferred subtree keeps its guarantee.

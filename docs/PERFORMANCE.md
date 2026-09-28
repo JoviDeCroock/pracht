@@ -130,6 +130,22 @@ Unlike `client.prefetch`, turning this off is not silent: `useBlocker()` stays
 importable, never blocks, and warns in development. Quietly not protecting
 unsaved work is a different class of surprise from quietly not prefetching.
 
+## Rich loader data is opt-in
+
+`pracht({ client: { richData: true } })` sets `__PRACHT_RICH_DATA__` for both
+bundles: the server writes loader data in the route-data encoding (see
+[DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return)) and the client
+keeps the decoder. Measured by `pnpm bench` on the ladder fixture's
+`rich data on` rung, that is 265 gzip bytes on full hydration. Islands never
+load it.
+
+It is off by default rather than a compile-out switch like the two above
+because most loaders return plain JSON. The decoder cannot move to a lazy
+chunk either: hydration reads the state script synchronously before the first
+render. A prototype that `import()`ed it only when a payload held a tag still
+left about 125 bytes of call sites in every full-hydration bundle, and cost
+rich-data pages a 375-byte chunk and a round trip before hydrating.
+
 ## Composing with the app's chunking
 
 Pracht has one chunking opinion — Preact belongs in a shared `vendor` chunk —

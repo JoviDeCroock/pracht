@@ -36,6 +36,13 @@ import {
 } from "./runtime-errors.ts";
 import { decodeRouteData } from "./route-data-codec.ts";
 
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+
 const DEFERRED = Symbol.for("pracht.deferred");
 
 interface DeferredBox<T> {
@@ -370,10 +377,13 @@ export interface SerializedDeferred {
 export function serializeDeferred(data: unknown): SerializedDeferred {
   const pending: Array<DeferredHydrationReference & { promise: Promise<unknown> }> = [];
 
-  // Copies are memoized per source object, so shared references and cycles
-  // stay shared in the copy and the route-data encoder can preserve them. A
-  // deferred value under a shared object is recorded at its first path, which
-  // the client reaches through the same revived object.
+  // With rich data on, copies are memoized per source object, so shared
+  // references and cycles stay shared in the copy and the route-data encoder
+  // can preserve them. A deferred value under a shared object is recorded at
+  // its first path, which the client reaches through the same revived object.
+  // Plain JSON duplicates a shared object instead, so there each copy is
+  // forgotten once its subtree is done and every path records its own
+  // deferred values; only an object's own ancestors stay memoized.
   const copies = new Map<object, unknown>();
   const walk = (value: unknown, path: DeferredPathSegment[]): unknown => {
     if (isDeferred(value)) {
@@ -409,6 +419,7 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
         );
       }
       Object.defineProperty(next, "length", descriptors.length);
+      if (!RICH_ROUTE_DATA) copies.delete(value);
       return next;
     }
     if (!isPlainObject(value)) return value;
@@ -426,6 +437,7 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
           : descriptor,
       );
     }
+    if (!RICH_ROUTE_DATA) copies.delete(value);
     return next;
   };
 
@@ -501,7 +513,7 @@ export function installDeferRegistry(): void {
   const registry: DeferRegistry = {
     r(id, value) {
       // Streamed values use the same encoding as the hydration state.
-      getClientEntry(id).resolve(decodeRouteData(value));
+      getClientEntry(id).resolve(RICH_ROUTE_DATA ? decodeRouteData(value) : value);
     },
     e(id, error) {
       const err = isSerializedRouteError(error)

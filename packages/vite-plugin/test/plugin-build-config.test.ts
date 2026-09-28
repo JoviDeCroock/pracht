@@ -302,6 +302,16 @@ describe("pracht plugin build config", () => {
     ).toBe("true");
   });
 
+  it("sends plain JSON loader data unless the app opts in to rich data", () => {
+    // The server bundle reads the same define, so both sides agree on the wire
+    // format.
+    expect(runConfigHook(edgeAdapter, false).define?.__PRACHT_RICH_DATA__).toBe("false");
+    expect(runConfigHook(edgeAdapter, true).define?.__PRACHT_RICH_DATA__).toBe("false");
+    expect(
+      runConfigHook(edgeAdapter, true, { client: { richData: true } }).define?.__PRACHT_RICH_DATA__,
+    ).toBe("true");
+  });
+
   it("defines a disabled client feature as false in dev as well as in builds", () => {
     // The flag is declared by the app rather than derived from the manifest, so
     // unlike __PRACHT_AGENT_SURFACE__ it must not be forced on outside builds —
