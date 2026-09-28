@@ -1,7 +1,15 @@
+import { REGION_REFRESH_EVENT } from "./regions-shared.ts";
 import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
 import type { PrachtRuntimeValue } from "./runtime-context.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
+
+/**
+ * Build-time flag: the app has a regions directory. Regions on full-hydration
+ * pages refetch when route data is refreshed in place; apps without regions
+ * fold this to `false` and ship none of it.
+ */
+declare const __PRACHT_REGIONS__: boolean | undefined;
 
 /**
  * Re-fetch the active route's loader data and commit it to the runtime.
@@ -42,6 +50,9 @@ export async function revalidateRouteData(
     applyFontHeadFragments(result.fontHead);
   }
   runtime?.setData(result.data);
+  if (typeof __PRACHT_REGIONS__ !== "undefined" && __PRACHT_REGIONS__) {
+    window.dispatchEvent(new Event(REGION_REFRESH_EVENT));
+  }
   return result.data;
 }
 

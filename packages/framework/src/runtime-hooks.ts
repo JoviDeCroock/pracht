@@ -54,6 +54,7 @@ import {
   capabilityHttpPath,
 } from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
+import { REGION_REFRESH_EVENT } from "./regions-shared.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import type {
@@ -70,6 +71,9 @@ import type {
   RouteTarget,
   UntypedRouteTarget,
 } from "./types.ts";
+
+/** Build-time flag: the app has regions (see `runtime-revalidate.ts`). */
+declare const __PRACHT_REGIONS__: boolean | undefined;
 
 export { PrachtRuntimeProvider, readHydrationState, startApp };
 export type { PrachtHydrationState, StartAppOptions };
@@ -702,6 +706,9 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
             }
           }
           onResponse?.(response);
+          if (typeof __PRACHT_REGIONS__ !== "undefined" && __PRACHT_REGIONS__ && response.ok) {
+            window.dispatchEvent(new Event(REGION_REFRESH_EVENT));
+          }
         }
       } finally {
         settleNavigation(navigationToken);

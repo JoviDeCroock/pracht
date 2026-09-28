@@ -1,3 +1,4 @@
+import { REGION_REFRESH_EVENT } from "./regions-shared.ts";
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
@@ -15,6 +16,13 @@ export type RouteStateResult =
    */
   | { type: "redirect"; location?: string }
   | { type: "error"; error: SerializedRouteError; fontHead?: FontHeadFragments };
+
+/**
+ * Build-time flag: the app has a regions directory. Regions on full-hydration
+ * pages refetch when route data is refreshed in place; apps without regions
+ * fold this to `false` and ship none of it.
+ */
+declare const __PRACHT_REGIONS__: boolean | undefined;
 
 const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 
@@ -158,6 +166,15 @@ export async function navigateToClientLocation(
       _reloadRouteState: options?.reloadRouteState,
       replace: options?.replace,
     });
+    // A submission that redirects — often back to the same page — reloads
+    // route state; regions refresh with it.
+    if (
+      typeof __PRACHT_REGIONS__ !== "undefined" &&
+      __PRACHT_REGIONS__ &&
+      options?.reloadRouteState
+    ) {
+      window.dispatchEvent(new Event(REGION_REFRESH_EVENT));
+    }
     return;
   }
 

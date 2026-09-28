@@ -22,11 +22,31 @@ function mockFetch(respond: (url: URL, init?: RequestInit) => Response) {
   return calls;
 }
 
+/** A region endpoint fragment: status 200 and the endpoint's marker header. */
+function fragment(html: string, headers: Record<string, string> = {}) {
+  return new Response(html, {
+    status: 200,
+    headers: { "content-type": "text/html", "x-pracht-region": "1", ...headers },
+  });
+}
+
 async function flush() {
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// Every Preact root a test mounted: unmounted after it, so no region keeps
+// listening for refreshes into the next test.
+const roots: HTMLElement[] = [];
+function mountRoot(html = ""): HTMLElement {
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  document.body.append(root);
+  roots.push(root);
+  return root;
+}
+
 afterEach(() => {
+  for (const root of roots.splice(0)) render(null, root);
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
   document.documentElement.removeAttribute("data-pracht-regions-ready");
@@ -39,13 +59,7 @@ describe("swapRegions", () => {
     document.body.innerHTML =
       `<pracht-region region="${FILE}" props='{"greeting":"Hi"}' pending><i>…</i></pracht-region>` +
       `<pracht-region region="${FILE}"><b>inline</b></pracht-region>`;
-    const calls = mockFetch(
-      () =>
-        new Response("<p>Hi, Ada</p>", {
-          status: 200,
-          headers: { "content-type": "text/html" },
-        }),
-    );
+    const calls = mockFetch(() => fragment("<p>Hi, Ada</p>"));
 
     await swapRegions();
 
@@ -77,6 +91,24 @@ describe("swapRegions", () => {
     expect(document.documentElement.getAttribute("data-pracht-regions-ready")).toBe("true");
   });
 
+  it("keeps the fallback when a 200 is not the endpoint's fragment", async () => {
+    // A static host answering unknown URLs with its SPA fallback document.
+    document.body.innerHTML = `<pracht-region region="${FILE}" pending><i>fallback</i></pracht-region>`;
+    mockFetch(
+      () =>
+        new Response("<!doctype html><html><body>app shell</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        }),
+    );
+
+    await swapRegions();
+
+    const region = document.querySelector("pracht-region")!;
+    expect(region.innerHTML).toBe("<i>fallback</i>");
+    expect(region.hasAttribute("pending")).toBe(true);
+  });
+
   it("keeps the fallback when the request fails", async () => {
     document.body.innerHTML = `<pracht-region region="${FILE}" pending><i>fallback</i></pracht-region>`;
     vi.stubGlobal(
@@ -91,12 +123,10 @@ describe("swapRegions", () => {
 
   it("loads the islands bootstrap a region response names", async () => {
     document.body.innerHTML = `<pracht-region region="${FILE}" pending></pracht-region>`;
-    mockFetch(
-      () =>
-        new Response('<pracht-island island="/src/islands/Counter.tsx"></pracht-island>', {
-          status: 200,
-          headers: { "x-pracht-islands": "/assets/islands-client.js" },
-        }),
+    mockFetch(() =>
+      fragment('<pracht-island island="/src/islands/Counter.tsx"></pracht-island>', {
+        "x-pracht-islands": "/assets/islands-client.js",
+      }),
     );
 
     await swapRegions();
@@ -113,10 +143,10 @@ describe("createClientRegion", () => {
   const Region = createClientRegion(FILE);
 
   it("keeps server-rendered region markup through hydration and re-renders", async () => {
-    const calls = mockFetch(() => new Response("<p>refetched</p>"));
-    const root = document.createElement("div");
-    root.innerHTML = `<div><span>0</span><pracht-region region="${FILE}" style="display:contents"><p>Hi, Ada</p></pracht-region></div>`;
-    document.body.append(root);
+    const calls = mockFetch(() => fragment("<p>refetched</p>"));
+    const root = mountRoot(
+      `<div><span>0</span><pracht-region region="${FILE}" style="display:contents"><p>Hi, Ada</p></pracht-region></div>`,
+    );
 
     let setCount: (value: number) => void = () => {};
     function Page() {
@@ -138,10 +168,10 @@ describe("createClientRegion", () => {
   });
 
   it("fills a pending server placeholder after hydration", async () => {
-    const calls = mockFetch(() => new Response("<p>Hi, Ada</p>"));
-    const root = document.createElement("div");
-    root.innerHTML = `<pracht-region region="${FILE}" props='{"greeting":"Hi"}' style="display:contents" pending><i>…</i></pracht-region>`;
-    document.body.append(root);
+    const calls = mockFetch(() => fragment("<p>Hi, Ada</p>"));
+    const root = mountRoot(
+      `<pracht-region region="${FILE}" props='{"greeting":"Hi"}' style="display:contents" pending><i>…</i></pracht-region>`,
+    );
 
     await act(() => hydrate(h(Region, { greeting: "Hi" }), root));
     await flush();
@@ -159,17 +189,75 @@ describe("createClientRegion", () => {
       "fetch",
       vi.fn(() => new Promise<Response>((resolve) => (resolveFetch = resolve))),
     );
-    const root = document.createElement("div");
-    document.body.append(root);
+    const root = mountRoot();
 
     await act(() => render(h(Region, { greeting: "Hi", fallback: h("i", null, "loading") }), root));
     const element = root.querySelector("pracht-region")!;
     expect(element.innerHTML).toBe("<i>loading</i>");
 
-    resolveFetch(new Response("<p>Hi, Ada</p>"));
+    resolveFetch(fragment("<p>Hi, Ada</p>"));
     await flush();
     expect(element.innerHTML).toBe("<p>Hi, Ada</p>");
 
     await act(() => render(null, root));
+  });
+
+  it("refetches when route data is refreshed in place, and keeps the HTML meanwhile", async () => {
+    let answer: () => Promise<Response> = async () => fragment("<p>Cart (1)</p>");
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string) => {
+        calls.push(input);
+        return answer();
+      }),
+    );
+    const root = mountRoot(
+      `<pracht-region region="${FILE}" style="display:contents"><p>Cart (0)</p></pracht-region>`,
+    );
+
+    await act(() => hydrate(h(Region, { fallback: h("i", null, "Cart") }), root));
+    await flush();
+    const element = root.querySelector("pracht-region")!;
+    expect(calls).toHaveLength(0);
+
+    // `useRevalidate()`, a capability call, or a <Form> submission.
+    await act(() => {
+      window.dispatchEvent(new Event("pracht:regions-refresh"));
+    });
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(element.innerHTML).toBe("<p>Cart (1)</p>");
+
+    // A refresh that fails in transit keeps what is on screen.
+    answer = () => Promise.reject(new TypeError("offline"));
+    await act(() => {
+      window.dispatchEvent(new Event("pracht:regions-refresh"));
+    });
+    await flush();
+    expect(element.innerHTML).toBe("<p>Cart (1)</p>");
+
+    // One that no longer yields a region (signed out) shows the fallback
+    // rather than the previous visitor's HTML.
+    answer = async () => new Response(null, { status: 204 });
+    await act(() => {
+      window.dispatchEvent(new Event("pracht:regions-refresh"));
+    });
+    await flush();
+    expect(element.innerHTML).toBe("<i>Cart</i>");
+
+    answer = async () => fragment("<p>Cart (2)</p>");
+    await act(() => {
+      window.dispatchEvent(new Event("pracht:regions-refresh"));
+    });
+    await flush();
+    expect(element.innerHTML).toBe("<p>Cart (2)</p>");
+
+    await act(() => render(null, root));
+    await act(() => {
+      window.dispatchEvent(new Event("pracht:regions-refresh"));
+    });
+    await flush();
+    expect(calls).toHaveLength(4);
   });
 });

@@ -28,15 +28,24 @@ import {
  */
 
 /**
+ * How a region fetch ended:
+ *
+ * - `"loaded"` — the endpoint's fragment is in `element`;
+ * - `"empty"` — the server answered without one (no region for this visitor,
+ *   a failing loader, a route that does not render it): show the fallback;
+ * - `"failed"` — the request never completed: keep whatever is on screen.
+ */
+export type RegionLoadResult = "loaded" | "empty" | "failed";
+
+/**
  * Fetch one region's request-time HTML for the current page and swap it into
- * `element`. Resolves `false` — leaving the fallback in place — when the
- * endpoint had no region for this visitor or the request failed.
+ * `element`. Anything but `"loaded"` leaves `element` untouched.
  */
 export async function loadRegion(
   element: Element,
   file: string,
   props: string | null,
-): Promise<boolean> {
+): Promise<RegionLoadResult> {
   const query = new URLSearchParams({
     [REGION_QUERY_FILE]: file,
     [REGION_QUERY_PATH]: location.pathname + location.search,
@@ -46,7 +55,11 @@ export async function loadRegion(
     const response = await fetch(`${withBase(PRACHT_REGION_ENDPOINT)}?${query}`, {
       headers: { [REGION_REQUEST_HEADER]: "1" },
     });
-    if (response.status !== 200) return false;
+    // Only the endpoint's own fragment is swapped in. A static host that
+    // answers unknown URLs with its SPA fallback document also says 200.
+    if (response.status !== 200 || response.headers.get(REGION_REQUEST_HEADER) !== "1") {
+      return "empty";
+    }
     element.innerHTML = await response.text();
     element.removeAttribute(REGION_PENDING_ATTRIBUTE);
     const islandsEntryUrl = response.headers.get(REGION_ISLANDS_HEADER);
@@ -62,9 +75,9 @@ export async function loadRegion(
       script.onload = () => element.dispatchEvent(new Event(REGION_SWAP_EVENT, { bubbles: true }));
       document.head.append(script);
     }
-    return true;
+    return "loaded";
   } catch {
-    return false;
+    return "failed";
   }
 }
 
