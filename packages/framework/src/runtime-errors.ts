@@ -42,11 +42,11 @@ export interface RouteErrorContext {
   shellFile?: string;
   middlewareFiles?: string[];
   /**
-   * Set when the failure happened inside a request-time region (its loader or
+   * Set when the failure happened inside a server island (its loader or
    * its render) rather than in the page itself. The page still rendered; the
-   * region fell back.
+   * server island fell back.
    */
-  regionFile?: string;
+  serverIslandFile?: string;
 }
 
 export interface SerializedRouteError {
@@ -230,7 +230,7 @@ export function describeRouteErrorModule(
   context: RouteErrorContext | undefined,
 ): string | undefined {
   if (!context) return undefined;
-  if (context.regionFile && context.phase !== "middleware") return context.regionFile;
+  if (context.serverIslandFile && context.phase !== "middleware") return context.serverIslandFile;
   if (context.phase === "middleware" && context.middlewareFiles?.length) {
     return context.middlewareFiles.join(", ");
   }

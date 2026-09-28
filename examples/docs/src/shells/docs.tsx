@@ -55,7 +55,7 @@ const NAV = [
     links: [
       { href: "/docs/rendering", Icon: IconBolt, title: "Rendering Modes" },
       { href: "/docs/islands", Icon: IconSparkles, title: "Islands" },
-      { href: "/docs/regions", Icon: IconUserBolt, title: "Request-time Regions" },
+      { href: "/docs/server-islands", Icon: IconUserBolt, title: "Server Islands" },
       { href: "/docs/data-loading", Icon: IconServerBolt, title: "Data Loading" },
       { href: "/docs/content", Icon: IconFileText, title: "Content Collections" },
       { href: "/docs/api-routes", Icon: IconPlug, title: "API Routes" },

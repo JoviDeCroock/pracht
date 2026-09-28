@@ -36,7 +36,7 @@ apps pass only an `adapter`.
 | `apiDir` | `"/src/api"` | Where [API routes](/docs/api-routes) are auto-discovered |
 | `serverDir` | `"/src/server"` | Server-only modules, never bundled for the client |
 | `islandsDir` | `"/src/islands"` | Components hydrated on [`hydration: "islands"`](/docs/islands) routes |
-| `regionsDir` | `"/src/regions"` | [Request-time regions](/docs/regions) rendered per request inside cached pages |
+| `serverIslandsDir` | `"/src/server-islands"` | [Server islands](/docs/server-islands) rendered per request inside cached pages |
 | `capabilitiesDir` | `"/src/capabilities"` | [Capability](/docs/capabilities) modules registered in the manifest |
 | `additionalExtensions` | `[]` | Extra route/shell extensions to discover, e.g. `[".vue"]`. Register the plugin that transforms them yourself. `.tsrx` needs no entry |
 

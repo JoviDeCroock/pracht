@@ -1,4 +1,4 @@
-import { REGION_REFRESH_EVENT } from "./regions-shared.ts";
+import { SERVER_ISLAND_REFRESH_EVENT } from "./server-islands-shared.ts";
 import { ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
@@ -18,11 +18,11 @@ export type RouteStateResult =
   | { type: "error"; error: SerializedRouteError; fontHead?: FontHeadFragments };
 
 /**
- * Build-time flag: the app has a regions directory. Regions on full-hydration
- * pages refetch when route data is refreshed in place; apps without regions
+ * Build-time flag: the app has a server islands directory. Server islands on full-hydration
+ * pages refetch when route data is refreshed in place; apps without server islands
  * fold this to `false` and ship none of it.
  */
-declare const __PRACHT_REGIONS__: boolean | undefined;
+declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
 
 const SAFE_NAVIGATION_PROTOCOLS = new Set(["http:", "https:"]);
 
@@ -167,13 +167,13 @@ export async function navigateToClientLocation(
       replace: options?.replace,
     });
     // A submission that redirects — often back to the same page — reloads
-    // route state; regions refresh with it.
+    // route state; server islands refresh with it.
     if (
-      typeof __PRACHT_REGIONS__ !== "undefined" &&
-      __PRACHT_REGIONS__ &&
+      typeof __PRACHT_SERVER_ISLANDS__ !== "undefined" &&
+      __PRACHT_SERVER_ISLANDS__ &&
       options?.reloadRouteState
     ) {
-      window.dispatchEvent(new Event(REGION_REFRESH_EVENT));
+      window.dispatchEvent(new Event(SERVER_ISLAND_REFRESH_EVENT));
     }
     return;
   }

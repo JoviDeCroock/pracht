@@ -94,17 +94,17 @@ See [Coding Agents](/docs/coding-agents#constraints).
 
 ---
 
-## Request-time Regions
+## Server Islands
 
-Components in `src/regions/` rendered per request inside cached pages. See
-[Request-time Regions](/docs/regions).
+Components in `src/server-islands/` rendered per request inside cached pages. See
+[Server Islands](/docs/server-islands).
 
 | Export | Description |
 | --- | --- |
-| `useRegionData<typeof loader>()` | Inside a region component: the value its `loader` returned |
-| `RegionLoaderArgs<TContext, TProps>` | Argument of a region `loader`: the page's route args plus the region's `props` (untrusted input) |
-| `RegionProps` | Intersect into a region's props for the framework-owned `fallback` |
-| `RegionLoaderData<T>` | The data type `useRegionData<T>()` resolves to |
+| `useServerIslandData<typeof loader>()` | Inside a server island component: the value its `loader` returned |
+| `ServerIslandLoaderArgs<TContext, TProps>` | Argument of a server island `loader`: the page's route args plus the server island's `props` (untrusted input) |
+| `ServerIslandProps` | Intersect into a server island's props for the framework-owned `fallback` |
+| `ServerIslandLoaderData<T>` | The data type `useServerIslandData<T>()` resolves to |
 
 ---
 

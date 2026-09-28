@@ -65,7 +65,7 @@ export default defineConfig({
     },
     {
       name: "islands",
-      testMatch: /islands-dev\.test\.ts|islands-css-parity\.test\.ts/,
+      testMatch: /(?:^|\/)islands-dev\.test\.ts|islands-css-parity\.test\.ts/,
       use: {
         baseURL: e2eUrls.islands,
       },
@@ -73,9 +73,9 @@ export default defineConfig({
     {
       // Same dev server as "islands", run after it: islands-dev edits source
       // files, and the full reloads those edits broadcast would land on the
-      // region pages mid-assertion.
-      name: "regions",
-      testMatch: /regions-dev\.test\.ts/,
+      // server island pages mid-assertion.
+      name: "server-islands",
+      testMatch: /server-islands-dev\.test\.ts/,
       dependencies: ["islands"],
       use: {
         baseURL: e2eUrls.islands,

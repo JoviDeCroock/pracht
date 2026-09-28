@@ -33,18 +33,18 @@ import {
   type IslandCapture,
 } from "./islands-server.ts";
 import {
-  createRegionRenderState,
-  getRegionsClientEntryUrl,
-  hasRegisteredRegions,
-  RegionRenderContext,
-  resolveInlineRegions,
-  type RegionRenderState,
-} from "./regions-server.ts";
+  createServerIslandRenderState,
+  getServerIslandsClientEntryUrl,
+  hasRegisteredServerIslands,
+  ServerIslandRenderContext,
+  resolveInlineServerIslands,
+  type ServerIslandRenderState,
+} from "./server-islands-server.ts";
 import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,
   ISLANDS_ENTRY_MANIFEST_KEY,
-  REGIONS_ENTRY_MANIFEST_KEY,
+  SERVER_ISLANDS_ENTRY_MANIFEST_KEY,
   mergeEntryPreloadUrls,
   resolveManifestEntries,
   resolvePageCssAssets,
@@ -519,18 +519,18 @@ async function renderServerDocument<TContext>(
     );
   }
 
-  // Request-time regions. An SSR document renders them inline — their HTML
+  // Server islands. An SSR document renders them inline — their HTML
   // replaces a token once the page has rendered. Every other document is
   // shared (SSG/ISG) or already flushing (streaming), so it carries a
-  // placeholder the browser fills from the region endpoint. Apps without a
-  // regions directory never provide the context at all.
-  let regionState: RegionRenderState | null = null;
-  if (hasRegisteredRegions()) {
+  // placeholder the browser fills from the server island endpoint. Apps without a
+  // server islands directory never provide the context at all.
+  let serverIslandState: ServerIslandRenderState | null = null;
+  if (hasRegisteredServerIslands()) {
     const inline = (match.route.render ?? "ssr") === "ssr" && !job.willStream;
-    regionState = createRegionRenderState(inline ? "inline" : "defer");
+    serverIslandState = createServerIslandRenderState(inline ? "inline" : "defer");
     tree = h(
-      RegionRenderContext.Provider as FunctionComponent<Record<string, unknown>>,
-      { value: regionState },
+      ServerIslandRenderContext.Provider as FunctionComponent<Record<string, unknown>>,
+      { value: serverIslandState },
       tree,
     );
   }
@@ -605,13 +605,13 @@ async function renderServerDocument<TContext>(
 
   const renderToString = await getRenderToStringAsync();
   let ssrContent = await renderToString(tree);
-  if (regionState) {
-    ssrContent = await resolveInlineRegions(ssrContent, regionState, {
+  if (serverIslandState) {
+    ssrContent = await resolveInlineServerIslands(ssrContent, serverIslandState, {
       routeArgs: job.routeArgs,
-      onError: (error, region) => {
+      onError: (error, serverIsland) => {
         reportRequestError(ctx.options.onRouteError, error, ctx.requestPath, {
           phase: "render",
-          regionFile: region.file,
+          serverIslandFile: serverIsland.file,
           routeFile: match.route.file,
           routeId: match.route.id,
           routePath: match.route.path,
@@ -644,16 +644,16 @@ async function renderServerDocument<TContext>(
       }
     }
 
-    // Pending regions on a page without the client runtime need the swap
-    // script; full-hydration pages fill them from the client region component.
-    let regionsEntryUrl: string | undefined;
-    if (regionState?.deferred) {
-      regionsEntryUrl = getRegionsClientEntryUrl();
-      if (!regionsEntryUrl) {
+    // Pending server islands on a page without the client runtime need the swap
+    // script; full-hydration pages fill them from the client server island component.
+    let serverIslandsEntryUrl: string | undefined;
+    if (serverIslandState?.deferred) {
+      serverIslandsEntryUrl = getServerIslandsClientEntryUrl();
+      if (!serverIslandsEntryUrl) {
         throw new Error(
-          `Route "${match.route.path}" rendered a request-time region, but no region swap ` +
-            "script URL is registered. This usually means the @pracht/vite-plugin regions " +
-            "entry was not built — check that your regions live in the configured regions directory.",
+          `Route "${match.route.path}" rendered a server island, but no server island swap ` +
+            "script URL is registered. This usually means the @pracht/vite-plugin server islands " +
+            "entry was not built — check that your server islands live in the configured server islands directory.",
         );
       }
     }
@@ -683,7 +683,7 @@ async function renderServerDocument<TContext>(
         head: withCapturedScripts(head, scriptCapture),
         body: ssrContent,
         clientEntryUrl: islandsEntryUrl,
-        regionsEntryUrl,
+        serverIslandsEntryUrl,
         cssAssets: withIslandCssAssets(
           cssAssets,
           ctx.options.cssManifest,
@@ -692,7 +692,7 @@ async function renderServerDocument<TContext>(
         ),
         modulePreloadUrls: mergeEntryPreloadUrls(
           ctx.options.jsManifest,
-          regionsEntryUrl ? REGIONS_ENTRY_MANIFEST_KEY : "",
+          serverIslandsEntryUrl ? SERVER_ISLANDS_ENTRY_MANIFEST_KEY : "",
           islandsEntryUrl
             ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
                 ...islandPreloadUrls,

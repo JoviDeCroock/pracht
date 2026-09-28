@@ -17,7 +17,7 @@ import {
   getTimeRevalidateSeconds,
   isCacheableISGResponse,
   matchAppRoute,
-  PRACHT_REGION_ENDPOINT,
+  PRACHT_SERVER_ISLAND_ENDPOINT,
   preventHeuristicCaching,
 } from "@pracht/core/server";
 
@@ -101,9 +101,9 @@ export function findCacheableIsgRoute(
     return null;
   }
 
-  // Per-visitor region HTML is answered before route matching, so even a
+  // Per-visitor server island HTML is answered before route matching, so even a
   // catch-all ISG route must never make it edge-cacheable.
-  if (url.pathname === PRACHT_REGION_ENDPOINT) return null;
+  if (url.pathname === PRACHT_SERVER_ISLAND_ENDPOINT) return null;
 
   const match = matchAppRoute(app, url.pathname);
   if (!match) return null;

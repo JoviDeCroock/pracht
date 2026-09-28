@@ -165,24 +165,24 @@ target. From `pracht inspect api --json`:
 - Common bug: dashboard route is protected by middleware, but
   `POST /api/items` is not — attacker bypasses the UI entirely.
 
-### Request-time regions
+### Server islands
 
-Every module in `src/regions/` (or `pracht({ regionsDir })`) is reachable at
-`GET /__pracht/region` with the visitor's cookies — a public server surface
-like an API route (see <https://pracht.resynapse.dev/docs/regions#security>).
+Every module in `src/server-islands/` (or `pracht({ serverIslandsDir })`) is reachable at
+`GET /__pracht/server-island` with the visitor's cookies — a public server surface
+like an API route (see <https://pracht.resynapse.dev/docs/server-islands#security>).
 The endpoint runs the middleware
-of the route that matches the `path` the **caller** supplies, so a region
+of the route that matches the `path` the **caller** supplies, so a server island
 cannot rely on its embedding page's gate: a caller can name a public route.
 
-- Flag region loaders that return user-specific data without checking
+- Flag server island loaders that return user-specific data without checking
   `context` themselves (e.g. `if (!context.user) return null`) — `error`
-  when the page that embeds the region is gated by auth middleware, since the
+  when the page that embeds the server island is gated by auth middleware, since the
   author evidently expected the gate to apply.
-- Flag region loaders that pick *whose* data to load from `props` or `params`
+- Flag server island loaders that pick *whose* data to load from `props` or `params`
   (`userId`, `orderId`, `accountId`) — the caller controls both, props through
   the query string and params through the path it names (`error`, IDOR).
   Identity must come from `context`.
-- Flag region loaders with side effects (writes, sends) — the endpoint is a
+- Flag server island loaders with side effects (writes, sends) — the endpoint is a
   `GET` (`warn`).
 
 ## Step 5: Client/server enforcement parity

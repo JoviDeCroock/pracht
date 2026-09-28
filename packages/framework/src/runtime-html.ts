@@ -128,10 +128,10 @@ export interface HtmlDocumentOptions {
   /** Page-scoped WebMCP tools consumed by the islands bootstrap. */
   webmcpCapabilities?: readonly string[];
   /**
-   * Region swap script, emitted on islands and `hydration: "none"` pages
-   * that rendered a pending request-time region.
+   * Server island swap script, emitted on islands and `hydration: "none"` pages
+   * that rendered a pending server island.
    */
-  regionsEntryUrl?: string;
+  serverIslandsEntryUrl?: string;
 }
 
 /**
@@ -165,7 +165,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     routeStatePreloadUrl,
     speculationRules,
     webmcpCapabilities = [],
-    regionsEntryUrl,
+    serverIslandsEntryUrl,
   } = options;
 
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
@@ -275,8 +275,8 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
 
   // An external module like every other framework script, so `script-src
   // 'self'` covers it on shared SSG/ISG documents that cannot carry a nonce.
-  const regionsScript = regionsEntryUrl
-    ? `<script type="module" src="${escapeHtml(regionsEntryUrl)}"></script>`
+  const serverIslandsScript = serverIslandsEntryUrl
+    ? `<script type="module" src="${escapeHtml(serverIslandsEntryUrl)}"></script>`
     : "";
 
   // Empty slots are dropped rather than interpolated: otherwise every document
@@ -299,7 +299,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     "    ",
   );
   const trailingScripts = joinDocumentLines(
-    [stateScript, bootstrapScript, clientEntryAtEnd ? "" : entryScript, regionsScript],
+    [stateScript, bootstrapScript, clientEntryAtEnd ? "" : entryScript, serverIslandsScript],
     "    ",
   );
   const suffixScripts = joinDocumentLines([clientEntryAtEnd ? entryScript : ""], "    ");

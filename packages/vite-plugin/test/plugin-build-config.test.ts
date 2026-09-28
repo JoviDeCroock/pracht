@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { islandChunkName } from "../src/chunk-groups.ts";
 import { pracht, type PrachtAdapter } from "../src/index.ts";
 
-// A project root with a regions directory and no islands directory.
-const fixtureRoot = resolve(import.meta.dirname, "fixtures/regions-app");
+// A project root with a server islands directory and no islands directory.
+const fixtureRoot = resolve(import.meta.dirname, "fixtures/server-islands-app");
 
 const edgeAdapter: PrachtAdapter = {
   id: "cloudflare",
@@ -355,20 +355,27 @@ describe("pracht plugin build config", () => {
     // Not a chunk of its own: a stylesheet follows the island that imports it.
     expect(name(`${islands}/counter.css`)).toBeNull();
     expect(name(resolve(process.cwd(), "src/routes/home.tsx"))).toBeNull();
-    // Regions are imported eagerly by the server entry too.
-    expect(name(resolve(process.cwd(), "src/regions/CartCount.tsx"))).toBe("regions/CartCount");
+    // Server islands are imported eagerly by the server entry too.
+    expect(name(resolve(process.cwd(), "src/server-islands/CartCount.tsx"))).toBe(
+      "server-islands/CartCount",
+    );
   });
 
-  it("folds the region listener out of apps without a regions directory", () => {
-    // process.cwd() is the package root, which has no src/regions.
+  it("folds the server island listener out of apps without a server islands directory", () => {
+    // process.cwd() is the package root, which has no src/server-islands.
     const config = runConfigHook(nodeishAdapter, false);
-    expect(config.define?.__PRACHT_REGIONS__).toBe("false");
+    expect(config.define?.__PRACHT_SERVER_ISLANDS__).toBe("false");
     expect(config.build?.rollupOptions).not.toHaveProperty("input");
 
-    const withRegions = runConfigHook(nodeishAdapter, false, {}, { root: resolve(fixtureRoot) });
-    expect(withRegions.define?.__PRACHT_REGIONS__).toBe("true");
-    expect((withRegions.build!.rollupOptions as { input?: string[] }).input).toEqual([
-      "virtual:pracht/regions-client",
+    const withServerIslands = runConfigHook(
+      nodeishAdapter,
+      false,
+      {},
+      { root: resolve(fixtureRoot) },
+    );
+    expect(withServerIslands.define?.__PRACHT_SERVER_ISLANDS__).toBe("true");
+    expect((withServerIslands.build!.rollupOptions as { input?: string[] }).input).toEqual([
+      "virtual:pracht/server-islands-client",
     ]);
   });
 

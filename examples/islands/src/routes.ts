@@ -47,27 +47,27 @@ export const app = defineApp({
         id: "full",
         render: "ssg",
       }),
-      // Request-time regions: per-visitor content inside otherwise cached
-      // pages. The region endpoint runs the `visitor` middleware of whichever
-      // route embedded the region.
+      // Server islands: per-visitor content inside otherwise cached pages.
+      // The server island endpoint runs the `visitor` middleware of the route
+      // that renders the server island.
       group({ middleware: ["visitor"] }, [
-        route("/regions", () => import("./routes/regions.tsx"), {
-          id: "regions",
+        route("/server-islands", () => import("./routes/server-islands.tsx"), {
+          id: "server-islands",
           render: "ssg",
           hydration: "none",
         }),
-        route("/regions/ssr", () => import("./routes/regions.tsx"), {
-          id: "regions-ssr",
+        route("/server-islands/ssr", () => import("./routes/server-islands.tsx"), {
+          id: "server-islands-ssr",
           render: "ssr",
           hydration: "none",
         }),
-        route("/regions/islands", () => import("./routes/regions-islands.tsx"), {
-          id: "regions-islands",
+        route("/server-islands/islands", () => import("./routes/server-islands-with-islands.tsx"), {
+          id: "server-islands-islands",
           render: "ssg",
           hydration: "islands",
         }),
-        route("/regions/full", () => import("./routes/regions-full.tsx"), {
-          id: "regions-full",
+        route("/server-islands/full", () => import("./routes/server-islands-full.tsx"), {
+          id: "server-islands-full",
           render: "ssg",
         }),
       ]),

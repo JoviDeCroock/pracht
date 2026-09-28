@@ -1175,14 +1175,14 @@ test("islands example exports statically and hydrates islands from a dumb host",
       cpSync(resolve(repoRoot, "packages/adapter-static"), adapterLink, { recursive: true });
     }
     // The /ssr route cannot be exported statically — flip it to ssg. The
-    // request-time region routes need a server (middleware and the region
+    // server island routes need a server (middleware and the server island
     // endpoint), so a static export drops them.
     const routesPath = resolve(exampleDir, "src/routes.ts");
     const routesSource = readFileSync(routesPath, "utf-8");
     const staticRoutesSource = routesSource
-      .replace(/\n\s*\/\/ Request-time regions:[\s\S]*?\n {6}\]\),/, "")
+      .replace(/\n\s*\/\/ Server islands:[\s\S]*?\n {6}\]\),/, "")
       .replaceAll('render: "ssr",', 'render: "ssg",');
-    expect(staticRoutesSource).not.toContain("/regions");
+    expect(staticRoutesSource).not.toContain("/server-islands");
     writeFileSync(routesPath, staticRoutesSource, "utf-8");
 
     buildExample(exampleDir);

@@ -11,7 +11,7 @@ export function Shell({ children }: ShellProps) {
           <a href="/static">Static</a>
           <a href="/ssr">SSR</a>
           <a href="/full">Full</a>
-          <a href="/regions/full">Regions</a>
+          <a href="/server-islands/full">Server islands</a>
         </nav>
       </header>
       <main>{children}</main>

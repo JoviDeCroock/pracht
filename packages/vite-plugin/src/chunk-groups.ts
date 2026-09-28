@@ -158,8 +158,8 @@ export function islandChunkName(
   return `${prefix}${withinIslands.replace(/\.[^./]+$/, "")}`;
 }
 
-/** Name of the chunk a request-time region module is grouped into, per region. */
-export const REGION_CHUNK_PREFIX = "regions/";
+/** Name of the chunk a server island module is grouped into, per server island. */
+export const SERVER_ISLAND_CHUNK_PREFIX = "server-islands/";
 
 /**
  * The chunking pracht contributes to the *server* build.
@@ -178,13 +178,15 @@ export const REGION_CHUNK_PREFIX = "regions/";
 export function islandChunkConfig(
   output: unknown,
   islandsDirectory: string,
-  regionsDirectory?: string,
+  serverIslandsDirectory?: string,
 ): FrameworkChunkConfig {
-  // Regions are imported eagerly by the server entry for the same reason
+  // Server islands are imported eagerly by the server entry for the same reason
   // islands are, so they get the same one-chunk-each treatment.
   const chunkName = (id: string): string | null =>
     islandChunkName(id, islandsDirectory) ??
-    (regionsDirectory ? islandChunkName(id, regionsDirectory, REGION_CHUNK_PREFIX) : null);
+    (serverIslandsDirectory
+      ? islandChunkName(id, serverIslandsDirectory, SERVER_ISLAND_CHUNK_PREFIX)
+      : null);
   if (Array.isArray(output)) {
     return {
       warning:

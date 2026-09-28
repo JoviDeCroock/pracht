@@ -55,15 +55,15 @@ For each route:
      identity at request time.
    - **Unless only a small part of the page is personal** (a cart count,
      "signed in as …", a recommendation strip) and the rest is shared: then
-     recommend **`ssg`/`isg`** for the route plus a **request-time region** for
+     recommend **`ssg`/`isg`** for the route plus a **server island** for
      the personal part (see branch 5b).
 
 5b. **Personal data is confined to a small, self-contained part of the page**
-   → keep the route **`ssg`/`isg`** and move that part into `src/regions/`:
+   → keep the route **`ssg`/`isg`** and move that part into `src/server-islands/`:
    a default-export component plus a `loader` that reads `context` instead of
    the page loader, used as JSX with a `fallback`. See
-   <https://pracht.resynapse.dev/docs/regions>. Not available on the static
-   adapter. Region props are untrusted input — the region loader must
+   <https://pracht.resynapse.dev/docs/server-islands>. Not available on the static
+   adapter. Server island props are untrusted input — the server island loader must
    authorize from `context` itself.
 
 6. **Heavy client interactivity, no SEO need, auth-gated** → **`spa`**
@@ -120,9 +120,9 @@ Examples of recommendations:
   request — cannot be prerendered." (`error`)
 - `spa` → `ssr` when route has SEO-relevant `head()` and unauthenticated
   visitors should see content. (`warn`)
-- `ssr` → `isg(600)` + region when the loader reads the session only for a
+- `ssr` → `isg(600)` + server island when the loader reads the session only for a
   header greeting or cart badge: "move the personal part into
-  `src/regions/`; the page itself is shared." (`info`)
+  `src/server-islands/`; the page itself is shared." (`info`)
 
 ## Step 3b: Consider the hydration mode too
 
@@ -206,7 +206,7 @@ Apply the edits only after the user confirms.
    the exact diff first; apply only after explicit user approval.
 2. If a route uses `auth` middleware, default to `ssr` — auth implies cookies.
    The exception is middleware that only *reads* the session for a small
-   personal part of an otherwise public page: that is the region case (5b).
+   personal part of an otherwise public page: that is the server island case (5b).
 3. All three adapters support ISG — the mechanisms differ. Confirm which
    adapter is in play, then use this capability table:
 

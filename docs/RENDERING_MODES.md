@@ -338,8 +338,8 @@ full picture: island discovery, hydration strategies (`load`/`idle`/`visible`),
 prop serialization rules, and limitations.
 
 A route that is SSR only because a small part of it is personal can usually
-stay SSG/ISG and render that part as a request-time region (`src/regions/`),
-filled per visitor after load. See [REGIONS.md](REGIONS.md).
+stay SSG/ISG and render that part as a server island (`src/server-islands/`),
+filled per visitor after load. See [SERVER_ISLANDS.md](SERVER_ISLANDS.md).
 
 ---
 

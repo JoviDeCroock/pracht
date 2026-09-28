@@ -421,7 +421,7 @@ The client updates the component tree in-place.
 ## Server pipeline stages
 
 `handlePrachtRequest` is an orchestrator. The work is four stages (plus the
-region endpoint between the first two), and the order they run in *is* the
+server island endpoint between the first two), and the order they run in *is* the
 routing contract:
 
 ```
@@ -435,10 +435,10 @@ handlePrachtRequest (runtime.ts)
 │       └─ may answer outright: 308 base redirect, 404 outside base,
 │          403 blocked upgrade, 500 unbindable context
 │
-├─ GET /__pracht/region → handleRegionRequest (regions-server.ts)
-│       match the page path · page route's middleware · region loader ·
-│       render one region to a private, no-store HTML fragment
-│       (see REGIONS.md)
+├─ GET /__pracht/server-island → handleServerIslandRequest (server-islands-server.ts)
+│       match the page path · page route's middleware · server island loader ·
+│       render one server island to a private, no-store HTML fragment
+│       (see SERVER_ISLANDS.md)
 │
 ├─ 2. dispatchApi                 (runtime-request.ts)
 │       match src/api · CSRF gate on unsafe methods · api.middleware chain
@@ -462,11 +462,11 @@ route bypass MCP's transport and OAuth gates.
 Each stage takes one explicit `PrachtRequestContext` rather than closing over the
 handler's locals, so each is callable — and testable — on its own.
 
-## Request-time regions
+## Server islands
 
-A region on an SSR page is part of the document request: its loader runs after
-the page has rendered, concurrently with the page's other regions, and its HTML
-replaces a token in the page before the response is sent. A region on an SSG or
+A server island on an SSR page is part of the document request: its loader runs after
+the page has rendered, concurrently with the page's other server islands, and its HTML
+replaces a token in the page before the response is sent. A server island on an SSG or
 ISG page costs one extra request after load:
 
 ```
@@ -474,14 +474,14 @@ ISG page costs one extra request after load:
 │  BROWSER                          SERVER / CDN                                │
 │                                                                               │
 │  ── GET /pricing ──────────────────►  prerendered HTML (shared, cacheable)    │
-│  ◄── <pracht-region pending>fallback</pracht-region> + swap script ─────────  │
+│  ◄── <pracht-server-island pending>fallback</pracht-server-island> + swap script ─────────  │
 │                                                                               │
-│  ── GET /__pracht/region?region=…&path=/pricing&props=… ──►                   │
-│       x-pracht-region: 1   Cookie: session=…                                  │
+│  ── GET /__pracht/server-island?island=…&path=/pricing&props=… ──►                   │
+│       x-pracht-server-island: 1   Cookie: session=…                                  │
 │                                     matchAppRoute("/pricing")                  │
 │                                     runMiddlewareChain (page route's)          │
-│                                     region loader(context, props, signal)      │
-│                                     render region → HTML fragment              │
+│                                     server island loader(context, props, signal)      │
+│                                     render server island → HTML fragment              │
 │  ◄── 200 text/html   Cache-Control: private, no-store ─────────────────────   │
 │  swap innerHTML; islands inside it hydrate                                    │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -489,8 +489,8 @@ ISG page costs one extra request after load:
 
 Middleware or a loader that answers with a `Response` yields `204`; a thrown
 error yields `500`. Either way the page keeps the fallback. On full-hydration
-pages the client region component makes the same request itself, including
-after client-side navigation. See [REGIONS.md](REGIONS.md).
+pages the client server island component makes the same request itself, including
+after client-side navigation. See [SERVER_ISLANDS.md](SERVER_ISLANDS.md).
 
 ---
 

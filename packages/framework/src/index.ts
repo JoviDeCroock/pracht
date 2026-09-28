@@ -260,15 +260,15 @@ export {
   type IslandUsage,
 } from "./islands-server.ts";
 export {
-  readRegionBindingsFromDevServer,
-  registerServerRegions,
-  setRegionBindings,
-  setRegionsClientEntryUrl,
-  type RegionBindings,
-  type RegionDescriptor,
-} from "./regions-server.ts";
-export { PRACHT_REGION_ENDPOINT } from "./regions-shared.ts";
-export { useRegionData } from "./regions-data.ts";
+  readServerIslandBindingsFromDevServer,
+  registerServerIslandModules,
+  setServerIslandBindings,
+  setServerIslandsClientEntryUrl,
+  type ServerIslandBindings,
+  type ServerIslandDescriptor,
+} from "./server-islands-server.ts";
+export { PRACHT_SERVER_ISLAND_ENDPOINT } from "./server-islands-shared.ts";
+export { useServerIslandData } from "./server-islands-data.ts";
 export { notFound, PrachtHttpError } from "./types.ts";
 export type {
   ApiConfig,
@@ -364,10 +364,10 @@ export type {
   HydrationMode,
   IslandStrategy,
   IslandProps,
-  RegionLoaderArgs,
-  RegionLoaderData,
-  RegionModule,
-  RegionProps,
+  ServerIslandLoaderArgs,
+  ServerIslandLoaderData,
+  ServerIslandModule,
+  ServerIslandProps,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,

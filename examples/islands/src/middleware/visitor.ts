@@ -5,9 +5,10 @@ export interface VisitorContext {
 }
 
 /**
- * Reads the `visitor` cookie into `context.visitor`. Runs for the region
- * routes' documents and — through the region endpoint — for every region
- * those pages embed, so a cached page's region still sees the visitor.
+ * Reads the `visitor` cookie into `context.visitor`. Runs for the server
+ * island routes' documents and — through the server island endpoint — for
+ * every server island those pages render, so a cached page's server island
+ * still sees the visitor.
  */
 export const middleware: MiddlewareFn<VisitorContext> = ({ request, context }, next) => {
   const match = /(?:^|;\s*)visitor=([^;]+)/.exec(request.headers.get("cookie") ?? "");

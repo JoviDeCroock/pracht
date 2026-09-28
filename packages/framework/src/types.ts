@@ -76,13 +76,13 @@ export interface IslandProps {
 }
 
 /**
- * Props accepted by every region usage. Intersect with your own props type:
- * `function CartCount(props: CartCountProps & RegionProps)`. `fallback` is
+ * Props accepted by every server island usage. Intersect with your own props type:
+ * `function CartCount(props: CartCountProps & ServerIslandProps)`. `fallback` is
  * consumed by the framework and never reaches the component: it is what a
  * cached (SSG/ISG) page shows until the request-time HTML arrives, and what
- * any page shows when the region fails.
+ * any page shows when the server island fails.
  */
-export interface RegionProps {
+export interface ServerIslandProps {
   fallback?: ComponentChildren;
 }
 
@@ -788,30 +788,30 @@ export interface BaseRouteArgs<TContext = RegisteredContext> {
 export interface LoaderArgs<TContext = RegisteredContext> extends BaseRouteArgs<TContext> {}
 
 /**
- * Arguments of a region `loader`: the embedding page's route arguments —
+ * Arguments of a server island `loader`: the embedding page's route arguments —
  * `request` and `url` are the page's, `context` is what the page route's
- * middleware produced — plus the props the region was rendered with.
+ * middleware produced — plus the props the server island was rendered with.
  *
- * `props` are untrusted input: on a cached page they travel in the region
+ * `props` are untrusted input: on a cached page they travel in the server island
  * request's query string, where any caller can change them. Treat them like
  * query parameters and authorize from `context`, never from `props`.
  */
-export interface RegionLoaderArgs<
+export interface ServerIslandLoaderArgs<
   TContext = RegisteredContext,
   TProps extends object = Record<string, unknown>,
 > extends LoaderArgs<TContext> {
   props: TProps;
 }
 
-/** Data a region reads with `useRegionData<typeof loader>()`. */
-export type RegionLoaderData<T> = T extends (...args: any[]) => infer TResult
+/** Data a server island reads with `useServerIslandData<typeof loader>()`. */
+export type ServerIslandLoaderData<T> = T extends (...args: any[]) => infer TResult
   ? Exclude<Awaited<TResult>, Response>
   : T;
 
-/** Shape of a module in the regions directory. */
-export interface RegionModule<TContext = any> {
+/** Shape of a module in the server islands directory. */
+export interface ServerIslandModule<TContext = any> {
   default: FunctionComponent<any>;
-  loader?: (args: RegionLoaderArgs<TContext, any>) => MaybePromise<unknown>;
+  loader?: (args: ServerIslandLoaderArgs<TContext, any>) => MaybePromise<unknown>;
 }
 
 /** The matched page or API route whose middleware chain is running. */

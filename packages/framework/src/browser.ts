@@ -121,9 +121,9 @@ export {
 } from "./event-source-hook.ts";
 export { forwardRef } from "./forwardRef.ts";
 export { useIsHydrated } from "./hydration.ts";
-// Region modules compile to a placeholder in the browser, so this never runs
+// Server island modules compile to a placeholder in the browser, so this never runs
 // there; exported so a shared import resolves in either bundle.
-export { useRegionData } from "./regions-data.ts";
+export { useServerIslandData } from "./server-islands-data.ts";
 export { useWebVitals } from "./web-vitals-hook.ts";
 export type { WebVitalsMetric, WebVitalsReporter } from "./web-vitals-hook.ts";
 export { Script } from "./script.ts";
@@ -227,10 +227,10 @@ export type {
   HydrationMode,
   IslandStrategy,
   IslandProps,
-  RegionLoaderArgs,
-  RegionLoaderData,
-  RegionModule,
-  RegionProps,
+  ServerIslandLoaderArgs,
+  ServerIslandLoaderData,
+  ServerIslandModule,
+  ServerIslandProps,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,

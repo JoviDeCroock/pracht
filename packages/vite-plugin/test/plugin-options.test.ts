@@ -2,9 +2,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  createClientRegionModuleSource,
+  createClientServerIslandModuleSource,
   createPrachtDevModuleSource,
-  createPrachtRegionsClientModuleSource,
+  createPrachtServerIslandsClientModuleSource,
   createPrachtServerModuleSource,
 } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
@@ -292,22 +292,22 @@ describe("createPrachtServerModuleSource static target export", () => {
   });
 });
 
-describe("request-time regions codegen", () => {
-  it("registers every module of the regions directory in the server entry", () => {
+describe("server islands codegen", () => {
+  it("registers every module of the server islands directory in the server entry", () => {
     const source = createPrachtServerModuleSource(
-      { regionsDir: "/app/regions" },
+      { serverIslandsDir: "/app/server-islands" },
       { base: "/app/" },
     );
     expect(source).toContain(
-      'const regionModules = import.meta.glob("/app/regions/**/*.{ts,tsx,js,jsx}", { eager: true });',
+      'const serverIslandModules = import.meta.glob("/app/server-islands/**/*.{ts,tsx,js,jsx}", { eager: true });',
     );
-    expect(source).toContain("registerServerRegions(regionModules);");
+    expect(source).toContain("registerServerIslandModules(serverIslandModules);");
     // Dev serves the swap script from a stable path under the deploy base.
-    expect(source).toContain('setRegionsClientEntryUrl("/app/@pracht/regions.js");');
+    expect(source).toContain('setServerIslandsClientEntryUrl("/app/@pracht/server-islands.js");');
   });
 
-  it("compiles a region module to a client placeholder that keeps only its stylesheets", () => {
-    const source = createClientRegionModuleSource(
+  it("compiles a server island module to a client placeholder that keeps only its stylesheets", () => {
+    const source = createClientServerIslandModuleSource(
       [
         'import "./cart.css";',
         "import './theme.scss?inline';",
@@ -315,24 +315,24 @@ describe("request-time regions codegen", () => {
         "export async function loader() { return db.count(); }",
         "export default function Cart() { return null; }",
       ].join("\n"),
-      "/src/regions/Cart.tsx",
+      "/src/server-islands/Cart.tsx",
     );
 
     expect(source).toBe(
       [
         'import "./cart.css";',
         'import "./theme.scss?inline";',
-        'import { createClientRegion } from "@pracht/core/regions-component";',
+        'import { createClientServerIsland } from "@pracht/core/server-islands-component";',
         "",
-        'export default createClientRegion("/src/regions/Cart.tsx");',
+        'export default createClientServerIsland("/src/server-islands/Cart.tsx");',
         "",
       ].join("\n"),
     );
   });
 
   it("emits a swap entry that imports nothing from the app", () => {
-    expect(createPrachtRegionsClientModuleSource()).toBe(
-      'import { swapRegions } from "@pracht/core/regions-client";\n\nswapRegions();\n',
+    expect(createPrachtServerIslandsClientModuleSource()).toBe(
+      'import { swapServerIslands } from "@pracht/core/server-islands-client";\n\nswapServerIslands();\n',
     );
   });
 });

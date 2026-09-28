@@ -6,8 +6,8 @@ prev:
   href: /docs/rendering
   title: Rendering Modes
 next:
-  href: /docs/regions
-  title: Request-time Regions
+  href: /docs/server-islands
+  title: Server Islands
 ---
 
 ## Overview
@@ -120,7 +120,7 @@ Move the content inside the island or pass serializable data instead.
 
 Island props are fixed when the page renders, so on an `ssg` or `isg` page they
 are the same for every visitor. For content that depends on who is asking, such
-as a cart count, render a [request-time region](/docs/regions) instead.
+as a cart count, render a [server island](/docs/server-islands) instead.
 
 ---
 

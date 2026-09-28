@@ -74,13 +74,13 @@
       "types": "./dist/islands-client.d.mts",
       "default": "./dist/islands-client.mjs"
     },
-    "./regions-client": {
-      "types": "./dist/regions-client.d.mts",
-      "default": "./dist/regions-client.mjs"
+    "./server-islands-client": {
+      "types": "./dist/server-islands-client.d.mts",
+      "default": "./dist/server-islands-client.mjs"
     },
-    "./regions-component": {
-      "types": "./dist/regions-component.d.mts",
-      "default": "./dist/regions-component.mjs"
+    "./server-islands-component": {
+      "types": "./dist/server-islands-component.d.mts",
+      "default": "./dist/server-islands-component.mjs"
     },
     "./error-overlay": {
       "types": "./dist/error-overlay.d.mts",

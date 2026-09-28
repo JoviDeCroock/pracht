@@ -75,7 +75,7 @@ HTML is generated fresh on every request, with the loader's data serialized for 
 > [!TIP]
 > If only a small part of the page is personal, such as a cart count or "signed
 > in as …", keep the page `ssg` or `isg` and render that part as a
-> [request-time region](/docs/regions).
+> [server island](/docs/server-islands).
 
 ---
 

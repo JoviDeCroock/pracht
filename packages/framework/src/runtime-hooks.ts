@@ -54,7 +54,7 @@ import {
   capabilityHttpPath,
 } from "@pracht/capabilities";
 import { clearPrefetchCache } from "./prefetch-cache.ts";
-import { REGION_REFRESH_EVENT } from "./regions-shared.ts";
+import { SERVER_ISLAND_REFRESH_EVENT } from "./server-islands-shared.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import type {
@@ -72,8 +72,8 @@ import type {
   UntypedRouteTarget,
 } from "./types.ts";
 
-/** Build-time flag: the app has regions (see `runtime-revalidate.ts`). */
-declare const __PRACHT_REGIONS__: boolean | undefined;
+/** Build-time flag: the app has server islands (see `runtime-revalidate.ts`). */
+declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
 
 export { PrachtRuntimeProvider, readHydrationState, startApp };
 export type { PrachtHydrationState, StartAppOptions };
@@ -706,8 +706,12 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
             }
           }
           onResponse?.(response);
-          if (typeof __PRACHT_REGIONS__ !== "undefined" && __PRACHT_REGIONS__ && response.ok) {
-            window.dispatchEvent(new Event(REGION_REFRESH_EVENT));
+          if (
+            typeof __PRACHT_SERVER_ISLANDS__ !== "undefined" &&
+            __PRACHT_SERVER_ISLANDS__ &&
+            response.ok
+          ) {
+            window.dispatchEvent(new Event(SERVER_ISLAND_REFRESH_EVENT));
           }
         }
       } finally {

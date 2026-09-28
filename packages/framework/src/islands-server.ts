@@ -231,10 +231,10 @@ export function validateIslandProps(
 }
 
 /**
- * Which component received the props. Regions share the island rules: their
- * props are serialized into the page and posted back with the region request.
+ * Which component received the props. Server islands share the island rules: their
+ * props are serialized into the page and posted back with the server island request.
  */
-export type SerializedPropsKind = "Island" | "Region";
+export type SerializedPropsKind = "Island" | "Server island";
 
 interface PropOwner extends Pick<IslandDescriptor, "file" | "name"> {
   kind: SerializedPropsKind;
@@ -319,7 +319,7 @@ function islandPropError(path: string, reason: string, descriptor: PropOwner): E
   const travel =
     descriptor.kind === "Island"
       ? "Island props are serialized into the HTML and revived in the browser"
-      : "Region props are serialized into the HTML and sent back with each region request";
+      : "Server island props are serialized into the HTML and sent back with each server island request";
   return new Error(
     `${descriptor.kind} "${descriptor.name}" (${descriptor.file}) received a prop that is not ` +
       `JSON-serializable: ${path} ${reason}. ${travel}, so they must be JSON-serializable values ` +

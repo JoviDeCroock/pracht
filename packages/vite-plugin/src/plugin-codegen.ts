@@ -10,11 +10,11 @@ import {
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
-  REGIONS_CLIENT_BROWSER_PATH,
+  SERVER_ISLANDS_CLIENT_BROWSER_PATH,
   readClientBuildAssets,
 } from "./plugin-assets.ts";
 import { ROUTE_CSS_CONTENT_TOKEN, ROUTE_CSS_MANIFEST_TOKEN } from "./plugin-server-css.ts";
-import { REGION_BINDINGS_TOKEN } from "./region-bindings.ts";
+import { SERVER_ISLAND_BINDINGS_TOKEN } from "./server-island-bindings.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -714,16 +714,16 @@ export function createPrachtIslandsClientModuleSource(
 }
 
 /**
- * Source of `virtual:pracht/regions-client` — the swap script islands and
+ * Source of `virtual:pracht/server-islands-client` — the swap script islands and
  * `hydration: "none"` pages load when they rendered a pending request-time
- * region. It imports nothing from the app: it fetches each pending region's
+ * server island. It imports nothing from the app: it fetches each pending server island's
  * HTML and swaps it in.
  */
-export function createPrachtRegionsClientModuleSource(): string {
+export function createPrachtServerIslandsClientModuleSource(): string {
   return [
-    'import { swapRegions } from "@pracht/core/regions-client";',
+    'import { swapServerIslands } from "@pracht/core/server-islands-client";',
     "",
-    "swapRegions();",
+    "swapServerIslands();",
     "",
   ].join("\n");
 }
@@ -732,21 +732,24 @@ const STYLE_IMPORT_RE =
   /^\s*import\s+(["'])([^"']+\.(?:css|scss|sass|less|styl|stylus|pcss|postcss|sss)(?:\?[^"']*)?)\1\s*;?\s*$/gm;
 
 /**
- * What a region module compiles to in the client bundle: a placeholder
- * component that fills itself from the region endpoint. The region's own
+ * What a server island module compiles to in the client bundle: a placeholder
+ * component that fills itself from the server island endpoint. The server island's own
  * code — its loader and whatever that imports — never reaches the browser.
- * Bare stylesheet imports are kept so a region's CSS still ships with the
+ * Bare stylesheet imports are kept so a server island's CSS still ships with the
  * page that renders it.
  */
-export function createClientRegionModuleSource(code: string, regionFile: string): string {
+export function createClientServerIslandModuleSource(
+  code: string,
+  serverIslandFile: string,
+): string {
   const styleImports = [...code.matchAll(STYLE_IMPORT_RE)].map(
     (match) => `import ${JSON.stringify(match[2])};`,
   );
   return [
     ...styleImports,
-    'import { createClientRegion } from "@pracht/core/regions-component";',
+    'import { createClientServerIsland } from "@pracht/core/server-islands-component";',
     "",
-    `export default createClientRegion(${JSON.stringify(regionFile)});`,
+    `export default createClientServerIsland(${JSON.stringify(serverIslandFile)});`,
     "",
   ].join("\n");
 }
@@ -772,7 +775,7 @@ export function createPrachtServerModuleSource(
     : {
         clientEntryUrl: null,
         islandsEntryUrl: null,
-        regionsEntryUrl: null,
+        serverIslandsEntryUrl: null,
         cssManifest: {},
         cssContentManifest: {},
         jsManifest: {},
@@ -809,18 +812,18 @@ export function createPrachtServerModuleSource(
     ? clientBuild.islandsEntryUrl
     : withDevBase(ISLANDS_CLIENT_BROWSER_PATH);
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
-  const regionsEntryUrl = buildOptions.isBuild
-    ? clientBuild.regionsEntryUrl
-    : withDevBase(REGIONS_CLIENT_BROWSER_PATH);
-  const regionsGlob = `${resolved.regionsDir}/**/*.{ts,tsx,js,jsx}`;
+  const serverIslandsEntryUrl = buildOptions.isBuild
+    ? clientBuild.serverIslandsEntryUrl
+    : withDevBase(SERVER_ISLANDS_CLIENT_BROWSER_PATH);
+  const serverIslandsGlob = `${resolved.serverIslandsDir}/**/*.{ts,tsx,js,jsx}`;
 
   const source = [
     prachtImports,
     'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
-    'import { registerServerRegions, setRegionsClientEntryUrl } from "@pracht/core/server";',
+    'import { registerServerIslandModules, setServerIslandsClientEntryUrl } from "@pracht/core/server";',
     buildOptions.isBuild
-      ? 'import { setRegionBindings } from "@pracht/core/server";'
-      : 'import { readRegionBindingsFromDevServer } from "@pracht/core/server";',
+      ? 'import { setServerIslandBindings } from "@pracht/core/server";'
+      : 'import { readServerIslandBindingsFromDevServer } from "@pracht/core/server";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -836,17 +839,17 @@ export function createPrachtServerModuleSource(
     `setIslandsClientEntryUrl(${JSON.stringify(islandsEntryUrl ?? undefined)});`,
     "export const islandFiles = Object.keys(islandModules);",
     "",
-    "// Request-time regions: detected like islands, rendered per request.",
-    `const regionModules = import.meta.glob(${JSON.stringify(regionsGlob)}, { eager: true });`,
-    "registerServerRegions(regionModules);",
-    `setRegionsClientEntryUrl(${JSON.stringify(regionsEntryUrl ?? undefined)});`,
-    // Which regions each route and shell module imports. The region endpoint
-    // runs a region only under a route that renders it. A build splices the
-    // map in from its module graph (see region-bindings.ts); the dev server
-    // computes it per region request.
+    "// Server islands: detected like islands, rendered per request.",
+    `const serverIslandModules = import.meta.glob(${JSON.stringify(serverIslandsGlob)}, { eager: true });`,
+    "registerServerIslandModules(serverIslandModules);",
+    `setServerIslandsClientEntryUrl(${JSON.stringify(serverIslandsEntryUrl ?? undefined)});`,
+    // Which server islands each route and shell module imports. The server island endpoint
+    // runs a server island only under a route that renders it. A build splices the
+    // map in from its module graph (see server-island-bindings.ts); the dev server
+    // computes it per server island request.
     buildOptions.isBuild
-      ? `setRegionBindings(${JSON.stringify(REGION_BINDINGS_TOKEN)});`
-      : "readRegionBindingsFromDevServer();",
+      ? `setServerIslandBindings(${JSON.stringify(SERVER_ISLAND_BINDINGS_TOKEN)});`
+      : "readServerIslandBindingsFromDevServer();",
     "",
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
