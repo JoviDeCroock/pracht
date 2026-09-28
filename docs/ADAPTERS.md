@@ -384,7 +384,22 @@ the process entrypoint — see [WebSockets](#websockets) above.
 `shutdownTimeoutMs` (default `10000`) bounds the generated entry's graceful
 shutdown: on `SIGTERM` or `SIGINT` it closes the server, waits for in-flight
 requests and `waitUntil()` work up to that deadline, then re-raises the signal
-so the exit status is the default one.
+so the exit status is the default one. Edges of that shape:
+
+- `server.close()` resolves only when every socket is gone. Idle keep-alive
+  sockets are closed up front, but a socket whose request finishes during the
+  drain stays open for Node's `keepAliveTimeout` (5s), and longer while a
+  client keeps sending on it; SSE streams and upgraded WebSockets hold it until
+  the deadline. The `waitUntil()` drain shares that deadline, so work still
+  pending when it expires is cut off.
+- The handlers are removed before the drain starts, so a second signal takes the
+  default action and exits at once.
+- `configureServer()` runs first, so its own `SIGTERM`/`SIGINT` listeners run
+  alongside pracht's (and again on the re-raise). The server is closed either
+  way, so a listener that meant to keep the process alive no longer does.
+- As PID 1 in a container without an init process, the re-raised signal is
+  ignored by the kernel; the process then exits only once its event loop is
+  empty. Run with `docker run --init` (or tini) for a prompt exit.
 
 ### Entry module
 

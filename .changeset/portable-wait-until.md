@@ -11,4 +11,4 @@
 "@pracht/test": minor
 ---
 
-Loaders, middleware, API routes, `head()`/`headers()`, and capability `run()` receive a portable `waitUntil(promise)` that keeps work running after the response on every adapter, reports a rejection instead of crashing, and is drained by Node's graceful shutdown and awaited by builds.
+Loaders, middleware, API routes, `head()`/`headers()`, and capability `run()` now receive `waitUntil(promise)`, which keeps work running after the response on every adapter. The generated Node server now waits for in-flight requests and that work on `SIGTERM`/`SIGINT`, up to `nodeAdapter({ shutdownTimeoutMs })` (default 10s). Migration: tests that build these args by hand must pass `waitUntil` (for example `waitUntil: () => {}`); args from `@pracht/test` already include it.

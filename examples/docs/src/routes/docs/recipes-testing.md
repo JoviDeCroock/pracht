@@ -62,10 +62,9 @@ await expect(pending).rejects.toThrow();
 
 ### Work after the response
 
-Work a loader, API handler, or middleware registers with `waitUntil()` is
-recorded on the args. `args.waitUntilPromises` lists it; `await
-args.flushWaitUntil()` waits for all of it (including work registered while
-waiting) and rejects with the first failure:
+`args.waitUntilPromises` lists the work passed to `waitUntil()`, and
+`await args.flushWaitUntil()` waits for all of it, rejecting with the first
+failure:
 
 ```ts [src/api/signup.test.ts]
 import { expect, it } from "vitest";
@@ -75,17 +74,11 @@ import { POST } from "./signup";
 
 it("sends the welcome email after answering", async () => {
   const args = createApiArgs({ url: "/api/signup", body: { email: "ada@example.com" } });
-  const response = await POST(args);
-
-  expect(response.status).toBe(201);
-  expect(args.waitUntilPromises).toHaveLength(1);
+  expect((await POST(args)).status).toBe(201);
   await args.flushWaitUntil();
   expect(outbox).toContain("ada@example.com");
 });
 ```
-
-Pass `waitUntil` to any args factory to also forward each registration to your
-own spy.
 
 ### Testing an API route
 

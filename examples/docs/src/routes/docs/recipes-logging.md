@@ -164,10 +164,7 @@ export const middleware: MiddlewareFn = async (
       status,
     });
 
-    // Hand the flush off so the response can return immediately. Every
-    // adapter keeps the request alive for it (ctx.waitUntil on Cloudflare,
-    // context.waitUntil on Netlify and Vercel, a drained pending set on
-    // Node), and a failed flush is reported instead of crashing anything.
+    // Ship the events after the response instead of blocking it.
     waitUntil(context.logger.flush());
   }
 };
@@ -181,15 +178,9 @@ function serializeError(error: unknown) {
 }
 ```
 
-The middleware sees the final response status and any thrown error, and
-`finally` runs as part of the request.
-
-> [!NOTE]
-> On Cloudflare the worker can be torn down once the response is returned.
-> `await flush()` blocks the response, and fire-and-forget can be cut off.
-> `context.executionContext.waitUntil(flushPromise)` sends the response and
-> keeps the worker alive until the flush resolves; `deferFlush` above uses it
-> when available.
+The middleware sees the final response status and any thrown error.
+[`waitUntil()`](/docs/data-loading#waituntil) sends the response first and keeps
+the flush alive on every adapter, where `await flush()` would delay the response.
 
 ---
 
@@ -278,7 +269,7 @@ if (import.meta.hot) {
 
 Import it from an eagerly loaded module: add `import "./audit.ts"` to the `createContextFrom` module above, or import it from a custom server entry. Route, API route, middleware, and `src/server/` registry modules load lazily and can miss earlier calls. Keep the HMR `dispose` hook so the dev server never keeps a stale listener.
 
-Sinks run synchronously, so keep the work before the first `await` cheap. A returned promise is not awaited, and a sink that throws is swallowed, with one `console.warn` per named registration. On Cloudflare Workers, flush a batching exporter within the request or pass it the execution context yourself; pracht does not call `ctx.waitUntil()` for sinks.
+Sinks run synchronously, so keep the work before the first `await` cheap. A returned promise goes to [`waitUntil()`](/docs/data-loading#waituntil), so an `async` exporter finishes after the response on every adapter. A sink that throws is swallowed, with one `console.warn` per named registration.
 
 The three metrics worth deriving from these events:
 
