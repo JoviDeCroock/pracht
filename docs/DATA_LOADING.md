@@ -279,6 +279,28 @@ The plugin defines `__PRACHT_APP_ROOT__` false for a build with no root file,
 which folds away the router and fetch wiring; dev keeps it on so a root file
 added while the server runs is picked up.
 
+Known edges, by design:
+
+- `setup()` starts with the request, before middleware settles, so it also
+  runs for requests that middleware answers itself. It should stay cheap and
+  must not assume the request is authorized.
+- A snapshot is applied when its route-state response arrives, not when the
+  route commits: a prefetch the user never follows, or a navigation that a
+  later one supersedes, still hydrates. `@pracht/query` is unaffected because
+  TanStack's `hydrate()` never replaces a newer cache entry with an older one.
+- After a successful non-`read` capability call, the route revalidation
+  carries fresh query snapshots and `@pracht/query` also invalidates every
+  query, so an active query can be fetched twice (server and browser).
+- Only the server checks that one root module exists; the client entry takes
+  the first match of the root glob.
+- SSG/ISG snapshots carry the render time as `dataUpdatedAt`, so with
+  `@pracht/query` the browser refetches them once they are older than
+  `staleTime`.
+- On streaming routes, a query read with `useSuspenseQuery` that the loader
+  did not await is not in the snapshot. Inside a `<Suspense>` boundary it hits
+  the same stream-swap/hydration race as any non-`defer()` suspension; outside
+  one the streaming render fails.
+
 ### Deferred values — `defer()` and `use()`
 
 A loader that awaits everything is only as fast as its slowest call. Wrap the

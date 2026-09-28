@@ -1,6 +1,6 @@
 ---
 title: TanStack Query
-lead: Use TanStack Query in a pracht app with @pracht/query. Queries fetched on the server arrive in the browser cache with the page and with every client navigation, so components never fetch the same data twice.
+lead: Use TanStack Query in a pracht app with @pracht/query. Queries fetched on the server arrive in the browser cache with the page and with every client navigation, so components render from the cache instead of fetching again.
 breadcrumb: TanStack Query
 prev:
   href: /docs/recipes/forms
@@ -12,7 +12,7 @@ next:
 
 ## Install
 
-`@pracht/query` connects [`@tanstack/preact-query`](https://tanstack.com/query) to pracht's render pipeline. It creates one `QueryClient` per server request, sends what the server fetched to the browser, and fills the browser's cache before the page hydrates.
+`@pracht/query` connects [`@tanstack/preact-query`](https://tanstack.com/query) to pracht. It creates one `QueryClient` per server request and fills the browser's cache with what the server fetched before the page hydrates.
 
 ```bash
 npm install @pracht/query @tanstack/preact-query
@@ -26,11 +26,11 @@ Create `src/root.ts` and re-export the ready-made root:
 export * from "@pracht/query/root";
 ```
 
-The [app root](/docs/shells#the-app-root) renders above every shell and is never remounted, so the browser's `QueryClient` and its cache survive every navigation, including one that switches shells. On the server, `setup()` runs once per request, so two visitors never share a cache.
+The [app root](/docs/shells#the-app-root) is never remounted, so the browser's `QueryClient` keeps its cache across every navigation, including one that switches shells. On the server, each request gets its own `QueryClient`.
 
 ## 2. Describe your queries
 
-Write query options once and share them between loaders and components. The `queryFn` runs on the server during a request and in the browser when a query refetches, so it has to work in both places:
+Share query options between loaders and components. The `queryFn` runs on the server during a request and in the browser when a query refetches, so it has to work in both places:
 
 ```ts [src/queries/posts.ts]
 import { queryOptions } from "@tanstack/preact-query";
@@ -70,59 +70,30 @@ export default function PostPage({ params }: RouteComponentProps) {
 }
 ```
 
-Here is what happens:
+- **First load.** The component renders from the cache the loader filled, and the page carries that cache to the browser. `useSuspenseQuery` finds the data there and does not fetch.
+- **Client navigation.** The queries the loader fetched come back in the same route-state response as the loader data, including for prefetched links, and land in the browser cache before the new page renders.
+- **After that.** TanStack Query takes over: `staleTime`, refetch on focus, background refreshes.
 
-- **First load.** The loader fills the request's cache, and the component renders from it. After the render, the cache is added to the page. The browser hydrates it into its own `QueryClient` before hydration starts, so `useSuspenseQuery` finds the data and does not fetch.
-- **Client navigation.** The loader runs on the server as usual. The queries it fetched come back in the same route-state response as the loader data, and go into the browser cache before the new page renders. Prefetched links carry them too.
-- **After that.** TanStack Query takes over: refetch on focus, `staleTime`, background refreshes, and so on.
-
-A component may also start a query that the loader didn't prefetch. `useSuspenseQuery` suspends during the server render, and whatever it fetched is still included in the page.
+A component can also start a query the loader didn't prefetch. `useSuspenseQuery` waits for it during the server render, and the page carries it too.
 
 ## Mutations
 
-A successful non-`read` [capability](/docs/capabilities) call invalidates every query, the same way pracht revalidates route data after one. That covers `<Form capability>` and `callCapability()` with no extra code. For anything else, use `useMutation` and invalidate what changed:
-
-```tsx [src/components/rename-post.tsx]
-import { useMutation, useQueryClient } from "@tanstack/preact-query";
-
-export function RenamePost({ id }: { id: string }) {
-  const queryClient = useQueryClient();
-  const rename = useMutation({
-    mutationFn: async (title: string) => {
-      const response = await fetch(`/api/posts/${id}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
-      if (!response.ok) throw new Error("Rename failed");
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["post", id] }),
-  });
-
-  return (
-    <button disabled={rename.isPending} onClick={() => rename.mutate("New title")}>
-      Rename
-    </button>
-  );
-}
-```
+A successful non-`read` [capability](/docs/capabilities) call, from `<Form capability>` or `callCapability()`, invalidates every query, the same way pracht revalidates route data. For a mutation that goes through an API route, invalidate what changed in `useMutation`'s `onSuccess`, as in any TanStack Query app.
 
 ## Configuration
 
-`createQueryRoot()` takes the `QueryClient` config (or a function that returns it for each side), `dehydrate`/`hydrate` options, and whether capability calls invalidate queries:
+`createQueryRoot()` takes the `QueryClient` config (or a function of `{ isServer, request }` that returns it), `dehydrate`/`hydrate` options, and `invalidateOnCapability`:
 
 ```ts [src/root.ts]
 import { createQueryRoot } from "@pracht/query";
 
 export const { setup, Root, dehydrate, hydrate } = createQueryRoot({
-  client: ({ isServer }) => ({
-    defaultOptions: { queries: { staleTime: isServer ? 0 : 30_000 } },
-  }),
+  client: { defaultOptions: { queries: { staleTime: 30_000 } } },
   invalidateOnCapability: true,
 });
 ```
 
-The defaults are a `staleTime` of 60 seconds (without one, every query the server just fetched would refetch as soon as it mounted) and `retry: false` on the server, so a failing request fails fast instead of holding the response.
+Queries default to a `staleTime` of 60 seconds, so data the server just fetched does not refetch on mount, and to `retry: false` on the server, so a failing request fails fast.
 
 To type `args.root` in loaders, register the root state:
 
@@ -139,6 +110,7 @@ declare module "@pracht/core" {
 ## Limits
 
 - **Only successful queries are sent.** A query that failed or is still pending on the server fetches again in the browser.
-- **Streaming routes** (`streaming: true`) write the cache into the page before the shell renders, so only queries the loader awaited are included. Await the queries a streamed route needs in its loader.
-- **Islands** (`hydration: "islands"`) hydrate one component at a time without the app root, so `useQuery` is not available inside an island.
-- **The data has to be JSON.** The cache travels as JSON, so `Date`, `Map`, and class instances arrive as their JSON form. Return plain data from `queryFn`, or convert with `select`.
+- **SSG and ISG pages** carry the data from when they were rendered. Once it is older than `staleTime`, the browser refetches it after hydration.
+- **Streaming routes** (`streaming: true`) send the cache before the shell renders, so only queries the loader awaited are included. Await every query a streamed route reads in its loader.
+- **Islands** (`hydration: "islands"`) hydrate without the app root, so `useQuery` is not available inside an island.
+- **The data has to be JSON.** `Date`, `Map`, and class instances arrive as their JSON form. Return plain data from `queryFn`, or convert with `select`.
