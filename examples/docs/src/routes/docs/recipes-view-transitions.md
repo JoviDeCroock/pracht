@@ -1,6 +1,6 @@
 ---
 title: View Transitions
-lead: Animate route changes with the browser View Transitions API — client-side navigations and full page loads to islands and static pages alike — while keeping pracht's data loading, scroll restoration, and fallback behavior intact.
+lead: Animate client-side route changes and full page loads with the browser View Transitions API while keeping pracht's data loading, scroll restoration, and fallback behavior intact.
 breadcrumb: View Transitions
 prev:
   href: /docs/recipes/forms
@@ -135,46 +135,26 @@ const navigate = useNavigate();
 await navigate("/settings", { viewTransition: false });
 ```
 
-The app-wide switch also covers full page loads — see the next section.
-
 ---
 
 ## Islands And Static Pages
 
-Routes with `hydration: "islands"` or `hydration: "none"` do not load the
-client router, so every navigation to, from, or between them is a full page
-load. `<Link viewTransition>` and `navigate()` options cannot animate those.
-The browser can: with `viewTransitions: true`, every page document pracht
-renders carries the cross-document opt-in in its `<head>`:
+Routes with `hydration: "islands"` or `"none"` do not load the client router,
+so navigating to, from, or between them is a full page load. With
+`viewTransitions: true`, every page pracht renders carries
+`@view-transition { navigation: auto }` in its `<head>`, so supporting browsers
+animate these page loads as cross-document view transitions. Link clicks, form
+submissions, and back/forward animate; reloads do not. No JavaScript is added.
 
-```html
-<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>
-```
+Navigations the client router handles still animate once, through
+`document.startViewTransition()`. The same `::view-transition-*` CSS and
+`view-transition-name` values drive both, so the
+[named photo transition](#named-element-transitions) also works between islands
+pages. Set those names in CSS or server-rendered `style` attributes so they are
+present when the new page first renders.
 
-A same-origin navigation between two documents that both carry this rule —
-a link click, a form submission, back/forward, but not a reload — animates as
-a cross-document view transition. It is plain CSS: a `hydration: "none"` page
-still ships zero JavaScript.
-
-Full-hydration pages carry the rule too, because the old *and* the new
-document must opt in. Leaving a full-hydration page for an islands page (the
-client router hands that navigation to the browser) therefore animates as
-well. Navigations the client router handles itself are same-document, which
-the rule does not affect: they animate once, through
-`document.startViewTransition()`, exactly as before.
-
-The same CSS drives both kinds of transition. `::view-transition-old(root)` /
-`::view-transition-new(root)` rules and `view-transition-name` on matching
-elements apply across documents unchanged, so the
-[named photo transition](#named-element-transitions) also works when the
-gallery and photo pages are islands routes. Put the names in CSS or
-server-rendered `style` attributes: they must be present when the old page is
-captured and when the new page first renders.
-
-There is no per-route manifest switch: a cross-document transition needs the
-rule on both pages, so it is an app-wide setting. To keep a single page out of
-cross-document transitions (to and from it), override the rule in that page's
-stylesheet, which loads after pracht's:
+To keep one page out of cross-document transitions, override the rule in a
+stylesheet that page loads:
 
 ```css [src/routes/checkout.css]
 @view-transition {
@@ -182,17 +162,10 @@ stylesheet, which loads after pracht's:
 }
 ```
 
-### CSP
-
-The rule is an inline `<style>`. Under a `style-src` without
-`'unsafe-inline'`, return `styleNonce` from your shell `head()` — the same
-nonce that covers pracht's other generated styles. Prerendered (SSG/ISG) pages
-cannot carry a per-request nonce; allow the rule by its hash instead, which
-never changes:
-
-```
-style-src 'self' 'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='
-```
+The rule is an inline `<style>`. Under a strict `style-src`, return
+`styleNonce` from your shell `head()`, or allow it on prerendered pages with
+`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`. See
+[Content Security Policy](/docs/recipes/csp#framework-generated-styles).
 
 ---
 
@@ -277,19 +250,16 @@ that navigation.
 ## Progressive Enhancement
 
 You do not need a support check before using `viewTransition`. Browsers without
-`document.startViewTransition()` commit the navigation normally, and browsers
-without cross-document view transitions ignore the `@view-transition` rule and
-simply load the next page.
+view transition support commit client navigations and load full pages normally.
 
 Keep animations behind `prefers-reduced-motion: no-preference`, and avoid
 putting critical state changes only in the animation. The page should be
 correct whether the transition runs, is skipped, or is interrupted by a newer
 navigation.
 
-The browser's default cross-fade runs even when your stylesheet defines no
-animation. To drop every transition for users who ask for reduced motion, turn
-off cross-document transitions and the animations of same-document ones in a
-stylesheet every page loads:
+The browser's default cross-fade runs even without your CSS. To turn every
+transition off for users who prefer reduced motion, add this to a stylesheet
+every page loads:
 
 ```css [src/styles/global.css]
 @media (prefers-reduced-motion: reduce) {

@@ -553,8 +553,10 @@ browser (`window.location`), so `startViewTransition()` never sees them. For
 those, `viewTransitions: true` also makes every page document (SSR, SSG/ISG,
 SPA shell, streamed; all hydration modes) emit
 `<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>`
-in the head, before route CSS so an app stylesheet can override it. Design
-notes:
+in the head, right after the meta tags. The last `@view-transition` rule in the
+document wins, so it goes ahead of every stylesheet the app contributes
+(`head().link` stylesheets, fonts, inlined and linked route CSS) and any of them
+can override it. Design notes:
 
 - **Every page, not just islands/none.** The at-rule only takes effect when both
   the old and the new document carry it, and full → islands is a document load
@@ -573,6 +575,12 @@ notes:
   the hash.
 - Error-boundary documents and the static SPA fallback do not carry it;
   navigations into them just do not animate.
+- **Opt-out CSS outlives client navigation.** In a full-hydration app, route
+  CSS the router loads on a client navigation stays in the document. A route
+  whose CSS says `@view-transition { navigation: none }` therefore keeps
+  cross-document transitions off for the rest of that document's life, even
+  after the router navigates away from it. Islands and `none` pages always load
+  fresh documents, so their opt-out stays scoped to the page.
 
 ---
 
