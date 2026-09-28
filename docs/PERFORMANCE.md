@@ -136,7 +136,7 @@ unsaved work is a different class of surprise from quietly not prefetching.
 bundles: the server writes loader data in the route-data encoding (see
 [DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return)) and the client
 keeps the decoder. Measured by `pnpm bench` on the ladder fixture's
-`rich data on` rung, that is 265 gzip bytes on full hydration. Islands never
+`rich data on` rung, that is 272 gzip bytes on full hydration. Islands never
 load it.
 
 It is off by default rather than a compile-out switch like the two above

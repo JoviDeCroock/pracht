@@ -41,7 +41,7 @@ What to read off the table:
 - **[Navigation guards off](/docs/data-loading#useblocker) saves about
   0.25 KB**, the full cost of `useBlocker()`.
 - **[Rich data](/docs/data-loading#dates-maps-and-other-rich-values) costs
-  about 0.25 KB**, and only when you turn it on.
+  about 0.3 KB**, and only when you turn it on.
 
 ### How these numbers are measured
 

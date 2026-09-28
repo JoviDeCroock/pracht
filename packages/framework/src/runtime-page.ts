@@ -223,8 +223,12 @@ interface PageRenderJob<TContext> {
   dataFunctionsPromise: Promise<Awaited<ReturnType<typeof resolveDataFunctions>>> | undefined;
   routeModule: RouteModule | undefined;
   shellModule: ShellModule | undefined;
-  /** The shell loader's data once it succeeded; absent when it did not run. */
-  shellState: { data: unknown } | undefined;
+  /**
+   * The shell loader's data once it succeeded; absent when it did not run.
+   * `wire` is what the browser receives: `data` itself, or its route-data
+   * encoding when the app opted in to rich data.
+   */
+  shellState: { data: unknown; wire: unknown } | undefined;
   loaderFile: string | undefined;
   phase: PrachtRuntimeDiagnosticPhase;
 }
@@ -333,7 +337,17 @@ async function runShellLoader<TContext>(
     result = error;
   }
   if (result instanceof Response) return { response: result };
-  job.shellState = { data: await resolveDeferredData(result) };
+  const data = await resolveDeferredData(result);
+  // Encoded once, here, so a value the browser cannot receive fails as this
+  // loader's error instead of while the error page is being rendered. Like
+  // route data, it is only checked when it ships: islands and `none` pages
+  // render shell data on the server alone.
+  const ships = job.ctx.isRouteStateRequest || (job.match.route.hydration ?? "full") === "full";
+  job.shellState = {
+    data,
+    wire:
+      RICH_ROUTE_DATA && ships ? encodeRouteData(data, `shell "${job.match.route.shell}"`) : data,
+  };
   return undefined;
 }
 
@@ -382,7 +396,7 @@ async function buildRouteStateResponse<TContext>(
     ? encodeRouteData(data, `route "${job.match.route.id ?? job.match.route.path}"`)
     : data;
   const body = job.shellState
-    ? { data: encodedData, shellData: job.shellState.data, fontHead }
+    ? { data: encodedData, shellData: job.shellState.wire, fontHead }
     : { data: encodedData, fontHead };
   const response = withRouteResponseHeaders(Response.json(body), {
     isRouteStateRequest: true,
@@ -595,7 +609,7 @@ async function renderServerDocument<TContext>(
       ),
     ),
   );
-  const shellHydrationState = job.shellState ? { shellData: job.shellState.data } : undefined;
+  const shellHydrationState = job.shellState ? { shellData: job.shellState.wire } : undefined;
 
   const hydration = match.route.hydration ?? "full";
 

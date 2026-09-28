@@ -232,3 +232,124 @@ describe("rich loader data transports", () => {
     expect(await response.text()).not.toContain("pracht-state");
   });
 });
+
+describe("rich shell loader data", () => {
+  const joinedAt = new Date("2020-05-06T07:08:09.000Z");
+
+  /** A route under a shell whose loader returns `shellData()`. */
+  function shellPage(
+    shellData: () => unknown = () => ({ joinedAt, roles: new Set(["admin"]) }),
+    options: RouteMeta = {},
+  ) {
+    return {
+      app: defineApp({
+        shells: { app: "./shells/app.tsx" },
+        routes: [route("/", "./routes/home.tsx", { shell: "app", ...options })],
+      }),
+      debugErrors: true,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            loader: richData,
+            search: {
+              "~standard": {
+                version: 1 as const,
+                vendor: "test",
+                validate: (value: unknown) =>
+                  (value as { page?: string }).page === "-1"
+                    ? { issues: [{ message: "Expected a positive page" }] }
+                    : { value },
+              },
+            },
+            Component: () => h("main", null, "home"),
+            ErrorBoundary: () => h("p", null, "bad query"),
+          }),
+        },
+        shellModules: {
+          "./shells/app.tsx": async () => ({
+            Shell: ({ children }: { children: preact.ComponentChildren }) => children,
+            loader: shellData,
+          }),
+        },
+      },
+    };
+  }
+
+  function expectShell(shellData: unknown) {
+    const shell = shellData as { joinedAt: Date; roles: Set<string> };
+    expect(shell.joinedAt).toBeInstanceOf(Date);
+    expect(shell.joinedAt.getTime()).toBe(joinedAt.getTime());
+    expect(shell.roles).toEqual(new Set(["admin"]));
+  }
+
+  it("encodes shell data in the hydration state beside route data", async () => {
+    const response = await handlePrachtRequest({
+      ...shellPage(),
+      request: new Request("http://localhost/"),
+    });
+    const html = await response.text();
+    const state = JSON.parse(
+      html.match(/<script id="pracht-state" type="application\/json">([\s\S]*?)<\/script>/)![1],
+    ) as { data: unknown; shellData: unknown };
+    expectRich(decodeRouteData(state.data) as RichData);
+    expectShell(decodeRouteData(state.shellData));
+  });
+
+  it("encodes shell data in route-state responses", async () => {
+    const response = await handlePrachtRequest({
+      ...shellPage(),
+      request: new Request("http://localhost/", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+    const body = (await response.json()) as { data: unknown; shellData: unknown };
+    expectRich(decodeRouteData(body.data) as RichData);
+    expectShell(decodeRouteData(body.shellData));
+  });
+
+  it("encodes shell data in a route error, such as a rejected query", async () => {
+    const document = await handlePrachtRequest({
+      ...shellPage(),
+      request: new Request("http://localhost/?page=-1"),
+    });
+    expect(document.status).toBe(400);
+    const html = await document.text();
+    const state = JSON.parse(
+      html.match(/<script id="pracht-state" type="application\/json">([\s\S]*?)<\/script>/)![1],
+    ) as { shellData: unknown };
+    expectShell(decodeRouteData(state.shellData));
+
+    const routeState = await handlePrachtRequest({
+      ...shellPage(),
+      request: new Request("http://localhost/?page=-1", {
+        headers: { "x-pracht-route-state-request": "1" },
+      }),
+    });
+    expect(routeState.status).toBe(400);
+    const body = (await routeState.json()) as { error: { status: number }; shellData: unknown };
+    expect(body.error.status).toBe(400);
+    expectShell(decodeRouteData(body.shellData));
+  });
+
+  it("fails as the shell loader's error when shell data cannot be sent", async () => {
+    let reported: unknown;
+    const response = await handlePrachtRequest({
+      ...shellPage(() => ({ save: () => {} })),
+      onRouteError: (error) => {
+        reported = error;
+      },
+      request: new Request("http://localhost/"),
+    });
+    expect(response.status).toBe(500);
+    expect(String(reported)).toContain('Loader data for shell "app"');
+    expect(String(reported)).toContain("data.save is a function");
+  });
+
+  it("does not check shell data on pages that ship none", async () => {
+    const response = await handlePrachtRequest({
+      ...shellPage(() => ({ save: () => {} }), { hydration: "islands" }),
+      request: new Request("http://localhost/"),
+    });
+    expect(response.status).toBe(200);
+  });
+});

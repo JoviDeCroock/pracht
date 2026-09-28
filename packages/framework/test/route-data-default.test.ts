@@ -1,7 +1,8 @@
 /**
- * Without `pracht({ client: { richData: true } })`, loader data travels as
- * plain `JSON.stringify` output on every transport, exactly as it did before
- * the rich encoding existed. Rich data is route-data-transport.test.ts.
+ * Without `pracht({ client: { richData: true } })`, route and shell loader data
+ * travel as plain `JSON.stringify` output on every transport, exactly as they
+ * did before the rich encoding existed. Rich data is
+ * route-data-transport.test.ts.
  */
 import { h } from "preact";
 import { describe, expect, it } from "vitest";
@@ -21,12 +22,21 @@ const loaderData = () => ({
 
 function page() {
   return {
-    app: defineApp({ routes: [route("/", "./routes/home.tsx")] }),
+    app: defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/", "./routes/home.tsx", { shell: "app" })],
+    }),
     registry: {
       routeModules: {
         "./routes/home.tsx": async () => ({
           loader: loaderData,
           Component: () => h("main", null, "home"),
+        }),
+      },
+      shellModules: {
+        "./shells/app.tsx": async () => ({
+          Shell: ({ children }: { children: preact.ComponentChildren }) => children,
+          loader: loaderData,
         }),
       },
     },
@@ -46,7 +56,9 @@ describe("loader data without rich data", () => {
     const match = html.match(
       /<script id="pracht-state" type="application\/json">([\s\S]*?)<\/script>/,
     );
-    expect((JSON.parse(match![1]) as { data: unknown }).data).toEqual(expected);
+    const state = JSON.parse(match![1]) as { data: unknown; shellData: unknown };
+    expect(state.data).toEqual(expected);
+    expect(state.shellData).toEqual(expected);
     expect(match![1]).not.toContain("\\u0000");
   });
 
@@ -58,6 +70,8 @@ describe("loader data without rich data", () => {
       }),
     });
     expect(response.status).toBe(200);
-    expect(((await response.json()) as { data: unknown }).data).toEqual(expected);
+    const body = (await response.json()) as { data: unknown; shellData: unknown };
+    expect(body.data).toEqual(expected);
+    expect(body.shellData).toEqual(expected);
   });
 });

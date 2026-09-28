@@ -337,6 +337,7 @@ describe("published package tree shaking", () => {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_RICH_DATA__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -435,6 +436,7 @@ describe("published package tree shaking", () => {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_RICH_DATA__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -478,6 +480,7 @@ describe("published package tree shaking", () => {
           "import.meta.env.DEV": "false",
           __PRACHT_HYDRATION_WARNINGS__: "false",
           __PRACHT_ROUTE_SEARCH__: "false",
+          __PRACHT_RICH_DATA__: "false",
           ...define,
         },
         entry: clientEntry,
@@ -538,11 +541,16 @@ describe("published package tree shaking", () => {
   // revives Dates, Maps, Sets, and BigInts. An app that sends plain JSON must
   // not pay for it.
   describe("__PRACHT_RICH_DATA__", () => {
+    const PRODUCTION = {
+      "import.meta.env.DEV": "false",
+      __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_ROUTE_SEARCH__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
+    };
     const routerBundle = (define: Record<string, string>) =>
       bundleExport("initClientRouter", {
         define: {
-          "import.meta.env.DEV": "false",
-          __PRACHT_HYDRATION_WARNINGS__: "false",
+          ...PRODUCTION,
           ...define,
         },
         entry: clientEntry,
@@ -561,11 +569,7 @@ describe("published package tree shaking", () => {
       // after chunking, which left the codec behind as a chunk every page
       // imports.
       const { code } = await bundleExport("readHydrationState", {
-        define: {
-          "import.meta.env.DEV": "false",
-          __PRACHT_HYDRATION_WARNINGS__: "false",
-          __PRACHT_RICH_DATA__: "false",
-        },
+        define: { ...PRODUCTION, __PRACHT_RICH_DATA__: "false" },
         entry: clientEntry,
         lazyExports: ["use", "fetchPrachtRouteState"],
       });

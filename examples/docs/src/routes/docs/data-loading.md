@@ -53,7 +53,8 @@ loader returned instead:
 pracht({ client: { richData: true } });
 ```
 
-Then the component gets the same types on the first load, after client
+Then components get the same types from route and
+[shell](/docs/shells#shell-data) loaders alike: on the first load, after client
 navigation, from a static export, and from a streamed `defer()` value:
 
 - `Date`, `Map`, `Set`, `RegExp`, `URL`, and `BigInt`
@@ -74,7 +75,7 @@ export default function Post({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
-It adds about 0.25 KB gzip to fully hydrated pages, and plain JSON data is
+It adds about 0.3 KB gzip to fully hydrated pages, and plain JSON data is
 sent exactly as before. An object with a `toJSON()` method, such as a decimal
 type, arrives as what `toJSON()` returns. Any other value, like a function or
 a class instance, fails the request with an error that names its path.

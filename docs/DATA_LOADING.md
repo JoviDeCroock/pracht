@@ -67,15 +67,17 @@ of falling through to a render (see
 
 ### What a loader can return
 
-Loader data travels to the browser in the hydration-state script, route-state
-(`_data`) responses, static-export state files, and streamed `defer()` chunks.
-By default all four carry plain `JSON.stringify` output: a `Date` arrives as
+Route loader data travels to the browser in the hydration-state script,
+route-state (`_data`) responses, static-export state files, and streamed
+`defer()` chunks; shell loader data (`shellData`) travels in the first three
+and in route-state error bodies. By default all of them carry plain
+`JSON.stringify` output: a `Date` arrives as
 its ISO string, a `Map` as `{}`, a class instance as its own enumerable
 fields, and a function not at all. The component types still say `Date`,
 because `LoaderData<typeof loader>` is the loader's return type, not its JSON
 form.
 
-`pracht({ client: { richData: true } })` switches all four to one encoding,
+`pracht({ client: { richData: true } })` switches all of them to one encoding,
 defined in `src/route-data-codec.ts` (`encodeRouteData()` on the server,
 `decodeRouteData()` in the browser). The option sets the
 `__PRACHT_RICH_DATA__` define (`RICH_ROUTE_DATA` in the runtime) for the
@@ -117,7 +119,7 @@ emit no hydration state, so their loaders may return anything the component
 can render on the server. Island props use their own JSON-only validation (see
 [ISLANDS.md](ISLANDS.md)).
 
-The decoder costs 265 bytes gzip on full-hydration routes when enabled (see
+The decoder costs 272 bytes gzip on full-hydration routes when enabled (see
 [PERFORMANCE.md](PERFORMANCE.md#rich-loader-data-is-opt-in)).
 
 ### LoaderArgs

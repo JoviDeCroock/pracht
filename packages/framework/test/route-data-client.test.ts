@@ -73,6 +73,56 @@ describe("rich loader data in the browser", () => {
     expectRich((result as { data: RichValue }).data);
   });
 
+  it("revives shell data in the hydration state, and leaves it absent when absent", () => {
+    // The server encodes shell data where the shell loader runs, so it
+    // reaches the document already encoded.
+    plantHydrationScript({
+      url: "/",
+      routeId: "home",
+      data: { plain: true },
+      shellData: encodeRouteData(richValue()),
+      error: null,
+    });
+    const state = readHydrationState<{ plain: boolean }>()!;
+    expect(state.data).toEqual({ plain: true });
+    expectRich(state.shellData as RichValue);
+
+    document.head.innerHTML = "";
+    delete window.__PRACHT_STATE__;
+    plantHydrationScript({ url: "/", routeId: "home", data: richValue(), error: null });
+    expect("shellData" in readHydrationState()!).toBe(false);
+  });
+
+  it("revives shell data in route-state responses and route errors", async () => {
+    const respond = (body: unknown, status = 200) =>
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(body), {
+              status,
+              headers: { "content-type": "application/json" },
+            }),
+        ),
+      );
+
+    respond({ data: { plain: true }, shellData: encodeRouteData(richValue()) });
+    const result = await fetchPrachtRouteState("/");
+    expect(result).toMatchObject({ type: "data", data: { plain: true } });
+    expectRich((result as { shell: { data: RichValue } }).shell.data);
+
+    respond(
+      {
+        error: { message: "Invalid search params", name: "Error", status: 400 },
+        shellData: encodeRouteData(richValue()),
+      },
+      400,
+    );
+    const failed = await fetchPrachtRouteState("/?page=-1");
+    expect(failed.type).toBe("error");
+    expectRich((failed as { shell: { data: RichValue } }).shell.data);
+  });
+
   it("revives streamed defer() values", async () => {
     const { data, pending } = serializeDeferred({ rich: defer(Promise.resolve(richValue())) });
     // The shim queues a chunk that lands before the registry installs.

@@ -176,7 +176,9 @@ export async function fetchPrachtRouteState(
   }
 
   // Rich data needs the raw text to tell whether the payload holds any tag.
+  // Route and shell data share the encoding, so both are revived.
   const text = RICH_ROUTE_DATA ? await response.text() : "";
+  const tagged = RICH_ROUTE_DATA && mayContainEncodedRouteData(text);
   const json = (RICH_ROUTE_DATA ? JSON.parse(text) : await response.json()) as {
     data?: unknown;
     shellData?: unknown;
@@ -198,7 +200,7 @@ export async function fetchPrachtRouteState(
         fontHead: json.fontHead,
         type: "error",
         ...(SHELL_LOADERS_ENABLED && "shellData" in json
-          ? { shell: { data: json.shellData } }
+          ? { shell: { data: tagged ? decodeRouteData(json.shellData) : json.shellData } }
           : null),
       };
     }
@@ -207,11 +209,12 @@ export async function fetchPrachtRouteState(
   }
 
   return {
-    data:
-      RICH_ROUTE_DATA && mayContainEncodedRouteData(text) ? decodeRouteData(json.data) : json.data,
+    data: tagged ? decodeRouteData(json.data) : json.data,
     fontHead: json.fontHead,
     type: "data",
-    ...(SHELL_LOADERS_ENABLED && "shellData" in json ? { shell: { data: json.shellData } } : null),
+    ...(SHELL_LOADERS_ENABLED && "shellData" in json
+      ? { shell: { data: tagged ? decodeRouteData(json.shellData) : json.shellData } }
+      : null),
   };
 }
 

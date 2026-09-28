@@ -281,6 +281,8 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
 
   const stateScript = hydrationState
     ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(
+        // `shellData` arrives already encoded: the shell loader's result is
+        // encoded once, where the loader runs (runtime-page.ts).
         RICH_ROUTE_DATA
           ? {
               ...hydrationState,

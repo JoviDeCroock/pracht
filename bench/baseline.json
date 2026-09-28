@@ -42,6 +42,14 @@
       "coldGzipBytes": 17562
     },
     {
+      "rung": "hydration: full, rich data on",
+      "hydration": "full",
+      "bytes": 44311,
+      "gzipBytes": 16956,
+      "lazyGzipBytes": 1129,
+      "coldGzipBytes": 18085
+    },
+    {
       "rung": "hydration: full + preact/compat",
       "hydration": "full",
       "bytes": 45993,
