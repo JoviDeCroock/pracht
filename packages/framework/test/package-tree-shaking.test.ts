@@ -225,6 +225,7 @@ describe("published package tree shaking", () => {
         __PRACHT_ROUTE_SEARCH__: "false",
         __PRACHT_SHELL_LOADERS__: "false",
         __PRACHT_RICH_DATA__: "false",
+        __PRACHT_APP_ROOT__: "false",
       },
       entry: clientEntry,
     };
@@ -248,14 +249,10 @@ describe("published package tree shaking", () => {
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
     // These ceilings measure the router with Preact external.
-    //
-    // Raised from 10,250 for the app root (`src/root.tsx`). The plugin defines
-    // `__PRACHT_APP_ROOT__` false for a build without a root module, so only
-    // this define-less shape carries it unconditionally.
-    it("keeps the router runtime below 10,500 gzip bytes", async () => {
+    it("keeps the router runtime below 10,250 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_500);
+      expect(gzipBytes).toBeLessThanOrEqual(10_250);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -342,6 +339,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -382,8 +380,9 @@ describe("published package tree shaking", () => {
     });
   });
 
-  // The app root (`src/root.tsx`) is optional. The plugin defines the flag
-  // false for a build without one, so those apps ship none of its wiring.
+  // The app root (`defineApp({ root })`) is optional. The plugin defines the
+  // flag false for a build that registers none, so those apps ship none of its
+  // wiring.
   describe("__PRACHT_APP_ROOT__", () => {
     const routerBundle = (define: Record<string, string>) =>
       bundleExport("initClientRouter", {
@@ -468,6 +467,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -512,6 +512,7 @@ describe("published package tree shaking", () => {
           __PRACHT_HYDRATION_WARNINGS__: "false",
           __PRACHT_ROUTE_SEARCH__: "false",
           __PRACHT_RICH_DATA__: "false",
+          __PRACHT_APP_ROOT__: "false",
           ...define,
         },
         entry: clientEntry,
@@ -577,6 +578,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_ROUTE_SEARCH__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
     const routerBundle = (define: Record<string, string>) =>
       bundleExport("initClientRouter", {

@@ -206,4 +206,4 @@ export function hydrate(store: Store, snapshot: unknown) {
 
 Loaders read the request's state as `args.root`, typed by `pracht typegen`. What a loader puts into it reaches the browser with the page and with every client navigation, and what the server render adds reaches it with the page. [`@pracht/query`](/docs/recipes/tanstack-query) is built on this.
 
-The root is not a data source of its own: data that depends on the request comes from loaders. The module is bundled for the browser, so keep secrets in middleware and loaders. Islands routes don't render the app root in the browser, and an app that registers none ships none of this code. In the [pages router](/docs/routing#file-conventions), the root is `pages/_root.tsx`.
+The root is not a data source of its own: data that depends on the request comes from loaders, and data a layout shows from its [shell loader](#shell-data). The module is bundled for the browser, so keep secrets in middleware and loaders. Islands routes don't render the app root in the browser, and an app that registers none ships none of this code. In the [pages router](/docs/routing#file-conventions), the root is `pages/_root.tsx`.

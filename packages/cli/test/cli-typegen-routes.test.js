@@ -174,7 +174,7 @@ export function Shell({ children }) {
     const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
 
     expect(declaration).toContain(
-      'import type { ApiRouteMethodMap, RootState, RouteLoaderData, RouteParamInput, ',
+      "import type { ApiRouteMethodMap, RootState, RouteLoaderData, RouteParamInput, ",
     );
     expect(declaration).toContain('    root: RootState<typeof import("./root")>;');
     expect(JSON.parse(runCli(["inspect", "--json"], { cwd: appDir }).stdout).root).toBe(
