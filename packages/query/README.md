@@ -22,6 +22,16 @@ npm install @pracht/query @tanstack/preact-query
 export * from "@pracht/query/root";
 ```
 
+```ts
+// src/routes.ts
+export const app = defineApp({
+  root: () => import("./root.ts"),
+  routes: [route("/posts/:id", () => import("./routes/post.tsx"))],
+});
+```
+
+In the pages router, the root is `src/pages/_root.ts`.
+
 ```tsx
 // src/routes/post.tsx
 import { getQueryClient } from "@pracht/query";
@@ -51,7 +61,7 @@ export default function Post({ params }: RouteComponentProps) {
 import { createQueryRoot } from "@pracht/query";
 
 export const { setup, Root, dehydrate, hydrate } = createQueryRoot({
-  // QueryClient config, or a function of { isServer, request } returning it.
+  // QueryClient config, or a function of { isServer } returning it.
   client: { defaultOptions: { queries: { staleTime: 30_000 } } },
   // Passed to TanStack Query's dehydrate() / hydrate().
   dehydrate: {},
@@ -64,4 +74,4 @@ export const { setup, Root, dehydrate, hydrate } = createQueryRoot({
 Defaults: `staleTime: 60_000`, and `retry: false` on the server.
 
 See the [TanStack Query recipe](https://pracht.resynapse.dev/docs/recipes/tanstack-query)
-for mutations, typing `args.root`, and limits (streaming routes, islands).
+for mutations and limits (streaming routes, islands).

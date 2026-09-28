@@ -122,13 +122,61 @@ describe("app root", () => {
     const secondHtml = await second.text();
     expect(firstHtml).toContain('<p id="root-id">root-1</p>');
     expect(secondHtml).toContain('<p id="root-id">root-2</p>');
-    expect(rootModule.setupCalls).toHaveLength(2);
-    expect(rootModule.setupCalls[0].isServer).toBe(true);
-    expect(rootModule.setupCalls[0].request?.url).toBe("http://localhost/");
+    expect(rootModule.setupCalls).toEqual([{ isServer: true }, { isServer: true }]);
 
     // Each request's snapshot describes only its own state.
     expect(parseHydrationState(firstHtml).root).toEqual({ id: 1, seen: ["home"] });
     expect(parseHydrationState(secondHtml).root).toEqual({ id: 2, seen: ["home"] });
+  });
+
+  it("creates the root after middleware and before the loader", async () => {
+    const order: string[] = [];
+    const rootModule: RootModule = {
+      setup: () => {
+        order.push("setup");
+        return {};
+      },
+    };
+    const app = defineApp({
+      middleware: { gate: "./middleware/gate.ts" },
+      routes: [
+        route("/", "./routes/home.tsx", { middleware: ["gate"], render: "ssr" }),
+        route("/closed", "./routes/home.tsx", { middleware: ["gate"], render: "ssr" }),
+      ],
+    });
+    const registry = {
+      middlewareModules: {
+        "./middleware/gate.ts": async () => ({
+          middleware: async ({ url }: { url: URL }, next: () => Promise<Response>) => {
+            order.push("middleware");
+            return url.pathname === "/closed" ? new Response("closed", { status: 403 }) : next();
+          },
+        }),
+      },
+      routeModules: {
+        "./routes/home.tsx": async () => ({
+          loader: ({ root }: LoaderArgs) => {
+            order.push(root ? "loader with root" : "loader without root");
+            return null;
+          },
+          Component: () => h("p", null, "home"),
+        }),
+      },
+      rootModules: { "/src/root.tsx": async () => rootModule },
+    };
+
+    await handlePrachtRequest({ app, registry, request: new Request("http://localhost/") });
+    expect(order).toEqual(["middleware", "setup", "loader with root"]);
+
+    // A request middleware answers itself never creates a root.
+    order.length = 0;
+    const closed = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/closed"),
+    });
+    expect(closed.status).toBe(403);
+    expect(order).toEqual(["middleware"]);
   });
 
   it("renders the root between the runtime provider and the shell", async () => {

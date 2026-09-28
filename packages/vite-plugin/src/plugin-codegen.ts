@@ -19,6 +19,7 @@ import {
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
 import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
+import { findAppRootModule } from "./plugin-app-root.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
   DEFAULT_SHELL_EXTENSIONS,
@@ -412,9 +413,15 @@ export function createPrachtClientModuleSource(
   const appFileAbs = appFilePosix.startsWith("/") ? appFilePosix : `/${appFilePosix}`;
   const appDir = appFileAbs.replace(/\/[^/]*$/, "") || "/";
 
+  // `defineApp({ root })`: imported eagerly, because the router renders it
+  // before the first hydration. Without one, nothing is emitted and the
+  // `__PRACHT_APP_ROOT__` define drops the router's root wiring.
+  const appRoot = findAppRootModule(resolved, root);
+
   return [
     'import { resolveApp, initClientRouter, readHydrationState, parseRouteSearch, DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData } from "@pracht/core/client";',
     appImport,
+    ...(appRoot ? [`import * as rootModule from ${JSON.stringify(appRoot.id)};`] : []),
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
     `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
@@ -428,12 +435,6 @@ export function createPrachtClientModuleSource(
     `  ...import.meta.glob(${JSON.stringify(additionalShellGlobPattern)}),`,
     ...ejectedPagesAppShellSources,
     `};`,
-    "",
-    "// `__PRACHT_APP_ROOT__` is false for a build without a root file, which",
-    "// drops this lookup and the router's root wiring together.",
-    'const rootModule = typeof __PRACHT_APP_ROOT__ === "undefined" || __PRACHT_APP_ROOT__',
-    `  ? Object.values(import.meta.glob(${JSON.stringify(rootModuleGlob(resolved.rootFile))}, { eager: true }))[0]`,
-    "  : undefined;",
     "",
     "const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
@@ -504,7 +505,7 @@ export function createPrachtClientModuleSource(
     "    root,",
     "    findModuleKey,",
     searchParserOption,
-    "    ...(rootModule ? { rootModule } : {}),",
+    ...(appRoot ? ["    rootModule,"] : []),
     ...(webmcpEnabled ? ["    onRouteChange: syncPrachtWebmcpTools,"] : []),
     "  });",
     "}",
@@ -737,7 +738,7 @@ export function createPrachtServerModuleSource(
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
-  const registrySource = createPrachtRegistryModuleSource(resolved);
+  const registrySource = createPrachtRegistryModuleSource(resolved, { root: buildOptions.root });
   const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
   const routeLoaderHints = routeHints.loader;
   const routeHeadHints = routeHints.head;
@@ -885,7 +886,7 @@ export function createPrachtDevModuleSource(
     `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
     `const routeStaticPathsHints = ${JSON.stringify(routeStaticPathsHints)};`,
     ...createApplyRouteLoaderHintsSource(),
-    createPrachtRegistryModuleSource(resolved),
+    createPrachtRegistryModuleSource(resolved, { root: buildOptions.root }),
     "",
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
@@ -1130,8 +1131,12 @@ export function createServerLoaderHintsForHotUpdates(
   );
 }
 
-export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = {}): string {
+export function createPrachtRegistryModuleSource(
+  options: PrachtPluginOptions = {},
+  buildOptions: { root?: string } = {},
+): string {
   const resolved = resolveOptions(options);
+  const appRoot = findAppRootModule(resolved, buildOptions.root);
   const apiGlobs = [`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`, `!${resolved.apiDir}/**/*.d.ts`];
   const isPagesMode = !!resolved.pagesDir;
   const bareRouteExtensions = [
@@ -1180,7 +1185,10 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
     `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
     `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
-    `export const rootModules = import.meta.glob(${JSON.stringify(rootModuleGlob(resolved.rootFile))});`,
+    // The one module `defineApp({ root })` registers, or none.
+    appRoot
+      ? `export const rootModules = { ${JSON.stringify(appRoot.id)}: () => import(${JSON.stringify(appRoot.id)}) };`
+      : "export const rootModules = {};",
     "",
     "export const registry = {",
     "  routeModules,",
@@ -1192,14 +1200,6 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     "  rootModules,",
     "};",
   ].join("\n");
-}
-
-/**
- * The app root is optional: a glob that matches nothing compiles to `{}`, so
- * an app without `src/root.tsx` ships no root code at all.
- */
-function rootModuleGlob(rootFile: string): string {
-  return `${rootFile}.{ts,tsx,js,jsx}`;
 }
 
 const pagesAppSourceCache = new Map<string, string>();

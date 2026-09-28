@@ -163,38 +163,47 @@ When navigating between routes that share the same shell, pracht preserves the s
 
 ## The App Root
 
-Everything inside a shell remounts when a navigation crosses shells. For state that must outlive every navigation, such as a data cache, add `src/root.tsx` (or `.ts`). It renders above every shell, on the server and in the browser, and is never remounted. Every export is optional:
+Everything inside a shell remounts when a navigation crosses shells. App-wide client infrastructure that must survive that, such as a query cache or a store, goes in the app root: a module you register with `defineApp({ root })`. It renders above every shell, on the server and in the browser, and is never remounted.
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  root: "./root.tsx",
+  shells: { app: "./shells/app.tsx" },
+  routes: [/* … */],
+});
+```
+
+Every export is optional:
 
 ```tsx [src/root.tsx]
 import { createContext } from "preact";
-import type { RootProps, RootSetupArgs } from "@pracht/core";
+import type { RootProps } from "@pracht/core";
 
-type State = { theme: string };
-export const Theme = createContext("light");
+type Store = { items: Map<string, unknown> };
+export const StoreContext = createContext<Store | null>(null);
 
-// Once per server request, and once when the browser boots.
-export function setup({ request }: RootSetupArgs): State {
-  const theme = request?.headers.get("cookie")?.match(/theme=(\w+)/)?.[1];
-  return { theme: theme ?? "light" };
+// Once per server request, before any loader, and once when the browser boots.
+export function setup(): Store {
+  return { items: new Map() };
 }
 
 // Wraps every shell. Must render `children`.
-export function Root({ state, children }: RootProps<State>) {
-  return <Theme.Provider value={state.theme}>{children}</Theme.Provider>;
+export function Root({ state, children }: RootProps<Store>) {
+  return <StoreContext.Provider value={state}>{children}</StoreContext.Provider>;
 }
 
 // Server: a JSON snapshot for the browser, or undefined to send nothing.
-export function dehydrate(state: State) {
-  return { theme: state.theme };
+export function dehydrate(store: Store) {
+  return store.items.size > 0 ? Object.fromEntries(store.items) : undefined;
 }
 
 // Browser: apply a snapshot, before hydration and on every route-state
 // response (navigations, prefetches, revalidations).
-export function hydrate(state: State, snapshot: unknown) {
-  state.theme = (snapshot as State).theme;
+export function hydrate(store: Store, snapshot: unknown) {
+  for (const [key, value] of Object.entries(snapshot as object)) store.items.set(key, value);
 }
 ```
 
-Loaders read the request's state as `args.root`. What a loader puts into it reaches the browser with the page and with every client navigation, and what the server render adds reaches it with the page. [`@pracht/query`](/docs/recipes/tanstack-query) is built on this.
+Loaders read the request's state as `args.root`, typed by `pracht typegen`. What a loader puts into it reaches the browser with the page and with every client navigation, and what the server render adds reaches it with the page. [`@pracht/query`](/docs/recipes/tanstack-query) is built on this.
 
-The root module is bundled for the browser, so keep secrets and server-only work in middleware and loaders. Islands routes don't render the app root in the browser. An app without a root file ships none of this code, and the `rootFile` plugin option changes where pracht looks for it.
+The root is not a data source of its own: data that depends on the request comes from loaders. The module is bundled for the browser, so keep secrets in middleware and loaders. Islands routes don't render the app root in the browser, and an app that registers none ships none of this code. In the [pages router](/docs/routing#file-conventions), the root is `pages/_root.tsx`.

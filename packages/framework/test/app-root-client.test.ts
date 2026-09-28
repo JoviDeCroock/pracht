@@ -91,7 +91,7 @@ describe("app root in the client router", () => {
     expect(root.innerHTML).toBe(
       '<section data-root="client-root"><div id="shell-a"><main>a</main></div></section>',
     );
-    expect(rootModule.setup).toHaveBeenCalledWith({ request: undefined, isServer: false });
+    expect(rootModule.setup).toHaveBeenCalledWith({ isServer: false });
 
     await window.__PRACHT_NAVIGATE__!("/b");
     await flush();

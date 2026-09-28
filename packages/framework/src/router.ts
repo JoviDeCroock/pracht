@@ -149,8 +149,8 @@ const SHELL_LOADERS_ENABLED =
   typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
 
 /**
- * The app root (`src/root.tsx`), compiled out by the plugin when the app has
- * no root module, so an app without one pays nothing for it.
+ * The app root (`defineApp({ root })`), compiled out by the plugin when the
+ * app registers none, so an app without one pays nothing for it.
  */
 declare const __PRACHT_APP_ROOT__: boolean | undefined;
 
@@ -291,7 +291,7 @@ export interface InitClientRouterOptions {
   initialState: PrachtHydrationState;
   root: HTMLElement;
   findModuleKey: (modules: ModuleMap, file: string) => string | null;
-  /** The app root module (`src/root.tsx`), when the app has one. */
+  /** The module registered as `defineApp({ root })`, when the app has one. */
   rootModule?: RootModule;
   /** @internal Synchronize page-scoped projections after a route commits. */
   onRouteChange?: (capabilities: readonly string[]) => void;
@@ -315,7 +315,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   let Root: FunctionComponent<Record<string, unknown>> | null = null;
   if (APP_ROOT_ENABLED && options.rootModule) {
     const rootModule = options.rootModule;
-    rootState = rootModule.setup?.({ request: undefined, isServer: false });
+    rootState = rootModule.setup?.({ isServer: false });
     Root = (rootModule.Root as FunctionComponent<Record<string, unknown>> | undefined) ?? null;
     if (rootModule.hydrate) {
       const hydrateRoot = (snapshot: unknown) => rootModule.hydrate!(rootState, snapshot);

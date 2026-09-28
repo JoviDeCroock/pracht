@@ -261,6 +261,7 @@ export type {
   RootModule,
   RootProps,
   RootSetupArgs,
+  RootState,
   TimeRevalidatePolicy,
   PrachtApp,
   PrachtAppConfig,

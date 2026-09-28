@@ -127,12 +127,6 @@ export interface PrachtPluginOptions {
   apiDir?: string;
   serverDir?: string;
   /**
-   * The app root module, without extension: `<rootFile>.{ts,tsx,js,jsx}`
-   * renders above every shell and survives every navigation. Optional —
-   * nothing ships when the file does not exist. Defaults to "/src/root".
-   */
-  rootFile?: string;
-  /**
    * Additional dot-prefixed route and shell module extensions to discover,
    * such as `[".vue"]`. Register the Vite plugin that transforms the format
    * separately; Pracht only discovers the modules and applies its route
@@ -214,7 +208,6 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   shellsDir: "/src/shells",
   apiDir: "/src/api",
   serverDir: "/src/server",
-  rootFile: "/src/root",
   additionalExtensions: [],
   islandsDir: "/src/islands",
   capabilitiesDir: "/src/capabilities",

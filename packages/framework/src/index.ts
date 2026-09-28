@@ -393,6 +393,7 @@ export type {
   RootModule,
   RootProps,
   RootSetupArgs,
+  RootState,
   SpeculationConfig,
   SpeculationEagerness,
   SpeculationMode,

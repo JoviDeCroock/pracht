@@ -18,15 +18,24 @@ next:
 npm install @pracht/query @tanstack/preact-query
 ```
 
-## 1. Add the app root
+## 1. Register the app root
 
-Create `src/root.ts` and re-export the ready-made root:
+Re-export the ready-made root, and register it in the manifest:
 
 ```ts [src/root.ts]
 export * from "@pracht/query/root";
 ```
 
-The [app root](/docs/shells#the-app-root) is never remounted, so the browser's `QueryClient` keeps its cache across every navigation, including one that switches shells. On the server, each request gets its own `QueryClient`.
+```ts [src/routes.ts]
+import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  root: () => import("./root.ts"),
+  routes: [route("/posts/:id", () => import("./routes/post.tsx"))],
+});
+```
+
+The [app root](/docs/shells#the-app-root) is never remounted, so the browser's `QueryClient` keeps its cache across every navigation, including one that switches shells. On the server, each request gets its own `QueryClient`. In the pages router, put the re-export in `pages/_root.ts` instead.
 
 ## 2. Describe your queries
 
@@ -82,7 +91,7 @@ A successful non-`read` [capability](/docs/capabilities) call, from `<Form capab
 
 ## Configuration
 
-`createQueryRoot()` takes the `QueryClient` config (or a function of `{ isServer, request }` that returns it), `dehydrate`/`hydrate` options, and `invalidateOnCapability`:
+`createQueryRoot()` takes the `QueryClient` config (or a function of `{ isServer }` that returns it), `dehydrate`/`hydrate` options, and `invalidateOnCapability`:
 
 ```ts [src/root.ts]
 import { createQueryRoot } from "@pracht/query";
@@ -93,19 +102,7 @@ export const { setup, Root, dehydrate, hydrate } = createQueryRoot({
 });
 ```
 
-Queries default to a `staleTime` of 60 seconds, so data the server just fetched does not refetch on mount, and to `retry: false` on the server, so a failing request fails fast.
-
-To type `args.root` in loaders, register the root state:
-
-```ts [src/env.d.ts]
-import type { QueryRootState } from "@pracht/query";
-
-declare module "@pracht/core" {
-  interface Register {
-    root: QueryRootState;
-  }
-}
-```
+Queries default to a `staleTime` of 60 seconds, so data the server just fetched does not refetch on mount, and to `retry: false` on the server, so a failing request fails fast. `pracht typegen` types `args.root` as `{ queryClient }`.
 
 ## Limits
 

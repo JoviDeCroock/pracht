@@ -157,6 +157,29 @@ export function findPagesMiddlewareFile(
   return middlewareFile;
 }
 
+/**
+ * The pages router's app root: the root-level `_root.{ts,tsx,js,jsx}` of the
+ * pages directory, registered as `defineApp({ root })`, or null when the app
+ * has none. A root is app-wide, so only the pages root is read, as for
+ * `_middleware`.
+ */
+export function findPagesRootFile(pagesDir: string): string | null {
+  const roots = scanAllFiles(pagesDir).filter(
+    (file) =>
+      basename(file, extname(file)) === "_root" &&
+      MIDDLEWARE_EXTENSIONS.has(extname(file)) &&
+      !relative(pagesDir, file).replace(/\\/g, "/").includes("/"),
+  );
+  if (roots.length > 1) {
+    throw new Error(
+      `[pracht] Multiple pages app roots resolve to the same registration: ${roots
+        .map((file) => JSON.stringify(basename(file)))
+        .join(", ")}. Keep exactly one root-level \`_root\` file.`,
+    );
+  }
+  return roots[0] ?? null;
+}
+
 /** A discovered `_app` shell and the registration it owns. */
 export interface PagesAppShell {
   absolutePath: string;
@@ -638,6 +661,8 @@ export function generatePagesManifestSource(
   const rootAppShell = appShells.find((shell) => shell.directory === "");
   const middlewareFile = findPagesMiddlewareFile(pagesDir, options.additionalExtensions);
   const isClientTarget = options.target === "client";
+  // The client entry imports the root itself; only the build reads this key.
+  const rootFile = isClientTarget ? null : findPagesRootFile(pagesDir);
   const appConfig = isClientTarget ? null : findPagesAppConfigFile(pagesDir);
   const capabilitiesDir =
     options.capabilitiesDir === null
@@ -776,6 +801,7 @@ export function generatePagesManifestSource(
   if (middlewareFile) groupMetaParts.push('middleware: ["pages"]');
 
   lines.push("const app = defineApp({");
+  if (rootFile) lines.push(`  root: ${specialFileRef(rootFile)},`);
   // `agents` and `constraints` come from `_app.config.ts` verbatim, which is
   // what makes the pages router's agent surface identical to a manifest's.
   for (const name of appConfig?.exports ?? []) {

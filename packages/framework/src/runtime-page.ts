@@ -224,8 +224,7 @@ interface PageRenderJob<TContext> {
   match: RouteMatch;
   pageOptions: PageRenderOptions;
   routeArgs: LoaderArgs<TContext>;
-  /** The app root, created once per request; settled before the loader runs. */
-  rootPromise: Promise<RequestRoot | null>;
+  /** The app root, created once per request before any loader runs. */
   root: RequestRoot | null;
   routeModulePromise: Promise<RouteModule | undefined> | undefined;
   shellModulePromise: Promise<ShellModule | undefined>;
@@ -278,8 +277,6 @@ async function runPageLoader<TContext>(
   }
   (job.routeArgs as LoaderArgs<TContext>).search = search.value;
 
-  job.root = await job.rootPromise;
-  job.routeArgs.root = job.root?.state;
   const { loader, loaderFile: resolvedLoaderFile } = await job.dataFunctionsPromise!;
   job.loaderFile = resolvedLoaderFile;
 
@@ -832,6 +829,13 @@ async function renderServerDocument<TContext>(
 
 /** Loader → representation. The terminal of the page middleware chain. */
 async function runPageTerminal<TContext>(job: PageRenderJob<TContext>): Promise<Response> {
+  // The app root's state exists before any loader runs, so every loader of
+  // this request reads the same `args.root`. After middleware, so a request
+  // middleware answers itself never creates one.
+  job.phase = "render";
+  job.root = await resolveRequestRoot(job.ctx, job.ctx.registry);
+  job.routeArgs.root = job.root?.state;
+
   const loaded = await runPageLoaders(job);
   if ("response" in loaded) return loaded.response;
   const { data, hasLoader } = loaded;
@@ -902,7 +906,6 @@ export async function renderPage<TContext>(
     match,
     pageOptions,
     routeArgs,
-    rootPromise: resolveRequestRoot(ctx, registry, request),
     root: null,
     routeModulePromise: undefined,
     shellModulePromise: Promise.resolve(undefined),
@@ -947,7 +950,6 @@ export async function renderPage<TContext>(
     // errors still surface through the existing try/catch.
     routeModulePromise.catch(() => {});
     shellModulePromise.catch(() => {});
-    job.rootPromise.catch(() => {});
     dataFunctionsPromise.catch(() => {});
 
     const pageTerminal = () => runPageTerminal(job);
@@ -1070,7 +1072,9 @@ export async function renderPage<TContext>(
     // whether the response will be rendered by a route/shell ErrorBoundary
     // instead of having to infer that from mutable response headers.
     job.shellModule ??= await job.shellModulePromise.catch(() => undefined);
-    job.root ??= await job.rootPromise.catch(() => null);
+    // Error documents render inside the root too, so a shell ErrorBoundary
+    // can use what it provides even when middleware failed before the terminal.
+    job.root ??= await resolveRequestRoot(ctx, registry).catch(() => null);
 
     reportRequestError(options.onRouteError, thrownResponseFailure ?? error, ctx.requestPath, {
       errorBoundary: job.routeModule?.ErrorBoundary

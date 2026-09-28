@@ -26,6 +26,13 @@ describe("createLoaderArgs", () => {
     expect(args.route.segments).toEqual([]);
   });
 
+  it("hands the app root state to the loader as args.root", () => {
+    const root = { queryClient: { name: "client" } };
+
+    expect(createLoaderArgs({ root }).root).toBe(root);
+    expect("root" in createLoaderArgs()).toBe(false);
+  });
+
   it("derives url and route path from the shorthand url", () => {
     const args = createLoaderArgs({ url: "/blog/hello?draft=1" });
 

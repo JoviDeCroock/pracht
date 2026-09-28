@@ -23,16 +23,16 @@ function parseHydrationState(html: string): Record<string, any> {
 describe("createQueryRoot", () => {
   it("creates a new QueryClient for every setup call", () => {
     const root = createQueryRoot();
-    const first = root.setup({ request: new Request("http://localhost/"), isServer: true });
-    const second = root.setup({ request: new Request("http://localhost/"), isServer: true });
+    const first = root.setup({ isServer: true });
+    const second = root.setup({ isServer: true });
     expect(first.queryClient).toBeInstanceOf(QueryClient);
     expect(first.queryClient).not.toBe(second.queryClient);
   });
 
   it("defaults staleTime, and disables retries on the server only", () => {
     const root = createQueryRoot();
-    const server = root.setup({ request: new Request("http://localhost/"), isServer: true });
-    const browser = root.setup({ request: undefined, isServer: false });
+    const server = root.setup({ isServer: true });
+    const browser = root.setup({ isServer: false });
 
     expect(server.queryClient.getDefaultOptions().queries).toEqual({
       staleTime: DEFAULT_STALE_TIME,
@@ -49,7 +49,7 @@ describe("createQueryRoot", () => {
         defaultOptions: { queries: { staleTime: isServer ? 0 : 5_000, gcTime: 10 } },
       }),
     });
-    const browser = root.setup({ request: undefined, isServer: false });
+    const browser = root.setup({ isServer: false });
     expect(browser.queryClient.getDefaultOptions().queries).toEqual({
       staleTime: 5_000,
       gcTime: 10,
@@ -58,13 +58,13 @@ describe("createQueryRoot", () => {
 
   it("sends nothing when the cache is empty, and round-trips a filled one", async () => {
     const root = createQueryRoot();
-    const server = root.setup({ request: new Request("http://localhost/"), isServer: true });
+    const server = root.setup({ isServer: true });
     expect(root.dehydrate(server)).toBeUndefined();
 
     await server.queryClient.prefetchQuery({ queryKey: ["post", 1], queryFn: () => "hello" });
     const snapshot = JSON.parse(JSON.stringify(root.dehydrate(server)));
 
-    const browser = root.setup({ request: undefined, isServer: false });
+    const browser = root.setup({ isServer: false });
     root.hydrate(browser, snapshot);
     expect(browser.queryClient.getQueryData(["post", 1])).toBe("hello");
   });
@@ -81,7 +81,7 @@ describe("getQueryClient", () => {
   });
 
   it("explains how to add the root when there is none", () => {
-    expect(() => getQueryClient({})).toThrow(/src\/root\.ts/);
+    expect(() => getQueryClient({})).toThrow(/defineApp\(\{ root/);
   });
 });
 
@@ -134,7 +134,7 @@ describe("server rendering", () => {
     expect(keys).toEqual(expect.arrayContaining([["post", "7"], ["author"]]));
 
     // The browser cache starts warm: nothing is stale, so nothing refetches.
-    const browser = defaultRoot.setup({ request: undefined, isServer: false });
+    const browser = defaultRoot.setup({ isServer: false });
     defaultRoot.hydrate(browser, state.root);
     const cached = browser.queryClient.getQueryState(["post", "7"]);
     expect(cached?.data).toEqual({ id: "7", title: "Post 7" });

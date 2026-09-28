@@ -47,10 +47,15 @@ export type PrachtRequestContext = RegisteredContext;
 
 /**
  * The state the app root's `setup()` returns, as loaders receive it through
- * `LoaderArgs.root`. Register it with `root: ReturnType<typeof setup>` on
- * `Register` to type it; unregistered apps see `unknown`.
+ * `LoaderArgs.root`. `pracht typegen` registers it from `defineApp({ root })`;
+ * unregistered apps see `unknown`.
  */
 export type RegisteredRootState = Register extends { root: infer T } ? T : unknown;
+
+/** The state a root module's `setup()` returns, or `undefined` without one. */
+export type RootState<TModule> = TModule extends { setup: (...args: any[]) => infer TState }
+  ? TState
+  : undefined;
 
 export type RenderMode = "spa" | "ssr" | "ssg" | "isg";
 
@@ -764,6 +769,15 @@ export type CapabilityApprovalPrincipalResolver<TContext = PrachtRequestContext>
 ) => string | null | Promise<string | null>;
 
 export interface PrachtAppConfig {
+  /**
+   * The app root: a module rendered above every shell and never remounted by
+   * the client router, for app-wide client infrastructure such as a query
+   * cache. See {@link RootModule}. Write it as a string path or
+   * `() => import("./root.tsx")` literal: the build reads it from the
+   * manifest source to bundle the module, so it never costs an app without
+   * one a byte.
+   */
+  root?: ModuleRef;
   shells?: Record<string, ModuleRef>;
   middleware?: Record<string, ModuleRef>;
   /**
@@ -918,9 +932,9 @@ interface SearchRouteArgs {
 export interface LoaderArgs<TContext = RegisteredContext>
   extends BaseRouteArgs<TContext>, SearchRouteArgs {
   /**
-   * This request's app root state — what `setup()` in `src/root.tsx`
-   * returned. `undefined` when the app has no root module or its root exports
-   * no `setup`.
+   * This request's app root state — what the `setup()` of the module
+   * registered as `defineApp({ root })` returned. `undefined` when the app
+   * registers no root or its root exports no `setup`.
    */
   root?: RegisteredRootState;
 }
@@ -1072,8 +1086,6 @@ export interface ShellModule<TContext = any> {
 
 /** What an app root's `setup()` receives. */
 export interface RootSetupArgs {
-  /** The incoming request on the server; `undefined` in the browser. */
-  request: Request | undefined;
   isServer: boolean;
 }
 
@@ -1083,23 +1095,25 @@ export interface RootProps<TState = unknown> {
 }
 
 /**
- * The optional app root (`src/root.tsx`). It renders above every shell, on
- * the server and in the browser, and survives every client navigation — the
- * place for app-wide providers whose state must not reset when the shell
- * changes.
+ * The optional app root, registered with `defineApp({ root })`. It renders
+ * above every shell, on the server and in the browser, and survives every
+ * client navigation — the place for app-wide client infrastructure (a query
+ * cache, a store) whose state must not reset when the shell changes. It is
+ * not a data source: request-dependent data belongs in loaders.
  */
 export interface RootModule<TState = any> {
   /**
-   * Create the root state. Runs once per server request (never shared between
-   * requests) and once when the browser boots.
+   * Create the root state. Runs once per server request, after middleware and
+   * before any loader (never shared between requests), and once when the
+   * browser boots.
    */
   setup?: (args: RootSetupArgs) => TState;
   /** Wraps every shell. Must render `children`. */
   Root?: FunctionComponent<RootProps<TState>>;
   /**
    * Server only: a JSON-serializable snapshot of the state to send to the
-   * browser. Called after a document renders and after a route loader runs
-   * for a client navigation. Return `undefined` to send nothing.
+   * browser. Called after a document renders and after the loaders of a
+   * route-state request run. Return `undefined` to send nothing.
    */
   dehydrate?: (state: TState) => unknown;
   /**
@@ -1134,7 +1148,7 @@ export interface ModuleRegistry {
   apiModules?: Record<string, ModuleImporter<ApiRouteModule>>;
   dataModules?: Record<string, ModuleImporter<DataModule>>;
   capabilityModules?: Record<string, ModuleImporter<CapabilityModule>>;
-  /** The app root module (`src/root.tsx`); at most one entry. */
+  /** The module registered as `defineApp({ root })`, keyed by its path. */
   rootModules?: Record<string, ModuleImporter<RootModule>>;
 }
 

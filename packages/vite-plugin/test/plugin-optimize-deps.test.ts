@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -51,21 +54,26 @@ describe("pracht optimizeDeps config", () => {
     expect(config.optimizeDeps?.include).toBeUndefined();
   });
 
-  it("scans the app root, which the client entry imports eagerly", () => {
+  it("scans the registered app root, which the client entry imports eagerly", () => {
     // Without it, a dependency only the root imports (`@pracht/query/root`)
     // is discovered on the first page load: 504 "Outdated Optimize Dep", then
-    // a full reload.
-    expect(runOptimizeDepsHook({ root: npmAppRoot }).optimizeDeps?.entries).toContain(
-      "src/root.{ts,tsx,js,jsx}",
-    );
+    // a full reload. A string ref gives the scanner no import to follow.
+    const root = mkdtempSync(join(tmpdir(), "pracht-root-deps-"));
+    try {
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src/root.tsx"), "export {};\n");
+      writeFileSync(
+        join(root, "src/routes.ts"),
+        'import { defineApp } from "@pracht/core";\nexport const app = defineApp({ root: "./root.tsx", routes: [] });\n',
+      );
 
-    const plugin = pracht({ rootFile: "/app/root" }).find(
-      (candidate) => candidate.name === "pracht:optimize-deps-entries",
-    )!;
-    const hook = plugin.config as (config: OptimizeDepsConfig) => OptimizeDepsConfig;
-    expect(hook.call(plugin as never, {}).optimizeDeps?.entries).toContain(
-      "app/root.{ts,tsx,js,jsx}",
-    );
+      expect(runOptimizeDepsHook({ root }).optimizeDeps?.entries).toContain("src/root.tsx");
+      expect(runOptimizeDepsHook({ root: npmAppRoot }).optimizeDeps?.entries).not.toContain(
+        "src/root.tsx",
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 
   it("still contributes scan entries for route and shell files", () => {

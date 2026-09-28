@@ -1,6 +1,6 @@
 /**
- * A ready-made app root with the default options. Re-export it from
- * `src/root.ts`:
+ * A ready-made app root with the default options. Re-export it from the
+ * module `defineApp({ root })` registers:
  *
  * ```ts
  * export * from "@pracht/query/root";

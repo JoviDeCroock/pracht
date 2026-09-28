@@ -19,7 +19,7 @@ describe("query invalidation after capability calls", () => {
 
   function mount(options?: Parameters<typeof createQueryRoot>[0]) {
     const root = createQueryRoot(options);
-    const state = root.setup({ request: undefined, isServer: false });
+    const state = root.setup({ isServer: false });
     const invalidate = vi.spyOn(state.queryClient, "invalidateQueries");
     act(() => {
       render(h(root.Root, { state, children: h("p", null, "child") }), container);

@@ -1,6 +1,12 @@
 /**
- * The app root (`src/root.tsx`) on the server: load the module, run `setup()`
- * once per request, wrap rendered trees, and take the `dehydrate()` snapshot.
+ * The app root (`defineApp({ root })`) on the server: load the module, run
+ * `setup()` once per request, wrap rendered trees, and take the `dehydrate()`
+ * snapshot.
+ *
+ * The build reads `root` from the manifest source and registers that one
+ * module as `registry.rootModules`; `defineApp()` itself never carries it, so
+ * the manifest every client bundle ships stays the same size. An app without
+ * a root has an empty registry here.
  *
  * The browser half lives in `router.ts`, which renders the same `Root` in the
  * same position (inside the runtime provider, above the shell) so hydration
@@ -11,38 +17,29 @@
 import { h } from "preact";
 import type { FunctionComponent, VNode } from "preact";
 
-import type { ModuleImporter, ModuleRegistry, RootModule } from "./types.ts";
+import type { ModuleRegistry, RootModule } from "./types.ts";
 
 export interface RequestRoot {
   module: RootModule;
   state: unknown;
 }
 
-const rootModuleCache = new WeakMap<object, Promise<RootModule | null>>();
 const requestRootCache = new WeakMap<object, Promise<RequestRoot | null>>();
 
-function loadRootModule(registry: ModuleRegistry): Promise<RootModule | null> {
+async function loadRootModule(registry: ModuleRegistry): Promise<RootModule | null> {
   const modules = registry.rootModules;
-  if (!modules) return Promise.resolve(null);
-
-  let cached = rootModuleCache.get(modules);
-  if (!cached) {
-    const keys = Object.keys(modules);
-    if (keys.length > 1) {
-      cached = Promise.reject(
-        new Error(
-          `[pracht] Found more than one app root module (${keys.join(", ")}). Keep exactly one.`,
-        ),
-      );
-    } else if (keys.length === 0) {
-      cached = Promise.resolve(null);
-    } else {
-      const importer = modules[keys[0]] as ModuleImporter<RootModule>;
-      cached = importer().then((mod) => mod ?? null);
-    }
-    rootModuleCache.set(modules, cached);
+  if (!modules) return null;
+  const keys = Object.keys(modules);
+  if (keys.length === 0) return null;
+  if (keys.length > 1) {
+    throw new Error(
+      `[pracht] The module registry holds more than one app root (${keys.join(", ")}). ` +
+        "defineApp({ root }) registers exactly one.",
+    );
   }
-  return cached;
+  // Not cached here: the module system already caches the import, and
+  // re-resolving it per request is what lets a dev edit to the root apply.
+  return (await modules[keys[0]]()) ?? null;
 }
 
 /**
@@ -53,15 +50,12 @@ function loadRootModule(registry: ModuleRegistry): Promise<RootModule | null> {
 export function resolveRequestRoot(
   requestKey: object,
   registry: ModuleRegistry,
-  request: Request,
 ): Promise<RequestRoot | null> {
   let cached = requestRootCache.get(requestKey);
   if (!cached) {
-    cached = loadRootModule(registry).then((module) => {
-      if (!module) return null;
-      const state = module.setup ? module.setup({ request, isServer: true }) : undefined;
-      return { module, state };
-    });
+    cached = loadRootModule(registry).then((module) =>
+      module ? { module, state: module.setup?.({ isServer: true }) } : null,
+    );
     requestRootCache.set(requestKey, cached);
   }
   return cached;

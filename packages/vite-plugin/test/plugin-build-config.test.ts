@@ -290,12 +290,19 @@ describe("pracht plugin build config", () => {
     expect(config.define?.["process.env.NODE_ENV"]).toBeUndefined();
   });
 
-  it("compiles the app root out of builds that have no root module", () => {
+  it("compiles the app root out of builds that register none", () => {
     const withRoot = mkdtempSync(join(tmpdir(), "pracht-root-"));
     const withoutRoot = mkdtempSync(join(tmpdir(), "pracht-no-root-"));
     try {
-      mkdirSync(join(withRoot, "src"));
-      writeFileSync(join(withRoot, "src/root.tsx"), "export function setup() { return {}; }\n");
+      const manifest = (config: string) =>
+        `import { defineApp } from "@pracht/core";\nexport const app = defineApp({ ${config}routes: [] });\n`;
+      for (const dir of [withRoot, withoutRoot]) {
+        mkdirSync(join(dir, "src"));
+        // A root file alone is not a registration.
+        writeFileSync(join(dir, "src/root.tsx"), "export function setup() { return {}; }\n");
+      }
+      writeFileSync(join(withRoot, "src/routes.ts"), manifest('root: "./root.tsx", '));
+      writeFileSync(join(withoutRoot, "src/routes.ts"), manifest(""));
 
       expect(
         runConfigHook(edgeAdapter, false, {}, { root: withRoot }).define?.__PRACHT_APP_ROOT__,

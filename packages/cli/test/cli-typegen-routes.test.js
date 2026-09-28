@@ -152,6 +152,36 @@ export function Shell({ children }) {
     expect(declaration).not.toContain('"unused"');
   });
 
+  it("registers the app root's state as Register.root", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-root-");
+    writeTypedManifestApp(appDir);
+    const manifestPath = join(appDir, "src/routes.ts");
+    writeProjectFile(
+      appDir,
+      "src/routes.ts",
+      readFileSync(manifestPath, "utf-8").replace(
+        "export const app = defineApp({\n",
+        'export const app = defineApp({\n  root: () => import("./root.tsx"),\n',
+      ),
+    );
+    writeProjectFile(
+      appDir,
+      "src/root.tsx",
+      "export function setup() {\n  return { cache: new Map<string, unknown>() };\n}\n",
+    );
+
+    runCli(["typegen"], { cwd: appDir });
+    const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
+
+    expect(declaration).toContain(
+      'import type { ApiRouteMethodMap, RootState, RouteLoaderData, RouteParamInput, ',
+    );
+    expect(declaration).toContain('    root: RootState<typeof import("./root")>;');
+    expect(JSON.parse(runCli(["inspect", "--json"], { cwd: appDir }).stdout).root).toBe(
+      "/src/root.tsx",
+    );
+  }, 30_000);
+
   it("generates typed route declarations for pages-router apps", () => {
     const appDir = createRepoTempDir("pracht-cli-typegen-pages-");
     writeInspectablePagesApp(appDir);

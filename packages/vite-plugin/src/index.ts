@@ -18,6 +18,7 @@ import {
 import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
+import { findAppRootModule } from "./plugin-app-root.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
@@ -235,11 +236,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // handling.
       const shellLoadersDefine = buildRouteHints ? String(buildRouteHints.shellLoaders) : "true";
 
-      // The app root (`src/root.tsx`) is optional; a build without one drops
-      // the router's root wiring. Dev keeps it on so a root file added while
-      // the server runs takes effect without a restart.
+      // `defineApp({ root })` is optional; a build without one drops the
+      // router's root wiring. Dev keeps it on so a root registered while the
+      // server runs takes effect without a restart.
       const appRootDefine =
-        env.command === "build" ? String(hasAppRootModule(resolved.rootFile, configRoot)) : "true";
+        env.command === "build" ? String(findAppRootModule(resolved, configRoot) !== null) : "true";
 
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
@@ -856,10 +857,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     enforce: "post",
 
     config(config) {
+      const projectRoot = config.root ?? process.cwd();
       return withPrachtOptimizeDepsEntries(
         config,
         resolved,
-        createPrachtOptimizeDepsInclude(config.root ?? process.cwd()),
+        createPrachtOptimizeDepsInclude(projectRoot),
+        appRootOptimizeDepsEntries(resolved, projectRoot),
       );
     },
   };
@@ -1142,24 +1145,47 @@ function createPrachtOptimizeDepsInclude(root: string): string[] {
   }
 }
 
+/**
+ * The client entry imports the app root eagerly, so its dependencies (e.g.
+ * `@pracht/query/root`) must be found by the startup scan, not on the first
+ * page load, which would answer 504 "Outdated Optimize Dep" and reload. A
+ * manifest that writes the root as a string gives the scanner nothing to
+ * follow. A root the build cannot read is reported by the virtual modules.
+ */
+function appRootOptimizeDepsEntries(
+  resolved: ResolvedPrachtPluginOptions,
+  projectRoot: string,
+): string[] {
+  try {
+    const appRoot = findAppRootModule(resolved, projectRoot);
+    return appRoot ? [toOptimizeDepsEntry(appRoot.id)] : [];
+  } catch {
+    return [];
+  }
+}
+
 function withPrachtOptimizeDepsEntries(
   config: UserConfig,
   resolved: ResolvedPrachtPluginOptions,
   prachtInclude: string[],
+  extraEntries: string[] = [],
 ): UserConfig {
-  const prachtEntries = createPrachtOptimizeDepsEntries(resolved, config.optimizeDeps?.extensions);
+  const prachtEntries = [
+    ...createPrachtOptimizeDepsEntries(resolved, config.optimizeDeps?.extensions),
+    ...extraEntries,
+  ];
   const environments = Object.fromEntries(
     Object.entries(config.environments ?? {}).map(([name, environment]) => [
       name,
       {
         optimizeDeps: {
-          entries: mergeOptimizeDepsEntries(
-            environment.optimizeDeps?.entries,
-            createPrachtOptimizeDepsEntries(
+          entries: mergeOptimizeDepsEntries(environment.optimizeDeps?.entries, [
+            ...createPrachtOptimizeDepsEntries(
               resolved,
               environment.optimizeDeps?.extensions ?? config.optimizeDeps?.extensions,
             ),
-          ),
+            ...extraEntries,
+          ]),
         },
       },
     ]),
@@ -1206,10 +1232,6 @@ function createPrachtOptimizeDepsEntries(
   );
   const apiDir = toOptimizeDepsEntry(resolved.apiDir);
   const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
-  // The client entry imports the app root eagerly, so its dependencies (e.g.
-  // `@pracht/query/root`) must be found by the startup scan, not on the first
-  // page load, which would answer 504 "Outdated Optimize Dep" and reload.
-  const rootEntry = `${toOptimizeDepsEntry(resolved.rootFile)}.${scriptExtensions}`;
   const entries = resolved.pagesDir
     ? [
         `${toOptimizeDepsEntry(resolved.pagesDir)}/**/*.${routeExtensions}`,
@@ -1217,7 +1239,6 @@ function createPrachtOptimizeDepsEntries(
         ...apiEntries,
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
-        rootEntry,
       ]
     : [
         toOptimizeDepsEntry(resolved.appFile),
@@ -1228,7 +1249,6 @@ function createPrachtOptimizeDepsEntries(
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
         `${toOptimizeDepsEntry(resolved.capabilitiesDir)}/**/*.{ts,js,tsx,jsx}`,
-        rootEntry,
       ];
 
   return [...new Set(entries.filter(Boolean))];
@@ -1371,12 +1391,6 @@ function isRouteOrShellFile(id: string, dirs: string[], extensions: Set<string>)
   if (!extensions.has(ext)) return false;
   const normalized = toPosixPath(path);
   return dirs.some((dir) => normalized.startsWith(dir));
-}
-
-function hasAppRootModule(rootFile: string, root: string): boolean {
-  return [".ts", ".tsx", ".js", ".jsx"].some((extension) =>
-    existsSync(resolveConfigPath(root, `${rootFile}${extension}`)),
-  );
 }
 
 function resolveConfigPath(root: string, configPath: string): string {

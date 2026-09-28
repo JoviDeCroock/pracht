@@ -21,9 +21,9 @@ export interface QueryRootState {
 
 export interface QueryRootOptions {
   /**
-   * `QueryClient` configuration, or a function returning it. The function
-   * runs once per server request and once in the browser, so it can pick
-   * different defaults for each side.
+   * `QueryClient` configuration, or a function of `{ isServer }` returning
+   * it. The function runs once per server request and once in the browser,
+   * so it can pick different defaults for each side.
    */
   client?: QueryClientConfig | ((args: RootSetupArgs) => QueryClientConfig);
   /** Passed to TanStack Query's `dehydrate()` on the server. */
@@ -50,7 +50,7 @@ export type QueryRoot = Required<
 
 /**
  * Build the app root that wires TanStack Query into pracht. Export its
- * members from `src/root.ts`:
+ * members from the module `defineApp({ root })` registers:
  *
  * ```ts
  * import { createQueryRoot } from "@pracht/query";
@@ -119,8 +119,9 @@ export function getQueryClient(args: { root?: unknown }): QueryClient {
   const root = args.root as Partial<QueryRootState> | undefined;
   if (root && root.queryClient instanceof QueryClient) return root.queryClient;
   throw new Error(
-    "getQueryClient(): this request has no QueryClient. Add `src/root.ts` with " +
-      '`export * from "@pracht/query/root";` (or the members of `createQueryRoot()`).',
+    "getQueryClient(): this request has no QueryClient. Register an app root with " +
+      '`defineApp({ root: "./root.ts" })` whose module is `export * from "@pracht/query/root";` ' +
+      "(or exports the members of `createQueryRoot()`).",
   );
 }
 
