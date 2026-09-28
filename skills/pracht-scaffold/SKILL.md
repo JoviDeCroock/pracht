@@ -134,12 +134,6 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
-A route that reads query params gets a `search` export — a Standard Schema
-for the query (`z.object({ page: z.coerce.number().default(1) })`). Type the
-loader as `LoaderArgs & SearchArgs<typeof search>`, read it in components with
-`useSearch("route-id")`, and pair it with an `ErrorBoundary` for the 400 a
-rejected query renders. See the typed-routes skill.
-
 **Shell** — `Shell({ children }: ShellProps)` rendering `{children}`, plus an
 optional `head()`. Never render `<html>`, `<head>`, or `<body>`.
 

@@ -262,8 +262,6 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 
 A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler.
 
-A query rejected by the route's [`search` schema](/docs/routing#when-the-query-is-invalid) arrives here too, as a 400 with the validation issues on `error.issues`.
-
 #### Scoping a boundary to a subtree
 
 The `ErrorBoundary` *export* replaces the whole route. To replace only part of
@@ -589,27 +587,7 @@ export function Component() {
 }
 ```
 
-To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML.
-
-### useSearch()
-
-Read the active route's parsed search params — the output of its
-[`search` schema](/docs/routing#search-params), or the raw query record when it
-has none:
-
-```tsx
-import { useSearch } from "@pracht/core";
-
-export function Component() {
-  const { page } = useSearch("products"); // typed by `pracht typegen`
-  return <p>Page {page}</p>;
-}
-```
-
-Like `useRouteData()`, the route id must name the active route; without
-typegen, pass the type instead (`useSearch<{ page: number }>()`). It follows the
-same hydration rule as `useSearchParams()`: an SSG page hydrates with the
-build-time (empty) query, then re-parses the visitor's.
+To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML, and a [`search` schema](/docs/routing#search-params) when you want it validated and typed.
 
 ### useRevalidate()
 

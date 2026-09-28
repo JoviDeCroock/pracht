@@ -174,12 +174,12 @@ It also renders when a loader or middleware throws [`notFound()`](/docs/data-loa
 
 ## Search Params
 
-A route module can export a `search` schema for its query string. Any
-[Standard Schema](https://standardschema.dev) validator works — the same
-contract [`defineApi()`](/docs/api-validation) uses:
+Export a `search` schema from a route module to validate its query string. Any
+[Standard Schema](https://standardschema.dev) validator works, the same contract
+[`defineApi()`](/docs/api-validation) uses:
 
 ```tsx [src/routes/products.tsx]
-import { Link, useSearch, type LoaderArgs, type SearchArgs } from "@pracht/core";
+import { Link, useSearch, type ErrorBoundaryProps, type LoaderArgs, type SearchArgs } from "@pracht/core";
 import * as z from "zod";
 
 export const search = z.object({
@@ -188,80 +188,50 @@ export const search = z.object({
 });
 
 export async function loader(args: LoaderArgs & SearchArgs<typeof search>) {
-  const { page, q } = args.search; // { page: number; q?: string }
-  return listProducts({ page, q });
+  return listProducts(args.search); // { page: number; q?: string }
 }
 
 export function Component() {
   const { page, q } = useSearch("products");
-  return (
-    <Link route="products" search={{ page: page + 1, q }}>
-      Next page
-    </Link>
-  );
+  return <Link route="products" search={{ page: page + 1, q }}>Next page</Link>;
+}
+
+// A query the schema rejects renders here, with status 400.
+export function ErrorBoundary({ error }: ErrorBoundaryProps) {
+  return <ul>{error.issues?.map((issue) => <li>{issue.path?.join(".")}: {issue.message}</li>)}</ul>;
 }
 ```
 
-The schema receives the query as a plain object: one string per key, and an
-array of strings when a key repeats (`?tag=a&tag=b` → `{ tag: ["a", "b"] }`).
-Values arrive as strings, so coerce numbers and booleans in the schema
-(`z.coerce.number()`), and give optional params a default so the bare URL
-stays valid. A key that may repeat is still a single string when it appears
-once, so accept both shapes:
+The loader, `head()`, and `headers()` receive the parsed value as `args.search`,
+and components read it with `useSearch()`. After [typegen](#typed-routes-and-links),
+`useSearch("products")` returns the schema's output, and `<Link search>`,
+`navigate()`, and `href()` accept only the keys its input declares. Routes
+without a schema get the raw query from both. `useSearchParams()` is unchanged.
+
+The schema receives one string per key, or an array when a key repeats
+(`?tag=a&tag=b`). Coerce numbers and booleans (`z.coerce.number()`), and give
+optional keys a default so the bare URL stays valid. A key that may repeat
+arrives as a single string when it appears once:
 
 ```ts
 tag: z.array(z.string()).or(z.string().transform((tag) => [tag])).default([]),
 ```
 
-- **Loaders, `head()`, and `headers()`** receive the schema's output as
-  `args.search`. Type it with `SearchArgs<typeof search>`. The schema runs after
-  middleware and before the loader.
-- **Components** read the same value with `useSearch()`. Pass the route id —
-  `useSearch("products")` — to get the output type from
-  [typed routes](#typed-routes-and-links); like `useRouteData()`, the id must
-  name the active route. `useSearchParams()` is unchanged and still returns the
-  raw `URLSearchParams`.
-- **Routes without a schema** get the raw record (`Record<string, string |
-  string[]>`) from both `args.search` and `useSearch()`.
+A rejected query never reaches the loader. The route's `ErrorBoundary` renders
+instead, with `error.status` 400 and the validation issues on `error.issues`,
+on the first request and on client navigation alike.
 
-### When the query is invalid
+### On prerendered routes
 
-A query the schema rejects never reaches the loader. The document answers
-**400** and renders the route's `ErrorBoundary` (or the shell's), whose `error`
-carries `status: 400`, the message `"Invalid search params"`, and the
-normalized issues — the same `{ in, message, path }` shape API validation
-returns, with `in: "query"`:
+SSG and ISG pages are built without a query, so their loader and `head()` see
+the schema's defaults, and a schema that rejects an empty query fails to
+prerender. After hydration `useSearch()` switches to the visitor's query while
+the loader data stays the build-time result; a query the schema rejects then
+swaps in the `ErrorBoundary`, even though the page was served with a 200. Keep
+query-dependent data on SSR or SPA routes.
 
-```tsx
-export function ErrorBoundary({ error }: ErrorBoundaryProps) {
-  return (
-    <ul>
-      {error.issues?.map((issue) => (
-        <li>{issue.path?.join(".")}: {issue.message}</li>
-      ))}
-    </ul>
-  );
-}
-```
-
-Client navigation behaves the same way: the router parses the new query with
-the same schema — including for SPA routes and routes without a loader — and a
-rejection renders the error boundary instead of the page. Without an
-`ErrorBoundary` the server answers with a plain-text 400.
-
-### Prerendered routes
-
-SSG and ISG pages are rendered without a query string, so the build parses the
-schema against an empty query: the loader and `head()` see its defaults. A
-schema that rejects an empty query cannot be prerendered — a static export
-fails the build, and other targets skip the page with a warning. After
-hydration the client parses the visitor's actual query, so `useSearch()`
-reflects it while the loader data stays the build-time result. Put
-query-dependent data behind an SSR or SPA route.
-
-The schema ships to the browser with the route module, so pick a validator
-you are happy to bundle. The router only includes its validation code when
-some route module exports a `search` schema.
+The schema ships to the browser with the route module. An app where no route
+exports `search` ships none of this.
 
 ---
 
@@ -300,12 +270,7 @@ export function ProductActions({ id }: { id: string }) {
 
 Routes without an explicit `id` get one generated from the path. Run `pracht typegen --check` in CI to catch stale generated files.
 
-When a route module exports a [`search` schema](#search-params), typegen
-registers its input and output types too. `<Link search>`, `navigate()`, and
-`href()` then check `search` against the schema's input — unknown keys and
-wrong value types are compile errors, and `search` becomes required when the
-schema has a required key — while `useSearch("id")` returns its output. Routes
-without a schema keep accepting any query object or string.
+A route with a [`search` schema](#search-params) gets its `search` option typed from the schema's input, required when the schema has a required key.
 
 ### `<Link>` props
 
@@ -316,7 +281,7 @@ without a schema keep accepting any query object or string.
 | ---------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `route`          | RouteId                                         | **Required.** The route id to navigate to                                                |
 | `params`         | Record\<string, unknown\>                       | Values for the route's dynamic segments                                                  |
-| `search`         | object \| string                                | Query string to append; typed by the route's [`search` schema](#search-params) when it has one |
+| `search`         | object \| string                                | Query string to append, typed by the route's [`search` schema](#search-params)           |
 | `hash`           | string                                          | Fragment to append                                                                       |
 | `prefetch`       | `"intent" \| "viewport" \| "render" \| "none"`  | Override the route's [prefetch strategy](/docs/prefetching) for this link                 |
 | `speculate`      | boolean                                         | Opt this link out of / back into [speculation rules](/docs/prefetching#excluding-individual-links) |

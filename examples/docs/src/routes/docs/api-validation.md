@@ -32,7 +32,8 @@ export const GET = defineApi({
 });
 ```
 
-Schemas can validate `body`, `query`, and route `params`. Query and param values cross the wire as
+Schemas can validate `body`, `query`, and route `params`; page routes validate their query with a
+[`search` export](/docs/routing#search-params). Query and param values cross the wire as
 strings, so numeric inputs need coercion or a transform. Generated calls reject concrete query or
 params schema keys that cannot accept strings. Repeated query keys arrive as string arrays.
 
@@ -121,11 +122,3 @@ import { Form } from "@pracht/core";
 
 Enhanced submissions honor the clicked button's `formaction` and `formmethod`, so multi-action forms
 keep the same behavior they have with native browser submission.
-
-## Validate page query strings
-
-Page routes take a Standard Schema for their query string too: export `search`
-from the route module and loaders, `head()`, and `useSearch()` receive the
-parsed value, while a rejected query renders the route's error boundary with a
-400 and the same `{ in: "query", path, message }` issues. See
-[Search Params](/docs/routing#search-params).

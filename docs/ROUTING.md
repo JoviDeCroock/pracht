@@ -408,7 +408,17 @@ survives — and swaps in the error boundary if it is rejected.
 **Caching.** Route-state fetches, the prefetch cache, and `loaderCache`
 responses are all keyed by the full request URL, query included, so each query
 variant is fetched and cached separately. Static route-state files drop the
-query by design (they hold build-time data).
+query by design (they hold build-time data). A rejected query is a 400: ISG
+snapshots and the edge-cache paths store only 200 pages, route state answers
+`no-store`, and the Node and Cloudflare adapters stamp the document
+`private, no-cache`, so a 400 is never cached as the page.
+
+**Known gaps.** `pracht dev` renders SSG/ISG routes per request with the real
+query, so their loader sees values there that the build never passes, and a
+rejected query answers 400 in dev but hydrates into the error boundary in
+production. An island hydrates outside `RouteSearchContext`: `useSearch()`
+there returns the parsed value on the server and the raw record in the browser.
+Pass parsed values to islands as props.
 
 ---
 
