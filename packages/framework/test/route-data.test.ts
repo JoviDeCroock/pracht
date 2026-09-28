@@ -4,6 +4,7 @@ import type { ComponentChildren } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PrachtRuntimeProvider, useRouteData, useSearch } from "../src/index.ts";
+import { RouteSearchContext } from "../src/runtime-context.ts";
 import type { LoaderArgs, RouteLoaderData } from "../src/index.ts";
 
 let scratch: HTMLDivElement;
@@ -135,10 +136,9 @@ describe("useSearch", () => {
     for (const search of [{ page: 2 }, undefined]) {
       render(
         h(PrachtRuntimeProvider, {
-          children: h(Consumer, null),
+          children: h(RouteSearchContext.Provider, { value: search }, h(Consumer, null)),
           data: null,
           routeId: "catalog",
-          search,
           url: "/catalog?page=2&tag=a&tag=b",
         }),
         scratch,

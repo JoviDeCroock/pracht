@@ -58,6 +58,7 @@ import {
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
   createRouteHintsForVirtualModules,
+  routeHintsHaveSearch,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
   isEjectedPagesLayout,
@@ -220,6 +221,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const agentSurfaceDefine =
         env.command === "build" ? String(hasAgentSurface(resolved, configRoot)) : "true";
 
+      // The client router's search-param glue ships only when some route
+      // module exports a `search` schema. Build only, like the agent surface:
+      // in dev the first schema can be added without a restart.
+      const routeSearchDefine =
+        env.command === "build"
+          ? String(routeHintsHaveSearch(createRouteHintsForVirtualModules(resolved, configRoot)))
+          : "true";
+
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
       // prerender pass emits matching preload URLs. Dev always serves the
@@ -297,6 +306,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         define: {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
+          __PRACHT_ROUTE_SEARCH__: routeSearchDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           ...clientFeatureDefines,
         },

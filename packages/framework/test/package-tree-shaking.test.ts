@@ -193,9 +193,15 @@ describe("published package tree shaking", () => {
     // the Suspense chain it needs) is dead code in a real app bundle, so
     // counting it would hide what ships. `__PRACHT_HYDRATION_WARNINGS__` is
     // part of that shape — the plugin always emits it, and only
-    // `client: { hydrationWarnings: true }` keeps the reporter.
+    // `client: { hydrationWarnings: true }` keeps the reporter. So is
+    // `__PRACHT_ROUTE_SEARCH__`: the plugin sets it from the route modules, and
+    // only an app whose routes export a `search` schema keeps that glue.
     const production = {
-      define: { "import.meta.env.DEV": "false", __PRACHT_HYDRATION_WARNINGS__: "false" },
+      define: {
+        "import.meta.env.DEV": "false",
+        __PRACHT_HYDRATION_WARNINGS__: "false",
+        __PRACHT_ROUTE_SEARCH__: "false",
+      },
       entry: clientEntry,
     };
 
@@ -218,16 +224,10 @@ describe("published package tree shaking", () => {
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
     // These ceilings measure the router with Preact external.
-    //
-    // Raised from 10,250 for typed search params: the parsed value has to
-    // travel with each route state into `useSearch()`, and the query of a
-    // prerendered document is re-parsed after hydration. The validation code
-    // itself is not counted here — the generated client entry passes it in
-    // only when a route module exports a `search` schema.
-    it("keeps the router runtime below 10,340 gzip bytes", async () => {
+    it("keeps the router runtime below 10,250 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_340);
+      expect(gzipBytes).toBeLessThanOrEqual(10_250);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -359,6 +359,7 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_ROUTE_SEARCH__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -379,8 +380,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      // Was 9,960 before typed search params (see the router ceiling above).
-      expect(gzipBytes).toBeLessThanOrEqual(10_040);
+      expect(gzipBytes).toBeLessThanOrEqual(9_960);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -396,6 +396,48 @@ describe("published package tree shaking", () => {
       const { code } = await routerBundle({});
 
       expect(code).toContain("__PRACHT_BLOCK_NAVIGATION__");
+    });
+  });
+
+  // Typed search params: the plugin sets the define from the route modules, so
+  // an app whose routes export no `search` schema compiles the router's parse
+  // and post-hydration re-parse out. The validation code itself never reaches
+  // the router; the generated client entry passes it in.
+  describe("__PRACHT_ROUTE_SEARCH__", () => {
+    const PRODUCTION = {
+      "import.meta.env.DEV": "false",
+      __PRACHT_HYDRATION_WARNINGS__: "false",
+    };
+
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: { ...PRODUCTION, ...define },
+        entry: clientEntry,
+      });
+
+    it("drops the search glue when no route exports a schema", async () => {
+      const { code } = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
+
+      expect(code).not.toContain("parseSearch");
+    });
+
+    it("keeps the search glue when a route exports a schema", async () => {
+      const { code } = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "true" });
+
+      expect(code).toContain("parseSearch");
+    });
+
+    it("keeps the glue when the define is absent", async () => {
+      const { code } = await routerBundle({});
+
+      expect(code).toContain("parseSearch");
+    });
+
+    it("adds at most 150 gzip bytes when enabled", async () => {
+      const on = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "true" });
+      const off = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
+
+      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(150);
     });
   });
 

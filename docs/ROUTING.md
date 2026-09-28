@@ -376,7 +376,7 @@ ignored, and a route without one gets the raw record.
 **Server.** `runPageLoader()` (`runtime-page.ts`) parses after middleware
 (which never sees `search`) and before the loader, then stores the output on
 the shared route args. The loader, `head()`, `headers()`, and the
-`PrachtRuntimeProvider` behind `useSearch()` all read that one value. A
+`RouteSearchContext` provider behind `useSearch()` all read that one value. A
 rejection throws `PrachtHttpError(400, "Invalid search params")` carrying the
 normalized issues (`in: "query"`); `normalizeRouteError()` keeps `issues` for
 4xx errors, so the error boundary document, the hydration state, and the
@@ -389,8 +389,11 @@ becomes the same serialized 400 error and renders the error boundary. That
 covers SPA routes and routes that skip the route-state fetch. The parser is an
 `initClientRouter()` option: the generated client entry passes
 `parseRouteSearch` only when the route hint scan (`route-loader-hints.ts`)
-finds a `search` export (or cannot finish the scan), and always in dev. An app
-without a schema compiles the validation code out. `useSearch()` returns the
+finds a `search` export (or cannot finish the scan), and always in dev. The
+same scan sets the `__PRACHT_ROUTE_SEARCH__` define at build time; when it is
+`false` the router drops the parse, the `RouteSearchContext` provider, and the
+post-hydration re-parse (the query is then adopted as a URL-only update), so an
+app without a schema ships none of the feature. `useSearch()` returns the
 parsed value, or derives the raw record from the current URL when there is
 none.
 

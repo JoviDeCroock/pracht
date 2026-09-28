@@ -25,7 +25,7 @@ import {
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
 import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
-import { PrachtRuntimeProvider } from "./runtime-context.ts";
+import { PrachtRuntimeProvider, RouteSearchContext } from "./runtime-context.ts";
 import { buildHtmlDocument, buildHtmlDocumentParts, htmlResponse } from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
@@ -494,10 +494,13 @@ async function renderServerDocument<TContext>(
       params: match.params,
       routeId: match.route.id ?? "",
       routes: ctx.hrefRoutes,
-      search: (job.routeArgs as LoaderArgs<TContext>).search,
       url: ctx.requestPath,
     },
-    componentTree,
+    h(
+      RouteSearchContext.Provider,
+      { value: (job.routeArgs as LoaderArgs<TContext>).search },
+      componentTree,
+    ),
   );
 
   const hydration = match.route.hydration ?? "full";

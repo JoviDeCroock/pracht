@@ -197,12 +197,10 @@ export function normalizeRouteError(
 }
 
 export function deserializeRouteError(error: SerializedRouteError): Error {
-  const result = new Error(error.message) as Error &
-    Pick<SerializedRouteError, "diagnostics" | "issues" | "status">;
-  result.name = error.name;
-  result.status = error.status;
-  result.diagnostics = error.diagnostics;
-  if (error.issues) result.issues = error.issues;
+  const result = new Error(error.message);
+  for (const key of ["name", "status", "diagnostics", "issues"] as const) {
+    (result as unknown as Record<string, unknown>)[key] = error[key];
+  }
   return result;
 }
 

@@ -43,6 +43,7 @@ import {
   PrachtRuntimeProvider,
   readHydrationState,
   RouteDataContext,
+  RouteSearchContext,
   startApp,
   type PrachtHydrationState,
   type StartAppOptions,
@@ -262,7 +263,8 @@ export function useRouteData(routeId?: string): unknown {
 export function useSearch<TRoute extends RouteId>(routeId: TRoute): RouteSearchOutputFor<TRoute>;
 export function useSearch<TSearch = unknown>(): TSearch;
 export function useSearch(routeId?: string): unknown {
-  const search = useActiveRuntime("useSearch", routeId)?.search;
+  useActiveRuntime("useSearch", routeId);
+  const search = useContext(RouteSearchContext);
   const { search: query } = useLocation();
   // Without a schema the client router leaves `search` unset; the raw record
   // is derived here so it stays in step with the URL.

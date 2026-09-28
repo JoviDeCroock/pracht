@@ -66,6 +66,7 @@ import {
   type PrachtHydrationState,
   PrachtRuntimeProvider,
   RouteDataContext,
+  RouteSearchContext,
 } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 
@@ -120,6 +121,17 @@ declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
 const HYDRATION_WARNINGS_FORCED =
   typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
 
+/**
+ * Typed search params. The plugin sets this to `false` in a build where no
+ * route module exports a `search` schema, which compiles out the client-side
+ * parse and the post-hydration re-parse; the query of a prerendered document
+ * is then adopted as a URL-only update, as it was before the feature.
+ */
+declare const __PRACHT_ROUTE_SEARCH__: boolean | undefined;
+
+const SEARCH_ENABLED =
+  typeof __PRACHT_ROUTE_SEARCH__ === "undefined" || __PRACHT_ROUTE_SEARCH__ !== false;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -129,7 +141,7 @@ interface RouteRenderState {
   data: unknown;
   params: RouteParams;
   routeId: string;
-  search: unknown;
+  search?: unknown;
   url: string;
   version: number;
 }
@@ -247,8 +259,7 @@ export interface InitClientRouterOptions {
 }
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
-  const { app, routeModules, shellModules, root, findModuleKey, onRouteChange, parseSearch } =
-    options;
+  const { app, routeModules, shellModules, root, findModuleKey, onRouteChange } = options;
 
   const moduleCache = new Map<string, Promise<unknown>>();
 
@@ -511,7 +522,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data,
       params,
       routeId,
-      search,
       url,
       version,
     } = routeState;
@@ -536,13 +546,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const shellTree = Shell
       ? h(Shell as FunctionComponent<Record<string, unknown>>, null, guardedRouteElement)
       : guardedRouteElement;
-    const componentTree = ShellBoundary
+    const guardedShellTree = ShellBoundary
       ? h(RouteErrorBoundary, {
           key: version,
           Boundary: ShellBoundary,
           children: shellTree,
         })
       : shellTree;
+    const componentTree = SEARCH_ENABLED
+      ? h(RouteSearchContext.Provider, { value: routeState.search }, guardedShellTree)
+      : guardedShellTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -554,7 +567,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           params,
           routeId,
           routes: app.routes,
-          search,
           stateVersion: version,
           url,
           isCurrent: () => activeRouteStateVersion === version,
@@ -595,8 +607,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // Routes without a schema leave `search` unset and `useSearch()` reads
     // the raw query itself.
     let search: unknown;
-    if (parseSearch && routeMod.search && !state.error) {
-      const parsed = await parseSearch(routeMod.search, currentUrl);
+    if (SEARCH_ENABLED && options.parseSearch && routeMod.search && !state.error) {
+      const parsed = await options.parseSearch(routeMod.search, currentUrl);
       if (parsed.error) state = { data: undefined, error: parsed.error };
       search = parsed.value;
     }
@@ -623,7 +635,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: state.data,
       params: match.params,
       routeId: match.route.id ?? "",
-      search,
+      ...(SEARCH_ENABLED ? { search } : null),
       url: currentUrl,
       version: ++routeStateVersion,
     };
@@ -651,7 +663,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: undefined,
       params: match.params,
       routeId: match.route.id ?? "",
-      search: undefined,
       url: currentUrl,
       version: ++routeStateVersion,
     };
@@ -1202,16 +1213,23 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             if (!hydrationBrowserTarget || !hydratedTarget) return;
             const nextRequestUrl = hydratedTarget.urlPathname + hydrationBrowserTarget.search;
             if (initialRouteState.url === nextRequestUrl) return;
-            // The visitor's query — absent from a prerendered document — is
-            // parsed again; a rejected one swaps in the error boundary.
-            const nextState = await resolveRouteState(initialMatch, state, nextRequestUrl);
+            // With typed search params, the visitor's query — absent from a
+            // prerendered document — is parsed again, and a rejected one
+            // swaps in the error boundary. Otherwise only the URL moves.
+            const nextState = SEARCH_ENABLED
+              ? await resolveRouteState(initialMatch, state, nextRequestUrl)
+              : null;
 
             // A navigation that committed while a Suspense boundary was
             // hydrating owns the newer state. Keeping the version makes this a
             // URL-only update, so data revalidated meanwhile survives it.
             updateRouteState?.((currentState) =>
-              nextState && currentState.version === initialRouteState.version
-                ? { ...nextState, version: currentState.version }
+              currentState.version === initialRouteState.version
+                ? {
+                    ...currentState,
+                    ...(nextState && { ...nextState, version: currentState.version }),
+                    url: nextRequestUrl,
+                  }
                 : currentState,
             );
           });

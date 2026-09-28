@@ -10,6 +10,7 @@ import {
   Link,
   resolveApp,
   route,
+  useLocation,
   useSearch,
   type ErrorBoundaryProps,
 } from "../src/index.ts";
@@ -154,6 +155,37 @@ describe("client search params", () => {
     await flush();
     await flush();
     expect(root.querySelector("#error")?.textContent).toBe("400:page");
+  });
+
+  it("still adopts the visitor's URL when a rejected query has no boundary to render", async () => {
+    history.replaceState(null, "", "/catalog?page=nope");
+    root.innerHTML = '<main><span id="page">number:1</span><span id="query"></span></main>';
+
+    await initClientRouter({
+      app: createApp("ssg"),
+      routeModules: {
+        ...routeModules,
+        "./routes/catalog.tsx": async () => ({
+          search,
+          default: () =>
+            h(
+              "main",
+              null,
+              h("span", { id: "page" }, `number:${useSearch<{ page: number }>().page}`),
+              h("span", { id: "query" }, useLocation().search),
+            ),
+        }),
+      },
+      shellModules: {},
+      initialState: { data: null, routeId: "catalog", url: "/catalog" },
+      root,
+      findModuleKey: (_modules, file) => file,
+      parseSearch: parseRouteSearch,
+    });
+    await flush();
+    await flush();
+
+    expect(root.querySelector("#query")?.textContent).toBe("?page=nope");
   });
 
   it("parses typed link targets on client navigation", async () => {

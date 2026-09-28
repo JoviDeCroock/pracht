@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { pracht } from "../src/index.ts";
 import {
   collectManifestModuleRefs,
   createPrachtClientModuleSource,
@@ -211,7 +212,32 @@ export const app = defineApp({
     // Dev keeps it so the first `search` export works without regenerating
     // the entry; the production build folds the branch and drops the import.
     expect(createPrachtClientModuleSource({}, { root })).toContain(
-      "    parseSearch: import.meta.env.DEV ? parseRouteSearch : undefined,",
+      "    ...(import.meta.env.DEV ? { parseSearch: parseRouteSearch } : null),",
     );
+  });
+
+  it("compiles the router's search glue out of a build with no schema", () => {
+    const define = (root: string, command: string) => {
+      const plugin = pracht().find((candidate) => candidate.name === "pracht")!;
+      const hook = plugin.config as (
+        config: Record<string, unknown>,
+        env: { command: string; mode: string; isSsrBuild: boolean },
+      ) => { define?: Record<string, string> };
+      return hook.call(
+        plugin as never,
+        { root },
+        { command, mode: "production", isSsrBuild: false },
+      ).define?.__PRACHT_ROUTE_SEARCH__;
+    };
+    const plain = project({ "src/routes.ts": MANIFEST, "src/routes/home.tsx": COMPONENT });
+    const typed = project({
+      "src/routes.ts": MANIFEST,
+      "src/routes/home.tsx": `export const search = schema;\n${COMPONENT}`,
+    });
+
+    expect(define(plain, "build")).toBe("false");
+    expect(define(typed, "build")).toBe("true");
+    // Dev keeps it on, so the first schema works without a restart.
+    expect(define(plain, "serve")).toBe("true");
   });
 });

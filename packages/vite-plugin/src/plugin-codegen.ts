@@ -325,10 +325,9 @@ export function createPrachtClientModuleSource(
   // Client-side search validation ships only when a route module can export a
   // `search` schema. Dev keeps it regardless, so adding the first schema does
   // not depend on the client entry being regenerated.
-  const searchParser =
-    routeHints.incomplete || Object.values(routeHints.search).some(Boolean)
-      ? "parseRouteSearch"
-      : "import.meta.env.DEV ? parseRouteSearch : undefined";
+  const searchParserOption = routeHintsHaveSearch(routeHints)
+    ? "    parseSearch: parseRouteSearch,"
+    : "    ...(import.meta.env.DEV ? { parseSearch: parseRouteSearch } : null),";
 
   const appImport = isPagesMode
     ? generatePagesAppInlineSource(resolved, buildOptions.root, "client")
@@ -497,7 +496,7 @@ export function createPrachtClientModuleSource(
     "    initialState: state,",
     "    root,",
     "    findModuleKey,",
-    `    parseSearch: ${searchParser},`,
+    searchParserOption,
     ...(webmcpEnabled ? ["    onRouteChange: syncPrachtWebmcpTools,"] : []),
     "  });",
     "}",
@@ -960,6 +959,14 @@ function createApplyRouteLoaderHintsSource(): string[] {
     "}",
     "",
   ];
+}
+
+/**
+ * Whether some route module may export a `search` schema. A scan that could
+ * not finish answers yes, so a schema is never compiled out by mistake.
+ */
+export function routeHintsHaveSearch(hints: RouteHints): boolean {
+  return hints.incomplete || Object.values(hints.search).some(Boolean);
 }
 
 /**
