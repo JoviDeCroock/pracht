@@ -51,6 +51,23 @@ describe("pracht optimizeDeps config", () => {
     expect(config.optimizeDeps?.include).toBeUndefined();
   });
 
+  it("scans the app root, which the client entry imports eagerly", () => {
+    // Without it, a dependency only the root imports (`@pracht/query/root`)
+    // is discovered on the first page load: 504 "Outdated Optimize Dep", then
+    // a full reload.
+    expect(runOptimizeDepsHook({ root: npmAppRoot }).optimizeDeps?.entries).toContain(
+      "src/root.{ts,tsx,js,jsx}",
+    );
+
+    const plugin = pracht({ rootFile: "/app/root" }).find(
+      (candidate) => candidate.name === "pracht:optimize-deps-entries",
+    )!;
+    const hook = plugin.config as (config: OptimizeDepsConfig) => OptimizeDepsConfig;
+    expect(hook.call(plugin as never, {}).optimizeDeps?.entries).toContain(
+      "app/root.{ts,tsx,js,jsx}",
+    );
+  });
+
   it("still contributes scan entries for route and shell files", () => {
     const config = runOptimizeDepsHook({ root: npmAppRoot });
 

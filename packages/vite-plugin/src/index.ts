@@ -1206,6 +1206,10 @@ function createPrachtOptimizeDepsEntries(
   );
   const apiDir = toOptimizeDepsEntry(resolved.apiDir);
   const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
+  // The client entry imports the app root eagerly, so its dependencies (e.g.
+  // `@pracht/query/root`) must be found by the startup scan, not on the first
+  // page load, which would answer 504 "Outdated Optimize Dep" and reload.
+  const rootEntry = `${toOptimizeDepsEntry(resolved.rootFile)}.${scriptExtensions}`;
   const entries = resolved.pagesDir
     ? [
         `${toOptimizeDepsEntry(resolved.pagesDir)}/**/*.${routeExtensions}`,
@@ -1213,6 +1217,7 @@ function createPrachtOptimizeDepsEntries(
         ...apiEntries,
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
+        rootEntry,
       ]
     : [
         toOptimizeDepsEntry(resolved.appFile),
@@ -1223,6 +1228,7 @@ function createPrachtOptimizeDepsEntries(
         `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
         `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
         `${toOptimizeDepsEntry(resolved.capabilitiesDir)}/**/*.{ts,js,tsx,jsx}`,
+        rootEntry,
       ];
 
   return [...new Set(entries.filter(Boolean))];

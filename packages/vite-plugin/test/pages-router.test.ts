@@ -1093,6 +1093,7 @@ describe("pracht plugin config", () => {
       "src/server/**/*.{ts,js,tsx,jsx}",
       "src/islands/**/*.{ts,tsx,js,jsx}",
       "src/capabilities/**/*.{ts,js,tsx,jsx}",
+      "src/root.{ts,tsx,js,jsx}",
     ];
 
     expect(result.optimizeDeps?.entries).toEqual(["custom-entry.ts", ...expectedPrachtEntries]);
