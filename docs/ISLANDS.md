@@ -242,11 +242,11 @@ Partial client-side rendering of islands routes is out of scope for v1.
 
 Island props are fixed at render time, so on SSG/ISG pages they are shared by
 every visitor. Per-visitor content belongs in a server island (see
-[SERVER_ISLANDS.md](SERVER_ISLANDS.md)). Server islands can contain islands: on islands pages the
-server island endpoint captures them and names the bootstrap in `x-pracht-islands`,
-and the bootstrap (when the app has a server islands directory) hydrates islands in
-each swapped server island. In such apps `data-hydrated` is `"pending"` while an
-island's chunk loads, then `"true"`.
+[SERVER_ISLANDS.md](SERVER_ISLANDS.md)). Server islands can contain islands: on
+islands pages the server island endpoint captures them and names the bootstrap
+in `x-pracht-islands`, and the bootstrap (when the app has a server islands
+directory) hydrates islands in each swapped server island. In such apps
+`data-hydrated` is `"pending"` while an island's chunk loads, then `"true"`.
 
 ## Limitations (v1)
 

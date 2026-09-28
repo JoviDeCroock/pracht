@@ -298,8 +298,9 @@ Browser request
 Server islands (`src/server-islands/`) are the exception to "one render per
 document": on SSR pages they render inline after the page, and on SSG/ISG pages
 the document carries a fallback that the browser fills from
-`GET /__pracht/server-island`, which runs the page route's middleware and the server island
-loader per visitor. See [SERVER_ISLANDS.md](SERVER_ISLANDS.md).
+`GET /__pracht/server-island`, which runs the page route's middleware and the
+server island loader per visitor — only for routes that import that server
+island (the route binding). See [SERVER_ISLANDS.md](SERVER_ISLANDS.md).
 
 ### SSG Build
 
@@ -647,7 +648,8 @@ runtime-page.ts — back half: renderPage (middleware → loader → head/header
                   route-state JSON, SPA shell, or server-rendered document)
     ↑
 server-islands-server.ts — server islands: registry, vnode hook, inline token
-                    substitution, and the /__pracht/server-island endpoint
+                    substitution, route bindings, and the
+                    /__pracht/server-island endpoint
                     (imported by runtime-page.ts and runtime.ts)
     ↑
 runtime.ts      — handlePrachtRequest orchestrator + the public runtime re-exports

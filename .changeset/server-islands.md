@@ -5,4 +5,4 @@
 "@pracht/adapter-cloudflare": minor
 ---
 
-Components in `src/server-islands/` render per request with the visitor's cookies and the route's middleware context inside otherwise cached SSG/ISG pages, showing a `fallback` until they load, and render inline on SSR pages.
+Server islands: components in `src/server-islands/` render per request, with the visitor's cookies and the middleware of the page that renders them, inside otherwise cached SSG/ISG pages, showing a `fallback` until they load.
