@@ -49,6 +49,54 @@ function findMatching(source: string, start: number, open: string, close: string
   return -1;
 }
 
+/**
+ * Blanks comments, and string contents too when `strings` is set, keeping every
+ * other character at its offset so positions found in the masked copy still
+ * address the original source.
+ */
+function maskSource(source: string, strings: boolean): string {
+  let result = "";
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index]!;
+    if (char === '"' || char === "'" || char === "`") {
+      result += char;
+      index += 1;
+      while (index < source.length) {
+        const inner = source[index]!;
+        if (inner === "\\" && index + 1 < source.length) {
+          result += strings ? "  " : inner + source[index + 1];
+          index += 2;
+          continue;
+        }
+        index += 1;
+        if (inner === char) {
+          result += inner;
+          break;
+        }
+        result += strings && inner !== "\n" ? " " : inner;
+      }
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "/") {
+      while (index < source.length && source[index] !== "\n") {
+        result += " ";
+        index += 1;
+      }
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "*") {
+      const close = source.indexOf("*/", index + 2);
+      const end = close === -1 ? source.length : close + 2;
+      for (; index < end; index++) result += source[index] === "\n" ? "\n" : " ";
+      continue;
+    }
+    result += char;
+    index += 1;
+  }
+  return result;
+}
+
 function scanFiles(dir: string, files: string[], extensions: Set<string>): void {
   let entries: string[];
   try {
@@ -105,21 +153,31 @@ function createNonFullHydrationExcludes(
   } catch {
     return [];
   }
+  // Brackets are located in a copy without comments or string contents, and
+  // the hydration mode is read from a copy without comments.
+  const structure = maskSource(source, true);
+  const code = maskSource(source, false);
   const groups: Array<{ start: number; end: number; nonFull: boolean }> = [];
-  for (const match of source.matchAll(/\bgroup\s*\(/g)) {
+  for (const match of structure.matchAll(/\bgroup\s*\(/g)) {
     const parenStart = match.index! + match[0].lastIndexOf("(");
-    const parenEnd = findMatching(source, parenStart, "(", ")");
+    const parenEnd = findMatching(structure, parenStart, "(", ")");
     if (parenEnd === -1) continue;
-    const args = source.slice(parenStart + 1, parenEnd);
-    const arrayStart = source.indexOf("[", parenStart);
+    // `group(meta, routes)`: the mode comes from the meta object alone, and the
+    // routes array is searched for only after it, so an array inside the meta
+    // (a `middleware` list) is never mistaken for the routes.
+    let metaEnd = parenStart;
+    let nonFull = false;
+    const metaStart = parenStart + 1 + structure.slice(parenStart + 1).search(/\S/);
+    if (structure[metaStart] === "{") {
+      metaEnd = findMatching(structure, metaStart, "{", "}");
+      if (metaEnd === -1) continue;
+      nonFull = NON_FULL_HYDRATION_RE.test(code.slice(metaStart, metaEnd + 1));
+    }
+    const arrayStart = structure.indexOf("[", metaEnd);
     if (arrayStart === -1 || arrayStart > parenEnd) continue;
-    const arrayEnd = findMatching(source, arrayStart, "[", "]");
+    const arrayEnd = findMatching(structure, arrayStart, "[", "]");
     if (arrayEnd === -1) continue;
-    groups.push({
-      start: arrayStart,
-      end: arrayEnd,
-      nonFull: NON_FULL_HYDRATION_RE.test(args.split("[")[0] ?? ""),
-    });
+    groups.push({ start: arrayStart, end: arrayEnd, nonFull });
   }
 
   const appDir = dirname(appFile);
