@@ -120,6 +120,9 @@ describe("create-pracht", () => {
     expect(routes).toContain('shell: "public",');
     expect(routes).not.toContain("// notFound:");
 
+    const shell = await readFile(join(targetDir, "src/shells/public.tsx"), "utf-8");
+    expect(shell).toContain('lang: "en",');
+
     const manifestReadme = await readFile(join(targetDir, "README.md"), "utf-8");
     expect(manifestReadme).toContain('`<Link route="home">`');
     expect(manifestReadme).toContain("`<Link href>` is a compile error");
