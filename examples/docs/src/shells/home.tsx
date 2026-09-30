@@ -47,6 +47,7 @@ export function Shell({ children }: ShellProps) {
 
 export function head() {
   return {
+    lang: "en",
     title: "pracht — one app graph, projected to browsers and to agents.",
     meta: [
       { name: "viewport", content: "width=device-width, initial-scale=1" },

@@ -34,8 +34,9 @@ html {
   --text: #fafafa;
   --text-2: #d4d4d8;
   --text-3: #a1a1aa;
-  --muted: #71717a;
+  --muted: #8e8e97;
   --primary: #8b5cf6;
+  --primary-d: #7c3aed;
   --primary-l: #a78bfa;
   --primary-ll: #c4b5fd;
   --green: #4ade80;
@@ -193,14 +194,14 @@ a:hover {
 }
 
 .btn-primary {
-  background: var(--primary);
+  background: var(--primary-d);
   color: #fff;
-  border: 1px solid var(--primary);
+  border: 1px solid var(--primary-d);
 }
 
 .btn-primary:hover {
-  background: var(--primary-l);
-  border-color: var(--primary-l);
+  background: #6d28d9;
+  border-color: #6d28d9;
   color: #fff;
   box-shadow: 0 0 20px rgba(139, 92, 246, 0.35);
 }
@@ -291,7 +292,7 @@ a:hover {
   color: #86efac;
 } /* strings */
 .cmt {
-  color: #64748b;
+  color: #7c8799;
   font-style: italic;
 } /* comments */
 .num {
@@ -1005,6 +1006,23 @@ code:not(.code-block code) {
 
 .doc-page .breadcrumb a {
   color: var(--muted);
+}
+
+/* Links inside running text need a cue besides colour. */
+.doc-page p a,
+.doc-page li a,
+.doc-page td a,
+.ladder-note a {
+  text-decoration: underline;
+  text-decoration-color: rgba(167, 139, 250, 0.45);
+  text-underline-offset: 3px;
+}
+
+.doc-page p a:hover,
+.doc-page li a:hover,
+.doc-page td a:hover,
+.ladder-note a:hover {
+  text-decoration-color: currentColor;
 }
 
 .doc-page .breadcrumb a:hover {
