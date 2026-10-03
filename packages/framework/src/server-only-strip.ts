@@ -19,7 +19,8 @@ import { isServerOnly, readServerOnly, serverOnlyPlaceholder } from "./server-on
  * rendered tree closed over.
  *
  * Walks the shapes `resolveDeferredData()` walks — arrays and plain objects,
- * data properties only. A marker returned from a getter is not found (reading
+ * data properties only — plus the `Map` and `Set` entries `client.richData`
+ * sends. A marker returned from a getter is not found (reading
  * it would be an observable access on every route), and its `toJSON()` then
  * writes the value into the document as if it had never been marked. Return
  * `serverOnly()` from an enumerable data property.
@@ -41,6 +42,17 @@ function containsServerOnly(value: unknown, seen = new Set<object>()): boolean {
         if (containsServerOnly(descriptor.value, seen)) return true;
       }
     }
+    return false;
+  }
+  // The containers `client.richData` sends; plain JSON writes them as `{}`.
+  if (value instanceof Map) {
+    for (const [key, entry] of value) {
+      if (containsServerOnly(key, seen) || containsServerOnly(entry, seen)) return true;
+    }
+    return false;
+  }
+  if (value instanceof Set) {
+    for (const entry of value) if (containsServerOnly(entry, seen)) return true;
     return false;
   }
   if (!isPlainObject(value)) return false;
@@ -79,7 +91,22 @@ function stripValue(value: unknown, seen: Map<object, unknown>): unknown {
     return next;
   }
 
-  // Anything that is not a plain object (Date, class instance, …) is handed
+  if (value instanceof Map) {
+    const next = new Map<unknown, unknown>();
+    Object.setPrototypeOf(next, Object.getPrototypeOf(value));
+    seen.set(value, next);
+    for (const [key, entry] of value) next.set(stripValue(key, seen), stripValue(entry, seen));
+    return next;
+  }
+  if (value instanceof Set) {
+    const next = new Set<unknown>();
+    Object.setPrototypeOf(next, Object.getPrototypeOf(value));
+    seen.set(value, next);
+    for (const entry of value) next.add(stripValue(entry, seen));
+    return next;
+  }
+
+  // Anything else that is not a plain object (Date, class instance, …) is handed
   // back by reference, exactly as the deferred walker does: loader data has to
   // be JSON-serializable, so these are already the caller's problem and
   // rebuilding them would lose their prototype.

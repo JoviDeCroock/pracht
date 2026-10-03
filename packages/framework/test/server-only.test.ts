@@ -114,6 +114,18 @@ describe("stripServerOnlyValues()", () => {
     expect(stripped.self).toBe(stripped);
   });
 
+  it("replaces markers inside Map and Set entries, keeping a cycle a cycle", () => {
+    const map = new Map<unknown, unknown>([["html", serverOnly("<p>hi</p>")]]);
+    map.set("self", map);
+    const stripped = stripServerOnlyValues({ map, set: new Set([serverOnly("x")]) });
+
+    expect(stripped.map).not.toBe(map);
+    expect(isServerOnlyPlaceholder(stripped.map.get("html"))).toBe(true);
+    expect(stripped.map.get("self")).toBe(stripped.map);
+    expect(isServerOnlyPlaceholder([...stripped.set][0])).toBe(true);
+    expect(isServerOnly(map.get("html"))).toBe(true);
+  });
+
   it("hands non-plain objects back by reference rather than losing their prototype", () => {
     const date = new Date(0);
     const stripped = stripServerOnlyValues({ date, body: serverOnly("x") });

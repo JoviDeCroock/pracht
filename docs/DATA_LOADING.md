@@ -434,6 +434,8 @@ How it fits together:
   page both read `shellState.wire`). A value a streamed `defer()` resolves to
   is stripped in `runtime-stream.ts` before its `__PRACHT_DEFER__.r()` script
   is written, since the boundary's markup is streamed into the same document.
+  The walker covers arrays, plain objects, and the `Map`/`Set` entries
+  `client.richData` sends; other class instances are left as they are.
 - **Hydration** hands the browser that placeholder, and `<StaticHtml>` renders
   an empty `dangerouslySetInnerHTML`. Preact does not write into one while
   hydrating (`diff/index.js` guards the assignment on `!isHydrating`), so the
