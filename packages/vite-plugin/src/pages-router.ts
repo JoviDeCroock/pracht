@@ -31,6 +31,7 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import { isNonModuleFile } from "./source-files.ts";
 
 export interface ScannedPage {
   absolutePath: string;
@@ -384,8 +385,8 @@ export interface PagesCapability {
 export function findPagesCapabilityFiles(capabilitiesDir: string): PagesCapability[] {
   const files = scanAllFiles(capabilitiesDir)
     .filter((file) => CAPABILITY_EXTENSIONS.has(extname(file)))
-    // Declaration files describe a module, they are not one.
-    .filter((file) => !file.endsWith(".d.ts"))
+    // Declaration files describe a module and tests exercise one; neither is one.
+    .filter((file) => !isNonModuleFile(relative(capabilitiesDir, file)))
     .sort();
 
   const capabilities: PagesCapability[] = [];
@@ -476,6 +477,8 @@ function scan(
 
     // Skip _-prefixed files except the root-level _app shell.
     if (name.startsWith("_") && !isRootApp) continue;
+    // A colocated test is not a page (`__tests__/` is already underscore-reserved).
+    if (isNonModuleFile(entry)) continue;
 
     const rel = relative(root, abs);
     const routePath = filePathToRoutePath(rel);

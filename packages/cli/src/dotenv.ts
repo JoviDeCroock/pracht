@@ -24,20 +24,65 @@ import { loadEnv } from "vite";
  * load `.env.production` into a dev server.
  */
 export function loadDotEnvIntoProcess(root: string, mode: string): string[] {
-  // An empty prefix asks Vite for every key in the `.env` files, not just the
-  // client-exposed ones — this is the server-side environment.
-  const fileEnv = loadEnv(mode, root, "");
-  const applied: string[] = [];
+  return createDotEnvSync(root, mode).load();
+}
 
-  for (const [key, value] of Object.entries(fileEnv)) {
-    // Vite refuses `NODE_ENV=production` from a `.env` file on purpose, and
-    // only honours `NODE_ENV=development`. Assigning it here would run ahead of
-    // that guard and silently flip the dev server into production mode.
-    if (key === "NODE_ENV") continue;
-    if (key in process.env) continue;
-    process.env[key] = value;
-    applied.push(key);
-  }
+/**
+ * The reloadable form of {@link loadDotEnvIntoProcess}, for a long-running dev
+ * server. Each `load()` re-reads the files and brings the keys it owns — the
+ * ones an earlier `load()` assigned — up to date: changed values are replaced
+ * and keys removed from every file are deleted. Real environment variables
+ * are never touched, and neither is a key the process reassigned itself after
+ * it was loaded. Returns the keys this call assigned or updated.
+ */
+export function createDotEnvSync(root: string, mode: string): { load(): string[] } {
+  const owned = new Map<string, string>();
 
-  return applied;
+  return {
+    load() {
+      for (const [key, value] of owned) {
+        // Reassigned by the process since: no longer the file's to manage.
+        if (process.env[key] !== value) owned.delete(key);
+      }
+      // `loadEnv` lets `process.env` override the files for every key matching
+      // the prefix — with an empty prefix, every key. Hide the keys an earlier
+      // load assigned for the duration of this synchronous call, or a reload
+      // would read back its own stale values.
+      for (const key of owned.keys()) delete process.env[key];
+      let fileEnv: Record<string, string>;
+      try {
+        // An empty prefix asks Vite for every key in the `.env` files, not just
+        // the client-exposed ones — this is the server-side environment.
+        fileEnv = loadEnv(mode, root, "");
+      } finally {
+        for (const [key, value] of owned) process.env[key] = value;
+      }
+      const applied: string[] = [];
+
+      for (const key of owned.keys()) {
+        if (!Object.hasOwn(fileEnv, key)) {
+          delete process.env[key];
+          owned.delete(key);
+        }
+      }
+
+      for (const [key, value] of Object.entries(fileEnv)) {
+        // Vite refuses `NODE_ENV=production` from a `.env` file on purpose, and
+        // only honours `NODE_ENV=development`. Assigning it here would run
+        // ahead of that guard and silently flip the dev server into production
+        // mode.
+        if (key === "NODE_ENV") continue;
+        if (owned.has(key)) {
+          if (owned.get(key) === value) continue;
+        } else if (key in process.env) {
+          continue;
+        }
+        process.env[key] = value;
+        owned.set(key, value);
+        applied.push(key);
+      }
+
+      return applied;
+    },
+  };
 }

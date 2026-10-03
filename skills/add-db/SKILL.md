@@ -1,6 +1,6 @@
 ---
 name: add-db
-version: 1.2.0
+version: 1.2.1
 description: |
   Wire Drizzle ORM into a pracht app: pick the target (D1, PlanetScale, Neon,
   Supabase, Turso, Postgres, MySQL, SQLite), then generate driver setup, schema,
@@ -93,11 +93,13 @@ export const db = drizzle(pool, { schema });
 ```
 
 For Cloudflare D1, register the Cloudflare context type once via the `Register`
-augmentation (the pattern in
-`examples/docs/src/routes/docs/recipes-fullstack-cloudflare.md`):
+augmentation. Keep the `import`: without it the file is a global script and the
+declaration replaces `@pracht/core`'s types instead of extending them.
 
 ```ts
 // src/env.d.ts
+import "@pracht/core";
+
 declare module "@pracht/core" {
   interface Register {
     context: {

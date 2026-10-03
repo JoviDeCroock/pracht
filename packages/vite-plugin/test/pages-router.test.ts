@@ -1083,16 +1083,23 @@ describe("pracht plugin config", () => {
       { command: "serve", isSsrBuild: false, mode: "development" },
     );
 
+    // Each directory is seeded without its declarations, tests, and mocks.
+    const seeded = (dir: string): string[] => [
+      `${dir}/**/*.{ts,tsx,js,jsx}`,
+      `!${dir}/**/*.d.ts`,
+      `!${dir}/**/*.{test,spec}.*`,
+      `!${dir}/**/__tests__/**`,
+      `!${dir}/**/__mocks__/**`,
+    ];
     const expectedPrachtEntries = [
       "src/routes.ts",
-      "src/routes/**/*.{ts,tsx,js,jsx}",
-      "src/shells/**/*.{ts,tsx,js,jsx}",
-      "src/middleware/**/*.{ts,tsx,js,jsx}",
-      "src/api/**/*.{ts,js,tsx,jsx}",
-      "!src/api/**/*.d.ts",
-      "src/server/**/*.{ts,js,tsx,jsx}",
-      "src/islands/**/*.{ts,tsx,js,jsx}",
-      "src/capabilities/**/*.{ts,js,tsx,jsx}",
+      ...seeded("src/routes"),
+      ...seeded("src/shells"),
+      ...seeded("src/middleware"),
+      ...seeded("src/api"),
+      ...seeded("src/server"),
+      ...seeded("src/islands"),
+      ...seeded("src/capabilities"),
     ];
 
     expect(result.optimizeDeps?.entries).toEqual(["custom-entry.ts", ...expectedPrachtEntries]);
@@ -1276,6 +1283,23 @@ describe("pages dev watcher", () => {
     watcher.emit("add", join(root, "src", "pages-archive", "old.tsx"));
     expect(watcher.restarts).toBe(0);
   });
+
+  it("ignores tests and mocks added beside pages and capabilities", () => {
+    const root = makeTempPagesDir();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export function Component() { return null; }\n",
+    );
+
+    const watcher = watchHandlers(root, { pagesDir: "/src/pages" });
+
+    watcher.emit("add", join(root, "src", "pages", "index.test.tsx"));
+    watcher.emit("add", join(root, "src", "pages", "blog", "post.spec.ts"));
+    watcher.emit("add", join(root, "src", "capabilities", "__tests__", "search.ts"));
+    watcher.emit("unlink", join(root, "src", "capabilities", "__mocks__", "db.ts"));
+    expect(watcher.restarts).toBe(0);
+  });
 });
 
 describe("createPrachtRegistryModuleSource", () => {
@@ -1289,7 +1313,7 @@ describe("createPrachtRegistryModuleSource", () => {
     expect(source).toContain("/src/pages/**/_app.tsrx");
     expect(source).toContain('"!/src/pages/**/_*/**"');
     expect(source).toContain(
-      'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts"])',
+      'import.meta.glob(["/src/api/**/*.{ts,js,tsx,jsx}","!/src/api/**/*.d.ts",',
     );
     expect(source).toContain("/src/server/**/*.{ts,js,tsx,jsx}");
     expect(source).toContain("/src/middleware/**/*.{ts,tsx,js,jsx}");
@@ -1309,16 +1333,16 @@ describe("createPrachtRegistryModuleSource", () => {
   it("keeps compatibility TSRX client module ids bare without configuration", () => {
     const source = createPrachtClientModuleSource();
 
-    expect(source).toContain('import.meta.glob("/src/routes/**/*.tsrx")');
-    expect(source).toContain('import.meta.glob("/src/shells/**/*.tsrx")');
+    expect(source).toContain('import.meta.glob(["/src/routes/**/*.tsrx",');
+    expect(source).toContain('import.meta.glob(["/src/shells/**/*.tsrx",');
     expect(source).not.toContain('/src/routes/**/*.tsrx", { query:');
   });
 
   it("keeps additional client module ids bare for their format plugins", () => {
     const source = createPrachtClientModuleSource({ additionalExtensions: [".custom"] });
 
-    expect(source).toContain('import.meta.glob("/src/routes/**/*.{tsrx,custom}")');
-    expect(source).toContain('import.meta.glob("/src/shells/**/*.{tsrx,custom}")');
+    expect(source).toContain('import.meta.glob(["/src/routes/**/*.{tsrx,custom}",');
+    expect(source).toContain('import.meta.glob(["/src/shells/**/*.{tsrx,custom}",');
     expect(source).not.toContain('/src/routes/**/*.{tsrx,custom}", { query:');
   });
 
@@ -1422,7 +1446,7 @@ describe("createPrachtRegistryModuleSource", () => {
 
     expect(source).toContain('"!/src/pages/**/_*"');
     expect(source).not.toContain('"!/src/shells/**/_*"');
-    expect(source).toContain('import.meta.glob("/src/shells/**/*.{ts,tsx,js,jsx,md,mdx}"');
+    expect(source).toContain('import.meta.glob(["/src/shells/**/*.{ts,tsx,js,jsx,md,mdx}",');
     expect(source).not.toContain("/src/shells/**/_app.");
   });
 

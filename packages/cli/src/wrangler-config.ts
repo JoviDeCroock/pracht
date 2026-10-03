@@ -42,10 +42,16 @@ export function readWranglerMainEntries(configFile: string): WranglerMainEntry[]
   return configFile.endsWith(".toml") ? readTomlMainEntries(source) : readJsonMainEntries(source);
 }
 
-/** What a wrangler config says about its assets binding's `html_handling`. */
-export interface WranglerAssetsHtmlHandling {
+/** What a wrangler config says about its top-level assets block. */
+export interface WranglerAssetsSettings {
   /** `undefined` when the key is absent, i.e. wrangler's `auto-trailing-slash`. */
   htmlHandling: string | undefined;
+  /**
+   * `true`, `false`, or a list of route patterns; `undefined` when the key is
+   * absent or not one of those shapes, i.e. wrangler's default of serving a
+   * matching asset without running the Worker.
+   */
+  runWorkerFirst: boolean | string[] | undefined;
 }
 
 export interface WranglerBundleSettings {
@@ -238,16 +244,14 @@ function readTomlStringArray(source: string): string[] {
 }
 
 /**
- * The top-level `assets.html_handling` value, or `null` when it cannot be
- * proven — an unreadable file, a parse failure, a TOML config (not parsed
- * here), or no `assets` block at all.
+ * The top-level `assets.html_handling` and `assets.run_worker_first` values,
+ * or `null` when they cannot be proven — an unreadable file, a parse failure,
+ * a TOML config (not parsed here), or no `assets` block at all.
  *
  * `null` means "unknown", never "fine": callers must stay silent on it rather
  * than reporting a config they could not read.
  */
-export function readWranglerAssetsHtmlHandling(
-  configFile: string,
-): WranglerAssetsHtmlHandling | null {
+export function readWranglerAssets(configFile: string): WranglerAssetsSettings | null {
   if (configFile.endsWith(".toml")) return null;
 
   let source: string;
@@ -269,7 +273,15 @@ export function readWranglerAssetsHtmlHandling(
   if (!assets || typeof assets !== "object") return null;
 
   const htmlHandling = (assets as Record<string, unknown>).html_handling;
-  return { htmlHandling: typeof htmlHandling === "string" ? htmlHandling : undefined };
+  const runWorkerFirst = (assets as Record<string, unknown>).run_worker_first;
+  return {
+    htmlHandling: typeof htmlHandling === "string" ? htmlHandling : undefined,
+    runWorkerFirst:
+      typeof runWorkerFirst === "boolean" ||
+      (Array.isArray(runWorkerFirst) && runWorkerFirst.every((item) => typeof item === "string"))
+        ? (runWorkerFirst as boolean | string[])
+        : undefined,
+  };
 }
 
 function readJsonMainEntries(source: string): WranglerMainEntry[] {

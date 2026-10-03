@@ -363,6 +363,12 @@ export function netlifyAdapter(options: NetlifyAdapterOptions = {}): PrachtAdapt
     createServerEntryModule() {
       return createNetlifyServerEntryModule(options);
     },
+    dev: {
+      createContextFrom: options.createContextFrom,
+      // `pracht dev` has no Netlify runtime; `waitUntil` is the one field of
+      // its Functions context the dev server can honour.
+      createContextArgs: ({ request, waitUntil }) => ({ request, context: { waitUntil } }),
+    },
     vitePlugins() {
       return [netlifyFunctionPlugin(options)];
     },

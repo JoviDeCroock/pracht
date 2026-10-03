@@ -253,6 +253,43 @@ export const middleware: MiddlewareFn = async (_args, next) => {
     expect(report.checks.some((check) => check.message.includes("moduleResolution"))).toBe(false);
   });
 
+  it("warns when the client tsconfig leaves out the generated route types", () => {
+    const appDir = createTempDir("pracht-cli-doctor-client-dts-");
+    writeManifestApp(appDir);
+    writeProjectFile(appDir, "src/pracht.d.ts", "export {};\n");
+    // The include list create-pracht scaffolded before it covered `src/**/*.d.ts`.
+    writeProjectFile(
+      appDir,
+      "tsconfig.client.json",
+      `{ "extends": "./tsconfig.json", "include": ["src/routes/**/*", "src/shells/**/*", "src/islands/**/*"] }\n`,
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    const warning = report.checks.find((check) => check.message.includes("src/pracht.d.ts"));
+
+    expect(report.ok).toBe(true);
+    expect(warning?.status).toBe("warning");
+    expect(warning?.message).toContain('"src/**/*.d.ts"');
+  });
+
+  it.each([["src/**/*.d.ts"], ["src"], ["./src/**/*"], ["src/*.d.ts"], ["src/pracht.d.ts"]])(
+    "accepts a client tsconfig include of %s for the generated route types",
+    (pattern) => {
+      const appDir = createTempDir("pracht-cli-doctor-client-dts-ok-");
+      writeManifestApp(appDir);
+      writeProjectFile(appDir, "src/pracht.d.ts", "export {};\n");
+      writeProjectFile(
+        appDir,
+        "tsconfig.client.json",
+        JSON.stringify({ extends: "./tsconfig.json", include: ["src/routes/**/*", pattern] }),
+      );
+
+      const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+
+      expect(report.checks.some((check) => check.message.includes("src/pracht.d.ts"))).toBe(false);
+    },
+  );
+
   it("reports blocking doctor failures for broken manifest references", () => {
     const appDir = createTempDir("pracht-cli-doctor-bad-");
     writeManifestApp(appDir, {
@@ -1380,6 +1417,62 @@ export const app = defineApp({
     expect(report.ok).toBe(true);
     // Silence on success: the reader skips wrangler shapes it does not
     // recognize, so a clean pass is "nothing provably wrong", not "verified".
+    expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
+  });
+
+  it("warns when Cloudflare would serve built files without running the Worker", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-run-worker-first-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+  "assets": { "binding": "ASSETS", "directory": "dist/client", "html_handling": "none" }
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        status: "warning",
+        message: expect.stringContaining('"assets.run_worker_first": true'),
+      }),
+    );
+  });
+
+  it("accepts a Cloudflare assets block that runs the Worker first", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-run-worker-first-ok-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "html_handling": "drop-trailing-slash",
+    "run_worker_first": true,
+  },
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
     expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
   });
 

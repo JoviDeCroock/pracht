@@ -684,7 +684,7 @@ async function renderServerDocument<TContext>(
         pending.length > 0
           ? {
               source: DEFER_RUNTIME_SHIM,
-              nonce: head.fontNonce,
+              nonce: head.scriptNonce,
             }
           : undefined,
       cssAssets,
@@ -708,7 +708,7 @@ async function renderServerDocument<TContext>(
       headers: documentHeaders,
       signal: job.routeArgs.signal,
       pending,
-      nonce: head.fontNonce,
+      nonce: head.scriptNonce,
       exposeErrorDetails: ctx.exposeDiagnostics,
       onError: (error) => {
         // Past the first flush there is no error document to send, so the

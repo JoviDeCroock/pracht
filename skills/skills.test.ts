@@ -564,6 +564,21 @@ describe.each(skills)("skills/$name/SKILL.md", (skill) => {
     }
   });
 
+  it("keeps every module augmentation inside a module", () => {
+    // A `declare module` block in a file with no top-level import or export
+    // replaces the package's types instead of extending them.
+    const fences = [...parsed(skill).body.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map(
+      (m) => m[1],
+    );
+    for (const code of fences) {
+      if (!/^declare module ["']/m.test(code)) continue;
+      expect(
+        /^(?:import|export)\s/m.test(code),
+        `this \`declare module\` sample needs a top-level import:\n${code}`,
+      ).toBe(true);
+    }
+  });
+
   it("only cross-references skills that exist", () => {
     const fm = parsed(skill);
     const knownNames = new Set([...skillNames, ...Object.keys(RENAMED_SKILLS)]);

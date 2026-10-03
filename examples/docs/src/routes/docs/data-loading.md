@@ -277,8 +277,9 @@ What changes when a route streams:
   still render a normal error page.
 - **`<Script strategy="beforeHydration">` is emitted in place** instead of in
   `<head>`. It still runs before hydration.
-- **CSP needs a `script-src` that allows the renderer's inline bootstrap
-  script**, which has no nonce hook yet. See [CSP](/docs/recipes/csp).
+- **The document carries inline scripts** that deliver deferred values and
+  swap boundaries. Under a nonce-based CSP, return `scriptNonce` from `head()`
+  and every one of them carries it. See [CSP](/docs/recipes/csp).
 
 ### Error handling
 

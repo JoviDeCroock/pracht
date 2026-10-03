@@ -19,8 +19,12 @@ imports from `@pracht/core` on those client-facing surfaces therefore use the
 same declarations as a browser bundle and reject server-only exports at
 typecheck time. The base `tsconfig.json` still checks the whole project without
 that condition, preserving server and test resolution; the generated
-`typecheck` script runs both programs. The scaffolder test compiles a
-conditional-exports fixture to guard both halves of the boundary.
+`typecheck` script runs both programs. The client program also includes
+`src/**/*.d.ts`: `pracht typegen` output and `Register` augmentations live
+there, and without them typed hooks read as `unknown` and `<Link route>`
+accepts any string. `pracht doctor` warns when a client config's own
+`include` leaves `src/pracht.d.ts` out. The scaffolder tests compile
+conditional-exports and augmentation fixtures to guard both halves.
 
 **Why 22.18 specifically.** Node enabled type stripping unflagged in 22.18.0.
 `packages/cli/test/fixtures/e2e-port-lease-child.mjs` is spawned with a bare

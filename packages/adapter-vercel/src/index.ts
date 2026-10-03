@@ -462,5 +462,11 @@ export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): Pra
     createServerEntryModule() {
       return createVercelServerEntryModule(options);
     },
+    dev: {
+      createContextFrom: options.createContextFrom,
+      // `pracht dev` has no Vercel runtime; `waitUntil` is the one field of
+      // its execution context the dev server can honour.
+      createContextArgs: ({ request, waitUntil }) => ({ request, context: { waitUntil } }),
+    },
   };
 }

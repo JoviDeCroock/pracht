@@ -9,18 +9,29 @@ export const CONFIG_FILE_NAMES = new Set([
   "vite.config.cts",
 ]);
 
-// Declaration files are TypeScript inputs, never executable framework modules.
-export const MODULE_SOURCE_RE = /(?<!\.d)\.(ts|tsx|js|jsx)$/;
+const MODULE_SOURCE_RE = /\.(ts|tsx|js|jsx)$/;
 export const PAGE_SOURCE_RE = /\.(ts|tsx|tsrx|js|jsx|md|mdx)$/;
-const DECLARATION_SOURCE_RE = /\.d\.ts$/;
+// Declarations, colocated tests, and mocks sit in app directories without being
+// framework modules — the same files the Vite plugin leaves out of discovery.
+const NON_MODULE_FILE_RE = /\.d\.ts$|\.(?:test|spec)\.[^./\\]+$/;
+const NON_MODULE_DIRECTORY_RE = /[\\/](?:__tests__|__mocks__)[\\/]/;
+
+export function isNonModuleSource(file: string): boolean {
+  return NON_MODULE_FILE_RE.test(file) || NON_MODULE_DIRECTORY_RE.test(file);
+}
+
+/** A script file in a middleware, API, server, or capabilities directory that pracht loads. */
+export function isModuleSource(file: string): boolean {
+  return MODULE_SOURCE_RE.test(file) && !isNonModuleSource(file);
+}
 
 export function isPageSource(file: string, additionalExtensions: string[] = []): boolean {
-  if (DECLARATION_SOURCE_RE.test(file)) return false;
+  if (isNonModuleSource(file)) return false;
   return PAGE_SOURCE_RE.test(file) || hasAdditionalExtension(file, additionalExtensions);
 }
 
 export function isRouteSource(file: string, additionalExtensions: string[] = []): boolean {
-  if (DECLARATION_SOURCE_RE.test(file)) return false;
+  if (isNonModuleSource(file)) return false;
   return PAGE_SOURCE_RE.test(file) || hasAdditionalExtension(file, additionalExtensions);
 }
 

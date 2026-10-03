@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,13 +23,30 @@ function runOptimizeDepsHook(userConfig: OptimizeDepsConfig): OptimizeDepsConfig
   return hook.call(plugin as never, userConfig);
 }
 
+function readJson(url: URL): { exports?: unknown } {
+  return JSON.parse(readFileSync(url, "utf-8"));
+}
+
 describe("pracht optimizeDeps config", () => {
+  it("models the published @pracht/core exports map", () => {
+    // The fixture is only a faithful install if its manifest resolves the way
+    // the real one does — an `exports` map without `./package.json` is what
+    // made a `require.resolve` of the manifest throw in every real app.
+    const fixture = readJson(
+      new URL("./fixtures/npm-app/node_modules/@pracht/core/package.json", import.meta.url),
+    );
+    const published = readJson(new URL("../../framework/package.json", import.meta.url));
+
+    expect(fixture.exports).toEqual(published.exports);
+  });
+
   it("pre-bundles the virtual client entry dependencies for npm-installed apps", () => {
     const config = runOptimizeDepsHook({ root: npmAppRoot });
 
     expect(config.optimizeDeps?.include).toContain("@pracht/core");
     expect(config.optimizeDeps?.include).toContain("@pracht/core/client");
     expect(config.optimizeDeps?.include).toContain("@pracht/core/manifest");
+    expect(config.optimizeDeps?.include).toContain("@pracht/core/dev-page-tools");
   });
 
   it("preserves user-configured includes without duplicating entries", () => {

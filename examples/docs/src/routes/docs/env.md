@@ -88,6 +88,8 @@ Declare the env shape with the same `Register` declaration merging used for
 routes and context:
 
 ```ts [src/env.d.ts]
+import "@pracht/core";
+
 declare module "@pracht/core" {
   interface Register {
     env: {
@@ -121,8 +123,8 @@ Custom setups can call `setServerEnv(env)` (from `@pracht/core/env/server` or
 
 ## Local Environment Files
 
-`pracht dev` loads `.env` files into `process.env` for process-based runtimes;
-real environment variables win. Precedence is `.env.development.local`,
+`pracht dev` loads `.env` files into `process.env` for process-based runtimes
+and reloads them when you save one; real environment variables win. Precedence is `.env.development.local`,
 `.env.development`, `.env.local`, then `.env`.
 
 Wrangler owns Cloudflare Worker bindings. For `pracht preview`, put local-only

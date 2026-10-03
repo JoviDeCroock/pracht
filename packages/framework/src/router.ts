@@ -1227,16 +1227,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   const hydrationBrowserTarget = resolveBrowserRouteTarget(
     window.location.pathname + window.location.search + window.location.hash,
   );
-  // The not-found page is served at a URL that matches no route, so matching
-  // cannot find it — the hydration state's reserved route id does.
+  // The served document says which page it rendered: the hydration state's
+  // reserved route id marks the not-found page. Matching cannot be trusted
+  // for it — the page is served at URLs that match no route, at URLs whose
+  // matched route's loader threw `notFound()`, and (static `404.html`) at
+  // paths that would pattern-match a non-prerendered dynamic route.
   const initialMatch = isStaticFallbackBoot
     ? undefined
-    : isStaticNotFoundDocument && app.notFound
+    : options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
       ? { route: app.notFound, params: {}, pathname: initialPathname }
-      : (matchResolvedRoute(app, initialPathname) ??
-        (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
-          ? { route: app.notFound, params: {}, pathname: initialPathname }
-          : undefined));
+      : matchResolvedRoute(app, initialPathname);
   // Shell data baked into an SSG or ISG document was not loaded for this
   // visitor, so the first navigation loads the shell's own. A static export
   // serves only build-time data, so there it stays.

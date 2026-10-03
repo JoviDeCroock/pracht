@@ -236,8 +236,9 @@ export function configureServer(server: Server) {
 }
 ```
 
-`configureServer` may be async; it runs when the generated entry is the
-process entrypoint. If you import `handler` and build the server yourself,
+`configureServer` may be async. It runs when the generated entry is the
+process entrypoint, and on every `pracht dev` start or restart, where Vite's
+own HMR handshakes never reach your `upgrade` listener. If you import `handler` and build the server yourself,
 attach the listener the same way on your own `createServer(handler)`.
 
 ### Vercel

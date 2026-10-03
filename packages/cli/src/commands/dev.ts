@@ -5,7 +5,7 @@ import { defineCommand } from "citty";
 import { createServer, type ViteDevServer } from "vite";
 
 import { collectAppGraph } from "../app-graph.js";
-import { loadDotEnvIntoProcess } from "../dotenv.js";
+import { createDotEnvSync } from "../dotenv.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 import { isRouteSource, isWithinDirectory } from "../verification-helpers.js";
@@ -16,6 +16,9 @@ import {
   DEFAULT_RUNTIME_OUT,
   runTypegen,
 } from "./typegen.js";
+
+/** The files `createDotEnvSync()` reads (Vite's `loadEnv` set). */
+const DOT_ENV_FILE_NAMES = [".env", ".env.local", ".env.[mode]", ".env.[mode].local"];
 
 export default defineCommand({
   meta: {
@@ -40,7 +43,11 @@ export default defineCommand({
     // Ahead of the port resolution below so a `PORT` in `.env` is honoured
     // rather than half-applied. Vite's dev server is always mode
     // `development`, whatever NODE_ENV says.
-    loadDotEnvIntoProcess(root, "development");
+    const dotEnv = createDotEnvSync(root, "development");
+    dotEnv.load();
+    const dotEnvFiles = new Set(
+      DOT_ENV_FILE_NAMES.map((name) => resolve(root, name.replace("[mode]", "development"))),
+    );
 
     // `pracht dev 4000` (legacy positional) still works alongside `--port`.
     const positionalPort = args._?.[0] != null ? String(args._[0]) : undefined;
@@ -50,8 +57,30 @@ export default defineCommand({
       3000,
     );
 
+    const routeTypes = createGeneratedRouteTypesSync(root);
     const server = await createServer({
       cacheDir: args.cacheDir,
+      // Vite re-creates the dev server (and its file watcher) on every
+      // restart: a `routes.ts` edit, a config or `.env` change. Inline plugins
+      // survive that, so the watcher is re-attached to each new server here
+      // instead of being bound once to the first one.
+      plugins: [
+        {
+          name: "pracht:cli-dev",
+          configureServer(devServer) {
+            routeTypes.attach(devServer);
+            // Vite restarts the server when a `.env` file changes. Re-read the
+            // files the moment the watcher reports it — synchronously, ahead
+            // of that restart re-evaluating vite.config.ts — so `process.env`
+            // and `serverEnv` follow the edit instead of keeping startup values.
+            for (const event of ["add", "change", "unlink"] as const) {
+              devServer.watcher.on(event, (file) => {
+                if (dotEnvFiles.has(resolve(file))) dotEnv.load();
+              });
+            }
+          },
+        },
+      ],
       root,
       server: { port },
     });
@@ -63,7 +92,8 @@ export default defineCommand({
     process.once("SIGINT", () => {
       void server.close().finally(() => process.exit(130));
     });
-    const watchesGeneratedRouteTypes = watchGeneratedRouteTypes(server, root);
+    const watchesGeneratedRouteTypes = routeTypes.isEnabled();
+    routeTypes.start();
 
     try {
       const graph = await collectAppGraph(server, root, {
@@ -101,21 +131,28 @@ export default defineCommand({
 
 /**
  * Keep generated route types in sync while the dev server runs. Opt-in by
- * having run `pracht typegen` once: when the generated declaration exists at
- * its default location it is refreshed on startup, whenever files that can
- * define routes are added or removed (renames arrive as an unlink + add pair),
- * and whenever the app manifest or one of its imported definition modules
- * changes. Handler signature changes need no regeneration — the declaration
- * references route modules with `typeof import(...)`, so those types update
- * live. Projects that never ran typegen are left untouched and receive a
- * setup tip in the dev banner.
+ * having run `pracht typegen` once, before or during the session: while the
+ * generated declaration exists at its default location it is refreshed on
+ * startup, after each dev-server restart, whenever files that can define
+ * routes are added or removed (renames arrive as an unlink + add pair), and
+ * whenever the app manifest or one of its imported definition modules changes.
+ * Handler signature changes need no regeneration — the declaration references
+ * route modules with `typeof import(...)`, so those types update live.
+ * Projects that never ran typegen are left untouched and receive a setup tip
+ * in the dev banner.
+ *
+ * `attach()` binds the listeners to one dev server's watcher. It runs for the
+ * first server and again for every server Vite creates on restart, because a
+ * restart closes the old watcher along with everything listening to it.
  */
-function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean {
+function createGeneratedRouteTypesSync(root: string): {
+  attach(server: ViteDevServer): void;
+  isEnabled(): boolean;
+  /** Refresh once the first server listens; restarts refresh on their own. */
+  start(): void;
+} {
   const declarationPath = resolve(root, DEFAULT_DECLARATION_OUT);
-  if (!existsSync(declarationPath)) {
-    return false;
-  }
-
+  const isEnabled = () => existsSync(declarationPath);
   const generatedPaths = new Set([
     declarationPath,
     resolve(root, DEFAULT_RUNTIME_OUT),
@@ -131,6 +168,7 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
   let rerunQueued = false;
 
   const regenerate = async (): Promise<void> => {
+    if (!isEnabled()) return;
     if (running) {
       rerunQueued = true;
       return;
@@ -157,6 +195,16 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
     }
   };
 
+  const scheduleRegenerate = () => {
+    if (queued) {
+      clearTimeout(queued);
+    }
+    queued = setTimeout(() => {
+      queued = null;
+      void regenerate();
+    }, 300);
+  };
+
   const queueRegenerate = (file: string, requireRouteExtension = true) => {
     const couldUseUnresolvedExtension =
       !project.additionalExtensionsIsStatic &&
@@ -170,24 +218,29 @@ function watchGeneratedRouteTypes(server: ViteDevServer, root: string): boolean 
     ) {
       return;
     }
-    if (queued) {
-      clearTimeout(queued);
-    }
-    queued = setTimeout(() => {
-      queued = null;
-      void regenerate();
-    }, 300);
+    scheduleRegenerate();
   };
 
-  server.watcher.on("add", (file) => queueRegenerate(file));
-  server.watcher.on("unlink", (file) => queueRegenerate(file));
-  server.watcher.on("change", (file) => {
-    if (isAppManifestDependency(server, file, appFilePath)) {
-      queueRegenerate(file, false);
-    }
-  });
-  void regenerate();
-  return true;
+  let started = false;
+  return {
+    attach(server) {
+      server.watcher.on("add", (file) => queueRegenerate(file));
+      server.watcher.on("unlink", (file) => queueRegenerate(file));
+      server.watcher.on("change", (file) => {
+        if (isAppManifestDependency(server, file, appFilePath)) {
+          queueRegenerate(file, false);
+        }
+      });
+      // A restart can follow a change the old watcher never reported (a
+      // vite.config.ts edit moving the routes directory, for example).
+      if (started) scheduleRegenerate();
+    },
+    isEnabled,
+    start() {
+      started = true;
+      void regenerate();
+    },
+  };
 }
 
 /** Whether `file` is the app manifest or one of its local imported modules. */

@@ -982,6 +982,12 @@ export interface HeadMetadata {
    * also covers opt-in inlined build CSS. Kept for backwards compatibility.
    */
   fontNonce?: string;
+  /**
+   * CSP nonce for framework-generated inline scripts: the speculation rules
+   * script and, on `streaming: true` routes, the deferred-data and Suspense
+   * boundary scripts.
+   */
+  scriptNonce?: string;
 }
 
 export type MaybePromise<T> = T | Promise<T>;

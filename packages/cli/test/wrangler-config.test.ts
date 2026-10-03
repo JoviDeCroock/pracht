@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   findWranglerConfig,
-  readWranglerAssetsHtmlHandling,
+  readWranglerAssets,
   readWranglerMainEntries,
   readWranglerBundleSettings,
   WRANGLER_CONFIG_FILES,
@@ -197,7 +197,7 @@ describe("readWranglerMainEntries", () => {
   });
 });
 
-describe("readWranglerAssetsHtmlHandling", () => {
+describe("readWranglerAssets", () => {
   it("reports an explicit html_handling value", () => {
     const file = writeConfig(
       "wrangler.jsonc",
@@ -206,8 +206,9 @@ describe("readWranglerAssetsHtmlHandling", () => {
         "assets": { "binding": "ASSETS", "html_handling": "drop-trailing-slash" },
       }`,
     );
-    expect(readWranglerAssetsHtmlHandling(file)).toEqual({
+    expect(readWranglerAssets(file)).toEqual({
       htmlHandling: "drop-trailing-slash",
+      runWorkerFirst: undefined,
     });
   });
 
@@ -216,26 +217,46 @@ describe("readWranglerAssetsHtmlHandling", () => {
       "wrangler.jsonc",
       `{ "assets": { "binding": "ASSETS", "directory": "dist/client" } }`,
     );
-    expect(readWranglerAssetsHtmlHandling(file)).toEqual({ htmlHandling: undefined });
+    expect(readWranglerAssets(file)).toEqual({
+      htmlHandling: undefined,
+      runWorkerFirst: undefined,
+    });
+  });
+
+  it("reports run_worker_first as a boolean or a list of route patterns", () => {
+    expect(
+      readWranglerAssets(
+        writeConfig("wrangler.jsonc", `{ "assets": { "run_worker_first": true } }`),
+      ),
+    ).toEqual({ htmlHandling: undefined, runWorkerFirst: true });
+    expect(
+      readWranglerAssets(
+        writeConfig(
+          "wrangler.jsonc",
+          `{ "assets": { "run_worker_first": ["/api/*", "!/assets/*"] } }`,
+        ),
+      ),
+    ).toEqual({ htmlHandling: undefined, runWorkerFirst: ["/api/*", "!/assets/*"] });
+    expect(
+      readWranglerAssets(
+        writeConfig("wrangler.jsonc", `{ "assets": { "run_worker_first": "yes" } }`),
+      ),
+    ).toEqual({ htmlHandling: undefined, runWorkerFirst: undefined });
   });
 
   it("returns null — unknown, not fine — for shapes it cannot prove", () => {
     // No assets block at all.
-    expect(
-      readWranglerAssetsHtmlHandling(writeConfig("wrangler.jsonc", `{ "main": "worker.js" }`)),
-    ).toBeNull();
+    expect(readWranglerAssets(writeConfig("wrangler.jsonc", `{ "main": "worker.js" }`))).toBeNull();
     // Unparsable.
-    expect(readWranglerAssetsHtmlHandling(writeConfig("wrangler.jsonc", "{ nope"))).toBeNull();
+    expect(readWranglerAssets(writeConfig("wrangler.jsonc", "{ nope"))).toBeNull();
     // TOML is not parsed here.
-    expect(readWranglerAssetsHtmlHandling(writeConfig("wrangler.toml", 'name = "app"'))).toBeNull();
+    expect(readWranglerAssets(writeConfig("wrangler.toml", 'name = "app"'))).toBeNull();
     // Missing file.
-    expect(readWranglerAssetsHtmlHandling(join(tmpdir(), "definitely-absent.jsonc"))).toBeNull();
+    expect(readWranglerAssets(join(tmpdir(), "definitely-absent.jsonc"))).toBeNull();
     // A non-string value is not an explicit setting.
     expect(
-      readWranglerAssetsHtmlHandling(
-        writeConfig("wrangler.jsonc", `{ "assets": { "html_handling": 3 } }`),
-      ),
-    ).toEqual({ htmlHandling: undefined });
+      readWranglerAssets(writeConfig("wrangler.jsonc", `{ "assets": { "html_handling": 3 } }`)),
+    ).toEqual({ htmlHandling: undefined, runWorkerFirst: undefined });
   });
 });
 

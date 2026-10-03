@@ -123,7 +123,12 @@ export const marketing = [route("/pricing", "./routes/pricing.tsx", { id: "prici
     });
 
     expect(collectManifestModuleRefs(resolveOptions({}), root).complete).toBe(false);
-    expect(routeGlobPatterns(root).filter((pattern) => pattern.startsWith("!"))).toEqual([]);
+    // Only the directory-wide test and declaration patterns remain.
+    expect(
+      routeGlobPatterns(root).filter(
+        (pattern) => pattern.startsWith("!") && !pattern.includes("/**/"),
+      ),
+    ).toEqual([]);
   });
 
   it("leaves the registry alone when a specifier is assembled at runtime", () => {
