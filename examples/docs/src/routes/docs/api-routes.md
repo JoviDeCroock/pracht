@@ -153,7 +153,7 @@ The pattern works with the manifest router too.
 
 ## Full Control
 
-API handlers receive the same arguments as loaders (`request`, `params`, `context`, `signal`, `url`) and return a standard `Response`, so status codes, headers, and body format are yours.
+API handlers receive the same arguments as loaders (`request`, `params`, `context`, `signal`, `url`, [`waitUntil`](/docs/data-loading#waituntil)) and return a standard `Response`, so status codes, headers, and body format are yours.
 
 ```ts
 export function GET() {

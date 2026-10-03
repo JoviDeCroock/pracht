@@ -40,6 +40,7 @@ const BUILDS = [
   { id: "ladder", fixture: "ladder", env: {} },
   { id: "ladder-no-prefetch", fixture: "ladder", env: { PRACHT_BENCH_PREFETCH: "off" } },
   { id: "ladder-no-guards", fixture: "ladder", env: { PRACHT_BENCH_GUARDS: "off" } },
+  { id: "ladder-rich-data", fixture: "ladder", env: { PRACHT_BENCH_RICH_DATA: "on" } },
   { id: "compat", fixture: "compat", env: {} },
 ];
 
@@ -50,6 +51,7 @@ const LADDER = [
   { rung: "hydration: full", build: "ladder", route: "/full" },
   { rung: "hydration: full, prefetch off", build: "ladder-no-prefetch", route: "/full" },
   { rung: "hydration: full, navigation guards off", build: "ladder-no-guards", route: "/full" },
+  { rung: "hydration: full, rich data on", build: "ladder-rich-data", route: "/full" },
   { rung: "hydration: full + preact/compat", build: "compat", route: "/full" },
 ];
 

@@ -19,6 +19,8 @@ export default defineConfig({
             }
           : {},
       ),
+      // /about returns a Date and a Map from its loader.
+      client: { richData: true },
     }),
   ],
 });

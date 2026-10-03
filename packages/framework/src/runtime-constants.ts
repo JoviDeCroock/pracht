@@ -27,6 +27,12 @@ export const OAUTH_PROTECTED_RESOURCE_WELL_KNOWN = "/.well-known/oauth-protected
 export const HYDRATION_STATE_ELEMENT_ID = "pracht-state";
 export const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 export const ROUTE_STATE_CACHE_CONTROL = "no-store";
+/**
+ * Sent on a route-state request by a client that already holds the loader
+ * data of the named shell. When the target route renders under that same
+ * shell, the server skips the shell loader and omits `shellData`.
+ */
+export const SHELL_DATA_REQUEST_HEADER = "x-pracht-shell-data";
 export const EMPTY_ROUTE_PARAMS = {} as RouteParams;
 
 // Identity of the app-level not-found page. It is route-shaped so the render

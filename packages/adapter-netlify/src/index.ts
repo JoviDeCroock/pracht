@@ -240,6 +240,12 @@ export function createNetlifyHandler<
       cssManifest: options.cssManifest,
       cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
+      // Functions v2 keeps the invocation alive for work handed to
+      // `context.waitUntil`. Called through the context so the platform
+      // method keeps its receiver.
+      waitUntil: context.waitUntil
+        ? (promise: Promise<unknown>) => context.waitUntil!(promise)
+        : undefined,
     } satisfies HandlePrachtRequestOptions<TContext>);
 
     if (isgRoute && pathname !== null) {

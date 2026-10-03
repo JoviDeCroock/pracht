@@ -144,6 +144,11 @@ arrays, and plain objects. Functions, symbols, bigints, class instances
 (`Date`, `Map`, ...), JSX elements, and circular structures throw a descriptive
 error during rendering that names the offending prop path.
 
+Island props deliberately do not use the richer route-data encoding that loader
+data can opt in to (see [DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return)).
+Props already fail loudly instead of changing type silently, and the islands
+bootstrap would pay for the decoder on every islands page.
+
 ### Children / slots
 
 Passing children into an island from a server component is **not supported in
@@ -209,6 +214,14 @@ full-hydration route) and the user clicks a link to an islands or
 `hydration: "none"` route, the router deliberately falls back to
 `window.location` navigation. Route-state prefetching is also skipped for
 these routes.
+
+With `defineApp({ viewTransitions: true })` those full-document navigations
+still animate: every page document — islands, `none`, and full — carries
+`<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>`
+(emitted by `buildHtmlDocumentParts()` in `runtime-html.ts`, nonce'd with
+`styleNonce`), which opts the browser into cross-document view transitions.
+Pure CSS, so it adds no JavaScript to islands or `none` routes. Details in
+ROUTING.md → View Transitions.
 
 Partial client-side rendering of islands routes is out of scope for v1.
 

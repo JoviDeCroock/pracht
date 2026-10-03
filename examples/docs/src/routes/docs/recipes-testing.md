@@ -60,6 +60,26 @@ args.controller.abort();
 await expect(pending).rejects.toThrow();
 ```
 
+### Work after the response
+
+`args.waitUntilPromises` lists the work passed to `waitUntil()`, and
+`await args.flushWaitUntil()` waits for all of it, rejecting with the first
+failure:
+
+```ts [src/api/signup.test.ts]
+import { expect, it } from "vitest";
+import { createApiArgs } from "@pracht/test";
+import { outbox } from "../server/mailer";
+import { POST } from "./signup";
+
+it("sends the welcome email after answering", async () => {
+  const args = createApiArgs({ url: "/api/signup", body: { email: "ada@example.com" } });
+  expect((await POST(args)).status).toBe(201);
+  await args.flushWaitUntil();
+  expect(outbox).toContain("ada@example.com");
+});
+```
+
 ### Testing an API route
 
 `createApiArgs()` builds the same shape for API handlers, plain or `defineApi()`-wrapped. `readJson()` reads a response body without consuming it:

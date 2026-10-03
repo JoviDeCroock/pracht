@@ -28,6 +28,7 @@ import {
 } from "./runtime-manifest.ts";
 import { mergeDocumentHeaders, mergeErrorHeadMetadata } from "./runtime-middleware.ts";
 import { PrachtRuntimeProvider } from "./runtime-hooks.ts";
+import { ShellDataContext } from "./runtime-shell-data.ts";
 import {
   getIslandsClientEntryUrl,
   IslandCaptureContext,
@@ -106,7 +107,11 @@ interface HandleRequestOptionsLike {
 
 export function jsonErrorResponse(
   routeError: SerializedRouteError,
-  options: { fontHead?: FontHeadFragments; isRouteStateRequest: boolean },
+  options: {
+    fontHead?: FontHeadFragments;
+    isRouteStateRequest: boolean;
+    shellState?: { data: unknown; wire: unknown };
+  },
 ): Response {
   const headers = applySecurityAndRouteHeaders(
     new Headers({ "content-type": "application/json; charset=utf-8" }),
@@ -115,6 +120,7 @@ export function jsonErrorResponse(
   return new Response(
     JSON.stringify({
       error: routeError,
+      ...(options.shellState ? { shellData: options.shellState.wire } : {}),
       ...(options.fontHead ? { fontHead: options.fontHead } : {}),
     }),
     {
@@ -211,8 +217,11 @@ export async function renderRouteErrorResponse<TContext>(options: {
   routeId: string;
   routeModule: RouteModule | undefined;
   routes?: readonly HrefRouteDefinition[];
+  shell?: string;
   shellFile: string | undefined;
   shellModule: ShellModule | undefined;
+  /** The shell loader's data, when it succeeded before the failure. */
+  shellState?: { data: unknown; wire: unknown };
   requestPath: string;
 }): Promise<Response> {
   const exposeDetails = shouldExposeServerErrors(options.options);
@@ -258,6 +267,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
     return jsonErrorResponse(routeErrorWithDiagnostics, {
       fontHead,
       isRouteStateRequest: true,
+      shellState: options.shellState,
     });
   }
 
@@ -317,8 +327,17 @@ export async function renderRouteErrorResponse<TContext>(options: {
       url: string;
       children?: ComponentChildren;
     }>,
-    { data: null, routeId: options.routeId, routes: options.routes, url: options.requestPath },
-    componentTree,
+    {
+      data: null,
+      routeId: options.routeId,
+      routes: options.routes,
+      url: options.requestPath,
+    },
+    h(
+      ShellDataContext.Provider,
+      { value: { data: options.shellState?.data, shell: options.shell } },
+      componentTree,
+    ),
   );
   const hydration = options.routeArgs.route.hydration ?? "full";
   let islandCapture: IslandCapture | null = null;
@@ -401,6 +420,7 @@ export async function renderRouteErrorResponse<TContext>(options: {
         url: options.requestPath,
         routeId: options.routeId,
         data: null,
+        ...(options.shellState ? { shellData: options.shellState.wire } : {}),
         error: routeErrorWithDiagnostics,
       },
       clientEntryUrl: options.options.clientEntryUrl,

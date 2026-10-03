@@ -18,6 +18,15 @@ export function clearPrefetchCache(): void {
   prefetchCache.clear();
 }
 
+/**
+ * Cache key for route state fetched from `url`. A response fetched while
+ * claiming a shell's data leaves that data out, so it only satisfies a
+ * navigation that makes the same claim.
+ */
+export function routeStateCacheKey(url: string, heldShell?: string): string {
+  return heldShell === undefined ? url : `${url}\n${heldShell}`;
+}
+
 export function getCachedRouteState(url: string): Promise<RouteStateResult> | null {
   const entry = prefetchCache.get(url);
   if (!entry) return null;

@@ -61,16 +61,17 @@ apps pass only an `adapter`.
 
 ### Client bundle
 
-`client` compiles unused router features out of the client bundle, and can keep
-one diagnostic in a production build. Turn a feature off only if the app does
-not use it: the router then ignores the matching route options and `<Link>`
-props.
+`client` compiles unused router features out of the client bundle, and adds
+two that cost bytes only when you turn them on. Turn a feature off only if the
+app does not use it: the router then ignores the matching route options and
+`<Link>` props.
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) from `route({ prefetch })` and `<Link prefetch>`. Off makes `prefetch()` a no-op |
 | `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off makes `useBlocker()` never block; it warns in development |
 | `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in production client and islands bundles, to check a build before deploying it. Not for the build you ship |
+| `client.richData` | `false` | Send loader `Date`, `Map`, `Set`, `BigInt`, and shared references to the browser [as those types](/docs/data-loading#dates-maps-and-other-rich-values) instead of as JSON |
 
 An unknown `client` key is an error.
 
@@ -125,7 +126,7 @@ export const app = defineApp({
 | `api` | ApiConfig | App-wide API policy — see below |
 | `agents` | PrachtAgentsConfig | [Agent trust](/docs/agent-trust): Web Bot Auth policy and keys, the destructive-capability confirmation flow, and the [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser) with its optional OAuth resource-server config. Serializable data and module references only |
 | `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Coding Agents](/docs/coding-agents#constraints) |
-| `viewTransitions` | boolean | Enable the View Transitions API for every client navigation by default. See [View Transitions](/docs/recipes/view-transitions) |
+| `viewTransitions` | boolean | Animate client navigations with the View Transitions API, and full page loads (islands and `hydration: "none"` routes) as cross-document transitions. See [View Transitions](/docs/recipes/view-transitions) |
 | `loaderTimeoutMs` | number | Per-request budget in milliseconds for the `signal` passed to middleware, loaders, and API handlers; it also aborts when the client disconnects. Default `30000`. Applies to SSG/ISG prerendering too, so a short budget can fail the build. See [Data Loading](/docs/data-loading#signal) |
 
 ### `api`

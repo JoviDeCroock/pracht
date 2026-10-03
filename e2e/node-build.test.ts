@@ -89,6 +89,9 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(agentToolsResponse.status).toBe(200);
     const agentToolsHtml = await agentToolsResponse.text();
     expect(agentToolsHtml).not.toContain("<pracht-island");
+    // examples/basic leaves `viewTransitions` off, so its islands documents
+    // carry no cross-document view transition rule.
+    expect(agentToolsHtml).not.toContain("@view-transition");
     expect(agentToolsHtml).toMatch(
       /<script type="module" src="\/assets\/islands-client-[^"]+\.js" data-pracht-webmcp-tools="notes.search"><\/script>/,
     );

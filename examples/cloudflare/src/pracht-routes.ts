@@ -32,6 +32,10 @@ export const routes = [
     path: "/live",
   },
   {
+    id: "rich-data",
+    path: "/rich-data",
+  },
+  {
     id: "dashboard",
     path: "/dashboard",
   },

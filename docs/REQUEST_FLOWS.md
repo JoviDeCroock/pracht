@@ -24,6 +24,28 @@ and returns a small JSON envelope:
 { "data": { ... } }
 ```
 
+When the route's shell has a loader, its result rides along as
+`"shellData": { ... }`. A client already holding that shell's data (a
+navigation inside the same shell) adds
+
+```
+x-pracht-shell-data: <shell name>
+```
+
+and the server skips the shell loader and leaves `shellData` out; such
+responses carry `Vary: x-pracht-shell-data`. Revalidation never sends the
+header, so it refreshes both. See [ROUTING.md](ROUTING.md#shell-loaders).
+
+`data` and `shellData` (like the same fields in the `#pracht-state` hydration
+script, static-export state files, route-state error bodies, and streamed
+`defer()` chunks) are `JSON.stringify` output of the loader data. With
+`client.richData` on, they use the route-data encoding from
+`packages/framework/src/route-data-codec.ts` instead: plain JSON, with Dates,
+Maps, Sets, BigInts, `undefined`, non-finite numbers, and shared references
+written as tagged arrays. JSON-only data is byte-identical either way; the
+client decodes only when the payload contains a tag. See
+[DATA_LOADING.md](DATA_LOADING.md#what-a-loader-can-return).
+
 Static exports and preload hints use the query-string form instead, `?_data=1`,
 because a `<link rel=preload>` cannot set a header. Either form selects the same
 route-state response. The marker is the framework's, not the app's: it is
@@ -35,9 +57,10 @@ the HTML and JSON variants separate. JSON responses default to
 `Cache-Control: no-store`; a positive route `loaderCache` value changes
 successful loader-data responses to `private, max-age=<seconds>`.
 
-If the target route and shell have no `head()` export and the route has neither
-a loader nor middleware, client navigation can skip the route-state request
-entirely and only load the route/shell modules.
+If the target route and shell have no `head()` export, the route has neither a
+loader nor middleware, and its shell has no loader (or the client already holds
+that shell's data), client navigation can skip the route-state request entirely
+and only load the route/shell modules.
 
 Configured custom route formats stay conservative: their Vite transform may
 synthesize `head()` from syntax such as frontmatter, so Pracht keeps the
@@ -279,6 +302,12 @@ route-state runtime, the client falls back to a full document navigation.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+The background regeneration is registered with the handler's `waitUntil`
+tracker (the same one application `waitUntil()` work uses), so a graceful
+shutdown lets it finish writing the file. Work the regenerating loader
+registers goes to the same tracker. On Cloudflare the regeneration runs under
+`ctx.waitUntil`.
+
 ### Navigation to an ISG page
 
 Identical to SSR navigation — the route-state request triggers a fresh loader
@@ -462,6 +491,37 @@ route bypass MCP's transport and OAuth gates.
 Each stage takes one explicit `PrachtRequestContext` rather than closing over the
 handler's locals, so each is callable — and testable — on its own.
 
+### Background work (`waitUntil`)
+
+Every server hook gets a portable `waitUntil(promise)`: middleware, loaders,
+`head()`/`headers()` (all through the page's `routeArgs`), API route handlers
+and `api.middleware`, and capability middleware and `run()`. Each is built by
+`createRequestWaitUntil()` (runtime-request.ts) on top of
+`createWaitUntil()` from the capability core:
+
+```
+args.waitUntil(promise)
+  → task = Promise.resolve(promise).then(noop, report)   never rejects
+      report = reportRequestError(hook, error, requestPath, { phase: "waitUntil", …route })
+               hook: onRouteError (page stages) · onApiError (API, capabilities)
+               no hook → console.error line, same format as request failures
+  → options.waitUntil?.(task)                            the adapter's platform call
+      absent → the task just runs detached
+```
+
+The response never waits on it. Stage 2 builds one per API dispatch (route
+file and API middleware attributed); stage 4 builds one per page render (route,
+loader, shell, middleware attributed) and hands it to the page middleware chain
+too. Stage 1 binds a third, reporting through `onApiError`, onto the request's
+capability host, so capability HTTP/MCP dispatch and `invokeCapability()`
+composed from a loader resolve `waitUntil` by the Request they run on. The MCP
+transport's post-auth host refresh keeps the bound one. Capability audit
+delivery hands a sink's returned promise to the same function.
+
+Consumers that own an error hook skip phase `"waitUntil"` for their own state:
+the dev server logs it without swapping in the error overlay, and prerendering
+logs it without letting it become the render error a failed build reports.
+
 ## Server islands
 
 A server island on an SSR page is part of the document request: its loader runs after
@@ -524,13 +584,12 @@ request arrives
    await middleware ─► context
           │
           ▼
-   await route module + loader
-          │
+   ┌─ route loader(args) ───────┐  ◄── the one serial gate; both loaders
+   │  (awaits route module)      │      need the merged context, and run
+   └─ shell loader(args) ───────┘      concurrently with each other
+          │                              (shell skipped when claimed)
           ▼
-   execute loader(args)        ◄── the one serial gate; loader needs
-          │                         the merged context
-          ▼
-   await shell module (usually already resolved)
+   both settle; the shell's error or Response wins
           │
           ▼
    merge head + headers (run in parallel; shell/route halves also

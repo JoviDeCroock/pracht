@@ -1,6 +1,6 @@
 ---
 title: View Transitions
-lead: Animate client-side route changes with the browser View Transitions API while keeping pracht's data loading, scroll restoration, and fallback behavior intact.
+lead: Animate client-side route changes and full page loads with the browser View Transitions API while keeping pracht's data loading, scroll restoration, and fallback behavior intact.
 breadcrumb: View Transitions
 prev:
   href: /docs/recipes/forms
@@ -137,6 +137,38 @@ await navigate("/settings", { viewTransition: false });
 
 ---
 
+## Islands And Static Pages
+
+Routes with `hydration: "islands"` or `"none"` do not load the client router,
+so navigating to, from, or between them is a full page load. With
+`viewTransitions: true`, every page pracht renders carries
+`@view-transition { navigation: auto }` in its `<head>`, so supporting browsers
+animate these page loads as cross-document view transitions. Link clicks, form
+submissions, and back/forward animate; reloads do not. No JavaScript is added.
+
+Navigations the client router handles still animate once, through
+`document.startViewTransition()`. The same `::view-transition-*` CSS and
+`view-transition-name` values drive both, so the
+[named photo transition](#named-element-transitions) also works between islands
+pages. Set those names in CSS or server-rendered `style` attributes so they are
+present when the new page first renders.
+
+To keep one page out of cross-document transitions, override the rule in a
+stylesheet that page loads:
+
+```css [src/routes/checkout.css]
+@view-transition {
+  navigation: none;
+}
+```
+
+The rule is an inline `<style>`. Under a strict `style-src`, return
+`styleNonce` from your shell `head()`, or allow it on prerendered pages with
+`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`. See
+[Content Security Policy](/docs/recipes/csp#framework-generated-styles).
+
+---
+
 ## Named Element Transitions
 
 For shared-element style transitions, give the matching elements on both
@@ -218,9 +250,27 @@ that navigation.
 ## Progressive Enhancement
 
 You do not need a support check before using `viewTransition`. Browsers without
-`document.startViewTransition()` commit the navigation normally.
+view transition support commit client navigations and load full pages normally.
 
 Keep animations behind `prefers-reduced-motion: no-preference`, and avoid
 putting critical state changes only in the animation. The page should be
 correct whether the transition runs, is skipped, or is interrupted by a newer
 navigation.
+
+The browser's default cross-fade runs even without your CSS. To turn every
+transition off for users who prefer reduced motion, add this to a stylesheet
+every page loads:
+
+```css [src/styles/global.css]
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+```

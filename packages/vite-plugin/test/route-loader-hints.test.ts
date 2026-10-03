@@ -295,3 +295,40 @@ describe("createRouteStaticPathsHints", () => {
     ).toEqual({ "/src/routes/item.tsrx": true });
   });
 });
+
+describe("search schema hints", () => {
+  const tempDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("records which route modules export a search schema", () => {
+    const routesDir = mkdtempSync(join(tmpdir(), "pracht-search-hints-"));
+    tempDirs.push(routesDir);
+    writeFileSync(join(routesDir, "catalog.tsx"), "export const search = schema;\n");
+    writeFileSync(
+      join(routesDir, "aliased.tsx"),
+      "const schema = x; export { schema as search };\n",
+    );
+    writeFileSync(
+      join(routesDir, "home.tsx"),
+      "const search = schema;\nexport function Component() {}\n",
+    );
+    writeFileSync(join(routesDir, "custom.tsrx"), "export const search = schema;\n<Component />\n");
+
+    expect(
+      createRouteHints(routesDir, {
+        additionalExtensions: [".tsrx"],
+        rootRelativePrefix: "/src/routes",
+      }).search,
+    ).toEqual({
+      "/src/routes/aliased.tsx": true,
+      "/src/routes/catalog.tsx": true,
+      "/src/routes/custom.tsrx": true,
+      "/src/routes/home.tsx": false,
+    });
+  });
+});

@@ -322,9 +322,17 @@ export function ProductActions({ id }: { id: string }) {
 
 Generated types infer required params from `:param`, `*`, and `:name*`
 segments, so missing or extra params fail at compile time. Search params are
-currently typed as `SearchParamsInput` (`string`, `URLSearchParams`, or an
-object of primitive values/arrays); route-specific search schemas can be added
-later through route metadata without changing the runtime helper shape.
+typed per route: each registration carries
+`search: RouteSearchInput<typeof import("./routes/…")>` and
+`searchOutput: RouteSearchOutput<typeof import("./routes/…")>`. For a module
+that exports a [`search` schema](#search-params) the input side is the
+schema's input narrowed to values `href()` can serialize (keys with no string
+representation, such as a `z.number()` input, become a compile error), and
+`search` turns required when the input has a required key. Modules without a
+schema keep `SearchParamsInput` (`string`, `URLSearchParams`, or an object of
+primitive values/arrays) and a `SearchParamsRecord` output. Both halves come
+from the route module, never a separate loader file, because the schema is a
+route-module export. The runtime helper shape is unchanged.
 
 The declaration also registers each route's loader data type, so
 `useRouteData("product")` returns the awaited return type of that route's
@@ -343,6 +351,74 @@ stale. While `pracht dev` runs, the generated files refresh automatically when
 route files are added, removed, or renamed, and when the route manifest or one
 of its imported definition modules changes. The dev banner prompts for the
 first `pracht typegen` run when `src/pracht.d.ts` does not exist yet.
+
+### Search params
+
+A route module may export `search`, a Standard Schema for its query string
+(the same validator contract as `defineApi()`; see
+[API_VALIDATION.md](API_VALIDATION.md)).
+
+**Why a module export, not manifest metadata.** The manifest is bundled into
+the client and holds serializable data only, and the pages router has no
+manifest entry to put it in. A module export works identically in both
+routers, sits next to the loader that consumes it, is typed by
+`typeof import(...)` the same way loader data is, and — because the vite
+plugin's client transform strips only `loader`/`head`/`headers`/
+`getStaticPaths`/`markdown` — is already in the browser copy of every
+full-hydration route, so the client router can run it without extra
+machinery.
+
+**Input.** `parseRouteSearch()` (`api-validation.ts`) turns the URL's query
+into `searchParamsToRecord()`'s shape — one string per key, a string array for
+repeated keys — and validates it. An export that is not a Standard Schema is
+ignored, and a route without one gets the raw record.
+
+**Server.** `runPageLoader()` (`runtime-page.ts`) parses after middleware
+(which never sees `search`) and before the loader, then stores the output on
+the shared route args. The loader, `head()`, `headers()`, and the
+`RouteSearchContext` provider behind `useSearch()` all read that one value. A
+rejection throws `PrachtHttpError(400, "Invalid search params")` carrying the
+normalized issues (`in: "query"`); `normalizeRouteError()` keeps `issues` for
+4xx errors, so the error boundary document, the hydration state, and the
+route-state JSON all carry them. The default request-error logger stays quiet
+for it like any other 4xx.
+
+**Client.** `resolveRouteState()` (`router.ts`) parses the target URL with the
+route module's schema on every navigation and on hydration; a rejection
+becomes the same serialized 400 error and renders the error boundary. That
+covers SPA routes and routes that skip the route-state fetch. The parser is an
+`initClientRouter()` option: the generated client entry passes
+`parseRouteSearch` only when the route hint scan (`route-loader-hints.ts`)
+finds a `search` export (or cannot finish the scan), and always in dev. The
+same scan sets the `__PRACHT_ROUTE_SEARCH__` define at build time; when it is
+`false` the router drops the parse, the `RouteSearchContext` provider, and the
+post-hydration re-parse (the query is then adopted as a URL-only update), so an
+app without a schema ships none of the feature. `useSearch()` returns the
+parsed value, or derives the raw record from the current URL when there is
+none.
+
+**Prerendering.** SSG/ISG documents are rendered from the bare path, so the
+build sees the schema's output for an empty query. A schema that rejects an
+empty query fails that route's prerender (a 400 is a skip with a warning, and
+a static export fails). Hydration renders against the serialized URL, then the
+post-hydration URL adoption re-parses the visitor's query through
+`resolveRouteState()` — keeping the route-state version so revalidated data
+survives — and swaps in the error boundary if it is rejected.
+
+**Caching.** Route-state fetches, the prefetch cache, and `loaderCache`
+responses are all keyed by the full request URL, query included, so each query
+variant is fetched and cached separately. Static route-state files drop the
+query by design (they hold build-time data). A rejected query is a 400: ISG
+snapshots and the edge-cache paths store only 200 pages, route state answers
+`no-store`, and the Node and Cloudflare adapters stamp the document
+`private, no-cache`, so a 400 is never cached as the page.
+
+**Known gaps.** `pracht dev` renders SSG/ISG routes per request with the real
+query, so their loader sees values there that the build never passes, and a
+rejected query answers 400 in dev but hydrates into the error boundary in
+production. An island hydrates outside `RouteSearchContext`: `useSearch()`
+there returns the parsed value on the server and the raw record in the browser.
+Pass parsed values to islands as props.
 
 ---
 
@@ -547,6 +623,41 @@ export const app = defineApp({
 Customize the animation with regular `::view-transition-*` CSS; typed route
 data and the navigation lifecycle are unaffected.
 
+**Full-document navigations.** Islands and `hydration: "none"` routes never
+load the client router, and the router hands navigations to them to the
+browser (`window.location`), so `startViewTransition()` never sees them. For
+those, `viewTransitions: true` also makes every page document (SSR, SSG/ISG,
+SPA shell, streamed; all hydration modes) emit
+`<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>`
+in the head, right after the meta tags. The last `@view-transition` rule in the
+document wins, so it goes ahead of every stylesheet the app contributes
+(`head().link` stylesheets, fonts, inlined and linked route CSS) and any of them
+can override it. Design notes:
+
+- **Every page, not just islands/none.** The at-rule only takes effect when both
+  the old and the new document carry it, and full → islands is a document load
+  too. On a full-hydration page it is inert for router-handled navigations
+  (same-document), so those still animate exactly once through
+  `startViewTransition()` — no double animation.
+- **App-level only.** A cross-document transition is a property of the pair of
+  pages, so there is no route/group meta; a page opts out with
+  `@view-transition { navigation: none }` in its own CSS. A meta key would also
+  have to be plumbed through resolution, the pages router, and inspect output
+  for something CSS already expresses.
+- **CSP.** The tag carries `head.styleNonce` like the other framework-generated
+  styles. Its text is the constant `VIEW_TRANSITION_CSS`, so prerendered pages
+  can allow it by hash
+  (`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`); a unit test pins
+  the hash.
+- Error-boundary documents and the static SPA fallback do not carry it;
+  navigations into them just do not animate.
+- **Opt-out CSS outlives client navigation.** In a full-hydration app, route
+  CSS the router loads on a client navigation stays in the document. A route
+  whose CSS says `@view-transition { navigation: none }` therefore keeps
+  cross-document transitions off for the rest of that document's life, even
+  after the router navigates away from it. Islands and `none` pages always load
+  fresh documents, so their opt-out stays scoped to the page.
+
 ---
 
 ## Route Resolution
@@ -728,6 +839,71 @@ route-state JSON fetches.
 Shells can also export `ErrorBoundary` to provide a shared fallback for routes
 inside that shell. A route-level `ErrorBoundary` takes precedence when both are
 present.
+
+### Shell loaders
+
+A shell can export `loader(args)` for layout-level data — the signed-in user in
+the nav — and `useShellData()` reads it from the shell and from every route it
+renders. Shells are only ever declared as module refs, so the loader is always
+an inline export; there is no separate-file form like `route({ loader })`.
+
+Server side (`runtime-page.ts`):
+
+- The shell loader gets the route's `BaseRouteArgs` (same request, params,
+  middleware context, signal, matched route) and runs after middleware,
+  **concurrently** with the route loader (`runPageLoaders`). Both settle before
+  either outcome is used, so the answer is deterministic: a shell error or
+  `Response` wins over the route's, because the shell wraps the route. A shell
+  loader failure is attributed to the shell file as `loaderFile`.
+- Its data (`defer()` values resolved; shell data never streams) is provided
+  through `ShellDataContext` (`runtime-shell-data.ts`), serialized as
+  `shellData` in the hydration state and the route-state JSON
+  (`{ data, shellData?, fontHead }`), and kept on error responses when only the
+  route loader failed. `shellData` is absent when the shell has no loader or
+  the loader did not run. Shell `head()` and `headers()` do not receive it.
+- A route-state request carrying `x-pracht-shell-data: <name>` whose value is
+  the matched route's shell skips the shell loader and omits `shellData`. Such
+  responses add `Vary: x-pracht-shell-data` when the shell has a loader. The
+  header is client-controlled, so a shell loader is not an authorization
+  boundary; gating stays in middleware.
+- SPA documents run it (like the route loader) but render the loading tree
+  without it and mark the state `pending` so the client fetches it. Islands and
+  `hydration: "none"` render with it and serialize nothing.
+
+Client side (`router.ts`, `runtime-shell-data.ts`):
+
+- Everything client-side sits behind `__PRACHT_SHELL_LOADERS__`. The plugin
+  defines it `false` for a build in which no shell (manifest shells directory,
+  pages `_app` files) exports a `loader`, fail-closed on an incomplete scan, and
+  `true` in dev. With `false` the router, route-state fetch, prefetch and
+  revalidation fold their shell branches away and the client entry leaves the
+  shell rows out of its loader hint table, so such an app ships exactly what it
+  shipped before shell loaders existed (`bench:check` holds it to that).
+- The router records the committed shell and its data (`committedShell`,
+  `committedShellState`), provides it through `ShellDataContext`, and
+  publishes the held shell name through `setHeldShell()`. A navigation to a
+  route of the same shell reuses that data and claims the shell on its
+  route-state request.
+- Shell data hydrated from an SSG or ISG document (outside a static export)
+  is marked `prerendered`: it was loaded at build or regeneration time, not for
+  this visitor, so it is never held. The first navigation loads the shell's
+  data for the visitor, and that is reused from then on.
+- `revalidateRouteData()` (every revalidation path) and the reload after a
+  `<Form>` redirect never claim a shell, so they refresh shell data too. A
+  revalidation commits through `commitShellData()` only while its runtime is
+  still current; the router replaces `shellState` on the route state on screen,
+  so later same-shell navigations reuse the fresh value.
+- Prefetches claim the held shell for routes in it; the claim is part of the
+  prefetch cache key (`routeStateCacheKey`), so a response fetched without the
+  shell's data is never consumed by a navigation that needs it. A revalidation
+  does not evict prefetched entries (route data has the same 30 s window), so
+  re-entering a shell soon after a revalidation can show the prefetched shell
+  data; a `<Form>` submission clears the prefetch cache.
+- `hasShellLoader` is a build-time route hint (shell loader presence from the
+  loader hint table, which scans shells and pages `_app` files too). A
+  loaderless, headless, middleware-free route skips the route-state request
+  only when its shell has no loader or the client already holds its data. The
+  static export and `pracht verify` reject SPA routes whose shell has a loader.
 
 ### Containing a failure inside a page
 
@@ -967,6 +1143,9 @@ export function headers() {
   return { "content-security-policy": "default-src 'self'" };
 }
 ```
+
+An `_app` can export a `loader` too; it is an ordinary [shell
+loader](#shell-loaders).
 
 #### Directory-scoped shells
 

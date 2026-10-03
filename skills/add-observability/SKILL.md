@@ -280,10 +280,13 @@ Key properties to state when scaffolding this:
 - Delivery snapshots the registered sinks before callbacks run. Adding or
   replacing a sink from inside a callback takes effect on the next dispatch,
   so the current event is never delivered twice to one name.
-- On Cloudflare Workers, a batching exporter must flush within the request or
-  be handed the execution context by app code
-  (`context.executionContext.waitUntil(exporter.flush())`). Pracht does not
-  call `ctx.waitUntil()` for a sink.
+- A sink's returned promise is handed to the request's `waitUntil()`, so an
+  `async` sink finishes after the response on every adapter (Cloudflare
+  `ctx.waitUntil`, Netlify/Vercel `context.waitUntil`, Node's shutdown drain)
+  and its rejection is reported. A batching exporter that flushes on its own
+  schedule should be flushed from middleware with
+  `args.waitUntil(exporter.flush())` — never reach for
+  `context.executionContext.waitUntil`.
 - Audit events cover *dispatch* only. A cross-origin 403, an unknown-capability
   404, and an unknown MCP tool name all return before dispatch and emit
   nothing, so do not build a reconnaissance alert on these events — use the

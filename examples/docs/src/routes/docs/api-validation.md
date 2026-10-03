@@ -32,7 +32,8 @@ export const GET = defineApi({
 });
 ```
 
-Schemas can validate `body`, `query`, and route `params`. Query and param values cross the wire as
+Schemas can validate `body`, `query`, and route `params`; page routes validate their query with a
+[`search` export](/docs/routing#search-params). Query and param values cross the wire as
 strings, so numeric inputs need coercion or a transform. Generated calls reject concrete query or
 params schema keys that cannot accept strings. Repeated query keys arrive as string arrays.
 

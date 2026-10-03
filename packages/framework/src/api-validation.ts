@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 
+import type { SerializedRouteError } from "./runtime-errors.ts";
 import type {
   ApiRouteArgs,
   HttpMethod,
@@ -438,6 +439,37 @@ export function searchParamsToRecord(
   searchParams: URLSearchParams,
 ): Record<string, string | string[]> {
   return groupEntriesByKey(searchParams);
+}
+
+/**
+ * Parse a page route's query string with the route module's `search` export.
+ * Shared by the server pipeline and the client router so both see the same
+ * value. A route without a schema gets the raw `searchParamsToRecord()` view;
+ * an export that is not a Standard Schema is ignored rather than invoked.
+ *
+ * A rejected query comes back as the route error both sides render: status
+ * 400 with the normalized issues, which the route's error boundary receives.
+ *
+ * @internal
+ */
+export async function parseRouteSearch(
+  schema: unknown,
+  url: string,
+): Promise<{ value: unknown; error?: never } | { value?: never; error: SerializedRouteError }> {
+  const record = searchParamsToRecord(new URL(url, "http://pracht.local").searchParams);
+  if (!(schema as StandardSchemaV1 | undefined)?.["~standard"]) return { value: record };
+
+  const result = await validateStandardSchema(schema as StandardSchemaV1, record, "query");
+  return result.issues
+    ? {
+        error: {
+          message: "Invalid search params",
+          name: "PrachtHttpError",
+          status: 400,
+          issues: result.issues,
+        },
+      }
+    : { value: result.value };
 }
 
 /**

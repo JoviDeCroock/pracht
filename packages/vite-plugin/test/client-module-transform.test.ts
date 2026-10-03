@@ -21,6 +21,8 @@ import {
   pracht,
 } from "../src/index.ts";
 import { stripServerOnlyExportsForClient } from "../src/client-module-transform.ts";
+import { createRouteHintsForVirtualModules } from "../src/plugin-codegen.ts";
+import { resolveOptions } from "../src/plugin-options.ts";
 import { GENERATED_PAGES_LAYOUT_EXPORT } from "../src/pages-router.ts";
 
 const tempDirs: string[] = [];
@@ -620,6 +622,93 @@ describe("client route module build", () => {
     expect(clientSource).not.toContain('"!/src/routes/full.tsx"');
   });
 
+  describe("reads a group's hydration and routes past arrays in its meta", () => {
+    function clientSourceFor(routes: string[]): string {
+      const root = makeTempProject();
+      mkdirSync(join(root, "src", "routes"), { recursive: true });
+      writeFileSync(
+        join(root, "src", "routes.ts"),
+        [
+          'import { defineApp, group, route } from "@pracht/core";',
+          "export const app = defineApp({",
+          "  routes: [",
+          ...routes,
+          "  ],",
+          "});",
+          "",
+        ].join("\n"),
+      );
+      return createPrachtClientModuleSource(
+        { appFile: "/src/routes.ts", routesDir: "/src/routes" },
+        { root },
+      );
+    }
+
+    it("excludes an islands group's routes when a middleware array precedes the mode", () => {
+      const source = clientSourceFor([
+        '    group({ middleware: ["locale", "markdown"], hydration: "islands" }, [',
+        '      route("/", () => import("./routes/home.tsx"), { id: "home" }),',
+        '      route("/full", () => import("./routes/full.tsx"), { hydration: "full" }),',
+        "    ]),",
+      ]);
+      expect(source).toContain('"!/src/routes/home.tsx"');
+      expect(source).not.toContain('"!/src/routes/full.tsx"');
+    });
+
+    it("excludes an islands group's routes when a middleware array follows the mode", () => {
+      const source = clientSourceFor([
+        '    group({ hydration: "none", middleware: ["auth"] }, [',
+        '      route("/", () => import("./routes/home.tsx")),',
+        "    ]),",
+      ]);
+      expect(source).toContain('"!/src/routes/home.tsx"');
+    });
+
+    it("ignores nested objects and brackets in comments or strings", () => {
+      const source = clientSourceFor([
+        "    group(",
+        "      {",
+        '        // Prerender on intent [see docs]; "hydration: full" is not set here.',
+        '        pathPrefix: "/[legacy]",',
+        '        speculation: { mode: "prerender", eagerness: "moderate" },',
+        '        hydration: "islands",',
+        '        middleware: ["locale"],',
+        "      },",
+        "      /* the routes [below] */ [",
+        '        route("/", () => import("./routes/home.tsx")),',
+        "      ],",
+        "    ),",
+      ]);
+      expect(source).toContain('"!/src/routes/home.tsx"');
+    });
+
+    it("leaves full-hydration groups with meta arrays in the client entry", () => {
+      const source = clientSourceFor([
+        '    group({ middleware: ["locale"] }, [',
+        '      route("/", () => import("./routes/home.tsx")),',
+        "    ]),",
+        '    group({ shell: "public" }, [',
+        '      route("/about", () => import("./routes/about.tsx")),',
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/home.tsx"');
+      expect(source).not.toContain('"!/src/routes/about.tsx"');
+    });
+
+    it("applies the innermost group's mode to nested groups", () => {
+      const source = clientSourceFor([
+        '    group({ middleware: ["locale"] }, [',
+        '      route("/", () => import("./routes/home.tsx")),',
+        '      group({ middleware: ["auth"], hydration: "none" }, [',
+        '        route("/static", () => import("./routes/static.tsx")),',
+        "      ]),",
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/home.tsx"');
+      expect(source).toContain('"!/src/routes/static.tsx"');
+    });
+  });
+
   it("embeds route loader hints for manifest routes", () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "routes"), { recursive: true });
@@ -660,6 +749,89 @@ describe("client route module build", () => {
     expect(clientSource).toContain('"/src/routes/about.tsx":false');
     expect(serverSource).toContain('"./routes/index.tsx":true');
     expect(serverSource).toContain('"./routes/about.tsx":false');
+  });
+
+  // A shell loader alone makes a loaderless route fetch route state when the
+  // shell changes, so shells contribute to the loader table the client reads.
+  it("records shell loader hints for manifest shells and pages `_app` shells", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    mkdirSync(join(root, "src", "pages", "blog"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(join(root, "src", "routes", "index.tsx"), "export default function Home() {}\n");
+    writeFileSync(
+      join(root, "src", "shells", "app.tsx"),
+      "export async function loader() { return {}; }\nexport function Shell() {}\n",
+    );
+    writeFileSync(join(root, "src", "shells", "public.tsx"), "export function Shell() {}\n");
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsx"),
+      "export async function loader() { return {}; }\nexport function Shell() {}\n",
+    );
+    writeFileSync(join(root, "src", "pages", "blog", "_app.tsx"), "export function Shell() {}\n");
+    writeFileSync(join(root, "src", "pages", "index.tsx"), "export default function Home() {}\n");
+
+    const manifest = createRouteHintsForVirtualModules(
+      resolveOptions({ appFile: "/src/routes.ts" }),
+      root,
+    ).loader;
+    expect(manifest["./shells/app.tsx"]).toBe(true);
+    expect(manifest["./shells/public.tsx"]).toBe(false);
+    expect(manifest["./routes/index.tsx"]).toBe(false);
+
+    const pages = createRouteHintsForVirtualModules(
+      resolveOptions({ pagesDir: "/src/pages" }),
+      root,
+    ).loader;
+    expect(pages["/src/pages/_app.tsx"]).toBe(true);
+    expect(pages["/src/pages/blog/_app.tsx"]).toBe(false);
+    expect(pages["/src/pages/index.tsx"]).toBe(false);
+
+    const client = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
+    expect(client).toContain("route.hasShellLoader = shellLoaderHint");
+  });
+
+  // `__PRACHT_SHELL_LOADERS__` and the client entry both follow this flag, so
+  // an app whose shells export no loader ships no shell-data code or hints.
+  it("reports whether any shell has a loader, and keeps shell hints out of the client when none does", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "shells"), { recursive: true });
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "index.tsx"),
+      "export async function loader() { return {}; }\nexport default function Home() {}\n",
+    );
+    writeFileSync(join(root, "src", "shells", "app.tsx"), "export function Shell() {}\n");
+    writeFileSync(join(root, "src", "pages", "_app.tsx"), "export function Shell() {}\n");
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export async function loader() { return {}; }\nexport default function Home() {}\n",
+    );
+
+    const manifestOptions = resolveOptions({ appFile: "/src/routes.ts" });
+    expect(createRouteHintsForVirtualModules(manifestOptions, root).shellLoaders).toBe(false);
+    const client = createPrachtClientModuleSource({ appFile: "/src/routes.ts" }, { root });
+    expect(client).not.toContain("hasShellLoader");
+    expect(client).toContain(
+      'const routeLoaderHints = {"./routes/index.tsx":true,"/src/routes/index.tsx":true};',
+    );
+
+    const pagesOptions = resolveOptions({ pagesDir: "/src/pages" });
+    expect(createRouteHintsForVirtualModules(pagesOptions, root).shellLoaders).toBe(false);
+
+    writeFileSync(
+      join(root, "src", "shells", "app.tsx"),
+      "export const loader = async () => ({});\nexport function Shell() {}\n",
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_app.tsx"),
+      "export { loader } from './shared';\nexport function Shell() {}\n",
+    );
+    expect(createRouteHintsForVirtualModules(manifestOptions, root).shellLoaders).toBe(true);
+    expect(createRouteHintsForVirtualModules(pagesOptions, root).shellLoaders).toBe(true);
   });
 
   it("embeds head hints for implicit TSRX page shells", () => {

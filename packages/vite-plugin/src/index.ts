@@ -10,7 +10,11 @@ import {
 } from "./client-module-transform.ts";
 
 import type { RenderMode } from "@pracht/core";
-import { PRACHT_GRAPH_ONLY_ENV } from "@pracht/core/server";
+import {
+  createWaitUntilTracker,
+  PRACHT_GRAPH_ONLY_ENV,
+  type WaitUntilTracker,
+} from "@pracht/core/server";
 import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
@@ -62,6 +66,7 @@ import {
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
   createRouteHintsForVirtualModules,
+  routeHintsHaveSearch,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
   isEjectedPagesLayout,
@@ -91,6 +96,7 @@ function emptyRouteHints(): RouteHints {
     headers: {},
     incomplete: false,
     loader: {},
+    search: {},
     staticPaths: {},
   };
 }
@@ -169,6 +175,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   }
 
   let isBuild = false;
+  // `waitUntil()` work registered while `pracht dev` serves requests. Vite
+  // closes the plugin container when the dev server shuts down, which is where
+  // `closeBundle` below waits for it.
+  let devBackgroundWork: WaitUntilTracker | undefined;
   let base = "/";
   let configuredBase: string | undefined;
 
@@ -227,6 +237,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const agentSurfaceDefine =
         env.command === "build" ? String(hasAgentSurface(resolved, configRoot)) : "true";
 
+      // Build-time route hints decide two client compile-outs. Build only, like
+      // the agent surface: in dev a search schema or a shell loader can be
+      // added without a restart, so both stay on.
+      const buildRouteHints =
+        env.command === "build" ? createRouteHintsForVirtualModules(resolved, configRoot) : null;
+      // The client router's search-param glue ships only when some route
+      // module exports a `search` schema.
+      const routeSearchDefine = buildRouteHints
+        ? String(routeHintsHaveSearch(buildRouteHints))
+        : "true";
+      // Apps whose shells export no loader drop the client router's shell-data
+      // handling.
+      const shellLoadersDefine = buildRouteHints ? String(buildRouteHints.shellLoaders) : "true";
+
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
       // prerender pass emits matching preload URLs. Dev always serves the
@@ -242,6 +266,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         __PRACHT_CLIENT_BLOCKER__: String(resolved.client.navigationGuards),
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
         __PRACHT_HYDRATION_WARNINGS__: String(resolved.client.hydrationWarnings),
+        // Read by the server bundle too: it must only send the rich encoding
+        // to a client that carries the decoder.
+        __PRACHT_RICH_DATA__: String(resolved.client.richData),
       };
 
       // A probe build ships diagnostics to visitors, so say so rather than
@@ -305,6 +332,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         define: {
           __PRACHT_PUBLIC_ENV__: publicEnvDefine,
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
+          __PRACHT_ROUTE_SEARCH__: routeSearchDefine,
+          __PRACHT_SHELL_LOADERS__: shellLoadersDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           __PRACHT_SERVER_ISLANDS__: serverIslandsDefine,
           ...clientFeatureDefines,
@@ -549,6 +578,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
       }
+      const backgroundWork = createWaitUntilTracker();
+      devBackgroundWork = backgroundWork;
       return () => {
         server.middlewares.use(
           createDevServerIslandBindingsMiddleware(server, {
@@ -560,9 +591,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           createDevSSRMiddleware(server, {
             llmsTxt: !!resolved.llmsTxt,
             maxBodySize: resolved.maxBodySize,
+            waitUntil: backgroundWork.waitUntil,
           }),
         );
       };
+    },
+
+    async closeBundle() {
+      // Dev server shutdown (`server.close()`, and Vite's own SIGTERM handler)
+      // closes every environment's plugin container. Give work registered with
+      // `waitUntil()` a bounded window to finish before the process goes away.
+      if (!isBuild && devBackgroundWork) {
+        await devBackgroundWork.drain(DEV_WAIT_UNTIL_DRAIN_TIMEOUT_MS);
+      }
     },
 
     async transformIndexHtml(html, context) {
@@ -595,9 +636,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const changesRouteHeadSource = isPagesMode
         ? relative.startsWith(resolved.pagesDir)
         : relative.startsWith(resolved.routesDir) || relative.startsWith(resolved.shellsDir);
-      const changesRouteLoaderSource = isPagesMode
-        ? relative.startsWith(resolved.pagesDir)
-        : relative.startsWith(resolved.routesDir);
+      // Shells own loaders too, so both directories bake loader presence.
+      const changesRouteLoaderSource = changesRouteHeadSource;
       const previousServerRouteLoaderHints = serverRouteLoaderHints;
       if (!isPagesMode && relative.startsWith(resolved.serverDir)) {
         try {
@@ -1082,6 +1122,9 @@ function collectNodeBuiltinImports(program: unknown): Set<string> {
   visit(program);
   return imports;
 }
+
+/** Upper bound on how long closing the dev server waits for `waitUntil()` work. */
+const DEV_WAIT_UNTIL_DRAIN_TIMEOUT_MS = 5_000;
 
 const MANIFEST_CORE_IMPORTS = new Set(["defineApp", "group", "route", "timeRevalidate"]);
 

@@ -17,6 +17,8 @@ export default defineConfig({
         persistState: e2eInspectorPort ? false : undefined,
       }),
       llmsTxt: { title: "Pracht Cloudflare Example" },
+      // /rich-data returns Dates, Maps, Sets, and BigInts from its loader.
+      client: { richData: true },
     }),
     prachtOpenApi({
       info: { title: "Pracht Cloudflare Example API", version: "1.0.0" },

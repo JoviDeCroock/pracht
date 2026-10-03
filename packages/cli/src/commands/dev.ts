@@ -57,6 +57,12 @@ export default defineCommand({
     });
 
     await server.listen();
+    // Vite closes the server on SIGTERM; do the same for Ctrl+C so work
+    // registered with `waitUntil()` gets its bounded drain. A second Ctrl+C
+    // falls through to the default and exits immediately.
+    process.once("SIGINT", () => {
+      void server.close().finally(() => process.exit(130));
+    });
     const watchesGeneratedRouteTypes = watchGeneratedRouteTypes(server, root);
 
     try {

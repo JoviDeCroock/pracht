@@ -44,7 +44,15 @@ afterAll(() => {
 
 async function bundleExport(
   exportName: string,
-  options: { define?: Record<string, string>; entry?: string } = {},
+  options: {
+    define?: Record<string, string>;
+    entry?: string;
+    /**
+     * Also export these (from the browser entry), one lazily imported module
+     * each, so shared runtime code splits into chunks as it does in an app.
+     */
+    lazyExports?: string[];
+  } = {},
 ): Promise<{
   code: string;
   /** The entry chunk alone — what a page pays before any lazy chunk loads. */
@@ -56,6 +64,7 @@ async function bundleExport(
   const entry = options.entry ?? browserEntry;
   const publicId = "virtual:pracht-tree-shaking-entry";
   const resolvedId = `\0${publicId}`;
+  const lazyId = "virtual:pracht-tree-shaking-lazy";
   const warnings: string[] = [];
   const logger = createLogger("silent");
   logger.warn = (message) => warnings.push(message);
@@ -72,10 +81,21 @@ async function bundleExport(
         name: "pracht-tree-shaking-test",
         resolveId(id) {
           if (id === publicId) return resolvedId;
+          if (id.startsWith(lazyId)) return `\0${id}`;
         },
         load(id) {
+          if (id.startsWith(`\0${lazyId}`)) {
+            const name = options.lazyExports![Number(id.slice(lazyId.length + 2))];
+            return `export { ${name} } from ${JSON.stringify(pathToFileURL(browserEntry).href)};`;
+          }
           if (id !== resolvedId) return;
-          return `export { ${exportName} } from ${JSON.stringify(pathToFileURL(entry).href)};`;
+          const lazy = (options.lazyExports ?? []).map(
+            (_, index) => `export const lazy${index} = () => import("${lazyId}/${index}");`,
+          );
+          return [
+            `export { ${exportName} } from ${JSON.stringify(pathToFileURL(entry).href)};`,
+            ...lazy,
+          ].join("\n");
         },
       },
     ],
@@ -193,9 +213,19 @@ describe("published package tree shaking", () => {
     // the Suspense chain it needs) is dead code in a real app bundle, so
     // counting it would hide what ships. `__PRACHT_HYDRATION_WARNINGS__` is
     // part of that shape — the plugin always emits it, and only
-    // `client: { hydrationWarnings: true }` keeps the reporter.
+    // `client: { hydrationWarnings: true }` keeps the reporter. So is
+    // `__PRACHT_ROUTE_SEARCH__`: the plugin sets it from the route modules, and
+    // only an app whose routes export a `search` schema keeps that glue. And
+    // `__PRACHT_SHELL_LOADERS__`, `false` unless a shell exports a loader, and
+    // `__PRACHT_RICH_DATA__`, `false` unless the app sets `client.richData`.
     const production = {
-      define: { "import.meta.env.DEV": "false", __PRACHT_HYDRATION_WARNINGS__: "false" },
+      define: {
+        "import.meta.env.DEV": "false",
+        __PRACHT_HYDRATION_WARNINGS__: "false",
+        __PRACHT_ROUTE_SEARCH__: "false",
+        __PRACHT_SHELL_LOADERS__: "false",
+        __PRACHT_RICH_DATA__: "false",
+      },
       entry: clientEntry,
     };
 
@@ -306,6 +336,8 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_RICH_DATA__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -353,6 +385,9 @@ describe("published package tree shaking", () => {
     const PRODUCTION = {
       "import.meta.env.DEV": "false",
       __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_ROUTE_SEARCH__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_RICH_DATA__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -392,6 +427,93 @@ describe("published package tree shaking", () => {
     });
   });
 
+  // Typed search params: the plugin sets the define from the route modules, so
+  // an app whose routes export no `search` schema compiles the router's parse
+  // and post-hydration re-parse out. The validation code itself never reaches
+  // the router; the generated client entry passes it in.
+  describe("__PRACHT_ROUTE_SEARCH__", () => {
+    const PRODUCTION = {
+      "import.meta.env.DEV": "false",
+      __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_RICH_DATA__: "false",
+    };
+
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: { ...PRODUCTION, ...define },
+        entry: clientEntry,
+      });
+
+    it("drops the search glue when no route exports a schema", async () => {
+      const { code } = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
+
+      expect(code).not.toContain("parseSearch");
+    });
+
+    it("keeps the search glue when a route exports a schema", async () => {
+      const { code } = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "true" });
+
+      expect(code).toContain("parseSearch");
+    });
+
+    it("keeps the glue when the define is absent", async () => {
+      const { code } = await routerBundle({});
+
+      expect(code).toContain("parseSearch");
+    });
+
+    it("adds at most 150 gzip bytes when enabled", async () => {
+      const on = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "true" });
+      const off = await routerBundle({ __PRACHT_ROUTE_SEARCH__: "false" });
+
+      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(150);
+    });
+  });
+
+  // The plugin sets `__PRACHT_SHELL_LOADERS__` to `false` when no shell exports
+  // a `loader`, so shell data costs the client nothing until an app uses it.
+  describe("__PRACHT_SHELL_LOADERS__", () => {
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          __PRACHT_ROUTE_SEARCH__: "false",
+          __PRACHT_RICH_DATA__: "false",
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops shell data handling when no shell has a loader", async () => {
+      const { code } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "false" });
+
+      expect(code).not.toContain("x-pracht-shell-data");
+      expect(code).not.toContain("shellData");
+    });
+
+    // About 400 bytes over the router ceiling above: an app pays for shell
+    // data only once one of its shells exports a loader.
+    it("keeps it, within budget, when a shell has a loader", async () => {
+      const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
+
+      expect(code).toContain("x-pracht-shell-data");
+      expect(gzipBytes).toBeLessThanOrEqual(10_700);
+    });
+
+    // Both opt-in router features at once: a route with a `search` schema
+    // under a shell with a loader. Measured 10,752.
+    it("stays within budget with search params on as well", async () => {
+      const { gzipBytes } = await routerBundle({
+        __PRACHT_ROUTE_SEARCH__: "true",
+        __PRACHT_SHELL_LOADERS__: "true",
+      });
+
+      expect(gzipBytes).toBeLessThanOrEqual(10_800);
+    });
+  });
+
   // `pracht({ client: { hydrationWarnings: true } })` is the one diagnostic a
   // production build can carry: it keeps the mismatch reporter so the output
   // about to be deployed can be walked for mismatches.
@@ -412,6 +534,57 @@ describe("published package tree shaking", () => {
       const { code } = await routerBundle({ __PRACHT_HYDRATION_WARNINGS__: "true" });
 
       expect(code).toContain("__pracht_hydration_mismatch__");
+    });
+  });
+
+  // `pracht({ client: { richData: true } })` adds the route-data decoder that
+  // revives Dates, Maps, Sets, and BigInts. An app that sends plain JSON must
+  // not pay for it.
+  describe("__PRACHT_RICH_DATA__", () => {
+    const PRODUCTION = {
+      "import.meta.env.DEV": "false",
+      __PRACHT_HYDRATION_WARNINGS__: "false",
+      __PRACHT_ROUTE_SEARCH__: "false",
+      __PRACHT_SHELL_LOADERS__: "false",
+    };
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: {
+          ...PRODUCTION,
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops the decoder from a default build", async () => {
+      const { code } = await routerBundle({ __PRACHT_RICH_DATA__: "false" });
+
+      expect(code).not.toContain("\\u0000");
+      expect(code).not.toContain("BigInt");
+    });
+
+    it("drops the decoder when a lazy route chunk shares the runtime", async () => {
+      // Lazy chunks that use defer() or fetch route state split the runtime
+      // into shared chunks. A flag imported from another module folds only
+      // after chunking, which left the codec behind as a chunk every page
+      // imports.
+      const { code } = await bundleExport("readHydrationState", {
+        define: { ...PRODUCTION, __PRACHT_RICH_DATA__: "false" },
+        entry: clientEntry,
+        lazyExports: ["use", "fetchPrachtRouteState"],
+      });
+
+      expect(code).not.toContain("\\u0000");
+      expect(code).not.toContain("BigInt");
+    });
+
+    it("keeps the decoder, within 300 gzip bytes, when the app opts in", async () => {
+      const off = await routerBundle({ __PRACHT_RICH_DATA__: "false" });
+      const on = await routerBundle({ __PRACHT_RICH_DATA__: "true" });
+
+      expect(on.code).toContain("\\u0000");
+      expect(on.code).toContain("BigInt");
+      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(300);
     });
   });
 

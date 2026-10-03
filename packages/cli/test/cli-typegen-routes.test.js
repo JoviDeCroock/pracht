@@ -33,7 +33,7 @@ describe("@pracht/cli typegen routes", () => {
       routes: 3,
     });
     expect(declaration).toContain(
-      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, SearchParamsInput } from "@pracht/core";',
+      'import type { ApiRouteMethodMap, RouteLoaderData, RouteParamInput, RouteSearchInput, RouteSearchOutput } from "@pracht/core";',
     );
     expect(declaration).toContain('"home": {');
     expect(declaration).toContain("params: Record<never, never>;");
@@ -44,6 +44,12 @@ describe("@pracht/cli typegen routes", () => {
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./routes/home")>;');
     // Inline loader.
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./routes/product")>;');
+    // Search types always come from the route module, which owns the
+    // `search` schema even when the loader lives in a separate file.
+    expect(declaration).toContain('search: RouteSearchInput<typeof import("./routes/product")>;');
+    expect(declaration).toContain(
+      'searchOutput: RouteSearchOutput<typeof import("./routes/dashboard")>;',
+    );
     // Manifest-wired separate loader file wins over the route module.
     expect(declaration).toContain(
       'data: RouteLoaderData<typeof import("./server/dashboard-loader"), typeof import("./routes/dashboard")>;',
@@ -105,6 +111,47 @@ describe("@pracht/cli typegen routes", () => {
     }
   }, 30_000);
 
+  it("registers shell loader data for every shell a route renders under", () => {
+    const appDir = createRepoTempDir("pracht-cli-typegen-shells-");
+    writeTypedManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "src/routes.ts",
+      `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  shells: {
+    app: "./shells/app.tsx",
+    unused: "./shells/unused.tsx",
+  },
+  routes: [route("/", "./routes/home.tsx", { id: "home", render: "ssg", shell: "app" })],
+});
+`,
+    );
+    writeProjectFile(
+      appDir,
+      "src/shells/app.tsx",
+      `export async function loader() {
+  return { user: "Ada" };
+}
+
+export function Shell({ children }) {
+  return children;
+}
+`,
+    );
+    writeProjectFile(appDir, "src/shells/unused.tsx", "export function Shell() { return null; }\n");
+
+    runCli(["typegen"], { cwd: appDir });
+    const declaration = readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
+
+    expect(declaration).toContain(
+      '    shells: {\n      "app": {\n        data: RouteLoaderData<typeof import("./shells/app")>;\n      };\n    };',
+    );
+    // A shell no route renders under has no data to type.
+    expect(declaration).not.toContain('"unused"');
+  });
+
   it("generates typed route declarations for pages-router apps", () => {
     const appDir = createRepoTempDir("pracht-cli-typegen-pages-");
     writeInspectablePagesApp(appDir);
@@ -118,5 +165,8 @@ describe("@pracht/cli typegen routes", () => {
     expect(declaration).toContain('params: { "slug": RouteParamInput; };');
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/index")>;');
     expect(declaration).toContain('data: RouteLoaderData<typeof import("./pages/blog/[slug]")>;');
+    expect(declaration).toContain(
+      'searchOutput: RouteSearchOutput<typeof import("./pages/blog/[slug]")>;',
+    );
   }, 30_000);
 });

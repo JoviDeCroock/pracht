@@ -130,6 +130,11 @@ Islands routes do not load the client router, so navigation to, from, and
 between them is a normal full-document navigation. That includes links from a
 full-hydration route to an islands or `hydration: "none"` route.
 
+With `defineApp({ viewTransitions: true })`, these full page loads still
+animate as
+[cross-document view transitions](/docs/recipes/view-transitions#islands-and-static-pages),
+without adding JavaScript.
+
 ---
 
 ## Build Analysis
