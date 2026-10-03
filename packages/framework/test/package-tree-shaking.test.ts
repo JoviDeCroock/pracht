@@ -14,6 +14,7 @@ const tempRoot = mkdtempSync(join(tmpdir(), "pracht-tree-shaking-"));
 const outputDir = join(tempRoot, "dist");
 const browserEntry = join(outputDir, "browser.mjs");
 const clientEntry = join(outputDir, "client.mjs");
+const islandsClientEntry = join(outputDir, "islands-client.mjs");
 const serverEntry = join(outputDir, "server.mjs");
 
 type FrameworkPackage = {
@@ -543,6 +544,39 @@ describe("published package tree shaking", () => {
       });
 
       expect(gzipBytes).toBeLessThanOrEqual(10_800);
+    });
+  });
+
+  // `pracht({ client: { islandsNavigation: true } })` adds client-side
+  // navigation to the islands bootstrap; every other islands page must not pay
+  // for it.
+  describe("__PRACHT_ISLANDS_NAVIGATION__", () => {
+    const islandsBundle = (define: Record<string, string>) =>
+      bundleExport("hydrateIslands", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          __PRACHT_AGENT_SURFACE__: "false",
+          ...define,
+        },
+        entry: islandsClientEntry,
+      });
+
+    it("drops the navigation runtime when off", async () => {
+      const { code } = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "false" });
+
+      expect(code).not.toContain("currententrychange");
+      expect(code).not.toContain("pracht:nav-skip:");
+    });
+
+    // 3,837 gzip bytes over the bootstrap without it in the bench ladder's app
+    // build; this harness minifies differently and counts slightly more.
+    it("keeps it, within budget, when on", async () => {
+      const on = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "true" });
+      const off = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "false" });
+
+      expect(on.code).toContain("currententrychange");
+      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(4_150);
     });
   });
 

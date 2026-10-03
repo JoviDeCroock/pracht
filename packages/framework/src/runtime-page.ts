@@ -28,13 +28,21 @@ import {
 import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider, RouteSearchContext } from "./runtime-context.ts";
 import { ShellDataContext } from "./runtime-shell-data.ts";
-import { buildHtmlDocument, buildHtmlDocumentParts, htmlResponse } from "./runtime-html.ts";
+import {
+  buildHtmlDocument,
+  buildHtmlDocumentParts,
+  htmlResponse,
+  htmlResponseHeaders,
+  serializeJsonForHtml,
+} from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
   getIslandsClientEntryUrl,
   IslandCaptureContext,
+  islandsNavigationRoutes,
   type IslandCapture,
 } from "./islands-server.ts";
+import { ISLANDS_NAVIGATION_DATA_ID, policyFingerprint } from "./islands-shared.ts";
 import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,
@@ -95,6 +103,89 @@ import type {
 declare const __PRACHT_RICH_DATA__: boolean | undefined;
 const RICH_ROUTE_DATA =
   typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+// `client.islandsNavigation`: the bootstrap does the navigating, so every
+// islands page needs it, islands or not.
+declare const __PRACHT_ISLANDS_NAVIGATION__: boolean | undefined;
+const ISLANDS_NAVIGATION =
+  typeof __PRACHT_ISLANDS_NAVIGATION__ !== "undefined" && __PRACHT_ISLANDS_NAVIGATION__ === true;
+
+/**
+ * The policy fingerprint an islands navigation document states for headers
+ * (see `ISLANDS_NAVIGATION_DATA_ID`), or undefined when the page must not take
+ * part: a per-response nonce never matches the next page's policy, so such a
+ * page would be fetched only to be loaded again.
+ */
+function navigationPolicy(headers: Headers): string | undefined {
+  const csp = `${headers.get("content-security-policy")} ${headers.get("content-security-policy-report-only")}`;
+  return /'nonce-/i.test(csp) ? undefined : policyFingerprint(headers);
+}
+
+/**
+ * `client.islandsNavigation` data for an islands or `none` document, or
+ * undefined when the page must not take part. Records the policy it states on
+ * the job, for `withSentNavigationPolicy()` to check against the response
+ * that actually leaves.
+ */
+function islandsNavigationData(
+  job: PageRenderJob<unknown>,
+  hydration: string,
+  documentHeaders: Headers,
+): string | undefined {
+  const policy = navigationPolicy(htmlResponseHeaders(documentHeaders));
+  if (policy === undefined) return undefined;
+  const data: { p?: string; r?: string[] } = {};
+  // Static output is served by a host pracht never sees, so the browser
+  // measures that host's headers instead of trusting what was set here.
+  if (!IS_STATIC_TARGET) data.p = job.navigationPolicy = policy;
+  // Only the document a visit starts on reads the table, and that is never a
+  // `none` page: it loads no JavaScript.
+  if (hydration === "islands") {
+    data.r = islandsNavigationRoutes(job.ctx.resolvedApp, job.ctx.options.apiRoutes);
+  }
+  return serializeJsonForHtml(data);
+}
+
+/**
+ * Middleware runs around the render, so it can change the headers after the
+ * document stated its policy — a CSP loosened after `next()`. A document must
+ * describe the headers it is really sent with, or a stricter page would be
+ * swapped in under its looser policy: correct the stated fingerprint to the
+ * one of the headers leaving, or drop the navigation data when they now carry
+ * a nonce.
+ */
+async function withSentNavigationPolicy(
+  response: Response,
+  stated: string | undefined,
+): Promise<Response> {
+  if (stated === undefined) return response;
+  const sent = navigationPolicy(response.headers);
+  if (
+    sent === stated ||
+    !response.body ||
+    !/^text\/html\b/i.test(response.headers.get("content-type") ?? "")
+  ) {
+    return response;
+  }
+  const html = await response.text();
+  const opening = `id="${ISLANDS_NAVIGATION_DATA_ID}">`;
+  const claim = `${opening}{"p":"${stated}"`;
+  const start = html.indexOf(claim);
+  let corrected = html;
+  if (start !== -1) {
+    if (sent !== undefined) {
+      corrected = html.replace(claim, `${opening}{"p":"${sent}"`);
+    } else {
+      const from = html.lastIndexOf("<script", start);
+      const to = html.indexOf("</script>", start) + "</script>".length;
+      corrected = html.slice(0, from) + html.slice(to);
+    }
+  }
+  return new Response(corrected, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: headersForReserializedBody(response.headers),
+  });
+}
 
 const BODY_REPRESENTATION_HEADERS = [
   "content-digest",
@@ -241,6 +332,8 @@ interface PageRenderJob<TContext> {
   shellState: { data: unknown; wire: unknown } | undefined;
   loaderFile: string | undefined;
   phase: PrachtRuntimeDiagnosticPhase;
+  /** The policy fingerprint the rendered document states (`client.islandsNavigation`). */
+  navigationPolicy?: string;
 }
 
 /**
@@ -743,6 +836,7 @@ async function renderServerDocument<TContext>(
     const needsIslandsBootstrap =
       hydration === "islands" &&
       (islandFiles.length > 0 ||
+        ISLANDS_NAVIGATION ||
         (ctx.options.islandsBootstrapRequired === true &&
           (match.route.capabilities?.length ?? 0) > 0));
     if (needsIslandsBootstrap) {
@@ -750,7 +844,7 @@ async function renderServerDocument<TContext>(
       if (!islandsEntryUrl) {
         throw new Error(
           `Route "${match.route.path}" uses hydration: "islands" and requires the ` +
-            `islands bootstrap${islandFiles.length > 0 ? ` for ${islandFiles.length} rendered island(s)` : " for a page-level runtime projection"}, but no bootstrap URL is registered. ` +
+            `islands bootstrap${islandFiles.length > 0 ? ` for ${islandFiles.length} rendered island(s)` : ISLANDS_NAVIGATION ? " for client.islandsNavigation" : " for a page-level runtime projection"}, but no bootstrap URL is registered. ` +
             (islandFiles.length > 0
               ? "This usually means the @pracht/vite-plugin islands entry was not built — check that your islands live in the configured islands directory."
               : "This usually means generated page-runtime metadata was not forwarded by the deployment adapter."),
@@ -797,6 +891,13 @@ async function renderServerDocument<TContext>(
         speculationRules: getAppSpeculationRules(ctx.resolvedApp),
         viewTransitions: ctx.resolvedApp.viewTransitions === true,
         webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
+        // The policy is fingerprinted from the headers this response is about
+        // to carry; `renderPage()` corrects it for middleware that changes
+        // them, and anything later (a host, a proxy) makes the fetched
+        // response disagree, so the client falls back to a load.
+        islandsNavigation: ISLANDS_NAVIGATION
+          ? islandsNavigationData(job as PageRenderJob<unknown>, hydration, documentHeaders)
+          : undefined,
       }),
       pageOptions.status,
       documentHeaders,
@@ -1003,6 +1104,10 @@ export async function renderPage<TContext>(
       loaderCache: match.route.loaderCache,
       markdown: match.route.markdown,
     });
+    // A document this render wrote, now leaving with its final headers.
+    if (ISLANDS_NAVIGATION && job.navigationPolicy !== undefined) {
+      return await withSentNavigationPolicy(normalizedResponse, job.navigationPolicy);
+    }
     return await attachFontHeadToRouteStateResponse({
       response: normalizedResponse,
       isRouteStateRequest: ctx.isRouteStateRequest,
@@ -1038,6 +1143,9 @@ export async function renderPage<TContext>(
           loaderCache: match.route.loaderCache,
           markdown: match.route.markdown,
         });
+        if (ISLANDS_NAVIGATION && job.navigationPolicy !== undefined) {
+          return await withSentNavigationPolicy(normalizedResponse, job.navigationPolicy);
+        }
         return await attachFontHeadToRouteStateResponse({
           response: normalizedResponse,
           isRouteStateRequest: ctx.isRouteStateRequest,

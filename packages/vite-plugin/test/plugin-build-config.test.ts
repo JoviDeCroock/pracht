@@ -340,6 +340,21 @@ describe("pracht plugin build config", () => {
     ).toBe("true");
   });
 
+  it("builds the islands bootstrap for islands navigation on both sides", () => {
+    // The server bundle reads it to give every islands page the bootstrap.
+    expect(runConfigHook(edgeAdapter, true).define?.__PRACHT_ISLANDS_NAVIGATION__).toBe("false");
+    const enabled = { client: { islandsNavigation: true } };
+    expect(runConfigHook(edgeAdapter, true, enabled).define?.__PRACHT_ISLANDS_NAVIGATION__).toBe(
+      "true",
+    );
+    // An app with no islands directory still needs the bootstrap to navigate.
+    const input = (
+      runConfigHook(edgeAdapter, false, enabled, { root: "/nonexistent-pracht-app" }).build
+        ?.rollupOptions as { input?: unknown } | undefined
+    )?.input;
+    expect(input).toEqual(["virtual:pracht/islands-client"]);
+  });
+
   it("defines a disabled client feature as false in dev as well as in builds", () => {
     // The flag is declared by the app rather than derived from the manifest, so
     // unlike __PRACHT_AGENT_SURFACE__ it must not be forced on outside builds —

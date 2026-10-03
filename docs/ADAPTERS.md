@@ -1341,8 +1341,9 @@ static host. The static adapter solves this at build time:
 - Explicitly loaderless and headless routes fetch nothing. Loaderless routes
   with route or shell `head()` metadata still fetch static state so font-head
   fragments follow client navigation; their components and data remain
-  browser-only. Islands/`none`-hydration routes keep their MPA full-document
-  navigation and get no state files.
+  browser-only. Islands/`none`-hydration routes get no state files: they
+  navigate with full documents, or, with `client.islandsNavigation`, by
+  fetching the page's HTML file itself.
 - A route with dynamic segments whose module exports no `getStaticPaths()` is
   prerendered for no path at all, so no state file exists for *any* URL that
   matches it — the usual shape of a dynamic `render: "spa"` route. The build

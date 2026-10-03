@@ -712,6 +712,22 @@ describe("client entry integration", () => {
       "export const islandsBootstrapRequired = true;",
     );
 
+    // With islands navigation the page changes under the bootstrap, so it
+    // re-syncs the tools from every document it swaps in.
+    const navigating = createPrachtIslandsClientModuleSource(
+      { client: { islandsNavigation: true } },
+      { root: withWebmcp },
+    );
+    expect(navigating).toContain("onNavigate: syncPrachtWebmcpToolsFrom");
+    expect(navigating).toContain("syncPrachtWebmcpToolsFrom(document);");
+    expect(islandsSource).not.toContain("onNavigate");
+    expect(
+      createPrachtIslandsClientModuleSource(
+        { client: { islandsNavigation: true } },
+        { root: withoutWebmcp },
+      ),
+    ).toContain("hydrateIslands({ modules: islandModules });");
+
     for (const root of [withoutWebmcp, none]) {
       expect(createPrachtClientModuleSource({}, { root })).not.toContain("webmcp");
       expect(createPrachtIslandsClientModuleSource({}, { root })).not.toContain("webmcp");

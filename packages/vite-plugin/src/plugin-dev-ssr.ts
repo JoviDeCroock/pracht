@@ -1053,10 +1053,14 @@ export function injectDevCssLinks(
         .map((url) => (base === "/" || !url.startsWith("/") ? url : `${base}${url.slice(1)}`)),
     ),
   ];
+  // With `client.islandsNavigation` the document carries `#pracht-nav`, and a
+  // page swap replaces only the head nodes marked as the server's: route
+  // stylesheets are, so they follow the page as in a production build.
+  const owned = html.includes('id="pracht-nav"') ? " data-pracht-owned" : "";
   const tags = urls
     .map((url) => escapeHtmlAttribute(url))
     .filter((escapedUrl) => !html.includes(`href="${escapedUrl}"`))
-    .map((escapedUrl) => `<link rel="stylesheet" href="${escapedUrl}">`);
+    .map((escapedUrl) => `<link${owned} rel="stylesheet" href="${escapedUrl}">`);
   if (tags.length === 0) return html;
 
   return html.replace("</head>", `    ${tags.join("\n    ")}\n  </head>`);

@@ -249,14 +249,82 @@ end by an HTML comment, so an HTML minifier must keep comments.
 
 ## Navigation
 
-Islands routes do not load the client router, so navigation to, from, and
-between them is a normal full-document navigation. That includes links from a
-full-hydration route to an islands or `hydration: "none"` route.
+Islands routes do not load the client router, so by default navigation to,
+from, and between them is a normal full-document navigation. That includes
+links from a full-hydration route to an islands or `hydration: "none"` route.
 
 With `defineApp({ viewTransitions: true })`, these full page loads still
 animate as
 [cross-document view transitions](/docs/recipes/view-transitions#islands-and-static-pages),
 without adding JavaScript.
+
+### Client-side navigation between islands pages
+
+Turn on `islandsNavigation` to keep the document when a link goes from one
+islands page to another:
+
+```ts [vite.config.ts]
+pracht({
+  adapter: nodeAdapter(),
+  client: { islandsNavigation: true },
+});
+```
+
+The islands bootstrap then fetches the next page's HTML and swaps it in. The
+URL, title, and stylesheets change. An island that both pages render with the
+same props and the same children, such as a cart button in a shared shell, stays mounted and keeps
+its state and focus. Anywhere else, focus starts over at the top of the new
+page, as after a page load. New islands hydrate with their own `client` strategy. Back and
+forward restore the earlier page and its scroll position. With
+`viewTransitions` on, the swap animates as a same-document view transition.
+
+Links to anything else load a new document as before, and are never fetched
+first: a full-hydration route, an API route, a URL outside your app, a page
+the browser has prerendered from your speculation rules, and any link marked
+`<a data-pracht-reload>`.
+
+Scripts the new page shares with the old one do not run again, so a page-view
+counter that fires on load sees only the first page. Count the rest from the
+Navigation API's `navigatesuccess` event.
+
+### When pages still load normally
+
+A swapped-in page runs under the security headers the document was first
+loaded with, so the bootstrap only swaps a page whose `Content-Security-Policy`,
+`X-Frame-Options`, `Permissions-Policy`, `Referrer-Policy`, and cross-origin
+isolation headers are exactly the same as the current page's. Otherwise you
+get a full page load, which applies that page's own headers.
+
+The same happens for a page with a document-level `<meta>` (`http-equiv` such as a CSP or a
+refresh, or `name="referrer"`), a page from a newer deployment, a redirect to a
+page that cannot be swapped, and a response that is not an islands page, such
+as a plain-text error or a file download.
+
+The comparison fails closed. On a server running pracht, each page states
+which headers it was sent with, including any your middleware changed, and the browser checks them against the headers that
+arrived. On static output, the browser asks the host which headers it sends
+for the page you started on and swaps in only pages that arrive with the same,
+so it works on any static file host. A route that answers with different
+headers is fetched once, then loaded normally for the rest of the tab's
+session.
+
+Pages whose CSP uses a nonce never take part: a nonce changes with every
+response, so no two such pages can share a policy. Islands navigation is off on
+those pages, and links to them are plain page loads.
+
+It also stays off inside an iframe, on a document with a document-level
+`<meta>`, under a Trusted Types policy that refuses HTML strings, in browsers
+without the
+[Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API),
+and on a static page the browser restored from its HTTP cache.
+
+The option adds about 3.8 KB gzip to the bootstrap, and every islands page then
+loads the bootstrap even when it renders no island: such a page goes from no
+JavaScript to about 11 KB gzip. Each islands page also carries the route table
+it decides with — the paths of your islands and `none` routes, plus API or
+full-hydration routes that could shadow one — at about 150 bytes gzip for 20
+routes. `hydration: "none"` pages still ship no JavaScript, so navigation
+from a page you landed on directly is a full page load.
 
 ---
 

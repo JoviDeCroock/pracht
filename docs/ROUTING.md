@@ -625,7 +625,10 @@ data and the navigation lifecycle are unaffected.
 
 **Full-document navigations.** Islands and `hydration: "none"` routes never
 load the client router, and the router hands navigations to them to the
-browser (`window.location`), so `startViewTransition()` never sees them. For
+browser (`window.location`), so `startViewTransition()` never sees them. (With
+`client.islandsNavigation`, a link *between* islands pages is instead swapped
+in by the islands bootstrap, which wraps the swap in `startViewTransition()`;
+see ISLANDS.md.) For
 those, `viewTransitions: true` also makes every page document (SSR, SSG/ISG,
 SPA shell, streamed; all hydration modes) emit
 `<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>`

@@ -212,6 +212,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         env.command === "build" &&
         !isSSRBuild &&
         (existsSync(resolveConfigPath(configRoot, resolved.islandsDir)) ||
+          resolved.client.islandsNavigation ||
           hasWebmcpCapabilities(resolved, configRoot));
 
       // `publicEnv` needs every PRACHT_PUBLIC_ key, but reading the whole
@@ -264,6 +265,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         __PRACHT_CLIENT_BLOCKER__: String(resolved.client.navigationGuards),
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
         __PRACHT_HYDRATION_WARNINGS__: String(resolved.client.hydrationWarnings),
+        // Read by the server bundle too: with it on, every islands page
+        // carries the bootstrap that does the navigating.
+        __PRACHT_ISLANDS_NAVIGATION__: String(resolved.client.islandsNavigation),
         // Read by the server bundle too: it must only send the rich encoding
         // to a client that carries the decoder.
         __PRACHT_RICH_DATA__: String(resolved.client.richData),

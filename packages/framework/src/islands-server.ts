@@ -13,7 +13,7 @@ import {
   ISLAND_STRATEGY_ATTRIBUTE,
 } from "./islands-shared.ts";
 import { ScriptCaptureContext } from "./script.ts";
-import type { IslandStrategy } from "./types.ts";
+import type { IslandStrategy, ResolvedApiRoute, ResolvedPrachtApp } from "./types.ts";
 
 /**
  * Server-side islands support.
@@ -648,4 +648,53 @@ function islandPropError(
       "and revived in the browser, so they must be JSON-serializable values " +
       "(string, finite number, boolean, null, arrays, and plain objects).",
   );
+}
+
+const islandsNavigationRoutesCache = new WeakMap<ResolvedPrachtApp, string[]>();
+
+/**
+ * The route table `client.islandsNavigation` decides with before it fetches
+ * anything, in the order the server matches (API routes, then pages): `+path`
+ * for an `islands`/`none` page the bootstrap may swap in, `-path` for an API
+ * route or full-hydration page in front of one. A `-` entry no URL could match
+ * together with a later `+` entry cannot change an answer, so it is left out —
+ * the table never lists more of the app than it has to.
+ */
+export function islandsNavigationRoutes(
+  app: ResolvedPrachtApp,
+  apiRoutes: readonly ResolvedApiRoute[] = [],
+): string[] {
+  let table = islandsNavigationRoutesCache.get(app);
+  if (!table) {
+    const all = [
+      ...apiRoutes.map((route) => `-${route.path}`),
+      ...app.routes.map(
+        (route) =>
+          `${route.render !== "spa" && (route.hydration ?? "full") !== "full" ? "+" : "-"}${route.path}`,
+      ),
+    ];
+    table = all.filter(
+      (entry, index) =>
+        entry.startsWith("+") ||
+        all
+          .slice(index + 1)
+          .some((later) => later.startsWith("+") && patternsOverlap(entry, later)),
+    );
+    islandsNavigationRoutesCache.set(app, table);
+  }
+  return table;
+}
+
+/** Whether some URL path matches both route patterns (`+`/`-` prefix ignored). */
+export function patternsOverlap(a: string, b: string): boolean {
+  const left = a.slice(1).split("/").filter(Boolean);
+  const right = b.slice(1).split("/").filter(Boolean);
+  const isCatchAll = (segment: string) => segment === "*" || /^:.*\*$/.test(segment);
+  for (let i = 0; ; i++) {
+    const l = left[i];
+    const r = right[i];
+    if ((l !== undefined && isCatchAll(l)) || (r !== undefined && isCatchAll(r))) return true;
+    if (l === undefined || r === undefined) return l === r;
+    if (l[0] !== ":" && r[0] !== ":" && l !== r) return false;
+  }
 }

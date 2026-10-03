@@ -17,6 +17,7 @@ import type {
   HeadMetadata,
   ModuleRegistry,
   PrachtApp,
+  ResolvedApiRoute,
   ResolvedRoute,
   RouteModule,
   RouteRevalidate,
@@ -56,6 +57,12 @@ export interface PrerenderAppOptions {
   islandsEntryUrl?: string;
   /** Force the islands bootstrap for zero-island pages that own another projection. */
   islandsBootstrapRequired?: boolean;
+  /**
+   * The app's API routes. Prerendered pages are answered the way a server
+   * answers them (an API route wins its path), and with
+   * `client.islandsNavigation` their route table lists the API routes too.
+   */
+  apiRoutes?: ResolvedApiRoute[];
   /** Per-source-file CSS map produced by the vite plugin. */
   cssManifest?: Record<string, string[]>;
   /** Per-public-URL CSS content emitted when route CSS inlining is enabled. */
@@ -160,6 +167,7 @@ async function prerenderAppPages(
             clientEntryUrl: options.clientEntryUrl,
             islandsEntryUrl: options.islandsEntryUrl,
             islandsBootstrapRequired: options.islandsBootstrapRequired,
+            apiRoutes: options.apiRoutes,
             cssManifest: options.cssManifest,
             cssContentManifest: options.cssContentManifest,
             jsManifest: options.jsManifest,
