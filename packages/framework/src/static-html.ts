@@ -1,7 +1,13 @@
 import { h } from "preact";
 import type { VNode } from "preact";
+import { useRef } from "preact/hooks";
 
-import { isServerOnly, isServerOnlyPlaceholder, type ServerOnly } from "./server-only.ts";
+import {
+  fingerprintServerOnly,
+  isServerOnly,
+  isServerOnlyPlaceholder,
+  type ServerOnly,
+} from "./server-only.ts";
 
 /**
  * A server-rendered subtree that is never hydrated.
@@ -61,24 +67,35 @@ export function StaticHtml(props: StaticHtmlProps): VNode {
         "carry it.",
     );
   }
+  // Fingerprint of the server markup this element still holds, from the
+  // placeholder it hydrated with; `null` once it renders markup of its own.
+  const adopted = useRef<string | null>(null);
   return createElement(tag, {
     ...attributes,
-    dangerouslySetInnerHTML: { __html: resolveHtml(html) },
+    dangerouslySetInnerHTML: { __html: resolveHtml(html, adopted) },
   });
 }
 
-function resolveHtml(html: StaticHtmlProps["html"]): string {
-  if (typeof html === "string") return html;
+function resolveHtml(html: StaticHtmlProps["html"], adopted: { current: string | null }): string {
   // The browser's copy of a stripped serverOnly() field. Rendering no markup
   // is what hands the subtree back to the DOM the server already wrote — and
   // re-renders keep passing this same empty string, which Preact skips.
-  if (isServerOnlyPlaceholder(html)) return "";
-  if (isServerOnly(html)) {
-    const value = (html as unknown as { value: unknown }).value;
-    if (typeof value !== "string") throw invalidHtml(value);
-    return value;
+  if (isServerOnlyPlaceholder(html)) {
+    adopted.current ??= html.h ?? "";
+    return "";
   }
-  throw invalidHtml(html);
+  const markup = isServerOnly(html) ? (html as unknown as { value: unknown }).value : html;
+  if (typeof markup !== "string") throw invalidHtml(markup);
+  if (adopted.current !== null) {
+    // A revalidation, <Form> action, or search-param change brings the real
+    // string. If it is what the document already holds, keep the adopted
+    // nodes: writing it would rebuild the subtree, closing anything the reader
+    // opened and reloading embeds, because the live DOM no longer serializes
+    // back to the server's string.
+    if (adopted.current === fingerprintServerOnly(markup)) return "";
+    adopted.current = null;
+  }
+  return markup;
 }
 
 function invalidHtml(value: unknown): TypeError {

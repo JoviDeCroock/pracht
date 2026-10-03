@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { readServerOnly, serverOnly, defer } from "../src/index.ts";
 import { serverOnly as browserServerOnly } from "../src/browser.ts";
-import { isServerOnly, isServerOnlyPlaceholder } from "../src/server-only.ts";
+import {
+  fingerprintServerOnly,
+  isServerOnly,
+  isServerOnlyPlaceholder,
+} from "../src/server-only.ts";
 import { stripServerOnlyValues } from "../src/server-only-strip.ts";
 
 describe("serverOnly()", () => {
@@ -58,10 +62,18 @@ describe("stripServerOnlyValues()", () => {
 
     expect(JSON.parse(JSON.stringify(stripped))).toEqual({
       title: "Post",
-      body: { __prachtServerOnly: true },
-      nested: { deep: [{ html: { __prachtServerOnly: true } }] },
+      body: { __prachtServerOnly: true, h: fingerprintServerOnly("<p>hi</p>") },
+      nested: {
+        deep: [{ html: { __prachtServerOnly: true, h: fingerprintServerOnly("<b>x</b>") } }],
+      },
     });
     expect(isServerOnlyPlaceholder(stripped.body)).toBe(true);
+  });
+
+  it("fingerprints only string values", () => {
+    expect(stripServerOnlyValues({ n: serverOnly(42) }).n).toEqual({ __prachtServerOnly: true });
+    expect(fingerprintServerOnly("<p>hi</p>")).toBe(fingerprintServerOnly("<p>hi</p>"));
+    expect(fingerprintServerOnly("<p>hi</p>")).not.toBe(fingerprintServerOnly("<p>ho</p>"));
   });
 
   it("does not mutate the data the rendered tree closed over", () => {

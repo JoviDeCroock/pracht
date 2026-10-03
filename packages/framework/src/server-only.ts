@@ -50,6 +50,12 @@ export const SERVER_ONLY_PLACEHOLDER_KEY = "__prachtServerOnly";
 /** The object a stripped {@link serverOnly} value is replaced with. */
 export interface ServerOnlyPlaceholder {
   readonly __prachtServerOnly: true;
+  /**
+   * Fingerprint of a stripped string (see {@link fingerprintServerOnly}). It
+   * lets `<StaticHtml>` recognise the same markup arriving later in a
+   * route-state response and keep the nodes it adopted from the document.
+   */
+  readonly h?: string;
 }
 
 class ServerOnlyValue<T> {
@@ -128,8 +134,29 @@ export function isServerOnlyPlaceholder(value: unknown): value is ServerOnlyPlac
 }
 
 /** @internal Build the placeholder written into the inline hydration state. */
-export function serverOnlyPlaceholder(): ServerOnlyPlaceholder {
-  return { [SERVER_ONLY_PLACEHOLDER_KEY]: true };
+export function serverOnlyPlaceholder(value?: unknown): ServerOnlyPlaceholder {
+  return typeof value === "string"
+    ? { [SERVER_ONLY_PLACEHOLDER_KEY]: true, h: fingerprintServerOnly(value) }
+    : { [SERVER_ONLY_PLACEHOLDER_KEY]: true };
+}
+
+/**
+ * @internal A short, stable fingerprint of a string: its length plus a 53-bit
+ * hash of its UTF-16 code units. Computed by the server for the placeholder
+ * and by the browser for the value a later route-state response carries, so
+ * both sides must keep using this exact function.
+ */
+export function fingerprintServerOnly(value: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    h1 = Math.imul(h1 ^ code, 2654435761);
+    h2 = Math.imul(h2 ^ code, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return `${value.length.toString(36)}.${(4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36)}`;
 }
 
 /**

@@ -425,7 +425,7 @@ How it fits together:
   emits it through `dangerouslySetInnerHTML`, exactly as a hand-written
   boundary would.
 - **The inline hydration state** replaces the marker with
-  `{"__prachtServerOnly":true}` — `renderServerDocument()` in
+  `{"__prachtServerOnly":true,"h":"…"}` — `renderServerDocument()` in
   `runtime-page.ts` runs `stripServerOnlyValues()` on both document paths that
   carry loader data: the buffered `buildHtmlDocument()` call, and the streamed
   one after `serializeDeferred()` has taken out the deferred markers.
@@ -434,6 +434,13 @@ How it fits together:
   hydrating (`diff/index.js` guards the assignment on `!isHydrating`), so the
   server's DOM is adopted untouched. Re-renders keep passing the same empty
   string, which the same guard skips — the subtree is never wiped.
+- **Revalidation** (`useRevalidate()`, a `<Form>` action, a search-param
+  change) later delivers the real string. Writing it would rebuild the subtree
+  whenever the live DOM no longer serializes to it (an opened `<details>`, an
+  iframe, browser re-serialization), so the placeholder carries a fingerprint
+  of a string value (`h`, length plus a 53-bit hash, `fingerprintServerOnly()`)
+  and `<StaticHtml>` keeps rendering `""` while the incoming string matches
+  it. The first different string is written normally and ends the adoption.
 - **Route-state responses** carry the real value: `toJSON()` on the marker
   returns it, so `?_data=1` and prerendered `_pracht/state/*.json` files are
   unchanged. A client-side navigation has no server DOM for the page it is

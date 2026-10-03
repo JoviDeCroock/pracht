@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { StaticHtml, defineApp, handlePrachtRequest, route, serverOnly } from "../src/index.ts";
 import { ROUTE_STATE_REQUEST_HEADER } from "../src/runtime-constants.ts";
+import { fingerprintServerOnly } from "../src/server-only.ts";
 
 const MARKUP = "<h1>Data Loading</h1><p>Loaders run on the server.</p>";
+const PLACEHOLDER = { __prachtServerOnly: true, h: fingerprintServerOnly(MARKUP) };
 
 /** A content route in the shape `@pracht/markdown` generates. */
 const contentRoute = () => async () => ({
@@ -49,7 +51,7 @@ describe("serverOnly() through the SSR document path", () => {
     });
 
     const state = parseHydrationState(await response.text());
-    expect(state.data.html).toEqual({ __prachtServerOnly: true });
+    expect(state.data.html).toEqual(PLACEHOLDER);
     // Unmarked fields are untouched.
     expect(state.data.title).toBe("Data Loading");
   });
@@ -100,6 +102,6 @@ describe("serverOnly() through the SSR document path", () => {
 
     const html = await response.text();
     expect(html.split("Loaders run on the server.").length - 1).toBe(1);
-    expect(parseHydrationState(html).data.html).toEqual({ __prachtServerOnly: true });
+    expect(parseHydrationState(html).data.html).toEqual(PLACEHOLDER);
   });
 });

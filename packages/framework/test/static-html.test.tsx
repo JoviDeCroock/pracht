@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { h, hydrate, render } from "preact";
 import { useState } from "preact/hooks";
+import { act } from "preact/test-utils";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { StaticHtml, serverOnly } from "../src/index.ts";
 import { stripServerOnlyValues } from "../src/server-only-strip.ts";
 
 const MARKUP = '<h1 id="title">Data Loading</h1><p>Loaders run on the server.</p>';
+const DETAILS_MARKUP = `${MARKUP}<details><summary>More</summary>Hidden</details>`;
 
 let scratch: HTMLDivElement;
 
@@ -55,6 +57,37 @@ describe("<StaticHtml>", () => {
     hydrate(h(Page, null), scratch);
     bump?.();
 
+    expect(scratch.querySelector(".prose")?.innerHTML).toBe(MARKUP);
+  });
+
+  it("keeps the adopted nodes when revalidation brings the same markup", () => {
+    scratch.innerHTML = `<div><div class="prose">${DETAILS_MARKUP}</div></div>`;
+    const adopted = scratch.querySelector("#title");
+    let setHtml: ((html: unknown) => void) | undefined;
+
+    function Page() {
+      const [html, set] = useState<unknown>(
+        stripServerOnlyValues({ html: serverOnly(DETAILS_MARKUP) }).html,
+      );
+      setHtml = set;
+      return h("div", null, h(StaticHtml, { html: html as string, class: "prose" }));
+    }
+
+    hydrate(h(Page, null), scratch);
+    // The reader interacts with the adopted subtree, so its live DOM no longer
+    // serializes to the string the server sent.
+    (scratch.querySelector("details") as HTMLDetailsElement).open = true;
+    // A revalidation, <Form> action, or search-param change refetches route
+    // state, which carries the real string the document already holds.
+    act(() => setHtml?.(DETAILS_MARKUP));
+
+    expect(scratch.querySelector("#title")).toBe(adopted);
+    expect((scratch.querySelector("details") as HTMLDetailsElement).open).toBe(true);
+
+    act(() => setHtml?.('<p id="next">Changed</p>'));
+    expect(scratch.querySelector(".prose")?.innerHTML).toBe('<p id="next">Changed</p>');
+
+    act(() => setHtml?.(MARKUP));
     expect(scratch.querySelector(".prose")?.innerHTML).toBe(MARKUP);
   });
 

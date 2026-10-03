@@ -7,7 +7,7 @@
  */
 
 import { isArrayIndexKey, isPlainObject } from "./loader-values.ts";
-import { isServerOnly, serverOnlyPlaceholder } from "./server-only.ts";
+import { isServerOnly, readServerOnly, serverOnlyPlaceholder } from "./server-only.ts";
 
 /**
  * Replace every {@link serverOnly} marker in a loader result with the
@@ -53,7 +53,7 @@ function containsServerOnly(value: unknown, seen = new Set<object>()): boolean {
 }
 
 function stripValue(value: unknown, seen: Map<object, unknown>): unknown {
-  if (isServerOnly(value)) return serverOnlyPlaceholder();
+  if (isServerOnly(value)) return serverOnlyPlaceholder(readServerOnly(value));
   if (typeof value !== "object" || value === null) return value;
 
   const cached = seen.get(value);
