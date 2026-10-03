@@ -126,6 +126,11 @@ function internalLinks(source: string): string[] {
   return targets.filter((target) => target.startsWith("/docs") || target.startsWith("#"));
 }
 
+/** Bodies of fenced code blocks. */
+function codeFences(source: string): string[] {
+  return [...source.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)].map((match) => match[1]);
+}
+
 describe("docs site content", () => {
   it(`keeps every paragraph and list item under ${MAX_BLOCK_CHARS} characters`, () => {
     const offenders = pages.flatMap(({ file, source }) =>
@@ -149,6 +154,19 @@ describe("docs site content", () => {
         offenders.push(`${file}: fits the default budget; remove its ceiling`);
       }
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps every module augmentation inside a module", () => {
+    // Without a top-level import or export the file is a global script, and
+    // `declare module "@pracht/core"` replaces the package's types instead of
+    // extending them.
+    const offenders = pages.flatMap(({ file, source }) =>
+      codeFences(source)
+        .filter((code) => /^declare module ["']/m.test(code))
+        .filter((code) => !/^(?:import|export)\s/m.test(code))
+        .map((code) => `${file}: ${code.split("\n", 1)[0]}`),
+    );
     expect(offenders).toEqual([]);
   });
 

@@ -88,6 +88,8 @@ Declare the env shape with the same `Register` declaration merging used for
 routes and context:
 
 ```ts [src/env.d.ts]
+import "@pracht/core";
+
 declare module "@pracht/core" {
   interface Register {
     env: {

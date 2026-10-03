@@ -71,6 +71,8 @@ for routes and context:
 
 ```ts
 // src/env.d.ts
+import "@pracht/core"; // keeps the file a module, so this augments instead of replacing
+
 declare module "@pracht/core" {
   interface Register {
     env: {
