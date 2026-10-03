@@ -428,7 +428,10 @@ How it fits together:
   `{"__prachtServerOnly":true,"h":"…"}` — `renderServerDocument()` in
   `runtime-page.ts` runs `stripServerOnlyValues()` on both document paths that
   carry loader data: the buffered `buildHtmlDocument()` call, and the streamed
-  one after `serializeDeferred()` has taken out the deferred markers.
+  one after `serializeDeferred()` has taken out the deferred markers. Shell
+  data is stripped in `runShellLoader()`, before the rich-data encoding, for
+  every request that is not a route-state request (the document and its error
+  page both read `shellState.wire`).
 - **Hydration** hands the browser that placeholder, and `<StaticHtml>` renders
   an empty `dangerouslySetInnerHTML`. Preact does not write into one while
   hydrating (`diff/index.js` guards the assignment on `!isHydrating`), so the

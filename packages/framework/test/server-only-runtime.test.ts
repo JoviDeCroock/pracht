@@ -1,7 +1,14 @@
 import { h } from "preact";
 import { describe, expect, it } from "vitest";
 
-import { StaticHtml, defineApp, handlePrachtRequest, route, serverOnly } from "../src/index.ts";
+import {
+  StaticHtml,
+  defineApp,
+  handlePrachtRequest,
+  route,
+  serverOnly,
+  useShellData,
+} from "../src/index.ts";
 import { ROUTE_STATE_REQUEST_HEADER } from "../src/runtime-constants.ts";
 import { fingerprintServerOnly } from "../src/server-only.ts";
 
@@ -20,6 +27,10 @@ const app = defineApp({
 });
 
 const registry = { routeModules: { "./routes/doc.tsx": contentRoute() } };
+
+function parseShellState(html: string) {
+  return parseHydrationState(html) as unknown as { shellData: { banner: unknown } };
+}
 
 function parseHydrationState(html: string) {
   const match = html.match(
@@ -103,5 +114,44 @@ describe("serverOnly() through the SSR document path", () => {
     const html = await response.text();
     expect(html.split("Loaders run on the server.").length - 1).toBe(1);
     expect(parseHydrationState(html).data.html).toEqual(PLACEHOLDER);
+  });
+
+  it("strips a marked field a shell loader returns, keeping it in route state", async () => {
+    const shelled = defineApp({
+      shells: { app: "./shells/app.tsx" },
+      routes: [route("/", "./routes/home.tsx", { render: "ssr", shell: "app" })],
+    });
+    const shellRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => h("main", null) }) },
+      shellModules: {
+        "./shells/app.tsx": async () => ({
+          loader: () => ({ banner: serverOnly(MARKUP) }),
+          Shell: ({ children }: { children: preact.ComponentChildren }) => {
+            const shell = useShellData<{ banner: string }>();
+            return h("div", null, h(StaticHtml as never, { html: shell?.banner }), children);
+          },
+        }),
+      },
+    };
+
+    const html = await (
+      await handlePrachtRequest({
+        app: shelled,
+        registry: shellRegistry,
+        request: new Request("http://localhost/"),
+      })
+    ).text();
+    expect(html.split("Loaders run on the server.").length - 1).toBe(1);
+    expect(parseShellState(html).shellData.banner).toEqual(PLACEHOLDER);
+
+    const routeState = await handlePrachtRequest({
+      app: shelled,
+      registry: shellRegistry,
+      request: new Request("http://localhost/", {
+        headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
+      }),
+    });
+    const body = (await routeState.json()) as { shellData: { banner: string } };
+    expect(body.shellData.banner).toBe(MARKUP);
   });
 });
