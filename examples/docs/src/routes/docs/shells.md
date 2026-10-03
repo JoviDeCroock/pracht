@@ -158,3 +158,52 @@ export const app = defineApp({
 ## Client-Side Navigation
 
 When navigating between routes that share the same shell, pracht preserves the shell and only re-renders the route content. When crossing shell boundaries, the full page tree is re-rendered.
+
+---
+
+## The App Root
+
+Everything inside a shell remounts when a navigation crosses shells. App-wide client infrastructure that must survive that, such as a query cache or a store, goes in the app root: a module you register with `defineApp({ root })`. It renders above every shell, on the server and in the browser, and is never remounted.
+
+```ts [src/routes.ts]
+export const app = defineApp({
+  root: "./root.tsx",
+  shells: { app: "./shells/app.tsx" },
+  routes: [/* … */],
+});
+```
+
+Every export is optional:
+
+```tsx [src/root.tsx]
+import { createContext } from "preact";
+import type { RootProps } from "@pracht/core";
+
+type Store = { items: Map<string, unknown> };
+export const StoreContext = createContext<Store | null>(null);
+
+// Once per server request, before any loader, and once when the browser boots.
+export function setup(): Store {
+  return { items: new Map() };
+}
+
+// Wraps every shell. Must render `children`.
+export function Root({ state, children }: RootProps<Store>) {
+  return <StoreContext.Provider value={state}>{children}</StoreContext.Provider>;
+}
+
+// Server: a JSON snapshot for the browser, or undefined to send nothing.
+export function dehydrate(store: Store) {
+  return store.items.size > 0 ? Object.fromEntries(store.items) : undefined;
+}
+
+// Browser: apply a snapshot, before hydration and on every route-state
+// response (navigations, prefetches, revalidations).
+export function hydrate(store: Store, snapshot: unknown) {
+  for (const [key, value] of Object.entries(snapshot as object)) store.items.set(key, value);
+}
+```
+
+Loaders read the request's state as `args.root`, typed by `pracht typegen`. What a loader puts into it reaches the browser with the page and with every client navigation, and what the server render adds reaches it with the page. [`@pracht/query`](/docs/recipes/tanstack-query) is built on this.
+
+The root is not a data source of its own: data that depends on the request comes from loaders, and data a layout shows from its [shell loader](#shell-data). The module is bundled for the browser, so keep secrets in middleware and loaders. Islands render without the app root, on the server too, so pass them what they need as props. An app that registers none ships none of this code. In the [pages router](/docs/routing#file-conventions), the root is `pages/_root.tsx`.

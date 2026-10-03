@@ -44,6 +44,8 @@ export interface RouteErrorContext {
   loaderFile?: string;
   shellFile?: string;
   middlewareFiles?: string[];
+  /** The app root module, when loading it or its `setup()` failed. */
+  rootFile?: string;
 }
 
 export interface SerializedRouteError {
@@ -229,6 +231,7 @@ export function describeRouteErrorModule(
   context: RouteErrorContext | undefined,
 ): string | undefined {
   if (!context) return undefined;
+  if (context.rootFile) return context.rootFile;
   if (context.phase === "middleware" && context.middlewareFiles?.length) {
     return context.middlewareFiles.join(", ");
   }

@@ -273,6 +273,7 @@ the session changed.
 | `@pracht/content` | `defineCollection`, `llmsTxtArtifacts`, `rawContentArtifacts`, `parseFrontmatter` | [Content Collections](/docs/content) |
 | `@pracht/markdown` | `defineMarkdownCollection` | [Content Collections](/docs/content) |
 | `@pracht/openapi` | `defineOpenApi`, `getOpenApiDescriptor`, `generateOpenApiDocument`, `createOpenApiUiHtml` | [OpenAPI](/docs/openapi) |
+| `@pracht/query` | `createQueryRoot`, `getQueryClient`, `@pracht/query/root` | [TanStack Query](/docs/recipes/tanstack-query) |
 | `@pracht/session` | See [Sessions](#sessions) | [Authentication](/docs/recipes/auth) |
 | `@pracht/capabilities` | `defineCapability` | [Capabilities](/docs/capabilities) |
 | `@pracht/test` | `createLoaderArgs`, `runMiddleware`, `createFormRequest`, `submitForm`, `readJson`, `readRedirect` | [Testing](/docs/recipes/testing) |

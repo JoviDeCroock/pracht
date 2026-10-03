@@ -94,6 +94,7 @@ a class instance, fails the request with an error that names its path.
 | pathname | string \| undefined | Matched pathname with the deployment base removed |
 | search   | unknown       | The query, parsed by the route's [`search` schema](/docs/routing#search-params) |
 | waitUntil | `(promise) => void` | Keep work running after the response is sent |
+| root     | unknown       | This request's [app root](/docs/shells#the-app-root) state, e.g. the `QueryClient` from [`@pracht/query`](/docs/recipes/tanstack-query) |
 
 #### `signal`
 

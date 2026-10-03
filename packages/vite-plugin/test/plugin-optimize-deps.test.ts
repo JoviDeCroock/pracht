@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -67,6 +69,28 @@ describe("pracht optimizeDeps config", () => {
     const config = runOptimizeDepsHook({});
 
     expect(config.optimizeDeps?.include).toBeUndefined();
+  });
+
+  it("scans the registered app root, which the client entry imports eagerly", () => {
+    // Without it, a dependency only the root imports (`@pracht/query/root`)
+    // is discovered on the first page load: 504 "Outdated Optimize Dep", then
+    // a full reload. A string ref gives the scanner no import to follow.
+    const root = mkdtempSync(join(tmpdir(), "pracht-root-deps-"));
+    try {
+      mkdirSync(join(root, "src"));
+      writeFileSync(join(root, "src/root.tsx"), "export {};\n");
+      writeFileSync(
+        join(root, "src/routes.ts"),
+        'import { defineApp } from "@pracht/core";\nexport const app = defineApp({ root: "./root.tsx", routes: [] });\n',
+      );
+
+      expect(runOptimizeDepsHook({ root }).optimizeDeps?.entries).toContain("src/root.tsx");
+      expect(runOptimizeDepsHook({ root: npmAppRoot }).optimizeDeps?.entries).not.toContain(
+        "src/root.tsx",
+      );
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 
   it("still contributes scan entries for route and shell files", () => {
