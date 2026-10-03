@@ -38,6 +38,38 @@ test("non-island server components do not hydrate on islands routes", async ({ p
   expect(fullHydrationMarker).toBeNull();
 });
 
+test("islands keep server-rendered children, and islands inside them, across a toggle", async ({
+  page,
+}) => {
+  test.setTimeout(20_000);
+
+  await page.goto("/children");
+  await page.waitForSelector('html[data-pracht-islands-hydrated="true"]');
+
+  // The Counter inside the open disclosure is its own island.
+  await expect(page.locator('pracht-island[data-hydrated="true"]')).toHaveCount(3);
+  await page.getByTestId("increment").click();
+  await expect(page.getByTestId("count")).toHaveText("Count: 11");
+
+  const open = page.getByRole("button", { name: "Open by default" });
+  await open.click();
+  await expect(page.getByTestId("server-note")).toHaveCount(0);
+  await open.click();
+  await expect(page.getByTestId("server-note")).toHaveText(
+    "Rendered on the server, never shipped as JavaScript.",
+  );
+  await expect(page.getByTestId("count")).toHaveText("Count: 11");
+  await page.getByTestId("increment").click();
+  await expect(page.getByTestId("count")).toHaveText("Count: 12");
+
+  // Children the island did not render on the server still arrive.
+  await expect(page.getByTestId("later-note")).toHaveCount(0);
+  await page.getByRole("button", { name: "Closed by default" }).click();
+  await expect(page.getByTestId("later-note")).toHaveText(
+    "Rendered on the server and shown when you open it.",
+  );
+});
+
 test("visible islands hydrate only after scrolling into view", async ({ page }) => {
   test.setTimeout(20_000);
 

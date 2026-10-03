@@ -115,8 +115,37 @@ Do not pass functions, class instances like `Date`, JSX elements, symbols,
 bigints, or circular objects as island props. Pracht throws an error that names
 the invalid prop path.
 
-Children passed from server components into islands are not supported in v1.
-Move the content inside the island or pass serializable data instead.
+To wrap server content in an interactive component, pass it as children. The
+island renders `children` wherever it likes, as with any component:
+
+```tsx [src/routes/article.tsx]
+import Counter from "../islands/Counter.tsx";
+import Disclosure from "../islands/Disclosure.tsx";
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  return (
+    <Disclosure summary="Show the full changelog">
+      <Changelog entries={data.entries} />
+      <Counter start={0} />
+    </Disclosure>
+  );
+}
+```
+
+`Changelog` renders on the server and its code never reaches the browser. The
+island receives that HTML as `children`, so showing, hiding, or moving them
+keeps the same nodes. An island inside them, like `Counter` here, hydrates on
+its own and keeps its state when the outer island hides and shows it. Children
+the island does not render on the server, such as a closed disclosure's, still
+ship with the page and appear when it renders them.
+
+Children are rendered once, on the server. The island cannot pass them props or
+change their contents, and a render function as children throws an error.
+They arrive inside a `<pracht-slot>` element with `display: contents`, so a
+child selector such as `.panel > p` written against the island's markup no
+longer matches them. For the same reason the island cannot place them directly
+inside `<table>`, `<tbody>`, `<tr>`, or `<select>`; pass the whole table as
+children instead.
 
 ---
 

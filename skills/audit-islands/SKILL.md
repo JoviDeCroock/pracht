@@ -89,9 +89,10 @@ there is no wrapper to mark a component elsewhere as an island.
 Island props are serialized to JSON in the HTML. At each island call site on
 an islands route, flag props that are functions, symbols, bigints, class
 instances (`Date`, `Map`, ...), JSX elements, or circular — rendering throws a
-descriptive error naming the offending prop path. Passing children into an
-island from a server component also throws (unsupported in v1): move the
-content inside the island or pass a serializable prop.
+descriptive error naming the offending prop path. Children passed into an
+island are fine: they render once on the server as static HTML. Flag a render
+function passed as children (it throws), and children the island expects to
+re-render or pass props into — those belong inside the island.
 
 ### 3d. Hydration strategy tuning (`info`)
 

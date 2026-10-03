@@ -9,6 +9,7 @@ import {
   ISLAND_FILE_ATTRIBUTE,
   ISLAND_HYDRATED_ATTRIBUTE,
   ISLAND_PROPS_ATTRIBUTE,
+  ISLAND_SLOT_ELEMENT,
   ISLAND_STRATEGY_ATTRIBUTE,
   ISLANDS_HYDRATED_MARKER,
 } from "./islands-shared.ts";
@@ -88,10 +89,23 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     bindCapabilityRevalidation();
   }
-  const elements = document.querySelectorAll(ISLAND_ELEMENT);
   const immediate: Promise<void>[] = [];
+  scheduleIslands(document, options, immediate);
 
-  for (const element of elements) {
+  await Promise.all(immediate);
+  document.documentElement.setAttribute(ISLANDS_HYDRATED_MARKER, "true");
+}
+
+const scheduled = new WeakSet<Element>();
+
+function scheduleIslands(
+  root: ParentNode,
+  options: HydrateIslandsOptions,
+  immediate?: Promise<void>[],
+): void {
+  for (const element of root.querySelectorAll(ISLAND_ELEMENT)) {
+    if (scheduled.has(element)) continue;
+    scheduled.add(element);
     const strategy = element.getAttribute(ISLAND_STRATEGY_ATTRIBUTE) ?? "load";
 
     if (strategy === "visible") {
@@ -99,12 +113,47 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
     } else if (strategy === "idle") {
       scheduleWhenIdle(() => hydrateIsland(element, options));
     } else {
-      immediate.push(hydrateIsland(element, options));
+      const hydrated = hydrateIsland(element, options);
+      if (immediate) immediate.push(hydrated);
     }
   }
+}
 
-  await Promise.all(immediate);
-  document.documentElement.setAttribute(ISLANDS_HYDRATED_MARKER, "true");
+/**
+ * Children the page passed into an island arrive as server-rendered nodes in
+ * `<pracht-slot>` elements the island owns, or in a `<template>` when the
+ * island did not place them. The island receives one slot vnode as its
+ * children: hydration leaves the existing nodes alone, and when the island
+ * mounts a fresh slot (after hiding it, say) the ref moves a detached group
+ * of nodes in, so the content and any island inside it keep their state.
+ */
+function slotChildren(element: Element, options: HydrateIslandsOptions) {
+  const groups: Node[][] = [];
+  for (const node of element.querySelectorAll(
+    `${ISLAND_SLOT_ELEMENT},template[${ISLAND_SLOT_ELEMENT}]`,
+  )) {
+    if (node.parentElement!.closest(ISLAND_ELEMENT) !== element) continue;
+    // Only the <template> has `content`.
+    const content = (node as HTMLTemplateElement).content;
+    groups.push([...(content || node).childNodes]);
+    if (content) node.remove();
+  }
+
+  return (
+    groups[0] &&
+    h(ISLAND_SLOT_ELEMENT, {
+      style: "display:contents",
+      dangerouslySetInnerHTML: { __html: "" },
+      ref(slot: Element | null) {
+        if (!slot || slot.firstChild) return;
+        const group = groups.find((nodes) => nodes[0] && !nodes[0].isConnected);
+        if (!group) return;
+        slot.append(...group);
+        // Islands that shipped inside a <template> were never scheduled.
+        scheduleIslands(slot, options);
+      },
+    })
+  );
 }
 
 async function hydrateIsland(element: Element, options: HydrateIslandsOptions): Promise<void> {
@@ -140,6 +189,8 @@ async function hydrateIsland(element: Element, options: HydrateIslandsOptions): 
     return;
   }
 
+  const children = slotChildren(element, options);
+  if (children) props.children = children;
   hydrate(h(Component, props), element);
   element.setAttribute(ISLAND_HYDRATED_ATTRIBUTE, "true");
 }

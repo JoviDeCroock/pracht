@@ -1,5 +1,13 @@
 import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -206,6 +214,25 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     await expect(page.getByTestId("count")).toHaveText("Count: 100");
     await page.getByTestId("increment").click();
     await expect(page.getByTestId("count")).toHaveText("Count: 101");
+
+    // Children passed into an island stay server-rendered: they toggle in
+    // place, an island among them keeps its state, and their text is in no
+    // client chunk.
+    await page.goto(`${origin}/children`);
+    await page.waitForSelector('html[data-pracht-islands-hydrated="true"]');
+    await page.getByTestId("increment").click();
+    const openDisclosure = page.getByRole("button", { name: "Open by default" });
+    await openDisclosure.click();
+    await expect(page.getByTestId("server-note")).toHaveCount(0);
+    await openDisclosure.click();
+    await expect(page.getByTestId("count")).toHaveText("Count: 11");
+    await page.getByRole("button", { name: "Closed by default" }).click();
+    await expect(page.getByTestId("later-note")).toBeVisible();
+    for (const chunk of readdirSync(resolve(exampleDir, "dist/client/assets"))) {
+      if (!chunk.endsWith(".js")) continue;
+      const source = readFileSync(resolve(exampleDir, "dist/client/assets", chunk), "utf-8");
+      expect(source).not.toContain("never shipped as JavaScript");
+    }
 
     // Full-hydration routes in the same app still load the regular client
     // runtime and hydrate the whole tree.

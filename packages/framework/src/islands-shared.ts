@@ -7,6 +7,12 @@
 /** Custom element the server wraps around every island's SSR output. */
 export const ISLAND_ELEMENT = "pracht-island";
 
+/**
+ * Element the server wraps around children passed into an island. The client
+ * keeps the server-rendered nodes inside it instead of re-rendering them.
+ */
+export const ISLAND_SLOT_ELEMENT = "pracht-slot";
+
 /** Attribute carrying the island's project-root-relative source file. */
 export const ISLAND_FILE_ATTRIBUTE = "island";
 

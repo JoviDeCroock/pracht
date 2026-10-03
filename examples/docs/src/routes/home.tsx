@@ -206,8 +206,8 @@ const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
   },
   {
     mode: 'hydration: "islands"',
-    kb: "7.5 KB",
-    bytes: 7540,
+    kb: "7.8 KB",
+    bytes: 7953,
     desc: "Preact plus the island bootstrap. Only components in src/islands/ hydrate — the router never loads.",
   },
   {

@@ -6,6 +6,8 @@ Demonstrates the islands architecture (partial hydration):
   server component whose `onClick` never hydrates.
 - `/lazy` — SSG page with a below-the-fold island using `client="visible"`:
   its chunk is fetched and hydrated only when it scrolls into view.
+- `/children` — `Disclosure` islands wrapping server-rendered children, one of
+  them a `Counter` island that keeps its count while the disclosure toggles.
 - `/static` — `hydration: "none"`, ships zero JavaScript.
 - `/ssr` — SSR route with an `client="idle"` island, proving islands work at
   request time, not just at build time.

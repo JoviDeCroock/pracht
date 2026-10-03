@@ -296,16 +296,118 @@ describe("islands server rendering", () => {
     expect(html).toContain("nested");
   });
 
-  it("throws a clear error when an island receives children", async () => {
+  it("renders children passed into an island inside a slot, outside the props", async () => {
+    function Box({ title, children }: { title: string; children?: unknown }) {
+      return h("section", null, h("h2", null, title), children as never);
+    }
+    registerServerIslands({ "/src/islands/Box.tsx": { default: Box } });
+    setIslandsClientEntryUrl("/assets/islands-client-test.js");
+
+    const html = await renderRoute({
+      hydration: "islands",
+      Component: () => h(Box as never, { title: "Hi" }, h("p", null, "server content")),
+    });
+
+    expect(html).toContain(
+      '<section><h2>Hi</h2><pracht-slot style="display:contents"><p>server content</p></pracht-slot></section>',
+    );
+    expect(html).toContain('props="{&quot;title&quot;:&quot;Hi&quot;}"');
+    expect(html).not.toContain("<template");
+  });
+
+  it("gives islands inside an island's children their own markers", async () => {
+    function Box({ children }: { children?: unknown }) {
+      return h("div", null, children as never);
+    }
+    registerServerIslands({
+      "/src/islands/Box.tsx": { default: Box },
+      "/src/islands/Counter.tsx": { default: Counter },
+    });
+    setIslandsClientEntryUrl("/assets/islands-client-test.js");
+
+    const html = await renderRoute({
+      hydration: "islands",
+      Component: () => h(Box as never, {}, h(Counter, { start: 2 })),
+    });
+
+    expect(html.match(/<pracht-island/g)).toHaveLength(2);
+    expect(html).toMatch(
+      /<pracht-slot style="display:contents"><pracht-island island="\/src\/islands\/Counter.tsx"[^>]*props="\{&quot;start&quot;:2\}"/,
+    );
+  });
+
+  it("ships children an island does not place in a template", async () => {
+    function Disclosure({ children }: { children?: unknown }) {
+      const open = false;
+      return h("details", null, h("summary", null, "More"), open ? (children as never) : null);
+    }
+    registerServerIslands({ "/src/islands/Disclosure.tsx": { default: Disclosure } });
+    setIslandsClientEntryUrl("/assets/islands-client-test.js");
+
+    const html = await renderRoute({
+      hydration: "islands",
+      Component: () => h(Disclosure as never, {}, h("p", null, "hidden content")),
+    });
+
+    expect(html).toContain(
+      "<details><summary>More</summary></details><template pracht-slot><p>hidden content</p></template>",
+    );
+    expect(html).not.toContain("<pracht-slot");
+  });
+
+  it("passes no slot for children that render nothing", async () => {
+    function Box({ children }: { children?: unknown }) {
+      return h("div", null, children === undefined ? "none" : "some");
+    }
+    registerServerIslands({ "/src/islands/Box.tsx": { default: Box } });
+    setIslandsClientEntryUrl("/assets/islands-client-test.js");
+
+    const html = await renderRoute({
+      hydration: "islands",
+      Component: () => h(Box as never, {}, false, null),
+    });
+
+    expect(html).toContain("<div>none</div>");
+    expect(html).not.toContain("pracht-slot");
+  });
+
+  it("throws a clear error when an island receives a render function as children", async () => {
     registerTestIslands();
 
     const html = await renderRoute({
       hydration: "islands",
-      Component: () => h(Counter as never, {}, h("span", null, "slot")),
+      Component: () => h(Counter as never, {}, (() => "x") as never),
     });
 
-    expect(html).toContain("received children from a server component");
-    expect(html).toContain("not supported in v1");
+    expect(html).toContain("received a function as children");
+  });
+
+  it("throws a clear error when an island places its children directly inside table markup", async () => {
+    function Rows({ children }: { children?: unknown }) {
+      return h("table", null, h("tbody", null, children as never));
+    }
+    function Wrapped({ children }: { children?: unknown }) {
+      return h("table", null, h("tbody", null, h("tr", null, h("td", null, children as never))));
+    }
+    registerServerIslands({
+      "/src/islands/Rows.tsx": { default: Rows },
+      "/src/islands/Wrapped.tsx": { default: Wrapped },
+    });
+    setIslandsClientEntryUrl("/assets/islands-client-test.js");
+
+    const row = h("tr", null, h("td", null, "cell"));
+    const rejected = await renderRoute({
+      hydration: "islands",
+      Component: () => h(Rows as never, {}, row),
+    });
+    expect(rejected).toContain('Island "Rows" (/src/islands/Rows.tsx) renders its children');
+    expect(rejected).toContain("directly inside <tbody>");
+
+    const accepted = await renderRoute({
+      hydration: "islands",
+      Component: () => h(Wrapped as never, {}, "cell"),
+    });
+    expect(accepted).toContain('<td><pracht-slot style="display:contents">cell</pracht-slot></td>');
   });
 
   it("throws a clear error for non-serializable props", async () => {

@@ -151,11 +151,63 @@ bootstrap would pay for the decoder on every islands page.
 
 ### Children / slots
 
-Passing children into an island from a server component is **not supported in
-v1** and throws a clear error. Move the content inside the island, or pass it
-as a serializable prop. (Islands may of course render their own children
-internally, and islands nested *inside* another island hydrate as part of the
-outer island.)
+A page can pass children into an island. They are server content: they render
+once on the server, never ship as JavaScript, and the island places them
+wherever it renders `children`.
+
+```tsx
+<Disclosure summary="Details">
+  <ServerOnlyTable rows={data.rows} />
+  <Counter start={0} />
+</Disclosure>
+```
+
+How the pieces fit:
+
+- **Server.** `IslandBoundary` hands the island a slot component as
+  `children`. When the island renders it, the slot emits
+  `<pracht-slot style="display:contents">` around the children. The children
+  render with the page's island capture and script capture restored, so an
+  island among them (`Counter`) gets its own `<pracht-island>` marker and
+  hydrates independently, and a `<Script>` there counts as outside an island.
+  Children never enter the `props` JSON.
+- **Unplaced children.** If the island's server render never placed the slot (a
+  closed disclosure), a sibling rendered after the island's output emits the
+  children in `<template pracht-slot>` inside the island marker instead, so
+  the browser has them when the island first shows them. That check runs after
+  the island's output in render order; an island that suspends before placing
+  its children can emit both forms, which costs bytes but stays correct.
+- **Client.** Before hydrating an island, the bootstrap collects every
+  `<pracht-slot>` and `<template pracht-slot>` the island owns (its nearest
+  `pracht-island` ancestor is this island, so a nested island's slots are left
+  to that island), takes their child nodes as groups, and removes the
+  templates. The island receives one `pracht-slot` vnode with
+  `dangerouslySetInnerHTML: { __html: "" }`: Preact never applies `innerHTML`
+  while hydrating, and skips it on re-render when `__html` is unchanged, so the
+  server nodes stay as they are. When the island mounts a fresh slot element
+  (after hiding it), Preact sets the empty `innerHTML` and the vnode's `ref`
+  moves in the first group whose nodes are detached. Moving keeps node
+  identity, so state in an island among the children survives. Islands that
+  arrived in a template were never in the live document, so the ref schedules
+  them with their strategy after the move.
+- **Removal does not unmount.** Hiding the slot only detaches its element;
+  Preact never diffed the children, so an island among them is not unmounted
+  and its effects keep running while hidden.
+
+- **Table and select markup.** The HTML parser moves an unknown element out of
+  `table`, `thead`, `tbody`, `tfoot`, `tr`, `colgroup`, `select`, and
+  `optgroup` content, which would leave the slot empty and let hydration drop
+  the stranded rows. `IslandSlot` walks up preact-render-to-string's parent
+  chain (`this.__v.__`) to the nearest element and throws when it is one of
+  those. With the experimental `precompileSsrJsx`, precompiled DOM subtrees
+  are not vnodes, so the check can miss them there.
+
+A render function passed as children throws, since the children render once on
+the server. The island cannot pass props into them or re-render them. Islands
+nested *inside* an island's own render output still hydrate as part of the
+outer island.
+
+The bootstrap cost of this is about 0.26 KB gzip on every islands page.
 
 ---
 
@@ -253,7 +305,9 @@ Partial client-side rendering of islands routes is out of scope for v1.
 
 ## Limitations (v1)
 
-- Children/slots from server components into islands: unsupported (throws).
+- Children passed into an island are static server HTML: the island can show,
+  hide, or move them, but not pass them props or re-render them, and not place
+  them directly inside table or select markup.
 - Client-side navigation into/out of islands routes is full-document.
 - Island props must be JSON-serializable.
 - The analyze report lists all island chunks per islands route (upper bound),

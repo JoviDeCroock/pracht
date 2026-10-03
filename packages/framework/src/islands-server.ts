@@ -1,5 +1,5 @@
 import { createContext, h, options } from "preact";
-import type { ComponentType, VNode } from "preact";
+import type { ComponentChildren, ComponentType, VNode } from "preact";
 import { useContext } from "preact/hooks";
 
 import {
@@ -7,6 +7,7 @@ import {
   ISLAND_EXPORT_ATTRIBUTE,
   ISLAND_FILE_ATTRIBUTE,
   ISLAND_PROPS_ATTRIBUTE,
+  ISLAND_SLOT_ELEMENT,
   ISLAND_STRATEGIES,
   ISLAND_STRATEGY_ATTRIBUTE,
 } from "./islands-shared.ts";
@@ -157,11 +158,11 @@ function IslandBoundary(props: Record<string, unknown>) {
   const { client, children, ...componentProps } = rest;
   const strategy = validateIslandStrategy(client, descriptor);
 
-  if (children != null && !(Array.isArray(children) && children.length === 0)) {
+  if (typeof children === "function") {
     throw new Error(
-      `Island "${descriptor.name}" (${descriptor.file}) received children from a server ` +
-        "component. Passing children/slots into islands is not supported in v1 — move the " +
-        "content inside the island component, or pass it as a JSON-serializable prop.",
+      `Island "${descriptor.name}" (${descriptor.file}) received a function as children. ` +
+        "Children passed into an island render on the server, so they must be JSX, not a " +
+        "render function.",
     );
   }
 
@@ -183,13 +184,42 @@ function IslandBoundary(props: Record<string, unknown>) {
     attributes[ISLAND_PROPS_ATTRIBUTE] = serializedProps;
   }
 
+  // Children from the page are server content. The island receives them
+  // wrapped in a slot element whose nodes the browser keeps as rendered. They
+  // render with the page's captures restored, so an island inside them gets
+  // its own marker and hydrates on its own, and a <Script> there counts as
+  // outside this island. If the island does not place its children (a closed
+  // disclosure, say), they ship in a <template> so the client can show them
+  // later.
+  const slot: SlotState | null = hasRenderableChildren(children)
+    ? {
+        descriptor,
+        placed: false,
+        content: h(
+          IslandCaptureContext.Provider,
+          { value: capture },
+          scriptCapture
+            ? h(
+                ScriptCaptureContext.Provider,
+                { value: scriptCapture },
+                children as ComponentChildren,
+              )
+            : (children as ComponentChildren),
+        ),
+      }
+    : null;
+
   // Islands nested inside this island's subtree hydrate as part of this
   // island, so they must not emit their own markers: null out the capture
   // context for the wrapped subtree.
   let subtree: VNode<any> = h(
     IslandCaptureContext.Provider,
     { value: null },
-    renderOriginal(type, componentProps),
+    renderOriginal(
+      type,
+      slot ? { ...componentProps, children: h(IslandSlot, { slot }) } : componentProps,
+    ),
+    slot ? h(IslandSlotFallback, { slot }) : null,
   );
   if (scriptCapture) {
     // Re-provide the script capture with the inside-island flag set (scripts
@@ -202,6 +232,49 @@ function IslandBoundary(props: Record<string, unknown>) {
     );
   }
   return h(ISLAND_ELEMENT, attributes, subtree);
+}
+
+interface SlotState {
+  descriptor: IslandDescriptor;
+  placed: boolean;
+  content: VNode<any>;
+}
+
+// The HTML parser moves an unknown element out of table and select content,
+// which would strand the children outside their slot.
+const SLOT_REJECTING_PARENT = /^(table|thead|tbody|tfoot|tr|colgroup|select|optgroup)$/;
+
+interface RenderedVNode {
+  type: unknown;
+  __?: RenderedVNode | null;
+}
+
+function IslandSlot(this: { __v?: RenderedVNode } | undefined, { slot }: { slot: SlotState }) {
+  // preact-render-to-string gives each component its vnode (`__v`) and each
+  // vnode its parent (`__`); walk up to the element the slot lands in.
+  let parent = this?.__v?.__;
+  while (parent && typeof parent.type !== "string") parent = parent.__;
+  if (parent && SLOT_REJECTING_PARENT.test(parent.type as string)) {
+    const { descriptor } = slot;
+    throw new Error(
+      `Island "${descriptor.name}" (${descriptor.file}) renders its children directly inside ` +
+        `<${parent.type as string}>. Children arrive in a <${ISLAND_SLOT_ELEMENT}> element, ` +
+        "which the browser moves out of table and select markup. Pass the whole table or " +
+        "select as children, or render the rows inside the island from props.",
+    );
+  }
+  slot.placed = true;
+  return h(ISLAND_SLOT_ELEMENT, { style: "display:contents" }, slot.content);
+}
+
+// Renders after the island's own output, so `placed` is settled by then.
+function IslandSlotFallback({ slot }: { slot: SlotState }) {
+  return slot.placed ? null : h("template", { [ISLAND_SLOT_ELEMENT]: "" }, slot.content);
+}
+
+function hasRenderableChildren(children: unknown): boolean {
+  if (Array.isArray(children)) return children.some(hasRenderableChildren);
+  return children != null && typeof children !== "boolean";
 }
 
 function validateIslandStrategy(client: unknown, descriptor: IslandDescriptor): IslandStrategy {
