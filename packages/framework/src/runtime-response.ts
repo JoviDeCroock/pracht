@@ -319,9 +319,11 @@ export async function renderRouteErrorResponse<TContext>(options: {
     | FunctionComponent<{ children?: ComponentChildren }>
     | undefined;
   const errorValue = deserializeRouteError(routeErrorWithDiagnostics);
+  const hydration = options.routeArgs.route.hydration ?? "full";
   const componentTree = wrapWithRoot(
     options.root,
     Shell ? h(Shell, null, h(Boundary, { error: errorValue })) : h(Boundary, { error: errorValue }),
+    hydration === "islands",
   );
   let tree: VNode<any> = h(
     PrachtRuntimeProvider as unknown as FunctionComponent<{
@@ -343,7 +345,6 @@ export async function renderRouteErrorResponse<TContext>(options: {
       componentTree,
     ),
   );
-  const hydration = options.routeArgs.route.hydration ?? "full";
   let islandCapture: IslandCapture | null = null;
   if (hydration === "islands") {
     islandCapture = { islands: [] };

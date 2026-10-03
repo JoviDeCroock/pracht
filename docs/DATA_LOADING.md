@@ -296,7 +296,15 @@ and installs the root's `hydrate()` as the route-state snapshot handler in
 revalidation, SPA boot — goes through `fetchPrachtRouteState()`, which hands
 the snapshot over before returning the data, so the state is updated before
 the route that needs it commits. Islands routes never run the client router
-and so never render the root in the browser.
+and so never render the root in the browser. To keep the server render
+honest about that, an islands-mode render wraps `Root` in a class that reads
+the legacy context map (`this.context` without a `contextType`) above and
+below it; the entries `Root` changed travel down in `IslandRootContextReset`,
+and `IslandBoundary` wraps each island in a class whose `getChildContext()`
+puts the outer values back. An island that reads what `Root` provides
+therefore fails during SSR, where that class's `componentDidCatch` rethrows
+the error with the island's name, instead of at hydration. Route components
+and shells on islands and `none` routes still render inside `Root`.
 
 The plugin defines `__PRACHT_APP_ROOT__` false for a build that registers no
 root, which folds away the router and fetch wiring; dev keeps it on so a root

@@ -14,9 +14,10 @@
  *
  * @internal Not part of the published API.
  */
-import { h } from "preact";
-import type { FunctionComponent, VNode } from "preact";
+import { Component, h } from "preact";
+import type { ComponentChildren, FunctionComponent, VNode } from "preact";
 
+import { IslandRootContextReset } from "./islands-server.ts";
 import type { ModuleRegistry, RootModule } from "./types.ts";
 
 export interface RequestRoot {
@@ -61,9 +62,49 @@ export function resolveRequestRoot(
   return cached;
 }
 
-export function wrapWithRoot(root: RequestRoot | null | undefined, tree: VNode<any>): VNode<any> {
+/**
+ * Wrap a rendered tree in the root's `Root`. On an islands route, `islands`
+ * also records which context entries `Root` set, so each island renders
+ * without them (see `IslandRootContextReset`).
+ */
+export function wrapWithRoot(
+  root: RequestRoot | null | undefined,
+  tree: VNode<any>,
+  islands = false,
+): VNode<any> {
   const Root = root?.module.Root as FunctionComponent<Record<string, unknown>> | undefined;
-  return Root ? h(Root, { state: root!.state }, tree) : tree;
+  if (!Root) return tree;
+  if (!islands) return h(Root, { state: root!.state }, tree);
+  return h(IslandsRoot, { Root, state: root!.state }, tree);
+}
+
+// Legacy context (`this.context` without a `contextType`) is the whole
+// context map, keyed by context id, so the entries `Root` set are the keys
+// whose value differs below it.
+class IslandsRoot extends Component<{
+  Root: FunctionComponent<Record<string, unknown>>;
+  state: unknown;
+  children?: ComponentChildren;
+}> {
+  render() {
+    const { Root, state, children } = this.props;
+    return h(Root, { state }, h(RootContextDiff, { outer: this.context }, children));
+  }
+}
+
+class RootContextDiff extends Component<{
+  outer: Record<string, unknown>;
+  children?: ComponentChildren;
+}> {
+  render() {
+    const { outer, children } = this.props;
+    const inner = this.context as Record<string, unknown>;
+    let reset: Record<string, unknown> | null = null;
+    for (const key in inner) {
+      if (inner[key] !== outer[key]) (reset ??= {})[key] = outer[key];
+    }
+    return reset ? h(IslandRootContextReset.Provider, { value: reset }, children) : children;
+  }
 }
 
 /** The root's snapshot for the browser, or `undefined` when there is none. */

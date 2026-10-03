@@ -602,9 +602,11 @@ async function renderServerDocument<TContext>(
   const Comp = Component as FunctionComponent<Record<string, unknown>>;
   const componentProps = { data, params: match.params };
 
+  const hydration = match.route.hydration ?? "full";
   const componentTree = wrapWithRoot(
     job.root,
     Shell ? h(Shell, null, h(Comp, componentProps)) : h(Comp, componentProps),
+    hydration === "islands",
   );
 
   let tree = h(
@@ -627,8 +629,6 @@ async function renderServerDocument<TContext>(
     ),
   );
   const shellHydrationState = job.shellState ? { shellData: job.shellState.wire } : undefined;
-
-  const hydration = match.route.hydration ?? "full";
 
   // <Script strategy="beforeHydration"> usages captured during the
   // render land in the document head after head() scripts. The capture

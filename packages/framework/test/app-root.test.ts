@@ -12,6 +12,11 @@ import {
   type RootModule,
   type RootSetupArgs,
 } from "../src/index.ts";
+import {
+  _resetIslandsForTesting,
+  registerServerIslands,
+  setIslandsClientEntryUrl,
+} from "../src/islands-server.ts";
 import { fetchPrachtRouteState, setRootSnapshotHandler } from "../src/runtime-client-fetch.ts";
 
 interface RootState {
@@ -272,5 +277,62 @@ describe("app root", () => {
     expect(result).toMatchObject({ type: "data", data: { ok: true } });
     expect(error).toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+describe("app root on islands routes", () => {
+  afterEach(() => {
+    _resetIslandsForTesting();
+  });
+
+  function ReadsRootIsland() {
+    return h("span", { id: "island" }, h(ReadsRoot, null));
+  }
+
+  function NeedsRootIsland() {
+    if (!useContext(RootContext)) throw new Error("No root state set");
+    return h("span", null, "never");
+  }
+
+  async function renderIslandsRoute(Island: () => unknown) {
+    registerServerIslands({ "/src/islands/Widget.tsx": { default: Island } });
+    setIslandsClientEntryUrl("/assets/islands-client.js");
+    const errors: unknown[] = [];
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        routes: [route("/", "./routes/page.tsx", { render: "ssr", hydration: "islands" })],
+      }),
+      registry: {
+        routeModules: {
+          "./routes/page.tsx": async () => ({
+            Component: () => h("main", null, h(ReadsRoot, null), h(Island as () => null, null)),
+          }),
+        },
+        rootModules: { "/src/root.tsx": async () => createRootModule() },
+      },
+      request: new Request("http://localhost/"),
+      onRouteError: (error) => errors.push(error),
+    });
+    return { response, errors };
+  }
+
+  it("renders islands without what the root provides, as they hydrate", async () => {
+    const { response } = await renderIslandsRoute(ReadsRootIsland);
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain('<main><p id="root-id">root-1</p><pracht-island');
+    expect(html).toContain('<span id="island"><p id="root-id">no-root</p></span>');
+  });
+
+  it("names the island when it fails without the root", async () => {
+    const { response, errors } = await renderIslandsRoute(NeedsRootIsland);
+    expect(response.status).toBe(500);
+    expect(errors).toHaveLength(1);
+    const error = errors[0] as Error;
+    expect(error.message).toContain(
+      'Island "Widget" (/src/islands/Widget.tsx) threw while rendering: No root state set',
+    );
+    expect(error.message).toContain("without the app root's Root");
+    expect((error.cause as Error).message).toBe("No root state set");
   });
 });
