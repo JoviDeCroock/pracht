@@ -256,8 +256,10 @@ optional:
 **Registration.** The manifest names the module, but `defineApp()` drops the
 key at runtime: the manifest ships in every client bundle, so carrying `root`
 would cost apps without one. The vite plugin reads it from the manifest source
-instead (`plugin-app-root.ts`, the same static analyzer the capability
-projection uses) and derives three things from that one read: the client
+instead (`plugin-app-root.ts`: the capability analyzer locates the
+`defineApp({ … })` body, and Vite's `parseAst` reads its top-level
+properties, so a nested `shells: { root }` is never mistaken for the
+registration) and derives three things from that one read: the client
 entry's static `import * as rootModule`, the server registry's single
 `rootModules` entry, and the `__PRACHT_APP_ROOT__` define. A `root` value the
 analyzer cannot read (a variable, shorthand) or a path that does not exist

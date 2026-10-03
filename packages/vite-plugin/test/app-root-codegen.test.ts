@@ -88,6 +88,23 @@ describe("app root codegen", () => {
     expect(() => findAppRootModule({}, missing)).toThrow(/does not exist/);
   });
 
+  it("reads only the top-level root key", () => {
+    const nestedShorthand = project({
+      "src/routes.ts": [
+        'const root = "./shells/root.tsx";',
+        'const gate = "./middleware/gate.ts";',
+        manifest('  shells: { root, b: "./shells/b.tsx" },\n  middleware: { root, gate },'),
+      ].join("\n"),
+    });
+    expect(findAppRootModule({}, nestedShorthand)).toBeNull();
+
+    const afterSpread = project({
+      "src/routes.ts": `const base = {};\n${manifest('  ...base,\n  "root": "./root.tsx",')}`,
+      "src/root.tsx": ROOT_SOURCE,
+    });
+    expect(findAppRootModule({}, afterSpread)).toEqual({ ref: "./root.tsx", id: "/src/root.tsx" });
+  });
+
   it("registers a pages-root _root file in pages mode", () => {
     const root = project({
       "src/pages/index.tsx": "export default function Home() { return null; }\n",

@@ -14,12 +14,10 @@
 import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
-import {
-  extractDefineAppObjectBody,
-  maskCommentsAndStrings,
-  scanTopLevelProperties,
-} from "@pracht/capabilities/static";
+import { extractDefineAppObjectBody, maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { parseAst } from "vite";
 
+import { getRolldownLang } from "./client-module-query.ts";
 import { appManifestDir, readAppManifestSource } from "./plugin-capabilities.ts";
 import { resolveOptions, type PrachtPluginOptions } from "./plugin-options.ts";
 
@@ -30,7 +28,10 @@ export interface AppRootModule {
   id: string;
 }
 
-const MODULE_REF = /^(?:\(\s*\)\s*=>\s*import\(\s*(["'])([^"']+)\1\s*\)|(["'])([^"']+)\3)$/;
+interface AstNode {
+  type: string;
+  [key: string]: unknown;
+}
 
 /**
  * The module `defineApp({ root })` registers, or `null` when the app has none
@@ -53,18 +54,37 @@ export function findAppRootModule(
   const body = extractDefineAppObjectBody(source);
   if (body === null) return null;
 
-  const value = scanTopLevelProperties(body).get("root");
-  if (value === undefined) {
-    // Shorthand (`defineApp({ root })`) names a variable the build cannot read.
-    if (/(?:^|[{,])\s*root\s*(?:,|$)/.test(maskCommentsAndStrings(body))) {
-      throw unreadableRoot("root");
-    }
-    return null;
+  // Parsed rather than scanned, so only a top-level `root` counts: a nested
+  // `shells: { root }` is somebody else's key.
+  const objectSource = `({${body}\n})`;
+  const lang = resolved.pagesDir ? "ts" : getRolldownLang(resolved.appFile);
+  let object: AstNode;
+  try {
+    object = (parseAst(objectSource, { lang }).body[0] as unknown as AstNode).expression as AstNode;
+  } catch (error) {
+    if (!/\broot\b/.test(maskCommentsAndStrings(body))) return null;
+    throw new Error(
+      `[pracht] The build could not parse defineApp({ … }) to read its root: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
-
-  const match = MODULE_REF.exec(value);
-  if (!match) throw unreadableRoot(value);
-  const ref = match[2] ?? match[4];
+  const property = (object.properties as AstNode[]).find(
+    (node) => node.type === "Property" && !node.computed && propertyName(node.key) === "root",
+  );
+  if (!property) return null;
+  const ref = moduleRef(property.value as AstNode);
+  if (ref === null) {
+    // Shorthand (`defineApp({ root })`) names a variable the build cannot read.
+    throw unreadableRoot(
+      property.shorthand
+        ? "root"
+        : objectSource.slice(
+            (property.value as AstNode).start as number,
+            (property.value as AstNode).end as number,
+          ),
+    );
+  }
   const absolute = ref.startsWith("/")
     ? resolve(root, ref.slice(1))
     : resolve(appManifestDir(resolved, root), ref);
@@ -75,6 +95,27 @@ export function findAppRootModule(
     );
   }
   return { ref, id: `/${relative(root, absolute).replace(/\\/g, "/")}` };
+}
+
+function propertyName(key: unknown): unknown {
+  const node = key as AstNode;
+  return node.type === "Identifier" ? node.name : node.type === "Literal" ? node.value : undefined;
+}
+
+/** `"./root.tsx"` or `() => import("./root.tsx")`, else `null`. */
+function moduleRef(value: AstNode): string | null {
+  if (value.type === "Literal" && typeof value.value === "string") return value.value;
+  if (
+    value.type === "ArrowFunctionExpression" &&
+    (value.params as unknown[]).length === 0 &&
+    (value.body as AstNode).type === "ImportExpression"
+  ) {
+    const specifier = (value.body as AstNode).source as AstNode;
+    if (specifier.type === "Literal" && typeof specifier.value === "string") {
+      return specifier.value;
+    }
+  }
+  return null;
 }
 
 function unreadableRoot(value: string): Error {
