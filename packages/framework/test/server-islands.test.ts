@@ -315,6 +315,41 @@ describe("server island endpoint", () => {
     expect(args.props).toEqual({ greeting: "Hi" });
   });
 
+  it("gives middleware and the loader the page's waitUntil and search, as an inline render does", async () => {
+    const background: Promise<unknown>[] = [];
+    const onRouteError = vi.fn();
+    const middleware: MiddlewareFn<VisitorContext> = (args, next) => {
+      args.waitUntil(Promise.resolve("middleware"));
+      return next();
+    };
+    const { loader } = registerVisitorServerIsland({
+      loader: (args) => {
+        args.waitUntil(Promise.reject(new Error("flush failed")));
+        return { visitor: String((args.search as Record<string, unknown>).ref) };
+      },
+    });
+    const response = await handlePrachtRequest({
+      app: createApp("ssg"),
+      registry: createRegistry(() => null, middleware),
+      request: serverIslandRequest(params),
+      onRouteError,
+      waitUntil: (promise) => background.push(promise),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('<p class="visitor">Hi, home</p>');
+    expect(loader.mock.calls[0][0].search).toEqual({ ref: "home" });
+    expect(background).toHaveLength(2);
+    await Promise.all(background);
+    expect(onRouteError).toHaveBeenCalledOnce();
+    expect(onRouteError.mock.calls[0][1]).toBe("/products/7?ref=home");
+    expect(onRouteError.mock.calls[0][2]).toMatchObject({
+      phase: "waitUntil",
+      serverIslandFile: "/src/server-islands/Visitor.tsx",
+      routePath: "/products/:id",
+    });
+  });
+
   it("keeps no-store even when middleware marks the response cacheable", async () => {
     const { response } = await request(serverIslandRequest(params), {
       middleware: async (_args, next) => {

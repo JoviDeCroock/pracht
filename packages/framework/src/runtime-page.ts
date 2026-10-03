@@ -12,7 +12,7 @@
  * @internal Not part of the published API.
  */
 import { h } from "preact";
-import { parseRouteSearch, searchParamsToRecord } from "./api-validation.ts";
+import { searchParamsToRecord } from "./api-validation.ts";
 import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
@@ -60,7 +60,6 @@ import {
   mergeDocumentHeaders,
   mergeErrorHeadMetadata,
   mergeHeadMetadata,
-  runMiddlewareChain,
 } from "./runtime-middleware.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import { SHELL_DATA_REQUEST_HEADER } from "./runtime-constants.ts";
@@ -77,10 +76,14 @@ import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import {
   composeRequestSignal,
   combineRequestSignals,
-  createRequestWaitUntil,
   isClientDisconnect,
   type PrachtRequestContext,
 } from "./runtime-request.ts";
+import {
+  applyRouteSearch,
+  createPageRouteArgs,
+  runPageMiddlewareChain,
+} from "./runtime-route-args.ts";
 import { PrachtHttpError } from "./types.ts";
 import type {
   BaseRouteArgs,
@@ -270,13 +273,12 @@ async function runPageLoader<TContext>(
   // Validate the query before anything reads it, so the loader, head(),
   // headers(), and the rendered tree's useSearch() all see the same parsed
   // value — and a rejected query never reaches the loader at all.
-  const search = await parseRouteSearch(job.routeModule.search, job.routeArgs.url.href);
-  if (search.error) {
-    throw Object.assign(new PrachtHttpError(400, search.error.message), {
-      issues: search.error.issues,
+  const searchError = await applyRouteSearch(job.routeArgs, job.routeModule.search);
+  if (searchError) {
+    throw Object.assign(new PrachtHttpError(400, searchError.message), {
+      issues: searchError.issues,
     });
   }
-  (job.routeArgs as LoaderArgs<TContext>).search = search.value;
 
   const { loader, loaderFile: resolvedLoaderFile } = await job.dataFunctionsPromise!;
   job.loaderFile = resolvedLoaderFile;
@@ -907,23 +909,13 @@ export async function renderPage<TContext>(
     ? combineRequestSignals(budgetSignal, abortController.signal)
     : budgetSignal;
   const pageContext = ctx.context;
-  const routeArgs: BaseRouteArgs<TContext> = {
+  const routeArgs = createPageRouteArgs(options, match, {
     request,
-    params: match.params,
+    url: ctx.url,
     context: pageContext,
     signal: requestSignal,
-    url: ctx.url,
-    route: match.route,
-    pathname: match.pathname,
-    waitUntil: createRequestWaitUntil(options, ctx.requestPath, options.onRouteError, {
-      loaderFile: match.route.loaderFile,
-      middlewareFiles: [...(match.route.middlewareFiles ?? [])],
-      routeFile: match.route.file,
-      routeId: match.route.id,
-      routePath: match.route.path,
-      shellFile: match.route.shellFile,
-    }),
-  };
+    requestPath: ctx.requestPath,
+  });
   const timings = options.timings;
   const job: PageRenderJob<TContext> = {
     ctx,
@@ -997,21 +989,8 @@ export async function renderPage<TContext>(
       chainStart = performance.now();
     }
 
-    const response = await runMiddlewareChain({
-      context: pageContext,
-      middlewareFiles: match.route.middlewareFiles,
-      params: match.params,
-      pathname: match.pathname,
-      registry,
-      request,
-      route: match.route,
-      signal: requestSignal,
-      url: ctx.url,
-      waitUntil: routeArgs.waitUntil,
-      terminal,
-      onMiddlewareError: () => {
-        job.phase = "middleware";
-      },
+    const response = await runPageMiddlewareChain(routeArgs, registry, terminal, () => {
+      job.phase = "middleware";
     });
     if (timings) {
       timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);

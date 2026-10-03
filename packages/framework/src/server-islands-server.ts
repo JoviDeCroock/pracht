@@ -31,14 +31,18 @@ import {
 } from "./runtime-context.ts";
 import { reportRequestError, type PrachtRuntimeDiagnosticPhase } from "./runtime-errors.ts";
 import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
-import { getSuffixIndex, normalizeModulePath } from "./runtime-manifest.ts";
-import { runMiddlewareChain } from "./runtime-middleware.ts";
+import { getSuffixIndex, normalizeModulePath, resolveRegistryModule } from "./runtime-manifest.ts";
 import {
   composeRequestSignal,
   isClientDisconnect,
   type PrachtRequestContext,
 } from "./runtime-request.ts";
 import { getRenderToStringAsync } from "./runtime-response.ts";
+import {
+  applyRouteSearch,
+  createPageRouteArgs,
+  runPageMiddlewareChain,
+} from "./runtime-route-args.ts";
 import { IS_STATIC_TARGET } from "./runtime-static.ts";
 import { ScriptCaptureContext, type ScriptCapture } from "./script.ts";
 import type {
@@ -48,6 +52,7 @@ import type {
   ServerIslandLoaderArgs,
   ServerIslandModule,
   ResolvedRoute,
+  RouteModule,
 } from "./types.ts";
 
 /**
@@ -596,15 +601,14 @@ export async function handleServerIslandRequest<TContext>(
     signal: request.signal,
   });
   const signal = composeRequestSignal(pageRequest, ctx.loaderTimeoutMs);
-  const routeArgs: BaseRouteArgs<TContext> = {
+  const routeArgs = createPageRouteArgs(options, match, {
     request: pageRequest,
-    params: match.params,
+    url: pageUrl,
     context: ctx.context,
     signal,
-    url: pageUrl,
-    route: match.route,
-    pathname: match.pathname,
-  };
+    requestPath: pagePath,
+    errorContext: { serverIslandFile: descriptor.file },
+  });
   const hydration: HydrationMode = match.route.hydration ?? "full";
   let phase: PrachtRuntimeDiagnosticPhase = "middleware";
   const reportContext = (errorPhase: PrachtRuntimeDiagnosticPhase) => ({
@@ -618,6 +622,14 @@ export async function handleServerIslandRequest<TContext>(
 
   const terminal = async (): Promise<Response> => {
     phase = "loader";
+    // The loader sees the page's `search` exactly as an inline render would:
+    // validated by the route module's `search` export.
+    const routeModule = await resolveRegistryModule<RouteModule>(
+      ctx.registry.routeModules,
+      match.route.file,
+    );
+    const searchError = await applyRouteSearch(routeArgs, routeModule?.search);
+    if (searchError) return serverIslandTextResponse(searchError.message, 400);
     const data = await runServerIslandLoader(descriptor, props, routeArgs);
     phase = "render";
     // Islands inside a server island hydrate only where the page runs the islands
@@ -666,20 +678,8 @@ export async function handleServerIslandRequest<TContext>(
   };
 
   try {
-    const response = await runMiddlewareChain({
-      context: ctx.context,
-      middlewareFiles: match.route.middlewareFiles,
-      params: match.params,
-      pathname: match.pathname,
-      registry: ctx.registry,
-      request: pageRequest,
-      route: match.route,
-      signal,
-      url: pageUrl,
-      terminal,
-      onMiddlewareError: () => {
-        phase = "middleware";
-      },
+    const response = await runPageMiddlewareChain(routeArgs, ctx.registry, terminal, () => {
+      phase = "middleware";
     });
     // Only the server island's own fragment is ever swapped into the page. Anything
     // else — a middleware redirect to a login page, a 401 — means "no server island

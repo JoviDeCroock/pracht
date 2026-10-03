@@ -367,8 +367,10 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
 - On a client-navigation mount, and after a refresh that yields no fragment, the
   fallback is rendered into the element as its own Preact root, so it does not
   see router context.
-- `server-islands-server.ts` builds `BaseRouteArgs` by hand for the endpoint;
-  a field added to `BaseRouteArgs` must be added there too.
+- The endpoint and `renderPage()` build route args with `createPageRouteArgs()`
+  and run middleware with `runPageMiddlewareChain()` (`runtime-route-args.ts`),
+  and both validate `search` with `applyRouteSearch()`. Add page-scoped route
+  args there, never at either call site.
 
 ## Tests
 
