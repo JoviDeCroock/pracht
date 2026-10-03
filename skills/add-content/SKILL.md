@@ -115,6 +115,8 @@ the raw `markdown` string for `Accept: text/markdown` negotiation, and a
 `loader()` that returns the compiled page as a `serverOnly()` field, so the
 client build does not ship the prose as JavaScript. The rendered Markdown never
 hydrates: put interactive components in the shell or on an islands route.
+`serverOnly: false` on the collection keeps the prose in the cached route chunk
+instead of the route-state response.
 
 ```ts
 route("/docs/routing", () => import("./routes/docs/routing.md"), {

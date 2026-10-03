@@ -106,10 +106,9 @@ function moduleCode<TFrontmatter extends Record<string, unknown>>(
   const metadata = document.compiled.images.map(
     (image) => `__prachtImage${uniqueSources.indexOf(image.source)}`,
   );
-  const lines = [
-    `import { h } from "preact";`,
-    `import { serverOnly, StaticHtml } from "@pracht/core";`,
-  ];
+  const serverOnlyHtml = options.serverOnly !== false;
+  const lines = [`import { h } from "preact";`];
+  if (serverOnlyHtml) lines.push(`import { serverOnly, StaticHtml } from "@pracht/core";`);
   if (imports.length > 0) {
     lines.push(`import { renderMarkdownImages } from "@pracht/markdown/runtime";`, ...imports);
   }
@@ -138,10 +137,18 @@ function moduleCode<TFrontmatter extends Record<string, unknown>>(
   // <StaticHtml> adopts the server-rendered subtree instead of hydrating it,
   // so the browser never needs that second copy. A client-side navigation gets
   // the markup from the route-state response pracht already fetches for
-  // `head()`.
+  // `head()`. `serverOnly: false` keeps the constant instead, for sites that
+  // prefer the immutable route chunk to a per-navigation route-state payload.
+  lines.push(`const __prachtHtml = ${html};`, ``);
+  if (!serverOnlyHtml) {
+    lines.push(
+      `export function Component() {`,
+      `  return h("div", { class: "pracht-markdown", dangerouslySetInnerHTML: { __html: __prachtHtml } });`,
+      `}`,
+    );
+    return lines.join("\n");
+  }
   lines.push(
-    `const __prachtHtml = ${html};`,
-    ``,
     `export function loader() {`,
     `  return { html: serverOnly(__prachtHtml) };`,
     `}`,

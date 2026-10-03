@@ -110,11 +110,16 @@ markup still reaches client-side navigations through the route-state response
 these routes already fetch for `head()`. See
 [DATA_LOADING.md](DATA_LOADING.md) for `serverOnly()` and `<StaticHtml>`.
 
-Two consequences worth knowing:
+`defineMarkdownCollection({ serverOnly: false })` generates the previous shape
+instead — no `loader`, and a `Component` that closes over `__prachtHtml` through
+`dangerouslySetInnerHTML` — so the prose lives in an immutable route chunk
+rather than in every `no-store` route-state response.
 
-- `useRouteData()` on a Markdown route returns `{ html: ServerOnly<string> }`
-  rather than `undefined`. Reading it needs `readServerOnly()` or a
-  `<StaticHtml>` boundary.
+Consequences worth knowing:
+
+- The `{ html }` loader data is an implementation detail, not a contract:
+  `useRouteData()` returns the placeholder after hydration and the string after
+  a client-side navigation. It is deliberately undocumented on the site.
 - Relative-image assets are now discovered only during the server build, since
   the imports live behind `loader`. `prachtImage()` already publishes
   server-discovered static variants into the client directory from
