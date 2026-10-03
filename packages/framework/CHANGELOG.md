@@ -1,5 +1,39 @@
 # @pracht/core
 
+## 0.19.0
+
+### Minor Changes
+
+- [#416](https://github.com/JoviDeCroock/pracht/pull/416) [`769929a`](https://github.com/JoviDeCroock/pracht/commit/769929a6656956b6cf94796465340879884131f2) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `defineApp({ root })` (`pages/_root.tsx` in the pages router), an app root that wraps every shell, stays mounted across client navigations, and gives loaders per-request state as `args.root`.
+
+- [#415](https://github.com/JoviDeCroock/pracht/pull/415) [`5091b83`](https://github.com/JoviDeCroock/pracht/commit/5091b83ffced8785654b742fbd63932b40ddbb58) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `defineApp({ viewTransitions: true })` now also animates full page loads — navigations to, from, and between `hydration: "islands"` and `"none"` routes — as cross-document view transitions, with no added JavaScript.
+
+- [#426](https://github.com/JoviDeCroock/pracht/pull/426) [`be5203c`](https://github.com/JoviDeCroock/pracht/commit/be5203c03cb2d65a30bbd9874430f08b9b3483ca) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Islands accept children from the page: markup renders once on the server as static HTML the island can show, hide, or move while any island among it keeps its state, and plain text arrives as a string value.
+
+- [#427](https://github.com/JoviDeCroock/pracht/pull/427) [`5fa4ef2`](https://github.com/JoviDeCroock/pracht/commit/5fa4ef2a4e47e1a2bbb3c1f570c3e9dd0467345a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { islandsNavigation: true } })` swaps islands pages into the current document on link clicks and back/forward instead of loading a new one, keeping islands the two pages share mounted with their state.
+
+- [#417](https://github.com/JoviDeCroock/pracht/pull/417) [`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Loaders, middleware, API routes, `head()`/`headers()`, and capability `run()` now receive `waitUntil(promise)`, which keeps work running after the response on every adapter. Migration: code that builds these args by hand must pass `waitUntil` (for example `waitUntil: () => {}`).
+
+- [#407](https://github.com/JoviDeCroock/pracht/pull/407) [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { hydrationWarnings: true } })` keeps the hydration-mismatch reporter in production client and islands bundles, so a build can be walked for mismatches before it is deployed. Every mismatch is now reported as a `console.error` as well as in the on-page banner; the default build still compiles the reporter out.
+
+- [#418](https://github.com/JoviDeCroock/pracht/pull/418) [`6038d57`](https://github.com/JoviDeCroock/pracht/commit/6038d57e508712b33a08a072d0ea8e72f3996d6e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { richData: true } })` sends loader `Date`, `Map`, `Set`, `BigInt`, `RegExp`, `URL`, `undefined`, non-finite numbers, and shared or circular references to the browser as those types instead of as JSON. With it on, a loader that returns a function, symbol, or class instance without `toJSON()` fails with an error naming the path.
+
+- [#420](https://github.com/JoviDeCroock/pracht/pull/420) [`d0e8bac`](https://github.com/JoviDeCroock/pracht/commit/d0e8bac992e1abe8562dfe77aa930f901b7b9bf0) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Shells can export a `loader`, read with `useShellData()` from the shell and every route inside it and reused on client navigations that stay in the shell. `pracht typegen` types `useShellData("app")`, and `pracht generate shell --loader` scaffolds one.
+
+- [`f3f0234`](https://github.com/JoviDeCroock/pracht/commit/f3f0234bbd3b928ae682a4dbe4610d6b7cca6748) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Return `scriptNonce` from `head()` to put a CSP nonce on every inline script a `streaming: true` route emits, including the speculation rules script, so deferred boundaries resolve under a nonce-based `script-src`.
+
+- [#419](https://github.com/JoviDeCroock/pracht/pull/419) [`8309084`](https://github.com/JoviDeCroock/pracht/commit/830908420b91ac8691fd0335ec449f20ca520680) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Route modules can export a `search` Standard Schema: loaders and `useSearch()` get the parsed, typed query, `<Link search>` and `href()` are type-checked against it, and a rejected query renders the route's error boundary with a 400.
+
+### Patch Changes
+
+- [#405](https://github.com/JoviDeCroock/pracht/pull/405) [`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `hydration: "islands"` routes now get the development hydration-mismatch banner, which previously only installed on routes that loaded the client router.
+
+- [#404](https://github.com/JoviDeCroock/pracht/pull/404) [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A deployed app now logs loader, render, and API handler failures with their phase, route, source file, path, message, and stack instead of answering 500 with an empty log. Expected 404s stay quiet, and a host that passes `onRouteError`/`onApiError` still owns the reporting.
+
+- [`a33c6ef`](https://github.com/JoviDeCroock/pracht/commit/a33c6efabd89a3dca622ab00123e32038fc37f28) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - When a loader throws `notFound()`, the browser now hydrates the app's `notFound` page the server sent instead of replacing it with the matched route's component.
+- Updated dependencies [[`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7)]:
+  - @pracht/capabilities@0.6.0
+
 ## 0.18.0
 
 ### Minor Changes
