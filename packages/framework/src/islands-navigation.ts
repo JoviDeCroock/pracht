@@ -63,6 +63,16 @@ const REDIRECTED = "pracht:redirected";
  */
 const DOCUMENT_META = 'meta[http-equiv]:not([http-equiv="content-type" i]),meta[name="referrer" i]';
 
+/**
+ * Request header asking a pracht server to answer a redirect with its target
+ * (`CAPABILITY_FORM_REQUEST_HEADER`/`CAPABILITY_FORM_REDIRECT_HEADER`, spelled
+ * out to keep the protocol module out of the bootstrap), so the browser loads
+ * the target itself: following it in `fetch` would CORS-fail on another origin
+ * and spend a one-time redirect.
+ */
+const REDIRECT_REQUEST_HEADER = "x-pracht-capability-form";
+const REDIRECT_TARGET_HEADER = "x-pracht-capability-redirect";
+
 /** Route table entries known not to answer with a swappable page this session. */
 const SKIP_KEY = "pracht:nav-skip:";
 
@@ -246,10 +256,29 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
           (await fetch(url.href, {
             // Back/forward should be as fast as the browser's own history cache.
             cache: traverse ? "force-cache" : "default",
+            headers: { [REDIRECT_REQUEST_HEADER]: "1" },
             signal,
           }));
-        const servedFrom = new URL(response.url || url.href);
-        servedFrom.hash = url.hash;
+        // A pracht server names a redirect's target; other hosts' redirects
+        // (a static host's trailing slash) are followed.
+        const target = response.headers.get(REDIRECT_TARGET_HEADER);
+        const servedFrom = new URL(target ?? (response.url || url.href), url.href);
+        if (target === null || !servedFrom.hash) servedFrom.hash = url.hash;
+        if (target !== null) {
+          // Never fetched here: an islands page there is a navigation of its
+          // own, anything else is loaded. A redirect back to this address, or
+          // to a scheme no redirect may take, gets the browser's own answer.
+          if (servedFrom.href === url.href || !/^https?:$/.test(servedFrom.protocol)) {
+            fallBack(url);
+          } else if (servedFrom.origin === location.origin && swappable(servedFrom.href)) {
+            if (!signal.aborted) {
+              navigation.navigate(servedFrom.href, { history: historyMode(), state });
+            }
+          } else {
+            fallBack(servedFrom);
+          }
+          return;
+        }
         if (servedFrom.href !== url.href) {
           // A redirect. Only the address that served the page may show it —
           // relative URLs in it resolve against that one — and requesting the

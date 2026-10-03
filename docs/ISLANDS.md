@@ -336,25 +336,39 @@ to a skip list in `sessionStorage` (`pracht:nav-skip:<p>`, keyed by the live
 policy so a deploy that changes it starts over) and is loaded normally for the
 rest of the tab's session: each route costs at most one wasted request.
 
-**Fetching.** The destination is fetched as plain `fetch(url)` — no special
-header, so static hosts, ISG, and edge caches serve it as for a document load —
-with the navigation's `signal`, and `cache: "force-cache"` for traversals.
+**Fetching.** The destination is fetched as an ordinary GET — static hosts,
+ISG, and edge caches serve it as for a document load — with the navigation's
+`signal`, `cache: "force-cache"` for traversals, and one request header,
+`x-pracht-capability-form: 1`: the redirect handshake enhanced forms use.
 Where the browser has `NavigationPrecommitController`, the work runs in
 `intercept({ precommitHandler })`, so the address commits only once the page
 is known to be swappable; a fallback then simply takes the navigation's place
 (a `push` stays a push). Elsewhere the address commits at once, and a fallback
 first puts the previous address back with `history.replaceState()` and then
 replaces that entry — so a download (a file under an islands catch-all route)
-leaves the page and its address as they were. Redirects are followed. When the
-response came from another address:
+leaves the page and its address as they were.
+
+Redirects. `handlePrachtRequest()` answers a redirect to a request carrying
+that header with `204` and the absolute target in
+`x-pracht-capability-redirect` (`withEnhancedCapabilityFormRedirect()`), so a
+pracht server's redirects are never followed by `fetch`: an islands page at the
+same origin is a new navigation to the target (`history` as the fallback's,
+`state` carried on), and anything else — a full-hydration page, another
+origin's login page — is a full load of the target. Neither the original (it
+may have consumed a one-time token) nor the target is requested twice, and
+another origin is never fetched through CORS. A redirect back to the same
+address, or to a non-HTTP scheme, is a full load of the original. Redirects
+from something other than pracht (a static host's trailing slash, a CDN) are
+followed; when the response came from another address:
 
 - an islands page at the same origin: its body is read under the current
   signal, then a navigation to the final URL carries the response in `info`,
   so the entry shows the final URL before the content arrives (relative URLs
   resolve against it, `navigatesuccess` reports it) and nothing is requested
   twice;
-- anything else: a full load of the final URL, never the original — the
-  original may have consumed something (a one-time token) on the way.
+- anything else: a full load of the final URL, never the original. A followed
+  redirect to another origin fails CORS and is a full load of the original,
+  which such a host redirect does not mind.
 
 A non-HTML response, a document without `#pracht-root` or with `#pracht-state`
 (a full-hydration page), a module script this document never ran (another
@@ -362,8 +376,7 @@ deployment), a policy mismatch, or a document-level `<meta>` is a full load of
 the URL (`navigation.navigate(url, { history, info, state })` — the `info`
 marker lets it through the listener, `state` carries on). The remaining double
 requests are a `+` route answering with something that cannot be swapped (a
-plain-text 500 or a download every time; a policy mismatch once per route), and
-a redirect into a full-hydration page, whose final URL is requested twice.
+plain-text 500 or a download every time; a policy mismatch once per route).
 Error statuses that render a swappable islands document are swapped in like
 any page.
 

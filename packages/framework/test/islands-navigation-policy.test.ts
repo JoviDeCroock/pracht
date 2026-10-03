@@ -7,7 +7,7 @@ vi.hoisted(() => {
   (globalThis as { __PRACHT_ISLANDS_NAVIGATION__?: boolean }).__PRACHT_ISLANDS_NAVIGATION__ = true;
 });
 
-import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
+import { defineApp, handlePrachtRequest, redirect, route } from "../src/index.ts";
 import { policyFingerprint } from "../src/islands-shared.ts";
 import type { MiddlewareFn } from "../src/types.ts";
 
@@ -84,5 +84,45 @@ describe("islands navigation policy", () => {
     });
     expect(html).not.toContain('id="pracht-nav"');
     expect(html).toContain("<h1>Page</h1>");
+  });
+});
+
+describe("islands navigation redirects", () => {
+  async function fetchPage(path: string, headers: Record<string, string>) {
+    const app = defineApp({
+      routes: [
+        route("/login", "./routes/login.tsx", { hydration: "islands" }),
+        route("/", "./routes/page.tsx", { hydration: "islands" }),
+      ],
+    });
+    return handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/login.tsx": async () => ({
+            loader: () => redirect("https://sso.example/authorize?state=1"),
+            Component: () => null,
+          }),
+          "./routes/page.tsx": async () => ({ Component: () => h("h1", null, "Page") }),
+        },
+      },
+      request: new Request(`http://localhost${path}`, { headers }),
+      islandsEntryUrl: "/assets/islands-client.js",
+    });
+  }
+
+  it("names a page redirect's target to the islands bootstrap instead of redirecting", async () => {
+    const response = await fetchPage("/login", { "x-pracht-capability-form": "1" });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-pracht-capability-redirect")).toBe(
+      "https://sso.example/authorize?state=1",
+    );
+  });
+
+  it("redirects a browser's own request as usual", async () => {
+    const response = await fetchPage("/login", {});
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("https://sso.example/authorize?state=1");
   });
 });

@@ -27,6 +27,7 @@ const LAB_PAGES = [
   "deny",
   "redir",
   "token",
+  "sso",
   "css1",
   "css2",
   "colored",
@@ -124,6 +125,10 @@ export function loader() {
   g.tokenUsed = true;
   return redirect("/lab-full?ok=1");
 }
+export function Component() { return <h1>never</h1>; }`,
+  "src/routes/lab/sso.tsx": `import { redirect } from "@pracht/core";
+const g = globalThis as { ssoRedirects?: number };
+export function loader() { g.ssoRedirects = (g.ssoRedirects ?? 0) + 1; return redirect("http://sso.test/login?n=" + g.ssoRedirects); }
 export function Component() { return <h1>never</h1>; }`,
   "src/routes/lab/css1.tsx": `export function head() {
   return { title: "Css1", link: [{ rel: "stylesheet", href: "/lab-s1.css" }, { rel: "stylesheet", href: "/lab-s2.css" }] };
@@ -478,6 +483,23 @@ test.describe.serial("islands navigation", () => {
     await page.waitForSelector('html[data-pracht-hydrated="true"]');
     await expect(page).toHaveURL(`${origin}/lab-full?ok=1`);
     expect(requests.filter((r) => r.includes("/lab/token"))).toEqual(["fetch /lab/token"]);
+    expect(requests.filter((r) => r.includes("/lab-full"))).toEqual(["document /lab-full?ok=1"]);
+
+    // To another origin (a login page): loaded from there, never fetched
+    // through CORS, and the redirecting route is requested once.
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.route("http://sso.test/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<h1>Sign in</h1>" }),
+    );
+    requests.length = 0;
+    await clickInPlace(page, "#go-sso");
+    await expect(page.locator("h1")).toHaveText("Sign in");
+    await expect(page).toHaveURL("http://sso.test/login?n=1");
+    expect(requests.filter((r) => /\/lab\/sso|\/login/.test(r))).toEqual([
+      "fetch /lab/sso",
+      "document /login?n=1",
+    ]);
   });
 
   test("only swaps pages with the document's own policy", async ({ page, browser }) => {

@@ -365,6 +365,42 @@ describe("installIslandsNavigation", () => {
     });
   });
 
+  it("loads a redirect's target without fetching it or the original again", async () => {
+    const navigation = fakeNavigation();
+    installIslandsNavigation({ hydrate: async () => {} });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(null, {
+          status: 204,
+          headers: { "x-pracht-capability-redirect": "https://sso.example/login" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const event = {
+        ...traverseTo("new", "/b"),
+        navigationType: "push",
+        destination: { id: "new", url: `${origin}/b`, sameDocument: false, getState: () => 1 },
+      };
+      navigation.dispatch("navigate", event);
+      const [{ handler }] = event.intercept.mock.calls[0] as [{ handler: () => Promise<void> }];
+      await handler();
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock.mock.calls[0]).toMatchObject([
+        `${origin}/b`,
+        { headers: { "x-pracht-capability-form": "1" } },
+      ]);
+      expect(navigation.navigate).toHaveBeenCalledOnce();
+      expect(navigation.navigate).toHaveBeenCalledWith("https://sso.example/login", {
+        history: "replace",
+        info: "pracht:full-load",
+        state: 1,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("leaves traversals within the page that is showing to the app", () => {
     const navigation = fakeNavigation();
     installIslandsNavigation({ hydrate: async () => {} });
