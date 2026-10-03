@@ -1,4 +1,4 @@
-import { createContext, h } from "preact";
+import { createContext, Fragment, h } from "preact";
 import { useContext } from "preact/hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -514,6 +514,30 @@ describe("island children", () => {
         ({ children }) => h("fieldset", null, children as never),
         h("legend", null, "Legend"),
         "including a <legend> that must come first",
+      ],
+      [
+        "Wrapped",
+        ({ children }) => h("details", null, children as never),
+        h(Fragment, null, h("summary", null, "Summary"), h("p", null, "body")),
+        "including a <summary> that must come first",
+      ],
+      [
+        "Label",
+        ({ children }) => h("svg", null, h("text", null, children as never)),
+        h("tspan", null, "label"),
+        "directly inside <text>",
+      ],
+      [
+        "Clip",
+        ({ children }) => h("svg", null, h("clipPath", null, children as never)),
+        h("circle", { r: 4 }),
+        "directly inside <clipPath>",
+      ],
+      [
+        "Fraction",
+        ({ children }) => h("math", null, h("mfrac", null, children as never)),
+        [h("mi", null, "a"), h("mi", null, "b")],
+        "directly inside <mfrac>",
       ],
     ];
 

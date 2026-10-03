@@ -131,7 +131,9 @@ function scheduleIslands(
  * their state.
  *
  * Returns `false` when the HTML parser moved nodes out of a slot: hydrating
- * would delete them, so the island stays server HTML.
+ * would delete them, so the island stays server HTML. Every such move takes
+ * the end marker out of the slot with them; nodes after the marker (a widget
+ * an async script appended, whitespace from a formatter) are fine.
  */
 function slotChildren(element: Element, options: HydrateIslandsOptions) {
   const nodes = [
@@ -139,7 +141,12 @@ function slotChildren(element: Element, options: HydrateIslandsOptions) {
   ].filter((node) => node.parentElement!.closest(ISLAND_ELEMENT) === element);
   // Only the <template> has `content`.
   const holders: ParentNode[] = nodes.map((node) => (node as HTMLTemplateElement).content || node);
-  if (holders.some((holder) => (holder.lastChild as Comment | null)?.data !== ISLAND_SLOT_END)) {
+  if (
+    holders.some(
+      (holder) =>
+        ![...holder.childNodes].some((child) => (child as Comment).data === ISLAND_SLOT_END),
+    )
+  ) {
     return false;
   }
   let type = ISLAND_SLOT_ELEMENT;
@@ -157,6 +164,17 @@ function slotChildren(element: Element, options: HydrateIslandsOptions) {
         if (!slot || holders.includes(slot)) return;
         const i = holders.findIndex((holder) => !holder.isConnected);
         if (i < 0) return;
+        if (
+          import.meta.env?.DEV &&
+          slot.localName === ISLAND_SLOT_ELEMENT &&
+          slot.namespaceURI !== "http://www.w3.org/1999/xhtml"
+        ) {
+          console.error(
+            `[pracht] Island children shown inside <${slot.parentElement!.localName}> were not ` +
+              "placed on the server, so they were parsed as HTML and will not render. Render " +
+              "them on the server, or keep the SVG or MathML inside the island.",
+          );
+        }
         slot.append(...holders[i].childNodes);
         holders[i] = slot;
         // Islands that shipped inside a <template> were never scheduled.
@@ -242,7 +260,9 @@ function boxedChildren(element: Element): Element[] {
   return [...element.children].flatMap((child) =>
     child.localName === ISLAND_ELEMENT || child.localName === ISLAND_SLOT_ELEMENT
       ? boxedChildren(child)
-      : [child],
+      : /^(template|script|style)$/.test(child.localName)
+        ? []
+        : [child],
   );
 }
 

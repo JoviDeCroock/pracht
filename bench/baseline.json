@@ -12,10 +12,10 @@
     {
       "rung": "hydration: islands",
       "hydration": "islands",
-      "bytes": 17993,
-      "gzipBytes": 8135,
+      "bytes": 18059,
+      "gzipBytes": 8162,
       "lazyGzipBytes": 0,
-      "coldGzipBytes": 8135
+      "coldGzipBytes": 8162
     },
     {
       "rung": "hydration: full",

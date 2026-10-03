@@ -256,6 +256,60 @@ describe("island children", () => {
     await hydrate({ Bare });
     expect(observed).toEqual([document.getElementById("boxed")]);
   });
+
+  it("observes the parent of a visible island whose only children are hidden", async () => {
+    const observed: Element[] = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        observe(target: Element) {
+          observed.push(target);
+        }
+        disconnect() {}
+      },
+    );
+    function Lazy({ children }: { children?: ComponentChildren }) {
+      const [open] = useState(false);
+      return open ? children : null;
+    }
+    await serverRender({ Lazy }, () =>
+      h("section", { id: "host" }, h(Lazy as never, { client: "visible" }, h("p", null, "later"))),
+    );
+
+    await hydrate({ Lazy });
+    expect(observed).toEqual([document.getElementById("host")]);
+  });
+
+  it("hydrates when nodes follow the end marker inside the slot", async () => {
+    await serverRender({ Toggle }, () => h(Toggle, {}, h("p", { id: "content" }, "content")));
+    // A widget script appended its output, and a formatter added whitespace.
+    const slot = document.querySelector("pracht-slot")!;
+    slot.append(document.createTextNode("\n  "), document.createElement("aside"));
+
+    await hydrate({ Toggle });
+    expect(document.querySelector("pracht-island")!.getAttribute("data-hydrated")).toBe("true");
+    await toggle();
+    expect(document.querySelector("#toggle aside")).not.toBeNull();
+  });
+
+  it("reports children first shown inside SVG that the server did not place", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    function Chart({ children }: { children?: ComponentChildren }) {
+      const [open, setOpen] = useState(false);
+      show = setOpen;
+      return h("svg", null, open ? children : null);
+    }
+    await serverRender({ Chart }, () => h(Chart as never, {}, h("circle", { r: 4 })));
+
+    await hydrate({ Chart });
+    show(true);
+    await tick();
+    expect(
+      error.mock.calls.some(([message]) =>
+        String(message).includes("were not placed on the server"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("island children the HTML parser moved", () => {

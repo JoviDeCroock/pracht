@@ -150,16 +150,20 @@ and watch for the dev warning that flags this.
 
 Markup children arrive inside a `<pracht-slot>` element with
 `display: contents` (an SVG `<g>` inside SVG), so a child selector such as
-`.panel > p` written against the island's markup no longer matches them. Some
-positions cannot hold that element: directly inside table rows and sections,
-anywhere in `<select>` or `<textarea>`, or a `<summary>` or `<legend>` that has
-to come first. Pracht throws an error naming the island there; pass the whole
-element as children instead.
+`.panel > p` written against the island's markup no longer matches them.
+
+Some positions cannot hold that element: directly inside table rows and sections,
+SVG `<text>`, gradients, or `<clipPath>`, or a MathML `<mfrac>`; anywhere in
+`<select>` or `<textarea>`; or a `<summary>` or `<legend>` that has to come
+first. Pracht throws an error naming the island there; pass the whole element as
+children instead. Children an island shows inside SVG or MathML must already be
+rendered there on the server.
 
 The browser also rearranges invalid nesting, such as a `<div>` inside a `<p>`,
 or raw HTML in `dangerouslySetInnerHTML` that is not well-formed. When that
 moves children out of their slot, the island stays server-rendered HTML instead
-of hydrating, and the console logs an error naming it.
+of hydrating, and the console logs an error naming it. Pracht finds the slot's
+end by an HTML comment, so an HTML minifier must keep comments.
 
 ---
 

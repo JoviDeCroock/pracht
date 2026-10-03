@@ -261,8 +261,10 @@ const DEV: boolean = Boolean(
 // elements inside them (select/option in some browsers), at any depth.
 const SLOT_TEXT_ANCESTOR =
   /^(textarea|title|script|style|xmp|iframe|noembed|noframes|noscript|select|option|optgroup|datalist)$/;
-// ...and moves an unknown element out of these when it is their direct child.
-const SLOT_TABLE_PARENT = /^(table|thead|tbody|tfoot|tr|colgroup)$/;
+// ...moves an unknown element out of table parts, and SVG and MathML parents
+// with a fixed content model do not render a <g> or <mrow> child as a group.
+const SLOT_DIRECT_PARENT =
+  /^(table|thead|tbody|tfoot|tr|colgroup|text|tspan|textPath|linearGradient|radialGradient|clipPath|filter|switch|mfrac|msup|msub|msubsup|mroot|munder|mover|munderover)$/;
 // Elements whose first-child position carries meaning.
 const SLOT_FIRST_CHILD: Record<string, string> = { details: "summary", fieldset: "legend" };
 
@@ -298,7 +300,7 @@ function IslandSlot(this: { __v?: RenderedVNode } | undefined, { slot }: { slot:
       slot.providesContext = true;
     }
   }
-  if (parentTag && SLOT_TABLE_PARENT.test(parentTag)) {
+  if (parentTag && SLOT_DIRECT_PARENT.test(parentTag)) {
     throw slotError(slot, `directly inside <${parentTag}>`);
   }
   const firstChild = parentTag && SLOT_FIRST_CHILD[parentTag];
@@ -358,7 +360,10 @@ function slotError(slot: SlotState, where: string): Error {
 
 function hasTopLevelElement(children: unknown, tag: string): boolean {
   if (Array.isArray(children)) return children.some((child) => hasTopLevelElement(child, tag));
-  return (children as { type?: unknown } | null)?.type === tag;
+  const vnode = children as { type?: unknown; props?: { children?: unknown } } | null;
+  return vnode?.type === Fragment
+    ? hasTopLevelElement(vnode.props?.children, tag)
+    : vnode?.type === tag;
 }
 
 /**

@@ -185,8 +185,10 @@ How markup children work:
   end marker. That check runs after the island's output in render order; an
   island that suspends before placing its children emits both forms, and an
   island among them gets two markers. Only the live one is ever hydrated, so it
-  costs bytes but stays correct. Unplaced SVG children are parsed as HTML inside
-  the template and render wrongly once shown.
+  costs bytes but stays correct. Unplaced SVG or MathML children are parsed as
+  HTML inside the template and do not render once shown; in dev the slot ref
+  logs an error when it moves them into a fresh slot outside the HTML
+  namespace.
 - **Client.** Before hydrating an island, the bootstrap collects every slot and
   `<template pracht-slot>` the island owns (its nearest `pracht-island`
   ancestor is this island, so a nested island's slots are left to that island)
@@ -206,9 +208,15 @@ How markup children work:
   element inside `<p>` closes the paragraph and the slot with it, nested `<a>`
   or `<button>` close the outer one, and a stray `</div>` or `</template>` in
   raw HTML closes the slot or template early. Hydrating would then delete the
-  stranded nodes, which exist nowhere else. Every holder must still end with
-  the end marker; if one does not, the bootstrap logs an error naming the
-  island and leaves it as server HTML. A `</template>` in hidden raw HTML still
+  stranded nodes, which exist nowhere else. Every such move takes the end
+  marker out of the holder, so the bootstrap only requires the marker to be a
+  direct child of each holder; nodes after it (output an async script appended
+  before hydration, whitespace from a formatter) do not count. If a marker is
+  missing, the bootstrap logs an error naming the island and leaves it as
+  server HTML, which is also what an HTML minifier that strips comments causes
+  (streamed Suspense hydration needs comments too). The marker stays a comment
+  rather than an element so `:last-child` and sibling selectors on the children
+  keep matching. A `</template>` in hidden raw HTML still
   leaks the rest of that HTML into the page at parse time, where its scripts
   run, so raw HTML in children has to be well-formed.
 - **Positions the parser cannot hold.** `IslandSlot` walks up
@@ -217,9 +225,13 @@ How markup children work:
   `script`, `style`, `xmp`, `iframe`, `noembed`, `noframes`, `noscript`,
   `select`, `option`, `optgroup`, or `datalist` (read as text, or the slot is
   dropped), directly inside `table`, `thead`, `tbody`, `tfoot`, `tr`, or
-  `colgroup` (foster-parented out), or directly inside `details` / `fieldset`
-  with a top-level `summary` / `legend` among the children (which must be the
-  first child). With the experimental `precompileSsrJsx`, precompiled DOM
+  `colgroup` (foster-parented out), directly inside SVG `text`, `tspan`,
+  `textPath`, `linearGradient`, `radialGradient`, `clipPath`, `filter`, or
+  `switch` and MathML `mfrac`, `msup`, `msub`, `msubsup`, `mroot`, `munder`,
+  `mover`, or `munderover` (fixed content models a `<g>` or `<mrow>` breaks), or
+  directly inside `details` / `fieldset` with a `summary` / `legend` at the top
+  level of the children or inside a top-level Fragment (which must be the first
+  child; one rendered by a component is not detected). With the experimental `precompileSsrJsx`, precompiled DOM
   subtrees are not vnodes, so these checks can miss them; the integrity check
   still catches the parser moves.
 - **Context.** An island among the children is a separate Preact root, so
@@ -234,8 +246,9 @@ How markup children work:
   and its effects keep running while hidden.
 - **`client="visible"`.** The bootstrap observes an island's element children,
   looking through `pracht-island` and `pracht-slot` wrappers, which have no
-  box. An island that renders only its children therefore observes the
-  children's own elements; with no element at all it observes its parent.
+  box, and skipping `template`, `script`, and `style`. An island that renders
+  only its children therefore observes the children's own elements; with no
+  such element (only an unplaced `<template>`) it observes its parent.
 
 A render function passed as children throws, also inside an array. Islands
 nested *inside* an island's own render output still hydrate as part of the
@@ -248,7 +261,7 @@ hydration (reloading any iframe or video among them on every page load), and
 its only native range-preserving path, suspended hydration between `$s`
 markers, needs a Suspense boundary and Preact 11.
 
-The bootstrap cost of children support is about 0.45 KB gzip on every islands
+The bootstrap cost of children support is about 0.47 KB gzip on every islands
 page.
 
 ---
