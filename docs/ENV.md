@@ -116,7 +116,11 @@ Custom setups can call `setServerEnv(env)` (exported from
 `pracht dev` loads `.env` files into `process.env` before starting, so in
 process-based runtimes a server-only secret written to `.env` reaches loaders,
 middleware, API routes, and `serverEnv`. Real environment variables always win
-over the file. For the development mode, `.env.development.local` beats
+over the file. Editing, adding, or removing one of those files while dev runs
+re-reads them (`createDotEnvSync()` in `packages/cli/src/dotenv.ts`) from the
+watcher event, before Vite's own restart re-evaluates `vite.config.ts`: values
+the file assigned are updated or deleted, while real environment variables and
+keys the process reassigned itself are left alone. For the development mode, `.env.development.local` beats
 `.env.development`, which beats `.env.local`, which beats `.env`. `NODE_ENV` is
 never taken from the file: Vite refuses `NODE_ENV=production` there on purpose,
 and the dev server is always mode `development`.

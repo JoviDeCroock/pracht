@@ -140,6 +140,62 @@ describe("@pracht/cli dev typegen", () => {
     }
   }, 120_000);
 
+  it("pracht dev picks up .env edits without a manual restart", async () => {
+    // `.env` used to be read once at startup: Vite restarted the server on the
+    // edit, but `process.env` (and `serverEnv`) kept the old values. The vite
+    // config is re-evaluated by that same process on the restart, so it sees
+    // exactly what loaders and API routes would.
+    const appDir = createRepoTempDir("pracht-cli-dev-dotenv-reload-");
+    writeTypedManifestApp(appDir);
+    writeProjectFile(appDir, ".env", "PRACHT_DOTENV_RELOAD=first\n");
+    const configPath = join(appDir, "vite.config.ts");
+    writeProjectFile(
+      appDir,
+      "vite.config.ts",
+      `console.log("PROBE:" + process.env.PRACHT_DOTENV_RELOAD);\n` +
+        readFileSync(configPath, "utf-8"),
+    );
+
+    const child = spawn(process.execPath, [cliPath, "dev", "--port", "5612"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      await waitFor(
+        () => output.includes("PROBE:first") && output.includes("http"),
+        30_000,
+        () => output,
+      );
+
+      writeProjectFile(appDir, ".env", "PRACHT_DOTENV_RELOAD=second\n");
+      await waitFor(
+        () => output.includes("PROBE:second"),
+        30_000,
+        () => output,
+      );
+
+      writeProjectFile(appDir, ".env", "# emptied\n");
+      await waitFor(
+        () => output.includes("PROBE:undefined"),
+        30_000,
+        () => output,
+      );
+    } finally {
+      await stopChild(child);
+    }
+  }, 120_000);
+
   it("pracht dev keeps generated route types in sync with route files", async () => {
     const appDir = createRepoTempDir("pracht-cli-dev-typegen-");
     writeTypedManifestApp(appDir);

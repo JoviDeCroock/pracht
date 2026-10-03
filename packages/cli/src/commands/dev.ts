@@ -5,7 +5,7 @@ import { defineCommand } from "citty";
 import { createServer, type ViteDevServer } from "vite";
 
 import { collectAppGraph } from "../app-graph.js";
-import { loadDotEnvIntoProcess } from "../dotenv.js";
+import { createDotEnvSync } from "../dotenv.js";
 import { formatDevBanner, supportsColor } from "../dev-banner.js";
 import { readProjectConfig, resolveProjectPath } from "../project.js";
 import { isRouteSource, isWithinDirectory } from "../verification-helpers.js";
@@ -16,6 +16,9 @@ import {
   DEFAULT_RUNTIME_OUT,
   runTypegen,
 } from "./typegen.js";
+
+/** The files `createDotEnvSync()` reads (Vite's `loadEnv` set). */
+const DOT_ENV_FILE_NAMES = [".env", ".env.local", ".env.[mode]", ".env.[mode].local"];
 
 export default defineCommand({
   meta: {
@@ -40,7 +43,11 @@ export default defineCommand({
     // Ahead of the port resolution below so a `PORT` in `.env` is honoured
     // rather than half-applied. Vite's dev server is always mode
     // `development`, whatever NODE_ENV says.
-    loadDotEnvIntoProcess(root, "development");
+    const dotEnv = createDotEnvSync(root, "development");
+    dotEnv.load();
+    const dotEnvFiles = new Set(
+      DOT_ENV_FILE_NAMES.map((name) => resolve(root, name.replace("[mode]", "development"))),
+    );
 
     // `pracht dev 4000` (legacy positional) still works alongside `--port`.
     const positionalPort = args._?.[0] != null ? String(args._[0]) : undefined;
@@ -62,6 +69,15 @@ export default defineCommand({
           name: "pracht:cli-dev",
           configureServer(devServer) {
             routeTypes.attach(devServer);
+            // Vite restarts the server when a `.env` file changes. Re-read the
+            // files the moment the watcher reports it — synchronously, ahead
+            // of that restart re-evaluating vite.config.ts — so `process.env`
+            // and `serverEnv` follow the edit instead of keeping startup values.
+            for (const event of ["add", "change", "unlink"] as const) {
+              devServer.watcher.on(event, (file) => {
+                if (dotEnvFiles.has(resolve(file))) dotEnv.load();
+              });
+            }
           },
         },
       ],
