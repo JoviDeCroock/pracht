@@ -93,6 +93,7 @@ test("full-hydration pages treat the server island as an opaque subtree", async 
 
   await page.goto("/server-islands/full");
   await page.waitForSelector('html[data-pracht-hydrated="true"]');
+  await page.waitForSelector(SERVER_ISLANDS_READY);
   await expect(page.getByTestId("visitor")).toHaveText("Welcome back, Ada");
 
   // Re-rendering the page tree must leave the server island's HTML untouched.

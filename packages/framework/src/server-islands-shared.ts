@@ -20,8 +20,9 @@ export const SERVER_ISLAND_PROPS_ATTRIBUTE = "props";
 export const SERVER_ISLAND_PENDING_ATTRIBUTE = "pending";
 
 /**
- * Set on `<html>` once the swap script has settled every pending server island on
- * the page, successfully or not. Test tooling can wait for
+ * Set on `<html>` once every server island fetch the page started has settled,
+ * successfully or not: by the swap script, or on full-hydration pages by the
+ * client component. Test tooling can wait for
  * `html[data-pracht-server-islands-ready="true"]`.
  */
 export const SERVER_ISLANDS_READY_MARKER = "data-pracht-server-islands-ready";

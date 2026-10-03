@@ -248,7 +248,8 @@ builds and serves one fixture app both ways and requires identical maps.
   Preact: it fetches every `pracht-server-island[pending]`, swaps `innerHTML`
   only for a 200 carrying `x-pracht-server-island: 1` (a static host's SPA
   fallback document is also a 200), removes `pending`, and sets
-  `html[data-pracht-server-islands-ready]`. On `x-pracht-islands` it appends a
+  `html[data-pracht-server-islands-ready]` (the client component sets it too,
+  whenever its last fetch in flight settles). On `x-pracht-islands` it appends a
   module script for the bootstrap (a fresh bootstrap scans the whole document;
   one that already ran hears the bubbling `pracht:server-island` event).
 - **Client server island component** — in the client environment the plugin's

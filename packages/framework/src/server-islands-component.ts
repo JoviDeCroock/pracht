@@ -8,7 +8,12 @@ import {
   SERVER_ISLAND_FILE_ATTRIBUTE,
   SERVER_ISLAND_PENDING_ATTRIBUTE,
   SERVER_ISLAND_REFRESH_EVENT,
+  SERVER_ISLANDS_READY_MARKER,
 } from "./server-islands-shared.ts";
+
+// Fetches in flight across every server island on the page: the ready marker is
+// set whenever the last one settles.
+let inFlight = 0;
 
 /**
  * The client stand-in for a server island module on full-hydration pages.
@@ -66,8 +71,12 @@ export function createClientServerIsland(file: string) {
       // Fetched into a detached element, so what is on screen — the fallback,
       // or the previous HTML on a refresh — stays until the new HTML is ready.
       const target = document.createElement(SERVER_ISLAND_ELEMENT);
+      inFlight += 1;
       void loadServerIsland(target, file, serialized === "{}" ? null : serialized).then(
         (result) => {
+          if (--inFlight === 0) {
+            document.documentElement.setAttribute(SERVER_ISLANDS_READY_MARKER, "true");
+          }
           if (load !== loads.current) return;
           if (result === "loaded") {
             if (fallbackMounted.current) render(null, element);

@@ -155,7 +155,7 @@ finding.
    routes.
 4. Verify hydration in a running app via `html[data-pracht-islands-hydrated="true"]`
    (set after all `load` islands hydrate) and per-island `data-hydrated="true"`.
-   Server islands report `html[data-pracht-server-islands-ready="true"]` once every pending
-   server island settled.
+   Server islands report `html[data-pracht-server-islands-ready="true"]` once every server
+   island fetch the page started has settled, on every hydration mode.
 
 $ARGUMENTS

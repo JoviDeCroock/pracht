@@ -219,6 +219,7 @@ describe("createClientServerIsland", () => {
     const element = root.querySelector("pracht-server-island")!;
     expect(element.innerHTML).toBe("<p>Hi, Ada</p>");
     expect(element.hasAttribute("pending")).toBe(false);
+    expect(document.documentElement.getAttribute("data-pracht-server-islands-ready")).toBe("true");
   });
 
   it("shows the fallback, then the server island, when mounted by a client navigation", async () => {
