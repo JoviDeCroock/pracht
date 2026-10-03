@@ -179,7 +179,8 @@ reachable at `GET /__pracht/server-island` with the visitor's cookies, for any
 page whose route or shell imports it statically — with that route's middleware
 (see <https://pracht.resynapse.dev/docs/server-islands#security>). Map each
 server island to the routes that import it, directly or through shared
-components, shells, and barrels.
+components, shells, and barrel names they import (a namespace import of a
+barrel counts for everything it re-exports).
 
 - Flag a server island imported by both gated and ungated routes whose loader
   returns user-specific data without checking `context` itself — `error`: the

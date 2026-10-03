@@ -71,8 +71,11 @@ middleware built, and the server island's `props`. Read its return value with
 `useServerIslandData<typeof loader>()`.
 
 A server island runs for a page only when that page's route or shell imports it
-with a static `import`, directly or through components they import. One loaded
-with `import()` keeps its fallback on cached pages, and the dev server logs why.
+with a static `import`, directly or through components they import. Importing
+`{ Button }` from a barrel that also re-exports a server island does not count;
+a namespace import (`import * as ui`) counts for everything the barrel
+re-exports. One loaded with `import()` keeps its fallback on cached pages, and
+the dev server logs why.
 
 `fallback` is what the page shows until the server island arrives. The page
 keeps it when the server island fails, or when middleware or the loader answers
@@ -116,6 +119,12 @@ A server island runs with the middleware of the page that renders it, and the
 browser asks for it with the page path and props in a URL any caller can edit.
 **Server island props are untrusted input: authorize from `context` inside the
 loader**, as the `if (!context.user)` check above does.
+
+Which pages a server island runs for follows its static imports, and that is
+not an authorization check. Anyone who passes a page's middleware can request
+every server island that page imports, including one it renders only
+conditionally, such as `{isAdmin && <AdminStats />}`. A loader that returns
+private data checks `context` itself.
 
 Server island responses are always `Cache-Control: private, no-store`, so the
 page around them stays cacheable.

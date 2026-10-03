@@ -174,7 +174,9 @@ The binding follows the static import graph from the route and shell modules:
 | Route or shell imports the server island | Yes | The direct case. |
 | Through a shared component (`Header` → `Cart`) | Yes | The component renders it wherever it is used. |
 | A server island imported by a server island | Yes | The outer one renders it; nested islands resolve inline anyway. |
-| Through a barrel (`export { default as X } from`) | Yes, conservatively | Re-exports are imports; the graph cannot tell whether the importer uses that export. Every route importing the barrel binds X. Import server islands directly. |
+| Through a barrel (`export { default as X } from`, `export *`) | Only for importers of X | A re-export edge is followed only for the names its importer imports. `import { Button } from "./ui"` does not bind the `X` that `./ui` also re-exports; `import { X }` does. `export *` forwards only names the barrel does not declare itself. |
+| A namespace import (`import * as ui`) | Everything it re-exports | The walk cannot tell which members are used. |
+| A module whose own code is used | All of its imports | Once any export the module declares itself is used, all its `import` declarations are followed: there is no analysis inside a module. Type-only imports and exports are skipped. |
 | Only through `import()` | No | See below. |
 | `?raw` / `?url` import of the file | No | That is its text or URL, not a rendered component. |
 | One route module under two routes | Per route | Each route binds its own module and its own shell, so one component under two shells binds a shell's server islands to one route only. |
@@ -190,9 +192,16 @@ refuses a server island whose file exists.
 
 ### Where it is computed
 
+Both halves read each module's links from its source file with
+`@babel/parser` (`parseServerIslandSourceLinks()`: imports with the names they
+import, re-exports by name, `export *`, the names the module declares) and
+resolve specifiers with the host's resolver (`createSourceServerIslandGraph()`).
+A module that is not JavaScript or TypeScript source, or that does not parse,
+is opaque: every import the host reports for it is followed, as used.
+
 - **Build.** `createServerIslandBindingsPlugin()` runs in the server build's
-  `generateBundle`, walks Rollup's module graph (`getModuleInfo(id).importedIds`,
-  which includes re-exports and excludes `import()`) from every route and shell
+  `generateBundle`, resolves with `this.resolve()` (opaque modules use
+  `getModuleInfo(id).importedIds`) from every route and shell
   module, and splices `{ [module key]: server island files }` into the
   `__PRACHT_SERVER_ISLAND_BINDINGS__` token in the generated server module, the
   way the route CSS manifest is spliced. The runtime installs it with
@@ -201,10 +210,11 @@ refuses a server island whose file exists.
   sits in front of the runtime — first in the stack for adapter-owned dev
   servers (Cloudflare), right before the dev SSR middleware otherwise. For a
   server island request it matches the page path with the dev metadata module,
-  walks Vite's server environment graph from the route and shell modules
-  (`transformRequest(url).deps`: static imports and re-exports, not
-  `dynamicDeps`; transformed on demand, so the answer does not depend on what
-  was rendered first), and passes the map in the
+  walks from the route and shell modules, resolving with the server
+  environment's `pluginContainer.resolveId()` (opaque modules use
+  `transformRequest(url).deps`). Modules are read from disk, not transformed,
+  so the answer does not depend on what was rendered first and never caches a
+  transform ahead of an edit. It passes the map in the
   `x-pracht-dev-server-island-bindings` request header. The generated dev
   server module calls `readServerIslandBindingsFromDevServer()`, which makes the
   runtime read that header.
@@ -381,7 +391,8 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
   closed without or with a malformed map, unknown and unbound
   indistinguishable, dev header handling.
 - `packages/vite-plugin/test/server-island-bindings.test.ts` — the walk over
-  synthetic graphs, and one fixture app (shared component, barrel, nested
+  synthetic graphs and in-memory sources (barrel names, `export *`, namespace
+  and type-only imports), and one fixture app (shared component, barrel, nested
   server island, `import()`, `?raw`, shell) built with Rollup and served by
   Vite dev, both required to produce the same map.
 - `packages/framework/test/server-islands-client.test.ts` — the swap script and
