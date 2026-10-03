@@ -32,6 +32,7 @@ import {
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 // Marks a server island fragment (see @pracht/core server-islands-shared.ts).
 const SERVER_ISLAND_RESPONSE_HEADER = "x-pracht-server-island";
+const SERVER_ISLAND_ENDPOINT = "/__pracht/server-island";
 const DEFAULT_MAX_BODY_SIZE = 1024 * 1024; // 1 MiB
 const CSS_MODULE_URL_RE = /\.(?:css|less|sass|scss|styl|stylus|pcss|postcss|sss)(?:$|\?)/;
 /**
@@ -309,12 +310,14 @@ export function createDevSSRMiddleware(
       // installed after Vite's own). Two exceptions are served as-is: apps
       // that declare a `notFound` page get that page rendered here — same as
       // in production — and JSON 404s are typed API responses (route-state,
-      // capability envelopes) that must reach the client untouched.
+      // capability envelopes) that must reach the client untouched. So is the
+      // server island endpoint's 404, which is `no-store` as in production.
       const responseContentType = response.headers.get("content-type") ?? "";
       if (
         response.status === 404 &&
         !responseContentType.includes("application/json") &&
-        !routeMatchers.app?.notFound
+        !routeMatchers.app?.notFound &&
+        requestUrl.pathname !== SERVER_ISLAND_ENDPOINT
       ) {
         return next();
       }

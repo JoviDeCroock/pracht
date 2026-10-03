@@ -149,6 +149,8 @@ test("the server island endpoint refuses a server island for a page that does no
   const unbound = await serverIslandAt("/src/server-islands/Visitor.tsx", "/static");
   const unknown = await serverIslandAt("/src/server-islands/Nope.tsx", "/static");
   expect(unbound.status()).toBe(404);
+  expect(unbound.headers()["cache-control"]).toBe("private, no-store");
+  expect(await unbound.text()).toBe("Unknown server island");
   expect(await unbound.text()).toBe(await unknown.text());
 
   // The development bindings travel in a header the dev server owns; a copy
