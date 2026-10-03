@@ -181,23 +181,51 @@ function createNonFullHydrationExcludes(
   }
 
   const appDir = dirname(appFile);
+  const resolveRef = (ref: string): string =>
+    toPosixPath(ref.startsWith("/") ? resolve(root, ref.slice(1)) : resolve(appDir, ref));
+  // One module can back a full route and an islands route, and the full route
+  // needs it in the browser. A file is left out only when every ref to it in
+  // the manifest belongs to a non-full route; a ref this scan cannot attribute
+  // (a full route, a shared constant, a `notFound` component) keeps it in.
+  const nonFullRefs = new Map<string, number>();
   const routeRe =
     /\broute\s*\(\s*[^,]+,\s*(?:(?:\(\s*\)\s*=>\s*import\s*\(\s*)?["']([^"']+)["']\s*\)?|["']([^"']+)["'])/g;
-  for (const match of source.matchAll(routeRe)) {
+  for (const match of code.matchAll(routeRe)) {
     const fileRef = match[1] ?? match[2];
     const callStart = match.index!;
-    const parenStart = source.indexOf("(", callStart);
-    const parenEnd = findMatching(source, parenStart, "(", ")");
+    const parenStart = structure.indexOf("(", callStart);
+    const parenEnd = findMatching(structure, parenStart, "(", ")");
     if (parenEnd === -1) continue;
-    const callSource = source.slice(parenStart, parenEnd);
+    const callSource = code.slice(parenStart, parenEnd);
     const ownNonFull = NON_FULL_HYDRATION_RE.test(callSource);
     const ownFull = FULL_HYDRATION_RE.test(callSource);
     const inheritedNonFull = groups
       .filter((group) => group.start < callStart && callStart < group.end)
       .sort((a, b) => b.start - a.start)[0]?.nonFull;
     if (ownFull || (!ownNonFull && inheritedNonFull !== true)) continue;
-    const abs = resolve(appDir, fileRef);
-    excludes.add(`!/${toPosixPath(abs).replace(toPosixPath(root).replace(/\/$/, "") + "/", "")}`);
+    const file = resolveRef(fileRef);
+    nonFullRefs.set(file, (nonFullRefs.get(file) ?? 0) + 1);
+  }
+  if (nonFullRefs.size === 0) return [];
+
+  let strings: string[];
+  try {
+    strings = collectManifestStrings(source, appFile).strings;
+  } catch {
+    // An unparseable manifest is the dev server's error to report.
+    return [];
+  }
+  const allRefs = new Map<string, number>();
+  for (const value of strings) {
+    if (!value.startsWith(".") && !value.startsWith("/")) continue;
+    const file = resolveRef(value);
+    if (nonFullRefs.has(file)) allRefs.set(file, (allRefs.get(file) ?? 0) + 1);
+  }
+
+  const rootPrefix = `${toPosixPath(root).replace(/\/$/, "")}/`;
+  for (const [file, count] of nonFullRefs) {
+    if ((allRefs.get(file) ?? 0) > count) continue;
+    excludes.add(`!/${file.replace(rootPrefix, "")}`);
   }
 
   return [...excludes];

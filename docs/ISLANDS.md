@@ -175,10 +175,12 @@ outer island.)
   a small bootstrap that scans the DOM for markers, dynamically imports only
   the islands present on the page (each island is its own code-split chunk),
   and hydrates each one in place with its serialized props.
-- Routes configured with `hydration: "islands"` or `hydration: "none"` are
-  also excluded from the generated full client-router entry, so server-only
-  helpers imported by those page modules are not emitted into public client
-  chunks.
+- Route files used only by `hydration: "islands"` or `hydration: "none"`
+  routes are also excluded from the generated full client-router entry, so
+  server-only helpers imported by those page modules are not emitted into
+  public client chunks. A file the manifest also names anywhere else — a full
+  route, a `notFound` component, a shared constant — stays in, because the full
+  route needs it to hydrate.
 - If an islands route renders zero islands, no hydration script is emitted
   unless that route activates WebMCP tools through its `capabilities` metadata.
   In that case the islands bootstrap is retained because it owns the page-level
