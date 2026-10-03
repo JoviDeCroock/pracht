@@ -108,6 +108,6 @@ Queries default to a `staleTime` of 60 seconds, so data the server just fetched 
 
 - **Only successful queries are sent.** A query that failed or is still pending on the server fetches again in the browser.
 - **SSG and ISG pages** carry the data from when they were rendered. Once it is older than `staleTime`, the browser refetches it after hydration.
-- **Streaming routes** (`streaming: true`) send the cache before the shell renders, so only queries the loader awaited are included. Await every query a streamed route reads in its loader.
+- **Streaming routes** (`streaming: true`) send the cache before the shell renders, so only queries the loader awaited go with the page. Wrap a component that reads any other query in `<Suspense>` from `@pracht/core`, or the streamed render fails.
 - **Islands** (`hydration: "islands"`) render without the app root, on the server too, so an island that calls `useQuery` fails the server render with an error naming the island. Read the query in the route component and pass the island what it needs as props.
 - **The data has to be JSON.** `Date`, `Map`, and class instances arrive as their JSON form. Return plain data from `queryFn`, or convert with `select`.
