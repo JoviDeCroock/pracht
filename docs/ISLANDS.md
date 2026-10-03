@@ -372,8 +372,9 @@ Partial client-side rendering of islands routes is out of scope for v1.
 
 ## Limitations (v1)
 
-- Markup children passed into an island are static server HTML: the island can
-  show, hide, or move them, but not pass them props, re-render them, provide
+- Markup children passed into an island are static server HTML that reaches
+  the island as one opaque slot node (`toChildArray` sees one item): the island
+  can show, hide, or move them, but not pass them props, re-render them, provide
   context to islands among them, or place them where the HTML parser cannot
   keep a slot element (table sections, select, textarea, media sources, a
   leading summary or legend).

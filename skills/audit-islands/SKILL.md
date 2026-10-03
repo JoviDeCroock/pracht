@@ -97,10 +97,14 @@ text arrives as a string value. Flag:
 - children the island expects to re-render or pass props into, and islands
   among the children that read context the outer island provides (the browser
   gives them the default) — those belong inside the island or need a prop;
+- an island that splits markup children with `toChildArray`, `Children.map`, or
+  `Children.count` (tabs, carousels): it receives one opaque node, so labels
+  belong in props and panels are toggled through a ref (`hidden`);
 - an island that renders `children` inside `<p>`, `<a>`, or `<button>` while
-  call sites pass block elements, links, or buttons, or raw HTML in children
-  that may be malformed: the browser moves those nodes out of the slot and the
-  island is left unhydrated with a console error.
+  call sites pass block elements, links, or buttons (the dev server throws
+  when it sees this), or raw HTML in children that may be malformed: the
+  browser moves those nodes out of the slot and the island is left unhydrated
+  with a console error.
 
 ### 3d. Hydration strategy tuning (`info`)
 
