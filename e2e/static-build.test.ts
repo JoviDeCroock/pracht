@@ -136,6 +136,14 @@ function createTempExampleDir(
   }
 }
 
+/**
+ * The islands example's server island routes need a server (middleware and the
+ * server island endpoint), so a static export of it drops them.
+ */
+function withoutServerIslandRoutes(routesSource: string): string {
+  return routesSource.replace(/\n\s*\/\/ Server islands:[\s\S]*?\n {6}\]\),/, "");
+}
+
 function buildExample(exampleDir: string, env: Record<string, string> = {}): void {
   execFileSync(process.execPath, [cliEntry, "build"], {
     cwd: exampleDir,
@@ -1193,11 +1201,11 @@ test("islands navigation swaps pages served by a dumb static host", async ({ pag
       cpSync(resolve(repoRoot, "packages/adapter-static"), adapterLink, { recursive: true });
     }
     const routesPath = resolve(exampleDir, "src/routes.ts");
-    writeFileSync(
-      routesPath,
-      readFileSync(routesPath, "utf-8").replaceAll('render: "ssr",', 'render: "ssg",'),
-      "utf-8",
-    );
+    const staticRoutesSource = withoutServerIslandRoutes(
+      readFileSync(routesPath, "utf-8"),
+    ).replaceAll('render: "ssr",', 'render: "ssg",');
+    expect(staticRoutesSource).not.toContain("/server-islands");
+    writeFileSync(routesPath, staticRoutesSource, "utf-8");
 
     buildExample(exampleDir);
     const clientDir = resolve(exampleDir, "dist/client");
@@ -1268,9 +1276,10 @@ test("islands example exports statically and hydrates islands from a dumb host",
     // endpoint), so a static export drops them.
     const routesPath = resolve(exampleDir, "src/routes.ts");
     const routesSource = readFileSync(routesPath, "utf-8");
-    const staticRoutesSource = routesSource
-      .replace(/\n\s*\/\/ Server islands:[\s\S]*?\n {6}\]\),/, "")
-      .replaceAll('render: "ssr",', 'render: "ssg",');
+    const staticRoutesSource = withoutServerIslandRoutes(routesSource).replaceAll(
+      'render: "ssr",',
+      'render: "ssg",',
+    );
     expect(staticRoutesSource).not.toContain("/server-islands");
     writeFileSync(routesPath, staticRoutesSource, "utf-8");
 
