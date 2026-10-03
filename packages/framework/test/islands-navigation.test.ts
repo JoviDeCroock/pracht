@@ -3,7 +3,12 @@ import { h, hydrate } from "preact";
 import { useLayoutEffect } from "preact/hooks";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { canSwapDocument, matchRoute, prepareSwap } from "../src/islands-navigation.ts";
+import {
+  canSwapDocument,
+  matchRoute,
+  prepareSwap,
+  settleFocus,
+} from "../src/islands-navigation.ts";
 import { policyFingerprint } from "../src/islands-shared.ts";
 import { islandsNavigationRoutes, patternsOverlap } from "../src/islands-server.ts";
 import { resolveApp, route, defineApp } from "../src/index.ts";
@@ -227,5 +232,67 @@ describe("prepareSwap", () => {
     expect(nextCounter).not.toBe(counterIsland);
     expect(nextCounter.hasAttribute("data-hydrated")).toBe(false);
     expect(cleanedUp).toBe(true);
+  });
+});
+
+describe("settleFocus", () => {
+  beforeEach(() => {
+    document.head.replaceChildren();
+    document.body.replaceChildren();
+    document.body.removeAttribute("tabindex");
+  });
+
+  const swapTo = (html: string) =>
+    prepareSwap(
+      parse(`<html><head></head><body><div id="pracht-root">${html}</div></body></html>`),
+    )!;
+
+  it("keeps focus in an island the swap carried over", () => {
+    load(`<html><head></head><body><div id="pracht-root">
+      ${island("/src/islands/Search.tsx", undefined, '<input id="q">')}<a id="old" href="/b">b</a>
+    </div></body></html>`);
+    const input = document.querySelector<HTMLInputElement>("#q")!;
+    input.focus();
+    const swap = swapTo(island("/src/islands/Search.tsx", undefined, "<input>") + "<h1>B</h1>");
+    const focused = document.activeElement;
+    swap.apply();
+    settleFocus(focused);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("starts focus over at the top of the new page when the focused element left", () => {
+    load(
+      `<html><head></head><body><div id="pracht-root"><a id="old" href="/b">b</a></div></body></html>`,
+    );
+    document.querySelector<HTMLAnchorElement>("#old")!.focus();
+    const swap = swapTo("<h1>B</h1>");
+    const focused = document.activeElement;
+    swap.apply();
+    settleFocus(focused);
+    expect(document.activeElement).toBe(document.body);
+    expect(document.body.hasAttribute("tabindex")).toBe(false);
+  });
+
+  it("moves focus to the new page's autofocus element", () => {
+    load(
+      `<html><head></head><body><div id="pracht-root"><a id="old" href="/b">b</a></div></body></html>`,
+    );
+    document.querySelector<HTMLAnchorElement>("#old")!.focus();
+    const swap = swapTo('<input id="name" autofocus>');
+    const focused = document.activeElement;
+    swap.apply();
+    settleFocus(focused);
+    expect(document.activeElement?.id).toBe("name");
+  });
+
+  it("takes focus off an element outside the page content", () => {
+    load(`<html><head></head><body><div id="pracht-root"><h1>A</h1></div></body></html>`);
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    const swap = swapTo("<h1>B</h1>");
+    swap.apply();
+    settleFocus(outside);
+    expect(document.activeElement).toBe(document.body);
   });
 });

@@ -333,6 +333,24 @@ test.describe.serial("islands navigation", () => {
         theme: !!document.getElementById("theme"),
       })),
     ).toEqual({ count: "scroller 1", input: "typed", scrollTop: 300, frame: "alive", theme: true });
+
+    // Focus inside a carried island stays there, so typing can go on.
+    await page.getByTestId("scroller-input").focus();
+    await page.evaluate(() => navigation.navigate("/lab/a"));
+    await expect(page.locator("h1")).toHaveText("A");
+    expect(await page.evaluate(() => document.activeElement?.getAttribute("data-testid"))).toBe(
+      "scroller-input",
+    );
+    await page.keyboard.type("!");
+    await expect(page.getByTestId("scroller-input")).toHaveValue("typed!");
+
+    // Focus on something the swap replaced starts over at the top of the new
+    // page, as after a page load.
+    await page.focus("#go-b");
+    await page.keyboard.press("Enter");
+    await expect(page.locator("h1")).toHaveText("B");
+    expect(await sameDocument(page)).toBe("first document");
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
   });
 
   test("never fetches what it cannot swap", async ({ page }) => {

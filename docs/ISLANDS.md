@@ -376,8 +376,7 @@ scripting-enabled parse would.
   `<pracht-island>` whose file, export, props, and strategy match an incoming
   one (by occurrence order per key) moves in place of the server markup with
   `moveBefore()` — a move between two connected places that keeps an iframe
-  loaded and scroll positions inside the island (focus inside it is lost, as
-  with any move) — or `insertBefore()`
+  loaded and scroll positions and focus inside the island — or `insertBefore()`
   where the browser has no `moveBefore()` (those survive as Preact state only).
   Hydrated islands that are not carried over are unmounted with
   `render(null, el)` so effect cleanups run; then the old content is removed.
@@ -389,8 +388,14 @@ view-transition style and the browser supports it (a transition skipped by a
 newer one is not an error). Scrolling is manual (`intercept({ scroll:
 "manual" })`) and happens with the swap: traversals and URLs with a fragment use
 `event.scroll()`; other navigations scroll to the top, which `event.scroll()`
-does not do for a URL without a fragment. Focus uses the Navigation API
-default. Every `await` is followed by a `signal.aborted` check, and the commit
+does not do for a URL without a fragment. Focus is manual too (`focusReset:
+"manual"`, `settleFocus()`): the browser's reset would move focus out of a
+carried island (a search box that navigates as you type) even though
+`moveBefore()` kept it. Focus inside a carried island stays (and is put back
+after an `insertBefore()` move), and focus the page moved during the swap is
+left alone; otherwise it is reset the way the Navigation API resets it — the
+`autofocus` element, else the body, which also moves the sequential focus
+starting point to the top. Every `await` is followed by a `signal.aborted` check, and the commit
 itself checks again, so an interrupted navigation never applies its swap. Its
 history entry, committed immediately like any client-router push, stays.
 

@@ -146,7 +146,8 @@ pracht({
 The islands bootstrap then fetches the next page's HTML and swaps it in. The
 URL, title, and stylesheets change. An island that both pages render with the
 same props, such as a cart button in a shared shell, stays mounted and keeps
-its state. New islands hydrate with their own `client` strategy. Back and
+its state and focus. Anywhere else, focus starts over at the top of the new
+page, as after a page load. New islands hydrate with their own `client` strategy. Back and
 forward restore the earlier page and its scroll position. With
 `viewTransitions` on, the swap animates as a same-document view transition.
 

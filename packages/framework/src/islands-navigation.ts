@@ -290,6 +290,7 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
           swap.cancel();
           return;
         }
+        const focused = document.activeElement;
         swap.apply();
         shownPage = page;
         document.documentElement.removeAttribute(ISLANDS_HYDRATED_MARKER);
@@ -297,6 +298,7 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
         // but leaves a new page without one wherever the old one was.
         if (!traverse && !url.hash) scrollTo(0, 0);
         else event.scroll();
+        settleFocus(focused);
       };
       try {
         if (
@@ -327,16 +329,49 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
       let decision: Awaited<ReturnType<typeof decide>>;
       event.intercept({
         scroll: "manual",
+        focusReset: "manual",
         precommitHandler: async () => {
           decision = await decide();
         },
         handler: () => finish(decision),
       } as NavigationInterceptOptions);
     } else {
-      // Scrolled by hand with the swap, not after the islands load.
-      event.intercept({ scroll: "manual", handler: async () => finish(await decide()) });
+      // Scrolled and focused by hand with the swap, not after the islands
+      // load: the browser's own focus reset would take focus out of an island
+      // the swap carried over.
+      event.intercept({
+        scroll: "manual",
+        focusReset: "manual",
+        handler: async () => finish(await decide()),
+      });
     }
   });
+}
+
+/**
+ * Focus after a swap. Focus inside an island the swap carried over stays
+ * there (put back where the browser has no `moveBefore()`), and focus the page
+ * moved itself is left alone. Otherwise focus starts over the way the
+ * Navigation API resets it after a navigation: on the page's `autofocus`
+ * element, else on the body, so the next Tab starts at the top of the new page.
+ */
+export function settleFocus(focused: Element | null): void {
+  const active = document.activeElement;
+  const body = document.body;
+  if (active && active !== body && (active !== focused || active.closest(ISLAND_ELEMENT))) return;
+  if (focused !== active && focused?.isConnected && focused.closest(ISLAND_ELEMENT)) {
+    (focused as HTMLElement).focus?.({ preventScroll: true });
+    if (document.activeElement === focused) return;
+  }
+  const autofocus = document.querySelector<HTMLElement>("[autofocus]");
+  autofocus?.focus({ preventScroll: true });
+  if (!body || (autofocus && document.activeElement === autofocus)) return;
+  // The body takes focus only while it has a tabindex; focusing it for that
+  // instant moves the sequential focus starting point to the top.
+  const tabindex = body.getAttribute("tabindex");
+  if (tabindex === null) body.tabIndex = -1;
+  body.focus({ preventScroll: true });
+  if (tabindex === null) body.removeAttribute("tabindex");
 }
 
 /**
