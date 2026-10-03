@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { join, resolve } from "node:path";
 import type { Connect, EnvironmentModuleNode, ViteDevServer } from "vite";
@@ -448,6 +448,88 @@ export function createDevSSRMiddleware(
       await handleDevError(server, req, res, next, url, error, devBase);
     }
   };
+}
+
+const VITE_UPGRADE_PROTOCOLS = new Set(["vite-hmr", "vite-ping"]);
+/** Listener registration methods, mapped to `[persistent method, once]`. */
+const UPGRADE_LISTENER_METHODS: Record<string, ["on" | "prependListener", boolean]> = {
+  addListener: ["on", false],
+  on: ["on", false],
+  once: ["on", true],
+  prependListener: ["prependListener", false],
+  prependOnceListener: ["prependListener", true],
+};
+
+/** Whether Vite's own HMR socket owns this upgrade request. */
+export function isViteOwnedUpgrade(req: IncomingMessage): boolean {
+  const protocol = req.headers["sec-websocket-protocol"];
+  return typeof protocol === "string" && VITE_UPGRADE_PROTOCOLS.has(protocol.trim());
+}
+
+/**
+ * The dev `node:http` server as an adapter's `configureServer(server)` hook
+ * should see it: identical, except that its `upgrade` listeners never see
+ * Vite's HMR handshakes. The production server has no HMR socket, so a hook
+ * that handles every upgrade it is given (the documented WebSocket recipe
+ * does) would otherwise answer Vite's handshake a second time and break HMR.
+ */
+export function createDevConfigureServerTarget(httpServer: Server): Server {
+  return new Proxy(httpServer, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      const registration =
+        typeof property === "string" && Object.hasOwn(UPGRADE_LISTENER_METHODS, property)
+          ? UPGRADE_LISTENER_METHODS[property]
+          : undefined;
+      if (!registration) return value.bind(target);
+
+      const [method, once] = registration;
+      return (event: string | symbol, listener: (...args: unknown[]) => unknown) => {
+        if (event !== "upgrade") {
+          value.call(target, event, listener);
+          return receiver;
+        }
+        // A `once` listener is consumed by the first upgrade it actually
+        // sees, not by a skipped HMR handshake.
+        const filtered = function (this: unknown, ...args: unknown[]) {
+          if (isViteOwnedUpgrade(args[0] as IncomingMessage)) return;
+          if (once) target.removeListener("upgrade", filtered);
+          return listener.apply(this, args);
+        };
+        // EventEmitter matches `.listener` in removeListener() and reports it
+        // from listeners(), so `server.off("upgrade", fn)` keeps working.
+        filtered.listener = listener;
+        target[method]("upgrade", filtered);
+        return receiver;
+      };
+    },
+  });
+}
+
+/**
+ * Run the adapter's `configureServer(server)` export against the dev server,
+ * as its generated entry does against the production one before `listen()`.
+ */
+export async function runDevConfigureServer(
+  server: Pick<ViteDevServer, "config" | "httpServer" | "ssrLoadModule">,
+  moduleId: string,
+): Promise<void> {
+  const httpServer = server.httpServer;
+  if (!httpServer || !("on" in httpServer)) {
+    server.config.logger.warn(
+      `[pracht] ${JSON.stringify(moduleId)} (the adapter's configureServerFrom module) is not ` +
+        `called in Vite middleware mode: there is no dev HTTP server to configure.`,
+    );
+    return;
+  }
+  const configureModule = await server.ssrLoadModule(moduleId);
+  if (typeof configureModule.configureServer !== "function") {
+    throw new Error(
+      `[pracht] ${JSON.stringify(moduleId)} (the adapter's configureServerFrom module) must export a configureServer(server) function.`,
+    );
+  }
+  await configureModule.configureServer(createDevConfigureServerTarget(httpServer as Server));
 }
 
 /**

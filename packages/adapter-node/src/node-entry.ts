@@ -13,9 +13,11 @@ export interface NodeServerEntryModuleOptions {
    * Vite-resolvable module path exporting `configureServer(server)`. The
    * generated entry calls it (and awaits it) with the underlying `node:http`
    * server after `createServer()` and before `listen()`, when the entry is
-   * run as the process entrypoint. This is the hook for everything pracht's
-   * request handler cannot see — chiefly attaching a WebSocket server to the
-   * `upgrade` event, which Node routes past the request handler entirely.
+   * run as the process entrypoint; `pracht dev` calls it with the dev
+   * server's `node:http` server on every start. This is the hook for
+   * everything pracht's request handler cannot see — chiefly attaching a
+   * WebSocket server to the `upgrade` event, which Node routes past the
+   * request handler entirely.
    * See docs/ADAPTERS.md § WebSockets for the full recipe including the
    * Origin check.
    */
@@ -146,6 +148,7 @@ export function nodeAdapter(options: NodeServerEntryModuleOptions = {}): PrachtA
     dev: {
       createContextFrom: options.createContextFrom,
       createContextArgs: ({ request, req, res }) => ({ request, req, res }),
+      configureServerFrom: options.configureServerFrom,
     },
   };
 }

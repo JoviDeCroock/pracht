@@ -350,6 +350,13 @@ export function configureServer(server: Server) {
 }
 ```
 
+`pracht dev` calls the same export against Vite's dev HTTP server, again on
+every restart (each restart builds a new server). The server it receives is a
+proxy whose `upgrade` listeners skip Vite's own HMR handshakes
+(`Sec-WebSocket-Protocol: vite-hmr` / `vite-ping`), so a listener that handles
+every upgrade, like the one above, does not answer them a second time. Graph-only
+servers (`inspect`, `verify`, ...) and Vite middleware mode never call it.
+
 The generated entry only calls `createServer()` when it is the process
 entrypoint, so importing `handler` and building the server yourself remains
 supported — attach the same `upgrade` listener to your own
@@ -380,7 +387,8 @@ The context module must export `createContext(args)`. Node passes `{ request, re
 in `pracht dev` as well as from the generated entry.
 The configure module must export `configureServer(server)` (sync or async); it
 runs with the `node:http` server before `listen()` when the generated entry is
-the process entrypoint — see [WebSockets](#websockets) above.
+the process entrypoint, and with the dev server under `pracht dev` — see
+[WebSockets](#websockets) above.
 
 `shutdownTimeoutMs` (default `10000`) bounds the generated entry's graceful
 shutdown: on `SIGTERM` or `SIGINT` it closes the server, waits for in-flight
@@ -1777,10 +1785,12 @@ export default async function handle(request) {
     // createContextFrom through Vite's SSR graph and calls its createContext
     // export once per request with createContextArgs(...) (default
     // { request }); the input also carries the Node req/res and the dev
-    // server's waitUntil.
+    // server's waitUntil. configureServerFrom's configureServer export is
+    // called with the dev HTTP server on every dev-server start.
     dev: {
       createContextFrom: options.createContextFrom,
       createContextArgs: ({ request, waitUntil }) => ({ request, context: { waitUntil } }),
+      configureServerFrom: options.configureServerFrom,
     },
     // Optional: set to true when targeting an edge runtime that cannot resolve
     // dependencies from node_modules at runtime. Forces Vite to bundle all

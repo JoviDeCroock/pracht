@@ -69,6 +69,7 @@ import {
   createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
+  runDevConfigureServer,
 } from "./plugin-dev-ssr.ts";
 import {
   resolveOptions,
@@ -524,7 +525,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       return { code: transformed, map: null };
     },
 
-    configureServer(server) {
+    async configureServer(server) {
       if (isPagesMode) {
         watchPagesDirectory(server, resolved, root);
       }
@@ -533,6 +534,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         server.middlewares.use(createOwnedDevEntryMiddleware(server));
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
+      }
+      // Vite builds a fresh HTTP server on every restart, so this runs again
+      // against each one — as the generated entry does once before listen().
+      // Graph-only servers never listen, so they skip it.
+      const configureServerFrom = resolved.adapter.dev?.configureServerFrom;
+      if (configureServerFrom && !isGraphOnlyMode()) {
+        await runDevConfigureServer(server, configureServerFrom);
       }
       const backgroundWork = createWaitUntilTracker();
       devBackgroundWork = backgroundWork;

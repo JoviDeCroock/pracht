@@ -29,6 +29,13 @@ export interface PrachtAdapterDevOptions {
    * adapter passes in production. Defaults to `{ request }`.
    */
   createContextArgs?(input: PrachtAdapterDevRequest): object;
+  /**
+   * Vite-resolvable module exporting `configureServer(server)` — the same
+   * module the generated server entry calls before `listen()`. `pracht dev`
+   * calls it with its own `node:http` server on every start and restart.
+   * Upgrade requests for Vite's HMR socket never reach the listeners it adds.
+   */
+  configureServerFrom?: string;
 }
 
 /**
@@ -71,8 +78,8 @@ export interface PrachtAdapter {
    */
   ownsDevServer?: boolean;
   /**
-   * The parts of the generated entry `pracht dev` must reproduce, such as the
-   * app context factory. Ignored when `ownsDevServer` is set, since the
+   * The parts of the generated entry `pracht dev` must reproduce: the app
+   * context factory and the HTTP-server hook. Ignored when `ownsDevServer` is set, since the
    * adapter's own dev runtime then runs the generated entry.
    */
   dev?: PrachtAdapterDevOptions;
