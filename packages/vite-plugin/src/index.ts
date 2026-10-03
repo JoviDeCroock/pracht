@@ -1,8 +1,8 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
 import { existsSync, realpathSync } from "node:fs";
-import { createRequire, isBuiltin } from "node:module";
-import { join, resolve } from "node:path";
+import { isBuiltin } from "node:module";
+import { resolve } from "node:path";
 import { loadEnv, type Plugin, type UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
@@ -41,6 +41,7 @@ import {
 import {
   appCoreHasDevPageTools,
   createDevPageToolsScriptTag,
+  findAppCorePackageJson,
   createPrachtDevPageToolsModuleSource,
   shouldInjectDevPageTools,
 } from "./plugin-dev-page-tools.ts";
@@ -1122,9 +1123,10 @@ function createPrachtOptimizeDepsInclude(root: string): string[] {
   // linked source copy and split the router context in two — so the includes
   // only apply when the app resolves `@pracht/core` from node_modules.
   try {
-    const require = createRequire(join(root, "package.json"));
-    const corePackagePath = toPosixPath(require.resolve("@pracht/core/package.json"));
-    if (!corePackagePath.includes("/node_modules/")) return [];
+    const corePackageJson = findAppCorePackageJson(root);
+    if (!corePackageJson) return [];
+    // A workspace link lives in node_modules too; its real path does not.
+    if (!toPosixPath(realpathSync(corePackageJson)).includes("/node_modules/")) return [];
     // An installed core older than this plugin has no dev-page-tools entry;
     // including it would make Vite warn about an unresolvable dependency on
     // top of the generated module's own one-line warning.
