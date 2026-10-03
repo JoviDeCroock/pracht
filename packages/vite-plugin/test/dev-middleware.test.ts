@@ -141,6 +141,15 @@ describe("development CSS discovery", () => {
     );
   });
 
+  it("marks injected styles as the server's for islands navigation", () => {
+    const html =
+      '<html><head><script data-pracht-owned type="application/json" id="pracht-nav">{}</script></head><body></body></html>';
+
+    expect(injectDevCssLinks(html, { route: ["/route.css"] })).toContain(
+      '<link data-pracht-owned rel="stylesheet" href="/route.css">',
+    );
+  });
+
   it("serves discovered styles under the configured deploy base", () => {
     const html = "<html><head></head><body></body></html>";
 
