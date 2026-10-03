@@ -24,6 +24,7 @@ import {
   type Check,
 } from "./verification-helpers.js";
 import { detectAdapterTarget } from "./commands/preview.js";
+import { DEFAULT_DECLARATION_OUT } from "./commands/typegen.js";
 import {
   findWranglerConfig,
   readWranglerAssets,
@@ -1123,7 +1124,7 @@ export function collectTypeScriptConfigChecks(project: ProjectConfig, checks: Ch
     const configPath = resolve(project.root, name);
     if (!existsSync(configPath)) continue;
 
-    let config: { compilerOptions?: { moduleResolution?: unknown } };
+    let config: { compilerOptions?: { moduleResolution?: unknown }; include?: unknown };
     try {
       config = JSON.parse(
         stripJsonComments(readFileSync(configPath, "utf-8")).replace(/,(\s*[}\]])/g, "$1"),
@@ -1131,6 +1132,10 @@ export function collectTypeScriptConfigChecks(project: ProjectConfig, checks: Ch
     } catch {
       checks.push(createCheck("warning", `${name} exists but could not be parsed.`));
       continue;
+    }
+
+    if (name === "tsconfig.client.json") {
+      collectClientDeclarationCheck(project, config.include, checks);
     }
 
     const moduleResolution = config.compilerOptions?.moduleResolution;
@@ -1149,6 +1154,52 @@ export function collectTypeScriptConfigChecks(project: ProjectConfig, checks: Ch
       );
     }
   }
+}
+
+/**
+ * Apps scaffolded before `tsconfig.client.json` included `src/**\/*.d.ts` keep
+ * `pracht typegen`'s declarations out of the client program: typed
+ * `useRouteData()` collapses to `unknown` and `<Link route>` takes any string,
+ * with nothing failing. Only an `include` the file itself lists is checked;
+ * an inherited one cannot be read here.
+ */
+function collectClientDeclarationCheck(
+  project: ProjectConfig,
+  include: unknown,
+  checks: Check[],
+): void {
+  const declaration = DEFAULT_DECLARATION_OUT;
+  if (!Array.isArray(include) || !existsSync(resolve(project.root, declaration))) return;
+  const patterns = include.filter((entry): entry is string => typeof entry === "string");
+  if (patterns.some((pattern) => tsconfigIncludeMatches(pattern, declaration))) return;
+  checks.push(
+    createCheck(
+      "warning",
+      `tsconfig.client.json does not include ${declaration}, so the client typecheck sees untyped ` +
+        'route data and accepts any route id. Add "src/**/*.d.ts" to its "include".',
+    ),
+  );
+}
+
+/** Whether a tsconfig `include` pattern matches a project-relative file path. */
+export function tsconfigIncludeMatches(pattern: string, file: string): boolean {
+  let normalized = pattern.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+  const last = normalized.slice(normalized.lastIndexOf("/") + 1);
+  // TypeScript reads a last segment with neither a wildcard nor an extension
+  // as a directory, and a trailing `**` as every file below it.
+  if (last === "**") normalized += "/*";
+  else if (!/[*?]/.test(last) && !last.includes(".")) normalized += "/**/*";
+  let source = "";
+  for (let index = 0; index < normalized.length; index++) {
+    const char = normalized[index];
+    if (normalized.startsWith("**/", index)) {
+      source += "(?:[^/]+/)*";
+      index += 2;
+    } else if (char === "*") source += "[^/]*";
+    else if (char === "?") source += "[^/]";
+    else source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`).test(file);
 }
 
 export function collectBudgetChecks(project: ProjectConfig, checks: Check[]): void {

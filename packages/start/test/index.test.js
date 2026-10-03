@@ -225,7 +225,8 @@ describe("create-pracht", () => {
         "include": [
           "src/routes/**/*",
           "src/shells/**/*",
-          "src/islands/**/*"
+          "src/islands/**/*",
+          "src/**/*.d.ts"
         ]
       }
       "
@@ -333,6 +334,100 @@ describe("create-pracht", () => {
       "Module '\"@pracht/core\"' has no exported member 'handlePrachtRequest'",
     );
     expect(clientResult.stdout).not.toContain("@pracht/core/server");
+  });
+
+  it("applies src declaration files to the client typecheck in both routers", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-client-dts-"));
+    const tscPath = fileURLToPath(
+      new URL("../../../node_modules/typescript/bin/tsc", import.meta.url),
+    );
+
+    for (const router of ["manifest", "pages"]) {
+      const targetDir = join(root, `app-${router}`);
+      await scaffoldProject({
+        adapter: NODE_ADAPTER,
+        agentTools: false,
+        packageManager: "pnpm",
+        resolveRemoteVersions: false,
+        router,
+        targetDir,
+      });
+
+      // `pracht typegen` output and `Register` augmentations live in
+      // `src/*.d.ts`. A minimal stand-in for `@pracht/core` keeps this about
+      // which files the client program includes, not the real declarations.
+      await rm(join(targetDir, "src"), { force: true, recursive: true });
+      await rm(join(targetDir, "vite.config.ts"), { force: true });
+      const routeDir = router === "pages" ? "src/pages" : "src/routes";
+      await mkdir(join(targetDir, routeDir), { recursive: true });
+      await writeFile(
+        join(targetDir, "src/pracht.d.ts"),
+        [
+          'import "@pracht/core";',
+          'declare module "@pracht/core" {',
+          "  interface Register {",
+          "    routes: { home: { ok: true } };",
+          "  }",
+          "}",
+          "",
+        ].join("\n"),
+      );
+      await writeFile(
+        join(targetDir, routeDir, "home.ts"),
+        [
+          'import { useRouteData } from "@pracht/core";',
+          'const ok: true = useRouteData("home").ok;',
+          "void ok;",
+          "// @ts-expect-error unknown route ids are rejected",
+          'useRouteData("nope");',
+          "",
+        ].join("\n"),
+      );
+
+      const coreDir = join(targetDir, "node_modules/@pracht/core");
+      await mkdir(coreDir, { recursive: true });
+      await writeFile(
+        join(coreDir, "package.json"),
+        JSON.stringify({
+          name: "@pracht/core",
+          type: "module",
+          exports: { ".": { browser: { types: "./index.d.ts" }, types: "./index.d.ts" } },
+        }),
+      );
+      await writeFile(
+        join(coreDir, "index.d.ts"),
+        [
+          "export interface Register {}",
+          "type Routes = Register extends { routes: infer R } ? R : Record<string, unknown>;",
+          "export declare function useRouteData<K extends keyof Routes>(id: K): Routes[K];",
+          "",
+        ].join("\n"),
+      );
+      for (const [packageName, subpath] of [
+        ["vite", "client"],
+        ["@pracht/vite-plugin", "virtual"],
+      ]) {
+        const packageDir = join(targetDir, "node_modules", packageName);
+        await mkdir(packageDir, { recursive: true });
+        await writeFile(
+          join(packageDir, "package.json"),
+          JSON.stringify({
+            name: packageName,
+            type: "module",
+            exports: { [`./${subpath}`]: { types: `./${subpath}.d.ts` } },
+          }),
+        );
+        await writeFile(join(packageDir, `${subpath}.d.ts`), "export {};\n");
+      }
+
+      const clientResult = spawnSync(
+        process.execPath,
+        [tscPath, "--project", "tsconfig.client.json", "--pretty", "false"],
+        { cwd: targetDir, encoding: "utf-8" },
+      );
+      expect(clientResult.stdout, router).toBe("");
+      expect(clientResult.status, router).toBe(0);
+    }
   });
 
   it("scaffolds a cloudflare starter", async () => {
@@ -723,7 +818,7 @@ describe("create-pracht", () => {
     expect(clientTsconfig).toEqual({
       extends: "./tsconfig.json",
       compilerOptions: { customConditions: ["browser"] },
-      include: ["src/pages/**/*", "src/islands/**/*"],
+      include: ["src/pages/**/*", "src/islands/**/*", "src/**/*.d.ts"],
       exclude: ["src/pages/**/_app.config.*", "src/pages/**/_middleware.*"],
     });
   });

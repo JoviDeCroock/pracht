@@ -253,6 +253,43 @@ export const middleware: MiddlewareFn = async (_args, next) => {
     expect(report.checks.some((check) => check.message.includes("moduleResolution"))).toBe(false);
   });
 
+  it("warns when the client tsconfig leaves out the generated route types", () => {
+    const appDir = createTempDir("pracht-cli-doctor-client-dts-");
+    writeManifestApp(appDir);
+    writeProjectFile(appDir, "src/pracht.d.ts", "export {};\n");
+    // The include list create-pracht scaffolded before it covered `src/**/*.d.ts`.
+    writeProjectFile(
+      appDir,
+      "tsconfig.client.json",
+      `{ "extends": "./tsconfig.json", "include": ["src/routes/**/*", "src/shells/**/*", "src/islands/**/*"] }\n`,
+    );
+
+    const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    const warning = report.checks.find((check) => check.message.includes("src/pracht.d.ts"));
+
+    expect(report.ok).toBe(true);
+    expect(warning?.status).toBe("warning");
+    expect(warning?.message).toContain('"src/**/*.d.ts"');
+  });
+
+  it.each([["src/**/*.d.ts"], ["src"], ["./src/**/*"], ["src/*.d.ts"], ["src/pracht.d.ts"]])(
+    "accepts a client tsconfig include of %s for the generated route types",
+    (pattern) => {
+      const appDir = createTempDir("pracht-cli-doctor-client-dts-ok-");
+      writeManifestApp(appDir);
+      writeProjectFile(appDir, "src/pracht.d.ts", "export {};\n");
+      writeProjectFile(
+        appDir,
+        "tsconfig.client.json",
+        JSON.stringify({ extends: "./tsconfig.json", include: ["src/routes/**/*", pattern] }),
+      );
+
+      const report = JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+
+      expect(report.checks.some((check) => check.message.includes("src/pracht.d.ts"))).toBe(false);
+    },
+  );
+
   it("reports blocking doctor failures for broken manifest references", () => {
     const appDir = createTempDir("pracht-cli-doctor-bad-");
     writeManifestApp(appDir, {

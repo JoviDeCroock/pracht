@@ -1188,10 +1188,13 @@ function createClientTSConfig(router) {
     compilerOptions: {
       customConditions: ["browser"],
     },
+    // Declaration files carry the generated route/capability types and the
+    // app's `Register` augmentations; without them the client program sees
+    // `useRouteData()` as `unknown` and accepts any `<Link route>`.
     include:
       router === "pages"
-        ? ["src/pages/**/*", "src/islands/**/*"]
-        : ["src/routes/**/*", "src/shells/**/*", "src/islands/**/*"],
+        ? ["src/pages/**/*", "src/islands/**/*", "src/**/*.d.ts"]
+        : ["src/routes/**/*", "src/shells/**/*", "src/islands/**/*", "src/**/*.d.ts"],
   };
 
   // Pages route modules are shared with the browser, but these two convention
