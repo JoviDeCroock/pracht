@@ -174,7 +174,7 @@ page that cannot be swapped, and a response that is not an islands page, such
 as a plain-text error or a file download.
 
 The comparison fails closed. On a server running pracht, each page states
-which headers pracht set and the browser checks them against the headers that
+which headers it was sent with, including any your middleware changed, and the browser checks them against the headers that
 arrived. On static output, the browser asks the host which headers it sends
 for the page you started on and swaps in only pages that arrive with the same,
 so it works on any static file host. A route that answers with different

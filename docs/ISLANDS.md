@@ -258,7 +258,11 @@ runtime-page.ts writes it), and every head node the server renders carries
   `permissions-policy`, `referrer-policy`, `document-policy`,
   `document-isolation-policy`, `integrity-policy`, `origin-agent-cluster`) of
   the response this document is about to be sent with (`htmlResponseHeaders()`,
-  the same function `htmlResponse()` uses). Static output
+  the same function `htmlResponse()` uses). Middleware runs around the render
+  and may change those headers after `next()`, so `renderPage()` checks the
+  stated fingerprint against the headers of the response that leaves
+  (`withSentNavigationPolicy()`) and, when they differ, rewrites it in the body
+  — or drops `#pracht-nav` when they now carry a nonce. Static output
   (`IS_STATIC_TARGET`) omits it: no pracht server will send that file.
 - `data-pracht-owned` marks what a swap may remove. Nodes a script inserted —
   a theme style, a tag manager, Vite's dev CSS — are never touched.
@@ -306,7 +310,7 @@ exactly the same headers. The live document's response headers are not
 readable; the fetched response's are. There are two ways to know the first:
 
 - *Server-rendered pages* (`p` present): the page says which headers pracht
-  set. A fetched page is swapped in only when `policyFingerprint(response.headers)`
+  sent, middleware changes included. A fetched page is swapped in only when `policyFingerprint(response.headers)`
   equals the live `p` and the page's own `p` does too — the server meant the
   same policy for both pages, and nothing between it and the browser changed
   it. The residual assumption is a proxy that changes headers on the *initial*

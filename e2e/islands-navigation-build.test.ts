@@ -99,6 +99,16 @@ export function headers() { return { "content-security-policy": "script-src 'sel
 export function Component() {
   return <section><h1>CSP</h1><div dangerouslySetInnerHTML={{ __html: "<script>window.cspBypassed = true<\\/script>" }} /></section>;
 }`,
+  "src/routes/lab/relaxed.tsx": `export function head() { return { title: "Relaxed" }; }
+export function headers() { return { "content-security-policy": "script-src 'self'" }; }
+export function Component() { return <section><h1>Relaxed</h1></section>; }`,
+  // Loosens the CSP the page set, after it was rendered.
+  "src/middleware/lab-relax.ts": `import type { MiddlewareFn } from "@pracht/core";
+export const middleware: MiddlewareFn = async (_args, next) => {
+  const response = await next();
+  response.headers.set("content-security-policy", "script-src 'self' 'unsafe-inline'");
+  return response;
+};`,
   "src/routes/lab/deny.tsx": `export function head() { return { title: "Deny" }; }
 export function headers() { return { "x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'" }; }
 export function Component() { return <section><h1>Deny</h1><button id="danger">Delete account</button></section>; }`,
@@ -162,6 +172,7 @@ ${LAB_PAGES.map(
   (page) =>
     `      route("/lab/${page}", () => import("./routes/lab/${page === "deep/target" ? "target" : page}.tsx")),`,
 ).join("\n")}
+      route("/lab/relaxed", () => import("./routes/lab/relaxed.tsx"), { middleware: ["labRelax"] }),
       route("/lab/files/*", () => import("./routes/lab/files.tsx")),
       route("/lab/p/:slug", () => import("./routes/lab/param.tsx")),
     ]),
@@ -201,9 +212,14 @@ test.describe.serial("islands navigation", () => {
       .replace(
         'guide: () => import("./shells/guide.tsx"),',
         'guide: () => import("./shells/guide.tsx"),\n    lab: () => import("./shells/lab.tsx"),',
+      )
+      .replace(
+        "viewTransitions: true,",
+        'viewTransitions: true,\n  middleware: { labRelax: "./middleware/lab-relax.ts" },',
       );
     expect(routes).toContain('route("/lab/a"');
     expect(routes).toContain("lab: () =>");
+    expect(routes).toContain("labRelax");
     writeFileSync(routesPath, routes);
     for (const [path, source] of Object.entries(LAB_FILES)) {
       mkdirSync(dirname(resolve(exampleDir, path)), { recursive: true });
@@ -435,6 +451,18 @@ test.describe.serial("islands navigation", () => {
   test("only swaps pages with the document's own policy", async ({ page, browser }) => {
     // A page with a different CSP is loaded, so its CSP applies.
     await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    await clickInPlace(page, "#go-csp");
+    await expect(page.locator("h1")).toHaveText("CSP");
+    expect(await sameDocument(page)).toBeUndefined();
+    expect(await page.evaluate(() => (window as { cspBypassed?: boolean }).cspBypassed)).toBe(
+      undefined,
+    );
+
+    // Middleware that changed the policy after the render: the page states
+    // the policy it was really sent with, so a stricter page is loaded.
+    await page.goto(`${origin}/lab/relaxed`);
     await hydrated(page);
     await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
     await clickInPlace(page, "#go-csp");
