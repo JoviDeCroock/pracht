@@ -11,7 +11,7 @@
  * In pages mode the synthesized manifest carries `root` for a pages-root
  * `_root.{ts,tsx,js,jsx}`, so both routers go through the same reader.
  */
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
 import { extractDefineAppObjectBody, maskCommentsAndStrings } from "@pracht/capabilities/static";
@@ -88,10 +88,11 @@ export function findAppRootModule(
   const absolute = ref.startsWith("/")
     ? resolve(root, ref.slice(1))
     : resolve(appManifestDir(resolved, root), ref);
-  if (!existsSync(absolute)) {
+  if (!existsSync(absolute) || statSync(absolute).isDirectory()) {
     throw new Error(
-      `[pracht] defineApp({ root }) names ${JSON.stringify(ref)}, but ${absolute} does not exist. ` +
-        "Write the path with its extension, relative to the app manifest.",
+      `[pracht] defineApp({ root }) names ${JSON.stringify(ref)}, but ${absolute} ` +
+        `${existsSync(absolute) ? "is a directory" : "does not exist"}. ` +
+        "Write the path to the root module with its extension, relative to the app manifest.",
     );
   }
   return { ref, id: `/${relative(root, absolute).replace(/\\/g, "/")}` };

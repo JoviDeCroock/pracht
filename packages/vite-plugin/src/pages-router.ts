@@ -164,12 +164,26 @@ export function findPagesMiddlewareFile(
  * `_middleware`.
  */
 export function findPagesRootFile(pagesDir: string): string | null {
-  const roots = scanAllFiles(pagesDir).filter(
-    (file) =>
-      basename(file, extname(file)) === "_root" &&
-      MIDDLEWARE_EXTENSIONS.has(extname(file)) &&
-      !relative(pagesDir, file).replace(/\\/g, "/").includes("/"),
+  const named = scanAllFiles(pagesDir).filter(
+    (file) => basename(file, extname(file)) === "_root" && MIDDLEWARE_EXTENSIONS.has(extname(file)),
   );
+  const segmentsOf = (file: string) => relative(pagesDir, file).replace(/\\/g, "/").split("/");
+  // A `_root` inside an underscore-reserved tree is a deliberate helper.
+  const nested = named
+    .map(segmentsOf)
+    .filter(
+      (segments) =>
+        segments.length > 1 && !segments.slice(0, -1).some((segment) => segment.startsWith("_")),
+    );
+  if (nested.length > 0) {
+    throw new Error(
+      `[pracht] Nested pages app roots are not supported: ${nested
+        .map((segments) => JSON.stringify(segments.join("/")))
+        .join(", ")}. ` +
+        "The app root is app-wide, so only a root-level `_root.tsx` in the pages directory is read.",
+    );
+  }
+  const roots = named.filter((file) => segmentsOf(file).length === 1);
   if (roots.length > 1) {
     throw new Error(
       `[pracht] Multiple pages app roots resolve to the same registration: ${roots

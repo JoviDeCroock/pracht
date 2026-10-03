@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createPrachtRegistryModuleSource } from "../src/index.ts";
 import { createPrachtClientModuleSource } from "../src/plugin-codegen.ts";
+import { findPagesRootFile } from "../src/pages-router.ts";
 import { findAppRootModule } from "../src/plugin-app-root.ts";
 
 const roots: string[] = [];
@@ -86,6 +87,12 @@ describe("app root codegen", () => {
 
     const missing = project({ "src/routes.ts": manifest('  root: "./root.tsx",') });
     expect(() => findAppRootModule({}, missing)).toThrow(/does not exist/);
+
+    const directory = project({
+      "src/routes.ts": manifest('  root: "./routes",'),
+      "src/routes/home.tsx": "export default function Home() { return null; }\n",
+    });
+    expect(() => findAppRootModule({}, directory)).toThrow(/is a directory/);
   });
 
   it("reads only the top-level root key", () => {
@@ -115,5 +122,17 @@ describe("app root codegen", () => {
       ref: "/src/pages/_root.tsx",
       id: "/src/pages/_root.tsx",
     });
+  });
+
+  it("refuses a pages app root below the pages root", () => {
+    const root = project({
+      "src/pages/index.tsx": "export default function Home() { return null; }\n",
+      "src/pages/blog/_root.tsx": ROOT_SOURCE,
+      "src/pages/_lib/_root.tsx": ROOT_SOURCE,
+    });
+
+    expect(() => findPagesRootFile(join(root, "src/pages"))).toThrow(
+      'Nested pages app roots are not supported: "blog/_root.tsx".',
+    );
   });
 });
