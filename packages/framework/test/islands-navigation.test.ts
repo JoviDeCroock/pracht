@@ -3,9 +3,9 @@ import { h, hydrate } from "preact";
 import { useLayoutEffect } from "preact/hooks";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { canSwapDocument, isSwappableRoute, prepareSwap } from "../src/islands-navigation.ts";
+import { canSwapDocument, matchRoute, prepareSwap } from "../src/islands-navigation.ts";
 import { policyFingerprint } from "../src/islands-shared.ts";
-import { islandsNavigationRoutes } from "../src/islands-server.ts";
+import { islandsNavigationRoutes, patternsOverlap } from "../src/islands-server.ts";
 import { resolveApp, route, defineApp } from "../src/index.ts";
 
 const OWN = "data-pracht-owned";
@@ -56,41 +56,58 @@ describe("canSwapDocument", () => {
   });
 });
 
-describe("isSwappableRoute", () => {
+describe("matchRoute", () => {
   const at = (path: string) => `http://localhost:3000${path}`;
+  const swappable = (table: string[], href: string) => matchRoute(table, href)?.[0] === "+";
 
   it("matches the server's way: first match wins, API routes first", () => {
     const table = ["-/api/*", "+/", "+/blog/:slug", "-/blog/:slug/edit", "+/docs/*"];
-    expect(isSwappableRoute(table, at("/"))).toBe(true);
-    expect(isSwappableRoute(table, at("/blog/hello"))).toBe(true);
-    expect(isSwappableRoute(table, at("/blog/hello/"))).toBe(true);
-    expect(isSwappableRoute(table, at("/blog/hello/edit"))).toBe(false);
-    expect(isSwappableRoute(table, at("/blog"))).toBe(false);
-    expect(isSwappableRoute(table, at("/docs"))).toBe(true);
-    expect(isSwappableRoute(table, at("/docs/a/b"))).toBe(true);
-    expect(isSwappableRoute(table, at("/api/docs"))).toBe(false);
-    expect(isSwappableRoute(table, at("/unknown"))).toBe(false);
-    expect(isSwappableRoute(table, "https://elsewhere.example/blog/hello")).toBe(false);
+    expect(swappable(table, at("/"))).toBe(true);
+    expect(matchRoute(table, at("/blog/hello"))).toBe("+/blog/:slug");
+    expect(swappable(table, at("/blog/hello/"))).toBe(true);
+    expect(matchRoute(table, at("/blog/hello/edit"))).toBe("-/blog/:slug/edit");
+    expect(matchRoute(table, at("/blog"))).toBeUndefined();
+    expect(swappable(table, at("/docs"))).toBe(true);
+    expect(swappable(table, at("/docs/a/b"))).toBe(true);
+    expect(swappable(table, at("/api/docs"))).toBe(false);
+    expect(matchRoute(table, at("/unknown"))).toBeUndefined();
+    expect(matchRoute(table, "https://elsewhere.example/blog/hello")).toBeUndefined();
   });
 
   it("does not match a segment the server could not decode", () => {
-    expect(isSwappableRoute(["+/blog/:slug"], at("/blog/%E0%A4%A"))).toBe(false);
+    expect(matchRoute(["+/blog/:slug"], at("/blog/%E0%A4%A"))).toBeUndefined();
+    expect(matchRoute(["+/docs/*"], at("/docs/a/%E0%A4%A"))).toBeUndefined();
   });
+});
 
-  it("is built from the resolved app, stopping at the last swappable route", () => {
+describe("islandsNavigationRoutes", () => {
+  it("lists swappable routes and only the routes that could shadow one", () => {
     const app = resolveApp(
       defineApp({
         routes: [
           route("/full", "./full.tsx"),
-          route("/guide", "./guide.tsx", { hydration: "islands" }),
+          route("/blog/drafts", "./drafts.tsx"),
+          route("/blog/:slug", "./post.tsx", { hydration: "islands" }),
           route("/static", "./static.tsx", { hydration: "none", render: "ssg" }),
           route("/dash", "./dash.tsx", { render: "spa" }),
         ],
       }),
     );
-    expect(islandsNavigationRoutes(app, [{ path: "/api/hello", file: "x", segments: [] }])).toEqual(
-      ["-/api/hello", "-/full", "+/guide", "+/static"],
-    );
+    expect(
+      islandsNavigationRoutes(app, [
+        { path: "/api/hello", file: "x", segments: [] },
+        { path: "/api/*", file: "y", segments: [] },
+      ]),
+    ).toEqual(["-/blog/drafts", "+/blog/:slug", "+/static"]);
+  });
+
+  it("decides overlap segment by segment", () => {
+    expect(patternsOverlap("-/a/:id", "+/a/b")).toBe(true);
+    expect(patternsOverlap("-/a/b", "+/a/c")).toBe(false);
+    expect(patternsOverlap("-/a", "+/a/b")).toBe(false);
+    expect(patternsOverlap("-/*", "+/a/b")).toBe(true);
+    expect(patternsOverlap("-/a/b/c", "+/a/:rest*")).toBe(true);
+    expect(patternsOverlap("-/", "+/")).toBe(true);
   });
 });
 

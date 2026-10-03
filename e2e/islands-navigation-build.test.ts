@@ -32,6 +32,11 @@ const LAB_PAGES = [
   "colored",
   "metacsp",
   "deep/target",
+  "nonce",
+  "refresh",
+  "referrer",
+  "tt",
+  "tt2",
 ];
 
 const LAB_FILES: Record<string, string> = {
@@ -46,6 +51,8 @@ export function Shell({ children }: ShellProps) {
         <a href="/lab-full" id="go-full">full</a>
         <a href="/api/lab-api" id="go-api">api</a>
         <a href="/lab/b" id="go-b-reload" data-pracht-reload>reload b</a>
+        <a href="/lab/files/report.zip" id="go-zip">zip</a>
+        <a href="/lab/p/%E0%A4%A" id="go-undecodable">undecodable</a>
       </nav>
       <ShellCounter />
       <main>{children}</main>
@@ -123,6 +130,22 @@ export function Component() { return <section><h1>MetaCSP</h1></section>; }`,
   "src/routes/lab/full.tsx": `const g = globalThis as { fullRenders?: number };
 export function loader() { g.fullRenders = (g.fullRenders ?? 0) + 1; return { n: g.fullRenders }; }
 export function Component({ data }: { data: { n: number } }) { return <section><h1>Full</h1><p id="n">{data.n}</p></section>; }`,
+  "src/routes/lab/nonce.tsx": `export function head() { return { title: "Nonce" }; }
+export function headers() { return { "content-security-policy": "script-src 'self' 'nonce-abc123'" }; }
+export function Component() { return <section><h1>Nonce</h1></section>; }`,
+  "src/routes/lab/refresh.tsx": `export function head() { return { title: "Refresh", meta: [{ "http-equiv": "refresh", content: "600" }] }; }
+export function Component() { return <section><h1>Refresh</h1></section>; }`,
+  "src/routes/lab/referrer.tsx": `export function head() { return { title: "Referrer", meta: [{ name: "referrer", content: "no-referrer" }] }; }
+export function Component() { return <section><h1>Referrer</h1></section>; }`,
+  "src/routes/lab/tt.tsx": `export function head() { return { title: "TT" }; }
+export function headers() { return { "content-security-policy": "require-trusted-types-for 'script'" }; }
+export function Component() { return <section><h1>TT</h1></section>; }`,
+  "src/routes/lab/tt2.tsx": `export function head() { return { title: "TT2" }; }
+export function headers() { return { "content-security-policy": "require-trusted-types-for 'script'" }; }
+export function Component() { return <section><h1>TT2</h1></section>; }`,
+  "src/routes/lab/files.tsx": `export function Component() { return <section><h1>Files</h1></section>; }`,
+  "src/routes/lab/param.tsx": `export function Component() { return <section><h1>Param</h1></section>; }`,
+  "public/lab/files/report.zip": "PK not really a zip",
   "src/api/lab-api.ts": `export function GET() { return new Response("{}", { headers: { "content-type": "application/json" } }); }`,
   "public/lab-lib.js": "window.libRuns=(window.libRuns||0)+1;window.LIB=1;",
   "public/lab-pixel.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
@@ -139,6 +162,8 @@ ${LAB_PAGES.map(
   (page) =>
     `      route("/lab/${page}", () => import("./routes/lab/${page === "deep/target" ? "target" : page}.tsx")),`,
 ).join("\n")}
+      route("/lab/files/*", () => import("./routes/lab/files.tsx")),
+      route("/lab/p/:slug", () => import("./routes/lab/param.tsx")),
     ]),
     group({ shell: "lab", render: "ssr" }, [
       route("/lab-full", () => import("./routes/lab/full.tsx")),
@@ -415,10 +440,11 @@ test.describe.serial("islands navigation", () => {
           console.log(`fallback state ${JSON.stringify(event.destination.getState())}`);
         }
       });
-      navigation.navigate("/lab/csp", { state: { from: "app" } });
+      // A route not yet visited this session: a visited one is no longer fetched.
+      navigation.navigate("/lab/deny", { state: { from: "app" } });
     });
     expect((await fallbackState).text()).toBe('fallback state {"from":"app"}');
-    await expect(page.locator("h1")).toHaveText("CSP");
+    await expect(page.locator("h1")).toHaveText("Deny");
 
     // A meta CSP stays in force for a document's whole life: such a page is
     // loaded, and a document that has one never swaps.
@@ -468,9 +494,11 @@ test.describe.serial("islands navigation", () => {
     await framer.close();
   });
 
-  test("fails closed, once, behind a host that changes policy headers", async ({ page }) => {
-    // A static host or CDN that drops a header pracht set: the policy a
-    // document really runs under can no longer be proven from its meta data.
+  test("fails closed, once per route, behind a proxy that changes policy headers", async ({
+    page,
+  }) => {
+    // A proxy in front of the server that drops a header pracht set: the
+    // policy a document really runs under can no longer be proven.
     await page.route(`${origin}/lab/**`, async (route) => {
       const response = await route.fetch();
       const headers = { ...response.headers() };
@@ -491,14 +519,107 @@ test.describe.serial("islands navigation", () => {
       "document /lab/b",
     ]);
 
-    // Only the first link pays for finding out: the rest of the tab's session
-    // loads pages without fetching them first.
-    await page.waitForLoadState();
-    requests.length = 0;
+    // Each route pays once to find out; for the rest of the tab's session it
+    // loads without being fetched first.
+    await hydrated(page);
     await clickInPlace(page, "#go-a");
     await expect(page.locator("h1")).toHaveText("A");
-    expect(requests.filter((r) => r.includes("/lab/a"))).toEqual(["document /lab/a"]);
+    await hydrated(page);
+    requests.length = 0;
+    await clickInPlace(page, "#go-b");
+    await expect(page.locator("h1")).toHaveText("B");
+    expect(requests.filter((r) => r.includes("/lab/b"))).toEqual(["document /lab/b"]);
     await page.unroute(`${origin}/lab/**`);
+  });
+
+  test("never fetches a page twice for its policy", async ({ page, request }) => {
+    // A nonce changes with every response, so a nonce page never takes part.
+    const html = await (await request.get(`${origin}/lab/nonce`)).text();
+    expect(html).not.toContain('id="pracht-nav"');
+    expect(html).not.toContain("data-pracht-owned");
+
+    const requests = recordRequests(page);
+    const visitNonce = async () => {
+      await page.goto(`${origin}/lab/a`);
+      await hydrated(page);
+      requests.length = 0;
+      await clickInPlace(page, "#go-nonce");
+      await expect(page.locator("h1")).toHaveText("Nonce");
+      return requests.filter((r) => r.includes("/lab/nonce"));
+    };
+    // The first visit learns from the headers alone that the policy differs…
+    expect(await visitNonce()).toEqual(["fetch /lab/nonce", "document /lab/nonce"]);
+    // …and the route is not fetched again this session.
+    expect(await visitNonce()).toEqual(["document /lab/nonce"]);
+  });
+
+  test("loads pages with document-level meta, and leaves downloads alone", async ({ page }) => {
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    for (const [link, heading] of [
+      ["#go-refresh", "Refresh"],
+      ["#go-referrer", "Referrer"],
+    ]) {
+      await page.goto(`${origin}/lab/a`);
+      await hydrated(page);
+      await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+      await clickInPlace(page, link);
+      await expect(page.locator("h1")).toHaveText(heading);
+      expect(await sameDocument(page)).toBeUndefined();
+    }
+
+    // A file under an islands catch-all route downloads; the page and its
+    // address stay as they were.
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    const download = page.waitForEvent("download");
+    await clickInPlace(page, "#go-zip");
+    expect((await download).suggestedFilename()).toBe("report.zip");
+    await page.waitForTimeout(300);
+    expect(await sameDocument(page)).toBe("first document");
+    expect(page.url()).toBe(`${origin}/lab/a`);
+    expect(await page.evaluate(() => navigation.currentEntry?.url)).toBe(`${origin}/lab/a`);
+  });
+
+  test("puts the address back before a download where it cannot wait to commit", async ({
+    page,
+  }) => {
+    // A browser without `precommitHandler` commits the address at once.
+    await page.addInitScript(() => {
+      delete (globalThis as { NavigationPrecommitController?: unknown })
+        .NavigationPrecommitController;
+    });
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    const download = page.waitForEvent("download");
+    await clickInPlace(page, "#go-zip");
+    await download;
+    await page.waitForTimeout(300);
+    expect(await sameDocument(page)).toBe("first document");
+    expect(await page.evaluate(() => navigation.currentEntry?.url)).toBe(`${origin}/lab/a`);
+  });
+
+  test("stays out of the way where it cannot work", async ({ page }) => {
+    const requests = recordRequests(page);
+
+    // Trusted Types that refuse string HTML: plain navigation, nothing fetched.
+    await page.goto(`${origin}/lab/tt`);
+    await page.waitForLoadState();
+    requests.length = 0;
+    await clickInPlace(page, "#go-tt2");
+    await expect(page.locator("h1")).toHaveText("TT2");
+    expect(requests.filter((r) => r.includes("/lab/tt2"))).toEqual(["document /lab/tt2"]);
+
+    // A segment the server could not decode matches no route (checked against
+    // the built bootstrap, where a minifier once dropped the decode).
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    requests.length = 0;
+    await clickInPlace(page, "#go-undecodable");
+    await page.waitForURL(`${origin}/lab/p/%E0%A4%A`);
+    expect(requests.filter((r) => r.includes("/lab/p/"))).toEqual(["document /lab/p/%E0%A4%A"]);
   });
 
   test("reproduces what a page load would", async ({ page }) => {

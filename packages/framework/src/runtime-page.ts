@@ -85,6 +85,7 @@ import type {
   BaseRouteArgs,
   HeadMetadata,
   LoaderArgs,
+  ResolvedApiRoute,
   ResolvedPrachtApp,
   RouteMatch,
   RouteModule,
@@ -102,6 +103,32 @@ const RICH_ROUTE_DATA =
 declare const __PRACHT_ISLANDS_NAVIGATION__: boolean | undefined;
 const ISLANDS_NAVIGATION =
   typeof __PRACHT_ISLANDS_NAVIGATION__ !== "undefined" && __PRACHT_ISLANDS_NAVIGATION__ === true;
+
+/**
+ * `client.islandsNavigation` data for an islands or `none` document (see
+ * `ISLANDS_NAVIGATION_DATA_ID`), or undefined when the page must not take part.
+ */
+function islandsNavigationData(
+  ctx: { resolvedApp: ResolvedPrachtApp; options: { apiRoutes?: ResolvedApiRoute[] } },
+  hydration: string,
+  documentHeaders: Headers,
+): string | undefined {
+  const headers = htmlResponseHeaders(documentHeaders);
+  // A per-response nonce never matches the next page's policy, so such a page
+  // would be fetched only to be loaded again.
+  const csp = `${headers.get("content-security-policy")} ${headers.get("content-security-policy-report-only")}`;
+  if (/'nonce-/i.test(csp)) return undefined;
+  const data: { p?: string; r?: string[] } = {};
+  // Static output is served by a host pracht never sees, so the browser
+  // measures that host's headers instead of trusting what was set here.
+  if (!IS_STATIC_TARGET) data.p = policyFingerprint(headers);
+  // Only the document a visit starts on reads the table, and that is never a
+  // `none` page: it loads no JavaScript.
+  if (hydration === "islands") {
+    data.r = islandsNavigationRoutes(ctx.resolvedApp, ctx.options.apiRoutes);
+  }
+  return serializeJsonForHtml(data);
+}
 
 const BODY_REPRESENTATION_HEADERS = [
   "content-digest",
@@ -791,10 +818,7 @@ async function renderServerDocument<TContext>(
         // to carry; anything that changes them later (a host, a proxy) makes
         // the fetched response disagree, and the client falls back to a load.
         islandsNavigation: ISLANDS_NAVIGATION
-          ? serializeJsonForHtml({
-              p: policyFingerprint(htmlResponseHeaders(documentHeaders)),
-              r: islandsNavigationRoutes(ctx.resolvedApp, ctx.options.apiRoutes),
-            })
+          ? islandsNavigationData(ctx, hydration, documentHeaders)
           : undefined,
       }),
       pageOptions.status,

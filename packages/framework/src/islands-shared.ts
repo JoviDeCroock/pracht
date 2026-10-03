@@ -38,10 +38,14 @@ export const ISLAND_STRATEGIES = ["load", "idle", "visible"] as const;
  * carries with islands navigation on: `{ "p": policy, "r": routes }`.
  *
  * - `p` is {@link policyFingerprint} of the security headers the server set on
- *   this response.
- * - `r` is the app's route table in the server's match order, API routes
- *   first: a route path prefixed `+` when a page there can be swapped in
- *   (`islands`/`none`), `-` otherwise. It stops at the last `+` entry.
+ *   this response. Static output has none: the browser fingerprints the
+ *   headers its host actually sends.
+ * - `r` (islands pages only) is the route table in the server's match order:
+ *   a route path prefixed `+` when a page there can be swapped in
+ *   (`islands`/`none`), `-` for an API or full-hydration route that could
+ *   shadow one. See `islandsNavigationRoutes()`.
+ *
+ * A page whose CSP carries a nonce has no data at all and never takes part.
  */
 export const ISLANDS_NAVIGATION_DATA_ID = "pracht-nav";
 
@@ -65,6 +69,8 @@ const POLICY_HEADERS = [
   "permissions-policy",
   "referrer-policy",
   "document-policy",
+  "document-isolation-policy",
+  "integrity-policy",
   "origin-agent-cluster",
 ];
 

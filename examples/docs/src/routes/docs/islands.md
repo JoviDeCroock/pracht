@@ -165,28 +165,37 @@ A swapped-in page runs under the security headers the document was first
 loaded with, so the bootstrap only swaps a page whose `Content-Security-Policy`,
 `X-Frame-Options`, `Permissions-Policy`, `Referrer-Policy`, and cross-origin
 isolation headers are exactly the same as the current page's. Otherwise you
-get a full page load, which applies that page's own headers. The same happens
-for a page with a `<meta http-equiv="Content-Security-Policy">`, a page from a
-newer deployment, a redirect to a page that cannot be swapped, and a response
-that is not an islands page, such as a plain-text error.
+get a full page load, which applies that page's own headers.
 
-The comparison fails closed. Pracht checks the headers it set against the
-headers that arrived, so a host that adds, removes, or changes any of them
-turns islands navigation off for the rest of the browser tab's session after
-the first link. Most static file hosts send none of the defaults pracht sets
-(`Permissions-Policy`, `Referrer-Policy`, `X-Frame-Options`), so configure the
-host to send the same values, as the Netlify adapter's
-[`_headers` file](/docs/adapters#caching-and-revalidation) does, to keep soft
-navigation there.
+The same happens for a page with a document-level `<meta>` (`http-equiv` such as a CSP or a
+refresh, or `name="referrer"`), a page from a newer deployment, a redirect to a
+page that cannot be swapped, and a response that is not an islands page, such
+as a plain-text error or a file download.
 
-Islands navigation also stays off inside an iframe, on a document that has a
-meta CSP, and in browsers without the
-[Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API).
+The comparison fails closed. On a server running pracht, each page states
+which headers pracht set and the browser checks them against the headers that
+arrived. On static output, the browser asks the host which headers it sends
+for the page you started on and swaps in only pages that arrive with the same,
+so it works on any static file host. A route that answers with different
+headers is fetched once, then loaded normally for the rest of the tab's
+session.
 
-The option adds about 3 KB gzip to the bootstrap and about 160 bytes gzip of
-route table to each islands page. Every islands page loads the bootstrap even
-when it renders no island. `hydration: "none"` pages still ship no JavaScript,
-so navigation from a page you landed on directly is a full page load.
+Pages whose CSP uses a nonce never take part: a nonce changes with every
+response, so no two such pages can share a policy. Islands navigation is off on
+those pages, and links to them are plain page loads.
+
+It also stays off inside an iframe, on a document with a document-level
+`<meta>`, under a Trusted Types policy that refuses HTML strings, in browsers
+without the
+[Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API),
+and on a static page the browser restored from its HTTP cache.
+
+The option adds about 3.4 KB gzip to the bootstrap. Each islands page carries
+the route table it decides with — the paths of your islands and `none` routes,
+plus API or full-hydration routes that could shadow one — at about 150 bytes
+gzip for 20 routes. Every islands page loads the bootstrap even when it renders
+no island. `hydration: "none"` pages still ship no JavaScript, so navigation
+from a page you landed on directly is a full page load.
 
 ---
 

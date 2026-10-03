@@ -1161,6 +1161,81 @@ export default broken;
 // islands routes, MPA navigation works from plain files.
 // ---------------------------------------------------------------------------
 
+// `client.islandsNavigation` on static output: no pracht server sets the
+// headers, so the bootstrap measures what this host sends for the page it
+// started on and swaps in pages that arrive with the same.
+test("islands navigation swaps pages served by a dumb static host", async ({ page }) => {
+  test.setTimeout(180_000);
+
+  const { exampleDir, tempDir } = createTempExampleDir(
+    islandsFixtureDir,
+    "pracht-static-islands-nav-",
+  );
+  let server: Server | undefined;
+
+  try {
+    const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+    writeFileSync(
+      viteConfigPath,
+      readFileSync(viteConfigPath, "utf-8")
+        .replace(
+          'import { nodeAdapter } from "@pracht/adapter-node";',
+          'import { staticAdapter } from "@pracht/adapter-static";',
+        )
+        .replace(
+          "pracht({ adapter: nodeAdapter() })",
+          "pracht({ adapter: staticAdapter(), client: { islandsNavigation: true } })",
+        ),
+      "utf-8",
+    );
+    const adapterLink = resolve(exampleDir, "node_modules/@pracht/adapter-static");
+    if (!existsSync(adapterLink)) {
+      cpSync(resolve(repoRoot, "packages/adapter-static"), adapterLink, { recursive: true });
+    }
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesPath,
+      readFileSync(routesPath, "utf-8").replaceAll('render: "ssr",', 'render: "ssg",'),
+      "utf-8",
+    );
+
+    buildExample(exampleDir);
+    const clientDir = resolve(exampleDir, "dist/client");
+    // Static output carries no server fingerprint: the host's headers decide.
+    const guideHtml = readFileSync(resolve(clientDir, "guide/index.html"), "utf-8");
+    expect(guideHtml).toMatch(/id="pracht-nav">\{"r":/);
+
+    server = (await startDumbStaticHost(clientDir)).server;
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const documents: string[] = [];
+    page.on("request", (request) => {
+      if (request.resourceType() === "document") documents.push(new URL(request.url()).pathname);
+    });
+
+    await page.goto(`${origin}/guide/`);
+    await page.waitForSelector('html[data-pracht-islands-hydrated="true"]', { state: "attached" });
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    await page.getByTestId("shell-increment").click();
+    // The baseline request is in flight from install; let it land.
+    await page.waitForTimeout(300);
+
+    // The host answers `/guide/next` with a redirect to `/guide/next/`.
+    await page.evaluate(() =>
+      document.querySelector<HTMLAnchorElement>('nav a[href="/guide/next"]')!.click(),
+    );
+    await expect(page.locator("h1")).toHaveText("Next page");
+    expect(await page.evaluate(() => (window as { marker?: string }).marker)).toBe(
+      "first document",
+    );
+    await expect(page).toHaveURL(`${origin}/guide/next/`);
+    await expect(page.getByTestId("shell-count")).toHaveText("1");
+    expect(documents).toEqual(["/guide/"]);
+  } finally {
+    await stopServer(server);
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
 test("islands example exports statically and hydrates islands from a dumb host", async ({
   page,
 }) => {

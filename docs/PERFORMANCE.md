@@ -159,7 +159,7 @@ than plain `JSON.stringify`. Off, the server does no extra work.
 `pracht({ client: { islandsNavigation: true } })` adds client-side navigation
 between islands pages to the islands bootstrap (see
 [ISLANDS.md](ISLANDS.md#client-side-navigation-clientislandsnavigation)). The
-ladder's `islands navigation on` rung measures it at 3,084 gzip bytes over the
+ladder's `islands navigation on` rung measures it at 3,448 gzip bytes over the
 `hydration: islands` rung, which stays byte-identical with the flag off:
 `islands-client.ts` reads the define itself and gates every addition behind it,
 including the scheduled-islands `WeakSet` the rescan after a swap needs.
@@ -168,10 +168,11 @@ inlines what it needs from `base.ts` and `runtime-constants.ts`: importing
 either splits a chunk shared with the client router out of the build (433 gzip
 bytes and a request for `base.ts`).
 
-Each islands or `none` document also carries the route table and policy
-fingerprint (`#pracht-nav`) and the `data-pracht-owned` head markers: measured
-at about 160 gzip bytes per document for a 22-route app. Off, documents are
-unchanged.
+Each islands document also carries the route table and policy fingerprint
+(`#pracht-nav`) and the `data-pracht-owned` head markers: measured at about 146
+gzip bytes for a 20-route app, and reported at about 350 for a 47-route one —
+the table grows with the routes it lists. A `none` document carries only the
+fingerprint and markers, about 55 bytes. Off, documents are unchanged.
 
 ## Composing with the app's chunking
 

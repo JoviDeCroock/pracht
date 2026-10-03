@@ -42,8 +42,8 @@ export interface IslandsNavigationOptions {
 
 /** What `ISLANDS_NAVIGATION_DATA_ID` holds; see islands-shared.ts. */
 interface NavigationData {
-  p: string;
-  r: string[];
+  p?: string;
+  r?: string[];
 }
 
 /** `info` carried by the fallback navigation so the listener lets it through. */
@@ -55,34 +55,75 @@ const FULL_LOAD = "pracht:full-load";
  */
 const REDIRECTED = "pracht:redirected";
 
-const META_CSP = 'meta[http-equiv="content-security-policy" i]';
-const HOST_POLICY_KEY = "pracht:host-policy";
+/**
+ * Document-level `<meta>` a swap cannot take back: a meta CSP stays in force
+ * for the document's life, a refresh keeps its timer, a referrer policy
+ * outlives its page. A document that has one never swaps, and a page that has
+ * one is loaded.
+ */
+const DOCUMENT_META = 'meta[http-equiv]:not([http-equiv="content-type" i]),meta[name="referrer" i]';
 
-function hostChangesPolicy(policy: string): boolean {
-  try {
-    return sessionStorage.getItem(HOST_POLICY_KEY) === policy;
-  } catch {
-    return false;
-  }
-}
+/** Route table entries known not to answer with a swappable page this session. */
+const SKIP_KEY = "pracht:nav-skip:";
+
 const OWNED = `[${ISLANDS_NAVIGATION_OWNED_ATTRIBUTE}]`;
 
 export function installIslandsNavigation(options: IslandsNavigationOptions): void {
   const navigation = (globalThis as { navigation?: Navigation }).navigation;
   const live = readNavigationData(document);
-  // The document's policy never changes after it loads, so it is the policy
-  // every swapped-in page has to match. A framed document never swaps: a page
-  // that refuses to be framed must get the chance to say so. A meta CSP stays
-  // in force for the life of the document, whatever page it shows.
+  const table = live?.r;
+  // A framed document never swaps: a page that refuses to be framed must get
+  // the chance to say so.
   if (
     !navigation ||
-    !live ||
+    !table ||
     window.top !== window ||
-    document.querySelector(META_CSP) ||
-    hostChangesPolicy(live.p)
+    document.querySelector(DOCUMENT_META) ||
+    !parsesHtml()
   ) {
     return;
   }
+
+  // The document's policy — its security headers — never changes after it
+  // loads, so every swapped-in page has to arrive with exactly the same ones.
+  // Pages a pracht server rendered say which headers it set; for static output
+  // the browser asks the host what it sends for this very page. A document the
+  // HTTP cache answered arrived with headers the host may no longer send.
+  let policy = live.p;
+  if (policy === undefined) {
+    const timing = performance.getEntriesByType("navigation")[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    if (!timing?.transferSize) return;
+    fetch(location.href, { method: "HEAD", cache: "no-store" }).then(
+      (response) => {
+        if (response.ok) policy = policyFingerprint(response.headers);
+      },
+      () => {},
+    );
+  }
+
+  const skipKey = SKIP_KEY + (live.p ?? "");
+  let skipped: string[] = [];
+  try {
+    skipped = JSON.parse(sessionStorage.getItem(skipKey) ?? "[]");
+  } catch {
+    // No storage: every route keeps being tried.
+  }
+  const skip = (href: string) => {
+    const entry = matchRoute(table, href);
+    if (!entry || skipped.includes(entry)) return;
+    skipped.push(entry);
+    try {
+      sessionStorage.setItem(skipKey, JSON.stringify(skipped));
+    } catch {
+      // Remembered for this document only.
+    }
+  };
+  const swappable = (href: string) => {
+    const entry = matchRoute(table, href);
+    return entry?.[0] === "+" && !skipped.includes(entry);
+  };
 
   const knownModuleScripts = new Set(scriptUrls(document, '[type="module"]'));
   // External classic scripts already run in this document never run again.
@@ -121,6 +162,7 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
     const reload = reloadHref === event.destination.url;
     reloadHref = undefined;
     if (
+      policy === undefined ||
       !event.canIntercept ||
       event.hashChange ||
       event.downloadRequest !== null ||
@@ -133,8 +175,9 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
     }
 
     const redirected = (event.info as { [REDIRECTED]?: Response } | undefined)?.[REDIRECTED];
+    const traverse = event.navigationType === "traverse";
     let page: number;
-    if (event.navigationType === "traverse") {
+    if (traverse) {
       const destinationPage = entryPages.get(event.destination.id);
       if (destinationPage === undefined || destinationPage === shownPage) return;
       page = destinationPage;
@@ -144,7 +187,7 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
       // browser has prerendered is faster to activate than to fetch again.
       if (
         event.destination.sameDocument ||
-        (!redirected && (!isSwappableRoute(live.r, event.destination.url) || isPrerendered(event)))
+        (!redirected && (!swappable(event.destination.url) || isPrerendered(event)))
       ) {
         return;
       }
@@ -153,120 +196,160 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
     }
 
     const url = new URL(event.destination.url);
-    event.intercept({
-      // Scrolled by hand with the swap below, not after the islands load.
-      scroll: "manual",
-      handler: async () => {
-        const signal = event.signal;
-        const state = event.destination.getState();
-        const fallBack = (to: URL, error?: unknown) => {
-          if (!signal.aborted) fullLoad(navigation, to, state, error);
-        };
+    const signal = event.signal;
+    const state = event.destination.getState();
+    // Where supported, the address commits only once the page is known to be
+    // swappable, so a fallback (a download, say) never leaves the wrong one
+    // behind. Elsewhere the committed address is put back first.
+    const precommit = !traverse && "NavigationPrecommitController" in globalThis;
+    const previous = navigation.currentEntry?.url;
+    let committed = false;
+    // Before the address commits, a fallback takes the navigation's own place
+    // in history; after, it replaces the entry the navigation made.
+    const historyMode = () =>
+      precommit && !committed && event.navigationType === "push" ? "push" : "replace";
+    const fallBack = (to: URL, error?: unknown) => {
+      if (signal.aborted) return;
+      pendingEntryPage = undefined;
+      if (error) {
+        console.error("[pracht] Islands navigation failed, loading the page instead:", error);
+      }
+      if (!precommit && !traverse && !committed && previous) {
+        history.replaceState(history.state, "", previous);
+      }
+      navigation.navigate(to.href, { history: historyMode(), info: FULL_LOAD, state });
+    };
 
-        let incoming: Document | null | false;
-        try {
-          const response =
-            redirected ??
-            (await fetch(url.href, {
-              // Back/forward should be as fast as the browser's own history cache.
-              cache: event.navigationType === "traverse" ? "force-cache" : "default",
-              signal,
-            }));
-          const servedFrom = new URL(response.url || url.href);
-          servedFrom.hash = url.hash;
-          if (servedFrom.href !== url.href) {
-            // A redirect. Only the address that served the page may show it —
-            // relative URLs in it resolve against that one — and requesting the
-            // original again could replay what the redirect consumed.
-            if (
-              servedFrom.origin === location.origin &&
-              isSwappableRoute(live.r, servedFrom.href)
-            ) {
-              // Read the body first: it streams under this navigation's
-              // signal, which the next navigation aborts.
-              const body = await response.text();
-              if (signal.aborted) return;
+    // Fetch and decide; undefined once it has fallen back or been abandoned.
+    const decide = async () => {
+      let incoming: Document | null | false;
+      try {
+        const response =
+          redirected ??
+          (await fetch(url.href, {
+            // Back/forward should be as fast as the browser's own history cache.
+            cache: traverse ? "force-cache" : "default",
+            signal,
+          }));
+        const servedFrom = new URL(response.url || url.href);
+        servedFrom.hash = url.hash;
+        if (servedFrom.href !== url.href) {
+          // A redirect. Only the address that served the page may show it —
+          // relative URLs in it resolve against that one — and requesting the
+          // original again could replay what the redirect consumed.
+          if (servedFrom.origin === location.origin && swappable(servedFrom.href)) {
+            // Read the body first: it streams under this navigation's signal,
+            // which the next navigation aborts.
+            const body = await response.text();
+            if (!signal.aborted) {
               navigation.navigate(servedFrom.href, {
-                history: "replace",
+                history: historyMode(),
                 info: { [REDIRECTED]: new Response(body, response) },
                 state,
               });
-            } else {
-              fallBack(servedFrom);
             }
-            return;
+          } else {
+            fallBack(servedFrom);
           }
-          incoming = await readIslandsPage(response, live.p, knownModuleScripts);
-        } catch (error) {
-          fallBack(url, error);
           return;
         }
-        if (signal.aborted) return;
-        if (incoming === false) {
-          // Every page here would be fetched only to be loaded: stop for the
-          // rest of the tab's session, until the policy changes.
-          try {
-            sessionStorage.setItem(HOST_POLICY_KEY, live.p);
-          } catch {
-            // No storage: keep trying, one extra request per link.
-          }
-        }
-        const swap = incoming && prepareSwap(incoming);
-        if (!swap) {
-          fallBack(url);
-          return;
-        }
+        incoming = await readIslandsPage(response, policy!, live.p, knownModuleScripts);
+      } catch (error) {
+        fallBack(url, error);
+        return;
+      }
+      if (signal.aborted) return;
+      // Answered with another policy, or with something that is not a page
+      // that takes part: do not fetch that route again this session.
+      if (incoming === false) skip(url.href);
+      const swap = incoming && prepareSwap(incoming);
+      if (!swap) {
+        fallBack(url);
+        return;
+      }
 
-        // A stylesheet that never answers must not hold an abandoned swap's
-        // stylesheets in the page.
-        await new Promise<void>((resolve) => {
-          void swap.ready.then(resolve);
-          signal.addEventListener("abort", () => resolve(), { once: true });
-        });
+      // A stylesheet that never answers must not hold an abandoned swap's
+      // stylesheets in the page.
+      await new Promise<void>((resolve) => {
+        void swap.ready.then(resolve);
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      if (signal.aborted) {
+        swap.cancel();
+        return;
+      }
+      return { incoming: incoming as Document, swap };
+    };
+
+    const finish = async (decision: Awaited<ReturnType<typeof decide>>) => {
+      if (!decision || signal.aborted) return;
+      committed = true;
+      const { incoming, swap } = decision;
+      const commit = () => {
         if (signal.aborted) {
           swap.cancel();
           return;
         }
-
-        const commit = () => {
-          if (signal.aborted) {
-            swap.cancel();
-            return;
-          }
-          swap.apply();
-          shownPage = page;
-          document.documentElement.removeAttribute(ISLANDS_HYDRATED_MARKER);
-          // The browser restores a traversal's position and finds a fragment,
-          // but leaves a new page without one wherever the old one was.
-          if (event.navigationType !== "traverse" && !url.hash) scrollTo(0, 0);
-          else event.scroll();
-        };
-        try {
-          if (
-            typeof document.startViewTransition === "function" &&
-            document.querySelector("style[data-pracht-view-transitions]")
-          ) {
-            const transition = document.startViewTransition(commit);
-            // A newer navigation's transition skips this one; that is not an error.
-            transition.ready.catch(() => {});
-            await transition.updateCallbackDone;
-          } else {
-            commit();
-          }
-          if (signal.aborted || shownPage !== page) return;
-          await swap.runScripts(executed, signal);
-        } catch (error) {
-          // A half-applied swap is worse than a reload.
-          fallBack(url, error);
-          return;
+        swap.apply();
+        shownPage = page;
+        document.documentElement.removeAttribute(ISLANDS_HYDRATED_MARKER);
+        // The browser restores a traversal's position and finds a fragment,
+        // but leaves a new page without one wherever the old one was.
+        if (!traverse && !url.hash) scrollTo(0, 0);
+        else event.scroll();
+      };
+      try {
+        if (
+          typeof document.startViewTransition === "function" &&
+          document.querySelector("style[data-pracht-view-transitions]")
+        ) {
+          const transition = document.startViewTransition(commit);
+          // A newer navigation's transition skips this one; that is not an error.
+          transition.ready.catch(() => {});
+          await transition.updateCallbackDone;
+        } else {
+          commit();
         }
-        if (signal.aborted) return;
+        if (signal.aborted || shownPage !== page) return;
+        await swap.runScripts(executed, signal);
+      } catch (error) {
+        // A half-applied swap is worse than a reload.
+        fallBack(url, error);
+        return;
+      }
+      if (signal.aborted) return;
 
-        options.onNavigate?.(incoming as Document);
-        void options.hydrate();
-      },
-    });
+      options.onNavigate?.(incoming);
+      void options.hydrate();
+    };
+
+    if (precommit) {
+      let decision: Awaited<ReturnType<typeof decide>>;
+      event.intercept({
+        scroll: "manual",
+        precommitHandler: async () => {
+          decision = await decide();
+        },
+        handler: () => finish(decision),
+      } as NavigationInterceptOptions);
+    } else {
+      // Scrolled by hand with the swap, not after the islands load.
+      event.intercept({ scroll: "manual", handler: async () => finish(await decide()) });
+    }
   });
+}
+
+/**
+ * A Trusted Types policy that refuses string HTML makes every fetched page
+ * unparseable; such a document keeps plain navigation.
+ */
+function parsesHtml(): boolean {
+  try {
+    new DOMParser().parseFromString("", "text/html");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function readNavigationData(doc: Document): NavigationData | null {
@@ -278,15 +361,15 @@ function readNavigationData(doc: Document): NavigationData | null {
 }
 
 /**
- * Whether the server would answer `href` with an `islands` or `none` page,
- * matched against its route table the way the server matches: first match
- * wins, statics compare raw, a parameter takes one segment, a catch-all the
- * rest. A URL outside the deploy base is not this app's.
+ * The route table entry the server would answer `href` with, matched the way
+ * the server matches: first match wins, statics compare raw, a parameter takes
+ * one decodable segment, a catch-all the rest. Undefined for a URL outside the
+ * app (another origin, outside the deploy base) or one no entry matches.
  */
-export function isSwappableRoute(table: readonly string[], href: string): boolean {
+export function matchRoute(table: readonly string[], href: string): string | undefined {
   const { origin, pathname } = new URL(href);
   const path = routePath(pathname);
-  if (origin !== location.origin || path === null) return false;
+  if (origin !== location.origin || path === null) return undefined;
   const target = path
     .replace(/\/{2,}/g, "/")
     .split("/")
@@ -298,7 +381,6 @@ export function isSwappableRoute(table: readonly string[], href: string): boolea
       const segment = segments[i];
       if (segment === "*" || (segment[0] === ":" && segment.endsWith("*"))) {
         matched = target.slice(i).every(decodes);
-        i = segments.length;
         break;
       }
       const part = target[i];
@@ -307,11 +389,9 @@ export function isSwappableRoute(table: readonly string[], href: string): boolea
         break;
       }
     }
-    if (matched && (segments.length === target.length || entry.endsWith("*"))) {
-      return entry[0] === "+";
-    }
+    if (matched && (segments.length === target.length || entry.endsWith("*"))) return entry;
   }
-  return false;
+  return undefined;
 }
 
 /**
@@ -331,34 +411,38 @@ function routePath(pathname: string): string | null {
 
 function decodes(segment: string): boolean {
   try {
-    decodeURIComponent(segment);
-    return true;
+    // The result is compared, not discarded: a minifier drops a call to a
+    // built-in whose result is unused, and with it the throw this relies on.
+    return decodeURIComponent(segment) !== "\0";
   } catch {
     return false;
   }
 }
 
 /**
- * Parse a fetched response and decide whether it can be swapped in. Null means
- * a full load instead; false means the host rewrites policy headers, so no page
- * here can be proven to match and none should be fetched again.
+ * Decide on a fetched response. Null means a full load; false means a full
+ * load and that the route answers with another policy or with a page that
+ * does not take part, so it is not worth fetching again this session.
  */
 async function readIslandsPage(
   response: Response,
   policy: string,
+  serverPolicy: string | undefined,
   knownModuleScripts: Set<string>,
 ): Promise<Document | null | false> {
   if (!/^text\/html\b/i.test(response.headers.get("content-type") ?? "")) return null;
-  const doc = new DOMParser().parseFromString(await response.text(), "text/html");
-  const data = readNavigationData(doc);
-  if (!data || data.p !== policy) return null;
-  // The page's own fingerprint must match what actually arrived: something
-  // between the server and the browser (a static host, a CDN, a proxy) that
-  // sets or drops policy headers makes the document's real policy unknowable.
-  if (policyFingerprint(response.headers) !== policy) return false;
-  if (doc.querySelector(META_CSP) || !canSwapDocument(doc, knownModuleScripts)) {
-    return null;
+  // The headers decide before the body is read: they must be exactly the ones
+  // this document was loaded with.
+  if (policyFingerprint(response.headers) !== policy) {
+    response.body?.cancel().catch(() => {});
+    return false;
   }
+  const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+  // And the server must have meant the same policy for it (a page with a
+  // nonce-based CSP carries no data at all).
+  const data = readNavigationData(doc);
+  if (!data || data.p !== serverPolicy) return false;
+  if (doc.querySelector(DOCUMENT_META) || !canSwapDocument(doc, knownModuleScripts)) return null;
   // The parser ran with scripting disabled, which turns `<noscript>` content
   // into live elements. With scripting on it is text.
   for (const noscript of doc.querySelectorAll("noscript")) {
@@ -411,18 +495,6 @@ function scriptUrls(doc: Document, filter = ""): string[] {
   return [...doc.querySelectorAll<HTMLScriptElement>(`script[src]${filter}`)].map(
     (script) => new URL(script.getAttribute("src")!, location.href).href,
   );
-}
-
-function fullLoad(navigation: Navigation, url: URL, state: unknown, error?: unknown): void {
-  if (error) console.error("[pracht] Islands navigation failed, loading the page instead:", error);
-  // The soft navigation already committed its URL. Replace that entry with a
-  // real load; one that differs from the current URL only by its fragment
-  // would just scroll, so reload it instead.
-  if (url.hash && url.href.split("#")[0] === location.href.split("#")[0]) {
-    location.reload();
-  } else {
-    navigation.navigate(url.href, { history: "replace", info: FULL_LOAD, state });
-  }
 }
 
 export interface PreparedSwap {
@@ -588,7 +660,7 @@ function mergeHead(live: HTMLHeadElement, incoming: HTMLHeadElement): HeadPlan |
  * Replace the root's content with the incoming page's, keeping the live
  * element of every island the two pages share. The new content goes in first
  * so a kept island moves between two connected places — with `moveBefore()`
- * where the browser has it, which keeps an iframe loaded, focus, and scroll
+ * where the browser has it, which keeps an iframe loaded and scroll
  * positions inside the island. Returns the new content's scripts, still inert.
  */
 function swapRoot(root: Element, incomingRoot: Element): Element[] {

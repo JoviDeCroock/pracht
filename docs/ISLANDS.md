@@ -238,22 +238,34 @@ the client build emits the islands entry even without an islands directory.
 but a document that starts on one navigates normally.
 
 **What the server adds.** With the flag on, every islands and `none` document
-carries `<script type="application/json" id="pracht-nav">{"p":…,"r":[…]}</script>`
-in its head (`islands-shared.ts` defines the format), and every head node the
-server renders carries `data-pracht-owned`:
+carries `<script type="application/json" id="pracht-nav">` in its head
+(`islands-shared.ts` defines the format; `islandsNavigationData()` in
+runtime-page.ts writes it), and every head node the server renders carries
+`data-pracht-owned`:
 
-- `r` is the route table, in the order the server matches: API routes first,
-  then page routes, each prefixed `+` when a page there can be swapped in
-  (`islands`/`none`, not `spa`) and `-` otherwise, truncated after the last `+`
-  (`islandsNavigationRoutes()` in islands-server.ts). Prerendering receives the
-  app's `apiRoutes` so SSG documents carry the same table as SSR ones.
+- `r` (islands pages only — a `none` page loads no JavaScript, so it is never
+  the document a visit's bootstrap reads the table from) is the route table, in
+  the order the server matches: API routes, then page routes, each prefixed
+  `+` when a page there can be swapped in (`islands`/`none`, not `spa`) or `-`
+  otherwise. A `-` entry is kept only when some URL could match it and a later
+  `+` entry (`patternsOverlap()`), so the table never lists more of the app —
+  API paths included — than it needs to (`islandsNavigationRoutes()` in
+  islands-server.ts). Prerendering receives the app's `apiRoutes` so SSG
+  documents carry the same table as SSR ones. It is about 150 bytes gzip for
+  20 routes and grows with the route count.
 - `p` is `policyFingerprint()` — FNV-1a over the document-policy headers
   (`content-security-policy`, `-report-only`, `x-frame-options`, COOP, COEP,
   `permissions-policy`, `referrer-policy`, `document-policy`,
-  `origin-agent-cluster`) of the response this document is about to be sent
-  with (`htmlResponseHeaders()`, the same function `htmlResponse()` uses).
+  `document-isolation-policy`, `integrity-policy`, `origin-agent-cluster`) of
+  the response this document is about to be sent with (`htmlResponseHeaders()`,
+  the same function `htmlResponse()` uses). Static output
+  (`IS_STATIC_TARGET`) omits it: no pracht server will send that file.
 - `data-pracht-owned` marks what a swap may remove. Nodes a script inserted —
   a theme style, a tag manager, Vite's dev CSS — are never touched.
+
+A page whose CSP or CSP-Report-Only contains `'nonce-` gets neither: a nonce
+changes per response, so no other page can share its policy, and fetching it
+would only ever lead to a second request.
 
 **Deciding before fetching.** The bootstrap listens to the Navigation API's
 `navigate` event and intercepts only when all of these hold; otherwise the
@@ -264,9 +276,10 @@ browser navigates as usual and nothing is fetched twice:
   same-origin (`canIntercept`), without `formData` or `downloadRequest`, and
   not reloads;
 - the destination, with the deploy base stripped (outside the base: not this
-  app), matches a `+` entry of the *live* document's route table, using the
-  server's matching rules (first match wins, statics compared raw, a parameter
-  takes one decodable segment, a catch-all the rest);
+  app), matches a `+` entry of the *live* document's route table (`matchRoute()`),
+  using the server's matching rules (first match wins, statics compared raw, a
+  parameter takes one decodable segment, a catch-all the rest), and that entry
+  is not in this tab's skip list (below);
 - the clicked anchor has no `data-pracht-reload`;
 - the destination does not match one of the page's own `prerender`
   speculation rules (not excluded for the anchor, via
@@ -277,51 +290,71 @@ Traversals are intercepted only when the destination entry belongs to another
 entry created by an intercepted navigation a fresh page number and any other
 new entry (an app `pushState`) the page that was showing.
 
-The bootstrap does not install at all without the Navigation API, in a framed
+The bootstrap does not install at all without the Navigation API; in a framed
 document (a page that refuses framing must get the chance to say so: a soft
-swap inside a cross-origin frame would show it anyway), in a document with a
-`<meta http-equiv="Content-Security-Policy">` (it stays in force for the
-document's life), or when this tab already saw the host change policy headers
-(below).
+swap inside a cross-origin frame would show it anyway); in a document with a
+document-level `<meta>` — any `http-equiv` other than `content-type` (a CSP
+stays in force for the document's life, a refresh keeps its timer) or
+`name="referrer"`; when `DOMParser.parseFromString()` throws (a Trusted Types
+policy that refuses HTML strings); or, for static output, when the document
+came from the HTTP cache (`PerformanceNavigationTiming.transferSize` is 0),
+since the headers it arrived with may not be what the host sends now.
 
 **The policy proof.** The document's policy — every header above — is fixed
-when it loads and never changes, so a swapped-in page has to run under exactly
-that policy. The live document's response headers are not readable, but its
-`p` says what the server sent; the fetched response's headers are readable.
-A page is swapped in only when its own `p` equals the live document's `p`
-*and* `policyFingerprint(response.headers)` equals it too — so the server meant
-the same policy for both pages, and nothing between the server and the
-browser changed it. A host that adds, drops, or rewrites any of those headers
-(a static file host sending none of pracht's defaults, a CDN adding CSP) makes
-the second comparison fail for every page, so the bootstrap records
-`pracht:host-policy` = `p` in `sessionStorage` and stops intercepting for the
-rest of the tab's session: one extra request, once. The residual assumption is
-a host that changes headers on the *initial* document and not on fetched ones,
-which a uniform host does not do. A response with a meta CSP falls back.
+when it loads and never changes, so a swapped-in page has to arrive with
+exactly the same headers. The live document's response headers are not
+readable; the fetched response's are. There are two ways to know the first:
+
+- *Server-rendered pages* (`p` present): the page says which headers pracht
+  set. A fetched page is swapped in only when `policyFingerprint(response.headers)`
+  equals the live `p` and the page's own `p` does too — the server meant the
+  same policy for both pages, and nothing between it and the browser changed
+  it. The residual assumption is a proxy that changes headers on the *initial*
+  document and not on fetched ones, which a uniform proxy does not do. This
+  mode never sends `HEAD`: pracht answers it by running loaders.
+- *Static output* (`p` absent): at install the bootstrap asks the host what it
+  sends for this page, `fetch(location.href, { method: "HEAD", cache:
+  "no-store" })`, and takes that fingerprint as the baseline; fetched pages
+  must match it. Nothing is intercepted until the baseline has arrived. This
+  works on any static file host, including one that sends no security
+  headers at all.
+
+The fetched response's headers are compared before its body is read; on a
+mismatch the body is cancelled. A route whose page fails either check is added
+to a skip list in `sessionStorage` (`pracht:nav-skip:<p>`, keyed by the live
+policy so a deploy that changes it starts over) and is loaded normally for the
+rest of the tab's session: each route costs at most one wasted request.
 
 **Fetching.** The destination is fetched as plain `fetch(url)` — no special
 header, so static hosts, ISG, and edge caches serve it as for a document load —
 with the navigation's `signal`, and `cache: "force-cache"` for traversals.
-Redirects are followed. When the response came from another address:
+Where the browser has `NavigationPrecommitController`, the work runs in
+`intercept({ precommitHandler })`, so the address commits only once the page
+is known to be swappable; a fallback then simply takes the navigation's place
+(a `push` stays a push). Elsewhere the address commits at once, and a fallback
+first puts the previous address back with `history.replaceState()` and then
+replaces that entry — so a download (a file under an islands catch-all route)
+leaves the page and its address as they were. Redirects are followed. When the
+response came from another address:
 
 - an islands page at the same origin: its body is read under the current
-  signal, then a `replace` navigation to the final URL carries the response in
-  `info`, so the entry shows the final URL before the content arrives
-  (relative URLs resolve against it, `navigatesuccess` reports it) and nothing
-  is requested twice;
+  signal, then a navigation to the final URL carries the response in `info`,
+  so the entry shows the final URL before the content arrives (relative URLs
+  resolve against it, `navigatesuccess` reports it) and nothing is requested
+  twice;
 - anything else: a full load of the final URL, never the original — the
   original may have consumed something (a one-time token) on the way.
 
 A non-HTML response, a document without `#pracht-root` or with `#pracht-state`
 (a full-hydration page), a module script this document never ran (another
-deployment), a policy mismatch, or a meta CSP is a full load of the URL
-(`navigation.navigate(url, { history: "replace", info, state })` — the `info`
-marker lets it through the listener, `state` carries on — or `location.reload()`
-when only the fragment differs). That fetch was spent: the remaining double
+deployment), a policy mismatch, or a document-level `<meta>` is a full load of
+the URL (`navigation.navigate(url, { history, info, state })` — the `info`
+marker lets it through the listener, `state` carries on). The remaining double
 requests are a `+` route answering with something that cannot be swapped (a
-plain-text 500, a different policy), and a redirect into a full-hydration
-page, whose final URL is requested twice. Error statuses that render a
-swappable islands document are swapped in like any page.
+plain-text 500 or a download every time; a policy mismatch once per route), and
+a redirect into a full-hydration page, whose final URL is requested twice.
+Error statuses that render a swappable islands document are swapped in like
+any page.
 
 **Parsing.** `DOMParser` runs with scripting disabled, which makes `<noscript>`
 content live elements; each `<noscript>` is reduced to its markup as text, as a
@@ -343,7 +376,8 @@ scripting-enabled parse would.
   `<pracht-island>` whose file, export, props, and strategy match an incoming
   one (by occurrence order per key) moves in place of the server markup with
   `moveBefore()` — a move between two connected places that keeps an iframe
-  loaded, focus, and scroll positions inside the island — or `insertBefore()`
+  loaded and scroll positions inside the island (focus inside it is lost, as
+  with any move) — or `insertBefore()`
   where the browser has no `moveBefore()` (those survive as Preact state only).
   Hydrated islands that are not carried over are unmounted with
   `render(null, el)` so effect cleanups run; then the old content is removed.
