@@ -162,7 +162,6 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
     const reload = reloadHref === event.destination.url;
     reloadHref = undefined;
     if (
-      policy === undefined ||
       !event.canIntercept ||
       event.hashChange ||
       event.downloadRequest !== null ||
@@ -177,15 +176,29 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
     const redirected = (event.info as { [REDIRECTED]?: Response } | undefined)?.[REDIRECTED];
     const traverse = event.navigationType === "traverse";
     let page: number;
+    // A traversal to an entry whose page can only be loaded.
+    let load = false;
     if (traverse) {
       const destinationPage = entryPages.get(event.destination.id);
-      if (destinationPage === undefined || destinationPage === shownPage) return;
-      page = destinationPage;
+      if (destinationPage === shownPage) return;
+      if (destinationPage === undefined) {
+        // An entry this document never showed — one an earlier document of
+        // this tab made, before a reload. The browser treats it as part of
+        // this document and would change only the address, so its page is
+        // fetched like any other, or loaded where it cannot be swapped.
+        if (!event.destination.sameDocument) return;
+        page = ++pageCounter;
+        pendingEntryPage = page;
+        load = policy === undefined || !swappable(event.destination.url);
+      } else {
+        page = destinationPage;
+      }
     } else {
       // `history.pushState()`/`replaceState()` are same-document navigations
       // the app makes on purpose; only real page loads are ours. A page the
       // browser has prerendered is faster to activate than to fetch again.
       if (
+        policy === undefined ||
         event.destination.sameDocument ||
         (!redirected && (!swappable(event.destination.url) || isPrerendered(event)))
       ) {
@@ -222,6 +235,10 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
 
     // Fetch and decide; undefined once it has fallen back or been abandoned.
     const decide = async () => {
+      if (load) {
+        fallBack(url);
+        return;
+      }
       let incoming: Document | null | false;
       try {
         const response =

@@ -292,7 +292,14 @@ browser navigates as usual and nothing is fetched twice:
 Traversals are intercepted only when the destination entry belongs to another
 *page*: an entry-id → page-number map, filled on `currententrychange`, gives an
 entry created by an intercepted navigation a fresh page number and any other
-new entry (an app `pushState`) the page that was showing.
+new entry (an app `pushState`) the page that was showing. An entry the map does
+not know but the browser calls same-document was made by an earlier document of
+the tab — after a reload (or a document evicted from the back/forward cache)
+the browser keeps treating the entries a swap made as one document and would
+change only the address — so it is treated as another page: fetched and
+swapped when its route is swappable, otherwise (or before a static page's
+baseline arrived) loaded with `history: "replace"`. An app `pushState()` made
+before the bootstrap installed is such an entry too.
 
 The bootstrap does not install at all without the Navigation API; in a framed
 document (a page that refuses framing must get the chance to say so: a soft

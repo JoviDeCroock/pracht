@@ -369,6 +369,38 @@ test.describe.serial("islands navigation", () => {
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
   });
 
+  test("shows the right page for entries an earlier document made", async ({ page }) => {
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await clickInPlace(page, "#go-b");
+    await expect(page.locator("h1")).toHaveText("B");
+
+    // After a reload, the entry the swap left behind belongs to no live
+    // document; going back to it shows its page, not just its address.
+    await page.reload();
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "reloaded"));
+    await page.goBack();
+    await expect(page).toHaveURL(`${origin}/lab/a`);
+    await expect(page.locator("h1")).toHaveText("A");
+    await expect(page).toHaveTitle("A");
+    expect(await sameDocument(page)).toBe("reloaded");
+    await page.goForward();
+    await expect(page.locator("h1")).toHaveText("B");
+    expect(await sameDocument(page)).toBe("reloaded");
+
+    // Such an entry for a page that cannot be swapped is loaded.
+    await page.evaluate(() => {
+      history.pushState(null, "", "/lab-full");
+      history.pushState(null, "", "/lab/b?after");
+    });
+    await page.reload();
+    await hydrated(page);
+    await page.goBack();
+    await expect(page).toHaveURL(`${origin}/lab-full`);
+    await expect(page.locator("h1")).toHaveText("Full");
+  });
+
   test("never fetches what it cannot swap", async ({ page }) => {
     const requests = recordRequests(page);
     const fresh = async () => {

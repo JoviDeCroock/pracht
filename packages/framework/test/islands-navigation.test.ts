@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { h, hydrate } from "preact";
 import { useLayoutEffect } from "preact/hooks";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   canSwapDocument,
+  installIslandsNavigation,
   matchRoute,
   prepareSwap,
   settleFocus,
@@ -294,5 +295,84 @@ describe("settleFocus", () => {
     swap.apply();
     settleFocus(outside);
     expect(document.activeElement).toBe(document.body);
+  });
+});
+
+describe("installIslandsNavigation", () => {
+  const origin = location.origin;
+  type Listener = (event: Record<string, unknown>) => void;
+
+  function fakeNavigation() {
+    const listeners: Record<string, Listener[]> = {};
+    const fake = {
+      currentEntry: { id: "current", url: `${origin}/a` },
+      navigate: vi.fn(),
+      addEventListener(type: string, listener: Listener) {
+        (listeners[type] ??= []).push(listener);
+      },
+      dispatch(type: string, event: Record<string, unknown>) {
+        for (const listener of listeners[type] ?? []) listener(event);
+      },
+    };
+    (globalThis as { navigation?: unknown }).navigation = fake;
+    return fake;
+  }
+
+  function traverseTo(id: string, path: string) {
+    return {
+      navigationType: "traverse",
+      canIntercept: true,
+      hashChange: false,
+      downloadRequest: null,
+      formData: null,
+      info: undefined,
+      signal: new AbortController().signal,
+      destination: { id, url: `${origin}${path}`, sameDocument: true, getState: () => "kept" },
+      intercept: vi.fn(),
+      scroll: vi.fn(),
+    };
+  }
+
+  beforeEach(() => {
+    load(`<html><head><script type="application/json" id="pracht-nav">{"p":"x","r":["+/a","+/b","-/full"]}</script></head>
+      <body><div id="pracht-root"><h1>A</h1></div></body></html>`);
+  });
+
+  afterEach(() => {
+    delete (globalThis as { navigation?: unknown }).navigation;
+  });
+
+  it("swaps in the page of an entry an earlier document made", () => {
+    const navigation = fakeNavigation();
+    installIslandsNavigation({ hydrate: async () => {} });
+    const event = traverseTo("from-before-a-reload", "/b");
+    navigation.dispatch("navigate", event);
+    expect(event.intercept).toHaveBeenCalledOnce();
+  });
+
+  it("loads such an entry when its page cannot be swapped", () => {
+    const navigation = fakeNavigation();
+    installIslandsNavigation({ hydrate: async () => {} });
+    const event = traverseTo("from-before-a-reload", "/full");
+    navigation.dispatch("navigate", event);
+    expect(event.intercept).toHaveBeenCalledOnce();
+    const [{ handler }] = event.intercept.mock.calls[0] as [{ handler: () => void }];
+    handler();
+    expect(navigation.navigate).toHaveBeenCalledWith(`${origin}/full`, {
+      history: "replace",
+      info: "pracht:full-load",
+      state: "kept",
+    });
+  });
+
+  it("leaves traversals within the page that is showing to the app", () => {
+    const navigation = fakeNavigation();
+    installIslandsNavigation({ hydrate: async () => {} });
+    // An app `pushState()` while this page shows.
+    navigation.currentEntry = { id: "pushed", url: `${origin}/a?tab=2` };
+    navigation.dispatch("currententrychange", {});
+    const event = traverseTo("current", "/a");
+    navigation.dispatch("navigate", event);
+    expect(event.intercept).not.toHaveBeenCalled();
   });
 });
