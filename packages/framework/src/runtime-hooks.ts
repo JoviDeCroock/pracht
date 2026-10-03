@@ -6,6 +6,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   formDataToRecord,
   isApiValidationErrorBody,
+  searchParamsToRecord,
   validateStandardSchema,
   type ApiValidationIssue,
 } from "./api-validation.ts";
@@ -42,6 +43,7 @@ import {
   PrachtRuntimeProvider,
   readHydrationState,
   RouteDataContext,
+  RouteSearchContext,
   startApp,
   type PrachtHydrationState,
   type StartAppOptions,
@@ -56,6 +58,7 @@ import {
 import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
+import { ShellDataContext } from "./runtime-shell-data.ts";
 import type {
   ApiPath,
   CapabilityEnvelope,
@@ -67,7 +70,10 @@ import type {
   RouteDataFor,
   RouteId,
   RouteParams,
+  RouteSearchOutputFor,
   RouteTarget,
+  ShellDataFor,
+  ShellName,
   UntypedRouteTarget,
 } from "./types.ts";
 
@@ -245,19 +251,73 @@ export function useRouteData<TRoute extends RouteId>(routeId: TRoute): RouteData
 export function useRouteData<TLoader extends LoaderLike>(): LoaderData<TLoader>;
 export function useRouteData<TData = unknown>(): TData;
 export function useRouteData(routeId?: string): unknown {
+  return useActiveRuntime("useRouteData", routeId)?.data;
+}
+
+/**
+ * Read the active route's parsed search params: the output of the route
+ * module's `search` schema, or the raw query record (one string per key, an
+ * array for repeated keys) when it exports none. Like `useRouteData()`, the
+ * route id is a typing shortcut that must name the active route.
+ *
+ * The value tracks the URL: a client navigation re-parses it with the same
+ * schema the server ran, so it never disagrees with what the loader saw.
+ */
+export function useSearch<TRoute extends RouteId>(routeId: TRoute): RouteSearchOutputFor<TRoute>;
+export function useSearch<TSearch = unknown>(): TSearch;
+export function useSearch(routeId?: string): unknown {
+  useActiveRuntime("useSearch", routeId);
+  const search = useContext(RouteSearchContext);
+  const { search: query } = useLocation();
+  // Without a schema the client router leaves `search` unset; the raw record
+  // is derived here so it stays in step with the URL.
+  return useMemo(() => search ?? searchParamsToRecord(new URLSearchParams(query)), [search, query]);
+}
+
+function useActiveRuntime(hook: string, routeId: string | undefined) {
   const runtime = useContext(RouteDataContext);
   if (routeId !== undefined && runtime && runtime.routeId !== routeId) {
     // The long form is dev-only: `import.meta.env.DEV` folds to `false` in a
     // production bundle, so shipping apps carry the short message alone.
     throw new Error(
       import.meta.env?.DEV
-        ? `useRouteData(${JSON.stringify(routeId)}) was called inside route ${JSON.stringify(runtime.routeId)}. ` +
-            "A component can only read the data of the route it renders under — drop the route id " +
-            "to read the active route's data, or pass the value down as a prop."
-        : `useRouteData: ${routeId} is not the active route (${runtime.routeId})`,
+        ? `${hook}(${JSON.stringify(routeId)}) was called inside route ${JSON.stringify(runtime.routeId)}. ` +
+            "A component can only read the state of the route it renders under — drop the route id " +
+            "to read the active route's state, or pass the value down as a prop."
+        : `${hook}: ${routeId} is not the active route (${runtime.routeId})`,
     );
   }
-  return runtime?.data;
+  return runtime;
+}
+
+/**
+ * Read the loader data of the shell the active route renders under, from the
+ * shell itself or from any route inside it.
+ *
+ * Like `useRouteData(id)`, the shell name is a typing shortcut that is still
+ * honoured: naming a shell the active route does not render under throws.
+ * Returns `undefined` when the shell has no loader, and wherever the shell
+ * renders before or without its data — the `render: "spa"` loading state, and
+ * an error boundary rendered after the shell loader itself failed.
+ */
+export function useShellData<TShell extends ShellName>(
+  shell: TShell,
+): ShellDataFor<TShell> | undefined;
+export function useShellData<TLoader extends LoaderLike>(): LoaderData<TLoader> | undefined;
+export function useShellData<TData = unknown>(): TData | undefined;
+export function useShellData(shell?: string): unknown {
+  const runtime = useContext(RouteDataContext);
+  const shellData = useContext(ShellDataContext);
+  if (shell !== undefined && shellData && shellData.shell !== shell) {
+    throw new Error(
+      import.meta.env?.DEV
+        ? `useShellData(${JSON.stringify(shell)}) was called while route ${JSON.stringify(runtime?.routeId)} ` +
+            `renders under ${shellData.shell === undefined ? "no shell" : `shell ${JSON.stringify(shellData.shell)}`}. ` +
+            "Drop the shell name to read the active shell's data."
+        : `useShellData: ${shell} is not the active shell (${shellData.shell})`,
+    );
+  }
+  return shellData?.data;
 }
 
 export function useLocation(): Location {

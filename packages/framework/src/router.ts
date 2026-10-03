@@ -6,6 +6,7 @@ import type { ComponentChildren, FunctionComponent } from "preact";
 import type { FontHeadFragments } from "./font.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
+import type { parseRouteSearch } from "./api-validation.ts";
 import { stripBase } from "./base.ts";
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
 import {
@@ -24,7 +25,7 @@ import {
   createNavigationLocation,
   settleNavigation,
 } from "./navigation-state.ts";
-import { getCachedRouteState } from "./prefetch-cache.ts";
+import { getCachedRouteState, routeStateCacheKey } from "./prefetch-cache.ts";
 import { registerPrefetchTarget } from "./prefetch-api.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
 import {
@@ -58,13 +59,17 @@ import {
   fetchPrachtRouteState,
   parseSafeNavigationUrl,
   routeNeedsServerFetch,
+  routeNeedsShellData,
+  setHeldShell,
 } from "./runtime-client-fetch.ts";
+import { setShellDataCommitter, ShellDataContext } from "./runtime-shell-data.ts";
 import { IS_STATIC_TARGET } from "./runtime-static.ts";
 import { deserializeRouteError, type SerializedRouteError } from "./runtime-errors.ts";
 import {
   type PrachtHydrationState,
   PrachtRuntimeProvider,
   RouteDataContext,
+  RouteSearchContext,
 } from "./runtime-context.ts";
 import type { RouteStateResult } from "./runtime-client-fetch.ts";
 
@@ -119,6 +124,28 @@ declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
 const HYDRATION_WARNINGS_FORCED =
   typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
 
+/**
+ * Typed search params. The plugin sets this to `false` in a build where no
+ * route module exports a `search` schema, which compiles out the client-side
+ * parse and the post-hydration re-parse; the query of a prerendered document
+ * is then adopted as a URL-only update, as it was before the feature.
+ */
+declare const __PRACHT_ROUTE_SEARCH__: boolean | undefined;
+
+const SEARCH_ENABLED =
+  typeof __PRACHT_ROUTE_SEARCH__ === "undefined" || __PRACHT_ROUTE_SEARCH__ !== false;
+
+/**
+ * Shell loader data: carried with the route state, kept across navigations
+ * that stay in one shell, and provided to the tree. The plugin sets the define
+ * to `false` for a build in which no shell exports a `loader`, which compiles
+ * every bit of it out of the router.
+ */
+declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
+
+const SHELL_LOADERS_ENABLED =
+  typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -128,8 +155,27 @@ interface RouteRenderState {
   data: unknown;
   params: RouteParams;
   routeId: string;
+  search?: unknown;
+  /** Name of the shell the route renders under. */
+  shell?: string;
+  /** The shell loader's data; absent when the shell has no loader or it did not run. */
+  shellState?: RouteShellState;
   url: string;
   version: number;
+}
+
+/**
+ * `prerendered` marks shell data baked into an SSG or ISG document at build or
+ * regeneration time rather than loaded for this visitor, so the router does
+ * not reuse it for the next navigation.
+ */
+type RouteShellState = { data: unknown; prerendered?: boolean };
+
+/** Route state as fetched or serialized, before modules are resolved. */
+interface LoadedRouteState {
+  data: unknown;
+  error?: SerializedRouteError | null;
+  shell?: RouteShellState;
 }
 
 interface RouteErrorBoundaryProps {
@@ -236,6 +282,12 @@ export interface InitClientRouterOptions {
   findModuleKey: (modules: ModuleMap, file: string) => string | null;
   /** @internal Synchronize page-scoped projections after a route commits. */
   onRouteChange?: (capabilities: readonly string[]) => void;
+  /**
+   * @internal Validates a route module's `search` schema. The generated client
+   * entry passes it only when some route module exports one, so an app that
+   * never declares a schema ships none of the validation code.
+   */
+  parseSearch?: typeof parseRouteSearch;
 }
 
 export async function initClientRouter(options: InitClientRouterOptions): Promise<void> {
@@ -268,6 +320,18 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   let updateRouteState: ((state: StateUpdater<RouteRenderState>) => void) | null = null;
   let routeStateVersion = 0;
   let activeRouteStateVersion = 0;
+
+  // The shell data on screen. A navigation to another route of the same shell
+  // reuses it instead of asking the server to run the shell loader again.
+  let committedShell: string | undefined;
+  let committedShellState: RouteShellState | undefined;
+  // A revalidation replaces it on the route state on screen, so the navigations
+  // that follow reuse the fresh value.
+  if (SHELL_LOADERS_ENABLED) {
+    setShellDataCommitter((data) =>
+      updateRouteState?.((current) => ({ ...current, shellState: { data } })),
+    );
+  }
 
   // Which navigation is the live one. `latestNavigationId` is compared at every
   // await point in `navigate()` — a superseded navigation must not commit — and
@@ -507,6 +571,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     } = routeState;
     const [RouteBoundary, ShellBoundary] = ErrorBoundaries;
     activeRouteStateVersion = version;
+    if (SHELL_LOADERS_ENABLED) {
+      // Every committed state passes through here, the hydrated one included.
+      committedShell = routeState.shell;
+      committedShellState = routeState.shellState;
+      setHeldShell(
+        committedShellState && !committedShellState.prerendered ? committedShell : undefined,
+      );
+    }
 
     useLayoutEffect(() => {
       onRouteChange?.(capabilities);
@@ -526,13 +598,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const shellTree = Shell
       ? h(Shell as FunctionComponent<Record<string, unknown>>, null, guardedRouteElement)
       : guardedRouteElement;
-    const componentTree = ShellBoundary
+    const guardedShellTree = ShellBoundary
       ? h(RouteErrorBoundary, {
           key: version,
           Boundary: ShellBoundary,
           children: shellTree,
         })
       : shellTree;
+    const componentTree = SEARCH_ENABLED
+      ? h(RouteSearchContext.Provider, { value: routeState.search }, guardedShellTree)
+      : guardedShellTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -548,7 +623,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           url,
           isCurrent: () => activeRouteStateVersion === version,
         },
-        componentTree,
+        SHELL_LOADERS_ENABLED
+          ? h(
+              ShellDataContext.Provider,
+              { value: { data: routeState.shellState?.data, shell: routeState.shell } },
+              componentTree,
+            )
+          : componentTree,
       ),
     );
   }
@@ -565,7 +646,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
   async function resolveRouteState(
     match: RouteMatch,
-    state: { data: unknown; error?: SerializedRouteError | null },
+    state: LoadedRouteState,
     currentUrl: string,
     routeModPromise?: Promise<any> | null,
     shellModPromise?: Promise<any> | null,
@@ -577,6 +658,24 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const resolvedShell = await (shellModPromise ?? startShellImport(match));
     if (resolvedShell) {
       Shell = resolvedShell.Shell;
+    }
+
+    // Parse the query with the same schema the server ran. A rejection takes
+    // the route's error boundary, exactly like a 400 from the server would.
+    // Routes without a schema leave `search` unset and `useSearch()` reads
+    // the raw query itself.
+    let search: unknown;
+    if (SEARCH_ENABLED && options.parseSearch && routeMod.search && !state.error) {
+      const parsed = await options.parseSearch(routeMod.search, currentUrl);
+      if (parsed.error) {
+        // The shell's data stays: only the route's half of the state failed.
+        state = {
+          data: undefined,
+          error: parsed.error,
+          ...(SHELL_LOADERS_ENABLED ? { shell: state.shell } : null),
+        };
+      }
+      search = parsed.value;
     }
 
     const DefaultComponent = typeof routeMod.default === "function" ? routeMod.default : undefined;
@@ -592,7 +691,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       ? { error: deserializeRouteError(state.error) }
       : { data: state.data, params: match.params };
 
-    return {
+    const routeState: RouteRenderState = {
       Shell,
       Component,
       ErrorBoundaries: state.error ? [null, null] : [RouteBoundary ?? null, ShellBoundary ?? null],
@@ -601,9 +700,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       data: state.data,
       params: match.params,
       routeId: match.route.id ?? "",
+      ...(SEARCH_ENABLED ? { search } : null),
       url: currentUrl,
       version: ++routeStateVersion,
     };
+    if (SHELL_LOADERS_ENABLED) {
+      routeState.shell = match.route.shell;
+      routeState.shellState = state.shell;
+    }
+    return routeState;
   }
 
   async function resolveSpaPendingState(
@@ -619,7 +724,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
     if (!Shell && !Loading) return null;
 
-    return {
+    const routeState: RouteRenderState = {
       Shell,
       Component: Loading ?? (() => null),
       ErrorBoundaries: [null, null],
@@ -631,6 +736,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       url: currentUrl,
       version: ++routeStateVersion,
     };
+    // The loading state renders the shell without its data.
+    if (SHELL_LOADERS_ENABLED) routeState.shell = match.route.shell;
+    return routeState;
   }
 
   async function navigate(
@@ -690,16 +798,45 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // finally-settle a no-op when a newer navigation supersedes this one.
     const navigationToken = beginLoadingNavigation(createNavigationLocation(target.browserUrl));
     try {
+      // Staying inside the shell whose data is on screen keeps that data, and
+      // tells the server so it can skip the shell loader. A reload (the
+      // navigation after a mutation) refreshes the shell like it does the route.
+      const reusedShellState =
+        SHELL_LOADERS_ENABLED &&
+        committedShellState &&
+        !committedShellState.prerendered &&
+        match.route.shell === committedShell &&
+        !opts?._reloadRouteState
+          ? committedShellState
+          : undefined;
+      const heldShell = reusedShellState ? committedShell : undefined;
+
       // Start route-state fetch and module imports in parallel
       let statePromise: Promise<RouteStateResult>;
-      if (routeNeedsServerFetch(match.route)) {
+      if (
+        SHELL_LOADERS_ENABLED
+          ? routeNeedsServerFetch(match.route) ||
+            routeNeedsShellData(match.route, reusedShellState !== undefined)
+          : routeNeedsServerFetch(match.route)
+      ) {
         statePromise = opts?._reloadRouteState
           ? fetchPrachtRouteState(target.requestUrl, {
               cache: "reload",
               signal: abortController.signal,
             })
-          : ((PREFETCH_ENABLED ? getCachedRouteState(target.requestUrl) : undefined) ??
-            fetchPrachtRouteState(target.requestUrl, { signal: abortController.signal }));
+          : ((PREFETCH_ENABLED
+              ? getCachedRouteState(
+                  SHELL_LOADERS_ENABLED
+                    ? routeStateCacheKey(target.requestUrl, heldShell)
+                    : target.requestUrl,
+                )
+              : undefined) ??
+            fetchPrachtRouteState(
+              target.requestUrl,
+              SHELL_LOADERS_ENABLED
+                ? { signal: abortController.signal, heldShell }
+                : { signal: abortController.signal },
+            ));
       } else {
         statePromise = Promise.resolve({
           type: "data" as const,
@@ -711,9 +848,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       const shellModPromise = startShellImport(match);
 
       // Await route state (need it to handle redirects before rendering)
-      let state: { data: unknown; error?: SerializedRouteError | null } = {
+      let state: LoadedRouteState = {
         data: undefined,
         error: null,
+        ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState } : null),
       };
       let fontHead: FontHeadFragments | undefined =
         match.route.hasHead === false ? { preloadLinks: [], css: "" } : undefined;
@@ -780,12 +918,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           state = {
             data: undefined,
             error: result.error,
+            ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState ?? result.shell } : null),
           };
           fontHead = result.fontHead ?? { preloadLinks: [], css: "" };
         } else {
           state = {
             data: result.data,
             error: null,
+            ...(SHELL_LOADERS_ENABLED ? { shell: reusedShellState ?? result.shell } : null),
           };
           if (result.fontHead) fontHead = result.fontHead;
         }
@@ -1064,14 +1204,27 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
           ? { route: app.notFound, params: {}, pathname: initialPathname }
           : undefined));
+  // Shell data baked into an SSG or ISG document was not loaded for this
+  // visitor, so the first navigation loads the shell's own. A static export
+  // serves only build-time data, so there it stays.
+  const initialShellState: RouteShellState | undefined =
+    SHELL_LOADERS_ENABLED && "shellData" in options.initialState
+      ? {
+          data: options.initialState.shellData,
+          prerendered:
+            !IS_STATIC_TARGET &&
+            (initialMatch?.route.render === "ssg" || initialMatch?.route.render === "isg"),
+        }
+      : undefined;
   if (initialMatch) {
     const initialShellPromise =
       initialMatch.route.render === "spa" && options.initialState.pending
         ? startShellImport(initialMatch)
         : null;
-    let state = {
+    let state: LoadedRouteState = {
       data: options.initialState.data,
       error: options.initialState.error ?? null,
+      ...(SHELL_LOADERS_ENABLED ? { shell: initialShellState } : null),
     };
 
     if (initialMatch.route.render === "spa" && options.initialState.pending) {
@@ -1110,12 +1263,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           state = {
             data: undefined,
             error: result.error,
+            ...(SHELL_LOADERS_ENABLED ? { shell: result.shell } : null),
           };
           applyFontHeadFragments(result.fontHead ?? { preloadLinks: [], css: "" });
         } else {
           state = {
             data: result.data,
             error: null,
+            ...(SHELL_LOADERS_ENABLED ? { shell: result.shell } : null),
           };
           if (result.fontHead) applyFontHeadFragments(result.fontHead);
         }
@@ -1167,33 +1322,38 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (import.meta.env?.DEV || HYDRATION_WARNINGS_FORCED) installHydrationMismatchWarning();
           markHydrating();
           hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
-          onHydrationComplete(() => {
-            if (!hydrationBrowserTarget || !updateRouteState) return;
+          onHydrationComplete(async () => {
+            // Serialized route-state URLs are browser URLs (base included),
+            // matching what a client-side navigation commits. `404.html`
+            // renders at a synthetic path, so it adopts the visitor's URL
+            // wholesale rather than keeping its own path.
+            const hydratedTarget = isStaticNotFoundDocument
+              ? hydrationBrowserTarget
+              : resolveBrowserRouteTarget(initialRouteState.url);
+            if (!hydrationBrowserTarget || !hydratedTarget) return;
+            const nextRequestUrl = hydratedTarget.urlPathname + hydrationBrowserTarget.search;
+            if (initialRouteState.url === nextRequestUrl) return;
+            // With typed search params, the visitor's query — absent from a
+            // prerendered document — is parsed again, and a rejected one
+            // swaps in the error boundary. Otherwise only the URL moves.
+            const nextState = SEARCH_ENABLED
+              ? await resolveRouteState(initialMatch, state, nextRequestUrl)
+              : null;
 
-            updateRouteState((currentState) => {
-              // Serialized route-state URLs are browser URLs (base included),
-              // matching what a client-side navigation commits. `404.html`
-              // renders at a synthetic path, so it adopts the visitor's URL
-              // wholesale rather than keeping its own path.
-              const hydratedTarget = isStaticNotFoundDocument
-                ? hydrationBrowserTarget
-                : resolveBrowserRouteTarget(currentState.url);
-              if (!hydratedTarget) return currentState;
-              const nextRequestUrl = hydratedTarget.urlPathname + hydrationBrowserTarget.search;
-              // A navigation that committed while a Suspense boundary was
-              // hydrating owns the newer state. Revalidated data lives in the
-              // runtime provider and survives this URL-only update.
-              if (
-                currentState.version !== initialRouteState.version ||
-                currentState.url === nextRequestUrl
-              ) {
-                return currentState;
-              }
-              return {
-                ...currentState,
-                url: nextRequestUrl,
-              };
-            });
+            // A navigation that committed while a Suspense boundary was
+            // hydrating owns the newer state. Keeping the version makes this a
+            // URL-only update, so data revalidated meanwhile survives it.
+            updateRouteState?.((currentState) =>
+              currentState.version === initialRouteState.version
+                ? {
+                    ...currentState,
+                    ...(nextState && { ...nextState, version: currentState.version }),
+                    // Shell data a revalidation committed meanwhile survives.
+                    ...(SHELL_LOADERS_ENABLED ? { shellState: currentState.shellState } : null),
+                    url: nextRequestUrl,
+                  }
+                : currentState,
+            );
           });
         }
       }
@@ -1225,7 +1385,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // crash. Render the app's not-found page client-side instead.
       const notFoundState = await resolveRouteState(
         { route: app.notFound, params: {}, pathname: window.location.pathname },
-        { data: options.initialState.data, error: options.initialState.error ?? null },
+        {
+          data: options.initialState.data,
+          error: options.initialState.error ?? null,
+          ...(SHELL_LOADERS_ENABLED ? { shell: initialShellState } : null),
+        },
         window.location.pathname + window.location.search,
       );
       if (notFoundState) applyRouteState(notFoundState);

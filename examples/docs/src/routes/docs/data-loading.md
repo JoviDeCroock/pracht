@@ -42,6 +42,45 @@ other special exports are `loader`, `head`, `headers`, `markdown`,
 source to requests that prefer `Accept: text/markdown`; see
 [Markdown for agents](/docs/agents#discovery-markdown-and-llmstxt).
 
+### Dates, Maps, and other rich values
+
+By default, loader data reaches the browser as JSON. A `Date` arrives as its
+ISO string, even though `RouteComponentProps<typeof loader>` types it as a
+`Date`, and a `Map` arrives as `{}`. Turn on rich data to receive what the
+loader returned instead:
+
+```ts [vite.config.ts]
+pracht({ client: { richData: true } });
+```
+
+Then components get the same types from route and
+[shell](/docs/shells#shell-data) loaders alike: on the first load, after client
+navigation, from a static export, and from a streamed `defer()` value:
+
+- `Date`, `Map`, `Set`, `RegExp`, `URL`, and `BigInt`
+- `undefined`, `NaN`, `Infinity`, `-Infinity`, and `-0`
+- The same object referenced twice, or a cycle, with identity preserved
+
+```ts [src/routes/post.tsx]
+export async function loader({ params }: LoaderArgs) {
+  const post = await db.posts.find(params.slug);
+  return {
+    publishedAt: post.publishedAt, // a Date in the component, not a string
+    reactions: new Map([["like", 12n]]),
+  };
+}
+
+export default function Post({ data }: RouteComponentProps<typeof loader>) {
+  return <time>{data.publishedAt.toLocaleDateString()}</time>;
+}
+```
+
+It adds about 0.3 KB gzip to fully hydrated pages, and plain JSON data is
+sent exactly as before. An object with a `toJSON()` method, such as a decimal
+type, arrives as what `toJSON()` returns. Any other value, like a function or
+a class instance, fails the request with an error that names its path.
+[Island props](/docs/islands) stay JSON-only either way.
+
 ### LoaderArgs
 
 | Field    | Type          | Description                                          |
@@ -53,6 +92,8 @@ source to requests that prefer `Accept: text/markdown`; see
 | url      | URL           | Parsed URL object                                    |
 | route    | ResolvedRoute | Matched route metadata                               |
 | pathname | string \| undefined | Matched pathname with the deployment base removed |
+| search   | unknown       | The query, parsed by the route's [`search` schema](/docs/routing#search-params) |
+| waitUntil | `(promise) => void` | Keep work running after the response is sent |
 
 #### `signal`
 
@@ -83,6 +124,26 @@ signal.
 - **Static export** has no live request, so the signal only carries the
   build-time budget.
 
+#### `waitUntil`
+
+`waitUntil(promise)` keeps work running after the response is sent, such as
+analytics, cache warming, or a webhook. The response does not wait for it:
+
+```ts [src/routes/article.tsx]
+export async function loader({ params, waitUntil }: LoaderArgs) {
+  const article = await getArticle(params.slug);
+  waitUntil(recordView(article.id)); // the page does not wait for this
+  return { article };
+}
+```
+
+Middleware, API route handlers, `head()`, `headers()`, and a capability's
+`run()` receive the same function, and it works on every adapter. Prerendering
+waits for it before the build moves on. On Node, the server waits for it on
+shutdown, up to [`shutdownTimeoutMs`](/docs/adapters#graceful-shutdown), so put
+long jobs in a queue. A rejected promise is logged as a `waitUntil` error and
+never fails the response.
+
 ### When loaders run
 
 | Scenario          | Loader runs on                                                   |
@@ -95,6 +156,10 @@ signal.
 
 > [!NOTE]
 > Loaders **never** run in the browser. Database connections, API keys, and secrets in loader code stay on the server.
+
+### Shell loaders
+
+Data every page in a shell shows, like the signed-in user, can come from a [shell loader](/docs/shells#shell-data) instead of every route's loader.
 
 ### Route-state caching
 
@@ -589,6 +654,14 @@ export function Component() {
 }
 ```
 
+### useShellData()
+
+Read the [shell loader's](/docs/shells#shell-data) data from the shell or any route inside it. It is `undefined` when the shell has no loader:
+
+```ts
+const shell = useShellData("app"); // or useShellData<typeof loader>()
+```
+
 ### useSearchParams()
 
 Read the current query string as a reactive, read-only `URLSearchParams`:
@@ -602,11 +675,11 @@ export function Component() {
 }
 ```
 
-To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML.
+To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML, and a [`search` schema](/docs/routing#search-params) when you want it validated and typed.
 
 ### useRevalidate()
 
-Re-run the current route's loader:
+Re-run the current route's loader and its shell's:
 
 ```ts
 export function Component() {

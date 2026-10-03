@@ -53,6 +53,7 @@ export async function regenerateISGPage<TContext>(
   pathname: string,
   htmlPath: string,
   contextArgs?: NodeAdapterContextArgs,
+  waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
   return regenerationSingleFlight(htmlPath, async () => {
     // Manifest keys are always base-free, regardless of whether the incoming
@@ -78,6 +79,7 @@ export async function regenerateISGPage<TContext>(
       cssManifest: options.cssManifest,
       cssContentManifest: options.cssContentManifest,
       jsManifest: options.jsManifest,
+      waitUntil,
     });
 
     if (response.status !== 200 || !isCacheableISGResponse(response)) {

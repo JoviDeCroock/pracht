@@ -1,3 +1,4 @@
+import type { ApiValidationIssue } from "./api-validation.ts";
 import type { PrachtHttpError, ResolvedApiRoute, ResolvedRoute } from "./types.ts";
 
 export type PrachtRuntimeDiagnosticPhase =
@@ -6,7 +7,9 @@ export type PrachtRuntimeDiagnosticPhase =
   | "loader"
   | "action"
   | "render"
-  | "api";
+  | "api"
+  /** A promise registered with `waitUntil()` rejected after (or while) the response was produced. */
+  | "waitUntil";
 
 export interface PrachtRuntimeDiagnostics {
   phase: PrachtRuntimeDiagnosticPhase;
@@ -48,6 +51,8 @@ export interface SerializedRouteError {
   name: string;
   status: number;
   diagnostics?: PrachtRuntimeDiagnostics;
+  /** Normalized issues from a rejected route `search` schema. */
+  issues?: ApiValidationIssue[];
 }
 
 type DiagnosticRoute = ResolvedRoute | ResolvedApiRoute;
@@ -136,10 +141,12 @@ export function normalizeRouteError(
   if (isPrachtHttpError(error)) {
     const status = typeof error.status === "number" ? error.status : 500;
     if (status >= 400 && status < 500) {
+      const issues = (error as { issues?: ApiValidationIssue[] }).issues;
       return {
         message: error.message,
         name: error.name,
         status,
+        ...(issues ? { issues } : {}),
       };
     }
 
@@ -191,11 +198,9 @@ export function normalizeRouteError(
 
 export function deserializeRouteError(error: SerializedRouteError): Error {
   const result = new Error(error.message);
-  result.name = error.name;
-  (result as Error & { diagnostics?: PrachtRuntimeDiagnostics; status?: number }).status =
-    error.status;
-  (result as Error & { diagnostics?: PrachtRuntimeDiagnostics; status?: number }).diagnostics =
-    error.diagnostics;
+  for (const key of ["name", "status", "diagnostics", "issues"] as const) {
+    (result as unknown as Record<string, unknown>)[key] = error[key];
+  }
   return result;
 }
 

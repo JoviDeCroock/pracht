@@ -2,9 +2,17 @@ import { collectFontHeadFragments } from "./font.ts";
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
+import { encodeRouteData } from "./route-data-codec.ts";
 import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
 import { escapeScriptChildren } from "./script-escape.ts";
 import type { HeadMetadata } from "./types.ts";
+
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
 
 export { escapeScriptChildren };
 
@@ -127,7 +135,17 @@ export interface HtmlDocumentOptions {
   speculationRules?: SpeculationRulesDocument | null;
   /** Page-scoped WebMCP tools consumed by the islands bootstrap. */
   webmcpCapabilities?: readonly string[];
+  /** Opt the document into cross-document view transitions (`defineApp({ viewTransitions })`). */
+  viewTransitions?: boolean;
 }
+
+/**
+ * The at-rule behind cross-document view transitions. It must be present on
+ * both the old and the new document, so every page document carries it when
+ * the app enables view transitions. Kept constant so a CSP can allow it by
+ * hash on prerendered pages that cannot carry a per-request nonce.
+ */
+export const VIEW_TRANSITION_CSS = "@view-transition{navigation:auto}";
 
 /**
  * Assemble the document as three pieces so the streaming renderer can write
@@ -160,6 +178,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     routeStatePreloadUrl,
     speculationRules,
     webmcpCapabilities = [],
+    viewTransitions = false,
   } = options;
 
   const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
@@ -193,6 +212,13 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     fontFragments?.css || fontNonce
       ? `<style data-pracht-fonts${fontNonce ? ` nonce="${escapeHtml(fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
       : "";
+
+  // Placed ahead of every stylesheet the app contributes — `head().link` as
+  // well as route CSS — because the last `@view-transition` rule wins, so a
+  // page's own `@view-transition { navigation: none }` must come after it.
+  const viewTransitionStyleTag = viewTransitions
+    ? `<style data-pracht-view-transitions${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${VIEW_TRANSITION_CSS}</style>`
+    : "";
 
   const scriptTags = (head.script ?? [])
     .map((script) => {
@@ -254,7 +280,19 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     : "";
 
   const stateScript = hydrationState
-    ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(hydrationState)}</script>`
+    ? `<script id="${HYDRATION_STATE_ELEMENT_ID}" type="application/json">${serializeJsonForHtml(
+        // `shellData` arrives already encoded: the shell loader's result is
+        // encoded once, where the loader runs (runtime-page.ts).
+        RICH_ROUTE_DATA
+          ? {
+              ...hydrationState,
+              data: encodeRouteData(
+                hydrationState.data,
+                `route "${hydrationState.routeId || hydrationState.url}"`,
+              ),
+            }
+          : hydrationState,
+      )}</script>`
     : "";
   const bootstrapScript = inlineBootstrapScript
     ? `<script${inlineBootstrapScript.nonce ? ` nonce="${escapeHtml(inlineBootstrapScript.nonce)}"` : ""}>${escapeScriptChildren(inlineBootstrapScript.source)}</script>`
@@ -275,6 +313,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
       '<meta charset="utf-8">',
       titleTag,
       metaTags,
+      viewTransitionStyleTag,
       linkTags,
       fontLinkTags,
       fontStyleTag,

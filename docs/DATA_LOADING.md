@@ -8,7 +8,8 @@ Loaders fetch data and client hooks provide reactive access.
 ## Loaders
 
 A loader is an async function exported from a route module. It runs server-side
-and returns serializable data that flows into the route component.
+and returns serializable data (see [What a loader can return](#what-a-loader-can-return))
+that flows into the route component.
 
 ```typescript
 // src/routes/dashboard.tsx
@@ -64,6 +65,63 @@ their prerendered document keeps answering markdown-preferring requests instead
 of falling through to a render (see
 [ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path)).
 
+### What a loader can return
+
+Route loader data travels to the browser in the hydration-state script,
+route-state (`_data`) responses, static-export state files, and streamed
+`defer()` chunks; shell loader data (`shellData`) travels in the first three
+and in route-state error bodies. By default all of them carry plain
+`JSON.stringify` output: a `Date` arrives as
+its ISO string, a `Map` as `{}`, a class instance as its own enumerable
+fields, and a function not at all. The component types still say `Date`,
+because `LoaderData<typeof loader>` is the loader's return type, not its JSON
+form.
+
+`pracht({ client: { richData: true } })` switches all of them to one encoding,
+defined in `src/route-data-codec.ts` (`encodeRouteData()` on the server,
+`decodeRouteData()` in the browser). The option sets the
+`__PRACHT_RICH_DATA__` define (`RICH_ROUTE_DATA` in the runtime) for the
+client and server bundles alike, so both sides always agree on the wire format,
+and a default build dead-code-eliminates the decoder. With it on, a value
+arrives as the type the loader returned:
+
+- JSON values: plain objects, arrays, strings, finite numbers, booleans, `null`
+- `undefined` (object properties keep their key; array slots stay `undefined`)
+- `NaN`, `Infinity`, `-Infinity`, `-0`, and `BigInt`
+- `Date` (including an invalid one), `RegExp`, `URL`, `Map`, `Set`
+- Shared references and cycles, with object identity preserved
+
+The format is JSON with tagged arrays: a value JSON cannot represent becomes an
+array whose first element starts with U+0000 (`["\u0000D", 1767225600000]`),
+the first occurrence of a shared object is wrapped with an id, and later
+occurrences point back at it. User strings that start with U+0000 are escaped,
+so no object shape or key is reserved. JSON-only data is byte-identical to
+`JSON.stringify`, and the client skips the decode walk when the payload holds
+no `\u0000` escape. Decoding never evaluates code, and the inline-script
+escaping (`<`, `>`, `&`, U+2028, U+2029) is unchanged.
+
+An object with a `toJSON()` method is sent as its JSON representation, as with
+`JSON.stringify`: each occurrence is converted separately, so it takes no part
+in identity tracking, and it arrives as that representation, not as its class.
+Anything else (functions, symbols, class instances, `Error`s, boxed primitives,
+DOM nodes, an unresolved `defer()` marker inside a `Map`/`Set`) throws a
+`TypeError` naming the route and the path (`data.user.save is a function`).
+This check runs in development and production alike: the error takes the
+normal route-error path (500, sanitized in production, reported to
+`onRouteError`). A deferred value that fails to encode on a streaming route is
+delivered to its boundary as an error instead. The server has already rendered
+that boundary from the raw value by then, so its streamed HTML shows the
+success state until the client hydrates the error; a client navigation to the
+same route fails the whole route-state request instead.
+
+Only data that ships is encoded. `hydration: "islands"` and `"none"` routes
+emit no hydration state, so their loaders may return anything the component
+can render on the server. Island props use their own JSON-only validation (see
+[ISLANDS.md](ISLANDS.md)).
+
+The decoder costs 272 bytes gzip on full-hydration routes when enabled (see
+[PERFORMANCE.md](PERFORMANCE.md#rich-loader-data-is-opt-in)).
+
 ### LoaderArgs
 
 | Field      | Type            | Description                                                   |
@@ -75,6 +133,13 @@ of falling through to a render (see
 | `url`      | `URL`           | Parsed URL                                                    |
 | `route`    | `ResolvedRoute` | Matched route metadata                                        |
 | `pathname` | `string`        | Matched pathname with the configured deployment base removed |
+| `search`   | `unknown`       | Parsed search params: the route module's `search` schema output, or the raw query record |
+
+`search` is set once per request, after middleware and before the loader, and
+the same value reaches `head()` and `headers()`. Narrow it with
+`LoaderArgs & SearchArgs<typeof search>`; a query the schema rejects answers
+400 before the loader runs. See [ROUTING.md](ROUTING.md#search-params) for the
+pipeline and the prerendering rules.
 
 `signal` composes two independent reasons to stop: the request's own
 `AbortSignal` (the client went away) and a server-side budget. The budget
@@ -157,6 +222,17 @@ loader.
 For SPA routes, the initial HTML can still include the matched shell and an
 optional shell `Loading` export so the page is not blank before the route-state
 request resolves.
+
+### Shell loaders
+
+A shell module can export its own `loader` for data every route under it shows.
+It takes the same `LoaderArgs`, runs after middleware and concurrently with the
+route loader, and its result travels as `shellData` next to `data` in the
+hydration state and the route-state JSON. `useShellData()` reads it. Client
+navigations inside the same shell reuse it (the request claims the shell with
+`x-pracht-shell-data` and the server skips its loader); every revalidation path
+re-runs it. Mechanics and render-mode behaviour live in
+[ROUTING.md](ROUTING.md#shell-loaders).
 
 ### Deferred values — `defer()` and `use()`
 
@@ -257,7 +333,8 @@ With it on, the response is written in this order:
    travel as framework metadata beside the user-owned loader data, so no user
    object shape or property name is reserved by the wire format.
 3. Each deferred value as it settles — the resolved markup from the renderer,
-   plus a small script carrying the data so the client has it too.
+   plus a small script carrying the data (serialized like the hydration
+   state) so the client has it too.
 4. The client entry, then `</body></html>`. The entry is preloaded with the
    document assets, but hydration starts after the streamed content so even a
    `beforeHydration` script inside a deferred subtree keeps its guarantee.
@@ -499,6 +576,10 @@ has no boundary, the error bubbles up to the shell, then to the global handler.
 [`notFound` page](#custom-404-pages): a route boundary still wins, but the
 not-found page takes over from there instead of the shell boundary. "Not
 found" is an outcome, not a failure.
+
+A query rejected by the route's `search` schema reaches the boundary as a 400
+whose `error.issues` holds the normalized validation issues (`in: "query"`),
+both from the server and on client navigation.
 
 #### Custom 404 pages
 
@@ -868,6 +949,23 @@ export function Component() {
 }
 ```
 
+### `useShellData()`
+
+Read the loader data of the shell the active route renders under, from the
+shell or from any route inside it:
+
+```typescript
+const shell = useShellData("app"); // typed from the app shell's loader via typegen
+const same = useShellData<typeof loader>(); // without typegen
+```
+
+`pracht typegen` registers every shell a route renders under on
+`Register["shells"]`, so the shell name autocompletes and types the result.
+Like `useRouteData(id)`, the name is honoured: naming a shell the active route
+does not render under throws. The result is typed `| undefined` because it is
+`undefined` whenever the shell renders without its data — no loader, the SPA
+loading state, or an error boundary after the shell loader failed.
+
 ### `useSearchParams()`
 
 Read the current query string as a reactive, read-only `URLSearchParams` view:
@@ -894,9 +992,29 @@ URL to update the query string. SSG loader data remains build-time data and is
 not rerun for the visitor query. Use SSR when query parameters must affect
 server-loaded data or the initial HTML.
 
+### `useSearch()`
+
+Read the active route's parsed search params — the output of its `search`
+schema, or the raw query record (`Record<string, string | string[]>`) when it
+declares none:
+
+```typescript
+import { useSearch } from "@pracht/core";
+
+export function Component() {
+  const { page } = useSearch("products"); // typed by `pracht typegen`
+  return <p>Page {page}</p>;
+}
+```
+
+As with `useRouteData()`, the route id is a typing shortcut that must name the
+active route. The value follows the same hydration rule as `useSearchParams()`:
+an SSG page hydrates with the build-time (empty) query and re-parses the
+visitor's query afterwards.
+
 ### `useRevalidate()`
 
-Imperatively re-run the current route's loader:
+Imperatively re-run the current route's loader, and its shell's:
 
 ```typescript
 export function Component() {

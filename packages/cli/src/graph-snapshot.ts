@@ -71,7 +71,7 @@ export interface LiveGraphMetadata {
   graph: GraphSnapshot;
   /** Authoritative adapter capability from the resolved Vite configuration. */
   staticTarget: boolean;
-  /** Routes whose generated loader hint says a server fetch may be required. */
+  /** Routes whose generated route or shell loader hint says a server fetch may be required. */
   loaderRoutePaths: ReadonlySet<string>;
 }
 
@@ -117,7 +117,12 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
       }),
       loaderRoutePaths: new Set(
         resolvedRoutes
-          .filter((route) => route.loaderFile !== undefined || route.hasLoader !== false)
+          .filter(
+            (route) =>
+              route.loaderFile !== undefined ||
+              route.hasLoader !== false ||
+              route.hasShellLoader === true,
+          )
           .map((route) => route.path),
       ),
       staticTarget: serverModule.staticTarget === true,

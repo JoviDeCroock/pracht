@@ -487,7 +487,7 @@ describe("drift-guard source extraction", () => {
     expect(misplaced).not.toBeNull();
     expect(validatePrachtInvocation(misplaced as PrachtInvocation)).toEqual([
       expect.stringContaining(
-        'flag "--path" (from `pracht generate shell --path /dashboard`) is not defined by "pracht generate shell"; known: --help, --version, --name, --json',
+        'flag "--path" (from `pracht generate shell --path /dashboard`) is not defined by "pracht generate shell"; known: --help, --version, --name, --loader, --json',
       ),
     ]);
 
@@ -495,7 +495,7 @@ describe("drift-guard source extraction", () => {
     expect(typo).not.toBeNull();
     expect(validatePrachtInvocation(typo as PrachtInvocation)).toEqual([
       expect.stringContaining(
-        'flag "--nmae" (from `pracht generate shell --nmae app`) is not defined by "pracht generate shell"; known: --help, --version, --name, --json',
+        'flag "--nmae" (from `pracht generate shell --nmae app`) is not defined by "pracht generate shell"; known: --help, --version, --name, --loader, --json',
       ),
     ]);
   });

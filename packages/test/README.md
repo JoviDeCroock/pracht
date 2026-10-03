@@ -15,7 +15,10 @@ with Vitest (or any test runner).
   matched, base-free path when testing an app mounted below a deployment base.
   Blob/File and `URLSearchParams` bodies are normalized across DOM realms, and
   foreign-realm `FormData`/`ArrayBuffer` values retain their wire encoding, so
-  JSDOM values work with Node's `Request` implementation.
+  JSDOM values work with Node's `Request` implementation. Work registered
+  with `args.waitUntil()` is recorded on `args.waitUntilPromises`, and
+  `await args.flushWaitUntil()` waits for it (rejecting with the first
+  failure); pass `waitUntil` to also forward each registration to a spy.
 - `runMiddleware()` — execute a middleware chain with the runtime's `next()`
   semantics (sequential, at-most-once `next()`, short-circuit on an early
   `Response`). A thrown `Response` resolves by default like page/API dispatch;

@@ -33,7 +33,7 @@ adapters for Node, Cloudflare Workers, Netlify, and Vercel.
   \`notFound\` names the page rendered with a 404 status when nothing matches — it is
   not a route, so never add a catch-all \`route("/*", ...)\` for that purpose.
 - \`src/routes/\` — route modules: \`Component\`, optional \`loader\`, \`head\`, \`ErrorBoundary\`, \`getStaticPaths\`.
-- \`src/shells/\` — named layout wrappers (\`Shell\`, optional \`head\`, \`Loading\`).
+- \`src/shells/\` — named layout wrappers (\`Shell\`, optional \`loader\` read with \`useShellData()\`, \`head\`, \`Loading\`).
 - \`src/middleware/\` — server middleware: \`export const middleware: MiddlewareFn\`.
 - \`src/server/\` — optional separate loader files wired via \`route(path, { component, loader })\`.
 - \`src/api/\` — file-based API endpoints exporting HTTP method handlers (\`GET\`, \`POST\`, ...).

@@ -126,7 +126,7 @@ pracht generate capability --name notes.search --expose http --description "Find
 | Subcommand | Flags |
 | --- | --- |
 | `route` | `--path` (required), `--render` (`ssr` default, `spa`, `ssg`, `isg`), `--shell`, `--middleware` (comma-separated), `--loader`, `--error-boundary`, `--static-paths`, `--title`, `--revalidate <seconds>` (ISG only), `--test` / `--no-test` |
-| `shell` | `--name` (required) |
+| `shell` | `--name` (required), `--loader` (adds a [shell loader](/docs/shells#shell-data)) |
 | `middleware` | `--name` (required) |
 | `api` | `--path` (required), `--methods` (comma-separated, default `GET`) |
 | `capability` | `--name` (required, e.g. `notes.search`), `--effect` (`read` default, `write`, `destructive`), `--expose` (comma-separated `http`, `webmcp`, `mcp`; omit to keep it private), `--title`, `--description` (required with `--expose`) |

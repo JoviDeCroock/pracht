@@ -35,6 +35,14 @@ import {
   isPrachtHttpError,
   type SerializedRouteError,
 } from "./runtime-errors.ts";
+import { decodeRouteData } from "./route-data-codec.ts";
+
+// `client.richData` (see route-data-codec.ts). Declared in this module rather
+// than imported: Rolldown folds the condition only within a module, so an
+// imported flag would keep the codec chunk in every multi-chunk build.
+declare const __PRACHT_RICH_DATA__: boolean | undefined;
+const RICH_ROUTE_DATA =
+  typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
 
 const DEFERRED = Symbol.for("pracht.deferred");
 
@@ -282,10 +290,9 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
     return next;
   }
 
-  // Anything that is not a plain object (Date, class instance, …) is handed
-  // back by reference. Loader data has to be JSON-serializable, so these are
-  // already the caller's problem and rebuilding them would lose their
-  // prototype.
+  // Anything that is not a plain object (Date, Map, class instance, …) is
+  // handed back by reference: rebuilding it would lose its prototype, and the
+  // route-data encoder either represents it or rejects it with its path.
   if (!isPlainObject(value)) return value;
 
   const next = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
@@ -360,7 +367,15 @@ export interface SerializedDeferred {
 export function serializeDeferred(data: unknown): SerializedDeferred {
   const pending: Array<DeferredHydrationReference & { promise: Promise<unknown> }> = [];
 
-  const walk = (value: unknown, path: DeferredPathSegment[], ancestors: Set<object>): unknown => {
+  // With rich data on, copies are memoized per source object, so shared
+  // references and cycles stay shared in the copy and the route-data encoder
+  // can preserve them. A deferred value under a shared object is recorded at
+  // its first path, which the client reaches through the same revived object.
+  // Plain JSON duplicates a shared object instead, so there each copy is
+  // forgotten once its subtree is done and every path records its own
+  // deferred values; only an object's own ancestors stay memoized.
+  const copies = new Map<object, unknown>();
+  const walk = (value: unknown, path: DeferredPathSegment[]): unknown => {
     if (isDeferred(value)) {
       const label = path.length === 0 ? "root" : path.map(String).join(".");
       const id = `${pending.length}:${label}`;
@@ -372,12 +387,12 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
       return null;
     }
     if (typeof value !== "object" || value === null) return value;
-    if (ancestors.has(value)) return value;
-    ancestors.add(value);
+    if (copies.has(value)) return copies.get(value);
 
     if (Array.isArray(value)) {
       const next: unknown[] = [];
       Object.setPrototypeOf(next, Object.getPrototypeOf(value));
+      copies.set(value, next);
       const descriptors = Object.getOwnPropertyDescriptors(value);
       for (const key of Reflect.ownKeys(descriptors)) {
         if (key === "length") continue;
@@ -388,21 +403,19 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
           isArrayIndexKey(key) && "value" in descriptor
             ? {
                 ...descriptor,
-                value: walk(descriptor.value, [...path, Number(key)], ancestors),
+                value: walk(descriptor.value, [...path, Number(key)]),
               }
             : descriptor,
         );
       }
       Object.defineProperty(next, "length", descriptors.length);
-      ancestors.delete(value);
+      if (!RICH_ROUTE_DATA) copies.delete(value);
       return next;
     }
-    if (!isPlainObject(value)) {
-      ancestors.delete(value);
-      return value;
-    }
+    if (!isPlainObject(value)) return value;
 
     const next = Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
+    copies.set(value, next);
     const descriptors = Object.getOwnPropertyDescriptors(value);
     for (const key of Reflect.ownKeys(descriptors)) {
       const descriptor = descriptors[key as keyof typeof descriptors];
@@ -410,15 +423,15 @@ export function serializeDeferred(data: unknown): SerializedDeferred {
         next,
         key,
         typeof key === "string" && descriptor.enumerable && "value" in descriptor
-          ? { ...descriptor, value: walk(descriptor.value, [...path, String(key)], ancestors) }
+          ? { ...descriptor, value: walk(descriptor.value, [...path, String(key)]) }
           : descriptor,
       );
     }
-    ancestors.delete(value);
+    if (!RICH_ROUTE_DATA) copies.delete(value);
     return next;
   };
 
-  return { data: walk(data, [], new Set()), pending };
+  return { data: walk(data, []), pending };
 }
 
 /**
@@ -489,7 +502,8 @@ export function installDeferRegistry(): void {
 
   const registry: DeferRegistry = {
     r(id, value) {
-      getClientEntry(id).resolve(value);
+      // Streamed values use the same encoding as the hydration state.
+      getClientEntry(id).resolve(RICH_ROUTE_DATA ? decodeRouteData(value) : value);
     },
     e(id, error) {
       const err = isSerializedRouteError(error)
@@ -524,7 +538,7 @@ function isSerializedRouteError(error: unknown): error is SerializedRouteError {
  * Replace the out-of-band deferred locations in hydrated loader data.
  *
  * Returns the input by reference when there are no references, so a route that
- * defers nothing pays nothing. The input comes directly from `JSON.parse`, so
+ * defers nothing pays nothing. The input is freshly parsed and decoded, so
  * replacing its placeholder values in place cannot mutate application state.
  */
 export function rehydrateDeferredData<T>(

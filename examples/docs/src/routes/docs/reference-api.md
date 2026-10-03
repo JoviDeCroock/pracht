@@ -95,6 +95,7 @@ See [Coding Agents](/docs/coding-agents#constraints).
 | `readServerOnly(value)` | Read a `ServerOnly<T>` in server code such as `head()` |
 | `ServerOnly<T>` | The typed marker returned by `serverOnly()` |
 | `<StaticHtml html>` | Render trusted HTML the server already wrote, without hydrating it |
+| `SearchArgs<typeof search>` | Types `args.search` as the route's `search` schema output. See [Routing](/docs/routing#search-params) |
 
 ---
 
@@ -103,13 +104,15 @@ See [Coding Agents](/docs/coding-agents#constraints).
 | Export | Returns | Description |
 | --- | --- | --- |
 | `useRouteData(routeId?)` | The loader's data | The active route's loader result. Pass the route id to type it; any other route's id throws. See [Data Loading](/docs/data-loading#useroutedata) |
+| `useShellData(shell?)` | The shell loader's data, or `undefined` | The loader result of the active route's shell, readable from the shell and its routes. Pass the shell name to type it; any other shell's name throws. See [Shells](/docs/shells#shell-data) |
 | `useParams()` | `Record<string, string>` | Matched dynamic segments. See [Routing](/docs/routing#reading-params) |
 | `useLocation()` | `{ pathname, search }` | The current URL as the visitor sees it, deploy base included |
 | `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws — navigate instead |
+| `useSearch(routeId?)` | The parsed query | The active route's `search` schema output, or the raw query without one. See [Routing](/docs/routing#search-params) |
 | `useNavigate()` | `(to, options?) => Promise<void>` | Imperative navigation, by path or route object |
 | `useNavigation()` | `{ state, location?, formData? }` | Pending state for the current navigation or `<Form>` submission: `"idle"`, `"loading"`, or `"submitting"` |
 | `useBlocker(shouldBlock, options?)` | `{ state, location, proceed, reset }` | Stop a navigation before it commits, e.g. unsaved changes. See [Data Loading](/docs/data-loading#useblocker) |
-| `useRevalidate()` | `() => void` | Re-run the active route's loader |
+| `useRevalidate()` | `() => void` | Re-run the active route's loader and its shell's |
 | `useIsHydrated()` | `boolean` | `false` during SSR and the first client render, `true` after |
 | `useEventSource(url, options?)` | `{ status, data, lastEventId }` | Subscribe to a server-sent event stream. `status` is `"connecting"`, `"open"`, or `"closed"`. See [Server-Sent Events & WebSockets](/docs/recipes/streaming) |
 | `useCapability(name)` | `{ call, data, error, pending, reset }` | Call state for a user-triggered [capability](/docs/capabilities) call. From `virtual:pracht/capabilities` |

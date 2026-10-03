@@ -35,6 +35,7 @@ describe("resolveOptions client", () => {
       prefetch: true,
       navigationGuards: true,
       hydrationWarnings: false,
+      richData: false,
     });
   });
 
@@ -43,16 +44,25 @@ describe("resolveOptions client", () => {
       prefetch: false,
       navigationGuards: true,
       hydrationWarnings: false,
+      richData: false,
     });
     expect(resolveOptions({ client: { navigationGuards: false } }).client).toEqual({
       prefetch: true,
       navigationGuards: false,
       hydrationWarnings: false,
+      richData: false,
     });
     expect(resolveOptions({ client: { hydrationWarnings: true } }).client).toEqual({
       prefetch: true,
       navigationGuards: true,
       hydrationWarnings: true,
+      richData: false,
+    });
+    expect(resolveOptions({ client: { richData: true } }).client).toEqual({
+      prefetch: true,
+      navigationGuards: true,
+      hydrationWarnings: false,
+      richData: true,
     });
   });
 

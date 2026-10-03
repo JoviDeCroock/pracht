@@ -32,13 +32,21 @@ trust-gated tools for agents over HTTP, WebMCP, remote MCP, and `llms.txt`.
   explicit `src/routes.ts` manifest using `defineApp()`, `route()`, `group()`.
 - **Dynamic segments**: `:param` syntax, catch-all segments.
 - **Typed route links**: `pracht typegen` emits route id/param types and href helpers for `<Link>`, `useNavigate()`, and code outside components.
+- **Typed search params**: a route module exports a `search` Standard Schema;
+  loaders, `head()`, and `useSearch()` get the parsed output, links and
+  `href()` are checked against its input, and a rejected query renders the
+  route's error boundary with a 400 (server and client navigation alike).
 - **Shells**: named layout wrappers (e.g. `public`, `app`) decoupled from URL
-  structure; assigned per route or group.
+  structure; assigned per route or group. A shell can export its own `loader`
+  for layout-level data, read with `useShellData()` from the shell and its
+  routes, run concurrently with the route loader, and reused across client
+  navigations that stay in the shell.
 - **Middleware**: named middleware defined in `src/middleware/`, applied per route
   or group; runs server-side before loaders.
 - **Route groups**: inherit shell, middleware, render mode, and path prefix.
 - **Navigation UX**: automatic scroll restoration, link prefetching
-  (`intent`/`viewport`/`render`), and opt-in View Transitions.
+  (`intent`/`viewport`/`render`), and opt-in View Transitions (client navigations
+  plus cross-document transitions for full page loads to islands/static pages).
 
 ### Rendering Modes
 
@@ -77,7 +85,9 @@ Two styles, both fully supported — pick whichever fits your mental model:
 **Inline (co-located in the route file):**
 
 - **Loaders**: `export function loader(args)` — runs at build (SSG), request (SSR),
-  or client navigation time. Returns typed, serializable data.
+  or client navigation time. Returns typed, serializable data — JSON, or with
+  `client.richData` also Date, Map, Set, BigInt, and shared references, which
+  then arrive in the browser as the same types.
 - **Form**: A component that allows posting to one of our API routes
 
 **Separate files (manifest-wired):**
@@ -109,9 +119,10 @@ core framework conventions. See
 
 - **Head**: `export function head(args)` — per-route `<head>` metadata merged with
   shell-level head.
-- **Client hooks**: `useRouteData()`, `useRevalidate()`, `useNavigation()` (pending
+- **Client hooks**: `useRouteData()`, `useShellData()`, `useRevalidate()`, `useNavigation()` (pending
   navigation/submission state for progress bars and optimistic UI), `useNavigate()`,
-  `useLocation()`, `useSearchParams()`, `useParams()`, `useBlocker()` (guard a
+  `useLocation()`, `useSearchParams()`, `useSearch()` (schema-parsed query),
+  `useParams()`, `useBlocker()` (guard a
   navigation before it commits, including back/forward and document unload),
   `<Form>` component, `<Link>`
   (with `prefetch`, `preserveScroll`, `viewTransition`, `speculate` props), and imperative
@@ -124,7 +135,10 @@ Standalone server endpoints independent of the page rendering pipeline:
 - Defined in `src/api/` with file-based path mapping (e.g. `src/api/health.ts` → `/api/health`).
 - Export named HTTP method handlers (`export function GET(args)`, `POST(args)`, etc.)
   or one default handler that branches on `args.request.method`.
-- Receive the same `LoaderArgs`-style context (request, params, context, signal).
+- Receive the same `LoaderArgs`-style context (request, params, context, signal,
+  waitUntil). `waitUntil(promise)` is portable background work: each adapter
+  maps it to its platform (`ctx.waitUntil`, `context.waitUntil`, or Node's
+  graceful-shutdown drain), and builds await it.
 - Return `Response` objects directly — full control over status, headers, body.
 - API routes are independent of page-route middleware by default. Shared API
   policy can be attached explicitly via `defineApp({ api: { middleware: [...] } })`;

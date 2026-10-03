@@ -1,6 +1,6 @@
 ---
 name: audit-loaders
-version: 1.1.1
+version: 1.2.0
 description: |
   Audit pracht route loaders for serializability, leaked secrets, unsafe
   `loaderCache`, browser-only API use, and missing `AbortSignal` plumbing.
@@ -38,13 +38,22 @@ manifest (`RouteConfig.loader`); the inspect JSON surfaces that as
 `loaderFile` (null when the loader lives in the route module itself). Reading
 only `file` misses every externalized loader.
 
+Shells can export a `loader` too. Read each distinct `shellFile` from the same
+JSON and audit its `loader` like a route's: its return value reaches the
+browser as `shellData` on every page under that shell.
+
 ## Step 2: Run the five checks
 
 For each `loader` (and `getStaticPaths` when present):
 
 ### 2a. Serializability
 
-Flag returns that contain any of:
+Skip this check for `hydration: "islands"` and `"none"` routes: they ship no
+loader data. Otherwise, check `vite.config.*` for
+`pracht({ client: { richData: true } })` first.
+
+Without `richData` (the default), loader data is `JSON.stringify`'d while the
+component's types still promise the original. Flag returns that contain any of:
 
 | Construct                    | Why it breaks                       |
 | ---------------------------- | ----------------------------------- |
@@ -66,6 +75,13 @@ production only. Also flag a large markup string returned *without* it from a
 route that renders it straight into `dangerouslySetInnerHTML`: that page ships
 its own content twice.
 
+With `richData`, `Date`, `Map`, `Set`, `URL`, `RegExp`, `bigint`, `undefined`,
+and shared or circular references arrive intact: do not flag them. Flag
+functions, symbols, typed arrays, and class instances without `toJSON()`
+(`Error` included) instead: each fails the request with a 500 naming the path,
+in production too. A class instance with `toJSON()` arrives as its output, so
+its type lies.
+
 A bare promise in loader data is always a bug — it serializes to `{}`. The fix
 is `defer(promise)`, which marks the field as deferred and is read in the
 component with `use()` inside a `<Suspense>` boundary. Flag a bare promise as an
@@ -82,7 +98,8 @@ Two `defer()` rules worth checking while you are in the loader:
   behind a getter. An unresolved marker throws during serialization.
 
 Recommend converting to `string` (ISO for dates), plain arrays, or plain objects
-before return.
+before return, or turning on `client.richData` when an app returns many dates
+or maps.
 
 ### 2b. Secret leaks
 

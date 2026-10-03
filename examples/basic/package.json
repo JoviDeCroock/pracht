@@ -27,7 +27,8 @@
     "@pracht/image": "workspace:*",
     "@pracht/openapi": "workspace:*",
     "@pracht/session": "workspace:*",
-    "sharp": "^0.34.0"
+    "sharp": "^0.34.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@pracht/cli": "workspace:*",

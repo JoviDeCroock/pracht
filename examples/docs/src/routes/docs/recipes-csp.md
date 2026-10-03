@@ -65,7 +65,8 @@ requires it and the exception is documented.
 
 ## Framework-Generated Styles
 
-`defineFont()` and `pracht({ inlineCss: true })` emit inline style elements.
+`defineFont()`, `pracht({ inlineCss: true })`, and
+`defineApp({ viewTransitions: true })` emit inline style elements.
 For SSR, return a request-specific `styleNonce` from the shell head and use the
 same value in `style-src`:
 
@@ -83,7 +84,9 @@ export function headers({ context }) {
 
 `fontNonce` overrides the nonce for fonts only; prefer `styleNonce`. SSG/ISG
 output cannot reuse a request nonce, so keep linked CSS and use a stable hash
-or external stylesheet policy for static documents.
+or external stylesheet policy for static documents. The `viewTransitions` style
+never changes, so allow it with
+`'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`.
 
 ## Inline Script Entries
 

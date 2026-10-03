@@ -575,9 +575,9 @@ function throwsMarker(error: unknown): { $throws: string } {
 }
 
 /**
- * Loader data is JSON on the wire, but the page may hold values that are not:
- * a `Deferred` whose promise is still pending, a `Date` a component stored, a
- * cycle introduced by a `setData()` call, a Proxy-backed row whose trap
+ * Loader data arrives revived from the route-data encoding, so the page may
+ * hold values plain JSON cannot carry: a `Date`, `Map`, or `BigInt`, a cycle,
+ * a `Deferred` whose promise is still pending, a Proxy-backed row whose trap
  * throws. The host serializes the tool result itself, so hand it something
  * that always survives `JSON.stringify` — every probe and every recursion is
  * guarded, and one hostile value reports itself as `{ $throws }` for its own
