@@ -281,38 +281,30 @@ What changes when a route streams:
 
 ### Server-only values
 
-A loader field that only exists to become markup, such as compiled Markdown or
-a rendered diff, reaches the browser twice: once as HTML and again in the
-hydration state. Wrap it in `serverOnly()` and render it with `<StaticHtml>`:
+A loader field that only becomes markup, such as compiled Markdown, ships twice:
+as HTML and in the hydration state. Wrap it in `serverOnly()` and render it with
+`<StaticHtml>`:
 
 ```tsx [src/routes/article.tsx]
 import { StaticHtml, serverOnly } from "@pracht/core";
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 
 export async function loader({ params }: LoaderArgs) {
-  const article = await getArticle(params.slug);
-  return { title: article.title, html: serverOnly(article.html) };
+  return { html: serverOnly(await renderArticle(params.slug)) };
 }
 
 export default function Article({ data }: RouteComponentProps<typeof loader>) {
-  return (
-    <article>
-      <h1>{data.title}</h1>
-      <StaticHtml html={data.html} class="prose" />
-    </article>
-  );
+  return <StaticHtml html={data.html} as="article" class="prose" />;
 }
 ```
 
-The document now carries the article once. Its hydration state holds a
-placeholder, and `<StaticHtml>` keeps the markup the server rendered. A
-client-side navigation to the route gets the real value from the route-state
-request it already makes.
+The document carries the article once: the hydration state holds a placeholder,
+and `<StaticHtml>` keeps the server's markup, even across revalidation. A
+client-side navigation gets the real value from route state.
 
-- **Nothing inside `<StaticHtml>` hydrates.** Event handlers, hooks, and
-  islands in that markup never run, so keep interactive components outside it.
-- **The HTML is inserted as-is.** Only pass markup you wrote or sanitized on
-  the server.
+- **Nothing inside `<StaticHtml>` hydrates.** Keep event handlers, hooks, and
+  islands outside it.
+- **The HTML is inserted as-is.** Only pass markup you wrote or sanitized.
 - **`data.html` is typed `ServerOnly<string>`.** Pass it to `<StaticHtml>`, or
   read it with `readServerOnly()` in server code such as `head()`.
 
