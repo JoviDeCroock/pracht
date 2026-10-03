@@ -20,10 +20,10 @@
     {
       "rung": "hydration: islands, islands navigation on",
       "hydration": "islands",
-      "bytes": 26949,
-      "gzipBytes": 11558,
+      "bytes": 28126,
+      "gzipBytes": 12007,
       "lazyGzipBytes": 0,
-      "coldGzipBytes": 11558
+      "coldGzipBytes": 12007
     },
     {
       "rung": "hydration: full",

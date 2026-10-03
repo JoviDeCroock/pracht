@@ -566,10 +566,10 @@ describe("published package tree shaking", () => {
       const { code } = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "false" });
 
       expect(code).not.toContain("currententrychange");
-      expect(code).not.toContain("WeakSet");
+      expect(code).not.toContain("pracht:nav-skip:");
     });
 
-    // 3,871 gzip bytes over the bootstrap without it in the bench ladder's app
+    // 3,837 gzip bytes over the bootstrap without it in the bench ladder's app
     // build; this harness minifies differently and counts slightly more.
     it("keeps it, within budget, when on", async () => {
       const on = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "true" });

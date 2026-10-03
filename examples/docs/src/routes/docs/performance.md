@@ -20,7 +20,7 @@ These are the client JavaScript totals for the *same page*, rendering the
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
 | `hydration: "islands"` | **8.0 KB** | 17.6 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "islands"`, islands navigation on | **11.3 KB** | 26.3 KB | Islands with `client: { islandsNavigation: true }`. |
+| `hydration: "islands"`, islands navigation on | **11.7 KB** | 27.5 KB | Islands with `client: { islandsNavigation: true }`. |
 | `hydration: "full"` | **17.4 KB** | 42.6 KB | The above plus the client router: navigation, prefetching, loader fetches. |
 | `hydration: "full"`, prefetching off | **15.9 KB** | 41.6 KB | Full hydration with `client: { prefetch: false }`. |
 | `hydration: "full"`, navigation guards off | **17.1 KB** | 41.7 KB | Full hydration with `client: { navigationGuards: false }`. |
