@@ -1,6 +1,6 @@
 ---
 name: upgrade-pracht
-version: 1.1.0
+version: 1.2.0
 description: |
   Upgrade the `@pracht/*` packages safely: inventory installed versions, read the
   changelogs between installed and target, map breaking changes to real usage,
@@ -130,12 +130,17 @@ pracht doctor --json          # wiring still valid
 pracht typegen --check        # generated route types up to date?
 pracht typegen                # regenerate if --check failed or routes changed
 pracht verify --json          # framework-aware checks
+pnpm typecheck                # both tsconfig programs, if the app has the script
 pracht build                  # full production build (budgets included)
 pnpm test                     # the app's own suite
 ```
 
 `pracht doctor`, `verify`, and `typegen --check` exit non-zero on failure, so
-they gate CI cleanly.
+they gate CI cleanly. Act on doctor *warnings* too: `pnpm up` never touches
+files `create-pracht` wrote, so a warning is how an older scaffold learns it
+needs a config change — for example adding `"src/**/*.d.ts"` to the
+`include` of `tsconfig.client.json`, without which typed route hooks are
+`unknown` in client code and `<Link route>` accepts any string.
 
 ## Step 7: Rollback note
 

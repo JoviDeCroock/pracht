@@ -1,6 +1,6 @@
 ---
 name: audit-secrets
-version: 1.1.1
+version: 1.2.0
 description: |
   Detect environment variables and secrets reaching the client bundle via loader
   return values, hydration state, or server-only modules imported from client code
@@ -74,8 +74,9 @@ risk in the report.
 
 ## Step 3: Module import boundaries
 
-Grep client-rendered files (route components, shells, anything imported from
-them) for imports of:
+Grep client-rendered files (route components, shells, the app root registered
+as `defineApp({ root })` or `pages/_root.tsx`, anything imported from them) for
+imports of:
 
 - `node:*` builtins
 - `@pracht/adapter-*`
@@ -87,12 +88,18 @@ The Vite plugin strips the server-only exports `loader`, `head`, `headers`,
 query (`middleware` is not a route-file export — middleware lives in the
 manifest); see the client module transform notes in `docs/ARCHITECTURE.md`
 and `docs/ENV.md`. But a component that imports `../server/db` will still
-pull `db` into the client bundle. Flag those imports.
+pull `db` into the client bundle. Flag those imports. The app root gets no
+stripping at all: the whole module ships to the browser, `setup()` and
+`dehydrate()` included.
 
 ## Step 4: Hidden surfaces
 
 Check for accidental exposure outside loaders:
 
+- The app root's `dehydrate()` snapshot: it lands in `pracht-state` as `root`
+  and in every route-state response, like loader data. For `@pracht/query`
+  that is every successful query cached during the request, so flag a
+  `queryFn` or `setQueryData` in a loader that caches a secret-bearing value.
 - `head()` returns: rare, but a `meta` value containing a token leaks into HTML.
 - `headers()` returns: flag values that look like secrets. For SSG/ISG pages,
   document headers enter `dist/server/headers-manifest.json`; every serverful

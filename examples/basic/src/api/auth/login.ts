@@ -1,18 +1,17 @@
 import { redirect, type ApiRouteArgs } from "@pracht/core";
 
+import { safeRedirectPath } from "../../server/redirects.ts";
 import { sessions } from "../../server/session.ts";
 import { verifyCredentials } from "../../server/users.ts";
 
-export async function POST({ request }: ApiRouteArgs) {
+export async function POST({ request, url }: ApiRouteArgs) {
   const form = await request.formData();
   const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
 
-  // The redirect target is user input. Anything that is not a plain
-  // root-relative path is an open redirect waiting to happen.
-  const requested = String(form.get("redirect") ?? "/dashboard");
-  const target =
-    requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard";
+  // The redirect target is user input. Anything that does not resolve to a
+  // path on this origin is an open redirect waiting to happen.
+  const target = safeRedirectPath(form.get("redirect"), url, "/dashboard");
 
   const user = await verifyCredentials(email, password);
   if (!user) {

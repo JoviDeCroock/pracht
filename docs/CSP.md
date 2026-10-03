@@ -116,6 +116,30 @@ documents cannot safely share a request nonce; use a stable hash that covers the
 generated CSS, move the rules to an allowed stylesheet, or choose another
 explicit style policy for those routes.
 
+## Framework-Generated Scripts
+
+Buffered documents carry no executable inline script: hydration state is a
+`type="application/json"` element. Two features add executable inline scripts,
+and both take the `head.scriptNonce` value (merged route-over-shell like
+`styleNonce`):
+
+- `streaming: true` routes emit the defer-channel shim, one
+  `window.__PRACHT_DEFER__.r(...)`/`.e(...)` script per settled deferred value,
+  and the renderer's `<preact-island>` boundary-swap bootstrap. The renderer
+  has no nonce option, so `runtime-stream.ts` rewrites the opening tag of the
+  one post-shell chunk that starts with a bare `<script>`; every other renderer
+  chunk after the shell is the `<div hidden>` wrapper or a `<preact-island>`
+  subtree.
+- Routes with `speculation` emit `<script type="speculationrules">`.
+
+```ts
+export function head({ context }) {
+  return { scriptNonce: context.cspNonce, styleNonce: context.cspNonce };
+}
+```
+
+`fontNonce` and `styleNonce` never apply to scripts.
+
 ## Inline Script Entries
 
 Normal Pracht page rendering and hydration do not require executable inline

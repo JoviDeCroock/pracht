@@ -225,6 +225,7 @@ describe("published package tree shaking", () => {
         __PRACHT_ROUTE_SEARCH__: "false",
         __PRACHT_SHELL_LOADERS__: "false",
         __PRACHT_RICH_DATA__: "false",
+        __PRACHT_APP_ROOT__: "false",
       },
       entry: clientEntry,
     };
@@ -338,6 +339,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -378,6 +380,33 @@ describe("published package tree shaking", () => {
     });
   });
 
+  // The app root (`defineApp({ root })`) is optional. The plugin defines the
+  // flag false for a build that registers none, so those apps ship none of its
+  // wiring.
+  describe("__PRACHT_APP_ROOT__", () => {
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops the root wiring when the app has no root module", async () => {
+      const { code } = await routerBundle({ __PRACHT_APP_ROOT__: "false" });
+
+      expect(code).not.toContain("isServer");
+    });
+
+    it("keeps the root wiring when the app has one", async () => {
+      const { code } = await routerBundle({ __PRACHT_APP_ROOT__: "true" });
+
+      expect(code).toContain("isServer");
+    });
+  });
+
   // The agent surface is opt-in: a server bundle for an app that registers no
   // capabilities and configures no agents must not contain the capability
   // dispatch or the Web Bot Auth verifier at all.
@@ -388,6 +417,7 @@ describe("published package tree shaking", () => {
       __PRACHT_ROUTE_SEARCH__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -437,6 +467,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -481,6 +512,7 @@ describe("published package tree shaking", () => {
           __PRACHT_HYDRATION_WARNINGS__: "false",
           __PRACHT_ROUTE_SEARCH__: "false",
           __PRACHT_RICH_DATA__: "false",
+          __PRACHT_APP_ROOT__: "false",
           ...define,
         },
         entry: clientEntry,
@@ -546,6 +578,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_ROUTE_SEARCH__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
     const routerBundle = (define: Record<string, string>) =>
       bundleExport("initClientRouter", {

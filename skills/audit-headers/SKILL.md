@@ -121,6 +121,10 @@ into `speculation` (they emit an inline
    `<script id="pracht-state" type="application/json">` — it does not need
    `'unsafe-inline'`. Do not add `'unsafe-inline'` unless the app truly emits
    executable inline scripts and the tradeoff is documented.
+5. Routes with `streaming: true` emit executable inline scripts for deferred
+   data and boundary swaps. Under a nonce policy, return the request nonce as
+   `scriptNonce` from the shell `head()` and allow it in `script-src`; it also
+   covers the speculation rules script.
 
 Output a draft CSP referencing `docs/CSP.md` and explain what each origin is
 for. Do not hand the user a CSP that breaks their site — present as draft.

@@ -52,6 +52,7 @@ import type {
   RouteId,
   RouteMatch,
   RouteParams,
+  RootModule,
   RouteTarget,
   UntypedRouteTarget,
 } from "./types.ts";
@@ -61,6 +62,7 @@ import {
   routeNeedsServerFetch,
   routeNeedsShellData,
   setHeldShell,
+  setRootSnapshotHandler,
 } from "./runtime-client-fetch.ts";
 import { setShellDataCommitter, ShellDataContext } from "./runtime-shell-data.ts";
 import { IS_STATIC_TARGET } from "./runtime-static.ts";
@@ -145,6 +147,15 @@ declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
 
 const SHELL_LOADERS_ENABLED =
   typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
+
+/**
+ * The app root (`defineApp({ root })`), compiled out by the plugin when the
+ * app registers none, so an app without one pays nothing for it.
+ */
+declare const __PRACHT_APP_ROOT__: boolean | undefined;
+
+const APP_ROOT_ENABLED =
+  typeof __PRACHT_APP_ROOT__ === "undefined" || __PRACHT_APP_ROOT__ !== false;
 
 interface RouteRenderState {
   Shell: FunctionComponent | null;
@@ -280,6 +291,8 @@ export interface InitClientRouterOptions {
   initialState: PrachtHydrationState;
   root: HTMLElement;
   findModuleKey: (modules: ModuleMap, file: string) => string | null;
+  /** The module registered as `defineApp({ root })`, when the app has one. */
+  rootModule?: RootModule;
   /** @internal Synchronize page-scoped projections after a route commits. */
   onRouteChange?: (capabilities: readonly string[]) => void;
   /**
@@ -294,6 +307,22 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   const { app, routeModules, shellModules, root, findModuleKey, onRouteChange } = options;
 
   const moduleCache = new Map<string, Promise<unknown>>();
+
+  // The app root is created once per page load and rendered above every
+  // shell, so its state survives every navigation — including one that
+  // switches shells.
+  let rootState: unknown;
+  let Root: FunctionComponent<Record<string, unknown>> | null = null;
+  if (APP_ROOT_ENABLED && options.rootModule) {
+    const rootModule = options.rootModule;
+    rootState = rootModule.setup?.({ isServer: false });
+    Root = (rootModule.Root as FunctionComponent<Record<string, unknown>> | undefined) ?? null;
+    if (rootModule.hydrate) {
+      const hydrateRoot = (snapshot: unknown) => rootModule.hydrate!(rootState, snapshot);
+      setRootSnapshotHandler(hydrateRoot);
+      if (options.initialState.root !== undefined) hydrateRoot(options.initialState.root);
+    }
+  }
 
   function loadModule(modules: ModuleMap, key: string): Promise<unknown> {
     let cached = moduleCache.get(key);
@@ -605,9 +634,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           children: shellTree,
         })
       : shellTree;
+    // Same position as the server render: inside the runtime providers, above
+    // the shell.
+    const rootedTree =
+      APP_ROOT_ENABLED && Root ? h(Root, { state: rootState }, guardedShellTree) : guardedShellTree;
     const componentTree = SEARCH_ENABLED
-      ? h(RouteSearchContext.Provider, { value: routeState.search }, guardedShellTree)
-      : guardedShellTree;
+      ? h(RouteSearchContext.Provider, { value: routeState.search }, rootedTree)
+      : rootedTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -1194,16 +1227,16 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   const hydrationBrowserTarget = resolveBrowserRouteTarget(
     window.location.pathname + window.location.search + window.location.hash,
   );
-  // The not-found page is served at a URL that matches no route, so matching
-  // cannot find it — the hydration state's reserved route id does.
+  // The served document says which page it rendered: the hydration state's
+  // reserved route id marks the not-found page. Matching cannot be trusted
+  // for it — the page is served at URLs that match no route, at URLs whose
+  // matched route's loader threw `notFound()`, and (static `404.html`) at
+  // paths that would pattern-match a non-prerendered dynamic route.
   const initialMatch = isStaticFallbackBoot
     ? undefined
-    : isStaticNotFoundDocument && app.notFound
+    : options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
       ? { route: app.notFound, params: {}, pathname: initialPathname }
-      : (matchResolvedRoute(app, initialPathname) ??
-        (options.initialState.routeId === NOT_FOUND_ROUTE_ID && app.notFound
-          ? { route: app.notFound, params: {}, pathname: initialPathname }
-          : undefined));
+      : matchResolvedRoute(app, initialPathname);
   // Shell data baked into an SSG or ISG document was not loaded for this
   // visitor, so the first navigation loads the shell's own. A static export
   // serves only build-time data, so there it stays.

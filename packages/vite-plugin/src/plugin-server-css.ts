@@ -46,10 +46,18 @@ export function escapeForStringLiteral(json: string): string {
  * stylesheets on `viteMetadata.importedCss` and leaves the rest to its imports,
  * so a route that renders a styled component only reaches that component's
  * stylesheet transitively.
+ *
+ * An imported chunk is not necessarily the route's to style. The bundler puts a
+ * module shared by a route and an island into the island's chunk — on an edge
+ * target, where every dependency is bundled, that is Preact itself — so every
+ * route imports the island's chunk and its stylesheet comes along. A chunk's
+ * stylesheet is only taken when the route reaches one of the stylesheets it was
+ * built from; one whose sources cannot be told is taken as before.
  */
 function collectChunkCss(
   bundle: Rollup.OutputBundle,
   fileName: string,
+  reaches: (moduleId: string) => boolean,
   seen = new Set<string>(),
   isRoot = true,
 ): string[] {
@@ -63,11 +71,46 @@ function collectChunkCss(
   // because an island it renders was hoisted there; that island's stylesheets
   // are resolved from the island's own manifest entry.
   if (!isRoot && chunk.isEntry) return [];
-  const css = [...(chunk.viteMetadata?.importedCss ?? [])];
+  const own = [...(chunk.viteMetadata?.importedCss ?? [])];
+  const css = isRoot || own.length === 0 || reachesChunkStylesheet(chunk, reaches) ? own : [];
   for (const imported of chunk.imports ?? []) {
-    css.push(...collectChunkCss(bundle, imported, seen, false));
+    css.push(...collectChunkCss(bundle, imported, reaches, seen, false));
   }
   return css;
+}
+
+function reachesChunkStylesheet(
+  chunk: Rollup.OutputChunk,
+  reaches: (moduleId: string) => boolean,
+): boolean {
+  const sources = Object.keys(chunk.modules ?? {}).filter(isStylesheetModule);
+  return sources.length === 0 || sources.some(reaches);
+}
+
+/**
+ * Every module a route's module imports, transitively and statically —
+ * dependencies included, since a package can import its own stylesheet.
+ */
+function createReachability(
+  context: { getModuleInfo(id: string): { importedIds?: readonly string[] } | null },
+  entryModuleId: string,
+): (moduleId: string) => boolean {
+  let reachable: Set<string> | undefined;
+  return (moduleId) => {
+    if (!reachable) {
+      reachable = new Set();
+      const pending = [entryModuleId];
+      while (pending.length > 0) {
+        const id = pending.pop()!;
+        if (reachable.has(id)) continue;
+        reachable.add(id);
+        for (const imported of context.getModuleInfo(id)?.importedIds ?? []) {
+          pending.push(imported);
+        }
+      }
+    }
+    return reachable.has(moduleId);
+  };
 }
 
 /**
@@ -378,7 +421,9 @@ export function createServerCssAssetsPlugin(options: { inlineCss: boolean }): Pl
         // below returns.
         for (const file of collectChunkAssets(bundle, chunk.fileName)) neededAssets.add(file);
 
-        const css = new Set(collectChunkCss(bundle, chunk.fileName));
+        const css = new Set(
+          collectChunkCss(bundle, chunk.fileName, createReachability(this, facade)),
+        );
         const missing = collectHoistedCss(this, facade, owners, css);
         for (const file of missing.files) css.add(file);
         for (const id of missing.hoistedFrom) hoisted.add(id);

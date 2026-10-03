@@ -94,6 +94,7 @@ a class instance, fails the request with an error that names its path.
 | pathname | string \| undefined | Matched pathname with the deployment base removed |
 | search   | unknown       | The query, parsed by the route's [`search` schema](/docs/routing#search-params) |
 | waitUntil | `(promise) => void` | Keep work running after the response is sent |
+| root     | unknown       | This request's [app root](/docs/shells#the-app-root) state, e.g. the `QueryClient` from [`@pracht/query`](/docs/recipes/tanstack-query) |
 
 #### `signal`
 
@@ -276,8 +277,9 @@ What changes when a route streams:
   still render a normal error page.
 - **`<Script strategy="beforeHydration">` is emitted in place** instead of in
   `<head>`. It still runs before hydration.
-- **CSP needs a `script-src` that allows the renderer's inline bootstrap
-  script**, which has no nonce hook yet. See [CSP](/docs/recipes/csp).
+- **The document carries inline scripts** that deliver deferred values and
+  swap boundaries. Under a nonce-based CSP, return `scriptNonce` from `head()`
+  and every one of them carries it. See [CSP](/docs/recipes/csp).
 
 ### Error handling
 

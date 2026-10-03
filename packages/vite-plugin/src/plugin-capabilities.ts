@@ -59,7 +59,7 @@ export { extractCapabilityRegistrations };
  * Throws when the manifest cannot be read or the pages tree is invalid; each
  * caller decides whether that means "assume the worst" or "report nothing".
  */
-function readAppManifestSource(resolved: ResolvedPrachtPluginOptions, root: string): string {
+export function readAppManifestSource(resolved: ResolvedPrachtPluginOptions, root: string): string {
   if (!resolved.pagesDir) {
     return readFileSync(resolve(root, resolved.appFile.replace(/^\//, "")), "utf-8");
   }
@@ -83,7 +83,7 @@ function readAppManifestSource(resolved: ResolvedPrachtPluginOptions, root: stri
 }
 
 /** The directory manifest-relative module refs resolve against. */
-function appManifestDir(resolved: ResolvedPrachtPluginOptions, root: string): string {
+export function appManifestDir(resolved: ResolvedPrachtPluginOptions, root: string): string {
   return resolved.pagesDir
     ? resolve(root, resolved.pagesDir.replace(/^\//, ""), "..")
     : dirname(resolve(root, resolved.appFile.replace(/^\//, "")));

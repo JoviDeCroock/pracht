@@ -82,6 +82,33 @@ describe("a request failure with no host to report it to", () => {
     );
   });
 
+  it("logs the path without its query string, as the dev server does", async () => {
+    // A query string can carry a token (`?token=…`, `?code=…`); the log line
+    // names the path only.
+    const console = captureConsole();
+    const app = defineApp({
+      routes: [route("/blog", { component: "./routes/blog.tsx", id: "blog" })],
+    });
+
+    await handlePrachtRequest({
+      app,
+      registry: {
+        routeModules: {
+          "./routes/blog.tsx": async () => ({
+            Component: () => null,
+            loader: () => {
+              throw new Error("loader exploded");
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/blog?token=s3cret"),
+    });
+
+    expect(console.lines()[0]).toContain(" at /blog: loader exploded");
+    expect(console.lines().join("\n")).not.toContain("s3cret");
+  });
+
   it("stays quiet for a failure that is a routing outcome", async () => {
     // `throw notFound()` answers 404 by design; logging it would make every
     // missing page look like a crash.

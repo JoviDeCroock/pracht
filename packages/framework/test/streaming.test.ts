@@ -267,6 +267,43 @@ describe("streaming SSR documents", () => {
     expect(html).toContain('<script type="module" src="/assets/client.js"></script>');
   });
 
+  it("puts the head scriptNonce on every inline script in the stream", async () => {
+    const productRoute = streamingRoute();
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        routes: [
+          route("/product", "./routes/product.tsx", {
+            render: "ssr",
+            streaming: true,
+            speculation: "prefetch",
+          }),
+        ],
+      }),
+      clientEntryUrl: "/assets/client.js",
+      registry: {
+        routeModules: {
+          "./routes/product.tsx": async () => ({
+            ...(await productRoute()),
+            head: () => ({ scriptNonce: 'n0nce"x' }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    const html = (await readChunks(response)).join("");
+    const inlineScripts = [...html.matchAll(/<script\b([^>]*)>/g)]
+      .map((match) => match[1])
+      .filter((attrs) => !/\bsrc=/.test(attrs) && !/type="application\/json"/.test(attrs));
+    // Shim, renderer bootstrap, deferred value, speculation rules.
+    expect(inlineScripts).toHaveLength(4);
+    for (const attrs of inlineScripts) {
+      expect(attrs).toContain('nonce="n0nce&quot;x"');
+    }
+    expect(html).toContain("review-7");
+    expect(html).toContain("<preact-island");
+  });
+
   it("produces the same final markup as the buffered renderer", async () => {
     const registry = { routeModules: { "./routes/product.tsx": streamingRoute() } };
 

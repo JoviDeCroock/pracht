@@ -1,4 +1,4 @@
-import { createContext, Fragment, h, options } from "preact";
+import { Component, createContext, Fragment, h, options } from "preact";
 import type { ComponentChildren, ComponentType, VNode } from "preact";
 import { useContext } from "preact/hooks";
 
@@ -50,6 +50,43 @@ export interface IslandCapture {
 }
 
 export const IslandCaptureContext = createContext<IslandCapture | null>(null);
+
+/**
+ * The context entries the app root's `Root` set, each holding its value from
+ * outside `Root`. An island hydrates on its own in the browser, without
+ * `Root` around it, so an islands-mode render puts these back around each
+ * island: the server render then sees what the browser will, and an island
+ * that needs the root fails on the server instead of at hydration.
+ */
+export const IslandRootContextReset = createContext<Record<string, unknown> | null>(null);
+
+class IslandRootBoundary extends Component<{
+  descriptor: IslandDescriptor;
+  reset: Record<string, unknown>;
+  children?: ComponentChildren;
+}> {
+  getChildContext() {
+    return this.props.reset;
+  }
+
+  componentDidCatch(error: unknown) {
+    if (!(error instanceof Error) || error.name === "PrachtHttpError") throw error;
+    const { name, file } = this.props.descriptor;
+    const message =
+      `[pracht] Island "${name}" (${file}) threw while rendering: ${error.message}\n` +
+      "An island renders without the app root's Root, on the server and in the browser. " +
+      "If it reads something Root provides (such as a QueryClient), read it in the route " +
+      "component and pass the island the result as props.";
+    const wrapped = new Error(message, { cause: error });
+    const frames = error.stack?.indexOf("\n    at ") ?? -1;
+    if (frames !== -1) wrapped.stack = `Error: ${message}${error.stack!.slice(frames)}`;
+    throw wrapped;
+  }
+
+  render() {
+    return this.props.children;
+  }
+}
 
 const islandRegistry = new Map<ComponentType<any>, IslandDescriptor>();
 let islandsClientEntryUrl: string | undefined;
@@ -158,6 +195,7 @@ function IslandBoundary(props: Record<string, unknown>) {
   };
   const capture = useContext(IslandCaptureContext);
   const scriptCapture = useContext(ScriptCaptureContext);
+  const rootReset = useContext(IslandRootContextReset);
   const descriptor = islandRegistry.get(type);
 
   if (!capture || !descriptor) {
@@ -249,6 +287,9 @@ function IslandBoundary(props: Record<string, unknown>) {
       { value: { ...scriptCapture, insideIsland: true } },
       subtree,
     );
+  }
+  if (rootReset) {
+    subtree = h(IslandRootBoundary, { descriptor, reset: rootReset }, subtree);
   }
   return h(ISLAND_ELEMENT, attributes, subtree);
 }

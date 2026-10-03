@@ -67,31 +67,37 @@ export function createPrachtDevPageToolsModuleSource(options: {
  * the runtime warns once instead of also failing dependency optimization.
  */
 export function appCoreHasDevPageTools(root: string): boolean {
-  // Walk up like Node's resolver would, reading the package manifest directly:
-  // an older `@pracht/core` has an `exports` map without `./package.json`, so
-  // `require.resolve("@pracht/core/package.json")` cannot tell "old" from
-  // "absent".
-  let dir = resolve(root);
-  while (true) {
-    const manifest = join(dir, "node_modules", "@pracht", "core", "package.json");
-    if (existsSync(manifest)) {
-      try {
-        const pkg = JSON.parse(readFileSync(manifest, "utf-8")) as {
-          exports?: Record<string, unknown>;
-        };
-        return pkg.exports?.["./dev-page-tools"] !== undefined;
-      } catch {
-        return false;
-      }
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
+  const manifest = findAppCorePackageJson(root);
   // No installed copy at all (a fixture without node_modules): let Vite
   // resolve the import exactly as it does for the client entry's own
   // `@pracht/core/client`.
-  return true;
+  if (!manifest) return true;
+  try {
+    const pkg = JSON.parse(readFileSync(manifest, "utf-8")) as {
+      exports?: Record<string, unknown>;
+    };
+    return pkg.exports?.["./dev-page-tools"] !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The `package.json` of the `@pracht/core` the app at `root` resolves, found
+ * by walking `node_modules` directories upward the way Node's resolver does,
+ * or `null` when there is none. It reads the path directly because core's
+ * `exports` map has no `./package.json` entry, so
+ * `require.resolve("@pracht/core/package.json")` throws for every install.
+ */
+export function findAppCorePackageJson(root: string): string | null {
+  let dir = resolve(root);
+  while (true) {
+    const manifest = join(dir, "node_modules", "@pracht", "core", "package.json");
+    if (existsSync(manifest)) return manifest;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 /**
