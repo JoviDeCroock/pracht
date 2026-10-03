@@ -527,6 +527,30 @@ describe("island children", () => {
         "including a <summary> that must come first",
       ],
       [
+        "Player",
+        ({ children }) => h("video", { controls: true }, children as never),
+        [h("source", { src: "/a.mp4" }), h("track", { kind: "captions", src: "/a.vtt" })],
+        "directly inside <video>",
+      ],
+      [
+        "Sound",
+        ({ children }) => h("audio", null, children as never),
+        h("source", { src: "/a.ogg" }),
+        "directly inside <audio>",
+      ],
+      [
+        "Art",
+        ({ children }) => h("picture", null, children as never, h("img", { alt: "" })),
+        h("source", { srcset: "/a.avif" }),
+        "directly inside <picture>",
+      ],
+      [
+        "Reading",
+        ({ children }) => h("ruby", null, children as never),
+        ["漢", h("rt", null, "kan")],
+        "directly inside <ruby>",
+      ],
+      [
         "Label",
         ({ children }) => h("svg", null, h("text", null, children as never)),
         h("tspan", null, "label"),

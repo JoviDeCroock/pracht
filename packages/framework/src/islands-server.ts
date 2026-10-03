@@ -263,10 +263,12 @@ const DEV: boolean = Boolean(
 // elements inside them (select/option in some browsers), at any depth.
 const SLOT_TEXT_ANCESTOR =
   /^(textarea|title|script|style|xmp|iframe|noembed|noframes|noscript|select|option|optgroup|datalist)$/;
-// ...moves an unknown element out of table parts, and SVG and MathML parents
-// with a fixed content model do not render a <g> or <mrow> child as a group.
+// ...moves an unknown element out of table parts; media and ruby parents
+// ignore a <source>, <track>, or <rt> that is not their direct child; and SVG
+// and MathML parents with a fixed content model do not render a <g> or <mrow>
+// child as a group.
 const SLOT_DIRECT_PARENT =
-  /^(table|thead|tbody|tfoot|tr|colgroup|text|tspan|textPath|linearGradient|radialGradient|clipPath|filter|switch|mfrac|msup|msub|msubsup|mroot|munder|mover|munderover)$/;
+  /^(table|thead|tbody|tfoot|tr|colgroup|video|audio|picture|ruby|rtc|text|tspan|textPath|linearGradient|radialGradient|clipPath|filter|switch|mfrac|msup|msub|msubsup|mroot|munder|mover|munderover)$/;
 // Elements whose first-child position carries meaning.
 const SLOT_FIRST_CHILD: Record<string, string> = { details: "summary", fieldset: "legend" };
 

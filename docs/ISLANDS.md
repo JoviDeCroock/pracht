@@ -227,7 +227,9 @@ How markup children work:
   `script`, `style`, `xmp`, `iframe`, `noembed`, `noframes`, `noscript`,
   `select`, `option`, `optgroup`, or `datalist` (read as text, or the slot is
   dropped), directly inside `table`, `thead`, `tbody`, `tfoot`, `tr`, or
-  `colgroup` (foster-parented out), directly inside SVG `text`, `tspan`,
+  `colgroup` (foster-parented out), directly inside `video`, `audio`,
+  `picture`, `ruby`, or `rtc` (a `<source>`, `<track>`, or `<rt>` only works as
+  their direct child, so it would silently do nothing), directly inside SVG `text`, `tspan`,
   `textPath`, `linearGradient`, `radialGradient`, `clipPath`, `filter`, or
   `switch` and MathML `mfrac`, `msup`, `msub`, `msubsup`, `mroot`, `munder`,
   `mover`, or `munderover` (fixed content models a `<g>` or `<mrow>` breaks), or
@@ -365,8 +367,8 @@ Partial client-side rendering of islands routes is out of scope for v1.
 - Markup children passed into an island are static server HTML: the island can
   show, hide, or move them, but not pass them props, re-render them, provide
   context to islands among them, or place them where the HTML parser cannot
-  keep a slot element (table sections, select, textarea, a leading summary or
-  legend).
+  keep a slot element (table sections, select, textarea, media sources, a
+  leading summary or legend).
 - Client-side navigation into/out of islands routes is full-document.
 - Island props must be JSON-serializable.
 - The analyze report lists all island chunks per islands route (upper bound),

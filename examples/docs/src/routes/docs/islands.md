@@ -152,10 +152,10 @@ Markup children arrive inside a `<pracht-slot>` element with
 `display: contents` (an SVG `<g>` inside SVG), so a child selector such as
 `.panel > p` written against the island's markup no longer matches them.
 
-Some positions cannot hold that element: directly inside table rows and sections,
-SVG `<text>`, gradients, or `<clipPath>`, or a MathML `<mfrac>`; anywhere in
-`<select>` or `<textarea>`; or a `<summary>` or `<legend>` that has to come
-first. Pracht throws an error naming the island there; pass the whole element as
+Some positions cannot hold that element: directly inside table rows and
+sections, `<video>`, `<audio>`, `<picture>`, `<ruby>`, SVG `<text>`, gradients,
+or `<clipPath>`, or a MathML `<mfrac>`; anywhere in `<select>` or `<textarea>`;
+or a `<summary>` or `<legend>` that has to come first. Pracht throws an error naming the island there; pass the whole element as
 children instead. Children an island shows inside SVG or MathML must already be
 rendered there on the server.
 
