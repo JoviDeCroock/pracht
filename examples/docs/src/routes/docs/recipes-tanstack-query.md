@@ -12,7 +12,7 @@ next:
 
 ## Install
 
-`@pracht/query` connects [`@tanstack/preact-query`](https://tanstack.com/query) to pracht. It creates one `QueryClient` per server request and fills the browser's cache with what the server fetched before the page hydrates.
+`@pracht/query` connects [`@tanstack/preact-query`](https://tanstack.com/query) to pracht. It creates one `QueryClient` per server request and fills the browser's cache with what the server fetched before the page hydrates. It needs Preact 10, the version `@tanstack/preact-query` supports.
 
 ```bash
 npm install @pracht/query @tanstack/preact-query
