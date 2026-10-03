@@ -787,9 +787,9 @@ export function createPrachtIslandsClientModuleSource(
  */
 export function createPrachtServerIslandsClientModuleSource(): string {
   return [
-    'import { swapServerIslands } from "@pracht/core/server-islands-client";',
+    'import { startServerIslands } from "@pracht/core/server-islands-client";',
     "",
-    "swapServerIslands();",
+    "startServerIslands();",
     "",
   ].join("\n");
 }

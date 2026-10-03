@@ -5,7 +5,7 @@ import { act } from "preact/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { hydrateIslands } from "../src/islands-client.ts";
-import { swapServerIslands } from "../src/server-islands-client.ts";
+import { startServerIslands, swapServerIslands } from "../src/server-islands-client.ts";
 import { createClientServerIsland } from "../src/server-islands-component.ts";
 
 const FILE = "/src/server-islands/Visitor.tsx";
@@ -137,6 +137,38 @@ describe("swapServerIslands", () => {
     );
     expect(script?.type).toBe("module");
     script?.remove();
+  });
+});
+
+describe("startServerIslands", () => {
+  it("fills pending server islands again after a same-document navigation", async () => {
+    const navigation = new EventTarget();
+    vi.stubGlobal("navigation", navigation);
+    document.body.innerHTML = `<pracht-server-island island="${FILE}" pending><i>…</i></pracht-server-island>`;
+    let visitor: string | null = null;
+    const calls = mockFetch(() =>
+      visitor ? fragment(`<p>Hi, ${visitor}</p>`) : new Response(null, { status: 204 }),
+    );
+
+    startServerIslands();
+    // Neither a navigation committing while the first fetch is in flight nor
+    // one after it fetches the same element again, even though a 204 left it
+    // pending.
+    navigation.dispatchEvent(new Event("navigatesuccess"));
+    await flush();
+    navigation.dispatchEvent(new Event("navigatesuccess"));
+    await flush();
+    expect(calls).toHaveLength(1);
+    expect(document.querySelector("pracht-server-island")!.hasAttribute("pending")).toBe(true);
+
+    // The next page arrives without a document load, with its own pending island.
+    visitor = "Ada";
+    document.body.innerHTML = `<pracht-server-island island="${FILE}" pending><i>…</i></pracht-server-island>`;
+    navigation.dispatchEvent(new Event("navigatesuccess"));
+    await flush();
+
+    expect(calls).toHaveLength(2);
+    expect(document.querySelector("pracht-server-island")!.innerHTML).toBe("<p>Hi, Ada</p>");
   });
 });
 

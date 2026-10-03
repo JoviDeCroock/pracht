@@ -342,7 +342,7 @@ describe("server islands codegen", () => {
 
   it("emits a swap entry that imports nothing from the app", () => {
     expect(createPrachtServerIslandsClientModuleSource()).toBe(
-      'import { swapServerIslands } from "@pracht/core/server-islands-client";\n\nswapServerIslands();\n',
+      'import { startServerIslands } from "@pracht/core/server-islands-client";\n\nstartServerIslands();\n',
     );
   });
 });

@@ -17,7 +17,7 @@ import {
 /**
  * Browser half of server islands.
  *
- * - `swapServerIslands()` is the whole of `virtual:pracht/server-islands-client`, the swap
+ * - `startServerIslands()` is the whole of `virtual:pracht/server-islands-client`, the swap
  *   script islands and `hydration: "none"` pages load when they rendered a
  *   pending server island. It is the only JavaScript such a `"none"` page ships, so
  *   this module imports no Preact.
@@ -82,20 +82,37 @@ export async function loadServerIsland(
   }
 }
 
+// Server island elements already fetched (or being fetched): a later pass, after
+// a same-document navigation, only fetches elements that page brought in.
+const fetched = new WeakSet<Element>();
+
 /** Fill every pending server island on the page. */
 export function swapServerIslands(): Promise<void> {
   const pending = [
     ...document.querySelectorAll(`${SERVER_ISLAND_ELEMENT}[${SERVER_ISLAND_PENDING_ATTRIBUTE}]`),
-  ];
+  ].filter((element) => !fetched.has(element));
   return Promise.all(
-    pending.map((element) =>
-      loadServerIsland(
+    pending.map((element) => {
+      fetched.add(element);
+      return loadServerIsland(
         element,
         element.getAttribute(SERVER_ISLAND_FILE_ATTRIBUTE)!,
         element.getAttribute(SERVER_ISLAND_PROPS_ATTRIBUTE),
-      ),
-    ),
+      );
+    }),
   ).then(() => {
     document.documentElement.setAttribute(SERVER_ISLANDS_READY_MARKER, "true");
+  });
+}
+
+/**
+ * The swap script's entry: fill the page's pending server islands, and again
+ * after every same-document navigation, which can swap in a page with pending
+ * server islands of its own without loading this module again.
+ */
+export function startServerIslands(): void {
+  void swapServerIslands();
+  (window as { navigation?: EventTarget }).navigation?.addEventListener("navigatesuccess", () => {
+    void swapServerIslands();
   });
 }

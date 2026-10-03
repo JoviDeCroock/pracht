@@ -251,7 +251,11 @@ builds and serves one fixture app both ways and requires identical maps.
   `html[data-pracht-server-islands-ready]` (the client component sets it too,
   whenever its last fetch in flight settles). On `x-pracht-islands` it appends a
   module script for the bootstrap (a fresh bootstrap scans the whole document;
-  one that already ran hears the bubbling `pracht:server-island` event).
+  one that already ran hears the bubbling `pracht:server-island` event). It
+  runs the same pass again on the Navigation API's `navigatesuccess`, so a
+  same-document navigation that swaps in a page with pending server islands
+  fills them without loading the module again. Each element is fetched once:
+  one that answered 204 keeps `pending` but is not fetched again.
 - **Client server island component** — in the client environment the plugin's
   `load` hook replaces each server island module with
   `createClientServerIsland(file)` from `@pracht/core/server-islands-component`,
