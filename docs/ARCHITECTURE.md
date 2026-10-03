@@ -443,8 +443,10 @@ difference here only shows up after deploy.
   (`reportRequestError()` in `runtime-errors.ts`), which is what a deployed app
   is: the generated server entry passes neither hook, and the default used to be
   silence, so a visitor got a 500 while the operator's log stayed empty. Both
-  reporters share `formatRequestErrorLine()`, so the sentence is the same one
-  the terminal prints; the runtime always appends the stack, because production
+  reporters share `formatRequestErrorLine()` and log the path without its query
+  string (which can carry tokens; a hook still gets the full request path), so
+  the sentence is the same one the terminal prints; the runtime always appends
+  the stack, because production
   has no overlay to open instead. A host that does pass a hook replaces the
   default rather than adding to it — the dev server and the prerenderer each
   report failures their own way and must not be doubled.
