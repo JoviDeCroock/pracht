@@ -537,14 +537,14 @@ describe("published package tree shaking", () => {
       expect(code).not.toContain("WeakSet");
     });
 
-    // Measured 2,204 gzip bytes over the bootstrap without it here (2,118 in
-    // the bench ladder's app build).
+    // 3,084 gzip bytes over the bootstrap without it in the bench ladder's app
+    // build; this harness minifies differently and counts slightly more.
     it("keeps it, within budget, when on", async () => {
       const on = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "true" });
       const off = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "false" });
 
       expect(on.code).toContain("currententrychange");
-      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(2_300);
+      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(3_250);
     });
   });
 

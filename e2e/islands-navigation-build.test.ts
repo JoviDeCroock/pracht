@@ -1,36 +1,166 @@
 import { execFileSync, spawn } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { fixtureCopyFilter } from "./fixture-copy.ts";
 import { acquireE2EWorkerPort, type E2EWorkerPortLease } from "./ports.ts";
 
-// `pracht({ client: { islandsNavigation: true } })` production coverage: builds
-// examples/islands with the flag on and proves in a real browser that links
-// between islands pages swap the page into the same document — the shell
-// island keeps its state, the new page's islands and stylesheets arrive, the
-// old page's leave, back/forward restore content and scroll — while a link to
-// a full-hydration route still loads a new document, and a navigation
-// interrupted by another never lands.
+// `pracht({ client: { islandsNavigation: true } })` production coverage. Builds
+// examples/islands with the flag on, plus a lab of pages that each pin one
+// behaviour, and proves in a real browser that links between islands pages
+// swap the page into the same document — and that everything the swap cannot
+// reproduce faithfully (another document policy, a full-hydration page, an API
+// route, a meta CSP, reordered stylesheets) is a single ordinary page load.
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixtureDir = resolve(repoRoot, "examples/islands");
 const cliEntry = resolve(repoRoot, "packages/cli/bin/pracht.js");
 
-test("islands navigation swaps islands pages in place", async ({ page }) => {
-  test.setTimeout(180_000);
+const LAB_PAGES = [
+  "a",
+  "b",
+  "scripts",
+  "noscript",
+  "csp",
+  "deny",
+  "redir",
+  "token",
+  "css1",
+  "css2",
+  "colored",
+  "metacsp",
+  "deep/target",
+];
 
-  const tempRoot = resolve(repoRoot, ".tmp");
-  mkdirSync(tempRoot, { recursive: true });
-  const tempDir = mkdtempSync(resolve(tempRoot, "pracht-islands-navigation-"));
-  const exampleDir = resolve(tempDir, "project");
+const LAB_FILES: Record<string, string> = {
+  "src/shells/lab.tsx": `
+import type { ShellProps } from "@pracht/core";
+import ShellCounter from "../islands/ShellCounter.tsx";
+export function Shell({ children }: ShellProps) {
+  return (
+    <div>
+      <nav>
+        {${JSON.stringify(LAB_PAGES)}.map((p) => <a href={"/lab/" + p} id={"go-" + p.replace("/", "-")}>{p}</a>)}
+        <a href="/lab-full" id="go-full">full</a>
+        <a href="/api/lab-api" id="go-api">api</a>
+        <a href="/lab/b" id="go-b-reload" data-pracht-reload>reload b</a>
+      </nav>
+      <ShellCounter />
+      <main>{children}</main>
+    </div>
+  );
+}
+export function head() {
+  return {
+    // A theme script that adds a style the server never rendered.
+    script: [{ children: "if(!document.getElementById('theme')){var s=document.createElement('style');s.id='theme';s.textContent='body{outline:3px solid rgb(1, 2, 3)}';document.head.appendChild(s)}" }],
+  };
+}
+`,
+  "src/islands/Scroller.tsx": `
+import { useState } from "preact/hooks";
+export default function Scroller() {
+  const [n, setN] = useState(0);
+  return (
+    <div>
+      <button data-testid="scroller-inc" onClick={() => setN(n + 1)}>scroller {n}</button>
+      <input data-testid="scroller-input" />
+      <div data-testid="scrollbox" style="height:60px;overflow:auto"><div style="height:1000px">tall</div></div>
+      <iframe data-testid="scroller-frame" srcdoc="<p>frame</p>" style="height:40px"></iframe>
+    </div>
+  );
+}
+`,
+  "src/routes/lab/a.tsx": `import Scroller from "../../islands/Scroller.tsx";
+export function head() { return { title: "A" }; }
+export function Component() { return <section><h1>A</h1><Scroller /></section>; }`,
+  "src/routes/lab/b.tsx": `import Scroller from "../../islands/Scroller.tsx";
+export function head() { return { title: "B" }; }
+export function Component() { return <section><h1>B</h1><Scroller /></section>; }`,
+  "src/routes/lab/scripts.tsx": `export function head() {
+  return { title: "Scripts", script: [{ src: "/lab-lib.js" }, { children: "window.inlineRuns=(window.inlineRuns||0)+1;window.libSeenByInline=typeof window.LIB!=='undefined';" }] };
+}
+export function Component() { return <section><h1>Scripts</h1></section>; }`,
+  "src/routes/lab/noscript.tsx": `export function head() { return { title: "Noscript" }; }
+export function Component() {
+  return <section><h1>Noscript</h1><noscript><img src="/lab-pixel.svg?noscript=1" alt="" /><link rel="stylesheet" href="/lab-nojs.css" /></noscript></section>;
+}`,
+  "src/routes/lab/csp.tsx": `export function head() { return { title: "CSP" }; }
+export function headers() { return { "content-security-policy": "script-src 'self'" }; }
+export function Component() {
+  return <section><h1>CSP</h1><div dangerouslySetInnerHTML={{ __html: "<script>window.cspBypassed = true<\\/script>" }} /></section>;
+}`,
+  "src/routes/lab/deny.tsx": `export function head() { return { title: "Deny" }; }
+export function headers() { return { "x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'none'" }; }
+export function Component() { return <section><h1>Deny</h1><button id="danger">Delete account</button></section>; }`,
+  "src/routes/lab/redir.tsx": `import { redirect } from "@pracht/core";
+export function loader() { return redirect("/lab/deep/target"); }
+export function Component() { return <h1>never</h1>; }`,
+  "src/routes/lab/target.tsx": `export function head() { return { title: "Target" }; }
+export function Component() { return <section><h1>Target</h1><img id="relimg" src="rel.svg" alt="" /></section>; }`,
+  "src/routes/lab/token.tsx": `import { redirect } from "@pracht/core";
+const g = globalThis as { tokenUsed?: boolean };
+export function loader() {
+  if (g.tokenUsed) return redirect("/lab-full?err=token-already-used");
+  g.tokenUsed = true;
+  return redirect("/lab-full?ok=1");
+}
+export function Component() { return <h1>never</h1>; }`,
+  "src/routes/lab/css1.tsx": `export function head() {
+  return { title: "Css1", link: [{ rel: "stylesheet", href: "/lab-s1.css" }, { rel: "stylesheet", href: "/lab-s2.css" }] };
+}
+export function Component() { return <section><h1>Css1</h1></section>; }`,
+  "src/routes/lab/css2.tsx": `export function head() {
+  return { title: "Css2", link: [{ rel: "stylesheet", href: "/lab-s2.css" }, { rel: "stylesheet", href: "/lab-s1.css" }] };
+}
+export function Component() { return <section><h1>Css2</h1></section>; }`,
+  "src/routes/lab/colored.tsx": `export function head() { return { title: "Colored", link: [{ rel: "stylesheet", href: "/lab-red.css" }] }; }
+export function Component() { return <section><h1>Colored</h1></section>; }`,
+  "src/routes/lab/metacsp.tsx": `export function head() { return { title: "MetaCSP", meta: [{ "http-equiv": "Content-Security-Policy", content: "img-src 'none'" }] }; }
+export function Component() { return <section><h1>MetaCSP</h1></section>; }`,
+  "src/routes/lab/full.tsx": `const g = globalThis as { fullRenders?: number };
+export function loader() { g.fullRenders = (g.fullRenders ?? 0) + 1; return { n: g.fullRenders }; }
+export function Component({ data }: { data: { n: number } }) { return <section><h1>Full</h1><p id="n">{data.n}</p></section>; }`,
+  "src/api/lab-api.ts": `export function GET() { return new Response("{}", { headers: { "content-type": "application/json" } }); }`,
+  "public/lab-lib.js": "window.libRuns=(window.libRuns||0)+1;window.LIB=1;",
+  "public/lab-pixel.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+  "public/lab-nojs.css": "body{background:rgb(255, 0, 0)}",
+  "public/lab-s1.css": "h1{color:rgb(0, 0, 255)}",
+  "public/lab-s2.css": "h1{color:rgb(0, 128, 0)}",
+  "public/lab-red.css": "h1{color:rgb(200, 0, 0)}",
+  "public/lab/deep/rel.svg": '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>',
+};
+
+const LAB_ROUTES = `
+    group({ shell: "lab", hydration: "islands", render: "ssr" }, [
+${LAB_PAGES.map(
+  (page) =>
+    `      route("/lab/${page}", () => import("./routes/lab/${page === "deep/target" ? "target" : page}.tsx")),`,
+).join("\n")}
+    ]),
+    group({ shell: "lab", render: "ssr" }, [
+      route("/lab-full", () => import("./routes/lab/full.tsx")),
+    ]),
+  ],
+});
+`;
+
+test.describe.serial("islands navigation", () => {
+  let tempDir: string;
   let server: ReturnType<typeof spawn> | undefined;
   let portLease: E2EWorkerPortLease | undefined;
+  let origin: string;
 
-  try {
+  test.beforeAll(async () => {
+    test.setTimeout(180_000);
+    const tempRoot = resolve(repoRoot, ".tmp");
+    mkdirSync(tempRoot, { recursive: true });
+    tempDir = mkdtempSync(resolve(tempRoot, "pracht-islands-navigation-"));
+    const exampleDir = resolve(tempDir, "project");
     cpSync(fixtureDir, exampleDir, { filter: fixtureCopyFilter(fixtureDir), recursive: true });
+
     const configPath = resolve(exampleDir, "vite.config.ts");
     const config = readFileSync(configPath, "utf-8");
     const enabled = config.replace(
@@ -39,6 +169,21 @@ test("islands navigation swaps islands pages in place", async ({ page }) => {
     );
     expect(enabled).not.toBe(config);
     writeFileSync(configPath, enabled);
+
+    const routesPath = resolve(exampleDir, "src/routes.ts");
+    const routes = readFileSync(routesPath, "utf-8")
+      .replace(/\n {2}\],\n\}\);\n$/, LAB_ROUTES)
+      .replace(
+        'guide: () => import("./shells/guide.tsx"),',
+        'guide: () => import("./shells/guide.tsx"),\n    lab: () => import("./shells/lab.tsx"),',
+      );
+    expect(routes).toContain('route("/lab/a"');
+    expect(routes).toContain("lab: () =>");
+    writeFileSync(routesPath, routes);
+    for (const [path, source] of Object.entries(LAB_FILES)) {
+      mkdirSync(dirname(resolve(exampleDir, path)), { recursive: true });
+      writeFileSync(resolve(exampleDir, path), source);
+    }
 
     execFileSync(process.execPath, [cliEntry, "build"], {
       cwd: exampleDir,
@@ -53,19 +198,26 @@ test("islands navigation swaps islands pages in place", async ({ page }) => {
       env: { ...process.env, PORT: String(port) },
       stdio: "pipe",
     });
-    const origin = `http://127.0.0.1:${port}`;
+    origin = `http://127.0.0.1:${port}`;
     await waitForServer(`${origin}/guide`);
+  });
 
-    const documents: string[] = [];
-    page.on("request", (request) => {
-      if (request.resourceType() === "document") documents.push(new URL(request.url()).pathname);
-    });
-    const sameDocument = () => page.evaluate(() => (window as { marker?: string }).marker);
+  test.afterAll(async () => {
+    if (server) {
+      server.kill("SIGTERM");
+      await waitForExit(server);
+    }
+    portLease?.release();
+    rmSync(tempDir, { force: true, recursive: true });
+  });
+
+  test("swaps islands pages in place", async ({ page }) => {
+    const documents = recordDocuments(page);
     const counterStylesheets = () =>
       page.locator('head link[rel="stylesheet"][href*="/assets/Counter-"]').count();
 
     await page.goto(`${origin}/guide`);
-    await page.waitForSelector('html[data-pracht-islands-hydrated="true"]');
+    await hydrated(page);
     await page.evaluate(() => {
       (window as { marker?: string }).marker = "first document";
       // Tall enough to scroll, so traversal can be checked for restoring it.
@@ -77,29 +229,25 @@ test("islands navigation swaps islands pages in place", async ({ page }) => {
     expect(await counterStylesheets()).toBe(0);
     await page.evaluate(() => window.scrollTo(0, 900));
 
-    // Islands page to islands page: same document, new content, new title, the
-    // shell island carried over with its state, the new island hydrated with
-    // its stylesheet, and the page scrolled to the top.
-    // Clicked in place: Playwright's own click would scroll the link into view
-    // first and move the position this page should come back to.
-    await page.evaluate(() =>
-      document.querySelector<HTMLAnchorElement>('nav a[href="/guide/next"]')!.click(),
-    );
+    // Islands page to islands page (SSG to SSR): same document, new content,
+    // new title, the shell island carried over with its state, the new island
+    // hydrated with its stylesheet, and the page scrolled to the top.
+    await clickInPlace(page, 'nav a[href="/guide/next"]');
     await expect(page.locator("h1")).toHaveText("Next page");
-    expect(await sameDocument()).toBe("first document");
+    expect(await sameDocument(page)).toBe("first document");
     await expect(page).toHaveTitle("Next — Pracht Islands Example");
     await expect(page.getByTestId("shell-count")).toHaveText("2");
     expect(await page.evaluate(() => window.scrollY)).toBe(0);
-    await page.waitForSelector('html[data-pracht-islands-hydrated="true"]');
+    await hydrated(page);
     await page.getByTestId("increment").click();
     await expect(page.getByTestId("count")).toHaveText("Count: 2");
     expect(await counterStylesheets()).toBe(1);
 
-    // Back: the old page returns, its scroll position with it, and the island
-    // and stylesheet only the other page had are gone.
+    // Back: the old page returns with its scroll position, and the island and
+    // stylesheet only the other page had are gone.
     await page.goBack();
     await expect(page.locator("h1")).toHaveText("Guide");
-    expect(await sameDocument()).toBe("first document");
+    expect(await sameDocument(page)).toBe("first document");
     await expect(page).toHaveURL(`${origin}/guide`);
     await expect(page.getByTestId("shell-count")).toHaveText("2");
     await expect(page.locator('pracht-island[island="/src/islands/Counter.tsx"]')).toHaveCount(0);
@@ -108,18 +256,16 @@ test("islands navigation swaps islands pages in place", async ({ page }) => {
 
     await page.goForward();
     await expect(page.locator("h1")).toHaveText("Next page");
-    expect(await sameDocument()).toBe("first document");
 
     // An islands page to a hydration: "none" page is a swap as well.
     await page.click('nav a[href="/static"]');
     await expect(page.locator("h1")).toHaveText("Fully static");
-    expect(await sameDocument()).toBe("first document");
-    await expect(page.locator("pracht-island")).toHaveCount(0);
+    expect(await sameDocument(page)).toBe("first document");
     await page.goBack();
     await expect(page.locator("h1")).toHaveText("Next page");
 
-    // A navigation interrupted by another never lands: the slow page is
-    // dropped and the second link wins.
+    // A navigation interrupted by another never lands. Its history entry was
+    // already committed, as a client-router push's is.
     await page.route(`${origin}/guide`, async (route) => {
       await new Promise((settle) => setTimeout(settle, 1_500));
       await route.continue().catch(() => {});
@@ -130,34 +276,331 @@ test("islands navigation swaps islands pages in place", async ({ page }) => {
     await page.waitForTimeout(2_000);
     await expect(page.locator("h1")).toHaveText("Fully static");
     await expect(page).toHaveURL(`${origin}/static`);
-    expect(await sameDocument()).toBe("first document");
     await page.unroute(`${origin}/guide`);
     expect(documents).toEqual(["/guide"]);
+  });
 
-    // The interrupted navigation had already committed its history entry, as
-    // a client-router push does; going back to it shows that page.
-    await page.goBack();
-    await expect(page.locator("h1")).toHaveText("Guide");
+  test("keeps a carried island's DOM state", async ({ page }) => {
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => {
+      (window as { marker?: string }).marker = "first document";
+      document.querySelector('[data-testid="scrollbox"]')!.scrollTop = 300;
+      const frame = document.querySelector<HTMLIFrameElement>('[data-testid="scroller-frame"]')!;
+      (frame.contentWindow as { frameMarker?: string }).frameMarker = "alive";
+    });
+    await page.getByTestId("scroller-inc").click();
+    await page.getByTestId("scroller-input").fill("typed");
 
-    // A full-hydration route still loads its own document, and hydrates.
-    await page.goBack();
-    await expect(page.locator("h1")).toHaveText("Next page");
-    await page.click('nav a[href="/full"]');
+    await clickInPlace(page, "#go-b");
+    await expect(page.locator("h1")).toHaveText("B");
+    expect(await sameDocument(page)).toBe("first document");
+    expect(
+      await page.evaluate(() => ({
+        count: document.querySelector('[data-testid="scroller-inc"]')!.textContent,
+        input: document.querySelector<HTMLInputElement>('[data-testid="scroller-input"]')!.value,
+        scrollTop: document.querySelector('[data-testid="scrollbox"]')!.scrollTop,
+        frame: (
+          document.querySelector<HTMLIFrameElement>('[data-testid="scroller-frame"]')!
+            .contentWindow as { frameMarker?: string }
+        ).frameMarker,
+        // The theme script's style is not the server's, so it stays.
+        theme: !!document.getElementById("theme"),
+      })),
+    ).toEqual({ count: "scroller 1", input: "typed", scrollTop: 300, frame: "alive", theme: true });
+  });
+
+  test("never fetches what it cannot swap", async ({ page }) => {
+    const requests = recordRequests(page);
+    const fresh = async () => {
+      await page.goto(`${origin}/lab/a`);
+      await hydrated(page);
+      await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+      requests.length = 0;
+    };
+
+    // A full-hydration route: one document request, its loader runs once.
+    await fresh();
+    await clickInPlace(page, "#go-full");
     await page.waitForSelector('html[data-pracht-hydrated="true"]');
-    expect(await sameDocument()).toBeUndefined();
-    await expect(page).toHaveURL(`${origin}/full`);
-    await page.getByTestId("full-button").click();
-    await expect(page.getByTestId("full-button")).toHaveText("hydrated");
-    expect(documents).toEqual(["/guide", "/full"]);
-  } finally {
-    if (server) {
-      server.kill("SIGTERM");
-      await waitForExit(server);
-    }
-    portLease?.release();
-    rmSync(tempDir, { force: true, recursive: true });
-  }
+    await expect(page.locator("#n")).toHaveCount(1);
+    expect(requests.filter((r) => r.includes("/lab-full"))).toEqual(["document /lab-full"]);
+
+    // An API route, by link and by GET form: never fetched by the bootstrap.
+    await fresh();
+    await clickInPlace(page, "#go-api");
+    await page.waitForURL(`${origin}/api/lab-api`);
+    expect(requests.filter((r) => r.includes("lab-api"))).toEqual(["document /api/lab-api"]);
+    await fresh();
+    await page.evaluate(() => {
+      const form = document.createElement("form");
+      form.action = "/api/lab-api";
+      form.method = "get";
+      document.body.append(form);
+      form.submit();
+    });
+    await page.waitForURL(`${origin}/api/lab-api?`);
+    expect(requests.filter((r) => r.includes("lab-api"))).toEqual(["document /api/lab-api?"]);
+
+    // `data-pracht-reload` opts a link out.
+    await fresh();
+    await clickInPlace(page, "#go-b-reload");
+    await expect(page.locator("h1")).toHaveText("B");
+    expect(await sameDocument(page)).toBeUndefined();
+    expect(requests.filter((r) => r.includes("/lab/b"))).toEqual(["document /lab/b"]);
+
+    // Programmatic navigation to an islands page is swapped like a link.
+    await fresh();
+    await page.evaluate(() => location.assign("/lab/b"));
+    await expect(page.locator("h1")).toHaveText("B");
+    expect(await sameDocument(page)).toBe("first document");
+  });
+
+  test("follows redirects to the address that served the page", async ({ page }) => {
+    const requests = recordRequests(page);
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    requests.length = 0;
+
+    // To an islands page: swapped in once, under the final URL, so its
+    // relative URLs resolve the way a page load would resolve them.
+    await clickInPlace(page, "#go-redir");
+    await expect(page.locator("h1")).toHaveText("Target");
+    await expect(page).toHaveURL(`${origin}/lab/deep/target`);
+    expect(await sameDocument(page)).toBe("first document");
+    expect(await page.evaluate(() => navigation.currentEntry?.url)).toBe(
+      `${origin}/lab/deep/target`,
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector<HTMLImageElement>("#relimg")!.naturalWidth),
+      )
+      .toBe(4);
+    expect(requests.filter((r) => r.startsWith("document"))).toEqual([]);
+    expect(requests.filter((r) => r.includes("/lab/redir"))).toEqual(["fetch /lab/redir"]);
+
+    // To a full-hydration page: loaded from where the redirect ended, so the
+    // one-time route that redirected is not requested twice.
+    requests.length = 0;
+    await clickInPlace(page, "#go-token");
+    await page.waitForSelector('html[data-pracht-hydrated="true"]');
+    await expect(page).toHaveURL(`${origin}/lab-full?ok=1`);
+    expect(requests.filter((r) => r.includes("/lab/token"))).toEqual(["fetch /lab/token"]);
+  });
+
+  test("only swaps pages with the document's own policy", async ({ page, browser }) => {
+    // A page with a different CSP is loaded, so its CSP applies.
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    await clickInPlace(page, "#go-csp");
+    await expect(page.locator("h1")).toHaveText("CSP");
+    expect(await sameDocument(page)).toBeUndefined();
+    expect(await page.evaluate(() => (window as { cspBypassed?: boolean }).cspBypassed)).toBe(
+      undefined,
+    );
+
+    // The load that replaces the soft navigation carries its state on, as the
+    // original navigation would have. (What the browser then keeps for a new
+    // document is its own business.)
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    const fallbackState = page.waitForEvent("console", (message) =>
+      message.text().startsWith("fallback state "),
+    );
+    await page.evaluate(() => {
+      navigation.addEventListener("navigate", (event) => {
+        if (event.info === "pracht:full-load") {
+          console.log(`fallback state ${JSON.stringify(event.destination.getState())}`);
+        }
+      });
+      navigation.navigate("/lab/csp", { state: { from: "app" } });
+    });
+    expect((await fallbackState).text()).toBe('fallback state {"from":"app"}');
+    await expect(page.locator("h1")).toHaveText("CSP");
+
+    // A meta CSP stays in force for a document's whole life: such a page is
+    // loaded, and a document that has one never swaps.
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    await clickInPlace(page, "#go-metacsp");
+    await expect(page.locator("h1")).toHaveText("MetaCSP");
+    expect(await sameDocument(page)).toBeUndefined();
+    await clickInPlace(page, "#go-deep-target");
+    await expect(page.locator("h1")).toHaveText("Target");
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.querySelector<HTMLImageElement>("#relimg")!.naturalWidth),
+      )
+      .toBe(4);
+
+    // A framed page never swaps, so a page that refuses framing is refused.
+    const framer = await browser.newPage();
+    await framer.route("http://victim.test/**", async (route) => {
+      const url = new URL(route.request().url());
+      await route.fulfill({ response: await route.fetch({ url: origin + url.pathname }) });
+    });
+    await framer.route("http://evil.test/**", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: '<iframe src="http://victim.test/lab/a" width="800" height="400"></iframe>',
+      }),
+    );
+    // /lab/a sends `x-frame-options: SAMEORIGIN`; let the frame load it.
+    await framer.route("http://victim.test/lab/a", async (route) => {
+      const response = await route.fetch({ url: `${origin}/lab/a` });
+      const headers = { ...response.headers() };
+      delete headers["x-frame-options"];
+      await route.fulfill({ response, headers });
+    });
+    await framer.goto("http://evil.test/");
+    const frame = framer.frames().find((f) => f.url().endsWith("/lab/a"))!;
+    await frame.waitForSelector("h1");
+    await frame.evaluate(() => document.getElementById("go-deny")!.click());
+    await framer.waitForTimeout(1_500);
+    const danger = await framer
+      .frames()[1]
+      ?.evaluate(() => !!document.getElementById("danger"))
+      .catch(() => false);
+    expect(danger).toBe(false);
+    await framer.close();
+  });
+
+  test("fails closed, once, behind a host that changes policy headers", async ({ page }) => {
+    // A static host or CDN that drops a header pracht set: the policy a
+    // document really runs under can no longer be proven from its meta data.
+    await page.route(`${origin}/lab/**`, async (route) => {
+      const response = await route.fetch();
+      const headers = { ...response.headers() };
+      delete headers["x-frame-options"];
+      await route.fulfill({ response, headers });
+    });
+    const requests = recordRequests(page);
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    requests.length = 0;
+
+    await clickInPlace(page, "#go-b");
+    await expect(page.locator("h1")).toHaveText("B");
+    expect(await sameDocument(page)).toBeUndefined();
+    expect(requests.filter((r) => r.includes("/lab/b"))).toEqual([
+      "fetch /lab/b",
+      "document /lab/b",
+    ]);
+
+    // Only the first link pays for finding out: the rest of the tab's session
+    // loads pages without fetching them first.
+    await page.waitForLoadState();
+    requests.length = 0;
+    await clickInPlace(page, "#go-a");
+    await expect(page.locator("h1")).toHaveText("A");
+    expect(requests.filter((r) => r.includes("/lab/a"))).toEqual(["document /lab/a"]);
+    await page.unroute(`${origin}/lab/**`);
+  });
+
+  test("reproduces what a page load would", async ({ page }) => {
+    const requests = recordRequests(page);
+    await page.goto(`${origin}/lab/a`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+
+    // `<noscript>` stays inert.
+    requests.length = 0;
+    await clickInPlace(page, "#go-noscript");
+    await expect(page.locator("h1")).toHaveText("Noscript");
+    await page.waitForTimeout(300);
+    expect(await sameDocument(page)).toBe("first document");
+    expect(requests.filter((r) => /lab-pixel|lab-nojs/.test(r))).toEqual([]);
+    expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(
+      "rgb(255, 0, 0)",
+    );
+
+    // Head scripts run in order, an external script once per document.
+    await clickInPlace(page, "#go-scripts");
+    await expect(page.locator("h1")).toHaveText("Scripts");
+    await expect
+      .poll(() => page.evaluate(() => (window as { inlineRuns?: number }).inlineRuns))
+      .toBe(1);
+    expect(
+      await page.evaluate(() => (window as { libSeenByInline?: boolean }).libSeenByInline),
+    ).toBe(true);
+    await clickInPlace(page, "#go-a");
+    await expect(page.locator("h1")).toHaveText("A");
+    await clickInPlace(page, "#go-scripts");
+    await expect(page.locator("h1")).toHaveText("Scripts");
+    await expect
+      .poll(() => page.evaluate(() => (window as { inlineRuns?: number }).inlineRuns))
+      .toBe(2);
+    expect(await page.evaluate(() => (window as { libRuns?: number }).libRuns)).toBe(1);
+
+    // A new stylesheet does not restyle the page that is leaving.
+    await clickInPlace(page, "#go-a");
+    await expect(page.locator("h1")).toHaveText("A");
+    const before = await page.evaluate(() => getComputedStyle(document.querySelector("h1")!).color);
+    await page.evaluate(() => {
+      const start = document.startViewTransition.bind(document);
+      document.startViewTransition = ((update: () => void) => {
+        (window as { atCapture?: string }).atCapture = getComputedStyle(
+          document.querySelector("h1")!,
+        ).color;
+        return start(update);
+      }) as typeof document.startViewTransition;
+    });
+    await clickInPlace(page, "#go-colored");
+    await expect(page.locator("h1")).toHaveText("Colored");
+    expect(await page.evaluate(() => (window as { atCapture?: string }).atCapture)).toBe(before);
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector("h1")!).color)).toBe(
+      "rgb(200, 0, 0)",
+    );
+
+    // Shared stylesheets in another order would cascade differently after a
+    // swap, so that page is loaded.
+    await page.goto(`${origin}/lab/css1`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    await clickInPlace(page, "#go-css2");
+    await expect(page.locator("h1")).toHaveText("Css2");
+    expect(await sameDocument(page)).toBeUndefined();
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector("h1")!).color)).toBe(
+      "rgb(0, 0, 255)",
+    );
+  });
 });
+
+function recordDocuments(page: Page): string[] {
+  const documents: string[] = [];
+  page.on("request", (request) => {
+    if (request.resourceType() === "document") documents.push(new URL(request.url()).pathname);
+  });
+  return documents;
+}
+
+function recordRequests(page: Page): string[] {
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    requests.push(
+      `${request.resourceType()} ${url.pathname}${url.search || (url.href.endsWith("?") ? "?" : "")}`,
+    );
+  });
+  return requests;
+}
+
+/** Click without Playwright scrolling the link into view first. */
+async function clickInPlace(page: Page, selector: string): Promise<void> {
+  await page.evaluate((s) => document.querySelector<HTMLElement>(s)!.click(), selector);
+}
+
+function hydrated(page: Page) {
+  return page.waitForSelector('html[data-pracht-islands-hydrated="true"]', { state: "attached" });
+}
+
+function sameDocument(page: Page) {
+  return page.evaluate(() => (window as { marker?: string }).marker);
+}
 
 async function waitForServer(url: string): Promise<void> {
   const deadline = Date.now() + 15_000;

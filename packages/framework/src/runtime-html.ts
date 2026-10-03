@@ -1,4 +1,8 @@
 import { collectFontHeadFragments } from "./font.ts";
+import {
+  ISLANDS_NAVIGATION_DATA_ID,
+  ISLANDS_NAVIGATION_OWNED_ATTRIBUTE,
+} from "./islands-shared.ts";
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
@@ -137,6 +141,12 @@ export interface HtmlDocumentOptions {
   webmcpCapabilities?: readonly string[];
   /** Opt the document into cross-document view transitions (`defineApp({ viewTransitions })`). */
   viewTransitions?: boolean;
+  /**
+   * `client.islandsNavigation` data for this document, already serialized
+   * (see `ISLANDS_NAVIGATION_DATA_ID`). When set, the document carries it and
+   * every head node the server renders is marked as server-owned.
+   */
+  islandsNavigation?: string;
 }
 
 /**
@@ -179,20 +189,25 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     speculationRules,
     webmcpCapabilities = [],
     viewTransitions = false,
+    islandsNavigation,
   } = options;
 
-  const titleTag = head.title ? `<title>${escapeHtml(head.title)}</title>` : "";
+  // Server-owned marker for islands navigation; empty otherwise, so every
+  // other document is byte-identical.
+  const own = islandsNavigation === undefined ? "" : ` ${ISLANDS_NAVIGATION_OWNED_ATTRIBUTE}`;
+
+  const titleTag = head.title ? `<title${own}>${escapeHtml(head.title)}</title>` : "";
 
   const metaTags = (head.meta ?? [])
     .map((m) => renderAttributes(m, META_ATTRIBUTES))
     .filter(Boolean)
-    .map((attrs) => `<meta ${attrs}>`)
+    .map((attrs) => `<meta${own} ${attrs}>`)
     .join("\n    ");
 
   const linkTags = (head.link ?? [])
     .map((l) => renderAttributes(l, LINK_ATTRIBUTES))
     .filter(Boolean)
-    .map((attrs) => `<link ${attrs}>`)
+    .map((attrs) => `<link${own} ${attrs}>`)
     .join("\n    ");
 
   // Fonts registered via `defineFont()` expand into preload links plus one
@@ -204,27 +219,29 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     ? fontFragments.preloadLinks
         .map((link) => renderAttributes(link, LINK_ATTRIBUTES))
         .filter(Boolean)
-        .map((attrs) => `<link data-pracht-font-preload ${attrs}>`)
+        .map((attrs) => `<link${own} data-pracht-font-preload ${attrs}>`)
         .join("\n    ")
     : "";
   const fontNonce = head.fontNonce ?? head.styleNonce;
   const fontStyleTag =
     fontFragments?.css || fontNonce
-      ? `<style data-pracht-fonts${fontNonce ? ` nonce="${escapeHtml(fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
+      ? `<style${own} data-pracht-fonts${fontNonce ? ` nonce="${escapeHtml(fontNonce)}"` : ""}>${fontFragments?.css ?? ""}</style>`
       : "";
 
   // Placed ahead of every stylesheet the app contributes — `head().link` as
   // well as route CSS — because the last `@view-transition` rule wins, so a
   // page's own `@view-transition { navigation: none }` must come after it.
   const viewTransitionStyleTag = viewTransitions
-    ? `<style data-pracht-view-transitions${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${VIEW_TRANSITION_CSS}</style>`
+    ? `<style${own} data-pracht-view-transitions${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${VIEW_TRANSITION_CSS}</style>`
     : "";
 
   const scriptTags = (head.script ?? [])
     .map((script) => {
       const attrs = renderAttributes(script, SCRIPT_ATTRIBUTES);
       const children = script.children ? escapeScriptChildren(script.children, script.type) : "";
-      return attrs ? `<script ${attrs}>${children}</script>` : `<script>${children}</script>`;
+      return attrs
+        ? `<script${own} ${attrs}>${children}</script>`
+        : `<script${own}>${children}</script>`;
     })
     .join("\n    ");
 
@@ -235,14 +252,14 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
   const renderInlineCss = (css: string[]): string => {
     const text = css.join("\n").replace(/<\/style/gi, "<\\/style");
     return text
-      ? `<style data-pracht-inline-css${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${text}</style>`
+      ? `<style${own} data-pracht-inline-css${head.styleNonce ? ` nonce="${escapeHtml(head.styleNonce)}"` : ""}>${text}</style>`
       : "";
   };
   const cssTags = (() => {
     if (!cssAssets) {
       return [
         renderInlineCss(inlineCss),
-        ...cssUrls.map((url) => `<link rel="stylesheet" href="${escapeHtml(url)}">`),
+        ...cssUrls.map((url) => `<link${own} rel="stylesheet" href="${escapeHtml(url)}">`),
       ]
         .filter(Boolean)
         .join("\n    ");
@@ -260,7 +277,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
         pendingInline.push(asset.content);
       } else {
         flushInline();
-        tags.push(`<link rel="stylesheet" href="${escapeHtml(asset.href)}">`);
+        tags.push(`<link${own} rel="stylesheet" href="${escapeHtml(asset.href)}">`);
       }
     }
     flushInline();
@@ -268,7 +285,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
   })();
 
   const modulePreloadTags = modulePreloadUrls
-    .map((url) => `<link rel="modulepreload" href="${escapeHtml(url)}">`)
+    .map((url) => `<link${own} rel="modulepreload" href="${escapeHtml(url)}">`)
     .join("\n    ");
 
   const routeStatePreloadTag = routeStatePreloadUrl
@@ -276,7 +293,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     : "";
 
   const speculationRulesTag = speculationRules
-    ? `<script type="speculationrules">${serializeJsonForHtml(speculationRules)}</script>`
+    ? `<script${own} type="speculationrules">${serializeJsonForHtml(speculationRules)}</script>`
     : "";
 
   const stateScript = hydrationState
@@ -322,6 +339,9 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
       modulePreloadTags,
       routeStatePreloadTag,
       speculationRulesTag,
+      islandsNavigation === undefined
+        ? ""
+        : `<script${own} type="application/json" id="${ISLANDS_NAVIGATION_DATA_ID}">${islandsNavigation}</script>`,
     ],
     "    ",
   );
@@ -359,10 +379,14 @@ function joinDocumentLines(parts: string[], indent: string): string {
 }
 
 export function htmlResponse(html: string, status = 200, initHeaders?: HeadersInit): Response {
+  return new Response(html, { status, headers: htmlResponseHeaders(initHeaders) });
+}
+
+/** The headers `htmlResponse()` sends, for a document that has to describe them. */
+export function htmlResponseHeaders(initHeaders?: HeadersInit): Headers {
   const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
   if (initHeaders) {
     applyHeaders(headers, initHeaders);
   }
-  applySecurityAndRouteHeaders(headers, { isRouteStateRequest: false });
-  return new Response(html, { status, headers });
+  return applySecurityAndRouteHeaders(headers, { isRouteStateRequest: false });
 }

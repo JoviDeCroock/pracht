@@ -28,13 +28,21 @@ import {
 import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider, RouteSearchContext } from "./runtime-context.ts";
 import { ShellDataContext } from "./runtime-shell-data.ts";
-import { buildHtmlDocument, buildHtmlDocumentParts, htmlResponse } from "./runtime-html.ts";
+import {
+  buildHtmlDocument,
+  buildHtmlDocumentParts,
+  htmlResponse,
+  htmlResponseHeaders,
+  serializeJsonForHtml,
+} from "./runtime-html.ts";
 import { getAppSpeculationRules } from "./runtime-speculation.ts";
 import {
   getIslandsClientEntryUrl,
   IslandCaptureContext,
+  islandsNavigationRoutes,
   type IslandCapture,
 } from "./islands-server.ts";
+import { policyFingerprint } from "./islands-shared.ts";
 import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,
@@ -779,6 +787,15 @@ async function renderServerDocument<TContext>(
         speculationRules: getAppSpeculationRules(ctx.resolvedApp),
         viewTransitions: ctx.resolvedApp.viewTransitions === true,
         webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
+        // The policy is fingerprinted from the headers this response is about
+        // to carry; anything that changes them later (a host, a proxy) makes
+        // the fetched response disagree, and the client falls back to a load.
+        islandsNavigation: ISLANDS_NAVIGATION
+          ? serializeJsonForHtml({
+              p: policyFingerprint(htmlResponseHeaders(documentHeaders)),
+              r: islandsNavigationRoutes(ctx.resolvedApp, ctx.options.apiRoutes),
+            })
+          : undefined,
       }),
       pageOptions.status,
       documentHeaders,

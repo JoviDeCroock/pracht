@@ -150,24 +150,43 @@ its state. New islands hydrate with their own `client` strategy. Back and
 forward restore the earlier page and its scroll position. With
 `viewTransitions` on, the swap animates as a same-document view transition.
 
+Links to anything else load a new document as before, and are never fetched
+first: a full-hydration route, an API route, a URL outside your app, a page
+the browser has prerendered from your speculation rules, and any link marked
+`<a data-pracht-reload>`.
+
 Scripts the new page shares with the old one do not run again, so a page-view
 counter that fires on load sees only the first page. Count the rest from the
 Navigation API's `navigatesuccess` event.
 
-The bootstrap only swaps pages it can reproduce faithfully. Each of these is
-still a full page load:
+### When pages still load normally
 
-- a link to a full-hydration route,
-- a page from a newer deployment, which loads a different bootstrap,
-- an error status or a response from another origin,
-- a page served with a nonce-based Content Security Policy.
+A swapped-in page runs under the security headers the document was first
+loaded with, so the bootstrap only swaps a page whose `Content-Security-Policy`,
+`X-Frame-Options`, `Permissions-Policy`, `Referrer-Policy`, and cross-origin
+isolation headers are exactly the same as the current page's. Otherwise you
+get a full page load, which applies that page's own headers. The same happens
+for a page with a `<meta http-equiv="Content-Security-Policy">`, a page from a
+newer deployment, a redirect to a page that cannot be swapped, and a response
+that is not an islands page, such as a plain-text error.
 
-Browsers without the
-[Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API)
-keep plain document navigation. The option adds about 2 KB gzip to the
-bootstrap, and every islands page loads the bootstrap even when it renders no
-island. `hydration: "none"` pages still ship no JavaScript, so navigation from
-a page you landed on directly is a full page load.
+The comparison fails closed. Pracht checks the headers it set against the
+headers that arrived, so a host that adds, removes, or changes any of them
+turns islands navigation off for the rest of the browser tab's session after
+the first link. Most static file hosts send none of the defaults pracht sets
+(`Permissions-Policy`, `Referrer-Policy`, `X-Frame-Options`), so configure the
+host to send the same values, as the Netlify adapter's
+[`_headers` file](/docs/adapters#caching-and-revalidation) does, to keep soft
+navigation there.
+
+Islands navigation also stays off inside an iframe, on a document that has a
+meta CSP, and in browsers without the
+[Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API).
+
+The option adds about 3 KB gzip to the bootstrap and about 160 bytes gzip of
+route table to each islands page. Every islands page loads the bootstrap even
+when it renders no island. `hydration: "none"` pages still ship no JavaScript,
+so navigation from a page you landed on directly is a full page load.
 
 ---
 

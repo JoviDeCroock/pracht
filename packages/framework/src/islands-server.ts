@@ -11,7 +11,7 @@ import {
   ISLAND_STRATEGY_ATTRIBUTE,
 } from "./islands-shared.ts";
 import { ScriptCaptureContext } from "./script.ts";
-import type { IslandStrategy } from "./types.ts";
+import type { IslandStrategy, ResolvedApiRoute, ResolvedPrachtApp } from "./types.ts";
 
 /**
  * Server-side islands support.
@@ -315,4 +315,34 @@ function islandPropError(
       "and revived in the browser, so they must be JSON-serializable values " +
       "(string, finite number, boolean, null, arrays, and plain objects).",
   );
+}
+
+const islandsNavigationRoutesCache = new WeakMap<ResolvedPrachtApp, string[]>();
+
+/**
+ * The route table `client.islandsNavigation` decides with before it fetches
+ * anything: every API route, then every page route, in the order the server
+ * matches them, as `+path` (an `islands`/`none` page the bootstrap may swap in)
+ * or `-path` (an API route or a full-hydration page, which it must leave to the
+ * browser). Entries after the last `+` cannot change an answer and are dropped.
+ */
+export function islandsNavigationRoutes(
+  app: ResolvedPrachtApp,
+  apiRoutes: readonly ResolvedApiRoute[] = [],
+): string[] {
+  let table = islandsNavigationRoutesCache.get(app);
+  if (!table) {
+    table = [
+      ...apiRoutes.map((route) => `-${route.path}`),
+      ...app.routes.map(
+        (route) =>
+          `${route.render !== "spa" && (route.hydration ?? "full") !== "full" ? "+" : "-"}${route.path}`,
+      ),
+    ];
+    let last = table.length - 1;
+    while (last >= 0 && !table[last].startsWith("+")) last--;
+    table.length = last + 1;
+    islandsNavigationRoutesCache.set(app, table);
+  }
+  return table;
 }
