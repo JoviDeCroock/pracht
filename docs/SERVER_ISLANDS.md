@@ -17,11 +17,11 @@ equivalents), the region subtag of a locale in `@pracht/i18n`, and ARIA
 landmark regions in the markup the element sits in. The docs feed `llms.txt`,
 so a coding agent searching for "regions" would have found all four.
 
-"Server island" is the name Astro gave the same pattern: a server-rendered
-component deferred out of a cached page behind a fallback, fetched per
-request. It pairs with pracht's own islands, which hydrate in the browser: an
-island is interactive client code on a server-rendered page, and a server
-island is per-request server output on a cached page. Code uses
+A server island is a server-rendered component deferred out of a cached page
+behind a fallback, fetched per request. The name pairs with pracht's own
+islands, which hydrate in the browser: an island is interactive client code on
+a server-rendered page, and a server island is per-request server output on a
+cached page. Code uses
 `serverIsland`/`serverIslands` throughout: `src/server-islands/`,
 `<pracht-server-island>`, `/__pracht/server-island`, `server-islands-*.ts`.
 

@@ -97,6 +97,11 @@ anything, because it is only rendered on the server.
 | `ssr` with `streaming: true` | The fallback | The browser fetches the server island after load |
 | Client navigation (full hydration) | The fallback | The server island is fetched when it mounts |
 
+On an `ssr` page, the server island loaders run at the same time, and the
+response waits for all of them, so the slowest loader decides when the page
+arrives. With `streaming: true`, the page is sent without waiting and its server
+islands are fetched after load.
+
 On `hydration: "none"` and `"islands"` pages, a small script (about 1.3 KB
 gzip, no Preact) fills the server island, and only pages that render a pending
 server island load it. Islands inside a server island hydrate once its HTML is

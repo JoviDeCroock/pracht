@@ -80,8 +80,7 @@ Works in both the manifest router and the pages router
 
 ### Server Islands
 
-Cached pages with per-visitor parts, without making the route SSR (the pattern
-Astro calls server islands):
+Cached pages with per-visitor parts, without making the route SSR:
 
 - Components in `src/server-islands/` (default export + optional `loader`) are
   used as plain JSX in any page or shell, with an optional `fallback`.
