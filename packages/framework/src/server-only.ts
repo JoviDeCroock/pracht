@@ -61,6 +61,15 @@ export interface ServerOnlyPlaceholder {
 class ServerOnlyValue<T> {
   readonly value: T;
 
+  // On the prototype, and keyed by a registry symbol, so the check survives
+  // both a rebuilt copy of the object and a second copy of this module in the
+  // graph. A getter rather than a property assigned after the class keeps the
+  // class free of module side effects, so a client chunk that only renders
+  // <StaticHtml> drops it.
+  get [SERVER_ONLY](): true {
+    return true;
+  }
+
   constructor(value: T) {
     this.value = value;
   }
@@ -86,10 +95,6 @@ class ServerOnlyValue<T> {
     );
   }
 }
-
-// On the prototype, and keyed by a registry symbol, so the check survives both
-// a rebuilt copy of the object and a second copy of this module in the graph.
-Object.defineProperty(ServerOnlyValue.prototype, SERVER_ONLY, { value: true });
 
 /**
  * A loader value that has been marked with {@link serverOnly}.
