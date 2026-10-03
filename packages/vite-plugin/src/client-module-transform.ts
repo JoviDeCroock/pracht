@@ -26,10 +26,13 @@ export {
 } from "./client-module-query.ts";
 
 const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths", "markdown"]);
+const APP_ROOT_SERVER_ONLY_EXPORTS = new Set(["dehydrate"]);
 
 export interface StripServerOnlyExportsOptions {
   /** Strip the dedicated pages-router middleware module from the client graph. */
   middleware?: boolean;
+  /** Project the `defineApp({ root })` module: strip `dehydrate` instead of route exports. */
+  appRoot?: boolean;
 }
 
 export function stripServerOnlyExportsForClient(
@@ -50,10 +53,17 @@ export function stripServerOnlyExportsForClient(
   }
 
   const initialBindingNames = collectCurrentTopLevelBindingNames(states);
+  const appRoot = options.appRoot === true;
   const { changed, candidates } = removeServerOnlyExports(
     states,
     initialBindingNames,
-    SERVER_ONLY_EXPORTS,
+    appRoot ? APP_ROOT_SERVER_ONLY_EXPORTS : SERVER_ONLY_EXPORTS,
+    // `export const { setup, Root, dehydrate, hydrate } = createQueryRoot()` is
+    // the documented `@pracht/query` root. Its other bindings are what the
+    // browser renders and hydrates with, and they come from the same call, so
+    // the declarator stays: dropping it would drop the root, and its
+    // initializer ships for those bindings either way.
+    { keepSharedDeclarators: appRoot },
   );
 
   if (!changed) return code;
@@ -66,6 +76,7 @@ function removeServerOnlyExports(
   states: StatementState[],
   initialBindingNames: Set<string>,
   serverOnlyExports: ReadonlySet<string>,
+  { keepSharedDeclarators }: { keepSharedDeclarators: boolean },
 ): { candidates: Set<string>; changed: boolean } {
   let changed = false;
   const candidates = new Set<string>();
@@ -91,11 +102,13 @@ function removeServerOnlyExports(
     }
 
     if (declaration?.type === "VariableDeclaration") {
-      const removable = getRemainingDeclaratorIndices(state).filter((index) =>
-        collectBindingNamesFromPattern(declaration.declarations[index].id).some((name) =>
-          serverOnlyExports.has(name),
-        ),
-      );
+      const removable = getRemainingDeclaratorIndices(state).filter((index) => {
+        const names = collectBindingNamesFromPattern(declaration.declarations[index].id);
+        const isServerOnly = (name: string) => serverOnlyExports.has(name);
+        return keepSharedDeclarators
+          ? names.length > 0 && names.every(isServerOnly)
+          : names.some(isServerOnly);
+      });
 
       if (removable.length === 0) continue;
 

@@ -164,6 +164,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     resolved.additionalExtensions,
   );
   let capabilityModulePaths = new Set<string>();
+  // The canonical path of the `defineApp({ root })` module, or `null`. The
+  // client entry imports it eagerly, so its server-only `dehydrate` is
+  // stripped from the browser copy the same way route loaders are. Refreshed
+  // whenever the client entry is regenerated: a manifest edit restarts the
+  // server, and a pages `_root` add/remove regenerates the entry.
+  let appRootFile: string | null = null;
   let capabilityRunnerConfig: UserConfig = {};
   let usesEjectedPagesLayout = false;
 
@@ -435,6 +441,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
       usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
+      appRootFile = resolveAppRootFile(resolved, root);
       // Non-literal WebMCP schemas are evaluated in a short-lived server
       // module runner. Preserve app aliases without reloading the Vite config
       // (which would recursively instantiate this plugin).
@@ -487,6 +494,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // A partial scan here means the entry ships hints for only some of the
         // routes, so the next hint-relevant edit still has to reload.
         routeHintsNeedResync = clientRouteHints.incomplete;
+        appRootFile = resolveAppRootFile(resolved, root);
         return createPrachtClientModuleSource(resolved, { root });
       }
       if (isDevModule(id)) {
@@ -852,13 +860,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         !transformOptions?.ssr &&
         (isPagesMode || usesEjectedPagesLayout) &&
         isRootMiddlewareModule(id, root, resolved);
+      // Matched by path, not by a query: components may import the root for
+      // its context, and they must share the module instance the entry
+      // renders.
+      const isAppRoot = !transformOptions?.ssr && isAppRootModule(id, appRootFile);
       const shouldStrip =
         isPrachtClientModuleId(id) ||
         (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions)) ||
-        isPagesMiddlewareModule;
+        isPagesMiddlewareModule ||
+        isAppRoot;
       if (!shouldStrip) return null;
 
       const transformed = stripServerOnlyExportsForClient(code, id, {
+        appRoot: isAppRoot,
         middleware: isPagesMiddlewareModule,
       });
       if (transformed === code) return null;
@@ -1365,6 +1379,28 @@ function isCapabilityModule(id: string, capabilityModulePaths: Set<string>): boo
   const path = queryStart === -1 ? id : id.slice(0, queryStart);
   if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
   return capabilityModulePaths.has(canonicalFilePath(path));
+}
+
+/**
+ * The canonical path of the module `defineApp({ root })` registers, or `null`.
+ * A root the build cannot read is reported by the client entry's codegen, which
+ * reads the same registration, so it is not this lookup's error to raise.
+ */
+function resolveAppRootFile(resolved: ResolvedPrachtPluginOptions, root: string): string | null {
+  try {
+    const appRoot = findAppRootModule(resolved, root);
+    return appRoot ? canonicalFilePath(resolveConfigPath(root, appRoot.id)) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAppRootModule(id: string, appRootFile: string | null): boolean {
+  if (appRootFile === null) return false;
+  const queryStart = id.indexOf("?");
+  const path = queryStart === -1 ? id : id.slice(0, queryStart);
+  if (path.startsWith("\0") || path.startsWith("virtual:")) return false;
+  return canonicalFilePath(path) === appRootFile;
 }
 
 /** Whether `modulePath` is the pages directory's root `_app.config` module. */

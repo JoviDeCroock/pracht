@@ -29,6 +29,9 @@ const LOADER_BODY_MARKER = "LOADER_BODY_STRIP_MARKER_2a91";
 const COMPONENT_MARKER = "COMPONENT_STRIP_MARKER_b55e";
 // Defined in examples/basic/src/server/notes-store.ts (used only by capabilities).
 const CAPABILITY_SERVER_MARKER = "PRACHT_NOTES_STORE_SERVER_MARKER_4c8a";
+// Imported only by the app root's server-only dehydrate().
+const ROOT_DEHYDRATE_MARKER = "ROOT_DEHYDRATE_STRIP_MARKER_e61d";
+const ROOT_SETUP_MARKER = "ROOT_SETUP_STRIP_MARKER_93b0";
 
 test("server-only route exports and their imports are stripped from client bundles", async () => {
   test.setTimeout(120_000);
@@ -71,14 +74,41 @@ test("server-only route exports and their imports are stripped from client bundl
       "utf-8",
     );
 
+    writeFileSync(
+      resolve(exampleDir, "src/server/root-snapshot.ts"),
+      `export const snapshot = () => ${JSON.stringify(ROOT_DEHYDRATE_MARKER)};\n`,
+      "utf-8",
+    );
+    writeFileSync(
+      resolve(exampleDir, "src/root.ts"),
+      [
+        `import { snapshot } from "./server/root-snapshot.ts";`,
+        ``,
+        `export function setup() {`,
+        `  return { label: ${JSON.stringify(ROOT_SETUP_MARKER)} };`,
+        `}`,
+        ``,
+        `export function dehydrate() {`,
+        `  return snapshot();`,
+        `}`,
+        ``,
+      ].join("\n"),
+      "utf-8",
+    );
+
     const routesPath = resolve(exampleDir, "src/routes.ts");
     const routesSource = readFileSync(routesPath, "utf-8");
     writeFileSync(
       routesPath,
-      routesSource.replace(
-        'route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),',
-        `route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),\n      route("/strip-marker", () => import("./routes/strip-marker.tsx"), { id: "strip-marker", render: "ssr" }),`,
-      ),
+      routesSource
+        .replace(
+          "export const app = defineApp({",
+          'export const app = defineApp({\n  root: "./root.ts",',
+        )
+        .replace(
+          'route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),',
+          `route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),\n      route("/strip-marker", () => import("./routes/strip-marker.tsx"), { id: "strip-marker", render: "ssr" }),`,
+        ),
       "utf-8",
     );
 
@@ -113,6 +143,12 @@ test("server-only route exports and their imports are stripped from client bundl
     // stay out of every client asset while remaining in the server bundle.
     expect(clientJs).not.toContain(CAPABILITY_SERVER_MARKER);
     expect(serverJs).toContain(CAPABILITY_SERVER_MARKER);
+
+    // The app root ships to the browser, minus its server-only dehydrate()
+    // and what only dehydrate() imports.
+    expect(clientJs).toContain(ROOT_SETUP_MARKER);
+    expect(clientJs).not.toContain(ROOT_DEHYDRATE_MARKER);
+    expect(serverJs).toContain(ROOT_DEHYDRATE_MARKER);
 
     // The generated browser client (`callCapability` and the nested
     // `capabilities` object) carries only names, endpoints, and effects.

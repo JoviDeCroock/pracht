@@ -6,7 +6,8 @@
  * root must not pay for the key. The build reads it here instead and emits
  * the three things that follow from it — the client entry's static import,
  * the server registry entry, and the `__PRACHT_APP_ROOT__` define — so all
- * three always agree.
+ * three always agree. The client module transform reads it too, to strip the
+ * server-only `dehydrate` from the browser copy of that module.
  *
  * In pages mode the synthesized manifest carries `root` for a pages-root
  * `_root.{ts,tsx,js,jsx}`, so both routers go through the same reader.
