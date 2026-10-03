@@ -67,7 +67,8 @@ Every module in `src/server-islands/` (configurable with
 `pracht({ serverIslandsDir })`) is a server island, so keep helper modules
 elsewhere. The **default export** is the component. The optional **`loader`**
 receives the page's `request`, `url`, `params`, `signal`, the `context` your
-middleware built, and the server island's `props`. Read its return value with
+middleware built, the [app root](/docs/shells#the-app-root) state as `root`, and the server
+island's `props`. Read its return value with
 `useServerIslandData<typeof loader>()`.
 
 A server island runs for a page only when that page's route or shell imports it
@@ -105,7 +106,11 @@ islands are fetched after load.
 On `hydration: "none"` and `"islands"` pages, a small script (about 1.3 KB
 gzip, no Preact) fills the server island, and only pages that render a pending
 server island load it. Islands inside a server island hydrate once its HTML is
-in place.
+in place. A server island passed to an island as children is fetched when the
+island first shows those children. With
+[`islandsNavigation`](/docs/islands#client-side-navigation-between-islands-pages),
+a swapped-in page fills its server islands the same way, and an island that
+stays mounted across the swap keeps the server island HTML it already has.
 
 On `hydration: "full"` pages, the server island's markup is left alone by
 hydration and re-renders, so it cannot cause a hydration mismatch. It fetches

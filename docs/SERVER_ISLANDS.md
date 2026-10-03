@@ -254,8 +254,16 @@ builds and serves one fixture app both ways and requires identical maps.
   one that already ran hears the bubbling `pracht:server-island` event). It
   runs the same pass again on the Navigation API's `navigatesuccess`, so a
   same-document navigation that swaps in a page with pending server islands
-  fills them without loading the module again. Each element is fetched once:
-  one that answered 204 keeps `pending` but is not fetched again.
+  fills them without loading the module again (with `client.islandsNavigation`,
+  a page whose module scripts the document has not run is a full load, so the
+  swap script is already running whenever a swapped-in page needs it). It runs
+  the pass once more on `pracht:server-islands-scan`, which the islands
+  bootstrap dispatches from a slot it has just moved children into: unplaced
+  island children ship in an inert `<template pracht-slot>`, so their pending
+  server islands are invisible to `querySelectorAll` until then. Each element
+  is fetched once: one that answered 204 keeps `pending` but is not fetched
+  again, and a server island inside an island that a swap carried over keeps
+  the HTML it already has (the incoming copy is dropped with the placeholder).
 - **Client server island component** — in the client environment the plugin's
   `load` hook replaces each server island module with
   `createClientServerIsland(file)` from `@pracht/core/server-islands-component`,
@@ -279,10 +287,13 @@ builds and serves one fixture app both ways and requires identical maps.
   their mutations are document navigations or, for capabilities, a reload.
 - **Islands bootstrap** — gated by `__PRACHT_SERVER_ISLANDS__` (true only when
   the server islands directory exists at build time), it listens for
-  `pracht:server-island` and hydrates islands inside the swapped server island,
-  marking `data-hydrated="pending"` first so a concurrent initial scan cannot
-  hydrate the same island twice. With the flag false the bootstrap is
-  byte-identical to an app without server islands (`pnpm bench:check`).
+  `pracht:server-island` once per document and runs `scheduleIslands()` over
+  the swapped server island. That is the same pass the page scan, slot moves,
+  and islands-navigation swaps use, so the shared `scheduled` set keeps an
+  island any two of them find from hydrating twice. After moving children into
+  a slot it dispatches `pracht:server-islands-scan` (above). With the flag
+  false the bootstrap is byte-identical to an app without server islands
+  (`pnpm bench:check`).
 
 ## Request Flow — cached page
 
@@ -385,7 +396,10 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
 - The endpoint and `renderPage()` build route args with `createPageRouteArgs()`
   and run middleware with `runPageMiddlewareChain()` (`runtime-route-args.ts`),
   and both validate `search` with `applyRouteSearch()`. Add page-scoped route
-  args there, never at either call site.
+  args there, never at either call site. `root` (the app root's `setup()`
+  state) is the exception: both set it after middleware from
+  `resolveRequestRoot()`, the page in `runPageTerminal()` and the endpoint in
+  its terminal, so a request middleware answers never creates one.
 
 ## Tests
 
@@ -403,10 +417,18 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
 - `packages/framework/test/server-islands-client.test.ts` — the swap script and
   the client component under jsdom (hydration keeps markup, pending fill,
   client-navigation mount, the response marker, refresh).
+- `packages/framework/test/islands-client-server-islands.test.ts` — the islands
+  bootstrap and the swap script together: one hydration for an island both a
+  swap and the page scan find, and a server island in unplaced island children
+  fetched on first show only.
 - `packages/framework/test/server-islands-refresh.test.ts` — which client paths
   dispatch the refresh, and that none do without the define.
 - `e2e/server-islands-dev.test.ts` and the server islands section of
   `e2e/islands-build.test.ts` — cookie-dependent content on an SSG page whose
   HTML is identical per visitor, inline SSR, islands inside a server island,
   full hydration, failure fallback, and the refusal of a server island for a
-  page that does not render it, against the dev server and a Node build.
+  page that does not render it, against the dev server and a Node build. The
+  dev spec also covers server islands in placed and unplaced island children,
+  and `e2e/islands-navigation-build.test.ts` covers pages swapped in with
+  `client.islandsNavigation`: one fetch per page shown, none for a server
+  island inside a carried island, and none for unplaced children until shown.

@@ -80,6 +80,11 @@ export const app = defineApp({
           id: "server-islands-full",
           render: "ssg",
         }),
+        route("/server-islands/children", () => import("./routes/server-islands-children.tsx"), {
+          id: "server-islands-children",
+          render: "ssg",
+          hydration: "islands",
+        }),
       ]),
     ]),
     // Two islands pages sharing a shell island. With

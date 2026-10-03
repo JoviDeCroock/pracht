@@ -70,6 +70,49 @@ test("islands inside a server island hydrate after the swap", async ({ page, bas
   await expect(page.getByTestId("count")).toHaveText("Count: 2");
 });
 
+test("server islands in an island's children fill where they are shown", async ({
+  page,
+  baseURL,
+}) => {
+  const serverIslandRequests: string[] = [];
+  page.on("request", (req) => {
+    const url = new URL(req.url());
+    if (url.pathname === "/__pracht/server-island") {
+      serverIslandRequests.push(JSON.parse(url.searchParams.get("props") ?? "{}").greeting);
+    }
+  });
+  await setVisitor(page, baseURL, "Ada");
+  await page.goto("/server-islands/children");
+  await page.waitForSelector('html[data-pracht-islands-hydrated="true"]');
+  await page.waitForSelector(SERVER_ISLANDS_READY);
+  const [shown, revealed] = [
+    page.locator(".disclosure").nth(0),
+    page.locator(".disclosure").nth(1),
+  ];
+
+  // Placed children: in the page from the start, filled like any other.
+  await expect(shown.getByTestId("visitor")).toHaveText("Shown, Ada");
+  // Unplaced children ship in an inert <template>: nothing is fetched for
+  // them until the disclosure first shows them.
+  expect(serverIslandRequests).toEqual(["Shown"]);
+  await expect(revealed.locator("pracht-server-island")).toHaveCount(0);
+
+  await revealed.getByRole("button", { name: "Closed by default" }).click();
+  await expect(revealed.getByTestId("visitor")).toHaveText("Revealed, Ada");
+  expect(serverIslandRequests).toEqual(["Shown", "Revealed"]);
+
+  // Hiding and showing either again moves the filled HTML back in.
+  for (const disclosure of [shown, revealed]) {
+    const button = disclosure.getByRole("button");
+    await button.click();
+    await expect(disclosure.getByTestId("visitor")).toHaveCount(0);
+    await button.click();
+    await expect(disclosure.getByTestId("visitor")).toHaveText(/, Ada$/);
+  }
+  await page.waitForTimeout(300);
+  expect(serverIslandRequests).toEqual(["Shown", "Revealed"]);
+});
+
 test("a failing server island keeps its fallback and the page keeps working", async ({
   page,
   baseURL,

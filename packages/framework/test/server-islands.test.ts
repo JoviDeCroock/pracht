@@ -350,6 +350,39 @@ describe("server island endpoint", () => {
     });
   });
 
+  it("gives the loader the app root's state, as an inline render does", async () => {
+    const { ServerIsland, loader } = registerVisitorServerIsland();
+    const setup = vi.fn(() => ({ tenant: "acme" }));
+    const registry = {
+      ...createRegistry(() => null),
+      rootModules: { "/src/root.tsx": async () => ({ setup }) },
+    };
+
+    const fetched = await handlePrachtRequest({
+      app: createApp("ssg"),
+      registry,
+      request: serverIslandRequest(params),
+    });
+    expect(fetched.status).toBe(200);
+    expect(loader.mock.calls[0][0].root).toEqual({ tenant: "acme" });
+
+    const inline = await handlePrachtRequest({
+      app: createApp("ssr"),
+      registry: {
+        ...registry,
+        routeModules: {
+          "./routes/page.tsx": async () => ({
+            Component: () => h(ServerIsland, { greeting: "Hi" }),
+          }),
+        },
+      },
+      request: new Request("http://localhost/products/7"),
+    });
+    expect(inline.status).toBe(200);
+    expect(loader).toHaveBeenCalledTimes(2);
+    expect(loader.mock.calls[1][0].root).toEqual({ tenant: "acme" });
+  });
+
   it("keeps no-store even when middleware marks the response cacheable", async () => {
     const { response } = await request(serverIslandRequest(params), {
       middleware: async (_args, next) => {
