@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ import {
   run,
   scaffoldProject,
 } from "../src/index.js";
+import { FALLBACK_VERSIONS_FILE, loadFallbackVersionRanges } from "../src/versions.js";
 
 const NODE_ADAPTER = {
   description: "Node.js server with a generated server entry",
@@ -24,6 +25,12 @@ const NODE_ADAPTER = {
   packageName: "@pracht/adapter-node",
   short: "node",
 };
+
+/** The `^<version>` of a sibling package, which an offline scaffold falls back to. */
+function workspaceRange(dir) {
+  const manifestUrl = new URL(`../../${dir}/package.json`, import.meta.url);
+  return `^${JSON.parse(readFileSync(fileURLToPath(manifestUrl), "utf-8")).version}`;
+}
 
 describe("create-pracht", () => {
   it("describes root middleware support in the pages router prompt", async () => {
@@ -87,12 +94,12 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/cli": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@pracht\/adapter-node": "\^\d+\.\d+\.\d+"/);
     expect(parsedPackageJson.dependencies).toMatchObject({
-      "@pracht/adapter-node": "^0.3.8",
-      "@pracht/core": "^0.14.0",
+      "@pracht/adapter-node": workspaceRange("adapter-node"),
+      "@pracht/core": workspaceRange("framework"),
     });
     expect(parsedPackageJson.devDependencies).toMatchObject({
-      "@pracht/cli": "^1.11.0",
-      "@pracht/vite-plugin": "^0.9.0",
+      "@pracht/cli": workspaceRange("cli"),
+      "@pracht/vite-plugin": workspaceRange("vite-plugin"),
     });
     expect(parsedPackageJson.pnpm).toBeUndefined();
     expect(packageJson).toContain('"preview": "pracht preview"');
@@ -578,12 +585,12 @@ describe("create-pracht", () => {
     const agentInstructions = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
 
     expect(packageJson.dependencies).toMatchObject({
-      "@pracht/adapter-static": "^0.1.0",
-      "@pracht/core": "^0.14.0",
+      "@pracht/adapter-static": workspaceRange("adapter-static"),
+      "@pracht/core": workspaceRange("framework"),
     });
     expect(packageJson.devDependencies).toMatchObject({
-      "@pracht/cli": "^1.11.0",
-      "@pracht/vite-plugin": "^0.9.0",
+      "@pracht/cli": workspaceRange("cli"),
+      "@pracht/vite-plugin": workspaceRange("vite-plugin"),
     });
     expect(packageJson.scripts).toMatchObject({ build: "pracht build", preview: "pracht preview" });
     expect(packageJson.scripts.start).toBeUndefined();
@@ -659,8 +666,8 @@ describe("create-pracht", () => {
     const gitignore = await readFile(join(targetDir, ".gitignore"), "utf-8");
 
     expect(packageJson.dependencies).toMatchObject({
-      "@pracht/adapter-netlify": "^0.1.0",
-      "@pracht/core": "^0.14.0",
+      "@pracht/adapter-netlify": workspaceRange("adapter-netlify"),
+      "@pracht/core": workspaceRange("framework"),
     });
     expect(packageJson.devDependencies["netlify-cli"]).toBe("^21.6.0");
     expect(packageJson.scripts).toMatchObject({
@@ -1392,6 +1399,75 @@ describe("create-pracht", () => {
     expect(parseArgs(["--agent-tools=full"]).agentSkills).toBe("full");
     expect(() => parseArgs(["--agent-tools=some"])).toThrow(/Use core or full/);
     expect(parseArgs(["--no-agent-tools"]).agentTools).toBe(false);
+  });
+
+  it("falls back to the versions released alongside it, and says so", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-offline-"));
+    const targetDir = join(root, "my-offline-app");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    let printed;
+    try {
+      await run([
+        targetDir,
+        "--adapter=node",
+        "--router=manifest",
+        "--template=minimal",
+        "--no-agent-tools",
+        "--no-git",
+        "--skip-install",
+      ]);
+      printed = logSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+    } finally {
+      fetchSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+
+    const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
+    expect(packageJson.dependencies["@pracht/core"]).toBe(workspaceRange("framework"));
+    expect(packageJson.dependencies["@pracht/adapter-node"]).toBe(workspaceRange("adapter-node"));
+    expect(packageJson.devDependencies["@pracht/cli"]).toBe(workspaceRange("cli"));
+    expect(packageJson.devDependencies["@pracht/vite-plugin"]).toBe(workspaceRange("vite-plugin"));
+    expect(printed).toContain("Could not look up the latest versions on the npm registry");
+    expect(printed).toContain(`@pracht/core@${workspaceRange("framework")}`);
+  });
+
+  it("reads the recorded fallback versions outside the monorepo", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-published-"));
+    const packageRoot = join(root, "node_modules/create-pracht");
+    await mkdir(packageRoot, { recursive: true });
+
+    expect(loadFallbackVersionRanges(packageRoot)).toEqual({});
+
+    await writeFile(
+      join(packageRoot, FALLBACK_VERSIONS_FILE),
+      JSON.stringify({ "@pracht/core": "^9.9.9" }),
+    );
+    expect(loadFallbackVersionRanges(packageRoot)).toEqual({ "@pracht/core": "^9.9.9" });
+  });
+
+  it("scaffolds preact-render-to-string within @pracht/core's peer range", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-prts-"));
+    const targetDir = join(root, "my-prts-app");
+    await scaffoldProject({
+      adapter: NODE_ADAPTER,
+      agentTools: false,
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const core = JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL("../../framework/package.json", import.meta.url)),
+        "utf-8",
+      ),
+    );
+    const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
+    expect(packageJson.devDependencies["preact-render-to-string"]).toBe(
+      core.peerDependencies["preact-render-to-string"],
+    );
   });
 
   it("parseArgs handles --no-git flag", () => {

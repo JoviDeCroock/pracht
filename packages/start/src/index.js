@@ -5,28 +5,14 @@ import { basename, dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
+import { loadFallbackVersionRanges } from "./versions.js";
+
 export class ValidationError extends Error {
   constructor(message) {
     super(message);
     this.code = 2;
   }
 }
-
-const FALLBACK_VERSION_RANGES = {
-  "@pracht/adapter-cloudflare": "^0.5.8",
-  "@pracht/adapter-netlify": "^0.1.0",
-  "@pracht/adapter-node": "^0.3.8",
-  "@pracht/adapter-static": "^0.1.0",
-  "@pracht/adapter-vercel": "^0.2.8",
-  "@pracht/cli": "^1.11.0",
-  "@pracht/core": "^0.14.0",
-  "@pracht/vite-plugin": "^0.9.0",
-  "@tailwindcss/vite": "^4.1.0",
-  "netlify-cli": "^21.6.0",
-  tailwindcss: "^4.1.0",
-  typescript: "^6.0.0",
-  vercel: "^56.5.0",
-};
 
 /**
  * Cloudflare `compatibility_date` for scaffolded apps.
@@ -104,6 +90,17 @@ function readFileSyncSafe(path) {
 }
 
 const PACKAGE_ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+// Used only when the registry lookup fails. The `@pracht/*` ranges are the
+// versions this create-pracht was built alongside (see src/versions.js).
+const FALLBACK_VERSION_RANGES = {
+  "@tailwindcss/vite": "^4.1.0",
+  "netlify-cli": "^21.6.0",
+  tailwindcss: "^4.1.0",
+  typescript: "^6.0.0",
+  vercel: "^56.5.0",
+  ...loadFallbackVersionRanges(PACKAGE_ROOT),
+};
 
 // The Node floor every pracht package declares, read from this package's own
 // engines field so a bump lands in scaffolded apps without a second edit.
@@ -232,7 +229,7 @@ export async function run(argv = process.argv.slice(2)) {
     return;
   }
 
-  const { pnpmWorkspaceNotice } = await scaffoldProject({
+  const { pnpmWorkspaceNotice, versionFallbacks } = await scaffoldProject({
     adapter: ADAPTERS[resolvedAdapter],
     agentSkills,
     agentTools: resolvedAgentTools,
@@ -296,6 +293,7 @@ export async function run(argv = process.argv.slice(2)) {
         pnpmWorkspaceNotice,
         router: resolvedRouter,
         tailwind: resolvedTailwind,
+        versionFallbacks,
       }),
     );
   } else {
@@ -310,6 +308,7 @@ export async function run(argv = process.argv.slice(2)) {
       router: resolvedRouter,
       skipInstall: options.skipInstall,
       tailwind: resolvedTailwind,
+      versionFallbacks,
     });
   }
 }
@@ -326,7 +325,7 @@ export async function scaffoldProject({
   targetDir,
 }) {
   const packageName = toPackageName(basename(targetDir));
-  const { files, pnpmWorkspaceNotice } = await buildProjectFiles({
+  const { files, pnpmWorkspaceNotice, versionFallbacks } = await buildProjectFiles({
     adapter,
     agentSkills,
     agentTools,
@@ -354,7 +353,7 @@ export async function scaffoldProject({
   // AGENTS.md (and the CLAUDE.md alias pointing at it) are agent tooling too —
   // `--no-agent-tools` means a project with none of it, not "all of it except
   // the instruction files". README.md carries the same commands for humans.
-  if (!agentTools) return { pnpmWorkspaceNotice };
+  if (!agentTools) return { pnpmWorkspaceNotice, versionFallbacks };
 
   try {
     await symlink("AGENTS.md", resolve(targetDir, "CLAUDE.md"));
@@ -366,7 +365,7 @@ export async function scaffoldProject({
     }
   }
 
-  return { pnpmWorkspaceNotice };
+  return { pnpmWorkspaceNotice, versionFallbacks };
 }
 
 export function getPackageManager(userAgent = process.env.npm_config_user_agent ?? "") {
@@ -683,7 +682,13 @@ function normalizeAdapter(value) {
   return null;
 }
 
+/**
+ * Latest published ranges for `packageNames`. `fallbacks` lists the packages
+ * whose registry lookup failed and got the bundled range instead; a scaffold
+ * that asked for no lookup (`remote: false`) reports none.
+ */
 async function resolveVersions(packageNames, { remote = true } = {}) {
+  const fallbacks = [];
   const entries = await Promise.all(
     packageNames.map(async (name) => {
       const fallback = FALLBACK_VERSION_RANGES[name] ?? "latest";
@@ -691,11 +696,13 @@ async function resolveVersions(packageNames, { remote = true } = {}) {
       try {
         return [name, `^${await fetchLatestVersion(name)}`];
       } catch {
+        fallbacks.push(name);
         return [name, fallback];
       }
     }),
   );
-  return Object.fromEntries(entries);
+  const versions = Object.fromEntries(entries);
+  return { fallbacks: fallbacks.sort().map((name) => `${name}@${versions[name]}`), versions };
 }
 
 async function buildProjectFiles({
@@ -727,7 +734,9 @@ async function buildProjectFiles({
     packagesToResolve.push("tailwindcss", "@tailwindcss/vite");
   }
 
-  const versions = await resolveVersions(packagesToResolve, { remote: resolveRemoteVersions });
+  const { fallbacks: versionFallbacks, versions } = await resolveVersions(packagesToResolve, {
+    remote: resolveRemoteVersions,
+  });
   const policyMajor = pnpmMajor ?? 11;
   const ancestorWorkspace =
     targetDir && packageManager === "pnpm" ? findAncestorPnpmWorkspace(targetDir) : null;
@@ -833,7 +842,7 @@ async function buildProjectFiles({
     files["pnpm-workspace.yaml"] = createPnpmWorkspaceConfig(adapter, tailwind, policyMajor);
   }
 
-  return { files, pnpmWorkspaceNotice };
+  return { files, pnpmWorkspaceNotice, versionFallbacks };
 }
 
 function createMcpConfig() {
@@ -900,7 +909,8 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
     "@pracht/cli": versions["@pracht/cli"],
     "@pracht/vite-plugin": versions["@pracht/vite-plugin"],
     preact: "^10.26.9",
-    "preact-render-to-string": "^6.5.13",
+    // At least @pracht/core's peer floor, or the first install warns.
+    "preact-render-to-string": "^6.7.0",
     typescript: versions["typescript"],
     vite: "^8.0.0",
   };
@@ -2004,6 +2014,7 @@ function printNextSteps({
   router,
   skipInstall,
   tailwind,
+  versionFallbacks = [],
 }) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
@@ -2045,6 +2056,18 @@ function printNextSteps({
   if (!skipInstall && !installSucceeded) {
     console.log("");
     console.log("Dependency installation did not complete. The project files were still created.");
+  }
+
+  if (versionFallbacks.length > 0) {
+    console.log("");
+    console.log(
+      "Could not look up the latest versions on the npm registry, so package.json uses\n" +
+        "the ranges this create-pracht was released with. Check for newer versions once\n" +
+        "you are online:",
+    );
+    for (const entry of versionFallbacks) {
+      console.log(`  ${entry}`);
+    }
   }
 
   if (pnpmWorkspaceNotice) {

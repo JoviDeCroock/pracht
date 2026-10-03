@@ -10,4 +10,5 @@ test-results
 !.env.example
 .dev.vars
 packages/start/skills
+packages/start/fallback-versions.json
 .gstack
