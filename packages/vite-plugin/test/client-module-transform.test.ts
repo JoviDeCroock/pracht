@@ -622,6 +622,93 @@ describe("client route module build", () => {
     expect(clientSource).not.toContain('"!/src/routes/full.tsx"');
   });
 
+  describe("reads a group's hydration and routes past arrays in its meta", () => {
+    function clientSourceFor(routes: string[]): string {
+      const root = makeTempProject();
+      mkdirSync(join(root, "src", "routes"), { recursive: true });
+      writeFileSync(
+        join(root, "src", "routes.ts"),
+        [
+          'import { defineApp, group, route } from "@pracht/core";',
+          "export const app = defineApp({",
+          "  routes: [",
+          ...routes,
+          "  ],",
+          "});",
+          "",
+        ].join("\n"),
+      );
+      return createPrachtClientModuleSource(
+        { appFile: "/src/routes.ts", routesDir: "/src/routes" },
+        { root },
+      );
+    }
+
+    it("excludes an islands group's routes when a middleware array precedes the mode", () => {
+      const source = clientSourceFor([
+        '    group({ middleware: ["locale", "markdown"], hydration: "islands" }, [',
+        '      route("/", () => import("./routes/home.tsx"), { id: "home" }),',
+        '      route("/full", () => import("./routes/full.tsx"), { hydration: "full" }),',
+        "    ]),",
+      ]);
+      expect(source).toContain('"!/src/routes/home.tsx"');
+      expect(source).not.toContain('"!/src/routes/full.tsx"');
+    });
+
+    it("excludes an islands group's routes when a middleware array follows the mode", () => {
+      const source = clientSourceFor([
+        '    group({ hydration: "none", middleware: ["auth"] }, [',
+        '      route("/", () => import("./routes/home.tsx")),',
+        "    ]),",
+      ]);
+      expect(source).toContain('"!/src/routes/home.tsx"');
+    });
+
+    it("ignores nested objects and brackets in comments or strings", () => {
+      const source = clientSourceFor([
+        "    group(",
+        "      {",
+        '        // Prerender on intent [see docs]; "hydration: full" is not set here.',
+        '        pathPrefix: "/[legacy]",',
+        '        speculation: { mode: "prerender", eagerness: "moderate" },',
+        '        hydration: "islands",',
+        '        middleware: ["locale"],',
+        "      },",
+        "      /* the routes [below] */ [",
+        '        route("/", () => import("./routes/home.tsx")),',
+        "      ],",
+        "    ),",
+      ]);
+      expect(source).toContain('"!/src/routes/home.tsx"');
+    });
+
+    it("leaves full-hydration groups with meta arrays in the client entry", () => {
+      const source = clientSourceFor([
+        '    group({ middleware: ["locale"] }, [',
+        '      route("/", () => import("./routes/home.tsx")),',
+        "    ]),",
+        '    group({ shell: "public" }, [',
+        '      route("/about", () => import("./routes/about.tsx")),',
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/home.tsx"');
+      expect(source).not.toContain('"!/src/routes/about.tsx"');
+    });
+
+    it("applies the innermost group's mode to nested groups", () => {
+      const source = clientSourceFor([
+        '    group({ middleware: ["locale"] }, [',
+        '      route("/", () => import("./routes/home.tsx")),',
+        '      group({ middleware: ["auth"], hydration: "none" }, [',
+        '        route("/static", () => import("./routes/static.tsx")),',
+        "      ]),",
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/home.tsx"');
+      expect(source).toContain('"!/src/routes/static.tsx"');
+    });
+  });
+
   it("embeds route loader hints for manifest routes", () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "routes"), { recursive: true });

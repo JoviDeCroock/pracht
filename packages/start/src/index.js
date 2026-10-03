@@ -1037,6 +1037,7 @@ function createShellFile(projectName, tailwind = false) {
     "",
     "export function head() {",
     "  return {",
+    '    lang: "en",',
     '    meta: [{ content: "width=device-width, initial-scale=1", name: "viewport" }],',
     `    title: ${JSON.stringify(projectName)},`,
     "  };",

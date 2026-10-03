@@ -206,6 +206,7 @@ export function Shell({ children }: ShellProps) {
 
 export function head() {
   return {
+    lang: "en",
     title: "Docs — pracht",
     meta: [
       { name: "viewport", content: "width=device-width, initial-scale=1" },
