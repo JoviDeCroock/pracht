@@ -220,4 +220,126 @@ export const routes = [
       await stopChild(child);
     }
   }, 120_000);
+
+  it("pracht dev keeps route types in sync across manifest-triggered restarts", async () => {
+    // Every edit to src/routes.ts restarts the Vite server, which replaces its
+    // file watcher. The route-type watcher used to stay bound to the first
+    // server's watcher, so only the first manifest edit was ever picked up.
+    const appDir = createRepoTempDir("pracht-cli-dev-typegen-restart-");
+    writeTypedManifestApp(appDir);
+    runCli(["typegen"], { cwd: appDir });
+    const manifestPath = join(appDir, "src/routes.ts");
+    const manifest = readFileSync(manifestPath, "utf-8");
+    const addRoute = (id) =>
+      readFileSync(manifestPath, "utf-8").replace(
+        "  routes: [\n",
+        `  routes: [\n    route("/${id}", "./routes/home.tsx", { id: "${id}", render: "ssr" }),\n`,
+      );
+    expect(manifest).toContain("  routes: [\n");
+
+    const child = spawn(process.execPath, [cliPath, "dev", "--port", "5610"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    const declaration = () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
+
+    try {
+      await waitFor(
+        () => output.includes("http"),
+        30_000,
+        () => output,
+      );
+
+      for (const id of ["first-edit", "second-edit", "third-edit"]) {
+        const restarts = output.split("server restarted").length;
+        writeProjectFile(appDir, "src/routes.ts", addRoute(id));
+        await waitFor(
+          () => declaration().includes(`"${id}"`),
+          30_000,
+          () => output,
+        );
+        // Let the restart this edit triggered finish before the next edit, so
+        // the next one is observed by the replacement server's watcher.
+        await waitFor(
+          () => output.split("server restarted").length > restarts,
+          30_000,
+          () => output,
+        );
+      }
+
+      // Adding a route source file after the restarts is still observed.
+      writeProjectFile(
+        appDir,
+        "src/api/after-restart.ts",
+        "export function GET() {\n  return Response.json({ ok: true });\n}\n",
+      );
+      await waitFor(
+        () => declaration().includes('"/api/after-restart"'),
+        30_000,
+        () => output,
+      );
+    } finally {
+      await stopChild(child);
+    }
+  }, 180_000);
+
+  it("pracht dev starts syncing route types once typegen runs during the session", async () => {
+    const appDir = createRepoTempDir("pracht-cli-dev-typegen-late-");
+    writeTypedManifestApp(appDir);
+
+    const child = spawn(process.execPath, [cliPath, "dev", "--port", "5611"], {
+      cwd: appDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      await waitFor(
+        () => output.includes("run `pracht typegen` once"),
+        30_000,
+        () => output,
+      );
+      writeProjectFile(
+        appDir,
+        "src/api/before.ts",
+        "export function GET() {\n  return Response.json({ ok: true });\n}\n",
+      );
+      // A project that never ran typegen is left untouched.
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(existsSync(join(appDir, "src/pracht.d.ts"))).toBe(false);
+
+      runCli(["typegen"], { cwd: appDir });
+      writeProjectFile(
+        appDir,
+        "src/api/after.ts",
+        "export function GET() {\n  return Response.json({ ok: true });\n}\n",
+      );
+      await waitFor(
+        () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8").includes('"/api/after"'),
+        30_000,
+        () => output,
+      );
+    } finally {
+      await stopChild(child);
+    }
+  }, 180_000);
 });
