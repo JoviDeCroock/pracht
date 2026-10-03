@@ -479,6 +479,22 @@ test("Preact 11 hydrates streamed empty and multi-element boundaries", async ({ 
   expect(errors).toEqual([]);
 });
 
+test("a streamed route resolves its deferred boundary under a strict nonce CSP", async ({
+  page,
+}) => {
+  const violations: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error" && message.text().includes("Content Security Policy")) {
+      violations.push(message.text());
+    }
+  });
+  const response = await page.goto("/streaming-csp");
+  expect(response?.headers()["content-security-policy"]).toMatch(/script-src 'self' 'nonce-/);
+  await expect(page.locator("#csp-streamed-message")).toHaveText("Deferred under CSP");
+  await expect(page.locator("#csp-streamed-fallback")).toHaveCount(0);
+  expect(violations).toEqual([]);
+});
+
 test("Preact 11 hydrates client-lazy empty and multi-element boundaries without a legacy warning", async ({
   page,
 }) => {

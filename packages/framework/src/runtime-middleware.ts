@@ -167,6 +167,7 @@ function mergeHeadValues(shellHead: HeadMetadata, routeHead: HeadMetadata): Head
     script: [...(shellHead.script ?? []), ...(routeHead.script ?? [])],
     styleNonce: routeHead.styleNonce ?? shellHead.styleNonce,
     fontNonce: routeHead.fontNonce ?? shellHead.fontNonce,
+    scriptNonce: routeHead.scriptNonce ?? shellHead.scriptNonce,
     // Duplicate registrations (e.g. shell and route both list the same font)
     // are collapsed by the head renderer, not here, so the merge stays a
     // plain concatenation like the other arrays.

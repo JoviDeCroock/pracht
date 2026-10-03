@@ -371,11 +371,11 @@ chunks without buffering them.
 
 ##### Content-Security-Policy
 
-The renderer emits an inline bootstrap script for its boundary swaps, and it
-has no nonce hook (see [CSP.md](CSP.md)). A streaming route therefore needs
-`script-src` to permit that script; pracht's own deferred-data scripts do carry
-a nonce when one is configured. Non-streaming routes are unaffected, which is
-part of why streaming is opt-in.
+A streamed document carries executable inline scripts: the defer shim, one
+script per settled deferred value, and the renderer's boundary-swap bootstrap.
+All of them take `head.scriptNonce` (see [CSP.md](CSP.md)); the renderer's
+bootstrap gets it by rewriting its opening tag, since the renderer has no nonce
+option. Non-streaming routes emit none of these.
 
 #### Rules
 
