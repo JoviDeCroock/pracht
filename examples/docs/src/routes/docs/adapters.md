@@ -65,6 +65,28 @@ export default defineConfig({
 }
 ```
 
+```jsonc [wrangler.jsonc]
+{
+  "name": "my-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
+  "compatibility_date": "2026-04-06",
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "html_handling": "drop-trailing-slash",
+    "run_worker_first": true,
+  },
+}
+```
+
+`create-pracht` writes this file for you. Every key in it is load-bearing:
+without `run_worker_first`, Cloudflare serves prerendered pages straight from
+`dist/client`, so ISG never revalidates, Markdown negotiation stops, and
+`headers()` exports and security headers are missing from those responses.
+`pracht doctor` warns when it is absent.
+
 ### Build output
 
 Running `pracht build` with the Cloudflare adapter emits:
@@ -113,9 +135,9 @@ trailing slashes create separate entries, and arbitrary query values create
 unbounded cold renders, so keep query shapes on shared ISG routes bounded.
 Cached hits skip middleware, so per-visitor policy belongs on SSR routes.
 
-The assets binding may redirect `/guide` to `/guide/`, while Node serves
-`/guide` directly. Set `assets.html_handling` in `wrangler.jsonc` (for example
-to `"drop-trailing-slash"`) to keep one canonical URL across adapters.
+Without `assets.html_handling`, the assets binding redirects `/guide` to
+`/guide/`, while Node serves `/guide` directly. The `"drop-trailing-slash"`
+value in the config above keeps one canonical URL across adapters.
 
 ### Exporting bindings and event handlers
 

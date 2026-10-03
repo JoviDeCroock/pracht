@@ -1383,6 +1383,62 @@ export const app = defineApp({
     expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
   });
 
+  it("warns when Cloudflare would serve built files without running the Worker", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-run-worker-first-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+  "assets": { "binding": "ASSETS", "directory": "dist/client", "html_handling": "none" }
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        status: "warning",
+        message: expect.stringContaining('"assets.run_worker_first": true'),
+      }),
+    );
+  });
+
+  it("accepts a Cloudflare assets block that runs the Worker first", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-run-worker-first-ok-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "html_handling": "drop-trailing-slash",
+    "run_worker_first": true,
+  },
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
+  });
+
   it("warns when Wrangler would rebundle Pracht's deferred server chunks", () => {
     const appDir = createTempDir("pracht-cli-doctor-cf-bundle-");
     writeCloudflareManifestApp(appDir);

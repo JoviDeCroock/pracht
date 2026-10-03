@@ -607,6 +607,13 @@ the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
 
 Use `"none"` instead when you do your own routing.
 
+`"run_worker_first": true` is what routes a request for a prerendered file
+through the Worker at all. Without it Cloudflare answers from the assets
+directory directly, so ISG revalidation, Markdown negotiation, `headers()`
+exports, and the default security headers never run for those files.
+`pracht doctor` warns when the top-level assets block lacks it (a pattern list
+is treated as a deliberate choice and stays silent).
+
 #### Cache-key cardinality
 
 Workers Caching keys inbound requests by the exact path and query string.

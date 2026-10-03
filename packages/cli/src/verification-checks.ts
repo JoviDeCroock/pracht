@@ -26,10 +26,11 @@ import {
 import { detectAdapterTarget } from "./commands/preview.js";
 import {
   findWranglerConfig,
-  readWranglerAssetsHtmlHandling,
+  readWranglerAssets,
   readWranglerMainEntries,
   readWranglerBundleSettings,
   stripJsonComments,
+  type WranglerAssetsSettings,
 } from "./wrangler-config.js";
 import {
   collectDuplicateRoutePaths,
@@ -1287,7 +1288,9 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
   if (!configFile) return;
 
   const display = displayPath(root, configFile);
-  collectCloudflareTrailingSlashCheck(project, root, configFile, display, checks);
+  const assets = readWranglerAssets(configFile);
+  collectCloudflareRunWorkerFirstCheck(assets, display, checks);
+  collectCloudflareTrailingSlashCheck(project, root, assets, display, checks);
   for (const bundling of readWranglerBundleSettings(configFile) ?? []) {
     if (bundling.noBundle === true && bundling.hasJavaScriptModuleRule) continue;
     const where = bundling.environment ? ` for environment "${bundling.environment}"` : "";
@@ -1315,6 +1318,34 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
 }
 
 /**
+ * Without `assets.run_worker_first`, Cloudflare answers any request that
+ * matches a file in the assets directory itself and never runs the Worker. For
+ * a prerendered page that silently drops everything Pracht does per request:
+ * ISG revalidation, Markdown negotiation, the route's `headers()` export, and
+ * the default security headers.
+ *
+ * A list of route patterns is an explicit choice and stays silent, as does
+ * anything the reader could not prove (TOML, unparsable, no assets block).
+ */
+function collectCloudflareRunWorkerFirstCheck(
+  assets: WranglerAssetsSettings | null,
+  display: string,
+  checks: Check[],
+): void {
+  if (!assets || assets.runWorkerFirst === true || Array.isArray(assets.runWorkerFirst)) return;
+
+  checks.push(
+    createCheck(
+      "warning",
+      `${display} does not set "assets.run_worker_first": true. Cloudflare then serves ` +
+        "prerendered pages and other built files without running the Worker, so ISG " +
+        "revalidation, Markdown negotiation, route headers() exports, and Pracht's security " +
+        'headers silently stop applying to them. Add "run_worker_first": true to the assets block.',
+    ),
+  );
+}
+
+/**
  * Cloudflare's assets binding defaults to `html_handling: "auto-trailing-slash"`,
  * which answers `GET /guide` with a 307 to `/guide/`. Node and Vercel answer
  * `200`, so the canonical URL of every prerendered route differs by adapter —
@@ -1329,11 +1360,10 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
 function collectCloudflareTrailingSlashCheck(
   project: ProjectConfig,
   root: string,
-  configFile: string,
+  assets: WranglerAssetsSettings | null,
   display: string,
   checks: Check[],
 ): void {
-  const assets = readWranglerAssetsHtmlHandling(configFile);
   if (!assets || assets.htmlHandling !== undefined) return;
   if (!appHasPrerenderedRoutes(project, root)) return;
 
