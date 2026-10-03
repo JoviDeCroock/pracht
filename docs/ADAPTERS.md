@@ -457,7 +457,12 @@ build).
   time-based revalidation, and schedules regeneration with
   `executionContext.waitUntil()`. `POST /__pracht/revalidate` authenticates
   `PRACHT_REVALIDATE_TOKEN` and overwrites the named Cache API entries for
-  routes that opt into `webhookRevalidate()`. Successful manifest reads are
+  routes that opt into `webhookRevalidate()`. Regenerated entries are stored
+  with `Cache-Control: public, max-age=31536000` because the Cache API takes
+  an entry's lifetime from that header; staleness comes only from the stored
+  `x-pracht-isg-generated-at` timestamp, and a cached page is served with the
+  browser policy `public, max-age=0, must-revalidate` (route `headers()`
+  exports still apply on top). Successful manifest reads are
   cached for the isolate lifetime; transient asset or JSON failures are evicted
   so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the

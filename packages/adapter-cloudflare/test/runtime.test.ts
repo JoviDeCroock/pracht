@@ -16,18 +16,59 @@ interface MockCache {
   put(key: Request, response: Response): Promise<void>;
 }
 
+/**
+ * Seconds the Workers Cache API keeps a `cache.put()` entry, derived from the
+ * response headers the way Cloudflare does: `s-maxage` over `max-age` over
+ * `Expires`, falling back to the default edge TTL for a 200. `null` means the
+ * entry is never stored (`no-store`, `private`, or `Set-Cookie`).
+ */
+function cacheApiTtlSeconds(response: Response): number | null {
+  if (response.headers.has("set-cookie")) return null;
+  const directives = new Map<string, string>();
+  for (const part of (response.headers.get("cache-control") ?? "").split(",")) {
+    const [name, value = ""] = part.trim().toLowerCase().split("=");
+    if (name) directives.set(name, value.replace(/"/g, ""));
+  }
+  if (directives.has("no-store") || directives.has("private")) return null;
+  for (const name of ["s-maxage", "max-age"]) {
+    const value = directives.get(name);
+    if (value !== undefined) return Math.max(0, Number(value) || 0);
+  }
+  const expires = Date.parse(response.headers.get("expires") ?? "");
+  if (Number.isFinite(expires)) return Math.max(0, (expires - Date.now()) / 1000);
+  return 7200;
+}
+
+/**
+ * In-memory stand-in for `caches.default`. Entries written with `put()`
+ * expire on the TTL their headers ask for, so a response stored with
+ * `max-age=0` is gone by the next `match()`, exactly as on Cloudflare.
+ * Entries seeded straight into `store` never expire.
+ */
 function createMockCaches(): { cache: MockCache; store: Map<string, Response> } {
   const store = new Map<string, Response>();
+  const expiresAt = new Map<string, number>();
   const cache: MockCache = {
     async match(key: Request) {
       const hit = store.get(key.url);
-      return hit ? hit.clone() : undefined;
+      if (!hit) return undefined;
+      const expiry = expiresAt.get(key.url);
+      if (expiry !== undefined && Date.now() >= expiry) return undefined;
+      return hit.clone();
     },
     async put(key: Request, response: Response) {
+      const ttl = cacheApiTtlSeconds(response);
+      if (ttl === null) return;
       store.set(key.url, response);
+      expiresAt.set(key.url, Date.now() + ttl * 1000);
     },
   };
   return { cache, store };
+}
+
+/** The body `caches.default` would serve for `url` right now. */
+async function cachedText(cache: MockCache, url: string): Promise<string> {
+  return (await (await cache.match(new Request(url)))?.text()) ?? "<cache miss>";
 }
 
 function createExecutionContext(): {
@@ -357,13 +398,43 @@ describe("createCloudflareFetchHandler ISG", () => {
     expect(waitUntils).toHaveLength(1);
     await Promise.all(waitUntils);
 
-    const updated = store.get(keyUrl);
+    const updated = await cache.match(new Request(keyUrl));
     expect(updated).toBeDefined();
     await expect(updated!.clone().text()).resolves.toContain("fresh-content");
     expect(updated!.headers.get("vary")).toContain("x-pracht-route-state-request");
     expect(Number(updated!.headers.get("x-pracht-isg-generated-at"))).toBeGreaterThan(
       Date.now() - 5_000,
     );
+  });
+
+  it("serves the regenerated page on the next request with browser revalidation headers", async () => {
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext, waitUntils } = createExecutionContext();
+    const host = "next-request.example";
+    putCachedISGPage(
+      store,
+      cacheKeyUrl("/pricing", host),
+      "<html>stale-copy</html>",
+      Date.now() - 10_000,
+    );
+
+    const { app, registry } = createPricingApp();
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+    });
+    const env = { ASSETS: create404Assets() };
+
+    const first = await handler(new Request(`https://${host}/pricing`), env, executionContext);
+    await expect(first.text()).resolves.toContain("stale-copy");
+    await Promise.all(waitUntils);
+
+    const second = await handler(new Request(`https://${host}/pricing`), env, executionContext);
+    expect(second.headers.get("x-pracht-isg")).toBe("fresh");
+    expect(second.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+    await expect(second.text()).resolves.toContain("regenerated:fresh-content");
   });
 
   it("keeps the stale copy when background regeneration fails", async () => {
@@ -392,7 +463,7 @@ describe("createCloudflareFetchHandler ISG", () => {
     // The waitUntil promise must resolve (not reject) so workerd doesn't log
     // an unhandled rejection; the stale cache entry stays live.
     await expect(Promise.all(waitUntils)).resolves.toBeDefined();
-    await expect(store.get(keyUrl)!.clone().text()).resolves.toContain("stale-but-safe");
+    await expect(cachedText(cache, keyUrl)).resolves.toContain("stale-but-safe");
   });
 
   it("collapses a stampede of stale requests into a single regeneration", async () => {
@@ -422,7 +493,7 @@ describe("createCloudflareFetchHandler ISG", () => {
     await Promise.all(waitUntils);
 
     expect(renderCounter.count).toBe(1);
-    await expect(store.get(keyUrl)!.clone().text()).resolves.toContain("fresh-content");
+    await expect(cachedText(cache, keyUrl)).resolves.toContain("fresh-content");
   });
 
   it("falls back to env.ASSETS when the Cache API has no entry", async () => {
@@ -733,7 +804,52 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       revalidated: ["/pricing"],
       skipped: ["/not-isg"],
     });
-    await expect(store.get(keyUrl)!.clone().text()).resolves.toContain("fresh-content");
+    await expect(cachedText(cache, keyUrl)).resolves.toContain("fresh-content");
+  });
+
+  it("serves the webhook-regenerated page to the next visitor", async () => {
+    const { cache } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext } = createExecutionContext();
+    const host = "hook-next.example";
+
+    const { app, registry } = createPricingApp();
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: {
+        "/pricing": { generatedAt: Date.now(), revalidate: [webhookRevalidate()] },
+      },
+    });
+    const env = {
+      ASSETS: {
+        fetch: async () =>
+          new Response("<html>build-time</html>", {
+            status: 200,
+            headers: {
+              "cache-control": "public, max-age=0, must-revalidate",
+              "content-type": "text/html; charset=utf-8",
+            },
+          }),
+      },
+      PRACHT_REVALIDATE_TOKEN: "secret",
+    };
+
+    const before = await handler(new Request(`https://${host}/pricing`), env, executionContext);
+    const beforeCacheControl = before.headers.get("cache-control");
+    await expect(before.text()).resolves.toContain("build-time");
+
+    const webhook = await handler(
+      createWebhookRequest(host, ["/pricing"], "secret"),
+      env,
+      executionContext,
+    );
+    await expect(webhook.json()).resolves.toMatchObject({ revalidated: ["/pricing"] });
+
+    const after = await handler(new Request(`https://${host}/pricing`), env, executionContext);
+    expect(after.headers.get("cache-control")).toBe(beforeCacheControl);
+    expect(after.headers.get("x-pracht-isg")).toBe("fresh");
+    await expect(after.text()).resolves.toContain("regenerated:fresh-content");
   });
 
   it("isolates malformed manifest metadata to one webhook path", async () => {
@@ -767,7 +883,7 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       revalidated: ["/pricing"],
       skipped: [],
     });
-    await expect(store.get(keyUrl)!.clone().text()).resolves.toContain("fresh-content");
+    await expect(cachedText(cache, keyUrl)).resolves.toContain("fresh-content");
   });
 
   it("reports failed regenerations and keeps the cached copy", async () => {
@@ -798,7 +914,7 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       revalidated: [],
       skipped: [],
     });
-    await expect(store.get(keyUrl)!.clone().text()).resolves.toContain("old-but-live");
+    await expect(cachedText(cache, keyUrl)).resolves.toContain("old-but-live");
   });
 
   it("returns 503 when the Cache API is unavailable", async () => {
