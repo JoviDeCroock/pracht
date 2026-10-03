@@ -1,5 +1,21 @@
 # create-pracht
 
+## 0.7.2
+
+### Patch Changes
+
+- [#408](https://github.com/JoviDeCroock/pracht/pull/408) [`f5dce54`](https://github.com/JoviDeCroock/pracht/commit/f5dce542e7b800be92a04d3156baa9ad5968d016) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Running the CLI on an unsupported Node now fails with `pracht requires Node >= 22.18 (found 18.17.1).`, and new apps ship an `.nvmrc` and an `engines.node` field.
+
+- [`ae2993d`](https://github.com/JoviDeCroock/pracht/commit/ae2993dc04ea9cc634f7e404a68fb960afee8627) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The seeded `/add-db` skill's Cloudflare `env.d.ts` sample now extends `@pracht/core`'s types instead of replacing them.
+
+- [`a7fefd3`](https://github.com/JoviDeCroock/pracht/commit/a7fefd323beddc05659f31e6cd48c4ebadccaa3b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New apps' `tsconfig.client.json` now includes `src/**/*.d.ts`, so typed `useRouteData()`, `useSearch()`, and `<Link route>` are checked in client code, and `pracht doctor` warns when an existing app's client config leaves `src/pracht.d.ts` out.
+
+- [`885b077`](https://github.com/JoviDeCroock/pracht/commit/885b0776d8f05cf8875f8f432cb811fe70559ef1) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - When the npm registry cannot be reached, `create-pracht` now scaffolds the `@pracht/*` versions it was released with and lists them in a warning, instead of silently pinning ranges several releases old, and new apps require a `preact-render-to-string` that satisfies `@pracht/core`'s peer range.
+
+- [`5a68d59`](https://github.com/JoviDeCroock/pracht/commit/5a68d5977205f792ed1d7a347a4c831bf7f34540) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The seeded `/add-auth` and `/audit-redirects` skills now gate login redirect targets with a same-origin URL check, so a target such as `/\evil.com` no longer escapes to another site.
+
+- [`856685d`](https://github.com/JoviDeCroock/pracht/commit/856685dba1796d84ccc07efad1eaf5623513bb1c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New apps render `<html lang="en">`, so a fresh scaffold no longer fails the Lighthouse and axe `html-has-lang` check.
+
 ## 0.7.1
 
 ### Patch Changes

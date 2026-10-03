@@ -1,5 +1,21 @@
 # @pracht/adapter-node
 
+## 0.5.0
+
+### Minor Changes
+
+- [`af052e6`](https://github.com/JoviDeCroock/pracht/commit/af052e6e55c162984a461df5dd19727a839eb232) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The generated Node server now waits for in-flight requests and their `waitUntil()` work on `SIGTERM`/`SIGINT`, up to `nodeAdapter({ shutdownTimeoutMs })` (default 10s).
+
+- [#417](https://github.com/JoviDeCroock/pracht/pull/417) [`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Loaders, middleware, API routes, `head()`/`headers()`, and capability `run()` now receive `waitUntil(promise)`, which keeps work running after the response on every adapter. Migration: code that builds these args by hand must pass `waitUntil` (for example `waitUntil: () => {}`).
+
+### Patch Changes
+
+- [`1f61f1e`](https://github.com/JoviDeCroock/pracht/commit/1f61f1efeb97de608d2c195b12826e6d27467492) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht dev` now builds `args.context` with the adapter's `createContextFrom` factory, so loaders, middleware, and API routes see the same context in development as in production.
+
+- [`9f97339`](https://github.com/JoviDeCroock/pracht/commit/9f973399388d27b258c67ab0d1eac7a2d51a3c5d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht dev` now calls the Node adapter's `configureServerFrom` hook with its own HTTP server, so WebSocket servers attached there work in development too.
+- Updated dependencies [[`769929a`](https://github.com/JoviDeCroock/pracht/commit/769929a6656956b6cf94796465340879884131f2), [`5091b83`](https://github.com/JoviDeCroock/pracht/commit/5091b83ffced8785654b742fbd63932b40ddbb58), [`be5203c`](https://github.com/JoviDeCroock/pracht/commit/be5203c03cb2d65a30bbd9874430f08b9b3483ca), [`5fa4ef2`](https://github.com/JoviDeCroock/pracht/commit/5fa4ef2a4e47e1a2bbb3c1f570c3e9dd0467345a), [`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4), [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950), [`a33c6ef`](https://github.com/JoviDeCroock/pracht/commit/a33c6efabd89a3dca622ab00123e32038fc37f28), [`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7), [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831), [`6038d57`](https://github.com/JoviDeCroock/pracht/commit/6038d57e508712b33a08a072d0ea8e72f3996d6e), [`d0e8bac`](https://github.com/JoviDeCroock/pracht/commit/d0e8bac992e1abe8562dfe77aa930f901b7b9bf0), [`f3f0234`](https://github.com/JoviDeCroock/pracht/commit/f3f0234bbd3b928ae682a4dbe4610d6b7cca6748), [`8309084`](https://github.com/JoviDeCroock/pracht/commit/830908420b91ac8691fd0335ec449f20ca520680)]:
+  - @pracht/core@0.19.0
+
 ## 0.4.4
 
 ### Patch Changes
