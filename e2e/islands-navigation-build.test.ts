@@ -38,6 +38,9 @@ const LAB_PAGES = [
   "referrer",
   "tt",
   "tt2",
+  "slot1",
+  "slot2",
+  "slot3",
 ];
 
 const LAB_FILES: Record<string, string> = {
@@ -158,6 +161,25 @@ export function Component() { return <section><h1>TT</h1></section>; }`,
   "src/routes/lab/tt2.tsx": `export function head() { return { title: "TT2" }; }
 export function headers() { return { "content-security-policy": "require-trusted-types-for 'script'" }; }
 export function Component() { return <section><h1>TT2</h1></section>; }`,
+  // One disclosure island on each page, passed the same children on slot1 and
+  // slot3 (a counter island among them) and other children on slot2.
+  "src/routes/lab/slot1.tsx": `import Counter from "../../islands/Counter.tsx";
+import Disclosure from "../../islands/Disclosure.tsx";
+export function head() { return { title: "Slot1" }; }
+export function Component() {
+  return <section><h1>Slot1</h1><Disclosure summary="Shared" open><p data-testid="slot-text">one</p><Counter start={10} /></Disclosure></section>;
+}`,
+  "src/routes/lab/slot2.tsx": `import Disclosure from "../../islands/Disclosure.tsx";
+export function head() { return { title: "Slot2" }; }
+export function Component() {
+  return <section><h1>Slot2</h1><Disclosure summary="Shared" open><p data-testid="slot-text">two</p></Disclosure></section>;
+}`,
+  "src/routes/lab/slot3.tsx": `import Counter from "../../islands/Counter.tsx";
+import Disclosure from "../../islands/Disclosure.tsx";
+export function head() { return { title: "Slot3" }; }
+export function Component() {
+  return <section><h1>Slot3</h1><Disclosure summary="Shared" open><p data-testid="slot-text">one</p><Counter start={10} /></Disclosure></section>;
+}`,
   "src/routes/lab/files.tsx": `export function Component() { return <section><h1>Files</h1></section>; }`,
   "src/routes/lab/param.tsx": `export function Component() { return <section><h1>Param</h1></section>; }`,
   "public/lab/files/report.zip": "PK not really a zip",
@@ -372,6 +394,50 @@ test.describe.serial("islands navigation", () => {
     await expect(page.locator("h1")).toHaveText("B");
     expect(await sameDocument(page)).toBe("first document");
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  });
+
+  test("carries an island across only with the same children", async ({ page }) => {
+    const disclosure = 'pracht-island[island="/src/islands/Disclosure.tsx"]';
+    await page.goto(`${origin}/lab/slot1`);
+    await hydrated(page);
+    await page.evaluate(() => ((window as { marker?: string }).marker = "first document"));
+    await page.getByTestId("increment").click();
+    await expect(page.getByTestId("count")).toHaveText("Count: 11");
+    await page.evaluate((selector) => {
+      (document.querySelector(selector) as Element & { mark?: string }).mark = "slot1";
+    }, disclosure);
+
+    // Same island, same props, the same children: carried over, the counter
+    // among its children with it, still counting.
+    await clickInPlace(page, "#go-slot3");
+    await expect(page.locator("h1")).toHaveText("Slot3");
+    expect(await sameDocument(page)).toBe("first document");
+    expect(
+      await page.evaluate(
+        (selector) => (document.querySelector(selector) as Element & { mark?: string }).mark,
+        disclosure,
+      ),
+    ).toBe("slot1");
+    await expect(page.getByTestId("count")).toHaveText("Count: 11");
+    await expect(page.locator('pracht-island[island="/src/islands/Counter.tsx"]')).toHaveCount(1);
+    await page.getByTestId("increment").click();
+    await expect(page.getByTestId("count")).toHaveText("Count: 12");
+
+    // Other children: the new page's island, showing the new page's children.
+    await clickInPlace(page, "#go-slot2");
+    await expect(page.locator("h1")).toHaveText("Slot2");
+    expect(await sameDocument(page)).toBe("first document");
+    await expect(page.getByTestId("slot-text")).toHaveText("two");
+    expect(
+      await page.evaluate(
+        (selector) => (document.querySelector(selector) as Element & { mark?: string }).mark,
+        disclosure,
+      ),
+    ).toBeUndefined();
+    await expect(page.getByTestId("count")).toHaveCount(0);
+    await expect(page.locator(disclosure)).toHaveAttribute("data-hydrated", "true");
+    await page.getByRole("button", { name: "Shared" }).click();
+    await expect(page.getByTestId("slot-text")).toHaveCount(0);
   });
 
   test("shows the right page for entries an earlier document made", async ({ page }) => {

@@ -518,11 +518,17 @@ scripting-enabled parse would.
   snapshot of a view transition; their own `media` is restored at commit. An
   abandoned swap removes them.
 - `#pracht-root`: the incoming content is appended first, then each live
-  `<pracht-island>` whose file, export, props, and strategy match an incoming
-  one (by occurrence order per key) moves in place of the server markup with
+  `<pracht-island>` whose file, export, props, strategy, and slot content
+  match an incoming one (by occurrence order per key) moves in place of the server markup with
   `moveBefore()` — a move between two connected places that keeps an iframe
   loaded and scroll positions and focus inside the island — or `insertBefore()`
   where the browser has no `moveBefore()` (those survive as Preact state only).
+  Slot content is the server HTML of the island's own slots (`innerHTML`),
+  recorded in a WeakMap before the island hydrates — when navigation is
+  installed for the first page, and in the swap for incoming placeholders —
+  since hydration can hide the slot and islands inside it change their markup.
+  An island passed other children is therefore a different island, and an
+  island inside a carried island's slot moves with it.
   Hydrated islands that are not carried over are unmounted with
   `render(null, el)` so effect cleanups run; then the old content is removed.
 - `<html lang>` and `document.title` follow the incoming page. Body nodes

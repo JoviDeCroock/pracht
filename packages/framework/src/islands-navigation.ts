@@ -6,6 +6,7 @@ import {
   ISLAND_FILE_ATTRIBUTE,
   ISLAND_HYDRATED_ATTRIBUTE,
   ISLAND_PROPS_ATTRIBUTE,
+  ISLAND_SLOT_ELEMENT,
   ISLAND_STRATEGY_ATTRIBUTE,
   ISLANDS_HYDRATED_MARKER,
   ISLANDS_NAVIGATION_DATA_ID,
@@ -93,6 +94,8 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
   ) {
     return;
   }
+  // Before any island hydrates: what the server put in their slots.
+  for (const island of document.querySelectorAll(ISLAND_ELEMENT)) islandKey(island);
 
   // The document's policy — its security headers — never changes after it
   // loads, so every swapped-in page has to arrive with exactly the same ones.
@@ -806,11 +809,28 @@ function swapRoot(root: Element, incomingRoot: Element): Element[] {
   return [...scripts].filter((script) => script.isConnected);
 }
 
+/**
+ * The server HTML of each island's slots (the children its page passed in),
+ * recorded before the island hydrates: afterwards the island may have hidden
+ * them, and islands among them change their own markup.
+ */
+const slotContent = new WeakMap<Element, string>();
+
 function islandKey(island: Element): string {
+  let slots = slotContent.get(island);
+  if (slots === undefined) {
+    slots = [...island.querySelectorAll(`${ISLAND_SLOT_ELEMENT},[${ISLAND_SLOT_ELEMENT}]`)]
+      .filter((slot) => slot.parentElement!.closest(ISLAND_ELEMENT) === island)
+      .map((slot) => slot.innerHTML)
+      .join("\n");
+    slotContent.set(island, slots);
+  }
+  // An island whose page passes it other children is another island.
   return [
     island.getAttribute(ISLAND_FILE_ATTRIBUTE),
     island.getAttribute(ISLAND_EXPORT_ATTRIBUTE) ?? "default",
     island.getAttribute(ISLAND_PROPS_ATTRIBUTE) ?? "",
     island.getAttribute(ISLAND_STRATEGY_ATTRIBUTE) ?? "load",
+    slots,
   ].join("\n");
 }

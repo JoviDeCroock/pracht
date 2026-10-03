@@ -261,6 +261,66 @@ describe("prepareSwap", () => {
     expect(nested.textContent).toBe("live");
     expect(unmounted).toBe(false);
   });
+
+  const slot = (inner: string) =>
+    `<pracht-slot style="display:contents">${inner}<!--/pracht-slot--></pracht-slot>`;
+
+  it("renders an island fresh when its page passes it other children", () => {
+    load(`<html><head></head><body><div id="pracht-root">
+      <main>${island("/src/islands/Disclosure.tsx", undefined, `<div>${slot("<p>one</p>")}</div>`)}</main>
+    </div></body></html>`);
+    const live = document.querySelector("pracht-island")!;
+    live.setAttribute("data-hydrated", "true");
+
+    prepareSwap(
+      parse(`<html><head></head><body><div id="pracht-root">
+        <main>${island("/src/islands/Disclosure.tsx", undefined, `<div>${slot("<p>two</p>")}</div>`)}</main>
+      </div></body></html>`),
+    )!.apply();
+
+    const next = document.querySelector("pracht-island")!;
+    expect(next).not.toBe(live);
+    expect(next.querySelector("p")?.textContent).toBe("two");
+    expect(next.hasAttribute("data-hydrated")).toBe(false);
+  });
+
+  it("keeps an island whose children did not change, with the islands among them", () => {
+    const inner = (text: string) => island("/src/islands/Inner.tsx", undefined, `<b>${text}</b>`);
+    const page = (heading: string) => `<html><head></head><body><div id="pracht-root">
+      <h1>${heading}</h1>
+      <main>${island("/src/islands/Disclosure.tsx", undefined, `<div>${slot(`<p>same</p>${inner("server")}`)}</div>`)}</main>
+    </div></body></html>`;
+    load(page("One"));
+    // Remembered before hydration, as the bootstrap does.
+    (globalThis as { navigation?: unknown }).navigation = { addEventListener() {} };
+    const data = document.createElement("script");
+    data.type = "application/json";
+    data.id = "pracht-nav";
+    data.textContent = '{"p":"x","r":["+/a"]}';
+    document.head.append(data);
+    installIslandsNavigation({ hydrate: async () => {} });
+    delete (globalThis as { navigation?: unknown }).navigation;
+
+    const [outer, nested] = document.querySelectorAll("pracht-island");
+    let unmounted = false;
+    function Inner() {
+      useLayoutEffect(() => () => void (unmounted = true), []);
+      return h("b", null, "live");
+    }
+    hydrate(h(Inner, null), nested);
+    nested.setAttribute("data-hydrated", "true");
+    outer.setAttribute("data-hydrated", "true");
+
+    prepareSwap(parse(page("Two")))!.apply();
+
+    expect(document.querySelector("h1")?.textContent).toBe("Two");
+    expect(document.querySelector("pracht-island")).toBe(outer);
+    expect(document.querySelectorAll("pracht-island")).toHaveLength(2);
+    expect(nested.isConnected).toBe(true);
+    expect(outer.contains(nested)).toBe(true);
+    expect(nested.textContent).toBe("live");
+    expect(unmounted).toBe(false);
+  });
 });
 
 describe("settleFocus", () => {
