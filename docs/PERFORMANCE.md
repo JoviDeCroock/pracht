@@ -154,6 +154,17 @@ result, the check costs about as much as the `JSON.stringify` that follows it
 same data with a `Date` per row serializes about three to five times slower
 than plain `JSON.stringify`. Off, the server does no extra work.
 
+## Islands navigation is opt-in
+
+`pracht({ client: { islandsNavigation: true } })` adds client-side navigation
+between islands pages to the islands bootstrap (see
+[ISLANDS.md](ISLANDS.md#client-side-navigation-clientislandsnavigation)). The
+ladder's `islands navigation on` rung measures it at 2,118 gzip bytes over the
+`hydration: islands` rung, which stays byte-identical with the flag off:
+`islands-client.ts` reads the define itself and gates every addition behind it,
+including the scheduled-islands `WeakSet` the rescan after a swap needs.
+`package-tree-shaking.test.ts` pins the compile-out and a ceiling.
+
 ## Composing with the app's chunking
 
 Pracht has one chunking opinion — Preact belongs in a shared `vendor` chunk —

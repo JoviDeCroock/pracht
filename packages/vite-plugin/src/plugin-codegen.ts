@@ -756,21 +756,37 @@ export function createPrachtIslandsClientModuleSource(
   const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
   const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
 
+  // With client-side navigation the page changes under the bootstrap, so the
+  // page tools follow each swapped-in document.
+  const syncToolsOnNavigate = webmcpEnabled && resolved.client.islandsNavigation;
+
   return [
     'import { hydrateIslands } from "@pracht/core/islands-client";',
     "",
     `const islandModules = import.meta.glob(${JSON.stringify(islandsGlob)});`,
     "",
-    "hydrateIslands({ modules: islandModules });",
+    syncToolsOnNavigate
+      ? "hydrateIslands({ modules: islandModules, onNavigate: syncPrachtWebmcpToolsFrom });"
+      : "hydrateIslands({ modules: islandModules });",
     "",
     // Islands pages skip the full client runtime, so the bootstrap pulls in
     // the WebMCP shim itself when a capability opts in.
     ...(webmcpEnabled
       ? [
           ...createWebmcpBootstrapSource(),
-          'const webmcpEntry = document.querySelector("script[data-pracht-webmcp-tools]");',
-          'const webmcpCapabilities = webmcpEntry?.getAttribute("data-pracht-webmcp-tools")?.split(",").filter(Boolean) ?? [];',
-          "syncPrachtWebmcpTools(webmcpCapabilities);",
+          ...(syncToolsOnNavigate
+            ? [
+                "function syncPrachtWebmcpToolsFrom(doc) {",
+                '  const entry = doc.querySelector("script[data-pracht-webmcp-tools]");',
+                '  syncPrachtWebmcpTools(entry?.getAttribute("data-pracht-webmcp-tools")?.split(",").filter(Boolean) ?? []);',
+                "}",
+                "syncPrachtWebmcpToolsFrom(document);",
+              ]
+            : [
+                'const webmcpEntry = document.querySelector("script[data-pracht-webmcp-tools]");',
+                'const webmcpCapabilities = webmcpEntry?.getAttribute("data-pracht-webmcp-tools")?.split(",").filter(Boolean) ?? [];',
+                "syncPrachtWebmcpTools(webmcpCapabilities);",
+              ]),
           "",
         ]
       : []),

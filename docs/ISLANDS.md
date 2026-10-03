@@ -207,11 +207,11 @@ Either way, saving a file updates what you see without a manual refresh.
 
 ## Navigation
 
-Islands routes are MPA-style documents (like Deno Fresh): they do not load the
-client router, so **navigation to, from, and between islands routes is regular
-full-document navigation**. When the client router *is* loaded (you're on a
-full-hydration route) and the user clicks a link to an islands or
-`hydration: "none"` route, the router deliberately falls back to
+Islands routes are MPA-style documents by default (like Deno Fresh): they do
+not load the client router, so **navigation to, from, and between islands
+routes is regular full-document navigation**. When the client router *is*
+loaded (you're on a full-hydration route) and the user clicks a link to an
+islands or `hydration: "none"` route, the router deliberately falls back to
 `window.location` navigation. Route-state prefetching is also skipped for
 these routes.
 
@@ -223,7 +223,109 @@ still animate: every page document — islands, `none`, and full — carries
 Pure CSS, so it adds no JavaScript to islands or `none` routes. Details in
 ROUTING.md → View Transitions.
 
-Partial client-side rendering of islands routes is out of scope for v1.
+### Client-side navigation (`client.islandsNavigation`)
+
+`pracht({ client: { islandsNavigation: true } })` makes the islands bootstrap
+swap islands pages into the live document instead (`islands-navigation.ts`).
+It is a client feature define, `__PRACHT_ISLANDS_NAVIGATION__`, like
+`richData`: `islands-client.ts` gates every addition behind it, so with the
+flag off the bootstrap is byte-identical to a build without the feature (the
+bench ladder's `hydration: islands` rung pins this), and with it on the
+bootstrap grows by about 2.1 KB gzip (its own rung). The server bundle reads
+the same define: every islands page then emits the bootstrap, islands or not,
+and the client build emits the islands entry even without an islands
+directory. `hydration: "none"` pages stay zero-JS, so they can be navigated
+*to* softly but a document that starts on one navigates normally.
+
+**Interception.** The bootstrap listens to the Navigation API's `navigate`
+event. It intercepts push/replace navigations that are cross-document
+(`destination.sameDocument === false` — so the app's own
+`history.pushState()`/`replaceState()` and fragment changes pass through),
+same-origin (`canIntercept`), without `formData` or `downloadRequest`, and not
+reloads. Traversals are intercepted only when the destination entry belongs to
+another *page*: the bootstrap keeps an entry-id → page-number map, filled on
+`currententrychange`, where an entry created by an intercepted navigation gets
+a fresh page number and any other new entry (an app `pushState`) inherits the
+page that was showing. Traversal between entries of the page that is shown is
+the app's business. No Navigation API: nothing is installed. A destination
+matching one of the page's own `prerender` speculation rules (and not excluded
+for the clicked anchor, via `NavigateEvent.sourceElement`) is left to the
+browser, which activates the prerendered document — the client router makes
+the same call.
+
+**Fetching.** The destination is fetched as ordinary HTML (`accept:
+text/html`, no special header, so static hosts, ISG, and edge caches serve it
+exactly as for a document load), with the navigation's `signal`, and
+`cache: "force-cache"` for traversals. It falls back to a full load when the
+response is not `ok`, ends on another origin, is not `text/html`, carries a
+`content-security-policy` with `'nonce-` (the current document's CSP stays in
+force, so the new page's nonces would be refused), or `canSwapDocument()` says
+no: the document must have `#pracht-root`, no `#pracht-state` (so it is not a
+full-hydration page), and no `script[type=module][src]` that the original
+document did not already run — which also rejects a page from another
+deployment, whose bootstrap URL differs. The fallback replaces the already
+committed entry with a real load (`navigation.navigate(url, { history:
+"replace", info })`, or `location.reload()` when the URL has a fragment, which
+`navigate()` would treat as a scroll); the `info` marker lets that navigation
+through the listener. The fallback costs a second request for the same URL.
+
+**Swapping** (`prepareSwap()`):
+
+- Only nodes from server HTML are managed. The nodes in `<head>` and `<body>`
+  at install time are recorded in a `WeakSet`, and so is every node a swap
+  inserts. Nodes injected later — Vite's dev CSS, an island's portal, a
+  third-party script's style — are never removed.
+- `<head>`: each incoming node equal (`isEqualNode`) to a managed live node
+  reuses it in place; the rest are inserted ahead of the next reused node;
+  managed nodes nothing reused are removed. New stylesheets are inserted
+  *before* the swap and awaited (load or error), then the swap runs; an
+  abandoned swap removes them again. Scripts are recreated with
+  `createElement` so they execute (a parser-inserted script moved between
+  documents never does); a reused or same-URL module script does not re-run.
+- `#pracht-root`: its children are replaced. A live `<pracht-island>` whose
+  file, export, props, and strategy match an incoming one (matched by
+  occurrence order per key) is moved into the incoming tree in place of the
+  server markup, so its Preact tree and state survive. Hydrated islands that
+  are not carried over are unmounted with `render(null, el)` first so effect
+  cleanups run.
+- Body nodes outside the root follow the head's rules; `<html lang>` and
+  `document.title` follow the incoming page.
+
+The swap runs inside `document.startViewTransition()` when the page carries the
+view-transition style and the browser supports it. Scrolling is manual
+(`intercept({ scroll: "manual" })`) and happens with the swap: traversals and
+URLs with a fragment use `event.scroll()`; other navigations scroll to the top,
+which `event.scroll()` does not do for a URL without a fragment. Focus uses the
+Navigation API default. Every `await` is followed by a `signal.aborted` check,
+and the commit itself checks again, so an interrupted navigation never applies
+its swap. Its history entry, committed immediately like any client-router push,
+stays.
+
+**Rehydration.** After the swap, `hydrateIslands()` runs again: a `WeakSet` of
+scheduled islands makes it skip carried-over ones, it applies each new island's
+strategy, and it sets `data-pracht-islands-hydrated` (removed at the swap) once
+the `load` islands are done. An `idle`/`visible` island whose page was left
+before its strategy fired is not hydrated (`isConnected` check). With WebMCP
+page tools, the generated bootstrap passes `onNavigate`, which re-reads
+`data-pracht-webmcp-tools` from the incoming document and re-syncs the tools.
+
+A same-origin redirect (a static host adding a trailing slash) is swapped in,
+then the address is corrected with `history.replaceState()` after the
+navigation settles; doing it during the navigation would abort it.
+
+Known consequences of keeping the document:
+
+- **Response headers do not apply.** The document keeps the CSP (and every
+  other document-level header) it was loaded with; a swapped-in page's own
+  `Content-Security-Policy` is never enforced. Nonce-based policies fall back
+  to a full load because the new nonces could not work; a hash- or
+  host-based policy that differs per page is the app's to keep consistent.
+- **Shared scripts do not re-run.** A head script equal on both pages is
+  reused, so load-time analytics see one page view per document. The site docs
+  point at `navigatesuccess`.
+- **`data-pracht-islands-hydrated` can be early.** An initial-load hydration
+  pass still waiting on a slow `load` island sets the marker when it finishes,
+  even if a swap happened meanwhile.
 
 ---
 
@@ -254,7 +356,9 @@ Partial client-side rendering of islands routes is out of scope for v1.
 ## Limitations (v1)
 
 - Children/slots from server components into islands: unsupported (throws).
-- Client-side navigation into/out of islands routes is full-document.
+- Navigation into/out of islands routes is full-document unless
+  `client.islandsNavigation` is on, and even then only between islands and
+  `none` pages, in browsers with the Navigation API.
 - Island props must be JSON-serializable.
 - The analyze report lists all island chunks per islands route (upper bound),
   not per-page usage.

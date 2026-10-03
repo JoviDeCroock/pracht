@@ -89,6 +89,11 @@ import type {
 declare const __PRACHT_RICH_DATA__: boolean | undefined;
 const RICH_ROUTE_DATA =
   typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
+// `client.islandsNavigation`: the bootstrap does the navigating, so every
+// islands page needs it, islands or not.
+declare const __PRACHT_ISLANDS_NAVIGATION__: boolean | undefined;
+const ISLANDS_NAVIGATION =
+  typeof __PRACHT_ISLANDS_NAVIGATION__ !== "undefined" && __PRACHT_ISLANDS_NAVIGATION__ === true;
 
 const BODY_REPRESENTATION_HEADERS = [
   "content-digest",
@@ -719,6 +724,7 @@ async function renderServerDocument<TContext>(
     const needsIslandsBootstrap =
       hydration === "islands" &&
       (islandFiles.length > 0 ||
+        ISLANDS_NAVIGATION ||
         (ctx.options.islandsBootstrapRequired === true &&
           (match.route.capabilities?.length ?? 0) > 0));
     if (needsIslandsBootstrap) {
@@ -726,7 +732,7 @@ async function renderServerDocument<TContext>(
       if (!islandsEntryUrl) {
         throw new Error(
           `Route "${match.route.path}" uses hydration: "islands" and requires the ` +
-            `islands bootstrap${islandFiles.length > 0 ? ` for ${islandFiles.length} rendered island(s)` : " for a page-level runtime projection"}, but no bootstrap URL is registered. ` +
+            `islands bootstrap${islandFiles.length > 0 ? ` for ${islandFiles.length} rendered island(s)` : ISLANDS_NAVIGATION ? " for client.islandsNavigation" : " for a page-level runtime projection"}, but no bootstrap URL is registered. ` +
             (islandFiles.length > 0
               ? "This usually means the @pracht/vite-plugin islands entry was not built — check that your islands live in the configured islands directory."
               : "This usually means generated page-runtime metadata was not forwarded by the deployment adapter."),

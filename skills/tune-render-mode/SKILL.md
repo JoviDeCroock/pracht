@@ -124,7 +124,8 @@ field (absent from the JSON), grep the manifest for `hydration:` (pages apps:
   box, newsletter form) → `hydration: "islands"` with the widgets moved to
   `src/islands/`.
 - Caveats: islands routes use MPA-style full-document navigation (no client
-  router), island props must be JSON-serializable, and `render: "spa"` cannot
+  router) unless `client.islandsNavigation` swaps islands pages in place,
+  island props must be JSON-serializable, and `render: "spa"` cannot
   combine with `"islands"`/`"none"`.
 
 ## Step 3c: Consider streaming for slow SSR routes

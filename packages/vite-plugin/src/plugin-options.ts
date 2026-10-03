@@ -56,7 +56,8 @@ export interface PrachtLlmsTxtOptions {
  * disabled. `prefetch` and `navigationGuards` default to `true`: turn one off
  * only when the app really does not use it, since the router silently stops
  * honouring the corresponding route options and `<Link>` props.
- * `hydrationWarnings` and `richData` add bytes and default to `false`.
+ * `hydrationWarnings`, `richData`, and `islandsNavigation` add bytes and
+ * default to `false`.
  */
 export interface PrachtClientOptions {
   /**
@@ -96,6 +97,16 @@ export interface PrachtClientOptions {
    * fail with an error naming the path. Defaults to `false`.
    */
   richData?: boolean;
+  /**
+   * Navigate between `hydration: "islands"` pages without reloading the
+   * document: the islands bootstrap fetches the next page's HTML through the
+   * Navigation API, swaps it in, keeps the islands both pages share (and their
+   * state), and hydrates the new ones. Pages it cannot swap — full-hydration
+   * routes, other origins, nonce-based CSP — still load normally, as does every
+   * link in a browser without the Navigation API. Every islands page then
+   * loads the bootstrap, even one that renders no island. Defaults to `false`.
+   */
+  islandsNavigation?: boolean;
 }
 
 export interface PrachtPluginOptions {
@@ -196,6 +207,7 @@ export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
   navigationGuards: true,
   hydrationWarnings: false,
   richData: false,
+  islandsNavigation: false,
 };
 
 const DEFAULTS: ResolvedPrachtPluginOptions = {

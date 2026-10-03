@@ -20,6 +20,7 @@ These are the client JavaScript totals for the *same page*, rendering the
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
 | `hydration: "islands"` | **7.5 KB** | 16.7 KB | Preact, the island bootstrap, and the island chunks on the page. |
+| `hydration: "islands"`, islands navigation on | **9.6 KB** | 22.0 KB | Islands with `client: { islandsNavigation: true }`. |
 | `hydration: "full"` | **17.4 KB** | 42.6 KB | The above plus the client router: navigation, prefetching, loader fetches. |
 | `hydration: "full"`, prefetching off | **15.9 KB** | 41.6 KB | Full hydration with `client: { prefetch: false }`. |
 | `hydration: "full"`, navigation guards off | **17.2 KB** | 41.7 KB | Full hydration with `client: { navigationGuards: false }`. |
@@ -42,6 +43,8 @@ What to read off the table:
   0.25 KB**, the full cost of `useBlocker()`.
 - **[Rich data](/docs/data-loading#dates-maps-and-other-rich-values) costs
   about 0.3 KB**, and only when you turn it on.
+- **[Islands navigation](/docs/islands#client-side-navigation-between-islands-pages)
+  costs about 2.1 KB** on islands pages, and only when you turn it on.
 
 ### How these numbers are measured
 

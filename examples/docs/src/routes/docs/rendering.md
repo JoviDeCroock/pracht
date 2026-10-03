@@ -167,7 +167,7 @@ After the first page load, the client router handles navigation for full-hydrati
 3. Updates the component tree with new data
 4. Pushes to browser history
 
-On a serverful adapter, even SSG routes get fresh loader data during client navigation; the static HTML serves the first load and crawlers. [Islands](/docs/islands#navigation) routes use full-document navigation instead.
+On a serverful adapter, even SSG routes get fresh loader data during client navigation; the static HTML serves the first load and crawlers. [Islands](/docs/islands#navigation) routes use full-document navigation instead, unless `client.islandsNavigation` swaps them in place.
 
 ---
 

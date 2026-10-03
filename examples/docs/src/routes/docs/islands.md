@@ -122,14 +122,52 @@ Move the content inside the island or pass serializable data instead.
 
 ## Navigation
 
-Islands routes do not load the client router, so navigation to, from, and
-between them is a normal full-document navigation. That includes links from a
-full-hydration route to an islands or `hydration: "none"` route.
+Islands routes do not load the client router, so by default navigation to,
+from, and between them is a normal full-document navigation. That includes
+links from a full-hydration route to an islands or `hydration: "none"` route.
 
 With `defineApp({ viewTransitions: true })`, these full page loads still
 animate as
 [cross-document view transitions](/docs/recipes/view-transitions#islands-and-static-pages),
 without adding JavaScript.
+
+### Client-side navigation between islands pages
+
+Turn on `islandsNavigation` to keep the document when a link goes from one
+islands page to another:
+
+```ts [vite.config.ts]
+pracht({
+  adapter: nodeAdapter(),
+  client: { islandsNavigation: true },
+});
+```
+
+The islands bootstrap then fetches the next page's HTML and swaps it in. The
+URL, title, and stylesheets change. An island that both pages render with the
+same props, such as a cart button in a shared shell, stays mounted and keeps
+its state. New islands hydrate with their own `client` strategy. Back and
+forward restore the earlier page and its scroll position. With
+`viewTransitions` on, the swap animates as a same-document view transition.
+
+Scripts the new page shares with the old one do not run again, so a page-view
+counter that fires on load sees only the first page. Count the rest from the
+Navigation API's `navigatesuccess` event.
+
+The bootstrap only swaps pages it can reproduce faithfully. Each of these is
+still a full page load:
+
+- a link to a full-hydration route,
+- a page from a newer deployment, which loads a different bootstrap,
+- an error status or a response from another origin,
+- a page served with a nonce-based Content Security Policy.
+
+Browsers without the
+[Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API)
+keep plain document navigation. The option adds about 2 KB gzip to the
+bootstrap, and every islands page loads the bootstrap even when it renders no
+island. `hydration: "none"` pages still ship no JavaScript, so navigation from
+a page you landed on directly is a full page load.
 
 ---
 

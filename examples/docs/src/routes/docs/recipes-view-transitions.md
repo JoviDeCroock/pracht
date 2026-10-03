@@ -146,8 +146,9 @@ so navigating to, from, or between them is a full page load. With
 animate these page loads as cross-document view transitions. Link clicks, form
 submissions, and back/forward animate; reloads do not. No JavaScript is added.
 
-Navigations the client router handles still animate once, through
-`document.startViewTransition()`. The same `::view-transition-*` CSS and
+Navigations the client router handles, and islands pages swapped in by
+[`client.islandsNavigation`](/docs/islands#client-side-navigation-between-islands-pages),
+animate once through `document.startViewTransition()`. The same `::view-transition-*` CSS and
 `view-transition-name` values drive both, so the
 [named photo transition](#named-element-transitions) also works between islands
 pages. Set those names in CSS or server-rendered `style` attributes so they are

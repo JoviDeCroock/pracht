@@ -115,7 +115,12 @@ navigation to, from, and between them is full-document (MPA-style), and
 route-state prefetching is skipped for them. Flag apps that rely on
 client-side state surviving navigation across such routes (in-memory stores,
 module-level caches shared between pages) — every navigation is a fresh
-document. Page-change animation does not need the client router: with
+document, unless `pracht({ client: { islandsNavigation: true } })` is set. With
+it, links between islands pages (and from them to `none` pages) swap the page
+into the same document and an island rendered with identical props on both
+pages keeps its state; module state survives too. Still flag state that must
+survive a link to a full-hydration route, a reload, or a browser without the
+Navigation API, since those remain full loads. Page-change animation does not need the client router: with
 `defineApp({ viewTransitions: true })` these documents carry a
 `@view-transition` rule and animate as cross-document view transitions, so
 flag only apps that load extra JavaScript to animate such navigations.

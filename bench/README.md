@@ -37,11 +37,13 @@ application code.
 | `/islands` | `islands`  |
 | `/full`    | `full`     |
 
-It is built four times: once as-is, once with `PRACHT_BENCH_PREFETCH=off`
+It is built five times: once as-is, once with `PRACHT_BENCH_PREFETCH=off`
 (`pracht({ client: { prefetch: false } })`), once with
 `PRACHT_BENCH_GUARDS=off` (`pracht({ client: { navigationGuards: false } })`),
-and once with `PRACHT_BENCH_RICH_DATA=on` (`pracht({ client: { richData: true } })`).
-Every other input is identical across the four, so each delta is that one
+once with `PRACHT_BENCH_RICH_DATA=on` (`pracht({ client: { richData: true } })`),
+and once with `PRACHT_BENCH_ISLANDS_NAVIGATION=on`
+(`pracht({ client: { islandsNavigation: true } })`, measured on `/islands`).
+Every other input is identical across the five, so each delta is that one
 runtime and nothing else.
 
 `fixtures/compat` is the same full-hydration page with `preact/compat` in the

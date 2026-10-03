@@ -12,6 +12,7 @@ import {
   ISLAND_STRATEGY_ATTRIBUTE,
   ISLANDS_HYDRATED_MARKER,
 } from "./islands-shared.ts";
+import { installIslandsNavigation } from "./islands-navigation.ts";
 
 /**
  * Minimal islands bootstrap for routes rendered with `hydration: "islands"`.
@@ -28,6 +29,12 @@ export interface HydrateIslandsOptions {
    * by `import.meta.glob("/src/islands/**")` in the generated bootstrap.
    */
   modules: Record<string, () => Promise<unknown>>;
+  /**
+   * Called with the incoming document after a client-side navigation swapped
+   * it in (`client.islandsNavigation`), so page-scoped work such as WebMCP
+   * tool registration can follow the page.
+   */
+  onNavigate?: (doc: Document) => void;
 }
 
 let capabilityRevalidationBound = false;
@@ -51,6 +58,21 @@ declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
  * dynamic import with the branch around it.
  */
 declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
+
+/**
+ * `pracht({ client: { islandsNavigation: true } })`: swap islands pages in
+ * place instead of loading a new document. Declared here like the flag above,
+ * so a bundle without it drops the navigation module and its bookkeeping.
+ */
+declare const __PRACHT_ISLANDS_NAVIGATION__: boolean | undefined;
+
+const ISLANDS_NAVIGATION =
+  typeof __PRACHT_ISLANDS_NAVIGATION__ !== "undefined" && __PRACHT_ISLANDS_NAVIGATION__ === true;
+
+// Navigation only: islands already hydrated or scheduled, so the rescan after
+// a page swap leaves them alone.
+let scheduledIslands: WeakSet<Element> | undefined;
+let navigationInstalled = false;
 
 const HYDRATION_WARNINGS_FORCED =
   typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
@@ -88,10 +110,23 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     bindCapabilityRevalidation();
   }
+  if (ISLANDS_NAVIGATION && !navigationInstalled) {
+    navigationInstalled = true;
+    scheduledIslands = new WeakSet();
+    // After a swap the same call hydrates the islands the new page brought.
+    installIslandsNavigation({
+      hydrate: () => hydrateIslands(options),
+      onNavigate: options.onNavigate,
+    });
+  }
   const elements = document.querySelectorAll(ISLAND_ELEMENT);
   const immediate: Promise<void>[] = [];
 
   for (const element of elements) {
+    if (ISLANDS_NAVIGATION) {
+      if (scheduledIslands!.has(element)) continue;
+      scheduledIslands!.add(element);
+    }
     const strategy = element.getAttribute(ISLAND_STRATEGY_ATTRIBUTE) ?? "load";
 
     if (strategy === "visible") {
@@ -140,6 +175,9 @@ async function hydrateIsland(element: Element, options: HydrateIslandsOptions): 
     return;
   }
 
+  // The page this island was on may have been navigated away from while its
+  // strategy or its module load was pending.
+  if (ISLANDS_NAVIGATION && !element.isConnected) return;
   hydrate(h(Component, props), element);
   element.setAttribute(ISLAND_HYDRATED_ATTRIBUTE, "true");
 }

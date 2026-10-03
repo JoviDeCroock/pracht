@@ -18,6 +18,14 @@
       "coldGzipBytes": 7687
     },
     {
+      "rung": "hydration: islands, islands navigation on",
+      "hydration": "islands",
+      "bytes": 22551,
+      "gzipBytes": 9805,
+      "lazyGzipBytes": 0,
+      "coldGzipBytes": 9805
+    },
+    {
       "rung": "hydration: full",
       "hydration": "full",
       "bytes": 43626,
