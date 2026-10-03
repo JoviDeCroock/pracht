@@ -333,8 +333,10 @@ Known edges, by design:
   the same stream-swap/hydration race as any non-`defer()` suspension; outside
   one the streaming render fails.
 - A `hydrate()` that throws on the initial snapshot aborts the client boot
-  (route-state responses catch and log it), and a server `setup()` that throws
-  renders the error document without `Root`.
+  (route-state responses catch and log it). A server `setup()` that throws, or
+  a root module that fails to load, renders the error document without `Root`
+  and reaches `onRouteError` with `rootFile` set, which the request log line
+  and the dev overlay name instead of the route file.
 
 ### Deferred values — `defer()` and `use()`
 

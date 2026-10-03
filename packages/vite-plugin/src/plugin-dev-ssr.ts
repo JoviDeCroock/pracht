@@ -520,7 +520,9 @@ function isAttributableToUserModule(
   error: unknown,
   root: string | undefined,
 ): boolean {
-  if (context?.routeFile || context?.loaderFile || context?.shellFile) return true;
+  if (context?.rootFile || context?.routeFile || context?.loaderFile || context?.shellFile) {
+    return true;
+  }
 
   // Vite and Rollup put the offending module on the error itself, which is how
   // a syntax error in a user file arrives here: it escapes to the outer catch
@@ -1386,7 +1388,7 @@ async function respondWithErrorOverlay(
     stack: error instanceof Error ? error.stack : undefined,
     status,
     routeId: context?.routeId,
-    file: context?.routeFile,
+    file: context?.rootFile ?? context?.routeFile,
     loaderFile: context?.loaderFile,
     shellFile: context?.shellFile,
     phase: context?.phase,

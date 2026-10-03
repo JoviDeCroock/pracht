@@ -5,11 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   defineApp,
+  describeRouteErrorModule,
   handlePrachtRequest,
   PrachtHttpError,
   route,
   type LoaderArgs,
   type RootModule,
+  type RouteErrorContext,
   type RootSetupArgs,
 } from "../src/index.ts";
 import {
@@ -235,6 +237,24 @@ describe("app root", () => {
     });
     expect(broken.status).toBe(500);
     expect(await broken.text()).toContain('<p id="root-id">root-2</p>');
+  });
+
+  it("blames the root module when setup() throws", async () => {
+    const contexts: (RouteErrorContext | undefined)[] = [];
+    const response = await handlePrachtRequest({
+      app: createApp(),
+      registry: createRegistry({
+        setup() {
+          throw new Error("setup failed");
+        },
+      }),
+      request: new Request("http://localhost/"),
+      onRouteError: (_error, _path, context) => contexts.push(context),
+    });
+    expect(response.status).toBe(500);
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]?.rootFile).toBe("/src/root.tsx");
+    expect(describeRouteErrorModule(contexts[0])).toBe("/src/root.tsx");
   });
 
   it("changes nothing for an app without a root module", async () => {

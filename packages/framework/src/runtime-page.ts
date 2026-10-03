@@ -226,6 +226,8 @@ interface PageRenderJob<TContext> {
   routeArgs: LoaderArgs<TContext>;
   /** The app root, created once per request before any loader runs. */
   root: RequestRoot | null;
+  /** Loading the root module or running its `setup()` threw. */
+  rootFailed?: boolean;
   routeModulePromise: Promise<RouteModule | undefined> | undefined;
   shellModulePromise: Promise<ShellModule | undefined>;
   dataFunctionsPromise: Promise<Awaited<ReturnType<typeof resolveDataFunctions>>> | undefined;
@@ -833,7 +835,12 @@ async function runPageTerminal<TContext>(job: PageRenderJob<TContext>): Promise<
   // this request reads the same `args.root`. After middleware, so a request
   // middleware answers itself never creates one.
   job.phase = "render";
-  job.root = await resolveRequestRoot(job.ctx, job.ctx.registry);
+  try {
+    job.root = await resolveRequestRoot(job.ctx, job.ctx.registry);
+  } catch (error) {
+    job.rootFailed = true;
+    throw error;
+  }
   job.routeArgs.root = job.root?.state;
 
   const loaded = await runPageLoaders(job);
@@ -1089,6 +1096,7 @@ export async function renderPage<TContext>(
       routeId: match.route.id,
       routePath: match.route.path,
       shellFile: match.route.shellFile,
+      ...(job.rootFailed ? { rootFile: Object.keys(registry.rootModules ?? {})[0] } : {}),
     });
 
     return renderRouteErrorResponse({
