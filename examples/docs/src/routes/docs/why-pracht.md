@@ -31,7 +31,7 @@ Gzipped client JavaScript for the same page and markup, with one setting changed
 | Route setting | Gzip client JS |
 | --- | --- |
 | `hydration: "none"` | 0 KB |
-| `hydration: "islands"` | 7.5 KB |
+| `hydration: "islands"` | 8.0 KB |
 | `hydration: "full"` | 17.4 KB |
 | `hydration: "full"` + `preact/compat` | 18.2 KB |
 

@@ -22,6 +22,12 @@ export const app = defineApp({
         render: "ssg",
         hydration: "islands",
       }),
+      // Islands wrapping server-rendered children, one of them another island.
+      route("/children", () => import("./routes/children.tsx"), {
+        id: "children",
+        render: "ssg",
+        hydration: "islands",
+      }),
       // Fully static page: no JavaScript is injected at all.
       route("/static", () => import("./routes/static-page.tsx"), {
         id: "static",

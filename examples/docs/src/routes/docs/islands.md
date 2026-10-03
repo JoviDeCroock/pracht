@@ -115,8 +115,135 @@ Do not pass functions, class instances like `Date`, JSX elements, symbols,
 bigints, or circular objects as island props. Pracht throws an error that names
 the invalid prop path.
 
-Children passed from server components into islands are not supported in v1.
-Move the content inside the island or pass serializable data instead.
+To wrap server content in an interactive component, pass it as children. The
+island renders `children` wherever it likes, as with any component:
+
+```tsx [src/islands/Disclosure.tsx]
+import type { ComponentChildren } from "preact";
+import { useState } from "preact/hooks";
+import type { IslandProps } from "@pracht/core";
+
+interface DisclosureProps {
+  summary: string;
+  children?: ComponentChildren;
+}
+
+export default function Disclosure({ summary, children }: DisclosureProps & IslandProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {summary}
+      </button>
+      {open ? children : null}
+    </div>
+  );
+}
+```
+
+```tsx [src/routes/article.tsx]
+import type { RouteComponentProps } from "@pracht/core";
+import Counter from "../islands/Counter.tsx";
+import Disclosure from "../islands/Disclosure.tsx";
+
+export async function loader() {
+  return { entries: ["Islands take children", "Faster builds"] };
+}
+
+function Changelog({ entries }: { entries: string[] }) {
+  return <ul>{entries.map((entry) => <li key={entry}>{entry}</li>)}</ul>;
+}
+
+export function Component({ data }: RouteComponentProps<typeof loader>) {
+  return (
+    <Disclosure summary="Show the full changelog">
+      <Changelog entries={data.entries} />
+      <Counter start={0} />
+    </Disclosure>
+  );
+}
+```
+
+`Changelog` renders on the server and its code never reaches the browser. The
+island receives that HTML as `children`, so showing, hiding, or moving them
+keeps the same nodes. An island inside them, like `Counter` here, hydrates on
+its own and keeps its state when the outer island hides and shows it. Children
+the island does not render on the server, such as a closed disclosure's, still
+ship with the page, inert: their images load and their scripts run when the
+island first shows them.
+
+Plain text children are different: `<CopyButton>npm i {pkg}</CopyButton>`
+gives the island one string, such as `"npm i pracht"`, so it can use it as a
+value.
+
+Markup children are rendered once, on the server. The island cannot pass them
+props or change their contents, and a render function as children throws an
+error. Context the island provides does not reach them in the browser, so an
+island among them reads the context's default value; pass the value as a prop,
+and watch for the dev warning that flags this.
+
+Markup children reach the island as one opaque node, however many elements the
+page passed, so `toChildArray(children)` or `Children.count` cannot split them
+into tabs or slides. Pass what the island needs to know as props, and reach the
+rendered elements through a ref. Here the page marks each panel and the island
+toggles their `hidden` attribute:
+
+```tsx [src/islands/Tabs.tsx]
+import type { ComponentChildren } from "preact";
+import { useEffect, useRef, useState } from "preact/hooks";
+
+export default function Tabs({ labels, children }: { labels: string[]; children?: ComponentChildren }) {
+  const [active, setActive] = useState(0);
+  const panels = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    panels.current!.querySelectorAll<HTMLElement>("[data-panel]").forEach((panel, i) => {
+      panel.hidden = i !== active;
+    });
+  }, [active]);
+
+  return (
+    <div>
+      {labels.map((label, i) => (
+        <button key={label} type="button" aria-pressed={i === active} onClick={() => setActive(i)}>
+          {label}
+        </button>
+      ))}
+      <div ref={panels}>{children}</div>
+    </div>
+  );
+}
+```
+
+```tsx
+<Tabs labels={["Overview", "Specs"]}>
+  <section data-panel>...</section>
+  <section data-panel hidden>...</section>
+</Tabs>
+```
+
+Markup children arrive inside a `<pracht-slot>` element with
+`display: contents` (an SVG `<g>` inside SVG). A child selector such as
+`.panel > p` written against the island's markup no longer matches them, and
+`:first-child` or `:nth-child()` count from the first child the page passed,
+not among the island's own elements.
+
+Some positions cannot hold that element: directly inside table rows and
+sections, `<video>`, `<audio>`, `<picture>`, `<ruby>`, SVG `<text>`, gradients,
+or `<clipPath>`, or a MathML `<mfrac>`; anywhere in `<select>` or `<textarea>`;
+or a `<summary>` or `<legend>` that has to come first. Pracht throws an error
+naming the island there; pass the whole element as children instead. Children
+an island shows inside SVG or MathML must already be rendered there on the
+server.
+
+The browser also rearranges invalid nesting: a `<div>` in children placed
+inside a `<p>`, an `<a>` or `<button>` inside another, or raw HTML in
+`dangerouslySetInnerHTML` that is not well-formed. In development, Pracht
+throws an error naming the island for the nesting it can see. If children are
+moved out of their slot anyway, the island stays server-rendered HTML instead
+of hydrating, and the console logs an error naming it. Pracht finds the slot's
+end by an HTML comment, so an HTML minifier must keep comments.
 
 ---
 
