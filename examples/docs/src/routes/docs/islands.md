@@ -191,11 +191,12 @@ without the
 [Navigation API](https://developer.mozilla.org/en-US/docs/Web/API/Navigation_API),
 and on a static page the browser restored from its HTTP cache.
 
-The option adds about 3.4 KB gzip to the bootstrap. Each islands page carries
-the route table it decides with — the paths of your islands and `none` routes,
-plus API or full-hydration routes that could shadow one — at about 150 bytes
-gzip for 20 routes. Every islands page loads the bootstrap even when it renders
-no island. `hydration: "none"` pages still ship no JavaScript, so navigation
+The option adds about 3.8 KB gzip to the bootstrap, and every islands page then
+loads the bootstrap even when it renders no island: such a page goes from no
+JavaScript to about 11 KB gzip. Each islands page also carries the route table
+it decides with — the paths of your islands and `none` routes, plus API or
+full-hydration routes that could shadow one — at about 150 bytes gzip for 20
+routes. `hydration: "none"` pages still ship no JavaScript, so navigation
 from a page you landed on directly is a full page load.
 
 ---

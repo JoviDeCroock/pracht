@@ -231,7 +231,7 @@ It is a client feature define, `__PRACHT_ISLANDS_NAVIGATION__`, like
 `richData`: `islands-client.ts` gates every addition behind it, so with the
 flag off the bootstrap is byte-identical to a build without the feature (the
 bench ladder's `hydration: islands` rung pins this), and with it on the
-bootstrap grows by about 3 KB gzip (its own rung). The server bundle reads the
+bootstrap grows by about 3.8 KB gzip (its own rung). The server bundle reads the
 same define: every islands page then emits the bootstrap, islands or not, and
 the client build emits the islands entry even without an islands directory.
 `hydration: "none"` pages stay zero-JS, so they can be navigated *to* softly
@@ -412,7 +412,10 @@ view-transition style and the browser supports it (a transition skipped by a
 newer one is not an error). Scrolling is manual (`intercept({ scroll:
 "manual" })`) and happens with the swap: traversals and URLs with a fragment use
 `event.scroll()`; other navigations scroll to the top, which `event.scroll()`
-does not do for a URL without a fragment. Focus is manual too (`focusReset:
+does not do for a URL without a fragment. A traversal then also scrolls to
+the position the page had when a swap left it (an in-memory map by entry key,
+filled at commit), since not every browser restores a swapped page's position
+from `event.scroll()` — Firefox leaves it at the top. Focus is manual too (`focusReset:
 "manual"`, `settleFocus()`): the browser's reset would move focus out of a
 carried island (a search box that navigates as you type) even though
 `moveBefore()` kept it. Focus inside a carried island stays (and is put back

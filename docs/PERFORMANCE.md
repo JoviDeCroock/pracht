@@ -159,11 +159,13 @@ than plain `JSON.stringify`. Off, the server does no extra work.
 `pracht({ client: { islandsNavigation: true } })` adds client-side navigation
 between islands pages to the islands bootstrap (see
 [ISLANDS.md](ISLANDS.md#client-side-navigation-clientislandsnavigation)). The
-ladder's `islands navigation on` rung measures it at 3,448 gzip bytes over the
+ladder's `islands navigation on` rung measures it at 3,871 gzip bytes over the
 `hydration: islands` rung, which stays byte-identical with the flag off:
 `islands-client.ts` reads the define itself and gates every addition behind it,
 including the scheduled-islands `WeakSet` the rescan after a swap needs.
-`package-tree-shaking.test.ts` pins the compile-out and a ceiling. The module
+`package-tree-shaking.test.ts` pins the compile-out and a ceiling. Every
+islands page loads the bootstrap with the flag on, so one that renders no
+island goes from no JavaScript to about 11 KB gzip (bootstrap and Preact). The module
 inlines what it needs from `base.ts` and `runtime-constants.ts`: importing
 either splits a chunk shared with the client router out of the build (433 gzip
 bytes and a request for `base.ts`).

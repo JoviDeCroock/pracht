@@ -144,6 +144,8 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
   // traversing between them stays the app's business; traversing to an entry
   // of another page swaps that page back in.
   const entryPages = new Map<string, number>();
+  // Where each page was scrolled when a swap left it, by entry key.
+  const positions = new Map<string, [number, number]>();
   let pageCounter = 0;
   let shownPage = 0;
   let pendingEntryPage: number | undefined;
@@ -219,6 +221,7 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
     }
 
     const url = new URL(event.destination.url);
+    const leaving = navigation.currentEntry?.key;
     const signal = event.signal;
     const state = event.destination.getState();
     // Where supported, the address commits only once the page is known to be
@@ -337,6 +340,7 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
           return;
         }
         const focused = document.activeElement;
+        if (leaving) positions.set(leaving, [scrollX, scrollY]);
         swap.apply();
         shownPage = page;
         document.documentElement.removeAttribute(ISLANDS_HYDRATED_MARKER);
@@ -344,6 +348,9 @@ export function installIslandsNavigation(options: IslandsNavigationOptions): voi
         // but leaves a new page without one wherever the old one was.
         if (!traverse && !url.hash) scrollTo(0, 0);
         else event.scroll();
+        // Not every browser restores a swapped page's position itself.
+        const saved = traverse ? positions.get(event.destination.key) : undefined;
+        if (saved && (scrollX !== saved[0] || scrollY !== saved[1])) scrollTo(saved[0], saved[1]);
         settleFocus(focused);
       };
       try {

@@ -428,6 +428,60 @@ describe("installIslandsNavigation", () => {
     }
   });
 
+  it("restores a swapped-out page's scroll position on back", async () => {
+    const policy = policyFingerprint(new Headers());
+    const page = (title: string) =>
+      `<html><head><script ${OWN} type="application/json" id="pracht-nav">{"p":"${policy}","r":["+/a","+/b"]}</script></head><body><div id="pracht-root"><h1>${title}</h1></div></body></html>`;
+    load(page("A"));
+    const navigation = fakeNavigation();
+    Object.assign(navigation.currentEntry, { key: "key-a" });
+    installIslandsNavigation({ hydrate: async () => {} });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (url: string) =>
+          new Response(page(url.endsWith("/a") ? "A" : "B"), {
+            headers: { "content-type": "text/html" },
+          }),
+      ),
+    );
+    const position = { x: 0, y: 0 };
+    vi.spyOn(window, "scrollX", "get").mockImplementation(() => position.x);
+    vi.spyOn(window, "scrollY", "get").mockImplementation(() => position.y);
+    vi.stubGlobal("scrollTo", (x: number, y: number) => Object.assign(position, { x, y }));
+    try {
+      const run = async (event: ReturnType<typeof traverseTo>) => {
+        navigation.dispatch("navigate", event);
+        const [{ handler }] = event.intercept.mock.calls[0] as [{ handler: () => Promise<void> }];
+        await handler();
+      };
+      position.y = 500;
+      const push = {
+        ...traverseTo("entry-b", "/b"),
+        navigationType: "push",
+        destination: { id: "entry-b", url: `${origin}/b`, sameDocument: false, getState: () => 0 },
+      };
+      navigation.dispatch("navigate", push);
+      navigation.currentEntry = { id: "entry-b", key: "key-b", url: `${origin}/b` } as never;
+      navigation.dispatch("currententrychange", {});
+      const [{ handler }] = push.intercept.mock.calls[0] as [{ handler: () => Promise<void> }];
+      await handler();
+      expect(document.querySelector("h1")?.textContent).toBe("B");
+      expect(position.y).toBe(0);
+
+      // The browser's own restore (`event.scroll()`) does nothing here.
+      const back = traverseTo("current", "/a");
+      Object.assign(back.destination, { key: "key-a" });
+      await run(back);
+      expect(document.querySelector("h1")?.textContent).toBe("A");
+      expect(back.scroll).toHaveBeenCalled();
+      expect(position.y).toBe(500);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
   it("leaves traversals within the page that is showing to the app", () => {
     const navigation = fakeNavigation();
     installIslandsNavigation({ hydrate: async () => {} });
