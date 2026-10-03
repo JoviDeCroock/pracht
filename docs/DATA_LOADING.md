@@ -306,7 +306,10 @@ and `IslandBoundary` wraps each island in a class whose `getChildContext()`
 puts the outer values back. An island that reads what `Root` provides
 therefore fails during SSR, where that class's `componentDidCatch` rethrows
 the error with the island's name, instead of at hydration. Route components
-and shells on islands and `none` routes still render inside `Root`.
+and shells on islands and `none` routes still render inside `Root`, and so do
+the children a page passes into an island: they stay server HTML in the
+browser, so `IslandBoundary` takes the root's entries from its own legacy
+context and restores them around the slot content (`IslandRootRestore`).
 
 The plugin defines `__PRACHT_APP_ROOT__` false for a build that registers no
 root, which folds away the router and fetch wiring; dev keeps it on so a root

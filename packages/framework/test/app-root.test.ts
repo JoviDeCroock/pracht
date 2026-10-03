@@ -314,7 +314,10 @@ describe("app root on islands routes", () => {
     return h("span", null, "never");
   }
 
-  async function renderIslandsRoute(Island: () => unknown) {
+  async function renderIslandsRoute(
+    Island: (props: any) => unknown,
+    page?: () => ComponentChildren,
+  ) {
     registerServerIslands({ "/src/islands/Widget.tsx": { default: Island } });
     setIslandsClientEntryUrl("/assets/islands-client.js");
     const errors: unknown[] = [];
@@ -325,7 +328,8 @@ describe("app root on islands routes", () => {
       registry: {
         routeModules: {
           "./routes/page.tsx": async () => ({
-            Component: () => h("main", null, h(ReadsRoot, null), h(Island as () => null, null)),
+            Component:
+              page ?? (() => h("main", null, h(ReadsRoot, null), h(Island as () => null, null))),
           }),
         },
         rootModules: { "/src/root.tsx": async () => createRootModule() },
@@ -342,6 +346,19 @@ describe("app root on islands routes", () => {
     expect(response.status).toBe(200);
     expect(html).toContain('<main><p id="root-id">root-1</p><pracht-island');
     expect(html).toContain('<span id="island"><p id="root-id">no-root</p></span>');
+  });
+
+  it("renders the children a page passes an island with what the root provides", async () => {
+    function Wrapper({ children }: { children?: ComponentChildren }) {
+      return h("section", { id: "island" }, h(ReadsRoot, null), children);
+    }
+    const { response } = await renderIslandsRoute(Wrapper, () =>
+      h("main", null, h(Wrapper, null, h("div", { id: "child" }, h(ReadsRoot, null)))),
+    );
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html).toContain('<section id="island"><p id="root-id">no-root</p>');
+    expect(html).toContain('<div id="child"><p id="root-id">root-1</p></div>');
   });
 
   it("names the island when it fails without the root", async () => {

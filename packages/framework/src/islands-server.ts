@@ -189,7 +189,25 @@ function renderOriginal(type: ComponentType<any>, props: Record<string, unknown>
   }
 }
 
-function IslandBoundary(props: Record<string, unknown>) {
+/**
+ * Puts the app root's context entries back around an island's children: they
+ * are page content, kept as server HTML in the browser, so they render with
+ * what the page sees rather than what the island does.
+ */
+class IslandRootRestore extends Component<{
+  entries: Record<string, unknown>;
+  children?: ComponentChildren;
+}> {
+  getChildContext() {
+    return this.props.entries;
+  }
+
+  render() {
+    return this.props.children;
+  }
+}
+
+function IslandBoundary(props: Record<string, unknown>, legacyContext?: Record<string, unknown>) {
   const { [ISLAND_TYPE_PROP]: type, ...rest } = props as Record<string, unknown> & {
     [ISLAND_TYPE_PROP]: ComponentType<any>;
   };
@@ -255,13 +273,17 @@ function IslandBoundary(props: Record<string, unknown>) {
           content: h(
             IslandCaptureContext.Provider,
             { value: capture },
-            scriptCapture
-              ? h(
-                  ScriptCaptureContext.Provider,
-                  { value: scriptCapture },
-                  children as ComponentChildren,
-                )
-              : (children as ComponentChildren),
+            restoreRootContext(
+              rootReset,
+              legacyContext,
+              scriptCapture
+                ? h(
+                    ScriptCaptureContext.Provider,
+                    { value: scriptCapture },
+                    children as ComponentChildren,
+                  )
+                : (children as ComponentChildren),
+            ),
           ),
         }
       : null;
@@ -292,6 +314,17 @@ function IslandBoundary(props: Record<string, unknown>) {
     subtree = h(IslandRootBoundary, { descriptor, reset: rootReset }, subtree);
   }
   return h(ISLAND_ELEMENT, attributes, subtree);
+}
+
+function restoreRootContext(
+  reset: Record<string, unknown> | null,
+  context: Record<string, unknown> | undefined,
+  children: ComponentChildren,
+): ComponentChildren {
+  if (!reset || !context) return children;
+  const entries: Record<string, unknown> = {};
+  for (const key in reset) entries[key] = context[key];
+  return h(IslandRootRestore, { entries }, children);
 }
 
 interface SlotState {
