@@ -760,9 +760,19 @@ function swapRoot(root: Element, incomingRoot: Element): Element[] {
   root.append(...content.childNodes);
 
   const kept = new Set<Element>();
+  // An island inside a kept one moved with it and stays where it is.
+  const insideKept = (island: Element) => {
+    for (const element of kept) if (element.contains(island)) return true;
+    return false;
+  };
   for (const placeholder of placeholders) {
-    const live = liveIslands.get(islandKey(placeholder))?.shift();
-    if (!live) continue;
+    // Server markup nested in a placeholder a kept island already replaced
+    // left the document with it.
+    if (!placeholder.isConnected) continue;
+    const list = liveIslands.get(islandKey(placeholder));
+    const index = list?.findIndex((island) => !insideKept(island)) ?? -1;
+    if (index === -1) continue;
+    const [live] = list!.splice(index, 1);
     kept.add(live);
     const parent = placeholder.parentNode as Element & {
       moveBefore?: (node: Node, child: Node | null) => void;
@@ -777,7 +787,7 @@ function swapRoot(root: Element, incomingRoot: Element): Element[] {
 
   for (const list of liveIslands.values()) {
     for (const island of list) {
-      if (!kept.has(island) && island.getAttribute(ISLAND_HYDRATED_ATTRIBUTE) === "true") {
+      if (!insideKept(island) && island.getAttribute(ISLAND_HYDRATED_ATTRIBUTE) === "true") {
         // Run effect cleanups before the element leaves the document.
         render(null, island);
       }

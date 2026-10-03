@@ -234,6 +234,33 @@ describe("prepareSwap", () => {
     expect(nextCounter.hasAttribute("data-hydrated")).toBe(false);
     expect(cleanedUp).toBe(true);
   });
+
+  it("leaves an island nested in a carried island where it is", () => {
+    const inner = (text: string) => island("/src/islands/Inner.tsx", undefined, `<b>${text}</b>`);
+    load(`<html><head></head><body><div id="pracht-root">
+      <main>${island("/src/islands/Outer.tsx", undefined, `<div>${inner("live")}</div>`)}</main>
+    </div></body></html>`);
+    const [outer, nested] = document.querySelectorAll("pracht-island");
+    let unmounted = false;
+    function Inner() {
+      useLayoutEffect(() => () => void (unmounted = true), []);
+      return h("b", null, "live");
+    }
+    hydrate(h(Inner, null), nested);
+    nested.setAttribute("data-hydrated", "true");
+
+    prepareSwap(
+      parse(`<html><head></head><body><div id="pracht-root">
+        <main>${island("/src/islands/Outer.tsx", undefined, `<div>${inner("server")}</div>`)}</main>
+      </div></body></html>`),
+    )!.apply();
+
+    expect(document.querySelector("pracht-island")).toBe(outer);
+    expect(nested.isConnected).toBe(true);
+    expect(outer.contains(nested)).toBe(true);
+    expect(nested.textContent).toBe("live");
+    expect(unmounted).toBe(false);
+  });
 });
 
 describe("settleFocus", () => {
