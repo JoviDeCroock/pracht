@@ -57,7 +57,9 @@ declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
  * Build-time flag: the app has a server islands directory. Server island HTML can arrive
  * after this bootstrap ran and bring islands with it, so the bootstrap then
  * listens for swapped-in server islands. Apps without server islands fold it to `false` and
- * pay nothing for the listener.
+ * pay nothing for the listener. Undefined means enabled: in development the
+ * flag reaches the browser only through Vite's client script, which pages an
+ * adapter serves itself (Cloudflare) do not load.
  */
 declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
 
@@ -97,7 +99,7 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     bindCapabilityRevalidation();
   }
-  if (typeof __PRACHT_SERVER_ISLANDS__ !== "undefined" && __PRACHT_SERVER_ISLANDS__) {
+  if (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) {
     document.addEventListener(SERVER_ISLAND_SWAP_EVENT, (event) => {
       for (const element of (event.target as Element).querySelectorAll(ISLAND_ELEMENT)) {
         scheduleIsland(element, options);
@@ -141,7 +143,7 @@ function scheduleIsland(element: Element, options: HydrateIslandsOptions): void 
 
 async function hydrateIsland(element: Element, options: HydrateIslandsOptions): Promise<void> {
   if (element.getAttribute(ISLAND_HYDRATED_ATTRIBUTE) === "true") return;
-  if (typeof __PRACHT_SERVER_ISLANDS__ !== "undefined" && __PRACHT_SERVER_ISLANDS__) {
+  if (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) {
     // A server island swap can scan an island the initial scan is still importing.
     if (element.hasAttribute(ISLAND_HYDRATED_ATTRIBUTE)) return;
     element.setAttribute(ISLAND_HYDRATED_ATTRIBUTE, "pending");

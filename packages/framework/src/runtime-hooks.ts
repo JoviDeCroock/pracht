@@ -767,8 +767,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           }
           onResponse?.(response);
           if (
-            typeof __PRACHT_SERVER_ISLANDS__ !== "undefined" &&
-            __PRACHT_SERVER_ISLANDS__ &&
+            (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) &&
             response.ok
           ) {
             window.dispatchEvent(new Event(SERVER_ISLAND_REFRESH_EVENT));

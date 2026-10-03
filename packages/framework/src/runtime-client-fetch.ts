@@ -249,8 +249,7 @@ export async function navigateToClientLocation(
     // A submission that redirects — often back to the same page — reloads
     // route state; server islands refresh with it.
     if (
-      typeof __PRACHT_SERVER_ISLANDS__ !== "undefined" &&
-      __PRACHT_SERVER_ISLANDS__ &&
+      (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) &&
       options?.reloadRouteState
     ) {
       window.dispatchEvent(new Event(SERVER_ISLAND_REFRESH_EVENT));

@@ -61,7 +61,7 @@ export async function revalidateRouteData(
   if (SHELL_LOADERS_ENABLED && result.shell && runtimeOwnsCurrentLocation(runtime)) {
     commitShellData(result.shell.data);
   }
-  if (typeof __PRACHT_SERVER_ISLANDS__ !== "undefined" && __PRACHT_SERVER_ISLANDS__) {
+  if (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) {
     window.dispatchEvent(new Event(SERVER_ISLAND_REFRESH_EVENT));
   }
   return result.data;

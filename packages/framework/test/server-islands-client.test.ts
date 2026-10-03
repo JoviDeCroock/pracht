@@ -4,6 +4,7 @@ import { useState } from "preact/hooks";
 import { act } from "preact/test-utils";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { hydrateIslands } from "../src/islands-client.ts";
 import { swapServerIslands } from "../src/server-islands-client.ts";
 import { createClientServerIsland } from "../src/server-islands-component.ts";
 
@@ -136,6 +137,43 @@ describe("swapServerIslands", () => {
     );
     expect(script?.type).toBe("module");
     script?.remove();
+  });
+});
+
+describe("islands inside a swapped server island", () => {
+  it("hydrate on pages where the server islands flag never reached the browser", async () => {
+    // Adapter-owned dev pages (Cloudflare) do not load Vite's client script,
+    // which is what defines build flags in the browser during development.
+    expect(
+      typeof (globalThis as { __PRACHT_SERVER_ISLANDS__?: unknown }).__PRACHT_SERVER_ISLANDS__,
+    ).toBe("undefined");
+    function Counter() {
+      return h("button", null, "hydrated");
+    }
+    document.body.innerHTML = `<pracht-server-island island="${FILE}" pending></pracht-server-island>`;
+    await hydrateIslands({
+      modules: { "/src/islands/Counter.tsx": async () => ({ default: Counter }) },
+    });
+    mockFetch(() =>
+      fragment(
+        '<pracht-island island="/src/islands/Counter.tsx" props="{}"><button>static</button></pracht-island>',
+        { "x-pracht-islands": "/assets/islands-client.js" },
+      ),
+    );
+
+    await swapServerIslands();
+    // The page's bootstrap already ran: the module "loads" again and the
+    // swap script tells it about the new islands.
+    const script = document.head.querySelector<HTMLScriptElement>(
+      'script[src="/assets/islands-client.js"]',
+    )!;
+    script.onload!(new Event("load"));
+    script.remove();
+    await flush();
+
+    const island = document.querySelector("pracht-island")!;
+    expect(island.getAttribute("data-hydrated")).toBe("true");
+    render(null, island);
   });
 });
 
