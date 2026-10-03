@@ -137,6 +137,26 @@ export default defineConfig({
 });
 ```
 
+## Markdown pages ship their prose once
+
+`@pracht/markdown` passes each compiled page to its route as a
+[server-only value](/docs/data-loading#server-only-values), so a Markdown
+route's JavaScript chunk does not repeat the article. The rendered Markdown
+never hydrates: put interactive components in the shell or on an
+[islands](/docs/islands) route.
+
+A client-side navigation then reads the article from the route-state response
+instead of the route chunk. To keep it in the chunk, which the browser caches,
+set `serverOnly: false` on the collection:
+
+```ts [content.ts]
+export const docs = defineMarkdownCollection({
+  name: "docs",
+  root: new URL("./src/routes/docs", import.meta.url),
+  serverOnly: false,
+});
+```
+
 ## Resolve content on the server
 
 The package is server-only. Loaders import a filesystem-free snapshot by

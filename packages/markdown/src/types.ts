@@ -58,6 +58,14 @@ export interface DefineMarkdownCollectionOptions<
     context: MarkdownRenderContext<TFrontmatter>,
   ) => MaybePromise<Record<string, unknown> | undefined>;
   images?: MarkdownImageOptions;
+  /**
+   * Pass each page's compiled HTML to its route as a `serverOnly()` loader
+   * field rendered by `<StaticHtml>` (the default), so the route chunk does
+   * not repeat the article. Set `false` to keep the HTML in the route's
+   * JavaScript chunk instead: the document then carries it twice, but repeat
+   * visits read it from the cached chunk rather than the route-state response.
+   */
+  serverOnly?: boolean;
   artifacts?: readonly ContentArtifactGenerator<TFrontmatter, CompiledMarkdown>[];
   /** Forwarded to `defineCollection`: trim `raw`/`body` from runtime snapshots. */
   snapshot?: ContentSnapshotOptions;

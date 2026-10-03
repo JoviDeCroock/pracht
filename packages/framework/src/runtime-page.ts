@@ -17,6 +17,7 @@ import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
 import { collectFontHeadFragments } from "./font.ts";
+import { stripServerOnlyValues } from "./server-only-strip.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
 import {
   buildRuntimeDiagnostics,
@@ -343,10 +344,15 @@ async function runShellLoader<TContext>(
   // route data, it is only checked when it ships: islands and `none` pages
   // render shell data on the server alone.
   const ships = job.ctx.isRouteStateRequest || (job.match.route.hydration ?? "full") === "full";
+  // A document already carries what a serverOnly() field rendered into, so its
+  // state gets the placeholder; a route-state response keeps the real value.
+  const shipped = job.ctx.isRouteStateRequest ? data : stripServerOnlyValues(data);
   job.shellState = {
     data,
     wire:
-      RICH_ROUTE_DATA && ships ? encodeRouteData(data, `shell "${job.match.route.shell}"`) : data,
+      RICH_ROUTE_DATA && ships
+        ? encodeRouteData(shipped, `shell "${job.match.route.shell}"`)
+        : shipped,
   };
   return undefined;
 }
@@ -649,7 +655,7 @@ async function renderServerDocument<TContext>(
       hydrationState: {
         url: ctx.requestPath,
         routeId: match.route.id ?? "",
-        data: serializedData,
+        data: stripServerOnlyValues(serializedData),
         ...shellHydrationState,
         deferred: pending.map(({ id, path }) => ({ id, path })),
         error: null,
@@ -786,7 +792,11 @@ async function renderServerDocument<TContext>(
       hydrationState: {
         url: ctx.requestPath,
         routeId: match.route.id ?? "",
-        data,
+        // The document already carries whatever a serverOnly() field
+        // rendered into, so the state script carries a placeholder
+        // instead of a second copy. Route-state responses — what a
+        // client-side navigation fetches — keep the real value.
+        data: stripServerOnlyValues(data),
         ...shellHydrationState,
         error: null,
       },
