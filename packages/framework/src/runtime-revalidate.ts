@@ -1,3 +1,4 @@
+import { SERVER_ISLAND_REFRESH_EVENT } from "./server-islands-shared.ts";
 import { deserializeRouteError } from "./runtime-errors.ts";
 import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-client-fetch.ts";
 import type { PrachtRuntimeValue } from "./runtime-context.ts";
@@ -9,6 +10,13 @@ declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
 
 const SHELL_LOADERS_ENABLED =
   typeof __PRACHT_SHELL_LOADERS__ === "undefined" || __PRACHT_SHELL_LOADERS__ !== false;
+
+/**
+ * Build-time flag: the app has a server islands directory. Server islands on full-hydration
+ * pages refetch when route data is refreshed in place; apps without server islands
+ * fold this to `false` and ship none of it.
+ */
+declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
 
 /**
  * Re-fetch the active route's loader data, and its shell's, and commit it.
@@ -52,6 +60,9 @@ export async function revalidateRouteData(
   // No shell is claimed on this request, so the shell loader ran too.
   if (SHELL_LOADERS_ENABLED && result.shell && runtimeOwnsCurrentLocation(runtime)) {
     commitShellData(result.shell.data);
+  }
+  if (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) {
+    window.dispatchEvent(new Event(SERVER_ISLAND_REFRESH_EVENT));
   }
   return result.data;
 }

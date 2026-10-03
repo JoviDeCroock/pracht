@@ -449,8 +449,9 @@ The client updates the component tree in-place.
 
 ## Server pipeline stages
 
-`handlePrachtRequest` is an orchestrator. The work is four stages, and the order
-they run in *is* the routing contract:
+`handlePrachtRequest` is an orchestrator. The work is four stages (plus the
+server island endpoint between the first two), and the order they run in *is* the
+routing contract:
 
 ```
 handlePrachtRequest (runtime.ts)
@@ -462,6 +463,11 @@ handlePrachtRequest (runtime.ts)
 │       upgrade check · load the agent surface and bind agent identity
 │       └─ may answer outright: 308 base redirect, 404 outside base,
 │          403 blocked upgrade, 500 unbindable context
+│
+├─ GET /__pracht/server-island → handleServerIslandRequest (server-islands-server.ts)
+│       match the page path · route binding · page route's middleware ·
+│       loader · render one server island to a private, no-store fragment
+│       (see SERVER_ISLANDS.md)
 │
 ├─ 2. dispatchApi                 (runtime-request.ts)
 │       match src/api · CSRF gate on unsafe methods · api.middleware chain
@@ -515,6 +521,43 @@ delivery hands a sink's returned promise to the same function.
 Consumers that own an error hook skip phase `"waitUntil"` for their own state:
 the dev server logs it without swapping in the error overlay, and prerendering
 logs it without letting it become the render error a failed build reports.
+
+## Server islands
+
+A server island on an SSR page is part of the document request: its loader runs after
+the page has rendered, concurrently with the page's other server islands, and its HTML
+replaces a token in the page before the response is sent. A server island on an SSG or
+ISG page costs one extra request after load:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  BROWSER                          SERVER / CDN                               │
+│                                                                              │
+│  ── GET /pricing ─────────────────►  prerendered HTML (shared, cacheable)    │
+│  ◄── <pracht-server-island pending>fallback + swap script ─────────────────  │
+│                                                                              │
+│  ── GET /__pracht/server-island?island=…&path=/pricing&props=… ──►           │
+│       x-pracht-server-island: 1   Cookie: session=…                          │
+│                                     matchAppRoute("/pricing")                │
+│                                     island bound to that route? else 404     │
+│                                     runMiddlewareChain (page route's)        │
+│                                     loader(context, props, signal)           │
+│                                     render → HTML fragment                   │
+│  ◄── 200 text/html   Cache-Control: private, no-store ─────────────────────  │
+│  swap innerHTML; islands inside it hydrate                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+The endpoint runs a server island only under a route whose route or shell
+module imports it statically; anything else gets the same `404` as a server
+island that does not exist (see "Route binding" in
+[SERVER_ISLANDS.md](SERVER_ISLANDS.md)). Middleware or a loader that answers
+with a `Response` yields `204`; a thrown error yields `500`. Either way the page
+keeps the fallback. On full-hydration pages the client component makes the same
+request itself, after client-side navigation, and after route data is refreshed
+in place.
+
+---
 
 ## Server pipeline parallelism
 

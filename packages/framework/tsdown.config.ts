@@ -13,6 +13,8 @@ export default defineConfig({
     "src/server.ts",
     "src/agent-auth-sign.ts",
     "src/islands-client.ts",
+    "src/server-islands-client.ts",
+    "src/server-islands-component.ts",
     "src/error-overlay.ts",
     "src/dev-404.ts",
     "src/devtools.ts",

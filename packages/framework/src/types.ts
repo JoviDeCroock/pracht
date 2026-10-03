@@ -90,6 +90,17 @@ export interface IslandProps {
   client?: IslandStrategy;
 }
 
+/**
+ * Props accepted by every server island usage. Intersect with your own props type:
+ * `function CartCount(props: CartCountProps & ServerIslandProps)`. `fallback` is
+ * consumed by the framework and never reaches the component: it is what a
+ * cached (SSG/ISG) page shows until the request-time HTML arrives, and what
+ * any page shows when the server island fails.
+ */
+export interface ServerIslandProps {
+  fallback?: ComponentChildren;
+}
+
 export type RouteParams = Record<string, string>;
 
 export type RouteParamInput = string | number | boolean;
@@ -937,6 +948,33 @@ export interface LoaderArgs<TContext = RegisteredContext>
    * registers no root or its root exports no `setup`.
    */
   root?: RegisteredRootState;
+}
+
+/**
+ * Arguments of a server island `loader`: the embedding page's route arguments —
+ * `request` and `url` are the page's, `context` is what the page route's
+ * middleware produced — plus the props the server island was rendered with.
+ *
+ * `props` are untrusted input: on a cached page they travel in the server island
+ * request's query string, where any caller can change them. Treat them like
+ * query parameters and authorize from `context`, never from `props`.
+ */
+export interface ServerIslandLoaderArgs<
+  TContext = RegisteredContext,
+  TProps extends object = Record<string, unknown>,
+> extends LoaderArgs<TContext> {
+  props: TProps;
+}
+
+/** Data a server island reads with `useServerIslandData<typeof loader>()`. */
+export type ServerIslandLoaderData<T> = T extends (...args: any[]) => infer TResult
+  ? Exclude<Awaited<TResult>, Response>
+  : T;
+
+/** Shape of a module in the server islands directory. */
+export interface ServerIslandModule<TContext = any> {
+  default: FunctionComponent<any>;
+  loader?: (args: ServerIslandLoaderArgs<TContext, any>) => MaybePromise<unknown>;
 }
 
 /** The matched page or API route whose middleware chain is running. */

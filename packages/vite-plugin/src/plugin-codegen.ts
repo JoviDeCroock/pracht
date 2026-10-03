@@ -10,9 +10,11 @@ import {
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
+  SERVER_ISLANDS_CLIENT_BROWSER_PATH,
   readClientBuildAssets,
 } from "./plugin-assets.ts";
 import { ROUTE_CSS_CONTENT_TOKEN, ROUTE_CSS_MANIFEST_TOKEN } from "./plugin-server-css.ts";
+import { SERVER_ISLAND_BINDINGS_TOKEN } from "./server-island-bindings.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -840,6 +842,47 @@ export function createPrachtIslandsClientModuleSource(
   ].join("\n");
 }
 
+/**
+ * Source of `virtual:pracht/server-islands-client` — the swap script islands and
+ * `hydration: "none"` pages load when they rendered a pending request-time
+ * server island. It imports nothing from the app: it fetches each pending server island's
+ * HTML and swaps it in.
+ */
+export function createPrachtServerIslandsClientModuleSource(): string {
+  return [
+    'import { startServerIslands } from "@pracht/core/server-islands-client";',
+    "",
+    "startServerIslands();",
+    "",
+  ].join("\n");
+}
+
+const STYLE_IMPORT_RE =
+  /^\s*import\s+(["'])([^"']+\.(?:css|scss|sass|less|styl|stylus|pcss|postcss|sss)(?:\?[^"']*)?)\1\s*;?\s*$/gm;
+
+/**
+ * What a server island module compiles to in the client bundle: a placeholder
+ * component that fills itself from the server island endpoint. The server island's own
+ * code — its loader and whatever that imports — never reaches the browser.
+ * Bare stylesheet imports are kept so a server island's CSS still ships with the
+ * page that renders it.
+ */
+export function createClientServerIslandModuleSource(
+  code: string,
+  serverIslandFile: string,
+): string {
+  const styleImports = [...code.matchAll(STYLE_IMPORT_RE)].map(
+    (match) => `import ${JSON.stringify(match[2])};`,
+  );
+  return [
+    ...styleImports,
+    'import { createClientServerIsland } from "@pracht/core/server-islands-component";',
+    "",
+    `export default createClientServerIsland(${JSON.stringify(serverIslandFile)});`,
+    "",
+  ].join("\n");
+}
+
 export function createPrachtServerModuleSource(
   options: PrachtPluginOptions = {},
   buildOptions: {
@@ -861,6 +904,7 @@ export function createPrachtServerModuleSource(
     : {
         clientEntryUrl: null,
         islandsEntryUrl: null,
+        serverIslandsEntryUrl: null,
         cssManifest: {},
         cssContentManifest: {},
         jsManifest: {},
@@ -900,10 +944,21 @@ export function createPrachtServerModuleSource(
     resolved.islandsDir,
     `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`,
   );
+  const serverIslandsEntryUrl = buildOptions.isBuild
+    ? clientBuild.serverIslandsEntryUrl
+    : withDevBase(SERVER_ISLANDS_CLIENT_BROWSER_PATH);
+  const serverIslandsGlob = moduleGlob(
+    resolved.serverIslandsDir,
+    `${resolved.serverIslandsDir}/**/*.{ts,tsx,js,jsx}`,
+  );
 
   const source = [
     prachtImports,
     'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
+    'import { registerServerIslandModules, setServerIslandsClientEntryUrl } from "@pracht/core/server";',
+    buildOptions.isBuild
+      ? 'import { setServerIslandBindings } from "@pracht/core/server";'
+      : 'import { readServerIslandBindingsFromDevServer } from "@pracht/core/server";',
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -918,6 +973,18 @@ export function createPrachtServerModuleSource(
     "registerServerIslands(islandModules);",
     `setIslandsClientEntryUrl(${JSON.stringify(islandsEntryUrl ?? undefined)});`,
     "export const islandFiles = Object.keys(islandModules);",
+    "",
+    "// Server islands: detected like islands, rendered per request.",
+    `const serverIslandModules = import.meta.glob(${JSON.stringify(serverIslandsGlob)}, { eager: true });`,
+    "registerServerIslandModules(serverIslandModules);",
+    `setServerIslandsClientEntryUrl(${JSON.stringify(serverIslandsEntryUrl ?? undefined)});`,
+    // Which server islands each route and shell module imports. The server island endpoint
+    // runs a server island only under a route that renders it. A build splices the
+    // map in from its module graph (see server-island-bindings.ts); the dev server
+    // computes it per server island request.
+    buildOptions.isBuild
+      ? `setServerIslandBindings(${JSON.stringify(SERVER_ISLAND_BINDINGS_TOKEN)});`
+      : "readServerIslandBindingsFromDevServer();",
     "",
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",

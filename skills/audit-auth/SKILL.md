@@ -172,6 +172,28 @@ target. From `pracht inspect api --json`:
 - Common bug: dashboard route is protected by middleware, but
   `POST /api/items` is not — attacker bypasses the UI entirely.
 
+### Server islands
+
+Every module in `src/server-islands/` (or `pracht({ serverIslandsDir })`) is
+reachable at `GET /__pracht/server-island` with the visitor's cookies, for any
+page whose route or shell imports it statically — with that route's middleware
+(see <https://pracht.resynapse.dev/docs/server-islands#security>). Map each
+server island to the routes that import it, directly or through shared
+components, shells, and barrel names they import (a namespace import of a
+barrel counts for everything it re-exports).
+
+- Flag a server island imported by both gated and ungated routes whose loader
+  returns user-specific data without checking `context` itself — `error`: the
+  ungated route serves it to anyone.
+- Flag pages that gate a server island only at render time
+  (`{isAdmin && <AdminStats />}` behind a loader check, not middleware) —
+  `error`: the endpoint runs it for anyone who passes that route's middleware.
+- Flag server island loaders that pick *whose* data to load from `props`
+  (`userId`, `orderId`, `accountId`) — the caller controls the query string
+  (`error`, IDOR). Identity must come from `context`.
+- Flag server island loaders with side effects (writes, sends) — the endpoint is
+  a `GET` (`warn`).
+
 ## Step 5: Client/server enforcement parity
 
 Grep client components for patterns like `if (!user) return <Login />`. For

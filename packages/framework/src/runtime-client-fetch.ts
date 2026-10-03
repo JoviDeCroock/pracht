@@ -1,3 +1,4 @@
+import { SERVER_ISLAND_REFRESH_EVENT } from "./server-islands-shared.ts";
 import { ROUTE_STATE_REQUEST_HEADER, SHELL_DATA_REQUEST_HEADER } from "./runtime-constants.ts";
 import { buildStaticRouteStateUrl, IS_STATIC_TARGET } from "./runtime-static.ts";
 import type { SerializedRouteError } from "./runtime-errors.ts";
@@ -42,6 +43,13 @@ export type RouteStateResult =
       shell?: { data: unknown };
       fontHead?: FontHeadFragments;
     };
+
+/**
+ * Build-time flag: the app has a server islands directory. Server islands on full-hydration
+ * pages refetch when route data is refreshed in place; apps without server islands
+ * fold this to `false` and ship none of it.
+ */
+declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
 
 /** See `router.ts`: compiled out when the app has no root module. */
 declare const __PRACHT_APP_ROOT__: boolean | undefined;
@@ -269,6 +277,14 @@ export async function navigateToClientLocation(
       _reloadRouteState: options?.reloadRouteState,
       replace: options?.replace,
     });
+    // A submission that redirects — often back to the same page — reloads
+    // route state; server islands refresh with it.
+    if (
+      (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) &&
+      options?.reloadRouteState
+    ) {
+      window.dispatchEvent(new Event(SERVER_ISLAND_REFRESH_EVENT));
+    }
     return;
   }
 

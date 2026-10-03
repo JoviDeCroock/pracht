@@ -300,6 +300,79 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     await page.waitForURL(`${origin}/static`);
     await expect.poll(() => revealedBy("/static")).toBe("transition");
     expect(jsRequests).toEqual([]);
+
+    // (g) Server islands. The prerendered document carries the
+    // fallback and the swap script; the server island's content is fetched per
+    // visitor from the server island endpoint, so the cached HTML never changes.
+    const serverIslandsEntryUrl = `/${manifest["virtual:pracht/server-islands-client"].file}`;
+    const serverIslandsHtml = readFileSync(
+      resolve(exampleDir, "dist/client/server-islands/index.html"),
+      "utf-8",
+    );
+    expect(serverIslandsHtml).toContain("<pracht-server-island");
+    expect(serverIslandsHtml).toContain("Loading visitor…");
+    expect(serverIslandsHtml).toContain(
+      `<script type="module" src="${serverIslandsEntryUrl}"></script>`,
+    );
+    // Pages that render no server island never reference the swap script.
+    expect(staticHtml).not.toContain(serverIslandsEntryUrl);
+    expect(homeHtml).not.toContain(serverIslandsEntryUrl);
+
+    const anonymousDocument = await (await fetch(`${origin}/server-islands`)).text();
+    const visitorDocument = await (
+      await fetch(`${origin}/server-islands`, { headers: { cookie: "visitor=Ada" } })
+    ).text();
+    expect(visitorDocument).toBe(anonymousDocument);
+
+    jsRequests.length = 0;
+    await page.goto(`${origin}/server-islands`);
+    await page.waitForSelector('html[data-pracht-server-islands-ready="true"]');
+    await expect(page.getByTestId("visitor")).toHaveText("Signed out");
+    // A hydration: "none" page with a server island loads the swap script and
+    // nothing else — no Preact, no client runtime.
+    expect(jsRequests).toContain(serverIslandsEntryUrl);
+    expect(jsRequests.some((url) => url.includes("vendor"))).toBe(false);
+    expect(jsRequests).not.toContain(clientEntryUrl);
+
+    await page.context().addCookies([{ name: "visitor", value: "Ada", url: origin }]);
+    await page.reload();
+    await page.waitForSelector('html[data-pracht-server-islands-ready="true"]');
+    await expect(page.getByTestId("visitor")).toHaveText("Welcome back, Ada");
+
+    // SSR renders the server island inline, in the document itself.
+    const ssrServerIslandHtml = await (
+      await fetch(`${origin}/server-islands/ssr`, { headers: { cookie: "visitor=Ada" } })
+    ).text();
+    expect(ssrServerIslandHtml).toContain("Welcome back, Ada");
+    expect(ssrServerIslandHtml).not.toContain(serverIslandsEntryUrl);
+
+    // Islands a server island brings along hydrate once it is swapped in.
+    await page.goto(`${origin}/server-islands/islands`);
+    await expect(page.getByTestId("visitor")).toHaveText("Hello, Ada");
+    await expect(page.locator('pracht-island[island="/src/islands/Counter.tsx"]')).toHaveAttribute(
+      "data-hydrated",
+      "true",
+    );
+    await page.getByTestId("increment").click();
+    await expect(page.getByTestId("count")).toHaveText("Count: 2");
+
+    // Route binding: the build ships which routes render which server islands, and
+    // the endpoint refuses a server island for a page whose route does not render it
+    // exactly as it refuses one that does not exist.
+    const serverIslandAt = (serverIsland: string, path: string) =>
+      fetch(
+        `${origin}/__pracht/server-island?${new URLSearchParams({ island: serverIsland, path })}`,
+        {
+          headers: { "x-pracht-server-island": "1", cookie: "visitor=Ada" },
+        },
+      );
+    const unbound = await serverIslandAt("/src/server-islands/Visitor.tsx", "/static");
+    const unknown = await serverIslandAt("/src/server-islands/Nope.tsx", "/static");
+    expect(unbound.status).toBe(404);
+    expect(await unbound.text()).toBe(await unknown.text());
+    expect(
+      (await serverIslandAt("/src/server-islands/Visitor.tsx", "/server-islands")).status,
+    ).toBe(200);
   } finally {
     if (server) {
       server.kill("SIGTERM");

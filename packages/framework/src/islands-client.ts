@@ -15,6 +15,7 @@ import {
   ISLANDS_HYDRATED_MARKER,
 } from "./islands-shared.ts";
 import { installIslandsNavigation } from "./islands-navigation.ts";
+import { SERVER_ISLAND_SCAN_EVENT, SERVER_ISLAND_SWAP_EVENT } from "./server-islands-shared.ts";
 
 /**
  * Minimal islands bootstrap for routes rendered with `hydration: "islands"`.
@@ -62,8 +63,23 @@ declare const __PRACHT_AGENT_SURFACE__: boolean | undefined;
 declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
 
 /**
+ * Build-time flag: the app has a server islands directory. Server island HTML can arrive
+ * after this bootstrap ran and bring islands with it, so the bootstrap then
+ * listens for swapped-in server islands. Apps without server islands fold it to `false` and
+ * pay nothing for the listener. Undefined means enabled: in development the
+ * flag reaches the browser only through Vite's client script, which pages an
+ * adapter serves itself (Cloudflare) do not load.
+ */
+declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
+
+const SERVER_ISLANDS =
+  typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__ !== false;
+
+let serverIslandSwapsBound = false;
+
+/**
  * `pracht({ client: { islandsNavigation: true } })`: swap islands pages in
- * place instead of loading a new document. Declared here like the flag above,
+ * place instead of loading a new document. Declared here like the flags above,
  * so a bundle without it drops the navigation module and its bookkeeping.
  */
 declare const __PRACHT_ISLANDS_NAVIGATION__: boolean | undefined;
@@ -108,6 +124,14 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   }
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     bindCapabilityRevalidation();
+  }
+  if (SERVER_ISLANDS && !serverIslandSwapsBound) {
+    serverIslandSwapsBound = true;
+    // Islands a server island swap brought in; `scheduleIslands` skips any
+    // the page scan already picked up.
+    document.addEventListener(SERVER_ISLAND_SWAP_EVENT, (event) => {
+      scheduleIslands(event.target as Element, options);
+    });
   }
   if (ISLANDS_NAVIGATION && !navigationInstalled) {
     navigationInstalled = true;
@@ -205,8 +229,12 @@ function slotChildren(element: Element, options: HydrateIslandsOptions) {
         }
         slot.append(...holders[i].childNodes);
         holders[i] = slot;
-        // Islands that shipped inside a <template> were never scheduled.
+        // Islands that shipped inside a <template> were never scheduled, and
+        // its server islands were never fetched.
         scheduleIslands(slot, options);
+        if (SERVER_ISLANDS) {
+          slot.dispatchEvent(new Event(SERVER_ISLAND_SCAN_EVENT, { bubbles: true }));
+        }
       },
     })
   );

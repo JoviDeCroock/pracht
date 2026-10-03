@@ -74,6 +74,14 @@
       "types": "./dist/islands-client.d.mts",
       "default": "./dist/islands-client.mjs"
     },
+    "./server-islands-client": {
+      "types": "./dist/server-islands-client.d.mts",
+      "default": "./dist/server-islands-client.mjs"
+    },
+    "./server-islands-component": {
+      "types": "./dist/server-islands-component.d.mts",
+      "default": "./dist/server-islands-component.mjs"
+    },
     "./error-overlay": {
       "types": "./dist/error-overlay.d.mts",
       "default": "./dist/error-overlay.mjs"

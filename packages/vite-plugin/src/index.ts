@@ -1,6 +1,6 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { resolve } from "node:path";
 import { loadEnv, type Plugin, type UserConfig } from "vite";
@@ -19,6 +19,10 @@ import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
+import {
+  createDevServerIslandBindingsMiddleware,
+  createServerIslandBindingsPlugin,
+} from "./server-island-bindings.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
@@ -28,6 +32,7 @@ import {
   PRACHT_CLIENT_MODULE_ID,
   PRACHT_DEV_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
+  PRACHT_SERVER_ISLANDS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
   PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
@@ -36,6 +41,7 @@ import {
   isDevModule,
   isDevPageToolsModule,
   isIslandsClientModule,
+  isServerIslandsClientModule,
   isServerModule,
   isWebmcpModule,
 } from "./plugin-assets.ts";
@@ -56,7 +62,9 @@ import {
 } from "./plugin-capabilities.ts";
 import {
   clearPagesAppSourceCache,
+  createClientServerIslandModuleSource,
   createPrachtClientModuleSource,
+  createPrachtServerIslandsClientModuleSource,
   createPrachtDevModuleSource,
   createPrachtIslandsClientModuleSource,
   createRouteHintsForVirtualModules,
@@ -136,6 +144,7 @@ export {
   PRACHT_CLIENT_MODULE_ID,
   PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
   PRACHT_ISLANDS_CLIENT_MODULE_ID,
+  PRACHT_SERVER_ISLANDS_CLIENT_MODULE_ID,
   PRACHT_SERVER_MODULE_ID,
   PRACHT_WEBMCP_MODULE_ID,
 };
@@ -214,6 +223,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         (existsSync(resolveConfigPath(configRoot, resolved.islandsDir)) ||
           resolved.client.islandsNavigation ||
           hasWebmcpCapabilities(resolved, configRoot));
+
+      // The server island swap script is its own client entry too, emitted only for
+      // apps that have a server islands directory: every other app ships no trace of
+      // it, and the islands bootstrap drops its server island listener with it.
+      const hasServerIslands = existsSync(resolveConfigPath(configRoot, resolved.serverIslandsDir));
+      const wantsServerIslandsEntry = env.command === "build" && !isSSRBuild && hasServerIslands;
+      const serverIslandsDefine = String(env.command !== "build" || hasServerIslands);
 
       // `publicEnv` needs every PRACHT_PUBLIC_ key, but reading the whole
       // `import.meta.env` object to enumerate them makes Vite inline *all*
@@ -308,7 +324,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
             (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
               ?.output,
             resolveConfigPath(configRoot, resolved.islandsDir),
-            { edge: isEdge },
+            {
+              edge: isEdge,
+              serverIslandsDirectory: resolveConfigPath(configRoot, resolved.serverIslandsDir),
+            },
           )
         : {};
       if (serverChunkConfig.warning) {
@@ -348,6 +367,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_SHELL_LOADERS__: shellLoadersDefine,
           __PRACHT_APP_ROOT__: appRootDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
+          __PRACHT_SERVER_ISLANDS__: serverIslandsDefine,
           ...clientFeatureDefines,
         },
         // The vendor split only makes sense for the client bundle; the server
@@ -359,7 +379,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           : {
               build: {
                 rollupOptions: {
-                  ...(wantsIslandsEntry ? { input: [PRACHT_ISLANDS_CLIENT_MODULE_ID] } : {}),
+                  ...(wantsIslandsEntry || wantsServerIslandsEntry
+                    ? {
+                        input: [
+                          ...(wantsIslandsEntry ? [PRACHT_ISLANDS_CLIENT_MODULE_ID] : []),
+                          ...(wantsServerIslandsEntry
+                            ? [PRACHT_SERVER_ISLANDS_CLIENT_MODULE_ID]
+                            : []),
+                        ],
+                      }
+                    : {}),
                   ...(clientChunkConfig.output ? { output: clientChunkConfig.output } : {}),
                 },
               },
@@ -447,6 +476,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 
     resolveId(id, importer, resolveIdOptions) {
       if (isIslandsClientModule(id)) return PRACHT_ISLANDS_CLIENT_MODULE_ID;
+      if (isServerIslandsClientModule(id)) return PRACHT_SERVER_ISLANDS_CLIENT_MODULE_ID;
       if (isClientModule(id)) return PRACHT_CLIENT_MODULE_ID;
       if (isDevModule(id)) return PRACHT_DEV_MODULE_ID;
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
@@ -474,9 +504,23 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       return null;
     },
 
-    load(id) {
+    load(id, loadOptions) {
       if (isIslandsClientModule(id)) {
         return createPrachtIslandsClientModuleSource(resolved, { root });
+      }
+      if (isServerIslandsClientModule(id)) {
+        return createPrachtServerIslandsClientModuleSource();
+      }
+      // A server island is server-only: the browser gets a placeholder component
+      // that fetches the server island's request-time HTML instead of its code.
+      if (!loadOptions?.ssr) {
+        const serverIslandFile = serverIslandModuleFile(id, root, resolved.serverIslandsDir);
+        if (serverIslandFile) {
+          return createClientServerIslandModuleSource(
+            readFileSync(id.split("?")[0], "utf-8"),
+            serverIslandFile,
+          );
+        }
       }
       if (isClientModule(id)) {
         clientRouteHints = createRouteHintsForVirtualModules(resolved, root);
@@ -546,6 +590,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
 
       if (resolved.adapter.ownsDevServer) {
+        // First, ahead of the adapter's own request handling: it strips the
+        // route↔server island bindings header from every request before setting it.
+        server.middlewares.use(
+          createDevServerIslandBindingsMiddleware(server, {
+            serverIslandsDir: resolved.serverIslandsDir,
+            basePathRetained: true,
+          }),
+        );
         server.middlewares.use(createOwnedDevEntryMiddleware(server));
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
@@ -560,6 +612,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const backgroundWork = createWaitUntilTracker();
       devBackgroundWork = backgroundWork;
       return () => {
+        server.middlewares.use(
+          createDevServerIslandBindingsMiddleware(server, {
+            serverIslandsDir: resolved.serverIslandsDir,
+            basePathRetained: false,
+          }),
+        );
         server.middlewares.use(
           createDevSSRMiddleware(server, {
             adapterDev: resolved.adapter.dev,
@@ -757,6 +815,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         resolved.apiDir,
         resolved.serverDir,
         resolved.islandsDir,
+        resolved.serverIslandsDir,
         resolved.capabilitiesDir,
       ];
       if (dirs.some((dir) => relative.startsWith(dir))) {
@@ -874,6 +933,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     inlineCss: resolved.inlineCss,
   });
 
+  const serverIslandBindingsPlugin = createServerIslandBindingsPlugin({
+    serverIslandsDir: resolved.serverIslandsDir,
+    routesDir: resolved.routesDir,
+    shellsDir: resolved.shellsDir,
+    pagesDir: resolved.pagesDir,
+  });
+
   const optimizeDepsEntriesPlugin: Plugin = {
     name: "pracht:optimize-deps-entries",
     enforce: "post",
@@ -912,6 +978,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...(clientModulePrefreshPlugin ? [clientModulePrefreshPlugin] : []),
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     serverCssAssetsPlugin,
+    serverIslandBindingsPlugin,
     createEnvSafetyPlugin(resolved.envSafety),
   ];
 
@@ -1424,6 +1491,20 @@ function isRouteOrShellFile(id: string, dirs: string[], extensions: Set<string>)
   if (!extensions.has(ext)) return false;
   const normalized = toPosixPath(path);
   return dirs.some((dir) => normalized.startsWith(dir));
+}
+
+const SERVER_ISLAND_MODULE_RE = /\.(?:[cm]?[jt]sx?)$/;
+
+/**
+ * The project-root-relative path of a server island module (the key the server's
+ * server island registry uses), or null when `id` is not one.
+ */
+function serverIslandModuleFile(id: string, root: string, serverIslandsDir: string): string | null {
+  const file = toPosixPath(id.split("?")[0] ?? "");
+  const directory = withTrailingSep(resolveConfigPath(root, serverIslandsDir));
+  if (!file.startsWith(directory) || !SERVER_ISLAND_MODULE_RE.test(file)) return null;
+  const normalizedRoot = toPosixPath(root).replace(/\/$/, "");
+  return file.startsWith(`${normalizedRoot}/`) ? file.slice(normalizedRoot.length) : null;
 }
 
 function resolveConfigPath(root: string, configPath: string): string {

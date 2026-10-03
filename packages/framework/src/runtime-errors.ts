@@ -44,6 +44,12 @@ export interface RouteErrorContext {
   loaderFile?: string;
   shellFile?: string;
   middlewareFiles?: string[];
+  /**
+   * Set when the failure happened inside a server island (its loader or
+   * its render) rather than in the page itself. The page still rendered; the
+   * server island fell back.
+   */
+  serverIslandFile?: string;
   /** The app root module, when loading it or its `setup()` failed. */
   rootFile?: string;
 }
@@ -232,6 +238,7 @@ export function describeRouteErrorModule(
 ): string | undefined {
   if (!context) return undefined;
   if (context.rootFile) return context.rootFile;
+  if (context.serverIslandFile && context.phase !== "middleware") return context.serverIslandFile;
   if (context.phase === "middleware" && context.middlewareFiles?.length) {
     return context.middlewareFiles.join(", ");
   }

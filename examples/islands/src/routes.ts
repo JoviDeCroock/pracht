@@ -8,6 +8,9 @@ export const app = defineApp({
   // Page changes here are full document loads, so this animates them as
   // cross-document view transitions (zero JavaScript).
   viewTransitions: true,
+  middleware: {
+    visitor: () => import("./middleware/visitor.ts"),
+  },
   routes: [
     group({ shell: "site" }, [
       // Mostly-static SSG page with one eagerly-hydrated counter island.
@@ -54,6 +57,35 @@ export const app = defineApp({
         id: "full",
         render: "ssg",
       }),
+      // Server islands: per-visitor content inside otherwise cached pages.
+      // The server island endpoint runs the `visitor` middleware of the route
+      // that renders the server island.
+      group({ middleware: ["visitor"] }, [
+        route("/server-islands", () => import("./routes/server-islands.tsx"), {
+          id: "server-islands",
+          render: "ssg",
+          hydration: "none",
+        }),
+        route("/server-islands/ssr", () => import("./routes/server-islands.tsx"), {
+          id: "server-islands-ssr",
+          render: "ssr",
+          hydration: "none",
+        }),
+        route("/server-islands/islands", () => import("./routes/server-islands-with-islands.tsx"), {
+          id: "server-islands-islands",
+          render: "ssg",
+          hydration: "islands",
+        }),
+        route("/server-islands/full", () => import("./routes/server-islands-full.tsx"), {
+          id: "server-islands-full",
+          render: "ssg",
+        }),
+        route("/server-islands/children", () => import("./routes/server-islands-children.tsx"), {
+          id: "server-islands-children",
+          render: "ssg",
+          hydration: "islands",
+        }),
+      ]),
     ]),
     // Two islands pages sharing a shell island. With
     // `pracht({ client: { islandsNavigation: true } })` links between them
