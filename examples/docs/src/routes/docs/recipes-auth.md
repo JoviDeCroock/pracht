@@ -203,24 +203,38 @@ later keeps existing hashes valid.
 ## 4. Login and Logout
 
 The login page renders the form; an API route validates and issues the
-session.
+session. Both read a `redirect` target from the request, so both pass it
+through the same same-origin check.
+
+```ts [src/server/redirects.ts]
+// The redirect target is user input. Parse it before trusting it: URL parsing
+// turns `\` into `/` and drops tabs, so `/\evil.com` starts with `/` but
+// lands on another origin.
+export function safeRedirectPath(value: unknown, base: URL, fallback: string): string {
+  if (typeof value !== "string" || !value.startsWith("/")) return fallback;
+  try {
+    const target = new URL(value, base);
+    return target.origin === base.origin
+      ? `${target.pathname}${target.search}${target.hash}`
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+```
 
 ```ts [src/api/auth/login.ts]
 import { redirect, type ApiRouteArgs } from "@pracht/core";
 
+import { safeRedirectPath } from "../../server/redirects.ts";
 import { sessions } from "../../server/session.ts";
 import { verifyCredentials } from "../../server/users.ts";
 
-export async function POST({ request }: ApiRouteArgs) {
+export async function POST({ request, url }: ApiRouteArgs) {
   const form = await request.formData();
   const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
-
-  // The redirect target is user input. Anything that is not a plain
-  // root-relative path is an open redirect waiting to happen.
-  const requested = String(form.get("redirect") ?? "/dashboard");
-  const target =
-    requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard";
+  const target = safeRedirectPath(form.get("redirect"), url, "/dashboard");
 
   const user = await verifyCredentials(email, password);
   if (!user) {
@@ -261,13 +275,14 @@ login path correct if you add a store later.
 ```tsx [src/routes/login.tsx]
 import { Form, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
 
+import { safeRedirectPath } from "../server/redirects.ts";
+
 export async function loader({ url }: LoaderArgs) {
-  const requested = url.searchParams.get("redirect") ?? "/dashboard";
   return {
     error: url.searchParams.get("error") === "1",
     // Reflecting an unvalidated `?redirect=` back into the form hands an
     // attacker an open redirect through a legitimate-looking login link.
-    redirect: requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard",
+    redirect: safeRedirectPath(url.searchParams.get("redirect"), url, "/dashboard"),
   };
 }
 
