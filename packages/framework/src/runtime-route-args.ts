@@ -27,12 +27,16 @@ export interface PageRouteArgsInit<TContext> {
   errorContext?: Omit<RouteErrorContext, "phase">;
 }
 
-/** Build the `BaseRouteArgs` for one matched page route. */
+/**
+ * Build the route args for one matched page route. `search` and `root` are
+ * filled in later, after middleware: `applyRouteSearch()` sets
+ * `search`, and each caller sets `root` from `resolveRequestRoot()`.
+ */
 export function createPageRouteArgs<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
   match: RouteMatch,
   init: PageRouteArgsInit<TContext>,
-): BaseRouteArgs<TContext> {
+): LoaderArgs<TContext> {
   return {
     request: init.request,
     params: match.params,

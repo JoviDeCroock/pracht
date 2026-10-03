@@ -1,5 +1,5 @@
-import { createContext, h, options } from "preact";
-import type { ComponentType, VNode } from "preact";
+import { Component, createContext, Fragment, h, options } from "preact";
+import type { ComponentChildren, ComponentType, VNode } from "preact";
 import { useContext } from "preact/hooks";
 
 import {
@@ -7,11 +7,13 @@ import {
   ISLAND_EXPORT_ATTRIBUTE,
   ISLAND_FILE_ATTRIBUTE,
   ISLAND_PROPS_ATTRIBUTE,
+  ISLAND_SLOT_ELEMENT,
+  ISLAND_SLOT_END,
   ISLAND_STRATEGIES,
   ISLAND_STRATEGY_ATTRIBUTE,
 } from "./islands-shared.ts";
 import { ScriptCaptureContext } from "./script.ts";
-import type { IslandStrategy } from "./types.ts";
+import type { IslandStrategy, ResolvedApiRoute, ResolvedPrachtApp } from "./types.ts";
 
 /**
  * Server-side islands support.
@@ -48,6 +50,43 @@ export interface IslandCapture {
 }
 
 export const IslandCaptureContext = createContext<IslandCapture | null>(null);
+
+/**
+ * The context entries the app root's `Root` set, each holding its value from
+ * outside `Root`. An island hydrates on its own in the browser, without
+ * `Root` around it, so an islands-mode render puts these back around each
+ * island: the server render then sees what the browser will, and an island
+ * that needs the root fails on the server instead of at hydration.
+ */
+export const IslandRootContextReset = createContext<Record<string, unknown> | null>(null);
+
+class IslandRootBoundary extends Component<{
+  descriptor: IslandDescriptor;
+  reset: Record<string, unknown>;
+  children?: ComponentChildren;
+}> {
+  getChildContext() {
+    return this.props.reset;
+  }
+
+  componentDidCatch(error: unknown) {
+    if (!(error instanceof Error) || error.name === "PrachtHttpError") throw error;
+    const { name, file } = this.props.descriptor;
+    const message =
+      `[pracht] Island "${name}" (${file}) threw while rendering: ${error.message}\n` +
+      "An island renders without the app root's Root, on the server and in the browser. " +
+      "If it reads something Root provides (such as a QueryClient), read it in the route " +
+      "component and pass the island the result as props.";
+    const wrapped = new Error(message, { cause: error });
+    const frames = error.stack?.indexOf("\n    at ") ?? -1;
+    if (frames !== -1) wrapped.stack = `Error: ${message}${error.stack!.slice(frames)}`;
+    throw wrapped;
+  }
+
+  render() {
+    return this.props.children;
+  }
+}
 
 const islandRegistry = new Map<ComponentType<any>, IslandDescriptor>();
 let islandsClientEntryUrl: string | undefined;
@@ -101,6 +140,7 @@ export function hasRegisteredIslands(): boolean {
 /** @internal Reset module state for tests. */
 export function _resetIslandsForTesting(): void {
   islandRegistry.clear();
+  contextWarnings.clear();
   islandsClientEntryUrl = undefined;
   skipWrapForType = null;
 }
@@ -127,6 +167,17 @@ function installIslandVnodeHook(): void {
     }
     if (previousHook) previousHook(vnode);
   };
+
+  if (DEV) {
+    // preact-render-to-string calls `options.__b` for every vnode it renders,
+    // after setting the vnode's parent (`__`).
+    const optionsWithDiff = options as { __b?: (vnode: RenderedVNode) => void };
+    const previousDiff = optionsWithDiff.__b;
+    optionsWithDiff.__b = (vnode) => {
+      checkSlotNesting(vnode);
+      if (previousDiff) previousDiff(vnode);
+    };
+  }
 }
 
 function renderOriginal(type: ComponentType<any>, props: Record<string, unknown>): VNode<any> {
@@ -138,12 +189,31 @@ function renderOriginal(type: ComponentType<any>, props: Record<string, unknown>
   }
 }
 
-function IslandBoundary(props: Record<string, unknown>) {
+/**
+ * Puts the app root's context entries back around an island's children: they
+ * are page content, kept as server HTML in the browser, so they render with
+ * what the page sees rather than what the island does.
+ */
+class IslandRootRestore extends Component<{
+  entries: Record<string, unknown>;
+  children?: ComponentChildren;
+}> {
+  getChildContext() {
+    return this.props.entries;
+  }
+
+  render() {
+    return this.props.children;
+  }
+}
+
+function IslandBoundary(props: Record<string, unknown>, legacyContext?: Record<string, unknown>) {
   const { [ISLAND_TYPE_PROP]: type, ...rest } = props as Record<string, unknown> & {
     [ISLAND_TYPE_PROP]: ComponentType<any>;
   };
   const capture = useContext(IslandCaptureContext);
   const scriptCapture = useContext(ScriptCaptureContext);
+  const rootReset = useContext(IslandRootContextReset);
   const descriptor = islandRegistry.get(type);
 
   if (!capture || !descriptor) {
@@ -157,12 +227,13 @@ function IslandBoundary(props: Record<string, unknown>) {
   const { client, children, ...componentProps } = rest;
   const strategy = validateIslandStrategy(client, descriptor);
 
-  if (children != null && !(Array.isArray(children) && children.length === 0)) {
-    throw new Error(
-      `Island "${descriptor.name}" (${descriptor.file}) received children from a server ` +
-        "component. Passing children/slots into islands is not supported in v1 — move the " +
-        "content inside the island component, or pass it as a JSON-serializable prop.",
-    );
+  const kind = classifyChildren(children, descriptor);
+  if (kind === "text") {
+    // Plain text and numbers stay a value the island can use (a title, a
+    // clipboard string); they travel in the props JSON like any other prop.
+    // JSX splits interpolated text (`npm i {pkg}`) into an array; join it so
+    // the island gets the one string it renders.
+    componentProps.children = Array.isArray(children) ? joinTextChildren(children) : children;
   }
 
   validateIslandProps(componentProps, descriptor);
@@ -183,13 +254,51 @@ function IslandBoundary(props: Record<string, unknown>) {
     attributes[ISLAND_PROPS_ATTRIBUTE] = serializedProps;
   }
 
+  // Children from the page are server content. The island receives them
+  // wrapped in a slot element whose nodes the browser keeps as rendered. They
+  // render with the page's captures restored, so an island inside them gets
+  // its own marker and hydrates on its own, and a <Script> there counts as
+  // outside this island. If the island does not place its children (a closed
+  // disclosure, say), they ship in a <template> so the client can show them
+  // later.
+  const slot: SlotState | null =
+    kind === "markup"
+      ? {
+          capture,
+          children,
+          descriptor,
+          islandsBefore: 0,
+          placed: false,
+          providesContext: false,
+          content: h(
+            IslandCaptureContext.Provider,
+            { value: capture },
+            restoreRootContext(
+              rootReset,
+              legacyContext,
+              scriptCapture
+                ? h(
+                    ScriptCaptureContext.Provider,
+                    { value: scriptCapture },
+                    children as ComponentChildren,
+                  )
+                : (children as ComponentChildren),
+            ),
+          ),
+        }
+      : null;
+
   // Islands nested inside this island's subtree hydrate as part of this
   // island, so they must not emit their own markers: null out the capture
   // context for the wrapped subtree.
   let subtree: VNode<any> = h(
     IslandCaptureContext.Provider,
     { value: null },
-    renderOriginal(type, componentProps),
+    renderOriginal(
+      type,
+      slot ? { ...componentProps, children: h(IslandSlot, { slot }) } : componentProps,
+    ),
+    slot ? h(IslandSlotFallback, { slot }) : null,
   );
   if (scriptCapture) {
     // Re-provide the script capture with the inside-island flag set (scripts
@@ -201,7 +310,231 @@ function IslandBoundary(props: Record<string, unknown>) {
       subtree,
     );
   }
+  if (rootReset) {
+    subtree = h(IslandRootBoundary, { descriptor, reset: rootReset }, subtree);
+  }
   return h(ISLAND_ELEMENT, attributes, subtree);
+}
+
+function restoreRootContext(
+  reset: Record<string, unknown> | null,
+  context: Record<string, unknown> | undefined,
+  children: ComponentChildren,
+): ComponentChildren {
+  if (!reset || !context) return children;
+  const entries: Record<string, unknown> = {};
+  for (const key in reset) entries[key] = context[key];
+  return h(IslandRootRestore, { entries }, children);
+}
+
+interface SlotState {
+  capture: IslandCapture;
+  children: unknown;
+  descriptor: IslandDescriptor;
+  /** Islands registered before the slot content rendered. */
+  islandsBefore: number;
+  placed: boolean;
+  /** A component between the island and its slot provides context. */
+  providesContext: boolean;
+  content: VNode<any>;
+}
+
+const DEV: boolean = Boolean(
+  (import.meta as { env?: { DEV?: boolean } }).env?.DEV ??
+  (typeof process !== "undefined" && process.env?.NODE_ENV !== "production"),
+);
+
+// The HTML parser reads the content of these as text, or drops unknown
+// elements inside them (select/option in some browsers), at any depth.
+const SLOT_TEXT_ANCESTOR =
+  /^(textarea|title|script|style|xmp|iframe|noembed|noframes|noscript|select|option|optgroup|datalist)$/;
+// ...moves an unknown element out of table parts; media and ruby parents
+// ignore a <source>, <track>, or <rt> that is not their direct child; and SVG
+// and MathML parents with a fixed content model do not render a <g> or <mrow>
+// child as a group.
+const SLOT_DIRECT_PARENT =
+  /^(table|thead|tbody|tfoot|tr|colgroup|video|audio|picture|ruby|rtc|text|tspan|textPath|linearGradient|radialGradient|clipPath|filter|switch|mfrac|msup|msub|msubsup|mroot|munder|mover|munderover)$/;
+// Elements whose first-child position carries meaning.
+const SLOT_FIRST_CHILD: Record<string, string> = { details: "summary", fieldset: "legend" };
+
+interface RenderedVNode {
+  type: unknown;
+  props?: { slot?: SlotState };
+  __?: RenderedVNode | null;
+  __c?: { getChildContext?: unknown } | null;
+}
+
+// Start tags that make the HTML parser close an open <p>.
+const CLOSES_P =
+  /^(address|article|aside|blockquote|center|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|li|listing|main|menu|nav|ol|p|plaintext|pre|search|section|summary|table|ul|xmp)$/;
+// Elements that end the parser's search for an open <p>, <a>, or <button>.
+const PARSER_SCOPE =
+  /^(applet|caption|html|table|td|th|marquee|object|template|svg|math|foreignObject)$/;
+
+/**
+ * Dev-only: a block element in an island's children with a <p> around the
+ * slot (or an <a> or <button> inside an <a> or <button>) makes the HTML parser
+ * close that element, taking the slot with it. The client would then leave the
+ * island unhydrated; say so on the server, where the parent tag is known.
+ */
+function checkSlotNesting(vnode: RenderedVNode): void {
+  const tag = vnode.type;
+  if (typeof tag !== "string") return;
+  const closes = tag === "a" || tag === "button" ? tag : CLOSES_P.test(tag) ? "p" : null;
+  if (!closes) return;
+  let slot: SlotState | undefined;
+  for (let parent = vnode.__; parent; parent = parent.__) {
+    const type = parent.type;
+    if (type === IslandSlot) {
+      slot ??= parent.props?.slot;
+    } else if (typeof type === "string") {
+      if (type === closes) {
+        if (!slot) return;
+        const { descriptor } = slot;
+        throw new Error(
+          `Island "${descriptor.name}" (${descriptor.file}) renders its children inside ` +
+            `<${closes}>, and they contain ${closes === "p" ? "a" : "another"} <${tag}>. The ` +
+            `browser ${closes === "p" ? "closes the <p>" : `cannot nest <${tag}>`} there and ` +
+            "moves the children out of the island, so it would not hydrate. Change the element " +
+            "around the children, or the children's markup.",
+        );
+      }
+      // The <p> cannot be open below a <button> or a block element (which
+      // closed it already).
+      if (
+        PARSER_SCOPE.test(type) ||
+        (closes === "p" && (type === "button" || CLOSES_P.test(type)))
+      ) {
+        return;
+      }
+    }
+  }
+}
+
+function IslandSlot(this: { __v?: RenderedVNode } | undefined, { slot }: { slot: SlotState }) {
+  // preact-render-to-string gives each component its vnode (`__v`), each
+  // vnode its parent (`__`) and component (`__c`); walk up the ancestors the
+  // slot lands in.
+  let parentTag: string | undefined;
+  let namespace: string | undefined;
+  let insideIsland = true;
+  for (let vnode = this?.__v?.__; vnode; vnode = vnode.__) {
+    const tag = vnode.type;
+    if (typeof tag === "string") {
+      parentTag ??= tag;
+      if (SLOT_TEXT_ANCESTOR.test(tag)) throw slotError(slot, `inside <${tag}>`);
+      if (!namespace && (tag === "svg" || tag === "math" || tag === "foreignObject")) {
+        namespace = tag;
+      }
+    } else if (tag === IslandBoundary) {
+      insideIsland = false;
+    } else if (
+      insideIsland &&
+      vnode.__c?.getChildContext &&
+      tag !== IslandCaptureContext.Provider &&
+      tag !== ScriptCaptureContext.Provider
+    ) {
+      slot.providesContext = true;
+    }
+  }
+  if (parentTag && SLOT_DIRECT_PARENT.test(parentTag)) {
+    throw slotError(slot, `directly inside <${parentTag}>`);
+  }
+  const firstChild = parentTag && SLOT_FIRST_CHILD[parentTag];
+  if (firstChild && hasTopLevelElement(slot.children, firstChild)) {
+    throw slotError(
+      slot,
+      `inside <${parentTag}>, including a <${firstChild}> that must come first`,
+    );
+  }
+
+  slot.placed = true;
+  slot.islandsBefore = slot.capture.islands.length;
+  // An unknown element inside SVG or MathML is not rendered; use each
+  // language's transparent grouping element there.
+  const tag = namespace === "svg" ? "g" : namespace === "math" ? "mrow" : ISLAND_SLOT_ELEMENT;
+  return h(
+    tag,
+    tag === ISLAND_SLOT_ELEMENT ? { style: "display:contents" } : { [ISLAND_SLOT_ELEMENT]: "" },
+    slot.content,
+    slotEnd(),
+  );
+}
+
+// Renders after the island's own output, so `placed` is settled by then.
+function IslandSlotFallback({ slot }: { slot: SlotState }) {
+  const { capture, descriptor } = slot;
+  if (
+    DEV &&
+    slot.providesContext &&
+    capture.islands.length > slot.islandsBefore &&
+    !contextWarnings.has(descriptor.file)
+  ) {
+    contextWarnings.add(descriptor.file);
+    console.warn(
+      `[pracht] Island "${descriptor.name}" (${descriptor.file}) provides context around ` +
+        "its children, and those children contain an island. That island hydrates on its " +
+        "own and reads the context's default value in the browser. Pass the value as a prop.",
+    );
+  }
+  return slot.placed ? null : h("template", { [ISLAND_SLOT_ELEMENT]: "" }, slot.content, slotEnd());
+}
+
+const contextWarnings = new Set<string>();
+
+function slotEnd(): VNode<any> {
+  return h(Fragment, { UNSTABLE_comment: ISLAND_SLOT_END } as Record<string, unknown>);
+}
+
+function slotError(slot: SlotState, where: string): Error {
+  const { descriptor } = slot;
+  return new Error(
+    `Island "${descriptor.name}" (${descriptor.file}) renders its children ${where}. ` +
+      `Children arrive in a <${ISLAND_SLOT_ELEMENT}> element, which the browser cannot keep ` +
+      "there. Render that markup inside the island, or pass the whole element as children.",
+  );
+}
+
+function hasTopLevelElement(children: unknown, tag: string): boolean {
+  if (Array.isArray(children)) return children.some((child) => hasTopLevelElement(child, tag));
+  const vnode = children as { type?: unknown; props?: { children?: unknown } } | null;
+  return vnode?.type === Fragment
+    ? hasTopLevelElement(vnode.props?.children, tag)
+    : vnode?.type === tag;
+}
+
+/**
+ * "markup" children travel as server HTML in a slot; "text" (strings and
+ * numbers only) travels in the props JSON; "none" renders nothing.
+ */
+function classifyChildren(
+  children: unknown,
+  descriptor: IslandDescriptor,
+): "none" | "text" | "markup" {
+  if (Array.isArray(children)) {
+    let kind: "none" | "text" | "markup" = "none";
+    for (const child of children) {
+      const childKind = classifyChildren(child, descriptor);
+      if (childKind === "markup") kind = "markup";
+      else if (childKind === "text" && kind === "none") kind = "text";
+    }
+    return kind;
+  }
+  if (typeof children === "function") {
+    throw new Error(
+      `Island "${descriptor.name}" (${descriptor.file}) received a function as children. ` +
+        "Children passed into an island render on the server, so they must be JSX, not a " +
+        "render function.",
+    );
+  }
+  if (typeof children === "string" || typeof children === "number") return "text";
+  return children == null || typeof children === "boolean" ? "none" : "markup";
+}
+
+/** Join text children the way they render: nested arrays flattened, holes skipped. */
+function joinTextChildren(children: unknown): string {
+  if (Array.isArray(children)) return children.map(joinTextChildren).join("");
+  return typeof children === "string" || typeof children === "number" ? String(children) : "";
 }
 
 function validateIslandStrategy(client: unknown, descriptor: IslandDescriptor): IslandStrategy {
@@ -325,4 +658,53 @@ function islandPropError(path: string, reason: string, descriptor: PropOwner): E
       `JSON-serializable: ${path} ${reason}. ${travel}, so they must be JSON-serializable values ` +
       "(string, finite number, boolean, null, arrays, and plain objects).",
   );
+}
+
+const islandsNavigationRoutesCache = new WeakMap<ResolvedPrachtApp, string[]>();
+
+/**
+ * The route table `client.islandsNavigation` decides with before it fetches
+ * anything, in the order the server matches (API routes, then pages): `+path`
+ * for an `islands`/`none` page the bootstrap may swap in, `-path` for an API
+ * route or full-hydration page in front of one. A `-` entry no URL could match
+ * together with a later `+` entry cannot change an answer, so it is left out —
+ * the table never lists more of the app than it has to.
+ */
+export function islandsNavigationRoutes(
+  app: ResolvedPrachtApp,
+  apiRoutes: readonly ResolvedApiRoute[] = [],
+): string[] {
+  let table = islandsNavigationRoutesCache.get(app);
+  if (!table) {
+    const all = [
+      ...apiRoutes.map((route) => `-${route.path}`),
+      ...app.routes.map(
+        (route) =>
+          `${route.render !== "spa" && (route.hydration ?? "full") !== "full" ? "+" : "-"}${route.path}`,
+      ),
+    ];
+    table = all.filter(
+      (entry, index) =>
+        entry.startsWith("+") ||
+        all
+          .slice(index + 1)
+          .some((later) => later.startsWith("+") && patternsOverlap(entry, later)),
+    );
+    islandsNavigationRoutesCache.set(app, table);
+  }
+  return table;
+}
+
+/** Whether some URL path matches both route patterns (`+`/`-` prefix ignored). */
+export function patternsOverlap(a: string, b: string): boolean {
+  const left = a.slice(1).split("/").filter(Boolean);
+  const right = b.slice(1).split("/").filter(Boolean);
+  const isCatchAll = (segment: string) => segment === "*" || /^:.*\*$/.test(segment);
+  for (let i = 0; ; i++) {
+    const l = left[i];
+    const r = right[i];
+    if ((l !== undefined && isCatchAll(l)) || (r !== undefined && isCatchAll(r))) return true;
+    if (l === undefined || r === undefined) return l === r;
+    if (l[0] !== ":" && r[0] !== ":" && l !== r) return false;
+  }
 }

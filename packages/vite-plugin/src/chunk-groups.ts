@@ -174,11 +174,22 @@ export const SERVER_ISLAND_CHUNK_PREFIX = "server-islands/";
  *
  * Contributed in whichever form the app configured, for the same reason
  * {@link frameworkChunkConfig} is.
+ *
+ * Edge targets (`ssr.target: "webworker"`) need one more thing: Vite switches
+ * code splitting off for a single-entry webworker build, which folds every
+ * route into the server entry and merges the whole app's CSS into one
+ * stylesheet no route can claim. `edge` turns splitting back on explicitly, so
+ * a route keeps its own chunk and its own stylesheet there too. Both edge
+ * runtimes load the extra modules: Wrangler uploads them (or folds them back
+ * in with its own bundler) and Vercel bundles whatever the entry imports.
  */
 export function islandChunkConfig(
   output: unknown,
   islandsDirectory: string,
-  serverIslandsDirectory?: string,
+  {
+    edge = false,
+    serverIslandsDirectory,
+  }: { edge?: boolean; serverIslandsDirectory?: string } = {},
 ): FrameworkChunkConfig {
   // Server islands are imported eagerly by the server entry for the same reason
   // islands are, so they get the same one-chunk-each treatment.
@@ -196,7 +207,16 @@ export function islandChunkConfig(
   }
 
   const options = (output ?? {}) as OutputOptionsLike;
-  if (options.codeSplitting === false) return {};
+  if (options.codeSplitting === false) {
+    return edge
+      ? {
+          warning:
+            "build.rollupOptions.output.codeSplitting is false, so the edge server bundle is a " +
+            "single chunk. Routes that do not fully hydrate cannot be told apart in it and will " +
+            "render without their own stylesheets.",
+        }
+      : {};
+  }
 
   const groups: ChunkGroup[] = [
     {
@@ -206,13 +226,17 @@ export function islandChunkConfig(
   ];
 
   if (options.codeSplitting === undefined) {
+    // `codeSplitting: true` keeps the deprecated forms working while overriding
+    // the single-chunk default Vite picks for webworker builds.
+    const enableSplitting = edge ? { codeSplitting: true } : {};
     if (isRecord(options.advancedChunks)) {
-      return { output: { advancedChunks: { groups } } };
+      return { output: { ...enableSplitting, advancedChunks: { groups } } };
     }
     if (typeof options.manualChunks === "function") {
       const appManualChunks = options.manualChunks as ManualChunksFn;
       return {
         output: {
+          ...enableSplitting,
           manualChunks(id: string, meta: unknown) {
             return chunkName(id) ?? appManualChunks(id, meta);
           },

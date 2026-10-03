@@ -72,7 +72,9 @@ for existing apps):
   loaded by a tiny bootstrap instead of the full client runtime. Per-usage
   strategies via the `client` prop: `load` (default), `idle`, `visible`.
   Island props are JSON-serialized into the HTML with clear dev errors for
-  non-serializable values. Navigation is MPA-style full-document in v1.
+  non-serializable values. Navigation is MPA-style full-document by default;
+  `client.islandsNavigation` swaps islands pages into the live document and
+  keeps islands the pages share mounted.
 - **`"none"`** — fully static output, zero JavaScript shipped.
 
 Works in both the manifest router and the pages router

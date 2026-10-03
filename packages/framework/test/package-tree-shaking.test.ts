@@ -14,6 +14,7 @@ const tempRoot = mkdtempSync(join(tmpdir(), "pracht-tree-shaking-"));
 const outputDir = join(tempRoot, "dist");
 const browserEntry = join(outputDir, "browser.mjs");
 const clientEntry = join(outputDir, "client.mjs");
+const islandsClientEntry = join(outputDir, "islands-client.mjs");
 const serverEntry = join(outputDir, "server.mjs");
 
 type FrameworkPackage = {
@@ -225,6 +226,7 @@ describe("published package tree shaking", () => {
         __PRACHT_ROUTE_SEARCH__: "false",
         __PRACHT_SHELL_LOADERS__: "false",
         __PRACHT_RICH_DATA__: "false",
+        __PRACHT_APP_ROOT__: "false",
       },
       entry: clientEntry,
     };
@@ -338,6 +340,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -378,6 +381,33 @@ describe("published package tree shaking", () => {
     });
   });
 
+  // The app root (`defineApp({ root })`) is optional. The plugin defines the
+  // flag false for a build that registers none, so those apps ship none of its
+  // wiring.
+  describe("__PRACHT_APP_ROOT__", () => {
+    const routerBundle = (define: Record<string, string>) =>
+      bundleExport("initClientRouter", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          ...define,
+        },
+        entry: clientEntry,
+      });
+
+    it("drops the root wiring when the app has no root module", async () => {
+      const { code } = await routerBundle({ __PRACHT_APP_ROOT__: "false" });
+
+      expect(code).not.toContain("isServer");
+    });
+
+    it("keeps the root wiring when the app has one", async () => {
+      const { code } = await routerBundle({ __PRACHT_APP_ROOT__: "true" });
+
+      expect(code).toContain("isServer");
+    });
+  });
+
   // The agent surface is opt-in: a server bundle for an app that registers no
   // capabilities and configures no agents must not contain the capability
   // dispatch or the Web Bot Auth verifier at all.
@@ -388,6 +418,7 @@ describe("published package tree shaking", () => {
       __PRACHT_ROUTE_SEARCH__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -437,6 +468,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
       __PRACHT_RICH_DATA__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
 
     const routerBundle = (define: Record<string, string>) =>
@@ -481,6 +513,7 @@ describe("published package tree shaking", () => {
           __PRACHT_HYDRATION_WARNINGS__: "false",
           __PRACHT_ROUTE_SEARCH__: "false",
           __PRACHT_RICH_DATA__: "false",
+          __PRACHT_APP_ROOT__: "false",
           ...define,
         },
         entry: clientEntry,
@@ -511,6 +544,39 @@ describe("published package tree shaking", () => {
       });
 
       expect(gzipBytes).toBeLessThanOrEqual(10_800);
+    });
+  });
+
+  // `pracht({ client: { islandsNavigation: true } })` adds client-side
+  // navigation to the islands bootstrap; every other islands page must not pay
+  // for it.
+  describe("__PRACHT_ISLANDS_NAVIGATION__", () => {
+    const islandsBundle = (define: Record<string, string>) =>
+      bundleExport("hydrateIslands", {
+        define: {
+          "import.meta.env.DEV": "false",
+          __PRACHT_HYDRATION_WARNINGS__: "false",
+          __PRACHT_AGENT_SURFACE__: "false",
+          ...define,
+        },
+        entry: islandsClientEntry,
+      });
+
+    it("drops the navigation runtime when off", async () => {
+      const { code } = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "false" });
+
+      expect(code).not.toContain("currententrychange");
+      expect(code).not.toContain("pracht:nav-skip:");
+    });
+
+    // 3,837 gzip bytes over the bootstrap without it in the bench ladder's app
+    // build; this harness minifies differently and counts slightly more.
+    it("keeps it, within budget, when on", async () => {
+      const on = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "true" });
+      const off = await islandsBundle({ __PRACHT_ISLANDS_NAVIGATION__: "false" });
+
+      expect(on.code).toContain("currententrychange");
+      expect(on.gzipBytes - off.gzipBytes).toBeLessThanOrEqual(4_150);
     });
   });
 
@@ -546,6 +612,7 @@ describe("published package tree shaking", () => {
       __PRACHT_HYDRATION_WARNINGS__: "false",
       __PRACHT_ROUTE_SEARCH__: "false",
       __PRACHT_SHELL_LOADERS__: "false",
+      __PRACHT_APP_ROOT__: "false",
     };
     const routerBundle = (define: Record<string, string>) =>
       bundleExport("initClientRouter", {

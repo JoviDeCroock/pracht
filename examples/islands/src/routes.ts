@@ -3,6 +3,7 @@ import { defineApp, group, route } from "@pracht/core";
 export const app = defineApp({
   shells: {
     site: () => import("./shells/site.tsx"),
+    guide: () => import("./shells/guide.tsx"),
   },
   // Page changes here are full document loads, so this animates them as
   // cross-document view transitions (zero JavaScript).
@@ -22,6 +23,12 @@ export const app = defineApp({
       // fetched and hydrated once it scrolls into view.
       route("/lazy", () => import("./routes/lazy.tsx"), {
         id: "lazy",
+        render: "ssg",
+        hydration: "islands",
+      }),
+      // Islands wrapping server-rendered children, one of them another island.
+      route("/children", () => import("./routes/children.tsx"), {
+        id: "children",
         render: "ssg",
         hydration: "islands",
       }),
@@ -74,6 +81,16 @@ export const app = defineApp({
           render: "ssg",
         }),
       ]),
+    ]),
+    // Two islands pages sharing a shell island. With
+    // `pracht({ client: { islandsNavigation: true } })` links between them
+    // swap the page in place and the shell island keeps its count.
+    group({ shell: "guide", hydration: "islands" }, [
+      route("/guide", () => import("./routes/guide.tsx"), { id: "guide", render: "ssg" }),
+      route("/guide/next", () => import("./routes/guide-next.tsx"), {
+        id: "guide-next",
+        render: "ssr",
+      }),
     ]),
   ],
 });

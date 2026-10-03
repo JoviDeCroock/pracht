@@ -154,6 +154,28 @@ result, the check costs about as much as the `JSON.stringify` that follows it
 same data with a `Date` per row serializes about three to five times slower
 than plain `JSON.stringify`. Off, the server does no extra work.
 
+## Islands navigation is opt-in
+
+`pracht({ client: { islandsNavigation: true } })` adds client-side navigation
+between islands pages to the islands bootstrap (see
+[ISLANDS.md](ISLANDS.md#client-side-navigation-clientislandsnavigation)). The
+ladder's `islands navigation on` rung measures it at 3,871 gzip bytes over the
+`hydration: islands` rung, which stays byte-identical with the flag off:
+`islands-client.ts` reads the define itself and gates every addition behind it,
+including the scheduled-islands `WeakSet` the rescan after a swap needs.
+`package-tree-shaking.test.ts` pins the compile-out and a ceiling. Every
+islands page loads the bootstrap with the flag on, so one that renders no
+island goes from no JavaScript to about 11 KB gzip (bootstrap and Preact). The module
+inlines what it needs from `base.ts` and `runtime-constants.ts`: importing
+either splits a chunk shared with the client router out of the build (433 gzip
+bytes and a request for `base.ts`).
+
+Each islands document also carries the route table and policy fingerprint
+(`#pracht-nav`) and the `data-pracht-owned` head markers: measured at about 146
+gzip bytes for a 20-route app, and reported at about 350 for a 47-route one —
+the table grows with the routes it lists. A `none` document carries only the
+fingerprint and markers, about 55 bytes. Off, documents are unchanged.
+
 ## Composing with the app's chunking
 
 Pracht has one chunking opinion — Preact belongs in a shared `vendor` chunk —

@@ -10,6 +10,7 @@ import {
   SERVER_ISLAND_QUERY_PATH,
   SERVER_ISLAND_QUERY_PROPS,
   SERVER_ISLAND_REQUEST_HEADER,
+  SERVER_ISLAND_SCAN_EVENT,
   SERVER_ISLAND_SWAP_EVENT,
   SERVER_ISLANDS_READY_MARKER,
 } from "./server-islands-shared.ts";
@@ -108,11 +109,13 @@ export function swapServerIslands(): Promise<void> {
 /**
  * The swap script's entry: fill the page's pending server islands, and again
  * after every same-document navigation, which can swap in a page with pending
- * server islands of its own without loading this module again.
+ * server islands of its own without loading this module again, and whenever
+ * an island first shows server islands it shipped in a `<template>`.
  */
 export function startServerIslands(): void {
-  void swapServerIslands();
-  (window as { navigation?: EventTarget }).navigation?.addEventListener("navigatesuccess", () => {
-    void swapServerIslands();
-  });
+  const swap = () => void swapServerIslands();
+  swap();
+  (window as { navigation?: EventTarget }).navigation?.addEventListener("navigatesuccess", swap);
+  // An island showing children it shipped in a <template> for the first time.
+  document.addEventListener(SERVER_ISLAND_SCAN_EVENT, swap);
 }

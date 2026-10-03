@@ -26,7 +26,7 @@ npm create pracht@latest my-app
 - **One explicit app graph** — a typed `defineApp()` manifest wires routes, shells, middleware, and capabilities. What runs where is never a mystery, and because the graph is resolved rather than inferred, tooling can read it. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
 - **The graph is projected to agents, not scraped from them** — one `defineCapability()` contract becomes a server call, an HTTP endpoint, a WebMCP page tool, and a tool on your app's own remote MCP endpoint, listed for discovery in a generated `llms.txt`. Same validation, same middleware, same effect class on every transport.
 - **Trust ships with the surface** — Web Bot Auth (RFC 9421) verified agent identity, per-capability policies, a prepare/commit confirmation gate for destructive effects, one structured audit event per dispatch, and `pracht eval` to prove agent flows in CI.
-- **Preact-first** — 0 KB of client JavaScript on a static route, 7.5 KB gzip with islands, 17.4 KB fully hydrated with the router. Measured by `pnpm bench` in this repo and gated in CI, not asserted.
+- **Preact-first** — 0 KB of client JavaScript on a static route, 8.0 KB gzip with islands, 17.4 KB fully hydrated with the router. Measured by `pnpm bench` in this repo and gated in CI, not asserted.
 - **Per-route render and hydration modes** — SPA, SSR, SSG, and ISG, and full, islands, or no hydration, chosen per route. No global default fighting you.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.
 - **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.
@@ -156,6 +156,7 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 - [docs/ADAPTERS.md](docs/ADAPTERS.md) — Node, Cloudflare, Netlify, Vercel, and static-export deployment paths
 - [docs/IMAGES.md](docs/IMAGES.md) — responsive `<Image>`, runtime loaders, and static variants
 - [packages/i18n/README.md](packages/i18n/README.md) — `@pracht/i18n`: locale-detection middleware, typed dictionaries, hreflang helpers
+- [packages/query/README.md](packages/query/README.md) — `@pracht/query`: TanStack Query with server-fetched queries hydrated into the browser cache
 - [packages/session/README.md](packages/session/README.md) — `@pracht/session`: encrypted cookie or store-backed sessions, middleware, and password hashing
 - [docs/MCP.md](docs/MCP.md) — built-in MCP server for coding agents (development time)
 - [docs/AGENT_WORKFLOW.md](docs/AGENT_WORKFLOW.md) — constraints, app-graph snapshots, `pracht plan`/`report`

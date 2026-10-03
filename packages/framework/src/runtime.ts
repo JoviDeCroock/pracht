@@ -5,6 +5,7 @@ import { SAFE_METHODS } from "./runtime-constants.ts";
 import {
   normalizeResponseHeaders,
   withDefaultSecurityHeaders,
+  withEnhancedCapabilityFormRedirect,
   withRouteResponseHeaders,
 } from "./runtime-headers.ts";
 import {
@@ -42,7 +43,13 @@ export type { HandlePrachtRequestOptions };
 export async function handlePrachtRequest<TContext>(
   options: HandlePrachtRequestOptions<TContext>,
 ): Promise<Response> {
-  return normalizeResponseHeaders(await handlePrachtRequestPipeline(options));
+  // A redirect answering pracht's own fetch (an enhanced form, an islands
+  // navigation) names its target instead, so the browser loads the target
+  // itself: a one-time redirect is never replayed and another origin is never
+  // fetched through CORS.
+  return normalizeResponseHeaders(
+    withEnhancedCapabilityFormRedirect(await handlePrachtRequestPipeline(options), options.request),
+  );
 }
 
 async function handlePrachtRequestPipeline<TContext>(

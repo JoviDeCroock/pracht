@@ -36,7 +36,16 @@ imports every island eagerly, and without the split their CSS (and anything they
 share with a route) merges into the entry's stylesheet, where no single route
 can claim it. A stylesheet that ends up in the entry anyway is still linked,
 from the module graph rather than the chunk graph, and reported so the import
-can be moved. Stylesheets both builds emit identically are served from the
+can be moved. Edge adapters (Cloudflare, Vercel) build the server for a Worker
+runtime, where Vite's default is one chunk — every route and its CSS merged into
+the entry — so pracht switches code splitting back on there; the Workers upload
+or bundle the extra modules. Because an edge build bundles every dependency, the
+bundler files shared code such as Preact in the first island chunk that uses
+it, and every route then imports that chunk. A chunk a route imports
+contributes its stylesheet only when the route's module graph reaches one of
+the stylesheets it was built from, so that island's CSS stays with the pages
+that render it. `e2e/edge-route-css.test.ts` builds the islands example for
+Vercel and holds each page to the rules the Node build gives it. Stylesheets both builds emit identically are served from the
 client build's copy, so one stylesheet keeps one URL. They are static files; nothing about them needs a client runtime. The
 assets those stylesheets reference — background images, self-hosted fonts, an
 `@import`ed sheet — are copied along with them, since they are emitted next to

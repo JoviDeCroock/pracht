@@ -38,6 +38,7 @@ import {
   type PrachtRequestContext,
 } from "./runtime-request.ts";
 import { getRenderToStringAsync } from "./runtime-response.ts";
+import { resolveRequestRoot } from "./runtime-root.ts";
 import {
   applyRouteSearch,
   createPageRouteArgs,
@@ -630,6 +631,8 @@ export async function handleServerIslandRequest<TContext>(
     );
     const searchError = await applyRouteSearch(routeArgs, routeModule?.search);
     if (searchError) return serverIslandTextResponse(searchError.message, 400);
+    // The same app root state the page's loaders get inline.
+    routeArgs.root = (await resolveRequestRoot(ctx, ctx.registry))?.state;
     const data = await runServerIslandLoader(descriptor, props, routeArgs);
     phase = "render";
     // Islands inside a server island hydrate only where the page runs the islands

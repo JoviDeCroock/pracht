@@ -30,6 +30,26 @@ test("the notFound page hydrates and navigates like a normal page", async ({ pag
   expect(new URL(page.url()).pathname).toBe("/");
 });
 
+test("a loader's notFound() hydrates the notFound page, not the matched route", async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(String(error)));
+
+  const response = await page.goto("/products/999");
+  expect(response?.status()).toBe(404);
+  await page.locator("html[data-pracht-hydrated]").waitFor();
+
+  await expect(page.locator("#requested-path")).toHaveText("/products/999");
+  await expect(page.locator(".product-page")).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+
+  // Hydrated as the notFound page: its link navigates client-side.
+  await page.click("#not-found a");
+  await expect(page.locator("h1")).not.toContainText("404");
+  expect(new URL(page.url()).pathname).toBe("/");
+});
+
 test("static assets are served instead of the notFound page", async ({ request }) => {
   const response = await request.get("/robots.txt");
 

@@ -92,7 +92,7 @@ export default defineCommand({
         throw new Error(
           [
             "`pracht preview` needs a wrangler config (wrangler.jsonc, wrangler.json, or wrangler.toml) pointing at the built worker.",
-            'Create one with `"main": "dist/server/worker.js"` — see docs/ADAPTERS.md for a full example.',
+            'Create one with `"main": "dist/server/worker.js"` — see https://pracht.resynapse.dev/docs/adapters#cloudflare-workers for a full example.',
           ].join("\n"),
         );
       }

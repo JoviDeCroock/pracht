@@ -20,6 +20,8 @@ API routes live in `src/api/`. The file path maps to the URL:
 | `src/api/users.ts`      | `/api/users`     |
 | `src/api/users/[id].ts` | `/api/users/:id` |
 
+Test files (`*.test.ts`, `*.spec.ts`, and anything under `__tests__/` or `__mocks__/`) never become routes, so a test can sit next to the handler it covers. The same holds in every directory pracht discovers modules in.
+
 ---
 
 ## Method Handlers

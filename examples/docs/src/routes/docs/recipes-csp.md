@@ -88,6 +88,26 @@ or external stylesheet policy for static documents. The `viewTransitions` style
 never changes, so allow it with
 `'sha256-SREix9zPMZHrSuo8zRSjb672r1gsHIh96MJuaZq6iJo='`.
 
+## Framework-Generated Scripts
+
+Buffered pages need no executable inline scripts. Streaming routes
+(`streaming: true`) emit inline scripts for deferred data and boundary swaps,
+and routes that opt into `speculation` emit a speculation rules script. Return
+the request nonce as `scriptNonce` from the shell head and allow it in
+`script-src`:
+
+```ts [src/shells/public.tsx]
+export function head({ context }) {
+  return { scriptNonce: context.cspNonce, styleNonce: context.cspNonce };
+}
+
+export function headers({ context }) {
+  return {
+    "content-security-policy": `default-src 'self'; script-src 'self' 'nonce-${context.cspNonce}'; style-src 'self' 'nonce-${context.cspNonce}'`,
+  };
+}
+```
+
 ## Inline Script Entries
 
 Pracht does not require app-authored executable inline scripts for normal page

@@ -19,7 +19,7 @@ import {
 } from "./graph-snapshot.js";
 import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
 import { detectAdapterTarget } from "./commands/preview.js";
-import { createCheck, MODULE_SOURCE_RE, type Check } from "./verification-helpers.js";
+import { createCheck, isModuleSource, type Check } from "./verification-helpers.js";
 import { collectStaticExportChecks } from "./verification-static.js";
 
 const HEAD_EXPORT_RE =
@@ -256,9 +256,7 @@ function localConfigImportMightBeStatic(project: ProjectConfig): boolean {
 
 function projectDeclaresApiRoutes(project: ProjectConfig): boolean {
   const apiDir = resolveProjectPath(project.root, project.apiDir);
-  return (
-    existsSync(apiDir) && listFilesRecursively(apiDir).some((file) => MODULE_SOURCE_RE.test(file))
-  );
+  return existsSync(apiDir) && listFilesRecursively(apiDir).some((file) => isModuleSource(file));
 }
 
 function collectConstraintChecks(
@@ -346,7 +344,7 @@ function manifestDeclaresCapabilities(project: ProjectConfig): boolean {
       existsSync(pagesDir) &&
       listFilesRecursively(pagesDir).some(
         (file) =>
-          MODULE_SOURCE_RE.test(file) &&
+          isModuleSource(file) &&
           /\bexport\s+const\s+CAPABILITIES\b/.test(
             maskCommentsAndStrings(readFileSync(file, "utf-8")),
           ),

@@ -333,7 +333,8 @@ route("/", () => import("./routes/home.tsx"), {
 `hydration` combines with `ssg`, `isg`, and `ssr`. `render: "spa"` always
 implies full hydration (combining it with `"islands"`/`"none"` is a config
 error). Routes with `"islands"` or `"none"` use regular full-document
-navigation instead of the client router. See [ISLANDS.md](ISLANDS.md) for the
+navigation instead of the client router, unless `client.islandsNavigation`
+swaps islands pages in place. See [ISLANDS.md](ISLANDS.md) for the
 full picture: island discovery, hydration strategies (`load`/`idle`/`visible`),
 prop serialization rules, and limitations.
 

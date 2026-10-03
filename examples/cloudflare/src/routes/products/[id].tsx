@@ -1,4 +1,4 @@
-import { useParams } from "@pracht/core";
+import { notFound, useParams } from "@pracht/core";
 import type { LoaderArgs, RouteComponentProps } from "@pracht/core";
 
 const PRODUCTS: Record<string, { name: string; price: number }> = {
@@ -8,7 +8,8 @@ const PRODUCTS: Record<string, { name: string; price: number }> = {
 
 export async function loader({ params }: LoaderArgs) {
   const product = PRODUCTS[params.id];
-  return { product: product ?? null };
+  if (!product) throw notFound("Product not found");
+  return { product };
 }
 
 function ProductMeta() {
@@ -20,14 +21,8 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
   return (
     <section class="product-page">
       <ProductMeta />
-      {data.product ? (
-        <>
-          <h1>{data.product.name}</h1>
-          <p class="product-price">${data.product.price}</p>
-        </>
-      ) : (
-        <h1>Product not found</h1>
-      )}
+      <h1>{data.product.name}</h1>
+      <p class="product-price">${data.product.price}</p>
     </section>
   );
 }

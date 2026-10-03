@@ -28,10 +28,13 @@ adapters for Node, Cloudflare Workers, Netlify, and Vercel.
 
 ## Project layout (manifest apps)
 
-- \`src/routes.ts\` — the app manifest: \`defineApp({ shells, middleware, routes, notFound, constraints })\`.
+- \`src/routes.ts\` — the app manifest: \`defineApp({ root, shells, middleware, routes, notFound, constraints })\`.
   Every route's shell, middleware, render mode, and revalidation policy is declared here.
   \`notFound\` names the page rendered with a 404 status when nothing matches — it is
   not a route, so never add a catch-all \`route("/*", ...)\` for that purpose.
+  \`root\` names an optional module rendered above every shell and never remounted
+  (\`setup\`, \`Root\`, \`dehydrate\`, \`hydrate\`), for client infrastructure such as
+  \`@pracht/query\`; it ships to the browser, and loaders read its state as \`args.root\`.
 - \`src/routes/\` — route modules: \`Component\`, optional \`loader\`, \`head\`, \`ErrorBoundary\`, \`getStaticPaths\`.
 - \`src/shells/\` — named layout wrappers (\`Shell\`, optional \`loader\` read with \`useShellData()\`, \`head\`, \`Loading\`).
 - \`src/middleware/\` — server middleware: \`export const middleware: MiddlewareFn\`.
@@ -54,7 +57,7 @@ adapter, middleware is a single root-level \`src/pages/_middleware.ts\`
 or per-route middleware is not supported, and API routes are not wrapped. Pure
 static exports have no request runtime and cannot use middleware. Shells are
 \`_app.tsx\` per directory (\`pages\`, \`pages:blog\`, …); the nearest one replaces
-its parent. Capabilities are every module in \`src/capabilities/\`, each naming
+its parent. The app root is a root-level \`src/pages/_root.tsx\`. Capabilities are every module in \`src/capabilities/\`, each naming
 itself with \`defineCapability({ name })\` or taking its file stem (the name must
 map back to the file with dots as hyphens). \`agents\` and \`constraints\` are
 named exports of \`src/pages/_app.config.ts\`. **Still manifest-only: per-route

@@ -9,10 +9,13 @@ import {
   ISLAND_FILE_ATTRIBUTE,
   ISLAND_HYDRATED_ATTRIBUTE,
   ISLAND_PROPS_ATTRIBUTE,
+  ISLAND_SLOT_ELEMENT,
+  ISLAND_SLOT_END,
   ISLAND_STRATEGY_ATTRIBUTE,
   ISLANDS_HYDRATED_MARKER,
 } from "./islands-shared.ts";
-import { SERVER_ISLAND_SWAP_EVENT } from "./server-islands-shared.ts";
+import { installIslandsNavigation } from "./islands-navigation.ts";
+import { SERVER_ISLAND_SCAN_EVENT, SERVER_ISLAND_SWAP_EVENT } from "./server-islands-shared.ts";
 
 /**
  * Minimal islands bootstrap for routes rendered with `hydration: "islands"`.
@@ -29,6 +32,12 @@ export interface HydrateIslandsOptions {
    * by `import.meta.glob("/src/islands/**")` in the generated bootstrap.
    */
   modules: Record<string, () => Promise<unknown>>;
+  /**
+   * Called with the incoming document after a client-side navigation swapped
+   * it in (`client.islandsNavigation`), so page-scoped work such as WebMCP
+   * tool registration can follow the page.
+   */
+  onNavigate?: (doc: Document) => void;
 }
 
 let capabilityRevalidationBound = false;
@@ -62,6 +71,23 @@ declare const __PRACHT_HYDRATION_WARNINGS__: boolean | undefined;
  * adapter serves itself (Cloudflare) do not load.
  */
 declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
+
+const SERVER_ISLANDS =
+  typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__ !== false;
+
+let serverIslandSwapsBound = false;
+
+/**
+ * `pracht({ client: { islandsNavigation: true } })`: swap islands pages in
+ * place instead of loading a new document. Declared here like the flags above,
+ * so a bundle without it drops the navigation module and its bookkeeping.
+ */
+declare const __PRACHT_ISLANDS_NAVIGATION__: boolean | undefined;
+
+const ISLANDS_NAVIGATION =
+  typeof __PRACHT_ISLANDS_NAVIGATION__ !== "undefined" && __PRACHT_ISLANDS_NAVIGATION__ === true;
+
+let navigationInstalled = false;
 
 const HYDRATION_WARNINGS_FORCED =
   typeof __PRACHT_HYDRATION_WARNINGS__ !== "undefined" && __PRACHT_HYDRATION_WARNINGS__ === true;
@@ -99,17 +125,40 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
   if (typeof __PRACHT_AGENT_SURFACE__ === "undefined" || __PRACHT_AGENT_SURFACE__) {
     bindCapabilityRevalidation();
   }
-  if (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) {
+  if (SERVER_ISLANDS && !serverIslandSwapsBound) {
+    serverIslandSwapsBound = true;
+    // Islands a server island swap brought in; `scheduleIslands` skips any
+    // the page scan already picked up.
     document.addEventListener(SERVER_ISLAND_SWAP_EVENT, (event) => {
-      for (const element of (event.target as Element).querySelectorAll(ISLAND_ELEMENT)) {
-        scheduleIsland(element, options);
-      }
+      scheduleIslands(event.target as Element, options);
     });
   }
-  const elements = document.querySelectorAll(ISLAND_ELEMENT);
+  if (ISLANDS_NAVIGATION && !navigationInstalled) {
+    navigationInstalled = true;
+    // After a swap the same call hydrates the islands the new page brought;
+    // `scheduleIslands` skips the ones already hydrated or scheduled.
+    installIslandsNavigation({
+      hydrate: () => hydrateIslands(options),
+      onNavigate: options.onNavigate,
+    });
+  }
   const immediate: Promise<void>[] = [];
+  scheduleIslands(document, options, immediate);
 
-  for (const element of elements) {
+  await Promise.all(immediate);
+  document.documentElement.setAttribute(ISLANDS_HYDRATED_MARKER, "true");
+}
+
+const scheduled = new WeakSet<Element>();
+
+function scheduleIslands(
+  root: ParentNode,
+  options: HydrateIslandsOptions,
+  immediate?: Promise<void>[],
+): void {
+  for (const element of root.querySelectorAll(ISLAND_ELEMENT)) {
+    if (scheduled.has(element)) continue;
+    scheduled.add(element);
     const strategy = element.getAttribute(ISLAND_STRATEGY_ATTRIBUTE) ?? "load";
 
     if (strategy === "visible") {
@@ -117,37 +166,82 @@ export async function hydrateIslands(options: HydrateIslandsOptions): Promise<vo
     } else if (strategy === "idle") {
       scheduleWhenIdle(() => hydrateIsland(element, options));
     } else {
-      immediate.push(hydrateIsland(element, options));
+      const hydrated = hydrateIsland(element, options);
+      if (immediate) immediate.push(hydrated);
     }
   }
-
-  await Promise.all(immediate);
-  document.documentElement.setAttribute(ISLANDS_HYDRATED_MARKER, "true");
 }
 
 /**
- * The loop above for islands a server island swap brought in. Kept separate, rather
- * than shared, so the bootstrap of an app without server islands is byte-for-byte
- * what it was: this and its caller fold away with the flag.
+ * Children the page passed into an island arrive as server-rendered nodes in
+ * slot elements the island owns (`<pracht-slot>`, or `<g pracht-slot>` /
+ * `<mrow pracht-slot>` in SVG and MathML), or in a `<template pracht-slot>`
+ * when the island did not place them. The island receives one slot vnode as
+ * its children: hydration leaves the existing nodes alone, and when the island
+ * mounts a fresh slot (after hiding it, say) the ref moves in the current
+ * nodes of a detached holder, so the content and any island inside it keep
+ * their state.
+ *
+ * Returns `false` when the HTML parser moved nodes out of a slot: hydrating
+ * would delete them, so the island stays server HTML. Every such move takes
+ * the end marker out of the slot with them; nodes after the marker (a widget
+ * an async script appended, whitespace from a formatter) are fine.
  */
-function scheduleIsland(element: Element, options: HydrateIslandsOptions): void {
-  const strategy = element.getAttribute(ISLAND_STRATEGY_ATTRIBUTE) ?? "load";
-  if (strategy === "visible") {
-    scheduleWhenVisible(element, () => hydrateIsland(element, options));
-  } else if (strategy === "idle") {
-    scheduleWhenIdle(() => hydrateIsland(element, options));
-  } else {
-    void hydrateIsland(element, options);
+function slotChildren(element: Element, options: HydrateIslandsOptions) {
+  const nodes = [
+    ...element.querySelectorAll(`${ISLAND_SLOT_ELEMENT},[${ISLAND_SLOT_ELEMENT}]`),
+  ].filter((node) => node.parentElement!.closest(ISLAND_ELEMENT) === element);
+  // Only the <template> has `content`.
+  const holders: ParentNode[] = nodes.map((node) => (node as HTMLTemplateElement).content || node);
+  if (
+    holders.some(
+      (holder) =>
+        ![...holder.childNodes].some((child) => (child as Comment).data === ISLAND_SLOT_END),
+    )
+  ) {
+    return false;
   }
+  let type = ISLAND_SLOT_ELEMENT;
+  nodes.forEach((node, i) => {
+    if (holders[i] !== node) node.remove();
+    else type = node.localName;
+  });
+
+  return (
+    holders[0] &&
+    h(type, {
+      ...(type === ISLAND_SLOT_ELEMENT && { style: "display:contents" }),
+      dangerouslySetInnerHTML: { __html: "" },
+      ref(slot: Element | null) {
+        if (!slot || holders.includes(slot)) return;
+        const i = holders.findIndex((holder) => !holder.isConnected);
+        if (i < 0) return;
+        if (
+          import.meta.env?.DEV &&
+          slot.localName === ISLAND_SLOT_ELEMENT &&
+          slot.namespaceURI !== "http://www.w3.org/1999/xhtml"
+        ) {
+          console.error(
+            `[pracht] Island children shown inside <${slot.parentElement!.localName}> were not ` +
+              "placed on the server, so they were parsed as HTML and will not render. Render " +
+              "them on the server, or keep the SVG or MathML inside the island.",
+          );
+        }
+        slot.append(...holders[i].childNodes);
+        holders[i] = slot;
+        // Islands that shipped inside a <template> were never scheduled, and
+        // its server islands were never fetched.
+        scheduleIslands(slot, options);
+        if (SERVER_ISLANDS) {
+          slot.dispatchEvent(new Event(SERVER_ISLAND_SCAN_EVENT, { bubbles: true }));
+        }
+      },
+    })
+  );
 }
 
 async function hydrateIsland(element: Element, options: HydrateIslandsOptions): Promise<void> {
   if (element.getAttribute(ISLAND_HYDRATED_ATTRIBUTE) === "true") return;
-  if (typeof __PRACHT_SERVER_ISLANDS__ === "undefined" || __PRACHT_SERVER_ISLANDS__) {
-    // A server island swap can scan an island the initial scan is still importing.
-    if (element.hasAttribute(ISLAND_HYDRATED_ATTRIBUTE)) return;
-    element.setAttribute(ISLAND_HYDRATED_ATTRIBUTE, "pending");
-  }
 
   const file = element.getAttribute(ISLAND_FILE_ATTRIBUTE);
   const exportName = element.getAttribute(ISLAND_EXPORT_ATTRIBUTE) ?? "default";
@@ -179,6 +273,22 @@ async function hydrateIsland(element: Element, options: HydrateIslandsOptions): 
     return;
   }
 
+  // The page this island was on may have been navigated away from while its
+  // strategy or its module load was pending. An island inside children its
+  // parent hid meanwhile is scheduled again when they are shown.
+  if (ISLANDS_NAVIGATION && !element.isConnected) {
+    scheduled.delete(element);
+    return;
+  }
+  const children = slotChildren(element, options);
+  if (children === false) {
+    console.error(
+      `[pracht] Island "${file}" was not hydrated: the HTML parser moved its ` +
+        "children (block element in <p>, nested <a>/<button>, or bad raw HTML?)",
+    );
+    return;
+  }
+  if (children) props.children = children;
   hydrate(h(Component, props), element);
   element.setAttribute(ISLAND_HYDRATED_ATTRIBUTE, "true");
 }
@@ -209,6 +319,16 @@ function scheduleWhenIdle(task: () => void): void {
   }
 }
 
+function boxedChildren(element: Element): Element[] {
+  return [...element.children].flatMap((child) =>
+    child.localName === ISLAND_ELEMENT || child.localName === ISLAND_SLOT_ELEMENT
+      ? boxedChildren(child)
+      : /^(template|script|style)$/.test(child.localName)
+        ? []
+        : [child],
+  );
+}
+
 function scheduleWhenVisible(element: Element, task: () => void): void {
   if (typeof IntersectionObserver === "undefined") {
     task();
@@ -217,8 +337,11 @@ function scheduleWhenVisible(element: Element, task: () => void): void {
 
   // The <pracht-island> wrapper uses display:contents and therefore has no
   // box of its own — IntersectionObserver would never report it as
-  // intersecting. Observe the island's rendered children instead.
-  const targets = element.children.length > 0 ? [...element.children] : [element];
+  // intersecting. Observe the island's rendered children instead, looking
+  // through slots and nested islands, which have no box either. With nothing
+  // to observe, the nearest ancestor stands in.
+  const targets = boxedChildren(element);
+  if (!targets.length) targets.push(element.parentElement!);
 
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {

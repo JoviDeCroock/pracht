@@ -48,6 +48,13 @@ export const SERVER_ISLAND_ISLANDS_HEADER = "x-pracht-islands";
 export const SERVER_ISLAND_SWAP_EVENT = "pracht:server-island";
 
 /**
+ * Dispatched (bubbling) where an island first shows children it did not place
+ * on the server: they shipped in an inert `<template>`, so the swap script
+ * fetches the pending server islands among them only now.
+ */
+export const SERVER_ISLAND_SCAN_EVENT = "pracht:server-islands-scan";
+
+/**
  * Dispatched on `window` after route data was refreshed in place — by
  * `useRevalidate()`, a capability call, or a `<Form>` submission — so the
  * server islands on a full-hydration page fetch their HTML again.

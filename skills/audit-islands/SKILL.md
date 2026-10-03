@@ -89,9 +89,22 @@ there is no wrapper to mark a component elsewhere as an island.
 Island props are serialized to JSON in the HTML. At each island call site on
 an islands route, flag props that are functions, symbols, bigints, class
 instances (`Date`, `Map`, ...), JSX elements, or circular — rendering throws a
-descriptive error naming the offending prop path. Passing children into an
-island from a server component also throws (unsupported in v1): move the
-content inside the island or pass a serializable prop.
+descriptive error naming the offending prop path. Children passed into an
+island are fine: markup renders once on the server as static HTML, and plain
+text arrives as a string value. Flag:
+
+- a render function passed as children (it throws);
+- children the island expects to re-render or pass props into, and islands
+  among the children that read context the outer island provides (the browser
+  gives them the default) — those belong inside the island or need a prop;
+- an island that splits markup children with `toChildArray`, `Children.map`, or
+  `Children.count` (tabs, carousels): it receives one opaque node, so labels
+  belong in props and panels are toggled through a ref (`hidden`);
+- an island that renders `children` inside `<p>`, `<a>`, or `<button>` while
+  call sites pass block elements, links, or buttons (the dev server throws
+  when it sees this), or raw HTML in children that may be malformed: the
+  browser moves those nodes out of the slot and the island is left unhydrated
+  with a console error.
 
 ### 3d. Hydration strategy tuning (`info`)
 
@@ -115,7 +128,12 @@ navigation to, from, and between them is full-document (MPA-style), and
 route-state prefetching is skipped for them. Flag apps that rely on
 client-side state surviving navigation across such routes (in-memory stores,
 module-level caches shared between pages) — every navigation is a fresh
-document. Page-change animation does not need the client router: with
+document, unless `pracht({ client: { islandsNavigation: true } })` is set. With
+it, links between islands pages (and from them to `none` pages) swap the page
+into the same document and an island rendered with identical props on both
+pages keeps its state; module state survives too. Still flag state that must
+survive a link to a full-hydration route, a reload, or a browser without the
+Navigation API, since those remain full loads. Page-change animation does not need the client router: with
 `defineApp({ viewTransitions: true })` these documents carry a
 `@view-transition` rule and animate as cross-document view transitions, so
 flag only apps that load extra JavaScript to animate such navigations.

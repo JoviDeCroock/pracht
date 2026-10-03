@@ -1,12 +1,13 @@
 import { Form, type LoaderArgs, type RouteComponentProps } from "@pracht/core";
 
+import { safeRedirectPath } from "../server/redirects.ts";
+
 export async function loader({ url }: LoaderArgs) {
-  const requested = url.searchParams.get("redirect") ?? "/dashboard";
   return {
     error: url.searchParams.get("error") === "1",
     // Reflecting an unvalidated `?redirect=` into the form would hand an
     // attacker an open redirect through a legitimate-looking login link.
-    redirect: requested.startsWith("/") && !requested.startsWith("//") ? requested : "/dashboard",
+    redirect: safeRedirectPath(url.searchParams.get("redirect"), url, "/dashboard"),
   };
 }
 

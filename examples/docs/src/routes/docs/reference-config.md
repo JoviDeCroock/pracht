@@ -72,6 +72,7 @@ app does not use it: the router then ignores the matching route options and
 | `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off makes `useBlocker()` never block; it warns in development |
 | `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in production client and islands bundles, to check a build before deploying it. Not for the build you ship |
 | `client.richData` | `false` | Send loader `Date`, `Map`, `Set`, `BigInt`, and shared references to the browser [as those types](/docs/data-loading#dates-maps-and-other-rich-values) instead of as JSON |
+| `client.islandsNavigation` | `false` | [Swap islands pages in place](/docs/islands#client-side-navigation-between-islands-pages) instead of loading a new document, keeping shared islands mounted. Every islands page then loads the bootstrap |
 
 An unknown `client` key is an error.
 
@@ -119,6 +120,7 @@ export const app = defineApp({
 | Field | Type | Description |
 | --- | --- | --- |
 | `routes` | (RouteDefinition \| GroupDefinition)[] | **Required.** The route tree. See [Routing](/docs/routing) |
+| `root` | ModuleRef | The [app root](/docs/shells#the-app-root), rendered above every shell. Write it as a string path or `() => import()` literal |
 | `shells` | Record\<string, ModuleRef\> | Named [shell](/docs/shells) modules |
 | `middleware` | Record\<string, ModuleRef\> | Named [middleware](/docs/middleware) modules |
 | `capabilities` | Record\<string, ModuleRef\> | Named [capabilities](/docs/capabilities), e.g. `{ "notes.search": () => import("./capabilities/notes-search.ts") }`. Server-only and private unless they declare `expose` |

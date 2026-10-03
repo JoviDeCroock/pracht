@@ -41,6 +41,11 @@ const BUILDS = [
   { id: "ladder-no-prefetch", fixture: "ladder", env: { PRACHT_BENCH_PREFETCH: "off" } },
   { id: "ladder-no-guards", fixture: "ladder", env: { PRACHT_BENCH_GUARDS: "off" } },
   { id: "ladder-rich-data", fixture: "ladder", env: { PRACHT_BENCH_RICH_DATA: "on" } },
+  {
+    id: "ladder-islands-navigation",
+    fixture: "ladder",
+    env: { PRACHT_BENCH_ISLANDS_NAVIGATION: "on" },
+  },
   { id: "compat", fixture: "compat", env: {} },
 ];
 
@@ -48,6 +53,11 @@ const BUILDS = [
 const LADDER = [
   { rung: "hydration: none", build: "ladder", route: "/none" },
   { rung: "hydration: islands", build: "ladder", route: "/islands" },
+  {
+    rung: "hydration: islands, islands navigation on",
+    build: "ladder-islands-navigation",
+    route: "/islands",
+  },
   { rung: "hydration: full", build: "ladder", route: "/full" },
   { rung: "hydration: full, prefetch off", build: "ladder-no-prefetch", route: "/full" },
   { rung: "hydration: full, navigation guards off", build: "ladder-no-guards", route: "/full" },

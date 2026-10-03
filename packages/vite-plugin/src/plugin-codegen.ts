@@ -21,6 +21,7 @@ import {
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
 import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
+import { findAppRootModule } from "./plugin-app-root.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
   DEFAULT_SHELL_EXTENSIONS,
@@ -29,6 +30,12 @@ import {
   extensionGlob,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import {
+  isNonModuleDirectoryName,
+  isNonModuleFile,
+  moduleGlob,
+  nonModuleExcludes,
+} from "./source-files.ts";
 
 const NON_FULL_HYDRATION_RE = /hydration\s*:\s*["'](?:islands|none)["']/;
 const FULL_HYDRATION_RE = /hydration\s*:\s*["']full["']/;
@@ -116,8 +123,8 @@ function scanFiles(dir: string, files: string[], extensions: Set<string>): void 
       continue;
     }
     if (stat.isDirectory()) {
-      scanFiles(abs, files, extensions);
-    } else if (extensions.has(extname(entry))) {
+      if (!isNonModuleDirectoryName(entry)) scanFiles(abs, files, extensions);
+    } else if (extensions.has(extname(entry)) && !isNonModuleFile(entry)) {
       files.push(abs);
     }
   }
@@ -183,23 +190,51 @@ function createNonFullHydrationExcludes(
   }
 
   const appDir = dirname(appFile);
+  const resolveRef = (ref: string): string =>
+    toPosixPath(ref.startsWith("/") ? resolve(root, ref.slice(1)) : resolve(appDir, ref));
+  // One module can back a full route and an islands route, and the full route
+  // needs it in the browser. A file is left out only when every ref to it in
+  // the manifest belongs to a non-full route; a ref this scan cannot attribute
+  // (a full route, a shared constant, a `notFound` component) keeps it in.
+  const nonFullRefs = new Map<string, number>();
   const routeRe =
     /\broute\s*\(\s*[^,]+,\s*(?:(?:\(\s*\)\s*=>\s*import\s*\(\s*)?["']([^"']+)["']\s*\)?|["']([^"']+)["'])/g;
-  for (const match of source.matchAll(routeRe)) {
+  for (const match of code.matchAll(routeRe)) {
     const fileRef = match[1] ?? match[2];
     const callStart = match.index!;
-    const parenStart = source.indexOf("(", callStart);
-    const parenEnd = findMatching(source, parenStart, "(", ")");
+    const parenStart = structure.indexOf("(", callStart);
+    const parenEnd = findMatching(structure, parenStart, "(", ")");
     if (parenEnd === -1) continue;
-    const callSource = source.slice(parenStart, parenEnd);
+    const callSource = code.slice(parenStart, parenEnd);
     const ownNonFull = NON_FULL_HYDRATION_RE.test(callSource);
     const ownFull = FULL_HYDRATION_RE.test(callSource);
     const inheritedNonFull = groups
       .filter((group) => group.start < callStart && callStart < group.end)
       .sort((a, b) => b.start - a.start)[0]?.nonFull;
     if (ownFull || (!ownNonFull && inheritedNonFull !== true)) continue;
-    const abs = resolve(appDir, fileRef);
-    excludes.add(`!/${toPosixPath(abs).replace(toPosixPath(root).replace(/\/$/, "") + "/", "")}`);
+    const file = resolveRef(fileRef);
+    nonFullRefs.set(file, (nonFullRefs.get(file) ?? 0) + 1);
+  }
+  if (nonFullRefs.size === 0) return [];
+
+  let strings: string[];
+  try {
+    strings = collectManifestStrings(source, appFile).strings;
+  } catch {
+    // An unparseable manifest is the dev server's error to report.
+    return [];
+  }
+  const allRefs = new Map<string, number>();
+  for (const value of strings) {
+    if (!value.startsWith(".") && !value.startsWith("/")) continue;
+    const file = resolveRef(value);
+    if (nonFullRefs.has(file)) allRefs.set(file, (allRefs.get(file) ?? 0) + 1);
+  }
+
+  const rootPrefix = `${toPosixPath(root).replace(/\/$/, "")}/`;
+  for (const [file, count] of nonFullRefs) {
+    if ((allRefs.get(file) ?? 0) > count) continue;
+    excludes.add(`!/${file.replace(rootPrefix, "")}`);
   }
 
   return [...excludes];
@@ -403,7 +438,10 @@ export function createPrachtClientModuleSource(
   const dirPrefix = isPagesMode ? resolved.pagesDir : resolved.routesDir;
   const routeGlob = `${dirPrefix}/**/*.{ts,tsx,js,jsx,md,mdx}`;
   const additionalRouteGlob = `${dirPrefix}/**/*.${extensionGlob(bareRouteExtensions)}`;
-  const routeExcludes = createNonFullHydrationExcludes(resolved, buildOptions.root);
+  const routeExcludes = [
+    ...nonModuleExcludes(dirPrefix),
+    ...createNonFullHydrationExcludes(resolved, buildOptions.root),
+  ];
   const usesEjectedPagesLayout = isEjectedPagesLayout(resolved, buildOptions.root ?? process.cwd());
   if (isPagesMode || usesEjectedPagesLayout) {
     // Pages middleware is server-only. Keep it out of the client registry in
@@ -427,11 +465,8 @@ export function createPrachtClientModuleSource(
           resolved.shellsDir,
         ]);
   routeExcludes.push(...unreferencedExcludes);
-  const routeGlobPattern = routeExcludes.length > 0 ? [routeGlob, ...routeExcludes] : routeGlob;
-  const additionalRouteGlobPattern =
-    additionalRouteGlob && routeExcludes.length > 0
-      ? [additionalRouteGlob, ...routeExcludes]
-      : additionalRouteGlob;
+  const routeGlobPattern = [routeGlob, ...routeExcludes];
+  const additionalRouteGlobPattern = [additionalRouteGlob, ...routeExcludes];
 
   // Directory-scoped shells: every `_app` in the pages tree is registered, so
   // the glob walks subdirectories. `_reserved/**` helper trees stay excluded —
@@ -452,14 +487,16 @@ export function createPrachtClientModuleSource(
   // `_app` itself. The ejected layout's shell glob is the ordinary
   // shells-directory sweep, so it keeps the full reservation and re-adds every
   // `_app` through `ejectedPagesAppShellSources` below.
-  const shellExcludes = isPagesMode
-    ? createReservedSubtreeExcludes(resolved.pagesDir)
-    : usesEjectedPagesShellLayout
-      ? createUnderscoreReservedExcludes(resolved.shellsDir)
-      : [...unreferencedExcludes];
-  const shellGlobPattern = shellExcludes.length > 0 ? [shellGlob, ...shellExcludes] : shellGlob;
-  const additionalShellGlobPattern =
-    shellExcludes.length > 0 ? [additionalShellGlob, ...shellExcludes] : additionalShellGlob;
+  const shellExcludes = [
+    ...nonModuleExcludes(isPagesMode ? resolved.pagesDir : resolved.shellsDir),
+    ...(isPagesMode
+      ? createReservedSubtreeExcludes(resolved.pagesDir)
+      : usesEjectedPagesShellLayout
+        ? createUnderscoreReservedExcludes(resolved.shellsDir)
+        : unreferencedExcludes),
+  ];
+  const shellGlobPattern = [shellGlob, ...shellExcludes];
+  const additionalShellGlobPattern = [additionalShellGlob, ...shellExcludes];
   const ejectedPagesAppShellSources = usesEjectedPagesShellLayout
     ? [
         `  ...import.meta.glob(${JSON.stringify([`${resolved.shellsDir}/**/_app.{ts,tsx,js,jsx}`, ...createReservedSubtreeExcludes(resolved.shellsDir)])}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
@@ -472,9 +509,15 @@ export function createPrachtClientModuleSource(
   const appFileAbs = appFilePosix.startsWith("/") ? appFilePosix : `/${appFilePosix}`;
   const appDir = appFileAbs.replace(/\/[^/]*$/, "") || "/";
 
+  // `defineApp({ root })`: imported eagerly, because the router renders it
+  // before the first hydration. Without one, nothing is emitted and the
+  // `__PRACHT_APP_ROOT__` define drops the router's root wiring.
+  const appRoot = findAppRootModule(resolved, root);
+
   return [
     'import { resolveApp, initClientRouter, readHydrationState, parseRouteSearch, DEV_ROUTE_DATA_STALE_EVENT, refreshDevRouteData } from "@pracht/core/client";',
     appImport,
+    ...(appRoot ? [`import * as rootModule from ${JSON.stringify(appRoot.id)};`] : []),
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
     `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
@@ -558,6 +601,7 @@ export function createPrachtClientModuleSource(
     "    root,",
     "    findModuleKey,",
     searchParserOption,
+    ...(appRoot ? ["    rootModule,"] : []),
     ...(webmcpEnabled ? ["    onRouteChange: syncPrachtWebmcpTools,"] : []),
     "  });",
     "}",
@@ -755,24 +799,43 @@ export function createPrachtIslandsClientModuleSource(
   buildOptions: { root?: string } = {},
 ): string {
   const resolved = resolveOptions(options);
-  const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
+  const islandsGlob = moduleGlob(
+    resolved.islandsDir,
+    `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`,
+  );
   const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
+
+  // With client-side navigation the page changes under the bootstrap, so the
+  // page tools follow each swapped-in document.
+  const syncToolsOnNavigate = webmcpEnabled && resolved.client.islandsNavigation;
 
   return [
     'import { hydrateIslands } from "@pracht/core/islands-client";',
     "",
     `const islandModules = import.meta.glob(${JSON.stringify(islandsGlob)});`,
     "",
-    "hydrateIslands({ modules: islandModules });",
+    syncToolsOnNavigate
+      ? "hydrateIslands({ modules: islandModules, onNavigate: syncPrachtWebmcpToolsFrom });"
+      : "hydrateIslands({ modules: islandModules });",
     "",
     // Islands pages skip the full client runtime, so the bootstrap pulls in
     // the WebMCP shim itself when a capability opts in.
     ...(webmcpEnabled
       ? [
           ...createWebmcpBootstrapSource(),
-          'const webmcpEntry = document.querySelector("script[data-pracht-webmcp-tools]");',
-          'const webmcpCapabilities = webmcpEntry?.getAttribute("data-pracht-webmcp-tools")?.split(",").filter(Boolean) ?? [];',
-          "syncPrachtWebmcpTools(webmcpCapabilities);",
+          ...(syncToolsOnNavigate
+            ? [
+                "function syncPrachtWebmcpToolsFrom(doc) {",
+                '  const entry = doc.querySelector("script[data-pracht-webmcp-tools]");',
+                '  syncPrachtWebmcpTools(entry?.getAttribute("data-pracht-webmcp-tools")?.split(",").filter(Boolean) ?? []);',
+                "}",
+                "syncPrachtWebmcpToolsFrom(document);",
+              ]
+            : [
+                'const webmcpEntry = document.querySelector("script[data-pracht-webmcp-tools]");',
+                'const webmcpCapabilities = webmcpEntry?.getAttribute("data-pracht-webmcp-tools")?.split(",").filter(Boolean) ?? [];',
+                "syncPrachtWebmcpTools(webmcpCapabilities);",
+              ]),
           "",
         ]
       : []),
@@ -831,7 +894,7 @@ export function createPrachtServerModuleSource(
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
-  const registrySource = createPrachtRegistryModuleSource(resolved);
+  const registrySource = createPrachtRegistryModuleSource(resolved, { root: buildOptions.root });
   const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
   const routeLoaderHints = routeHints.loader;
   const routeHeadHints = routeHints.head;
@@ -877,11 +940,17 @@ export function createPrachtServerModuleSource(
   const islandsEntryUrl = buildOptions.isBuild
     ? clientBuild.islandsEntryUrl
     : withDevBase(ISLANDS_CLIENT_BROWSER_PATH);
-  const islandsGlob = `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`;
+  const islandsGlob = moduleGlob(
+    resolved.islandsDir,
+    `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`,
+  );
   const serverIslandsEntryUrl = buildOptions.isBuild
     ? clientBuild.serverIslandsEntryUrl
     : withDevBase(SERVER_ISLANDS_CLIENT_BROWSER_PATH);
-  const serverIslandsGlob = `${resolved.serverIslandsDir}/**/*.{ts,tsx,js,jsx}`;
+  const serverIslandsGlob = moduleGlob(
+    resolved.serverIslandsDir,
+    `${resolved.serverIslandsDir}/**/*.{ts,tsx,js,jsx}`,
+  );
 
   const source = [
     prachtImports,
@@ -1000,7 +1069,7 @@ export function createPrachtDevModuleSource(
     `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
     `const routeStaticPathsHints = ${JSON.stringify(routeStaticPathsHints)};`,
     ...createApplyRouteLoaderHintsSource(),
-    createPrachtRegistryModuleSource(resolved),
+    createPrachtRegistryModuleSource(resolved, { root: buildOptions.root }),
     "",
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
@@ -1245,31 +1314,47 @@ export function createServerLoaderHintsForHotUpdates(
   );
 }
 
-export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = {}): string {
+export function createPrachtRegistryModuleSource(
+  options: PrachtPluginOptions = {},
+  buildOptions: { root?: string } = {},
+): string {
   const resolved = resolveOptions(options);
-  const apiGlobs = [`${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`, `!${resolved.apiDir}/**/*.d.ts`];
+  const appRoot = findAppRootModule(resolved, buildOptions.root);
+  const apiGlobs = moduleGlob(resolved.apiDir, `${resolved.apiDir}/**/*.{ts,js,tsx,jsx}`);
   const isPagesMode = !!resolved.pagesDir;
   const bareRouteExtensions = [
     ...withAdditionalExtensions(LEGACY_BARE_ROUTE_EXTENSIONS, resolved.additionalExtensions),
   ];
 
-  const routeGlob = isPagesMode
-    ? `${resolved.pagesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`
-    : `${resolved.routesDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
-  const additionalRouteGlob = `${isPagesMode ? resolved.pagesDir : resolved.routesDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
+  const routeDir = isPagesMode ? resolved.pagesDir : resolved.routesDir;
+  const routeGlob = moduleGlob(routeDir, `${routeDir}/**/*.{ts,tsx,js,jsx,md,mdx}`);
+  const additionalRouteGlob = moduleGlob(
+    routeDir,
+    `${routeDir}/**/*.${extensionGlob(bareRouteExtensions)}`,
+  );
 
   const shellGlob = isPagesMode
     ? [
-        `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`,
+        ...moduleGlob(resolved.pagesDir, `${resolved.pagesDir}/**/_app.{ts,tsx,js,jsx}`),
         ...createReservedSubtreeExcludes(resolved.pagesDir),
       ]
-    : `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`;
+    : moduleGlob(resolved.shellsDir, `${resolved.shellsDir}/**/*.{ts,tsx,js,jsx,md,mdx}`);
   const additionalShellGlob = isPagesMode
     ? [
-        `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`,
+        ...moduleGlob(
+          resolved.pagesDir,
+          `${resolved.pagesDir}/**/_app.${extensionGlob(bareRouteExtensions)}`,
+        ),
         ...createReservedSubtreeExcludes(resolved.pagesDir),
       ]
-    : `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`;
+    : moduleGlob(
+        resolved.shellsDir,
+        `${resolved.shellsDir}/**/*.${extensionGlob(bareRouteExtensions)}`,
+      );
+  const middlewareGlob = moduleGlob(
+    resolved.middlewareDir,
+    `${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`,
+  );
 
   return [
     `export const routeModules = {`,
@@ -1285,16 +1370,18 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     ...(isPagesMode
       ? [
           `export const middlewareModules = {`,
-          `  ...import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)}),`,
+          `  ...import.meta.glob(${JSON.stringify(middlewareGlob)}),`,
           `  ...import.meta.glob(${JSON.stringify(`${resolved.pagesDir}/_middleware.{ts,tsx,js,jsx}`)}),`,
           `};`,
         ]
-      : [
-          `export const middlewareModules = import.meta.glob(${JSON.stringify(`${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`)});`,
-        ]),
+      : [`export const middlewareModules = import.meta.glob(${JSON.stringify(middlewareGlob)});`]),
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
-    `export const dataModules = import.meta.glob(${JSON.stringify(`${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`)});`,
-    `export const capabilityModules = import.meta.glob(${JSON.stringify(`${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`)});`,
+    `export const dataModules = import.meta.glob(${JSON.stringify(moduleGlob(resolved.serverDir, `${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`))});`,
+    `export const capabilityModules = import.meta.glob(${JSON.stringify(moduleGlob(resolved.capabilitiesDir, `${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`))});`,
+    // The one module `defineApp({ root })` registers, or none.
+    appRoot
+      ? `export const rootModules = { ${JSON.stringify(appRoot.id)}: () => import(${JSON.stringify(appRoot.id)}) };`
+      : "export const rootModules = {};",
     "",
     "export const registry = {",
     "  routeModules,",
@@ -1303,6 +1390,7 @@ export function createPrachtRegistryModuleSource(options: PrachtPluginOptions = 
     "  apiModules,",
     "  dataModules,",
     "  capabilityModules,",
+    "  rootModules,",
     "};",
   ].join("\n");
 }

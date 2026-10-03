@@ -31,6 +31,7 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import { isNonModuleFile } from "./source-files.ts";
 
 export interface ScannedPage {
   absolutePath: string;
@@ -155,6 +156,43 @@ export function findPagesMiddlewareFile(
   }
 
   return middlewareFile;
+}
+
+/**
+ * The pages router's app root: the root-level `_root.{ts,tsx,js,jsx}` of the
+ * pages directory, registered as `defineApp({ root })`, or null when the app
+ * has none. A root is app-wide, so only the pages root is read, as for
+ * `_middleware`.
+ */
+export function findPagesRootFile(pagesDir: string): string | null {
+  const named = scanAllFiles(pagesDir).filter(
+    (file) => basename(file, extname(file)) === "_root" && MIDDLEWARE_EXTENSIONS.has(extname(file)),
+  );
+  const segmentsOf = (file: string) => relative(pagesDir, file).replace(/\\/g, "/").split("/");
+  // A `_root` inside an underscore-reserved tree is a deliberate helper.
+  const nested = named
+    .map(segmentsOf)
+    .filter(
+      (segments) =>
+        segments.length > 1 && !segments.slice(0, -1).some((segment) => segment.startsWith("_")),
+    );
+  if (nested.length > 0) {
+    throw new Error(
+      `[pracht] Nested pages app roots are not supported: ${nested
+        .map((segments) => JSON.stringify(segments.join("/")))
+        .join(", ")}. ` +
+        "The app root is app-wide, so only a root-level `_root.tsx` in the pages directory is read.",
+    );
+  }
+  const roots = named.filter((file) => segmentsOf(file).length === 1);
+  if (roots.length > 1) {
+    throw new Error(
+      `[pracht] Multiple pages app roots resolve to the same registration: ${roots
+        .map((file) => JSON.stringify(basename(file)))
+        .join(", ")}. Keep exactly one root-level \`_root\` file.`,
+    );
+  }
+  return roots[0] ?? null;
 }
 
 /** A discovered `_app` shell and the registration it owns. */
@@ -347,8 +385,8 @@ export interface PagesCapability {
 export function findPagesCapabilityFiles(capabilitiesDir: string): PagesCapability[] {
   const files = scanAllFiles(capabilitiesDir)
     .filter((file) => CAPABILITY_EXTENSIONS.has(extname(file)))
-    // Declaration files describe a module, they are not one.
-    .filter((file) => !file.endsWith(".d.ts"))
+    // Declaration files describe a module and tests exercise one; neither is one.
+    .filter((file) => !isNonModuleFile(relative(capabilitiesDir, file)))
     .sort();
 
   const capabilities: PagesCapability[] = [];
@@ -439,6 +477,8 @@ function scan(
 
     // Skip _-prefixed files except the root-level _app shell.
     if (name.startsWith("_") && !isRootApp) continue;
+    // A colocated test is not a page (`__tests__/` is already underscore-reserved).
+    if (isNonModuleFile(entry)) continue;
 
     const rel = relative(root, abs);
     const routePath = filePathToRoutePath(rel);
@@ -638,6 +678,8 @@ export function generatePagesManifestSource(
   const rootAppShell = appShells.find((shell) => shell.directory === "");
   const middlewareFile = findPagesMiddlewareFile(pagesDir, options.additionalExtensions);
   const isClientTarget = options.target === "client";
+  // The client entry imports the root itself; only the build reads this key.
+  const rootFile = isClientTarget ? null : findPagesRootFile(pagesDir);
   const appConfig = isClientTarget ? null : findPagesAppConfigFile(pagesDir);
   const capabilitiesDir =
     options.capabilitiesDir === null
@@ -776,6 +818,7 @@ export function generatePagesManifestSource(
   if (middlewareFile) groupMetaParts.push('middleware: ["pages"]');
 
   lines.push("const app = defineApp({");
+  if (rootFile) lines.push(`  root: ${specialFileRef(rootFile)},`);
   // `agents` and `constraints` come from `_app.config.ts` verbatim, which is
   // what makes the pages router's agent surface identical to a manifest's.
   for (const name of appConfig?.exports ?? []) {

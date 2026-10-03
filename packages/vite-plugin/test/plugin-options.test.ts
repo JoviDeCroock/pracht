@@ -38,6 +38,7 @@ describe("resolveOptions client", () => {
       navigationGuards: true,
       hydrationWarnings: false,
       richData: false,
+      islandsNavigation: false,
     });
   });
 
@@ -47,24 +48,35 @@ describe("resolveOptions client", () => {
       navigationGuards: true,
       hydrationWarnings: false,
       richData: false,
+      islandsNavigation: false,
     });
     expect(resolveOptions({ client: { navigationGuards: false } }).client).toEqual({
       prefetch: true,
       navigationGuards: false,
       hydrationWarnings: false,
       richData: false,
+      islandsNavigation: false,
     });
     expect(resolveOptions({ client: { hydrationWarnings: true } }).client).toEqual({
       prefetch: true,
       navigationGuards: true,
       hydrationWarnings: true,
       richData: false,
+      islandsNavigation: false,
     });
     expect(resolveOptions({ client: { richData: true } }).client).toEqual({
       prefetch: true,
       navigationGuards: true,
       hydrationWarnings: false,
       richData: true,
+      islandsNavigation: false,
+    });
+    expect(resolveOptions({ client: { islandsNavigation: true } }).client).toEqual({
+      prefetch: true,
+      navigationGuards: true,
+      hydrationWarnings: false,
+      richData: false,
+      islandsNavigation: true,
     });
   });
 
@@ -308,9 +320,16 @@ describe("server islands codegen", () => {
       { serverIslandsDir: "/app/server-islands" },
       { base: "/app/" },
     );
-    expect(source).toContain(
-      'const serverIslandModules = import.meta.glob("/app/server-islands/**/*.{ts,tsx,js,jsx}", { eager: true });',
+    const glob = source.match(
+      /const serverIslandModules = import\.meta\.glob\((\[.*?\]), \{ eager: true \}\);/,
     );
+    const patterns = JSON.parse(glob?.[1] ?? "[]") as string[];
+    expect(patterns[0]).toBe("/app/server-islands/**/*.{ts,tsx,js,jsx}");
+    // Colocated tests and mocks are not server islands.
+    expect(patterns.slice(1).every((pattern) => pattern.startsWith("!/app/server-islands/"))).toBe(
+      true,
+    );
+    expect(patterns.length).toBeGreaterThan(1);
     expect(source).toContain("registerServerIslandModules(serverIslandModules);");
     // Dev serves the swap script from a stable path under the deploy base.
     expect(source).toContain('setServerIslandsClientEntryUrl("/app/@pracht/server-islands.js");');

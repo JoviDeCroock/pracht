@@ -623,7 +623,7 @@ describe("client route module build", () => {
   });
 
   describe("reads a group's hydration and routes past arrays in its meta", () => {
-    function clientSourceFor(routes: string[]): string {
+    function clientSourceFor(routes: string[], appKeys: string[] = []): string {
       const root = makeTempProject();
       mkdirSync(join(root, "src", "routes"), { recursive: true });
       writeFileSync(
@@ -634,6 +634,7 @@ describe("client route module build", () => {
           "  routes: [",
           ...routes,
           "  ],",
+          ...appKeys,
           "});",
           "",
         ].join("\n"),
@@ -693,6 +694,34 @@ describe("client route module build", () => {
       ]);
       expect(source).not.toContain('"!/src/routes/home.tsx"');
       expect(source).not.toContain('"!/src/routes/about.tsx"');
+    });
+
+    it("keeps a route file that also backs a full-hydration route", () => {
+      const source = clientSourceFor([
+        '    route("/full", "./routes/shared.tsx", { id: "full" }),',
+        '    route("/isl", "./routes/shared.tsx", { id: "isl", hydration: "islands" }),',
+        '    group({ hydration: "none" }, [',
+        '      route("/static", () => import("./routes/static.tsx")),',
+        '      route("/also-full", () => import("./routes/lazy.tsx"), { hydration: "full" }),',
+        '      route("/lazy-static", () => import("./routes/lazy.tsx")),',
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/shared.tsx"');
+      expect(source).not.toContain('"!/src/routes/lazy.tsx"');
+      expect(source).toContain('"!/src/routes/static.tsx"');
+    });
+
+    it("keeps a route file the manifest also names outside a non-full route", () => {
+      const source = clientSourceFor(
+        [
+          '    route("/isl", "./routes/shared.tsx", { hydration: "islands" }),',
+          '    route("/none", "./routes/static.tsx", { hydration: "none" }),',
+          '    // route("/old", "./routes/static.tsx"),',
+        ],
+        ['  notFound: { component: "./routes/shared.tsx" },'],
+      );
+      expect(source).not.toContain('"!/src/routes/shared.tsx"');
+      expect(source).toContain('"!/src/routes/static.tsx"');
     });
 
     it("applies the innermost group's mode to nested groups", () => {

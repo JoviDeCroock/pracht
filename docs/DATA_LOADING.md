@@ -134,6 +134,7 @@ The decoder costs 272 bytes gzip on full-hydration routes when enabled (see
 | `route`    | `ResolvedRoute` | Matched route metadata                                        |
 | `pathname` | `string`        | Matched pathname with the configured deployment base removed |
 | `search`   | `unknown`       | Parsed search params: the route module's `search` schema output, or the raw query record |
+| `root`     | `unknown`       | This request's [app root](#the-app-root) state, when the app has one |
 
 `search` is set once per request, after middleware and before the loader, and
 the same value reaches `head()` and `headers()`. Narrow it with
@@ -233,6 +234,112 @@ navigations inside the same shell reuse it (the request claims the shell with
 `x-pracht-shell-data` and the server skips its loader); every revalidation path
 re-runs it. Mechanics and render-mode behaviour live in
 [ROUTING.md](ROUTING.md#shell-loaders).
+
+### The app root
+
+`defineApp({ root })` registers an optional module that renders above every
+shell and is never remounted by the client router. It exists for app-wide
+client infrastructure whose state must survive navigations, including ones
+that switch shells — the first user is `@pracht/query`, whose browser
+`QueryClient` would otherwise be recreated on every shell change. It is not a
+data channel of its own: request-dependent data belongs in loaders (route or
+shell), and `setup()` gets no request for that reason. Every export is
+optional:
+
+| Export | Runs | Does |
+| --- | --- | --- |
+| `setup({ isServer })` | once per server request, after middleware and before any loader; once at browser boot | creates the root state |
+| `Root({ state, children })` | every render, server and browser | wraps the shell |
+| `dehydrate(state)` | server, after a document render and after a route-state request's loaders | JSON snapshot for the browser; `undefined` sends nothing |
+| `hydrate(state, snapshot)` | browser, before the first `hydrate()` and for every route-state response | merges the snapshot |
+
+**Registration.** The manifest names the module, but `defineApp()` drops the
+key at runtime: the manifest ships in every client bundle, so carrying `root`
+would cost apps without one. The vite plugin reads it from the manifest source
+instead (`plugin-app-root.ts`: the capability analyzer locates the
+`defineApp({ … })` body, and Vite's `parseAst` reads its top-level
+properties, so a nested `shells: { root }` is never mistaken for the
+registration) and derives three things from that one read: the client
+entry's static `import * as rootModule`, the server registry's single
+`rootModules` entry, and the `__PRACHT_APP_ROOT__` define. A `root` value the
+analyzer cannot read (a variable, shorthand) or a path that does not exist
+fails the build. The pages router's synthesized manifest carries `root` for a
+pages-root `_root.{ts,tsx,js,jsx}`, so both routers share the reader. The
+optimize-deps scan also gets the root as an entry: a string ref gives Vite's
+scanner no import to follow, and the client entry imports it eagerly.
+`pracht inspect` reports the registered root and `pracht typegen` emits
+`Register["root"]` as `RootState<typeof import("./root")>`, both read from
+the registry keys.
+
+**Server** (`runtime-root.ts`): `setup()` runs once per request context,
+cached in a `WeakMap` keyed by it, so a `notFound()` re-render reuses the same
+state. It runs at the top of the page terminal — after middleware, before any
+loader — so a request middleware answers never creates a root, and every
+loader of the request (the route loader and, with shell loaders, the shell's)
+reads the same `args.root`. The error path creates it too when middleware
+failed first, so error documents render inside `Root`. The module itself is
+not cached beyond the module system, so a dev edit applies on the next
+request. `Root` is placed between `PrachtRuntimeProvider` and the shell in
+every server tree — full documents, streaming documents, SPA loading shells,
+and route/shell `ErrorBoundary` documents — matching where the client router
+renders it, so hydration sees the same tree.
+
+`dehydrate()` output lands in `PrachtHydrationState.root` and in the
+route-state JSON body's `root` field. Buffered documents take the snapshot
+after the render, so queries a component started while rendering are
+included. Streaming documents commit the hydration state before the shell
+renders, so their snapshot holds only what the loaders produced. Static
+exports get it for free: their route-state files are the live endpoint's JSON
+bodies.
+
+**Browser**: `router.ts` calls `setup()` once, hydrates the initial snapshot,
+and installs the root's `hydrate()` as the route-state snapshot handler in
+`runtime-client-fetch.ts`. Every route-state fetch — navigation, prefetch,
+revalidation, SPA boot — goes through `fetchPrachtRouteState()`, which hands
+the snapshot over before returning the data, so the state is updated before
+the route that needs it commits. Islands routes never run the client router
+and so never render the root in the browser. To keep the server render
+honest about that, an islands-mode render wraps `Root` in a class that reads
+the legacy context map (`this.context` without a `contextType`) above and
+below it; the entries `Root` changed travel down in `IslandRootContextReset`,
+and `IslandBoundary` wraps each island in a class whose `getChildContext()`
+puts the outer values back. An island that reads what `Root` provides
+therefore fails during SSR, where that class's `componentDidCatch` rethrows
+the error with the island's name, instead of at hydration. Route components
+and shells on islands and `none` routes still render inside `Root`, and so do
+the children a page passes into an island: they stay server HTML in the
+browser, so `IslandBoundary` takes the root's entries from its own legacy
+context and restores them around the slot content (`IslandRootRestore`).
+
+The plugin defines `__PRACHT_APP_ROOT__` false for a build that registers no
+root, which folds away the router and fetch wiring; dev keeps it on so a root
+registered while the server runs is picked up.
+
+Known edges, by design:
+
+- A snapshot is applied when its route-state response arrives, not when the
+  route commits: a prefetch the user never follows, or a navigation that a
+  later one supersedes, still hydrates. `@pracht/query` is unaffected because
+  TanStack's `hydrate()` never replaces a newer cache entry with an older one.
+- After a successful non-`read` capability call, the route revalidation
+  carries fresh query snapshots and `@pracht/query` also invalidates every
+  query, so an active query the loader prefetches is fetched twice (server and
+  browser). Deduplicating needs a signal that the revalidation's snapshot has
+  landed (or a way to tell that a query will be in it), which the root API
+  deliberately does not expose; invalidating without refetching instead would
+  leave client-only queries stale on screen.
+- SSG/ISG snapshots carry the render time as `dataUpdatedAt`, so with
+  `@pracht/query` the browser refetches them once they are older than
+  `staleTime`.
+- On streaming routes, a query read with `useSuspenseQuery` that the loader
+  did not await is not in the snapshot. Inside a `<Suspense>` boundary it hits
+  the same stream-swap/hydration race as any non-`defer()` suspension; outside
+  one the streaming render fails.
+- A `hydrate()` that throws on the initial snapshot aborts the client boot
+  (route-state responses catch and log it). A server `setup()` that throws, or
+  a root module that fails to load, renders the error document without `Root`
+  and reaches `onRouteError` with `rootFile` set, which the request log line
+  and the dev overlay name instead of the route file.
 
 ### Deferred values — `defer()` and `use()`
 
@@ -371,11 +478,11 @@ chunks without buffering them.
 
 ##### Content-Security-Policy
 
-The renderer emits an inline bootstrap script for its boundary swaps, and it
-has no nonce hook (see [CSP.md](CSP.md)). A streaming route therefore needs
-`script-src` to permit that script; pracht's own deferred-data scripts do carry
-a nonce when one is configured. Non-streaming routes are unaffected, which is
-part of why streaming is opt-in.
+A streamed document carries executable inline scripts: the defer shim, one
+script per settled deferred value, and the renderer's boundary-swap bootstrap.
+All of them take `head.scriptNonce` (see [CSP.md](CSP.md)); the renderer's
+bootstrap gets it by rewriting its opening tag, since the renderer has no nonce
+option. Non-streaming routes emit none of these.
 
 #### Rules
 

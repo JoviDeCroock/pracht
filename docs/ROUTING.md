@@ -625,7 +625,10 @@ data and the navigation lifecycle are unaffected.
 
 **Full-document navigations.** Islands and `hydration: "none"` routes never
 load the client router, and the router hands navigations to them to the
-browser (`window.location`), so `startViewTransition()` never sees them. For
+browser (`window.location`), so `startViewTransition()` never sees them. (With
+`client.islandsNavigation`, a link *between* islands pages is instead swapped
+in by the islands bootstrap, which wraps the swap in `startViewTransition()`;
+see ISLANDS.md.) For
 those, `viewTransitions: true` also makes every page document (SSR, SSG/ISG,
 SPA shell, streamed; all hydration modes) emit
 `<style data-pracht-view-transitions>@view-transition{navigation:auto}</style>`
@@ -1120,6 +1123,20 @@ reserved tree; `_middleware` is recognized only at the pages root, and a nested
 authorization boundary open. An `_app` inside a reserved tree such as
 `pages/_components/_app.tsx` stays a plain helper. `_middleware/` is rejected
 as a directory for the same reason.
+
+Declarations, colocated tests, and mocks (`*.d.ts`, `*.test.*`, `*.spec.*`,
+and anything under `__tests__/` or `__mocks__/`) are never app modules, in
+either router. `packages/vite-plugin/src/source-files.ts` is the single
+definition: its negated patterns are appended to every `import.meta.glob`
+(routes, shells, API, middleware, server, capabilities, islands — client
+entry, islands bootstrap, and server registry alike) and to the dependency
+optimizer's seed entries, and its predicate filters the pages scan, pages
+capability discovery, route hint scans, and the pages dev watcher. Because
+`pracht inspect`, `typegen`, `plan`, and the dev banner read the server
+registry, they inherit the exclusion. `pracht verify` scans the filesystem on
+its own and mirrors the rule in `packages/cli/src/verification-helpers.ts`.
+Without it, `src/api/health.test.ts` became the API route `/api/health.test`,
+and importing the registry ran the test suite.
 
 ### Shell via `_app.tsx`
 
