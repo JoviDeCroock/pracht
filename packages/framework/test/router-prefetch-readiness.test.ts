@@ -66,11 +66,9 @@ describe("router readiness without prefetching", () => {
 
     expect(window.__PRACHT_ROUTER_READY__).toBe(true);
     expect(document.documentElement.getAttribute("data-pracht-hydrated")).toBe("true");
-    await vi.waitFor(() =>
-      expect(warning).toHaveBeenCalledWith(
-        "[pracht] Prefetching could not be initialized.",
-        expect.any(Error),
-      ),
+    expect(warning).toHaveBeenCalledWith(
+      "[pracht] Prefetching could not be initialized.",
+      expect.any(Error),
     );
   });
 });

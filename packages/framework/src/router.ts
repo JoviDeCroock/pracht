@@ -1412,13 +1412,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       startShellImport(match);
     };
     registerPrefetchTarget(app, warmModules);
-    void import("./prefetch.ts")
-      .then(({ setupPrefetching }) => setupPrefetching(app, warmModules))
-      .catch((error) => {
-        // Prefetching is an optional enhancement. A missing or stale lazy chunk
-        // must not leave an otherwise hydrated page permanently "not ready".
-        console.warn("[pracht] Prefetching could not be initialized.", error);
-      });
+    try {
+      const { setupPrefetching } = await import("./prefetch.ts");
+      setupPrefetching(app, warmModules);
+    } catch (error) {
+      // Prefetching is an optional enhancement. A missing or stale lazy chunk
+      // must not leave an otherwise hydrated page permanently "not ready".
+      console.warn("[pracht] Prefetching could not be initialized.", error);
+    }
   }
 
   // Publish readiness only after a static fallback has resolved and committed

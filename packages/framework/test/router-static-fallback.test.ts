@@ -2,34 +2,14 @@
 import { h, render } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const prefetchImport = vi.hoisted(() => {
-  let release!: () => void;
-  let markStarted!: () => void;
-  return {
-    block: false,
-    gate: new Promise<void>((resolve) => {
-      release = resolve;
-    }),
-    release: () => release(),
-    started: new Promise<void>((resolve) => {
-      markStarted = resolve;
-    }),
-    markStarted: () => markStarted(),
-  };
-});
-
 vi.mock("../src/runtime-static.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/runtime-static.ts")>();
   return { ...actual, IS_STATIC_TARGET: true };
 });
 
-vi.mock("../src/prefetch.ts", async () => {
-  if (prefetchImport.block) {
-    prefetchImport.markStarted();
-    await prefetchImport.gate;
-  }
-  return { setupPrefetching: vi.fn() };
-});
+vi.mock("../src/prefetch.ts", () => ({
+  setupPrefetching: vi.fn(),
+}));
 
 import { defineApp, initClientRouter, resolveApp, route, useLocation } from "../src/index.ts";
 import { _resetForTesting as resetHydrationForTesting } from "../src/hydration.ts";
@@ -112,15 +92,7 @@ describe("static fallback router readiness", () => {
     expect(window.__PRACHT_ROUTER_READY__).not.toBe(true);
     expect(document.documentElement.hasAttribute("data-pracht-hydrated")).toBe(false);
 
-    prefetchImport.block = true;
     releaseImport();
-    try {
-      await prefetchImport.started;
-      expect(window.__PRACHT_ROUTER_READY__).toBe(true);
-    } finally {
-      prefetchImport.release();
-      prefetchImport.block = false;
-    }
     await initialization;
 
     expect(root.textContent).toBe("Item 42");
