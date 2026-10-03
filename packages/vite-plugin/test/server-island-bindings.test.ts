@@ -293,6 +293,12 @@ describe("server island bindings from a real module graph", () => {
         "/src/server-islands",
       );
       expect(bindings).toEqual(EXPECTED);
+      // Nothing was transformed, so no transform is cached ahead of an edit:
+      // the first request after an edit must load the edited module.
+      for (const file of ["/src/routes/admin.ts", "/src/server-islands/AdminStats.ts"]) {
+        const mod = await server.environments.ssr.moduleGraph.getModuleByUrl(file);
+        expect(mod?.transformResult ?? null).toBeNull();
+      }
     } finally {
       await server.close();
     }
