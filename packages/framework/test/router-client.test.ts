@@ -1175,6 +1175,74 @@ describe("initClientRouter", () => {
     expect(root.textContent).toContain("clicked");
   });
 
+  it("hydrates the app notFound page when the matched route's loader threw notFound()", async () => {
+    const app = resolveApp(
+      defineApp({
+        shells: { public: "./shells/public.tsx", notfound: "./shells/notfound.tsx" },
+        routes: [
+          route("/posts/:slug", "./routes/post.tsx", {
+            id: "post",
+            render: "ssr",
+            shell: "public",
+          }),
+        ],
+        notFound: { component: "./routes/not-found.tsx", shell: "notfound" },
+      }),
+    );
+
+    function NotFound() {
+      const [clicked, setClicked] = useState(false);
+      return h(
+        "main",
+        null,
+        h("button", { id: "retry", onClick: () => setClicked(true) }, "Retry"),
+        clicked ? "clicked" : "not clicked",
+      );
+    }
+    const postRendered = vi.fn();
+
+    history.replaceState(null, "", "/posts/missing");
+    root.innerHTML =
+      '<section class="nf-shell"><main><button id="retry">Retry</button>not clicked</main></section>';
+
+    await initClientRouter({
+      app,
+      routeModules: {
+        "./routes/post.tsx": async () => ({
+          default: () => {
+            postRendered();
+            return h("main", null, "post");
+          },
+        }),
+        "./routes/not-found.tsx": async () => ({ default: NotFound }),
+      },
+      shellModules: {
+        "./shells/public.tsx": async () => ({
+          Shell: ({ children }: { children: ComponentChildren }) =>
+            h("section", { class: "public-shell" }, children),
+        }),
+        "./shells/notfound.tsx": async () => ({
+          Shell: ({ children }: { children: ComponentChildren }) =>
+            h("section", { class: "nf-shell" }, children),
+        }),
+      },
+      initialState: {
+        data: null,
+        routeId: "__pracht_not_found__",
+        url: "/posts/missing",
+      },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    expect(postRendered).not.toHaveBeenCalled();
+    expect(root.querySelector(".nf-shell")).not.toBeNull();
+    expect(root.querySelector(".public-shell")).toBeNull();
+    root.querySelector<HTMLButtonElement>("#retry")!.click();
+    await flush();
+    expect(root.textContent).toContain("clicked");
+  });
+
   it("uses a document navigation for loader 404s instead of a shell boundary", async () => {
     const app = resolveApp(
       defineApp({

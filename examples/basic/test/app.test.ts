@@ -8,10 +8,12 @@ import {
   runMiddleware,
 } from "@pracht/test";
 
+import { POST as loginPost } from "../src/api/auth/login.ts";
 import { POST as dashboardPost } from "../src/api/dashboard.ts";
 import { POST as echoPost } from "../src/api/echo.ts";
 import { middleware as auth } from "../src/middleware/auth.ts";
 import { sessions } from "../src/server/session.ts";
+import { loader as loginLoader } from "../src/routes/login.tsx";
 import { loader as productLoader } from "../src/routes/product.tsx";
 
 // Dogfood tests: the example app's real middleware, loader, and API handlers
@@ -86,5 +88,40 @@ describe("API handlers", () => {
   it("saves without the redirect flag", async () => {
     const response = await dashboardPost(createApiArgs({ url: "/api/dashboard", method: "POST" }));
     expect(await readJson(response)).toEqual({ saved: true });
+  });
+});
+
+describe("login redirect target", () => {
+  const offOrigin = [
+    "//evil.example",
+    "/\\evil.example",
+    "/\t/evil.example",
+    "https://evil.example",
+  ];
+
+  it.each(offOrigin)("does not reflect %j into the login form", async (target) => {
+    const data = await loginLoader(
+      createLoaderArgs({ url: `/login?redirect=${encodeURIComponent(target)}` }),
+    );
+    expect(data.redirect).toBe("/dashboard");
+  });
+
+  it.each(offOrigin)("does not carry %j through a failed login", async (target) => {
+    const body = new URLSearchParams({
+      email: "ada@example.com",
+      password: "wrong",
+      redirect: target,
+    });
+    const response = await loginPost(
+      createApiArgs({ url: "/api/auth/login", method: "POST", body }),
+    );
+    expect(readRedirect(response)?.location).toBe("/login?error=1&redirect=%2Fdashboard");
+  });
+
+  it("keeps a same-origin path with its query and hash", async () => {
+    const data = await loginLoader(
+      createLoaderArgs({ url: `/login?redirect=${encodeURIComponent("/settings?tab=1#a")}` }),
+    );
+    expect(data.redirect).toBe("/settings?tab=1#a");
   });
 });

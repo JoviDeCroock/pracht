@@ -422,10 +422,12 @@ When `pagesDir` is set, the `appFile` option is ignored.
 | `pages/blog/_app.tsx`   | _(shell for `/blog/**`, not a route)_       |
 | `pages/_middleware.ts`  | _(middleware, not a route)_                 |
 | `pages/_app.config.ts`  | _(app config, not a route)_                 |
+| `pages/_root.tsx`       | _([app root](/docs/shells#the-app-root), not a route)_ |
 | `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
 | `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
+| `pages/about.test.tsx`  | _(ignored — test files are never routes)_    |
 
-A leading underscore reserves a file or directory for helpers. `_app` works in any directory; `_middleware` and `_app.config` only at the pages root.
+A leading underscore reserves a file or directory for helpers. `_app` works in any directory; `_middleware`, `_app.config`, and `_root` only at the pages root.
 
 ### Shell via `_app.tsx`
 

@@ -1,4 +1,6 @@
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { build, parseAst, resolveConfig, type Plugin } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -288,6 +290,32 @@ describe("pracht plugin build config", () => {
     expect(config.define?.["process.env.NODE_ENV"]).toBeUndefined();
   });
 
+  it("compiles the app root out of builds that register none", () => {
+    const withRoot = mkdtempSync(join(tmpdir(), "pracht-root-"));
+    const withoutRoot = mkdtempSync(join(tmpdir(), "pracht-no-root-"));
+    try {
+      const manifest = (config: string) =>
+        `import { defineApp } from "@pracht/core";\nexport const app = defineApp({ ${config}routes: [] });\n`;
+      for (const dir of [withRoot, withoutRoot]) {
+        mkdirSync(join(dir, "src"));
+        // A root file alone is not a registration.
+        writeFileSync(join(dir, "src/root.tsx"), "export function setup() { return {}; }\n");
+      }
+      writeFileSync(join(withRoot, "src/routes.ts"), manifest('root: "./root.tsx", '));
+      writeFileSync(join(withoutRoot, "src/routes.ts"), manifest(""));
+
+      expect(
+        runConfigHook(edgeAdapter, false, {}, { root: withRoot }).define?.__PRACHT_APP_ROOT__,
+      ).toBe("true");
+      expect(
+        runConfigHook(edgeAdapter, false, {}, { root: withoutRoot }).define?.__PRACHT_APP_ROOT__,
+      ).toBe("false");
+    } finally {
+      rmSync(withRoot, { force: true, recursive: true });
+      rmSync(withoutRoot, { force: true, recursive: true });
+    }
+  });
+
   it("defines every client feature as enabled by default", () => {
     const config = runConfigHook(edgeAdapter, false);
 
@@ -362,7 +390,8 @@ describe("pracht plugin build config", () => {
     expect(clientConfig.build?.rollupOptions?.output?.codeSplitting?.groups).toEqual([
       { name: "vendor", test: /node_modules[\\/]preact/ },
     ]);
-    expect(ssrConfig.build?.rollupOptions?.output).toBeUndefined();
+    const serverGroups = ssrConfig.build?.rollupOptions?.output?.codeSplitting?.groups ?? [];
+    expect(serverGroups.map((group) => group.name)).not.toContain("vendor");
   });
 
   it("splits each island into its own server chunk", () => {
@@ -379,11 +408,53 @@ describe("pracht plugin build config", () => {
     expect(name(resolve(process.cwd(), "src/routes/home.tsx"))).toBeNull();
   });
 
-  it("leaves the client build and single-chunk edge servers unsplit", () => {
+  it("leaves the client build's chunking to the vendor group", () => {
     expect(
       runConfigHook(nodeishAdapter, false).build?.rollupOptions?.output?.codeSplitting?.groups,
     ).toEqual([{ name: "vendor", test: /node_modules[\\/]preact/ }]);
-    expect(runConfigHook(edgeAdapter, true).build?.rollupOptions?.output).toBeUndefined();
+  });
+
+  it("splits an edge server too, alongside its platform externals", () => {
+    // Vite builds a single-entry webworker bundle as one chunk, which merges
+    // every route's CSS into one stylesheet. Both options have to survive in
+    // the one `build` object the hook returns.
+    const config = runConfigHook(edgeAdapter, true);
+    const options = config.build?.rollupOptions;
+
+    expect(options?.output?.codeSplitting?.groups).toHaveLength(1);
+    const name = options!.output!.codeSplitting!.groups![0]!.name as (id: string) => string | null;
+    expect(name(resolve(process.cwd(), "src/islands/Counter.tsx"))).toBe("islands/Counter");
+    expect(
+      options?.external?.some((entry) => entry instanceof RegExp && entry.test("cloudflare:email")),
+    ).toBe(true);
+  });
+
+  it("turns splitting on for an edge server that uses the deprecated chunk options", () => {
+    const manual = runConfigHook(edgeAdapter, true, {}, withOutput({ manualChunks: () => null }));
+    expect(manual.build?.rollupOptions?.output).toMatchObject({ codeSplitting: true });
+    expect(typeof manual.build?.rollupOptions?.output?.manualChunks).toBe("function");
+
+    const advanced = runConfigHook(
+      edgeAdapter,
+      true,
+      {},
+      withOutput({ advancedChunks: { groups: [{ name: "app" }] } }),
+    );
+    expect(advanced.build?.rollupOptions?.output).toMatchObject({ codeSplitting: true });
+    expect(advanced.build?.rollupOptions?.output?.advancedChunks?.groups).toHaveLength(1);
+
+    // A Node server already splits by default; nothing to turn on there.
+    const node = runConfigHook(nodeishAdapter, true, {}, withOutput({ manualChunks: () => null }));
+    expect(node.build?.rollupOptions?.output).not.toHaveProperty("codeSplitting");
+  });
+
+  it("warns when an edge app switches server code splitting off", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const config = runConfigHook(edgeAdapter, true, {}, withOutput({ codeSplitting: false }));
+
+    expect(config.build?.rollupOptions?.output).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("single chunk"));
+    warn.mockRestore();
   });
 
   it("contributes only its own group, so Vite appends it to the app's", () => {

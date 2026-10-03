@@ -3,6 +3,7 @@ import type {
   LoaderArgs,
   MiddlewareArgs,
   RegisteredContext,
+  RegisteredRootState,
   ResolvedApiRoute,
   ResolvedRoute,
   RouteParams,
@@ -73,11 +74,16 @@ export interface CreateLoaderArgsInput<
    * repeated keys) — what a route without a schema receives.
    */
   search?: unknown;
+  /**
+   * The app root state the loader reads as `args.root`, e.g. what
+   * `setup({ isServer: true })` of your root module returns. Omitted by default.
+   */
+  root?: RegisteredRootState;
 }
 
 export interface CreateMiddlewareArgsInput<TContext = RegisteredContext> extends Omit<
   CreateLoaderArgsInput<TContext>,
-  "search"
+  "search" | "root"
 > {}
 
 export interface CreateApiArgsInput<
@@ -339,6 +345,7 @@ export function createLoaderArgs<TContext = RegisteredContext>(
     ...base,
     route: buildResolvedRoute(base.url, input.route),
     search: "search" in input ? input.search : searchParamsToRecord(base.url.searchParams),
+    ...(input.root === undefined ? {} : { root: input.root }),
   };
 }
 

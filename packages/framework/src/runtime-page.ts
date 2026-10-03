@@ -74,6 +74,12 @@ import {
 } from "./runtime-response.ts";
 import { markdownResponse, prefersMarkdown } from "./runtime-negotiation.ts";
 import {
+  dehydrateRoot,
+  resolveRequestRoot,
+  wrapWithRoot,
+  type RequestRoot,
+} from "./runtime-root.ts";
+import {
   composeRequestSignal,
   combineRequestSignals,
   createRequestWaitUntil,
@@ -308,7 +314,11 @@ interface PageRenderJob<TContext> {
   willStream: boolean;
   match: RouteMatch;
   pageOptions: PageRenderOptions;
-  routeArgs: BaseRouteArgs<TContext>;
+  routeArgs: LoaderArgs<TContext>;
+  /** The app root, created once per request before any loader runs. */
+  root: RequestRoot | null;
+  /** Loading the root module or running its `setup()` threw. */
+  rootFailed?: boolean;
   routeModulePromise: Promise<RouteModule | undefined> | undefined;
   shellModulePromise: Promise<ShellModule | undefined>;
   dataFunctionsPromise: Promise<Awaited<ReturnType<typeof resolveDataFunctions>>> | undefined;
@@ -488,9 +498,12 @@ async function buildRouteStateResponse<TContext>(
   const encodedData = RICH_ROUTE_DATA
     ? encodeRouteData(data, `route "${job.match.route.id ?? job.match.route.path}"`)
     : data;
-  const body = job.shellState
+  const root = await dehydrateRoot(job.root);
+  const body: Record<string, unknown> = job.shellState
     ? { data: encodedData, shellData: job.shellState.wire, fontHead }
     : { data: encodedData, fontHead };
+  // The app root's snapshot is plain JSON, whatever the data encoding.
+  if (root !== undefined) body.root = root;
   const response = withRouteResponseHeaders(Response.json(body), {
     isRouteStateRequest: true,
     loaderCache: job.match.route.loaderCache,
@@ -591,12 +604,13 @@ async function renderSpaDocument<TContext>(
   let body = "";
   const Shell = job.shellModule?.Shell as FunctionComponent | undefined;
   const Loading = job.shellModule?.Loading as FunctionComponent | undefined;
-  const loadingTree =
+  const shellTree =
     Shell != null
       ? h(Shell, null, Loading ? h(Loading, null) : null)
       : Loading
         ? h(Loading, null)
         : null;
+  const loadingTree = shellTree ? wrapWithRoot(job.root, shellTree) : null;
 
   // SPA shells render on the server too (the loading tree), so a
   // <Script strategy="beforeHydration"> inside the shell still lands
@@ -626,6 +640,7 @@ async function renderSpaDocument<TContext>(
     const renderFn = await getRenderToStringAsync();
     body = await renderFn(tree);
   }
+  const rootSnapshot = await dehydrateRoot(job.root);
 
   return htmlResponse(
     buildHtmlDocument({
@@ -637,6 +652,7 @@ async function renderSpaDocument<TContext>(
         data: null,
         error: null,
         pending: needsRouteState,
+        ...(rootSnapshot === undefined ? {} : { root: rootSnapshot }),
       },
       clientEntryUrl: ctx.options.clientEntryUrl,
       cssAssets,
@@ -681,7 +697,12 @@ async function renderServerDocument<TContext>(
   const Comp = Component as FunctionComponent<Record<string, unknown>>;
   const componentProps = { data, params: match.params };
 
-  const componentTree = Shell ? h(Shell, null, h(Comp, componentProps)) : h(Comp, componentProps);
+  const hydration = match.route.hydration ?? "full";
+  const componentTree = wrapWithRoot(
+    job.root,
+    Shell ? h(Shell, null, h(Comp, componentProps)) : h(Comp, componentProps),
+    hydration === "islands",
+  );
 
   let tree = h(
     PrachtRuntimeProvider as FunctionComponent<Record<string, unknown>>,
@@ -703,8 +724,6 @@ async function renderServerDocument<TContext>(
     ),
   );
   const shellHydrationState = job.shellState ? { shellData: job.shellState.wire } : undefined;
-
-  const hydration = match.route.hydration ?? "full";
 
   // <Script strategy="beforeHydration"> usages captured during the
   // render land in the document head after head() scripts. The capture
@@ -736,6 +755,10 @@ async function renderServerDocument<TContext>(
     // needs the awaited loader data, so the whole document shape is known
     // before a single component renders.
     const { data: serializedData, pending } = serializeDeferred(data);
+    // Streaming commits the hydration state before the shell renders, so the
+    // snapshot holds what the loader produced. Work that settles later in
+    // the render is not in it.
+    const rootSnapshot = await dehydrateRoot(job.root);
     const { prefix, afterShell, suffix } = buildHtmlDocumentParts({
       head: withCapturedScripts(head, scriptCapture),
       body: "",
@@ -746,6 +769,7 @@ async function renderServerDocument<TContext>(
         ...shellHydrationState,
         deferred: pending.map(({ id, path }) => ({ id, path })),
         error: null,
+        ...(rootSnapshot === undefined ? {} : { root: rootSnapshot }),
       },
       clientEntryUrl: ctx.options.clientEntryUrl,
       clientEntryAtEnd: true,
@@ -753,7 +777,7 @@ async function renderServerDocument<TContext>(
         pending.length > 0
           ? {
               source: DEFER_RUNTIME_SHIM,
-              nonce: head.fontNonce,
+              nonce: head.scriptNonce,
             }
           : undefined,
       cssAssets,
@@ -777,7 +801,7 @@ async function renderServerDocument<TContext>(
       headers: documentHeaders,
       signal: job.routeArgs.signal,
       pending,
-      nonce: head.fontNonce,
+      nonce: head.scriptNonce,
       exposeErrorDetails: ctx.exposeDiagnostics,
       onError: (error) => {
         // Past the first flush there is no error document to send, so the
@@ -880,6 +904,9 @@ async function renderServerDocument<TContext>(
     );
   }
 
+  // After the render, so queries a component started while rendering are in
+  // the snapshot too.
+  const fullRootSnapshot = await dehydrateRoot(job.root);
   return htmlResponse(
     buildHtmlDocument({
       head: withCapturedScripts(head, scriptCapture),
@@ -890,6 +917,7 @@ async function renderServerDocument<TContext>(
         data,
         ...shellHydrationState,
         error: null,
+        ...(fullRootSnapshot === undefined ? {} : { root: fullRootSnapshot }),
       },
       clientEntryUrl: ctx.options.clientEntryUrl,
       cssAssets,
@@ -904,6 +932,18 @@ async function renderServerDocument<TContext>(
 
 /** Loader → representation. The terminal of the page middleware chain. */
 async function runPageTerminal<TContext>(job: PageRenderJob<TContext>): Promise<Response> {
+  // The app root's state exists before any loader runs, so every loader of
+  // this request reads the same `args.root`. After middleware, so a request
+  // middleware answers itself never creates one.
+  job.phase = "render";
+  try {
+    job.root = await resolveRequestRoot(job.ctx, job.ctx.registry);
+  } catch (error) {
+    job.rootFailed = true;
+    throw error;
+  }
+  job.routeArgs.root = job.root?.state;
+
   const loaded = await runPageLoaders(job);
   if ("response" in loaded) return loaded.response;
   const { data, hasLoader } = loaded;
@@ -949,7 +989,7 @@ export async function renderPage<TContext>(
     ? combineRequestSignals(budgetSignal, abortController.signal)
     : budgetSignal;
   const pageContext = ctx.context;
-  const routeArgs: BaseRouteArgs<TContext> = {
+  const routeArgs: LoaderArgs<TContext> = {
     request,
     params: match.params,
     context: pageContext,
@@ -974,6 +1014,7 @@ export async function renderPage<TContext>(
     match,
     pageOptions,
     routeArgs,
+    root: null,
     routeModulePromise: undefined,
     shellModulePromise: Promise.resolve(undefined),
     dataFunctionsPromise: undefined,
@@ -1146,6 +1187,9 @@ export async function renderPage<TContext>(
     // whether the response will be rendered by a route/shell ErrorBoundary
     // instead of having to infer that from mutable response headers.
     job.shellModule ??= await job.shellModulePromise.catch(() => undefined);
+    // Error documents render inside the root too, so a shell ErrorBoundary
+    // can use what it provides even when middleware failed before the terminal.
+    job.root ??= await resolveRequestRoot(ctx, registry).catch(() => null);
 
     reportRequestError(options.onRouteError, thrownResponseFailure ?? error, ctx.requestPath, {
       errorBoundary: job.routeModule?.ErrorBoundary
@@ -1160,6 +1204,7 @@ export async function renderPage<TContext>(
       routeId: match.route.id,
       routePath: match.route.path,
       shellFile: match.route.shellFile,
+      ...(job.rootFailed ? { rootFile: Object.keys(registry.rootModules ?? {})[0] } : {}),
     });
 
     return renderRouteErrorResponse({
@@ -1177,6 +1222,7 @@ export async function renderPage<TContext>(
       shellModule: job.shellModule,
       shellState: job.shellState,
       requestPath: ctx.requestPath,
+      root: job.root,
     });
   }
 }

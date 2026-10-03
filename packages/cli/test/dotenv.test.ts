@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { loadDotEnvIntoProcess } from "../src/dotenv.ts";
+import { createDotEnvSync, loadDotEnvIntoProcess } from "../src/dotenv.ts";
 
 const dirs: string[] = [];
 const touchedKeys: string[] = [];
@@ -102,5 +102,41 @@ describe("loadDotEnvIntoProcess", () => {
 
   it("returns nothing when there is no .env file", () => {
     expect(loadDotEnvIntoProcess(createRoot({}), "development")).toEqual([]);
+  });
+});
+
+describe("createDotEnvSync", () => {
+  it("follows edits to the files it loaded on reload", () => {
+    touchedKeys.push("PRACHT_TEST_EDITED", "PRACHT_TEST_REMOVED", "PRACHT_TEST_ADDED");
+    const root = createRoot({
+      ".env": "PRACHT_TEST_EDITED=one\nPRACHT_TEST_REMOVED=gone-soon\n",
+    });
+    const dotEnv = createDotEnvSync(root, "development");
+
+    expect(dotEnv.load().sort()).toEqual(["PRACHT_TEST_EDITED", "PRACHT_TEST_REMOVED"]);
+    writeFileSync(join(root, ".env"), "PRACHT_TEST_EDITED=two\nPRACHT_TEST_ADDED=new\n");
+
+    expect(dotEnv.load().sort()).toEqual(["PRACHT_TEST_ADDED", "PRACHT_TEST_EDITED"]);
+    expect(process.env.PRACHT_TEST_EDITED).toBe("two");
+    expect(process.env.PRACHT_TEST_ADDED).toBe("new");
+    expect("PRACHT_TEST_REMOVED" in process.env).toBe(false);
+    expect(dotEnv.load()).toEqual([]);
+  });
+
+  it("keeps real environment variables and runtime reassignments on reload", () => {
+    touchedKeys.push("PRACHT_TEST_SHELL", "PRACHT_TEST_REASSIGNED");
+    process.env.PRACHT_TEST_SHELL = "from-environment";
+    const root = createRoot({
+      ".env": "PRACHT_TEST_SHELL=from-file\nPRACHT_TEST_REASSIGNED=from-file\n",
+    });
+    const dotEnv = createDotEnvSync(root, "development");
+    dotEnv.load();
+    process.env.PRACHT_TEST_REASSIGNED = "from-app";
+
+    writeFileSync(join(root, ".env"), "PRACHT_TEST_SHELL=edited\n");
+    dotEnv.load();
+
+    expect(process.env.PRACHT_TEST_SHELL).toBe("from-environment");
+    expect(process.env.PRACHT_TEST_REASSIGNED).toBe("from-app");
   });
 });

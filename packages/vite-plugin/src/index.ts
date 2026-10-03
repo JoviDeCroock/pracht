@@ -1,8 +1,8 @@
 import { preactSsrPrecompile } from "@pracht/preact-ssr-precompile";
 import preact from "@preact/preset-vite";
 import { existsSync, realpathSync } from "node:fs";
-import { createRequire, isBuiltin } from "node:module";
-import { join, resolve } from "node:path";
+import { isBuiltin } from "node:module";
+import { resolve } from "node:path";
 import { loadEnv, type Plugin, type UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
@@ -18,6 +18,7 @@ import {
 import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
+import { findAppRootModule } from "./plugin-app-root.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
@@ -41,6 +42,7 @@ import {
 import {
   appCoreHasDevPageTools,
   createDevPageToolsScriptTag,
+  findAppCorePackageJson,
   createPrachtDevPageToolsModuleSource,
   shouldInjectDevPageTools,
 } from "./plugin-dev-page-tools.ts";
@@ -68,6 +70,7 @@ import {
   createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
+  runDevConfigureServer,
 } from "./plugin-dev-ssr.ts";
 import {
   resolveOptions,
@@ -80,6 +83,7 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { RouteHints } from "./route-loader-hints.ts";
+import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
 function emptyRouteHints(): RouteHints {
   return {
@@ -94,7 +98,11 @@ function emptyRouteHints(): RouteHints {
 }
 
 export type { RenderMode };
-export type { PrachtAdapter } from "./plugin-adapter.ts";
+export type {
+  PrachtAdapter,
+  PrachtAdapterDevOptions,
+  PrachtAdapterDevRequest,
+} from "./plugin-adapter.ts";
 export type {
   LlmsTxtSection,
   PrachtClientOptions,
@@ -236,6 +244,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // handling.
       const shellLoadersDefine = buildRouteHints ? String(buildRouteHints.shellLoaders) : "true";
 
+      // `defineApp({ root })` is optional; a build without one drops the
+      // router's root wiring. Dev keeps it on so a root registered while the
+      // server runs takes effect without a restart.
+      const appRootDefine =
+        env.command === "build" ? String(findAppRootModule(resolved, configRoot) !== null) : "true";
+
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
       // prerender pass emits matching preload URLs. Dev always serves the
@@ -287,19 +301,30 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // anything they share with a route — into its chunk, where a route can
       // no longer tell which stylesheets are its own. One chunk per island
       // keeps that boundary, the way the client build has it by construction.
-      // Edge targets bundle the server into a single chunk and reject chunk
-      // grouping, so they are left alone.
-      const serverChunkConfig =
-        isSSRBuild && !isEdge
-          ? islandChunkConfig(
-              (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
-                ?.output,
-              resolveConfigPath(configRoot, resolved.islandsDir),
-            )
-          : {};
+      // Edge targets would otherwise bundle the server into a single chunk, so
+      // splitting is switched back on for them as well.
+      const serverChunkConfig = isSSRBuild
+        ? islandChunkConfig(
+            (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
+              ?.output,
+            resolveConfigPath(configRoot, resolved.islandsDir),
+            { edge: isEdge },
+          )
+        : {};
       if (serverChunkConfig.warning) {
         console.warn(`[pracht] ${serverChunkConfig.warning}`);
       }
+      // One object for everything the server build sets under
+      // `rollupOptions`: two spreads of `build` would replace each other.
+      const serverRollupOptions =
+        isEdge || serverChunkConfig.output
+          ? {
+              // Platform-scheme modules only exist inside the target runtime
+              // and must stay runtime imports.
+              ...(isEdge ? { external: [/^cloudflare:/] } : {}),
+              ...(serverChunkConfig.output ? { output: serverChunkConfig.output } : {}),
+            }
+          : undefined;
 
       return {
         appType: "custom" as const,
@@ -321,15 +346,15 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_AGENT_SURFACE__: agentSurfaceDefine,
           __PRACHT_ROUTE_SEARCH__: routeSearchDefine,
           __PRACHT_SHELL_LOADERS__: shellLoadersDefine,
+          __PRACHT_APP_ROOT__: appRootDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           ...clientFeatureDefines,
         },
-        // The vendor split only makes sense for the client bundle; SSR builds
-        // that disable code splitting (e.g. webworker targets) reject chunk
-        // grouping outright.
+        // The vendor split only makes sense for the client bundle; the server
+        // build gets the island split above instead.
         ...(isSSRBuild
-          ? serverChunkConfig.output
-            ? { build: { rollupOptions: { output: serverChunkConfig.output } } }
+          ? serverRollupOptions
+            ? { build: { rollupOptions: serverRollupOptions } }
             : {}
           : {
               build: {
@@ -373,13 +398,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                     // this or any other Node import survives tree shaking.
                     external: ["node:module"],
                   },
-                },
-              },
-              build: {
-                rollupOptions: {
-                  // Platform-scheme modules only exist inside the target
-                  // runtime and must stay runtime imports.
-                  external: [/^cloudflare:/],
                 },
               },
             }
@@ -522,7 +540,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       return { code: transformed, map: null };
     },
 
-    configureServer(server) {
+    async configureServer(server) {
       if (isPagesMode) {
         watchPagesDirectory(server, resolved, root);
       }
@@ -532,11 +550,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
       }
+      // Vite builds a fresh HTTP server on every restart, so this runs again
+      // against each one — as the generated entry does once before listen().
+      // Graph-only servers never listen, so they skip it.
+      const configureServerFrom = resolved.adapter.dev?.configureServerFrom;
+      if (configureServerFrom && !isGraphOnlyMode()) {
+        await runDevConfigureServer(server, configureServerFrom);
+      }
       const backgroundWork = createWaitUntilTracker();
       devBackgroundWork = backgroundWork;
       return () => {
         server.middlewares.use(
           createDevSSRMiddleware(server, {
+            adapterDev: resolved.adapter.dev,
             llmsTxt: !!resolved.llmsTxt,
             maxBodySize: resolved.maxBodySize,
             waitUntil: backgroundWork.waitUntil,
@@ -853,10 +879,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     enforce: "post",
 
     config(config) {
+      const projectRoot = config.root ?? process.cwd();
       return withPrachtOptimizeDepsEntries(
         config,
         resolved,
-        createPrachtOptimizeDepsInclude(config.root ?? process.cwd()),
+        createPrachtOptimizeDepsInclude(projectRoot),
+        appRootOptimizeDepsEntries(resolved, projectRoot),
       );
     },
   };
@@ -1125,9 +1153,10 @@ function createPrachtOptimizeDepsInclude(root: string): string[] {
   // linked source copy and split the router context in two — so the includes
   // only apply when the app resolves `@pracht/core` from node_modules.
   try {
-    const require = createRequire(join(root, "package.json"));
-    const corePackagePath = toPosixPath(require.resolve("@pracht/core/package.json"));
-    if (!corePackagePath.includes("/node_modules/")) return [];
+    const corePackageJson = findAppCorePackageJson(root);
+    if (!corePackageJson) return [];
+    // A workspace link lives in node_modules too; its real path does not.
+    if (!toPosixPath(realpathSync(corePackageJson)).includes("/node_modules/")) return [];
     // An installed core older than this plugin has no dev-page-tools entry;
     // including it would make Vite warn about an unresolvable dependency on
     // top of the generated module's own one-line warning.
@@ -1139,24 +1168,47 @@ function createPrachtOptimizeDepsInclude(root: string): string[] {
   }
 }
 
+/**
+ * The client entry imports the app root eagerly, so its dependencies (e.g.
+ * `@pracht/query/root`) must be found by the startup scan, not on the first
+ * page load, which would answer 504 "Outdated Optimize Dep" and reload. A
+ * manifest that writes the root as a string gives the scanner nothing to
+ * follow. A root the build cannot read is reported by the virtual modules.
+ */
+function appRootOptimizeDepsEntries(
+  resolved: ResolvedPrachtPluginOptions,
+  projectRoot: string,
+): string[] {
+  try {
+    const appRoot = findAppRootModule(resolved, projectRoot);
+    return appRoot ? [toOptimizeDepsEntry(appRoot.id)] : [];
+  } catch {
+    return [];
+  }
+}
+
 function withPrachtOptimizeDepsEntries(
   config: UserConfig,
   resolved: ResolvedPrachtPluginOptions,
   prachtInclude: string[],
+  extraEntries: string[] = [],
 ): UserConfig {
-  const prachtEntries = createPrachtOptimizeDepsEntries(resolved, config.optimizeDeps?.extensions);
+  const prachtEntries = [
+    ...createPrachtOptimizeDepsEntries(resolved, config.optimizeDeps?.extensions),
+    ...extraEntries,
+  ];
   const environments = Object.fromEntries(
     Object.entries(config.environments ?? {}).map(([name, environment]) => [
       name,
       {
         optimizeDeps: {
-          entries: mergeOptimizeDepsEntries(
-            environment.optimizeDeps?.entries,
-            createPrachtOptimizeDepsEntries(
+          entries: mergeOptimizeDepsEntries(environment.optimizeDeps?.entries, [
+            ...createPrachtOptimizeDepsEntries(
               resolved,
               environment.optimizeDeps?.extensions ?? config.optimizeDeps?.extensions,
             ),
-          ),
+            ...extraEntries,
+          ]),
         },
       },
     ]),
@@ -1201,25 +1253,30 @@ function createPrachtOptimizeDepsEntries(
         VITE_SCANNABLE_ROUTE_EXTENSIONS.has(extension) || explicitlyScannable.has(extension),
     ),
   );
-  const apiDir = toOptimizeDepsEntry(resolved.apiDir);
-  const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
+  // Every pracht-owned directory is seeded, minus the tests and mocks that
+  // live beside its modules: seeding a test would pre-bundle its runner for
+  // the browser.
+  const directory = (dir: string, extensions: string): string[] => {
+    const entry = toOptimizeDepsEntry(dir);
+    return moduleGlob(entry, `${entry}/**/*.${extensions}`);
+  };
   const entries = resolved.pagesDir
     ? [
-        `${toOptimizeDepsEntry(resolved.pagesDir)}/**/*.${routeExtensions}`,
-        `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
-        ...apiEntries,
-        `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
-        `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
+        ...directory(resolved.pagesDir, routeExtensions),
+        ...directory(resolved.middlewareDir, scriptExtensions),
+        ...directory(resolved.apiDir, scriptExtensions),
+        ...directory(resolved.serverDir, scriptExtensions),
+        ...directory(resolved.islandsDir, scriptExtensions),
       ]
     : [
         toOptimizeDepsEntry(resolved.appFile),
-        `${toOptimizeDepsEntry(resolved.routesDir)}/**/*.${routeExtensions}`,
-        `${toOptimizeDepsEntry(resolved.shellsDir)}/**/*.${routeExtensions}`,
-        `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
-        ...apiEntries,
-        `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
-        `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
-        `${toOptimizeDepsEntry(resolved.capabilitiesDir)}/**/*.{ts,js,tsx,jsx}`,
+        ...directory(resolved.routesDir, routeExtensions),
+        ...directory(resolved.shellsDir, routeExtensions),
+        ...directory(resolved.middlewareDir, scriptExtensions),
+        ...directory(resolved.apiDir, scriptExtensions),
+        ...directory(resolved.serverDir, scriptExtensions),
+        ...directory(resolved.islandsDir, scriptExtensions),
+        ...directory(resolved.capabilitiesDir, scriptExtensions),
       ];
 
   return [...new Set(entries.filter(Boolean))];
@@ -1262,9 +1319,14 @@ function watchPagesDirectory(
     toPosixPath(resolveConfigPath(root, resolved.pagesDir)),
     toPosixPath(resolveConfigPath(root, resolved.capabilitiesDir)),
   ];
+  // A test or mock appearing beside pages changes nothing the manifest reads.
   const isWatched = (file: string): boolean => {
     const path = toPosixPath(file);
-    return watched.some((dir) => path === dir || path.startsWith(`${dir}/`));
+    return watched.some(
+      (dir) =>
+        path === dir ||
+        (path.startsWith(`${dir}/`) && !isNonModuleFile(path.slice(dir.length + 1))),
+    );
   };
 
   for (const event of ["add", "unlink"] as const) {

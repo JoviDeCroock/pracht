@@ -30,6 +30,7 @@
     "bin",
     "src",
     "skills",
+    "fallback-versions.json",
     "README.md"
   ],
   "type": "module",
@@ -40,7 +41,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "node ./scripts/sync-skills.js",
+    "build": "node ./scripts/sync-skills.js && node ./scripts/sync-versions.js",
     "prepublishOnly": "npm run build"
   }
 }

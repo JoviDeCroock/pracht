@@ -293,7 +293,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     : "";
 
   const speculationRulesTag = speculationRules
-    ? `<script${own} type="speculationrules">${serializeJsonForHtml(speculationRules)}</script>`
+    ? `<script${own} type="speculationrules"${head.scriptNonce ? ` nonce="${escapeHtml(head.scriptNonce)}"` : ""}>${serializeJsonForHtml(speculationRules)}</script>`
     : "";
 
   const stateScript = hydrationState

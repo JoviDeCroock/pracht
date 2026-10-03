@@ -42,6 +42,15 @@ type ISGManifest = Record<string, ISGManifestEntry>;
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
+// The Workers Cache API derives an entry's lifetime from the `Cache-Control`
+// it is stored with, so a regenerated ISG page is kept for a year and pracht's
+// own `x-pracht-isg-generated-at` check decides when it is stale. Storing the
+// browser policy instead (`max-age=0`) made every entry expire on write.
+const ISG_CACHE_ENTRY_CACHE_CONTROL = "public, max-age=31536000";
+// What browsers see on a cached ISG page: always revalidate with the Worker,
+// the same policy the build-time asset and the Node adapter send.
+const ISG_BROWSER_CACHE_CONTROL = "public, max-age=0, must-revalidate";
+
 // Module-level so it survives across requests within an isolate even though
 // the generated worker entry creates a fresh fetch handler per request.
 // Collapses concurrent regenerations of the same path into one render.
@@ -485,7 +494,7 @@ async function regenerateCloudflareISGPage(
       if (response.status !== 200 || !isCacheableISGResponse(response)) return false;
 
       const headers = applyDefaultSecurityHeaders(new Headers(response.headers));
-      headers.set("cache-control", "public, max-age=0, must-revalidate");
+      headers.set("cache-control", ISG_CACHE_ENTRY_CACHE_CONTROL);
       headers.set("x-pracht-isg-generated-at", String(Date.now()));
       ensureRouteStateVary(headers);
       await cache.put(cacheKey, new Response(await response.text(), { status: 200, headers }));
@@ -572,6 +581,10 @@ function prepareCloudflareISGResponse(
   stale: boolean,
 ): Response {
   const headers = applyDefaultSecurityHeaders(new Headers(response.headers));
+  // The entry's year-long storage TTL must never reach browsers or a CDN.
+  // Route `headers()` exports still apply on top, as on the asset path.
+  headers.set("cache-control", ISG_BROWSER_CACHE_CONTROL);
+  headers.delete("age");
   applyHeadersManifest(headers, headersManifest, pathname);
   headers.set("x-pracht-isg", stale ? "stale" : "fresh");
   // Downstream caches must keep HTML documents and route-state JSON apart,

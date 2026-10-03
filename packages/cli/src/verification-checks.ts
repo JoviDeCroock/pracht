@@ -17,19 +17,21 @@ import {
   isWithinDirectory,
   isPageSource,
   isRouteSource,
-  MODULE_SOURCE_RE,
+  isModuleSource,
   normalizePath,
   resolveApiRoutePath,
   toModuleSpecifier,
   type Check,
 } from "./verification-helpers.js";
 import { detectAdapterTarget } from "./commands/preview.js";
+import { DEFAULT_DECLARATION_OUT } from "./commands/typegen.js";
 import {
   findWranglerConfig,
-  readWranglerAssetsHtmlHandling,
+  readWranglerAssets,
   readWranglerMainEntries,
   readWranglerBundleSettings,
   stripJsonComments,
+  type WranglerAssetsSettings,
 } from "./wrangler-config.js";
 import {
   collectDuplicateRoutePaths,
@@ -350,7 +352,7 @@ function collectChangedManifestModuleChecks(
     if (
       !(directory.additionalExtensions
         ? isRouteSource(file, project.additionalExtensions)
-        : MODULE_SOURCE_RE.test(file))
+        : isModuleSource(file))
     )
       continue;
 
@@ -1033,7 +1035,7 @@ export function collectApiVerification(
     return;
   }
 
-  const apiFiles = listFilesRecursively(apiDir).filter((file) => MODULE_SOURCE_RE.test(file));
+  const apiFiles = listFilesRecursively(apiDir).filter((file) => isModuleSource(file));
   const routeMap = new Map<string, string[]>();
 
   for (const file of apiFiles) {
@@ -1070,7 +1072,7 @@ export function collectApiVerification(
   }
 
   for (const file of changedApiFiles) {
-    if (!MODULE_SOURCE_RE.test(file)) continue;
+    if (!isModuleSource(file)) continue;
 
     const display = displayPath(project.root, file);
     if (!existsSync(file)) {
@@ -1122,7 +1124,7 @@ export function collectTypeScriptConfigChecks(project: ProjectConfig, checks: Ch
     const configPath = resolve(project.root, name);
     if (!existsSync(configPath)) continue;
 
-    let config: { compilerOptions?: { moduleResolution?: unknown } };
+    let config: { compilerOptions?: { moduleResolution?: unknown }; include?: unknown };
     try {
       config = JSON.parse(
         stripJsonComments(readFileSync(configPath, "utf-8")).replace(/,(\s*[}\]])/g, "$1"),
@@ -1130,6 +1132,10 @@ export function collectTypeScriptConfigChecks(project: ProjectConfig, checks: Ch
     } catch {
       checks.push(createCheck("warning", `${name} exists but could not be parsed.`));
       continue;
+    }
+
+    if (name === "tsconfig.client.json") {
+      collectClientDeclarationCheck(project, config.include, checks);
     }
 
     const moduleResolution = config.compilerOptions?.moduleResolution;
@@ -1148,6 +1154,52 @@ export function collectTypeScriptConfigChecks(project: ProjectConfig, checks: Ch
       );
     }
   }
+}
+
+/**
+ * Apps scaffolded before `tsconfig.client.json` included `src/**\/*.d.ts` keep
+ * `pracht typegen`'s declarations out of the client program: typed
+ * `useRouteData()` collapses to `unknown` and `<Link route>` takes any string,
+ * with nothing failing. Only an `include` the file itself lists is checked;
+ * an inherited one cannot be read here.
+ */
+function collectClientDeclarationCheck(
+  project: ProjectConfig,
+  include: unknown,
+  checks: Check[],
+): void {
+  const declaration = DEFAULT_DECLARATION_OUT;
+  if (!Array.isArray(include) || !existsSync(resolve(project.root, declaration))) return;
+  const patterns = include.filter((entry): entry is string => typeof entry === "string");
+  if (patterns.some((pattern) => tsconfigIncludeMatches(pattern, declaration))) return;
+  checks.push(
+    createCheck(
+      "warning",
+      `tsconfig.client.json does not include ${declaration}, so the client typecheck sees untyped ` +
+        'route data and accepts any route id. Add "src/**/*.d.ts" to its "include".',
+    ),
+  );
+}
+
+/** Whether a tsconfig `include` pattern matches a project-relative file path. */
+export function tsconfigIncludeMatches(pattern: string, file: string): boolean {
+  let normalized = pattern.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+  const last = normalized.slice(normalized.lastIndexOf("/") + 1);
+  // TypeScript reads a last segment with neither a wildcard nor an extension
+  // as a directory, and a trailing `**` as every file below it.
+  if (last === "**") normalized += "/*";
+  else if (!/[*?]/.test(last) && !last.includes(".")) normalized += "/**/*";
+  let source = "";
+  for (let index = 0; index < normalized.length; index++) {
+    const char = normalized[index];
+    if (normalized.startsWith("**/", index)) {
+      source += "(?:[^/]+/)*";
+      index += 2;
+    } else if (char === "*") source += "[^/]*";
+    else if (char === "?") source += "[^/]";
+    else source += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`).test(file);
 }
 
 export function collectBudgetChecks(project: ProjectConfig, checks: Check[]): void {
@@ -1287,7 +1339,9 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
   if (!configFile) return;
 
   const display = displayPath(root, configFile);
-  collectCloudflareTrailingSlashCheck(project, root, configFile, display, checks);
+  const assets = readWranglerAssets(configFile);
+  collectCloudflareRunWorkerFirstCheck(assets, display, checks);
+  collectCloudflareTrailingSlashCheck(project, root, assets, display, checks);
   for (const bundling of readWranglerBundleSettings(configFile) ?? []) {
     if (bundling.noBundle === true && bundling.hasJavaScriptModuleRule) continue;
     const where = bundling.environment ? ` for environment "${bundling.environment}"` : "";
@@ -1315,6 +1369,34 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
 }
 
 /**
+ * Without `assets.run_worker_first`, Cloudflare answers any request that
+ * matches a file in the assets directory itself and never runs the Worker. For
+ * a prerendered page that silently drops everything Pracht does per request:
+ * ISG revalidation, Markdown negotiation, the route's `headers()` export, and
+ * the default security headers.
+ *
+ * A list of route patterns is an explicit choice and stays silent, as does
+ * anything the reader could not prove (TOML, unparsable, no assets block).
+ */
+function collectCloudflareRunWorkerFirstCheck(
+  assets: WranglerAssetsSettings | null,
+  display: string,
+  checks: Check[],
+): void {
+  if (!assets || assets.runWorkerFirst === true || Array.isArray(assets.runWorkerFirst)) return;
+
+  checks.push(
+    createCheck(
+      "warning",
+      `${display} does not set "assets.run_worker_first": true. Cloudflare then serves ` +
+        "prerendered pages and other built files without running the Worker, so ISG " +
+        "revalidation, Markdown negotiation, route headers() exports, and Pracht's security " +
+        'headers silently stop applying to them. Add "run_worker_first": true to the assets block.',
+    ),
+  );
+}
+
+/**
  * Cloudflare's assets binding defaults to `html_handling: "auto-trailing-slash"`,
  * which answers `GET /guide` with a 307 to `/guide/`. Node and Vercel answer
  * `200`, so the canonical URL of every prerendered route differs by adapter —
@@ -1329,11 +1411,10 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
 function collectCloudflareTrailingSlashCheck(
   project: ProjectConfig,
   root: string,
-  configFile: string,
+  assets: WranglerAssetsSettings | null,
   display: string,
   checks: Check[],
 ): void {
-  const assets = readWranglerAssetsHtmlHandling(configFile);
   if (!assets || assets.htmlHandling !== undefined) return;
   if (!appHasPrerenderedRoutes(project, root)) return;
 

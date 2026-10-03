@@ -1,6 +1,6 @@
 ---
 name: audit-redirects
-version: 1.1.1
+version: 1.1.2
 description: |
   Find open redirects in pracht loaders, middleware, and navigation. The framework
   rejects unsafe schemes and CRLF at both ends, but a hand-rolled 3xx Response
@@ -86,16 +86,18 @@ For each request-derived target, look for one of:
 | Gate                                   | Safe? |
 | -------------------------------------- | ----- |
 | Hardcoded allowlist of paths/origins   | Yes   |
-| `target.startsWith('/')` AND `!target.startsWith('//')` | Yes — same-origin path only |
 | `new URL(target, base).origin === url.origin`           | Yes — origin comparison |
+| `target.startsWith('/')` AND `!target.startsWith('//')` | **Bypassable** (`/\evil.example`) |
 | `new URL(target).hostname === expected` | Yes if `expected` is trusted |
 | No check                                | **Open redirect** |
 | `target.includes(domain)` (substring)   | **Bypassable** (`evil.com#yourdomain.com`) |
 | Regex without anchors                   | **Likely bypassable** |
 
-`startsWith('/')` alone is **not** sufficient — `//evil.example/path` parses
-as a protocol-relative URL and most browsers treat it as cross-origin. Require
-both `startsWith('/')` AND `!startsWith('//')`, or use `URL` parsing.
+Prefix checks are **not** sufficient. `//evil.example/path` is
+protocol-relative, and URL parsing turns `\` into `/` and strips tabs and
+newlines, so `/\evil.example` and `/\t/evil.example` pass
+`startsWith('/') && !startsWith('//')` yet land on another origin. Only an
+origin comparison after `new URL(target, url)` is a real gate.
 
 Remember: `redirect()`'s built-in validation covers scheme and CRLF only — it
 happily redirects to any well-formed `http(s)` origin, so Class A sites still
@@ -118,9 +120,21 @@ Severity is the primary scale; the verdict is a secondary domain label:
 For each `open`/`risky` finding, propose a fix snippet, e.g.:
 
 ```ts
-const raw = url.searchParams.get("redirect") ?? "/dashboard";
-const safe = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/dashboard";
-return redirect(safe, { request });
+function safeRedirectPath(value: unknown, base: URL, fallback: string): string {
+  if (typeof value !== "string" || !value.startsWith("/")) return fallback;
+  try {
+    const target = new URL(value, base);
+    return target.origin === base.origin
+      ? `${target.pathname}${target.search}${target.hash}`
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+return redirect(safeRedirectPath(url.searchParams.get("redirect"), url, "/dashboard"), {
+  request,
+});
 ```
 
 ## Step 5: Cross-check with the framework guards

@@ -688,6 +688,9 @@ SSR first load — loader throws notFound() / PrachtHttpError(404):
           page (if declared), else the shell boundary / plain text
   ◄── 404 text/html (with hydration state) ─────────────────────────────────
 
+  Client: the notFound page hydrates under its reserved route id, which
+  wins over matching the URL — the matched route never renders.
+
 Unmatched URL — no route and no API route matches:
 
   ── GET /nope ──────────────────────────►

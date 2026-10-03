@@ -201,6 +201,7 @@ export async function runTypegen(options: TypegenOptions): Promise<TypegenResult
         appDir: dirname(resolveProjectPath(options.root, project.appFile)),
         declarationDir: dirname(declarationPath),
         root: options.root,
+        rootModule: report.root,
       }),
     },
     {
@@ -303,6 +304,8 @@ interface DeclarationContext {
   appDir: string;
   declarationDir: string;
   root: string;
+  /** The app root module, when `defineApp({ root })` registers one. */
+  rootModule?: string;
 }
 
 function buildDeclarationSource(
@@ -315,8 +318,10 @@ function buildDeclarationSource(
   const routeModules = routes.map((route) => formatModuleSpecifier(route.file, context));
   const hasTypedSearch = routeModules.some((specifier) => specifier !== null);
   const hasUntypedSearch = routeModules.some((specifier) => specifier === null);
+  const rootModule = context.rootModule ? formatModuleSpecifier(context.rootModule, context) : null;
   const typeImports = [
     ...(importsApiMethodMap ? ["ApiRouteMethodMap"] : []),
+    ...(rootModule ? ["RootState"] : []),
     "RouteLoaderData",
     "RouteParamInput",
     ...(hasTypedSearch ? ["RouteSearchInput", "RouteSearchOutput"] : []),
@@ -329,6 +334,8 @@ function buildDeclarationSource(
     "",
     'declare module "@pracht/core" {',
     "  interface Register {",
+    // `args.root` in every loader, from `defineApp({ root })`.
+    ...(rootModule ? [`    root: RootState<typeof import(${rootModule})>;`] : []),
     "    routes: {",
   ];
 

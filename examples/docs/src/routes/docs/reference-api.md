@@ -20,14 +20,16 @@ Almost everything comes from `@pracht/core`. Its `browser` condition resolves
 client bundles to a client-safe subset of the same specifier, with its own
 types, so a server-only export such as `handlePrachtRequest` is a compile error
 in client code. `create-pracht` enables the condition in
-`tsconfig.client.json`; keep it in custom client configs:
+`tsconfig.client.json` and includes `src/**/*.d.ts` there, so client code also
+sees the types `pracht typegen` generates. Keep both in custom client configs:
 
 ```json [tsconfig.client.json]
 {
   "compilerOptions": {
     "moduleResolution": "bundler",
     "customConditions": ["browser"]
-  }
+  },
+  "include": ["src/routes/**/*", "src/shells/**/*", "src/islands/**/*", "src/**/*.d.ts"]
 }
 ```
 
@@ -271,6 +273,7 @@ the session changed.
 | `@pracht/content` | `defineCollection`, `llmsTxtArtifacts`, `rawContentArtifacts`, `parseFrontmatter` | [Content Collections](/docs/content) |
 | `@pracht/markdown` | `defineMarkdownCollection` | [Content Collections](/docs/content) |
 | `@pracht/openapi` | `defineOpenApi`, `getOpenApiDescriptor`, `generateOpenApiDocument`, `createOpenApiUiHtml` | [OpenAPI](/docs/openapi) |
+| `@pracht/query` | `createQueryRoot`, `getQueryClient`, `@pracht/query/root` | [TanStack Query](/docs/recipes/tanstack-query) |
 | `@pracht/session` | See [Sessions](#sessions) | [Authentication](/docs/recipes/auth) |
 | `@pracht/capabilities` | `defineCapability` | [Capabilities](/docs/capabilities) |
 | `@pracht/test` | `createLoaderArgs`, `runMiddleware`, `createFormRequest`, `submitForm`, `readJson`, `readRedirect` | [Testing](/docs/recipes/testing) |

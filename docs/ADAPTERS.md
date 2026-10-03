@@ -350,6 +350,13 @@ export function configureServer(server: Server) {
 }
 ```
 
+`pracht dev` calls the same export against Vite's dev HTTP server, again on
+every restart (each restart builds a new server). The server it receives is a
+proxy whose `upgrade` listeners skip Vite's own HMR handshakes
+(`Sec-WebSocket-Protocol: vite-hmr` / `vite-ping`), so a listener that handles
+every upgrade, like the one above, does not answer them a second time. Graph-only
+servers (`inspect`, `verify`, ...) and Vite middleware mode never call it.
+
 The generated entry only calls `createServer()` when it is the process
 entrypoint, so importing `handler` and building the server yourself remains
 supported — attach the same `upgrade` listener to your own
@@ -376,10 +383,12 @@ nodeAdapter({
 });
 ```
 
-The context module must export `createContext(args)`. Node passes `{ request, req, res }`.
+The context module must export `createContext(args)`. Node passes `{ request, req, res }`,
+in `pracht dev` as well as from the generated entry.
 The configure module must export `configureServer(server)` (sync or async); it
 runs with the `node:http` server before `listen()` when the generated entry is
-the process entrypoint — see [WebSockets](#websockets) above.
+the process entrypoint, and with the dev server under `pracht dev` — see
+[WebSockets](#websockets) above.
 
 `shutdownTimeoutMs` (default `10000`) bounds the generated entry's graceful
 shutdown: on `SIGTERM` or `SIGINT` it closes the server, waits for in-flight
@@ -457,7 +466,12 @@ build).
   time-based revalidation, and schedules regeneration with
   `executionContext.waitUntil()`. `POST /__pracht/revalidate` authenticates
   `PRACHT_REVALIDATE_TOKEN` and overwrites the named Cache API entries for
-  routes that opt into `webhookRevalidate()`. Successful manifest reads are
+  routes that opt into `webhookRevalidate()`. Regenerated entries are stored
+  with `Cache-Control: public, max-age=31536000` because the Cache API takes
+  an entry's lifetime from that header; staleness comes only from the stored
+  `x-pracht-isg-generated-at` timestamp, and a cached page is served with the
+  browser policy `public, max-age=0, must-revalidate` (route `headers()`
+  exports still apply on top). Successful manifest reads are
   cached for the isolate lifetime; transient asset or JSON failures are evicted
   so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the
@@ -606,6 +620,13 @@ the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
 ```
 
 Use `"none"` instead when you do your own routing.
+
+`"run_worker_first": true` is what routes a request for a prerendered file
+through the Worker at all. Without it Cloudflare answers from the assets
+directory directly, so ISG revalidation, Markdown negotiation, `headers()`
+exports, and the default security headers never run for those files.
+`pracht doctor` warns when the top-level assets block lacks it (a pattern list
+is treated as a deliberate choice and stays silent).
 
 #### Cache-key cardinality
 
@@ -1061,7 +1082,8 @@ Both cache windows accept `0`: it disables stale serving for
 `staticMaxAge`.
 
 The context factory receives `{ request, context }`, where `context` is
-Netlify's Functions v2 context. Build first, then use `netlify dev` for local
+Netlify's Functions v2 context; `pracht dev` passes a context holding only
+`waitUntil`. Build first, then use `netlify dev` for local
 platform testing; `pracht preview` does not emulate Netlify's Functions or CDN
 cache.
 
@@ -1164,7 +1186,7 @@ vercelAdapter({
 
 The context module must export `createContext(args)`. Edge invocations receive
 Vercel's execution context; Node ISG invocations receive the compatibility
-context described above. `regions: "all"` keeps the Edge function global and
+context described above; `pracht dev` passes a context holding only `waitUntil`. `regions: "all"` keeps the Edge function global and
 leaves Node ISG functions on the project's default Serverless region because
 `all` is not a Node region identifier.
 
@@ -1759,6 +1781,18 @@ export default async function handle(request) {
     // Optional: set to true when the adapter's Vite plugin runs the dev server
     // itself (pracht will skip installing its own SSR middleware).
     ownsDevServer: true,
+    // Optional, and ignored with ownsDevServer: what pracht's own dev SSR
+    // middleware must reproduce from the generated entry. Dev loads
+    // createContextFrom through Vite's SSR graph and calls its createContext
+    // export once per request with createContextArgs(...) (default
+    // { request }); the input also carries the Node req/res and the dev
+    // server's waitUntil. configureServerFrom's configureServer export is
+    // called with the dev HTTP server on every dev-server start.
+    dev: {
+      createContextFrom: options.createContextFrom,
+      createContextArgs: ({ request, waitUntil }) => ({ request, context: { waitUntil } }),
+      configureServerFrom: options.configureServerFrom,
+    },
     // Optional: set to true when targeting an edge runtime that cannot resolve
     // dependencies from node_modules at runtime. Forces Vite to bundle all
     // dependencies into the SSR output (ssr.noExternal = true).

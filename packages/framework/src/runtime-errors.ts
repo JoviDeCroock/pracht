@@ -44,6 +44,8 @@ export interface RouteErrorContext {
   loaderFile?: string;
   shellFile?: string;
   middlewareFiles?: string[];
+  /** The app root module, when loading it or its `setup()` failed. */
+  rootFile?: string;
 }
 
 export interface SerializedRouteError {
@@ -229,6 +231,7 @@ export function describeRouteErrorModule(
   context: RouteErrorContext | undefined,
 ): string | undefined {
   if (!context) return undefined;
+  if (context.rootFile) return context.rootFile;
   if (context.phase === "middleware" && context.middlewareFiles?.length) {
     return context.middlewareFiles.join(", ");
   }
@@ -265,10 +268,13 @@ export function reportRequestError(
 
   if (isPrachtHttpError(error) && error.status < 500) return;
 
+  // The query string stays out of the log, as in `pracht dev`: it can carry
+  // tokens. The hook above still receives the full request path.
+  const queryStart = requestPath.indexOf("?");
   const line = formatRequestErrorLine({
     file: describeRouteErrorModule(context),
     message: error instanceof Error ? error.message : String(error),
-    path: requestPath,
+    path: queryStart === -1 ? requestPath : requestPath.slice(0, queryStart),
     phase: context.phase,
     routeId: context.routeId,
   });

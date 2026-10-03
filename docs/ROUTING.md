@@ -1124,6 +1124,20 @@ authorization boundary open. An `_app` inside a reserved tree such as
 `pages/_components/_app.tsx` stays a plain helper. `_middleware/` is rejected
 as a directory for the same reason.
 
+Declarations, colocated tests, and mocks (`*.d.ts`, `*.test.*`, `*.spec.*`,
+and anything under `__tests__/` or `__mocks__/`) are never app modules, in
+either router. `packages/vite-plugin/src/source-files.ts` is the single
+definition: its negated patterns are appended to every `import.meta.glob`
+(routes, shells, API, middleware, server, capabilities, islands — client
+entry, islands bootstrap, and server registry alike) and to the dependency
+optimizer's seed entries, and its predicate filters the pages scan, pages
+capability discovery, route hint scans, and the pages dev watcher. Because
+`pracht inspect`, `typegen`, `plan`, and the dev banner read the server
+registry, they inherit the exclusion. `pracht verify` scans the filesystem on
+its own and mirrors the rule in `packages/cli/src/verification-helpers.ts`.
+Without it, `src/api/health.test.ts` became the API route `/api/health.test`,
+and importing the registry ran the test suite.
+
 ### Shell via `_app.tsx`
 
 If `pages/_app.tsx` exists, it is registered as a shell named `"pages"` and all

@@ -20,7 +20,7 @@
 //   node scripts/build.mjs --json    machine-readable summary
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,7 +57,12 @@ const IGNORED_INPUTS = new Set([
 const PACKAGE_OVERRIDES = {
   // `scripts/sync-skills.js` copies `<repo>/skills/*/SKILL.md` into the
   // package, so the repo-level skills are inputs and `skills/` is the output.
-  "create-pracht": { externalInputs: ["skills"], outputs: ["skills"] },
+  // `scripts/sync-versions.js` records sibling versions; a checkout reads
+  // them live, and releases build with `--force`, so they are not inputs.
+  "create-pracht": {
+    externalInputs: ["skills"],
+    outputs: ["skills", "fallback-versions.json"],
+  },
 };
 
 function hashFileInto(hash, absolutePath, label) {
@@ -67,10 +72,17 @@ function hashFileInto(hash, absolutePath, label) {
   hash.update("\0");
 }
 
-/** Hash a directory tree in a stable order, or return null when it is absent. */
+/**
+ * Hash a directory tree in a stable order, or return null when it is absent.
+ * A single file (an output such as `fallback-versions.json`) hashes on its own.
+ */
 function hashTree(root, { skip = () => false } = {}) {
   if (!existsSync(root)) return null;
   const hash = createHash("sha256");
+  if (statSync(root).isFile()) {
+    hashFileInto(hash, root, "");
+    return hash.digest("hex");
+  }
   let sawFile = false;
 
   const walk = (dir) => {

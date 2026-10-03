@@ -14,6 +14,7 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import { isNonModuleDirectoryName, isNonModuleFile } from "./source-files.ts";
 
 initSync();
 
@@ -439,11 +440,11 @@ function scanRouteFiles(dir: string, extensions: Set<string>, scan: RouteFileSca
       continue;
     }
     if (stat.isDirectory()) {
-      scanRouteFiles(abs, extensions, scan);
+      if (!isNonModuleDirectoryName(entry)) scanRouteFiles(abs, extensions, scan);
       continue;
     }
 
-    if (extensions.has(extname(entry))) {
+    if (extensions.has(extname(entry)) && !isNonModuleFile(entry)) {
       scan.files.push(abs);
     }
   }

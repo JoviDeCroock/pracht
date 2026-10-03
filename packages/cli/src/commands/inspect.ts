@@ -135,6 +135,8 @@ export interface InspectReport {
   mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
   mcpUnavailableReasons?: string[];
   notFound?: InspectRoute | null;
+  /** The module `defineApp({ root })` registers; absent when there is none. */
+  root?: string;
   routes?: InspectRoute[];
 }
 
@@ -164,6 +166,10 @@ export async function runInspect(
       );
       const notFound = serverModule.resolvedApp.notFound;
       report.notFound = notFound ? withEffectiveHydration(serializeAppRoutes([notFound])[0]) : null;
+      // The build registers the root from the manifest; the registry is where
+      // the resolved module path lives.
+      const [rootFile] = Object.keys(serverModule.registry?.rootModules ?? {});
+      if (rootFile) report.root = rootFile;
     }
 
     if (wants("api")) {
@@ -343,6 +349,8 @@ function printInspectReport(report: InspectReport): void {
         ? `  ${report.notFound.path}  shell=${report.notFound.shell ?? "n/a"}  hydration=${report.notFound.hydration ?? "full"}  streaming=${report.notFound.streaming === true ? "true" : "false"}  middleware=[${report.notFound.middleware.join(", ")}]  file=${report.notFound.file}`
         : "  None declared — unmatched URLs return a plain-text 404.",
     );
+
+    if (report.root) console.log(`\nApp root\n  ${report.root}`);
   }
 
   if (report.api) {

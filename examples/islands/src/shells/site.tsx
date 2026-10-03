@@ -8,6 +8,7 @@ export function Shell({ children }: ShellProps) {
         <nav>
           <a href="/">Home</a>
           <a href="/lazy">Lazy</a>
+          <a href="/children">Children</a>
           <a href="/static">Static</a>
           <a href="/ssr">SSR</a>
           <a href="/full">Full</a>

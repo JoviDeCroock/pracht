@@ -119,6 +119,7 @@ export const app = defineApp({
 | Field | Type | Description |
 | --- | --- | --- |
 | `routes` | (RouteDefinition \| GroupDefinition)[] | **Required.** The route tree. See [Routing](/docs/routing) |
+| `root` | ModuleRef | The [app root](/docs/shells#the-app-root), rendered above every shell. Write it as a string path or `() => import()` literal |
 | `shells` | Record\<string, ModuleRef\> | Named [shell](/docs/shells) modules |
 | `middleware` | Record\<string, ModuleRef\> | Named [middleware](/docs/middleware) modules |
 | `capabilities` | Record\<string, ModuleRef\> | Named [capabilities](/docs/capabilities), e.g. `{ "notes.search": () => import("./capabilities/notes-search.ts") }`. Server-only and private unless they declare `expose` |

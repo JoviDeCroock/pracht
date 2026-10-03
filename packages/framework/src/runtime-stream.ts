@@ -67,13 +67,34 @@ export interface StreamingHtmlResponseOptions {
    * match the out-of-band references `serializeDeferred()` recorded.
    */
   pending?: { id: string; promise: Promise<unknown> }[];
-  /** CSP nonce for the deferred-data scripts pracht emits. */
+  /** CSP nonce for every inline script in the stream, the renderer's included. */
   nonce?: string;
   /** Whether unexpected server error details may be exposed to the browser. */
   exposeErrorDetails?: boolean;
 }
 
 const streamingResponseBodies = new WeakSet<ReadableStream<Uint8Array>>();
+
+const RENDERER_SCRIPT_OPEN = new TextEncoder().encode("<script>");
+
+/**
+ * Give the renderer's inline boundary-swap bootstrap a CSP nonce.
+ *
+ * `renderToReadableStream` has no nonce option. After the shell, its chunks
+ * are the `<div hidden>` wrapper, one bootstrap `<script>`, and boundary
+ * subtrees wrapped in `<preact-island>`, so the only post-shell chunk that
+ * opens with a bare `<script>` is that bootstrap.
+ */
+function addRendererScriptNonce(chunk: Uint8Array, scriptOpen: Uint8Array): Uint8Array {
+  if (chunk.length < RENDERER_SCRIPT_OPEN.length) return chunk;
+  for (let i = 0; i < RENDERER_SCRIPT_OPEN.length; i++) {
+    if (chunk[i] !== RENDERER_SCRIPT_OPEN[i]) return chunk;
+  }
+  const out = new Uint8Array(scriptOpen.length + chunk.length - RENDERER_SCRIPT_OPEN.length);
+  out.set(scriptOpen);
+  out.set(chunk.subarray(RENDERER_SCRIPT_OPEN.length), scriptOpen.length);
+  return out;
+}
 
 /** Whether a response body was created by Pracht's streaming document renderer. */
 export function isStreamingHtmlResponse(response: Response): boolean {
@@ -185,6 +206,7 @@ export async function streamingHtmlResponse(
       }
 
       const scriptOpen = `<script${nonce ? ` nonce="${escapeHtml(nonce)}"` : ""}>`;
+      const nonceScriptOpen = nonce ? encoder.encode(scriptOpen) : undefined;
       const writeDeferred = async (script: () => string) => {
         await deferChannelReady;
         await write(script);
@@ -253,7 +275,9 @@ export async function streamingHtmlResponse(
             // A read already in flight when the consumer cancels still resolves
             // once; enqueuing it would throw on the closed controller.
             if (closed) break;
-            await writeChunk(() => value);
+            await writeChunk(() =>
+              nonceScriptOpen ? addRendererScriptNonce(value, nonceScriptOpen) : value,
+            );
           }
 
           if (closed) {
