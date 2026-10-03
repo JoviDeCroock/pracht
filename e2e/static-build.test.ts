@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -115,7 +115,14 @@ async function startDumbStaticHost(
 
 function stopServer(server: Server | undefined): Promise<void> {
   if (!server) return Promise.resolve();
-  return new Promise((resolveClose) => server.close(() => resolveClose()));
+  return new Promise((resolveClose) => {
+    server.close(() => resolveClose());
+    // close() only drops idle keep-alive sockets. A browser can still hold a
+    // speculative connection that never sent a request, and close() waits on
+    // it indefinitely; the test hangs in `finally` and the timeout hides the
+    // error that sent it there.
+    server.closeAllConnections();
+  });
 }
 
 function createTempExampleDir(
@@ -408,6 +415,32 @@ test("static export serves a full app from a dumb static host with zero server",
     await stopServer(server);
     await stopServer(fallbackServer);
     rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+// The browser specs above stop their host in `finally`; that must not wait on a
+// socket the browser opened speculatively and never used.
+test("the dumb static host stops with an unused connection still open", async () => {
+  test.setTimeout(10_000);
+
+  const tempRoot = resolve(repoRoot, ".tmp");
+  mkdirSync(tempRoot, { recursive: true });
+  const root = mkdtempSync(resolve(tempRoot, "pracht-static-host-"));
+  const { origin, server } = await startDumbStaticHost(root);
+  const accepted = new Promise<void>((resolveAccepted) => {
+    server.once("connection", () => resolveAccepted());
+  });
+  const socket = connect(Number(new URL(origin).port), "127.0.0.1");
+  // The host resets this socket on shutdown; that is the point, not a failure.
+  socket.on("error", () => {});
+
+  try {
+    await accepted;
+    await stopServer(server);
+    expect(server.listening).toBe(false);
+  } finally {
+    socket.destroy();
+    rmSync(root, { force: true, recursive: true });
   }
 });
 
