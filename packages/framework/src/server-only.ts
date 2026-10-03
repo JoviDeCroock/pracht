@@ -73,6 +73,18 @@ class ServerOnlyValue<T> {
   toJSON(): T {
     return this.value;
   }
+
+  /**
+   * Rendering the marker as text or into `dangerouslySetInnerHTML` would
+   * write "[object Object]" into the page, so converting it fails instead.
+   */
+  [Symbol.toPrimitive](): never {
+    throw new TypeError(
+      'A serverOnly() value was converted to a string, which renders "[object Object]". ' +
+        "Pass it to <StaticHtml html={…}>, or read it with readServerOnly() in server code " +
+        "such as head().",
+    );
+  }
 }
 
 // On the prototype, and keyed by a registry symbol, so the check survives both

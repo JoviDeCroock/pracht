@@ -46,6 +46,18 @@ describe("serverOnly()", () => {
   });
 });
 
+describe("a serverOnly() value used as a string", () => {
+  it("throws instead of rendering [object Object]", () => {
+    const html = serverOnly("<p>hi</p>");
+    expect(() => String(html)).toThrow(/<StaticHtml html=\{…\}>/);
+    expect(() => `${html as unknown as string}`).toThrow(/readServerOnly\(\)/);
+  });
+
+  it("still serializes to its value", () => {
+    expect(JSON.stringify({ html: serverOnly("<p>hi</p>") })).toBe('{"html":"<p>hi</p>"}');
+  });
+});
+
 describe("stripServerOnlyValues()", () => {
   it("returns the input untouched when nothing is marked", () => {
     const data = { a: 1, nested: { b: [1, 2] } };
