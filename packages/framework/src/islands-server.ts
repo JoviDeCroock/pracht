@@ -1,4 +1,4 @@
-import { createContext, h, options } from "preact";
+import { createContext, Fragment, h, options } from "preact";
 import type { ComponentChildren, ComponentType, VNode } from "preact";
 import { useContext } from "preact/hooks";
 
@@ -8,6 +8,7 @@ import {
   ISLAND_FILE_ATTRIBUTE,
   ISLAND_PROPS_ATTRIBUTE,
   ISLAND_SLOT_ELEMENT,
+  ISLAND_SLOT_END,
   ISLAND_STRATEGIES,
   ISLAND_STRATEGY_ATTRIBUTE,
 } from "./islands-shared.ts";
@@ -102,6 +103,7 @@ export function hasRegisteredIslands(): boolean {
 /** @internal Reset module state for tests. */
 export function _resetIslandsForTesting(): void {
   islandRegistry.clear();
+  contextWarnings.clear();
   islandsClientEntryUrl = undefined;
   skipWrapForType = null;
 }
@@ -158,12 +160,11 @@ function IslandBoundary(props: Record<string, unknown>) {
   const { client, children, ...componentProps } = rest;
   const strategy = validateIslandStrategy(client, descriptor);
 
-  if (typeof children === "function") {
-    throw new Error(
-      `Island "${descriptor.name}" (${descriptor.file}) received a function as children. ` +
-        "Children passed into an island render on the server, so they must be JSX, not a " +
-        "render function.",
-    );
+  const kind = classifyChildren(children, descriptor);
+  if (kind === "text") {
+    // Plain text and numbers stay a value the island can use (a title, a
+    // clipboard string); they travel in the props JSON like any other prop.
+    componentProps.children = normalizeTextChildren(children);
   }
 
   validateIslandProps(componentProps, descriptor);
@@ -191,23 +192,28 @@ function IslandBoundary(props: Record<string, unknown>) {
   // outside this island. If the island does not place its children (a closed
   // disclosure, say), they ship in a <template> so the client can show them
   // later.
-  const slot: SlotState | null = hasRenderableChildren(children)
-    ? {
-        descriptor,
-        placed: false,
-        content: h(
-          IslandCaptureContext.Provider,
-          { value: capture },
-          scriptCapture
-            ? h(
-                ScriptCaptureContext.Provider,
-                { value: scriptCapture },
-                children as ComponentChildren,
-              )
-            : (children as ComponentChildren),
-        ),
-      }
-    : null;
+  const slot: SlotState | null =
+    kind === "markup"
+      ? {
+          capture,
+          children,
+          descriptor,
+          islandsBefore: 0,
+          placed: false,
+          providesContext: false,
+          content: h(
+            IslandCaptureContext.Provider,
+            { value: capture },
+            scriptCapture
+              ? h(
+                  ScriptCaptureContext.Provider,
+                  { value: scriptCapture },
+                  children as ComponentChildren,
+                )
+              : (children as ComponentChildren),
+          ),
+        }
+      : null;
 
   // Islands nested inside this island's subtree hydrate as part of this
   // island, so they must not emit their own markers: null out the capture
@@ -235,46 +241,159 @@ function IslandBoundary(props: Record<string, unknown>) {
 }
 
 interface SlotState {
+  capture: IslandCapture;
+  children: unknown;
   descriptor: IslandDescriptor;
+  /** Islands registered before the slot content rendered. */
+  islandsBefore: number;
   placed: boolean;
+  /** A component between the island and its slot provides context. */
+  providesContext: boolean;
   content: VNode<any>;
 }
 
-// The HTML parser moves an unknown element out of table and select content,
-// which would strand the children outside their slot.
-const SLOT_REJECTING_PARENT = /^(table|thead|tbody|tfoot|tr|colgroup|select|optgroup)$/;
+const DEV: boolean = Boolean(
+  (import.meta as { env?: { DEV?: boolean } }).env?.DEV ??
+  (typeof process !== "undefined" && process.env?.NODE_ENV !== "production"),
+);
+
+// The HTML parser reads the content of these as text, or drops unknown
+// elements inside them (select/option in some browsers), at any depth.
+const SLOT_TEXT_ANCESTOR =
+  /^(textarea|title|script|style|xmp|iframe|noembed|noframes|noscript|select|option|optgroup|datalist)$/;
+// ...and moves an unknown element out of these when it is their direct child.
+const SLOT_TABLE_PARENT = /^(table|thead|tbody|tfoot|tr|colgroup)$/;
+// Elements whose first-child position carries meaning.
+const SLOT_FIRST_CHILD: Record<string, string> = { details: "summary", fieldset: "legend" };
 
 interface RenderedVNode {
   type: unknown;
   __?: RenderedVNode | null;
+  __c?: { getChildContext?: unknown } | null;
 }
 
 function IslandSlot(this: { __v?: RenderedVNode } | undefined, { slot }: { slot: SlotState }) {
-  // preact-render-to-string gives each component its vnode (`__v`) and each
-  // vnode its parent (`__`); walk up to the element the slot lands in.
-  let parent = this?.__v?.__;
-  while (parent && typeof parent.type !== "string") parent = parent.__;
-  if (parent && SLOT_REJECTING_PARENT.test(parent.type as string)) {
-    const { descriptor } = slot;
-    throw new Error(
-      `Island "${descriptor.name}" (${descriptor.file}) renders its children directly inside ` +
-        `<${parent.type as string}>. Children arrive in a <${ISLAND_SLOT_ELEMENT}> element, ` +
-        "which the browser moves out of table and select markup. Pass the whole table or " +
-        "select as children, or render the rows inside the island from props.",
+  // preact-render-to-string gives each component its vnode (`__v`), each
+  // vnode its parent (`__`) and component (`__c`); walk up the ancestors the
+  // slot lands in.
+  let parentTag: string | undefined;
+  let namespace: string | undefined;
+  let insideIsland = true;
+  for (let vnode = this?.__v?.__; vnode; vnode = vnode.__) {
+    const tag = vnode.type;
+    if (typeof tag === "string") {
+      parentTag ??= tag;
+      if (SLOT_TEXT_ANCESTOR.test(tag)) throw slotError(slot, `inside <${tag}>`);
+      if (!namespace && (tag === "svg" || tag === "math" || tag === "foreignObject")) {
+        namespace = tag;
+      }
+    } else if (tag === IslandBoundary) {
+      insideIsland = false;
+    } else if (
+      insideIsland &&
+      vnode.__c?.getChildContext &&
+      tag !== IslandCaptureContext.Provider &&
+      tag !== ScriptCaptureContext.Provider
+    ) {
+      slot.providesContext = true;
+    }
+  }
+  if (parentTag && SLOT_TABLE_PARENT.test(parentTag)) {
+    throw slotError(slot, `directly inside <${parentTag}>`);
+  }
+  const firstChild = parentTag && SLOT_FIRST_CHILD[parentTag];
+  if (firstChild && hasTopLevelElement(slot.children, firstChild)) {
+    throw slotError(
+      slot,
+      `inside <${parentTag}>, including a <${firstChild}> that must come first`,
     );
   }
+
   slot.placed = true;
-  return h(ISLAND_SLOT_ELEMENT, { style: "display:contents" }, slot.content);
+  slot.islandsBefore = slot.capture.islands.length;
+  // An unknown element inside SVG or MathML is not rendered; use each
+  // language's transparent grouping element there.
+  const tag = namespace === "svg" ? "g" : namespace === "math" ? "mrow" : ISLAND_SLOT_ELEMENT;
+  return h(
+    tag,
+    tag === ISLAND_SLOT_ELEMENT ? { style: "display:contents" } : { [ISLAND_SLOT_ELEMENT]: "" },
+    slot.content,
+    slotEnd(),
+  );
 }
 
 // Renders after the island's own output, so `placed` is settled by then.
 function IslandSlotFallback({ slot }: { slot: SlotState }) {
-  return slot.placed ? null : h("template", { [ISLAND_SLOT_ELEMENT]: "" }, slot.content);
+  const { capture, descriptor } = slot;
+  if (
+    DEV &&
+    slot.providesContext &&
+    capture.islands.length > slot.islandsBefore &&
+    !contextWarnings.has(descriptor.file)
+  ) {
+    contextWarnings.add(descriptor.file);
+    console.warn(
+      `[pracht] Island "${descriptor.name}" (${descriptor.file}) provides context around ` +
+        "its children, and those children contain an island. That island hydrates on its " +
+        "own and reads the context's default value in the browser. Pass the value as a prop.",
+    );
+  }
+  return slot.placed ? null : h("template", { [ISLAND_SLOT_ELEMENT]: "" }, slot.content, slotEnd());
 }
 
-function hasRenderableChildren(children: unknown): boolean {
-  if (Array.isArray(children)) return children.some(hasRenderableChildren);
-  return children != null && typeof children !== "boolean";
+const contextWarnings = new Set<string>();
+
+function slotEnd(): VNode<any> {
+  return h(Fragment, { UNSTABLE_comment: ISLAND_SLOT_END } as Record<string, unknown>);
+}
+
+function slotError(slot: SlotState, where: string): Error {
+  const { descriptor } = slot;
+  return new Error(
+    `Island "${descriptor.name}" (${descriptor.file}) renders its children ${where}. ` +
+      `Children arrive in a <${ISLAND_SLOT_ELEMENT}> element, which the browser cannot keep ` +
+      "there. Render that markup inside the island, or pass the whole element as children.",
+  );
+}
+
+function hasTopLevelElement(children: unknown, tag: string): boolean {
+  if (Array.isArray(children)) return children.some((child) => hasTopLevelElement(child, tag));
+  return (children as { type?: unknown } | null)?.type === tag;
+}
+
+/**
+ * "markup" children travel as server HTML in a slot; "text" (strings and
+ * numbers only) travels in the props JSON; "none" renders nothing.
+ */
+function classifyChildren(
+  children: unknown,
+  descriptor: IslandDescriptor,
+): "none" | "text" | "markup" {
+  if (Array.isArray(children)) {
+    let kind: "none" | "text" | "markup" = "none";
+    for (const child of children) {
+      const childKind = classifyChildren(child, descriptor);
+      if (childKind === "markup") kind = "markup";
+      else if (childKind === "text" && kind === "none") kind = "text";
+    }
+    return kind;
+  }
+  if (typeof children === "function") {
+    throw new Error(
+      `Island "${descriptor.name}" (${descriptor.file}) received a function as children. ` +
+        "Children passed into an island render on the server, so they must be JSX, not a " +
+        "render function.",
+    );
+  }
+  if (typeof children === "string" || typeof children === "number") return "text";
+  return children == null || typeof children === "boolean" ? "none" : "markup";
+}
+
+/** JSON writes `undefined` in an array as `null`; do it up front so both sides match. */
+function normalizeTextChildren(children: unknown): unknown {
+  return Array.isArray(children)
+    ? children.map((child) => (child === undefined ? null : normalizeTextChildren(child)))
+    : children;
 }
 
 function validateIslandStrategy(client: unknown, descriptor: IslandDescriptor): IslandStrategy {

@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +48,31 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
 
   try {
     cpSync(fixtureDir, exampleDir, { filter: fixtureCopyFilter(fixtureDir), recursive: true });
+
+    // A route whose island places block children inside a <p>, which the
+    // browser's HTML parser hoists out of the island's slot.
+    writeFileSync(
+      resolve(exampleDir, "src/islands/Lead.tsx"),
+      "import type { ComponentChildren } from 'preact';\n" +
+        "export default function Lead({ children }: { children?: ComponentChildren }) {\n" +
+        "  return <div><p>{children}</p><span>after</span></div>;\n}\n",
+    );
+    writeFileSync(
+      resolve(exampleDir, "src/routes/hoisted.tsx"),
+      "import Lead from '../islands/Lead.tsx';\n" +
+        "export function Component() {\n" +
+        '  return <Lead><div data-testid="hoisted-block">Block content</div></Lead>;\n}\n',
+    );
+    const routesFile = resolve(exampleDir, "src/routes.ts");
+    writeFileSync(
+      routesFile,
+      readFileSync(routesFile, "utf-8").replace(
+        "      // Fully static page",
+        '      route("/hoisted", () => import("./routes/hoisted.tsx"), {\n' +
+          '        id: "hoisted",\n        render: "ssg",\n        hydration: "islands",\n      }),\n' +
+          "      // Fully static page",
+      ),
+    );
 
     execFileSync(process.execPath, [cliEntry, "build"], {
       cwd: exampleDir,
@@ -233,6 +259,21 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
       const source = readFileSync(resolve(exampleDir, "dist/client/assets", chunk), "utf-8");
       expect(source).not.toContain("never shipped as JavaScript");
     }
+
+    // When the parser moved children out of their slot, hydrating would
+    // delete them: the island stays server HTML and the console says why.
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") consoleErrors.push(message.text());
+    });
+    await page.goto(`${origin}/hoisted`);
+    await page.waitForSelector('html[data-pracht-islands-hydrated="true"]');
+    await expect(page.getByTestId("hoisted-block")).toHaveText("Block content");
+    await expect(page.locator('pracht-island[island="/src/islands/Lead.tsx"]')).not.toHaveAttribute(
+      "data-hydrated",
+      "true",
+    );
+    expect(consoleErrors.join("\n")).toContain("the HTML parser moved its children");
 
     // Full-hydration routes in the same app still load the regular client
     // runtime and hydrate the whole tree.

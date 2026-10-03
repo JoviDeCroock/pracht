@@ -90,9 +90,17 @@ Island props are serialized to JSON in the HTML. At each island call site on
 an islands route, flag props that are functions, symbols, bigints, class
 instances (`Date`, `Map`, ...), JSX elements, or circular — rendering throws a
 descriptive error naming the offending prop path. Children passed into an
-island are fine: they render once on the server as static HTML. Flag a render
-function passed as children (it throws), and children the island expects to
-re-render or pass props into — those belong inside the island.
+island are fine: markup renders once on the server as static HTML, and plain
+text arrives as a string value. Flag:
+
+- a render function passed as children (it throws);
+- children the island expects to re-render or pass props into, and islands
+  among the children that read context the outer island provides (the browser
+  gives them the default) — those belong inside the island or need a prop;
+- an island that renders `children` inside `<p>`, `<a>`, or `<button>` while
+  call sites pass block elements, links, or buttons, or raw HTML in children
+  that may be malformed: the browser moves those nodes out of the slot and the
+  island is left unhydrated with a console error.
 
 ### 3d. Hydration strategy tuning (`info`)
 

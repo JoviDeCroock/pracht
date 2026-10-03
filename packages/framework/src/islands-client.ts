@@ -10,6 +10,7 @@ import {
   ISLAND_HYDRATED_ATTRIBUTE,
   ISLAND_PROPS_ATTRIBUTE,
   ISLAND_SLOT_ELEMENT,
+  ISLAND_SLOT_END,
   ISLAND_STRATEGY_ATTRIBUTE,
   ISLANDS_HYDRATED_MARKER,
 } from "./islands-shared.ts";
@@ -121,34 +122,43 @@ function scheduleIslands(
 
 /**
  * Children the page passed into an island arrive as server-rendered nodes in
- * `<pracht-slot>` elements the island owns, or in a `<template>` when the
- * island did not place them. The island receives one slot vnode as its
- * children: hydration leaves the existing nodes alone, and when the island
- * mounts a fresh slot (after hiding it, say) the ref moves a detached group
- * of nodes in, so the content and any island inside it keep their state.
+ * slot elements the island owns (`<pracht-slot>`, or `<g pracht-slot>` /
+ * `<mrow pracht-slot>` in SVG and MathML), or in a `<template pracht-slot>`
+ * when the island did not place them. The island receives one slot vnode as
+ * its children: hydration leaves the existing nodes alone, and when the island
+ * mounts a fresh slot (after hiding it, say) the ref moves in the current
+ * nodes of a detached holder, so the content and any island inside it keep
+ * their state.
+ *
+ * Returns `false` when the HTML parser moved nodes out of a slot: hydrating
+ * would delete them, so the island stays server HTML.
  */
 function slotChildren(element: Element, options: HydrateIslandsOptions) {
-  const groups: Node[][] = [];
-  for (const node of element.querySelectorAll(
-    `${ISLAND_SLOT_ELEMENT},template[${ISLAND_SLOT_ELEMENT}]`,
-  )) {
-    if (node.parentElement!.closest(ISLAND_ELEMENT) !== element) continue;
-    // Only the <template> has `content`.
-    const content = (node as HTMLTemplateElement).content;
-    groups.push([...(content || node).childNodes]);
-    if (content) node.remove();
+  const nodes = [
+    ...element.querySelectorAll(`${ISLAND_SLOT_ELEMENT},[${ISLAND_SLOT_ELEMENT}]`),
+  ].filter((node) => node.parentElement!.closest(ISLAND_ELEMENT) === element);
+  // Only the <template> has `content`.
+  const holders: ParentNode[] = nodes.map((node) => (node as HTMLTemplateElement).content || node);
+  if (holders.some((holder) => (holder.lastChild as Comment | null)?.data !== ISLAND_SLOT_END)) {
+    return false;
   }
+  let type = ISLAND_SLOT_ELEMENT;
+  nodes.forEach((node, i) => {
+    if (holders[i] !== node) node.remove();
+    else type = node.localName;
+  });
 
   return (
-    groups[0] &&
-    h(ISLAND_SLOT_ELEMENT, {
-      style: "display:contents",
+    holders[0] &&
+    h(type, {
+      ...(type === ISLAND_SLOT_ELEMENT && { style: "display:contents" }),
       dangerouslySetInnerHTML: { __html: "" },
       ref(slot: Element | null) {
-        if (!slot || slot.firstChild) return;
-        const group = groups.find((nodes) => nodes[0] && !nodes[0].isConnected);
-        if (!group) return;
-        slot.append(...group);
+        if (!slot || holders.includes(slot)) return;
+        const i = holders.findIndex((holder) => !holder.isConnected);
+        if (i < 0) return;
+        slot.append(...holders[i].childNodes);
+        holders[i] = slot;
         // Islands that shipped inside a <template> were never scheduled.
         scheduleIslands(slot, options);
       },
@@ -190,6 +200,13 @@ async function hydrateIsland(element: Element, options: HydrateIslandsOptions): 
   }
 
   const children = slotChildren(element, options);
+  if (children === false) {
+    console.error(
+      `[pracht] Island "${file}" was not hydrated: the HTML parser moved its children ` +
+        "(a <div> inside a <p>, or unbalanced raw HTML?)",
+    );
+    return;
+  }
   if (children) props.children = children;
   hydrate(h(Component, props), element);
   element.setAttribute(ISLAND_HYDRATED_ATTRIBUTE, "true");
@@ -221,6 +238,14 @@ function scheduleWhenIdle(task: () => void): void {
   }
 }
 
+function boxedChildren(element: Element): Element[] {
+  return [...element.children].flatMap((child) =>
+    child.localName === ISLAND_ELEMENT || child.localName === ISLAND_SLOT_ELEMENT
+      ? boxedChildren(child)
+      : [child],
+  );
+}
+
 function scheduleWhenVisible(element: Element, task: () => void): void {
   if (typeof IntersectionObserver === "undefined") {
     task();
@@ -229,8 +254,11 @@ function scheduleWhenVisible(element: Element, task: () => void): void {
 
   // The <pracht-island> wrapper uses display:contents and therefore has no
   // box of its own — IntersectionObserver would never report it as
-  // intersecting. Observe the island's rendered children instead.
-  const targets = element.children.length > 0 ? [...element.children] : [element];
+  // intersecting. Observe the island's rendered children instead, looking
+  // through slots and nested islands, which have no box either. With nothing
+  // to observe, the nearest ancestor stands in.
+  const targets = boxedChildren(element);
+  if (!targets.length) targets.push(element.parentElement!);
 
   const observer = new IntersectionObserver((entries) => {
     for (const entry of entries) {

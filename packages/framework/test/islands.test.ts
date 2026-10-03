@@ -1,5 +1,6 @@
-import { h } from "preact";
-import { afterEach, describe, expect, it } from "vitest";
+import { createContext, h } from "preact";
+import { useContext } from "preact/hooks";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
 import { defineApp, group, handlePrachtRequest, resolveApp, route } from "../src/index.ts";
@@ -296,120 +297,6 @@ describe("islands server rendering", () => {
     expect(html).toContain("nested");
   });
 
-  it("renders children passed into an island inside a slot, outside the props", async () => {
-    function Box({ title, children }: { title: string; children?: unknown }) {
-      return h("section", null, h("h2", null, title), children as never);
-    }
-    registerServerIslands({ "/src/islands/Box.tsx": { default: Box } });
-    setIslandsClientEntryUrl("/assets/islands-client-test.js");
-
-    const html = await renderRoute({
-      hydration: "islands",
-      Component: () => h(Box as never, { title: "Hi" }, h("p", null, "server content")),
-    });
-
-    expect(html).toContain(
-      '<section><h2>Hi</h2><pracht-slot style="display:contents"><p>server content</p></pracht-slot></section>',
-    );
-    expect(html).toContain('props="{&quot;title&quot;:&quot;Hi&quot;}"');
-    expect(html).not.toContain("<template");
-  });
-
-  it("gives islands inside an island's children their own markers", async () => {
-    function Box({ children }: { children?: unknown }) {
-      return h("div", null, children as never);
-    }
-    registerServerIslands({
-      "/src/islands/Box.tsx": { default: Box },
-      "/src/islands/Counter.tsx": { default: Counter },
-    });
-    setIslandsClientEntryUrl("/assets/islands-client-test.js");
-
-    const html = await renderRoute({
-      hydration: "islands",
-      Component: () => h(Box as never, {}, h(Counter, { start: 2 })),
-    });
-
-    expect(html.match(/<pracht-island/g)).toHaveLength(2);
-    expect(html).toMatch(
-      /<pracht-slot style="display:contents"><pracht-island island="\/src\/islands\/Counter.tsx"[^>]*props="\{&quot;start&quot;:2\}"/,
-    );
-  });
-
-  it("ships children an island does not place in a template", async () => {
-    function Disclosure({ children }: { children?: unknown }) {
-      const open = false;
-      return h("details", null, h("summary", null, "More"), open ? (children as never) : null);
-    }
-    registerServerIslands({ "/src/islands/Disclosure.tsx": { default: Disclosure } });
-    setIslandsClientEntryUrl("/assets/islands-client-test.js");
-
-    const html = await renderRoute({
-      hydration: "islands",
-      Component: () => h(Disclosure as never, {}, h("p", null, "hidden content")),
-    });
-
-    expect(html).toContain(
-      "<details><summary>More</summary></details><template pracht-slot><p>hidden content</p></template>",
-    );
-    expect(html).not.toContain("<pracht-slot");
-  });
-
-  it("passes no slot for children that render nothing", async () => {
-    function Box({ children }: { children?: unknown }) {
-      return h("div", null, children === undefined ? "none" : "some");
-    }
-    registerServerIslands({ "/src/islands/Box.tsx": { default: Box } });
-    setIslandsClientEntryUrl("/assets/islands-client-test.js");
-
-    const html = await renderRoute({
-      hydration: "islands",
-      Component: () => h(Box as never, {}, false, null),
-    });
-
-    expect(html).toContain("<div>none</div>");
-    expect(html).not.toContain("pracht-slot");
-  });
-
-  it("throws a clear error when an island receives a render function as children", async () => {
-    registerTestIslands();
-
-    const html = await renderRoute({
-      hydration: "islands",
-      Component: () => h(Counter as never, {}, (() => "x") as never),
-    });
-
-    expect(html).toContain("received a function as children");
-  });
-
-  it("throws a clear error when an island places its children directly inside table markup", async () => {
-    function Rows({ children }: { children?: unknown }) {
-      return h("table", null, h("tbody", null, children as never));
-    }
-    function Wrapped({ children }: { children?: unknown }) {
-      return h("table", null, h("tbody", null, h("tr", null, h("td", null, children as never))));
-    }
-    registerServerIslands({
-      "/src/islands/Rows.tsx": { default: Rows },
-      "/src/islands/Wrapped.tsx": { default: Wrapped },
-    });
-    setIslandsClientEntryUrl("/assets/islands-client-test.js");
-
-    const row = h("tr", null, h("td", null, "cell"));
-    const rejected = await renderRoute({
-      hydration: "islands",
-      Component: () => h(Rows as never, {}, row),
-    });
-    expect(rejected).toContain('Island "Rows" (/src/islands/Rows.tsx) renders its children');
-    expect(rejected).toContain("directly inside <tbody>");
-
-    const accepted = await renderRoute({
-      hydration: "islands",
-      Component: () => h(Wrapped as never, {}, "cell"),
-    });
-    expect(accepted).toContain('<td><pracht-slot style="display:contents">cell</pracht-slot></td>');
-  });
-
   it("throws a clear error for non-serializable props", async () => {
     registerTestIslands();
 
@@ -484,6 +371,205 @@ describe("islands server rendering", () => {
     expect(html).toContain("agent-safe fallback");
     expect(html).not.toContain("<pracht-island");
     expect(html).toContain("/assets/islands-client-test.js");
+  });
+});
+
+describe("island children", () => {
+  const SLOT_END = "<!--/pracht-slot-->";
+
+  async function renderIslandPage(
+    islands: Record<string, (props: any) => any>,
+    Component: () => any,
+  ): Promise<string> {
+    registerServerIslands(
+      Object.fromEntries(
+        Object.entries(islands).map(([name, component]) => [
+          `/src/islands/${name}.tsx`,
+          { default: component },
+        ]),
+      ),
+    );
+    setIslandsClientEntryUrl("/assets/islands-client-test.js");
+    return renderRoute({ hydration: "islands", Component });
+  }
+
+  function Box({ children }: { children?: unknown }) {
+    return h("div", null, children as never);
+  }
+
+  it("renders children inside a slot closed by an end marker, outside the props", async () => {
+    function Titled({ title, children }: { title: string; children?: unknown }) {
+      return h("section", null, h("h2", null, title), children as never);
+    }
+    const html = await renderIslandPage({ Titled }, () =>
+      h(Titled as never, { title: "Hi" }, h("p", null, "server content")),
+    );
+
+    expect(html).toContain(
+      `<section><h2>Hi</h2><pracht-slot style="display:contents"><p>server content</p>${SLOT_END}</pracht-slot></section>`,
+    );
+    expect(html).toContain('props="{&quot;title&quot;:&quot;Hi&quot;}"');
+    expect(html).not.toContain("<template");
+  });
+
+  it("gives islands inside an island's children their own markers", async () => {
+    const html = await renderIslandPage({ Box, Counter }, () =>
+      h(Box as never, {}, h(Counter, { start: 2 })),
+    );
+
+    expect(html.match(/<pracht-island/g)).toHaveLength(2);
+    expect(html).toMatch(
+      /<pracht-slot style="display:contents"><pracht-island island="\/src\/islands\/Counter.tsx"[^>]*props="\{&quot;start&quot;:2\}"/,
+    );
+  });
+
+  it("ships children an island does not place in a template", async () => {
+    function Disclosure({ children }: { children?: unknown }) {
+      const open = false;
+      return h("div", null, h("button", null, "More"), open ? (children as never) : null);
+    }
+    const html = await renderIslandPage({ Disclosure }, () =>
+      h(Disclosure as never, {}, h("p", null, "hidden content")),
+    );
+
+    expect(html).toContain(
+      `<div><button>More</button></div><template pracht-slot><p>hidden content</p>${SLOT_END}</template>`,
+    );
+    expect(html).not.toContain("<pracht-slot");
+  });
+
+  it("passes text children through the props instead of a slot", async () => {
+    const html = await renderIslandPage({ Box }, () => h(Box as never, {}, "npm i ", 42));
+
+    expect(html).toContain("<div>npm i 42</div>");
+    expect(html).toContain('props="{&quot;children&quot;:[&quot;npm i &quot;,42]}"');
+    expect(html).not.toContain("pracht-slot");
+  });
+
+  it("passes no slot for children that render nothing", async () => {
+    function Probe({ children }: { children?: unknown }) {
+      return h("div", null, children === undefined ? "none" : "some");
+    }
+    const html = await renderIslandPage({ Probe }, () => h(Probe as never, {}, false, null));
+
+    expect(html).toContain("<div>none</div>");
+    expect(html).not.toContain("pracht-slot");
+  });
+
+  it("uses an SVG group as the slot inside SVG and a MathML row inside MathML", async () => {
+    function Chart({ children }: { children?: unknown }) {
+      return h("svg", null, h("g", null, children as never));
+    }
+    function Formula({ children }: { children?: unknown }) {
+      return h("math", null, children as never);
+    }
+    const svg = await renderIslandPage({ Chart }, () =>
+      h(Chart as never, {}, h("circle", { r: 4 })),
+    );
+    expect(svg).toContain(
+      `<svg><g><g pracht-slot><circle r="4"></circle>${SLOT_END}</g></g></svg>`,
+    );
+
+    const math = await renderIslandPage({ Formula }, () =>
+      h(Formula as never, {}, h("mi", null, "x")),
+    );
+    expect(math).toContain(`<math><mrow pracht-slot><mi>x</mi>${SLOT_END}</mrow></math>`);
+  });
+
+  it("throws a clear error for a render function as children, also inside an array", async () => {
+    for (const children of [() => "x", [() => "x"]]) {
+      const html = await renderIslandPage({ Box }, () => h(Box as never, {}, children as never));
+      expect(html).toContain('Island "Box" (/src/islands/Box.tsx) received a function as children');
+    }
+  });
+
+  it("rejects slots the HTML parser cannot keep where the island puts them", async () => {
+    const cases: [string, (props: { children?: unknown }) => any, unknown, string][] = [
+      [
+        "Rows",
+        ({ children }) => h("table", null, h("tbody", null, children as never)),
+        h("tr", null, h("td", null, "cell")),
+        "directly inside <tbody>",
+      ],
+      [
+        "Pick",
+        ({ children }) => h("select", null, h("option", null, h("span", null, children as never))),
+        h("b", null, "Alpha"),
+        "inside <option>",
+      ],
+      [
+        "Notes",
+        ({ children }) => h("textarea", null, children as never),
+        h("b", null, "text"),
+        "inside <textarea>",
+      ],
+      [
+        "Details",
+        ({ children }) => h("details", null, children as never),
+        [h("summary", null, "Summary"), h("p", null, "body")],
+        "including a <summary> that must come first",
+      ],
+      [
+        "Group",
+        ({ children }) => h("fieldset", null, children as never),
+        h("legend", null, "Legend"),
+        "including a <legend> that must come first",
+      ],
+    ];
+
+    for (const [name, island, children, reason] of cases) {
+      const html = await renderIslandPage({ [name]: island }, () =>
+        h(island as never, {}, children as never),
+      );
+      expect(html, name).toContain(
+        `Island "${name}" (/src/islands/${name}.tsx) renders its children`,
+      );
+      expect(html, name).toContain(reason);
+    }
+  });
+
+  it("accepts children inside a table cell and a details body after the island's summary", async () => {
+    function Cell({ children }: { children?: unknown }) {
+      return h("table", null, h("tbody", null, h("tr", null, h("td", null, children as never))));
+    }
+    function Disclosure({ children }: { children?: unknown }) {
+      return h("details", null, h("summary", null, "More"), children as never);
+    }
+    const cell = await renderIslandPage({ Cell }, () => h(Cell as never, {}, h("b", null, "x")));
+    expect(cell).toContain('<td><pracht-slot style="display:contents"><b>x</b>');
+
+    const details = await renderIslandPage({ Disclosure }, () =>
+      h(Disclosure as never, {}, h("p", null, "body")),
+    );
+    expect(details).toContain(
+      '<details><summary>More</summary><pracht-slot style="display:contents"><p>body</p>',
+    );
+  });
+
+  it("warns once when context an island provides around its children cannot reach an island inside them", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const Theme = createContext("light");
+    function Tabs({ children }: { children?: unknown }) {
+      return h(Theme.Provider, { value: "dark" }, h("div", null, children as never));
+    }
+    function Panel() {
+      return h("span", null, useContext(Theme));
+    }
+
+    await renderIslandPage({ Tabs, Panel }, () => h(Tabs as never, {}, h(Panel, {})));
+    await renderIslandPage({ Tabs, Panel }, () => h(Tabs as never, {}, h(Panel, {})));
+    const contextWarnings = warn.mock.calls.filter(([message]) =>
+      String(message).includes("provides context around its children"),
+    );
+    expect(contextWarnings).toHaveLength(1);
+    expect(contextWarnings[0][0]).toContain('Island "Tabs" (/src/islands/Tabs.tsx)');
+
+    warn.mockClear();
+    await renderIslandPage({ Tabs }, () => h(Tabs as never, {}, h("p", null, "static")));
+    await renderIslandPage({ Box, Panel }, () => h(Box as never, {}, h(Panel, {})));
+    expect(warn.mock.calls.some(([message]) => String(message).includes("provides context"))).toBe(
+      false,
+    );
   });
 });
 

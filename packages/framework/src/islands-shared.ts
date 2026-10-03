@@ -13,6 +13,13 @@ export const ISLAND_ELEMENT = "pracht-island";
  */
 export const ISLAND_SLOT_ELEMENT = "pracht-slot";
 
+/**
+ * Text of the comment that closes every slot. If the HTML parser moved
+ * nodes out of a slot (invalid nesting, unbalanced raw HTML), the comment is
+ * no longer its last child, and the client leaves that island unhydrated.
+ */
+export const ISLAND_SLOT_END = "/pracht-slot";
+
 /** Attribute carrying the island's project-root-relative source file. */
 export const ISLAND_FILE_ATTRIBUTE = "island";
 

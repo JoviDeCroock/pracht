@@ -139,13 +139,27 @@ its own and keeps its state when the outer island hides and shows it. Children
 the island does not render on the server, such as a closed disclosure's, still
 ship with the page and appear when it renders them.
 
-Children are rendered once, on the server. The island cannot pass them props or
-change their contents, and a render function as children throws an error.
-They arrive inside a `<pracht-slot>` element with `display: contents`, so a
-child selector such as `.panel > p` written against the island's markup no
-longer matches them. For the same reason the island cannot place them directly
-inside `<table>`, `<tbody>`, `<tr>`, or `<select>`; pass the whole table as
-children instead.
+Plain text children are different: `<CopyButton>npm i pracht</CopyButton>`
+gives the island the string itself, so it can use it as a value.
+
+Markup children are rendered once, on the server. The island cannot pass them
+props or change their contents, and a render function as children throws an
+error. Context the island provides does not reach them in the browser, so an
+island among them reads the context's default value; pass the value as a prop,
+and watch for the dev warning that flags this.
+
+Markup children arrive inside a `<pracht-slot>` element with
+`display: contents` (an SVG `<g>` inside SVG), so a child selector such as
+`.panel > p` written against the island's markup no longer matches them. Some
+positions cannot hold that element: directly inside table rows and sections,
+anywhere in `<select>` or `<textarea>`, or a `<summary>` or `<legend>` that has
+to come first. Pracht throws an error naming the island there; pass the whole
+element as children instead.
+
+The browser also rearranges invalid nesting, such as a `<div>` inside a `<p>`,
+or raw HTML in `dangerouslySetInnerHTML` that is not well-formed. When that
+moves children out of their slot, the island stays server-rendered HTML instead
+of hydrating, and the console logs an error naming it.
 
 ---
 
