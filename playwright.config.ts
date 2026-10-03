@@ -46,6 +46,14 @@ export default defineConfig({
   // re-run of `verify` — far more than re-running the one spec. A real
   // regression still fails both attempts.
   retries: process.env.CI ? 0 : 1,
+  use: {
+    // Without these, a stuck click or wait inside a long build spec (180 s
+    // budget) surfaces only as "Test timeout exceeded" with no step named.
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
+    // CI uploads test-results/ on failure; locally the retry records one.
+    trace: process.env.CI ? "retain-on-failure" : "on-first-retry",
+  },
   projects: [
     {
       name: "basic",
