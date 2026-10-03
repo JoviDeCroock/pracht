@@ -127,6 +127,78 @@ describe("server-build CSS for routes outside the client bundle", () => {
     });
   });
 
+  it("skips an imported chunk whose stylesheets the route never reaches", () => {
+    // An edge build bundles Preact, and the bundler files it in the first
+    // island chunk that uses it. Every route then imports that chunk for the
+    // JSX runtime alone; the island's stylesheet is not the route's.
+    const island = chunk("assets/islands/Counter.js", {
+      css: ["assets/islands/Counter-abc.css"],
+      modules: [
+        `${ROOT}/src/islands/Counter.tsx`,
+        `${ROOT}/src/islands/Counter.css`,
+        `${ROOT}/node_modules/preact/jsx-runtime/dist/jsxRuntime.mjs`,
+      ],
+    });
+    const { manifest } = run(
+      {
+        "assets/about.js": chunk("assets/about.js", {
+          css: ["assets/about-abc.css"],
+          facadeModuleId: `${ROOT}/src/routes/about.tsx`,
+          imports: ["assets/islands/Counter.js"],
+        }),
+        "assets/islands.js": chunk("assets/islands.js", {
+          facadeModuleId: `${ROOT}/src/routes/islands.tsx`,
+          imports: ["assets/islands/Counter.js"],
+        }),
+        "assets/islands/Counter.js": island,
+      },
+      {
+        imports: {
+          [`${ROOT}/src/routes/about.tsx`]: [
+            `${ROOT}/node_modules/preact/jsx-runtime/dist/jsxRuntime.mjs`,
+          ],
+          [`${ROOT}/src/routes/islands.tsx`]: [`${ROOT}/src/islands/Counter.tsx`],
+          [`${ROOT}/src/islands/Counter.tsx`]: [
+            `${ROOT}/src/islands/Counter.css`,
+            `${ROOT}/node_modules/preact/jsx-runtime/dist/jsxRuntime.mjs`,
+          ],
+        },
+      },
+    );
+
+    expect(manifest).toEqual({
+      "src/routes/about.tsx": ["/assets/about-abc.css"],
+      "src/routes/islands.tsx": ["/assets/islands/Counter-abc.css"],
+    });
+  });
+
+  it("follows a dependency's own stylesheet import into a shared chunk", () => {
+    const { manifest } = run(
+      {
+        "assets/docs.js": chunk("assets/docs.js", {
+          facadeModuleId: `${ROOT}/src/routes/docs.tsx`,
+          imports: ["assets/islands/Search.js"],
+        }),
+        "assets/islands/Search.js": chunk("assets/islands/Search.js", {
+          css: ["assets/islands/Search-abc.css"],
+          modules: [
+            `${ROOT}/src/islands/Search.tsx`,
+            `${ROOT}/node_modules/some-ui/index.js`,
+            `${ROOT}/node_modules/some-ui/style.css`,
+          ],
+        }),
+      },
+      {
+        imports: {
+          [`${ROOT}/src/routes/docs.tsx`]: [`${ROOT}/node_modules/some-ui/index.js`],
+          [`${ROOT}/node_modules/some-ui/index.js`]: [`${ROOT}/node_modules/some-ui/style.css`],
+        },
+      },
+    );
+
+    expect(manifest).toEqual({ "src/routes/docs.tsx": ["/assets/islands/Search-abc.css"] });
+  });
+
   it("does not walk into the server entry, which holds every other route's CSS", () => {
     // A route reaches the entry because an island it renders was hoisted there.
     // Walking in would hand it the whole app's stylesheets.

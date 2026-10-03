@@ -290,19 +290,30 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // anything they share with a route — into its chunk, where a route can
       // no longer tell which stylesheets are its own. One chunk per island
       // keeps that boundary, the way the client build has it by construction.
-      // Edge targets bundle the server into a single chunk and reject chunk
-      // grouping, so they are left alone.
-      const serverChunkConfig =
-        isSSRBuild && !isEdge
-          ? islandChunkConfig(
-              (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
-                ?.output,
-              resolveConfigPath(configRoot, resolved.islandsDir),
-            )
-          : {};
+      // Edge targets would otherwise bundle the server into a single chunk, so
+      // splitting is switched back on for them as well.
+      const serverChunkConfig = isSSRBuild
+        ? islandChunkConfig(
+            (_config.build as { rollupOptions?: { output?: unknown } } | undefined)?.rollupOptions
+              ?.output,
+            resolveConfigPath(configRoot, resolved.islandsDir),
+            { edge: isEdge },
+          )
+        : {};
       if (serverChunkConfig.warning) {
         console.warn(`[pracht] ${serverChunkConfig.warning}`);
       }
+      // One object for everything the server build sets under
+      // `rollupOptions`: two spreads of `build` would replace each other.
+      const serverRollupOptions =
+        isEdge || serverChunkConfig.output
+          ? {
+              // Platform-scheme modules only exist inside the target runtime
+              // and must stay runtime imports.
+              ...(isEdge ? { external: [/^cloudflare:/] } : {}),
+              ...(serverChunkConfig.output ? { output: serverChunkConfig.output } : {}),
+            }
+          : undefined;
 
       return {
         appType: "custom" as const,
@@ -327,12 +338,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           ...clientFeatureDefines,
         },
-        // The vendor split only makes sense for the client bundle; SSR builds
-        // that disable code splitting (e.g. webworker targets) reject chunk
-        // grouping outright.
+        // The vendor split only makes sense for the client bundle; the server
+        // build gets the island split above instead.
         ...(isSSRBuild
-          ? serverChunkConfig.output
-            ? { build: { rollupOptions: { output: serverChunkConfig.output } } }
+          ? serverRollupOptions
+            ? { build: { rollupOptions: serverRollupOptions } }
             : {}
           : {
               build: {
@@ -376,13 +386,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                     // this or any other Node import survives tree shaking.
                     external: ["node:module"],
                   },
-                },
-              },
-              build: {
-                rollupOptions: {
-                  // Platform-scheme modules only exist inside the target
-                  // runtime and must stay runtime imports.
-                  external: [/^cloudflare:/],
                 },
               },
             }
