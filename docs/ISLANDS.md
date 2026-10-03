@@ -164,8 +164,10 @@ them wherever it renders `children`.
 
 Children made only of strings and numbers (`<CopyButton>npm i {pkg}</CopyButton>`)
 are a value, not markup: they travel in the `props` JSON as `children`, so the
-island can use them as a title or clipboard string. `undefined` entries in such
-an array become `null` on both sides so the server and client values match.
+island can use them as a title or clipboard string. An array of them (JSX
+splits interpolated text into one) is joined into a single string on the
+server, skipping `null`, `undefined`, and booleans as rendering would, so the
+island receives the string it renders on both sides.
 
 How markup children work:
 

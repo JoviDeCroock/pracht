@@ -164,7 +164,9 @@ function IslandBoundary(props: Record<string, unknown>) {
   if (kind === "text") {
     // Plain text and numbers stay a value the island can use (a title, a
     // clipboard string); they travel in the props JSON like any other prop.
-    componentProps.children = normalizeTextChildren(children);
+    // JSX splits interpolated text (`npm i {pkg}`) into an array; join it so
+    // the island gets the one string it renders.
+    componentProps.children = Array.isArray(children) ? joinTextChildren(children) : children;
   }
 
   validateIslandProps(componentProps, descriptor);
@@ -394,11 +396,10 @@ function classifyChildren(
   return children == null || typeof children === "boolean" ? "none" : "markup";
 }
 
-/** JSON writes `undefined` in an array as `null`; do it up front so both sides match. */
-function normalizeTextChildren(children: unknown): unknown {
-  return Array.isArray(children)
-    ? children.map((child) => (child === undefined ? null : normalizeTextChildren(child)))
-    : children;
+/** Join text children the way they render: nested arrays flattened, holes skipped. */
+function joinTextChildren(children: unknown): string {
+  if (Array.isArray(children)) return children.map(joinTextChildren).join("");
+  return typeof children === "string" || typeof children === "number" ? String(children) : "";
 }
 
 function validateIslandStrategy(client: unknown, descriptor: IslandDescriptor): IslandStrategy {

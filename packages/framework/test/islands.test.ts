@@ -438,12 +438,17 @@ describe("island children", () => {
     expect(html).not.toContain("<pracht-slot");
   });
 
-  it("passes text children through the props instead of a slot", async () => {
-    const html = await renderIslandPage({ Box }, () => h(Box as never, {}, "npm i ", 42));
+  it("passes text children through the props instead of a slot, joined into one string", async () => {
+    const html = await renderIslandPage({ Box }, () =>
+      h(Box as never, {}, "npm i ", "pracht", false, [null, "@", 2]),
+    );
 
-    expect(html).toContain("<div>npm i 42</div>");
-    expect(html).toContain('props="{&quot;children&quot;:[&quot;npm i &quot;,42]}"');
+    expect(html).toContain("<div>npm i pracht@2</div>");
+    expect(html).toContain('props="{&quot;children&quot;:&quot;npm i pracht@2&quot;}"');
     expect(html).not.toContain("pracht-slot");
+
+    const single = await renderIslandPage({ Box }, () => h(Box as never, {}, 42));
+    expect(single).toContain('props="{&quot;children&quot;:42}"');
   });
 
   it("passes no slot for children that render nothing", async () => {

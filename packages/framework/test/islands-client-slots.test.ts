@@ -208,7 +208,8 @@ describe("island children", () => {
     function Copy({ children }: { children?: string }) {
       return h("button", { id: "copy", title: children }, children);
     }
-    await serverRender({ Copy }, () => h(Copy as never, {}, "npm i pracht"));
+    const pkg = "pracht";
+    await serverRender({ Copy }, () => h(Copy as never, {}, "npm i ", pkg));
     expect(document.querySelector("pracht-slot")).toBeNull();
 
     await hydrate({ Copy });
