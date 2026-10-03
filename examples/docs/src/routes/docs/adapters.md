@@ -653,7 +653,7 @@ export function createContext({ request }: { request: Request }) {
 // waitUntil-compatible context, without other Edge-only fields.
 ```
 
-The context object is available as `args.context` in every loader, middleware, and API route handler.
+Every loader, middleware, and API route handler receives the result as `args.context`, in `pracht dev` too. The dev server has no Vercel or Netlify runtime, so there the platform `context` argument holds only `waitUntil`.
 
 ---
 

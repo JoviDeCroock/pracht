@@ -96,7 +96,11 @@ function emptyRouteHints(): RouteHints {
 }
 
 export type { RenderMode };
-export type { PrachtAdapter } from "./plugin-adapter.ts";
+export type {
+  PrachtAdapter,
+  PrachtAdapterDevOptions,
+  PrachtAdapterDevRequest,
+} from "./plugin-adapter.ts";
 export type {
   LlmsTxtSection,
   PrachtClientOptions,
@@ -535,6 +539,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       return () => {
         server.middlewares.use(
           createDevSSRMiddleware(server, {
+            adapterDev: resolved.adapter.dev,
             llmsTxt: !!resolved.llmsTxt,
             maxBodySize: resolved.maxBodySize,
             waitUntil: backgroundWork.waitUntil,

@@ -19,6 +19,7 @@ import {
   resolveRegistryModule,
 } from "@pracht/core";
 import type { AgentTrafficBuffer } from "./agent-traffic.ts";
+import type { PrachtAdapterDevOptions } from "./plugin-adapter.ts";
 import { createAgentTrafficBuffer } from "./agent-traffic.ts";
 import {
   CLIENT_BROWSER_PATH,
@@ -104,9 +105,15 @@ export function createDevSSRMiddleware(
     llmsTxt?: boolean;
     /** Tracks `waitUntil()` work so closing the dev server can wait for it. */
     waitUntil?: (promise: Promise<unknown>) => void;
+    /** The adapter's dev hooks, chiefly the context factory production calls. */
+    adapterDev?: PrachtAdapterDevOptions;
   } = {},
 ): Connect.NextHandleFunction {
   const maxBodySize = options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE;
+  const contextModuleId = options.adapterDev?.createContextFrom;
+  const createContextArgs =
+    options.adapterDev?.createContextArgs ?? (({ request }: { request: Request }) => ({ request }));
+  const contextWaitUntil = options.waitUntil ?? ((promise: Promise<unknown>) => void promise);
   // Vite's own base middleware strips the base from `req.url` before this
   // handler runs, so routing here is base-free — but everything the document
   // hands back to the browser (client entry, request URL in the hydration
@@ -253,9 +260,19 @@ export function createDevSSRMiddleware(
       // otherwise fall through to the plain-text fallback.
       let capturedRouteError = false;
       let routeErrorContext: RouteErrorContext | undefined;
+      // The factory the adapter's generated entry imports, loaded through the
+      // SSR graph so an edit to it applies on the next request.
+      const context = contextModuleId
+        ? await createDevContext(
+            server,
+            contextModuleId,
+            createContextArgs({ request: webRequest, req, res, waitUntil: contextWaitUntil }),
+          )
+        : undefined;
       const response = normalizeResponseHeaders(
         await framework.handlePrachtRequest({
           app: serverMod.resolvedApp,
+          context,
           registry: serverMod.registry,
           request: webRequest,
           debugErrors: true,
@@ -431,6 +448,25 @@ export function createDevSSRMiddleware(
       await handleDevError(server, req, res, next, url, error, devBase);
     }
   };
+}
+
+/**
+ * Call the adapter's `createContext(args)` export the way its generated entry
+ * does in production. A module without that export fails loudly here rather
+ * than leaving `context` silently empty in dev only.
+ */
+export async function createDevContext(
+  server: Pick<ViteDevServer, "ssrLoadModule">,
+  moduleId: string,
+  args: object,
+): Promise<unknown> {
+  const contextModule = await server.ssrLoadModule(moduleId);
+  if (typeof contextModule.createContext !== "function") {
+    throw new Error(
+      `[pracht] ${JSON.stringify(moduleId)} (the adapter's createContextFrom module) must export a createContext(args) function.`,
+    );
+  }
+  return contextModule.createContext(args);
 }
 
 /**

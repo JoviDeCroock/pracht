@@ -143,5 +143,9 @@ export function nodeAdapter(options: NodeServerEntryModuleOptions = {}): PrachtA
     createServerEntryModule() {
       return createNodeServerEntryModule(options);
     },
+    dev: {
+      createContextFrom: options.createContextFrom,
+      createContextArgs: ({ request, req, res }) => ({ request, req, res }),
+    },
   };
 }

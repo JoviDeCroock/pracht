@@ -376,7 +376,8 @@ nodeAdapter({
 });
 ```
 
-The context module must export `createContext(args)`. Node passes `{ request, req, res }`.
+The context module must export `createContext(args)`. Node passes `{ request, req, res }`,
+in `pracht dev` as well as from the generated entry.
 The configure module must export `configureServer(server)` (sync or async); it
 runs with the `node:http` server before `listen()` when the generated entry is
 the process entrypoint — see [WebSockets](#websockets) above.
@@ -1073,7 +1074,8 @@ Both cache windows accept `0`: it disables stale serving for
 `staticMaxAge`.
 
 The context factory receives `{ request, context }`, where `context` is
-Netlify's Functions v2 context. Build first, then use `netlify dev` for local
+Netlify's Functions v2 context; `pracht dev` passes a context holding only
+`waitUntil`. Build first, then use `netlify dev` for local
 platform testing; `pracht preview` does not emulate Netlify's Functions or CDN
 cache.
 
@@ -1176,7 +1178,7 @@ vercelAdapter({
 
 The context module must export `createContext(args)`. Edge invocations receive
 Vercel's execution context; Node ISG invocations receive the compatibility
-context described above. `regions: "all"` keeps the Edge function global and
+context described above; `pracht dev` passes a context holding only `waitUntil`. `regions: "all"` keeps the Edge function global and
 leaves Node ISG functions on the project's default Serverless region because
 `all` is not a Node region identifier.
 
@@ -1770,6 +1772,16 @@ export default async function handle(request) {
     // Optional: set to true when the adapter's Vite plugin runs the dev server
     // itself (pracht will skip installing its own SSR middleware).
     ownsDevServer: true,
+    // Optional, and ignored with ownsDevServer: what pracht's own dev SSR
+    // middleware must reproduce from the generated entry. Dev loads
+    // createContextFrom through Vite's SSR graph and calls its createContext
+    // export once per request with createContextArgs(...) (default
+    // { request }); the input also carries the Node req/res and the dev
+    // server's waitUntil.
+    dev: {
+      createContextFrom: options.createContextFrom,
+      createContextArgs: ({ request, waitUntil }) => ({ request, context: { waitUntil } }),
+    },
     // Optional: set to true when targeting an edge runtime that cannot resolve
     // dependencies from node_modules at runtime. Forces Vite to bundle all
     // dependencies into the SSR output (ssr.noExternal = true).

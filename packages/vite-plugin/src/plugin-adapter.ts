@@ -1,5 +1,35 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+
 import { createNodeServerEntryModule } from "@pracht/adapter-node";
 import type { Plugin } from "vite";
+
+/** What `pracht dev` knows about a request when it builds the app context. */
+export interface PrachtAdapterDevRequest {
+  /** The Web `Request` the framework runtime receives. */
+  request: Request;
+  req: IncomingMessage;
+  res: ServerResponse;
+  /** Registers background work with the dev server's shutdown drain. */
+  waitUntil: (promise: Promise<unknown>) => void;
+}
+
+/**
+ * How `pracht dev` reproduces the adapter's generated entry when the
+ * vite-plugin serves requests itself (every adapter without `ownsDevServer`).
+ */
+export interface PrachtAdapterDevOptions {
+  /**
+   * Vite-resolvable module exporting `createContext(args)` — the same module
+   * the generated server entry imports. Loaded through Vite's SSR module graph
+   * and called once per dev request.
+   */
+  createContextFrom?: string;
+  /**
+   * Shape the argument the context factory receives, so it matches what the
+   * adapter passes in production. Defaults to `{ request }`.
+   */
+  createContextArgs?(input: PrachtAdapterDevRequest): object;
+}
 
 /**
  * An adapter object that bridges pracht's platform-agnostic core to a specific
@@ -40,6 +70,12 @@ export interface PrachtAdapter {
    * (e.g. Cloudflare workerd via `@cloudflare/vite-plugin`).
    */
   ownsDevServer?: boolean;
+  /**
+   * The parts of the generated entry `pracht dev` must reproduce, such as the
+   * app context factory. Ignored when `ownsDevServer` is set, since the
+   * adapter's own dev runtime then runs the generated entry.
+   */
+  dev?: PrachtAdapterDevOptions;
   /**
    * If true, the adapter targets an edge runtime that cannot resolve
    * dependencies from `node_modules` at runtime. The Vite plugin will set
