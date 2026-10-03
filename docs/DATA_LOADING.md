@@ -431,7 +431,9 @@ How it fits together:
   one after `serializeDeferred()` has taken out the deferred markers. Shell
   data is stripped in `runShellLoader()`, before the rich-data encoding, for
   every request that is not a route-state request (the document and its error
-  page both read `shellState.wire`).
+  page both read `shellState.wire`). A value a streamed `defer()` resolves to
+  is stripped in `runtime-stream.ts` before its `__PRACHT_DEFER__.r()` script
+  is written, since the boundary's markup is streamed into the same document.
 - **Hydration** hands the browser that placeholder, and `<StaticHtml>` renders
   an empty `dangerouslySetInnerHTML`. Preact does not write into one while
   hydrating (`diff/index.js` guards the assignment on `!isHydrating`), so the

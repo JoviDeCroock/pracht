@@ -3,12 +3,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   StaticHtml,
+  Suspense,
+  defer,
   defineApp,
   handlePrachtRequest,
   route,
   serverOnly,
+  use,
   useShellData,
 } from "../src/index.ts";
+import type { Deferred } from "../src/index.ts";
 import { ROUTE_STATE_REQUEST_HEADER } from "../src/runtime-constants.ts";
 import { fingerprintServerOnly } from "../src/server-only.ts";
 
@@ -153,5 +157,31 @@ describe("serverOnly() through the SSR document path", () => {
     });
     const body = (await routeState.json()) as { shellData: { banner: string } };
     expect(body.shellData.banner).toBe(MARKUP);
+  });
+
+  it("strips a marked field resolved by a streamed defer()", async () => {
+    const streamed = defineApp({
+      routes: [route("/", "./routes/home.tsx", { render: "ssr", streaming: true })],
+    });
+    function Body({ value }: { value: Deferred<string> }) {
+      return h(StaticHtml as never, { html: use(value) });
+    }
+    const response = await handlePrachtRequest({
+      app: streamed,
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            loader: () => ({ slow: defer(async () => serverOnly(MARKUP)) }),
+            Component: ({ data }: { data: { slow: Deferred<string> } }) =>
+              h(Suspense, { fallback: h("p", null, "loading") }, h(Body, { value: data.slow })),
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+
+    const html = await response.text();
+    expect(html.split("Loaders run on the server.").length - 1).toBe(1);
+    expect(html).toContain(JSON.stringify(PLACEHOLDER));
   });
 });
