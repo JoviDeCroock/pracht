@@ -4,7 +4,7 @@ import { basename, resolve } from "node:path";
 import { resolveProjectPath, type ProjectConfig } from "./project.js";
 import {
   CONFIG_FILE_NAMES,
-  MODULE_SOURCE_RE,
+  isModuleSource,
   isWithinDirectory,
   isPageSource,
   isRouteSource,
@@ -105,9 +105,9 @@ export function filterFrameworkFiles(
       (!project.additionalExtensionsIsStatic || isRouteSource(file, project.additionalExtensions))
     )
       return true;
-    if (isWithinDirectory(file, middlewareDir) && MODULE_SOURCE_RE.test(file)) return true;
-    if (isWithinDirectory(file, serverDir) && MODULE_SOURCE_RE.test(file)) return true;
-    if (isWithinDirectory(file, apiDir) && MODULE_SOURCE_RE.test(file)) return true;
+    if (isWithinDirectory(file, middlewareDir) && isModuleSource(file)) return true;
+    if (isWithinDirectory(file, serverDir) && isModuleSource(file)) return true;
+    if (isWithinDirectory(file, apiDir) && isModuleSource(file)) return true;
     if (
       pagesDir &&
       isWithinDirectory(file, pagesDir) &&

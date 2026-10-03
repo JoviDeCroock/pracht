@@ -424,6 +424,7 @@ When `pagesDir` is set, the `appFile` option is ignored.
 | `pages/_app.config.ts`  | _(app config, not a route)_                 |
 | `pages/_anything.tsx`   | _(ignored — underscore prefix is reserved)_ |
 | `pages/_components/button.tsx` | _(ignored — the whole directory is reserved)_ |
+| `pages/about.test.tsx`  | _(ignored — test files are never routes)_    |
 
 A leading underscore reserves a file or directory for helpers. `_app` works in any directory; `_middleware` and `_app.config` only at the pages root.
 

@@ -80,6 +80,7 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { RouteHints } from "./route-loader-hints.ts";
+import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
 function emptyRouteHints(): RouteHints {
   return {
@@ -1197,25 +1198,30 @@ function createPrachtOptimizeDepsEntries(
         VITE_SCANNABLE_ROUTE_EXTENSIONS.has(extension) || explicitlyScannable.has(extension),
     ),
   );
-  const apiDir = toOptimizeDepsEntry(resolved.apiDir);
-  const apiEntries = [`${apiDir}/**/*.{ts,js,tsx,jsx}`, `!${apiDir}/**/*.d.ts`];
+  // Every pracht-owned directory is seeded, minus the tests and mocks that
+  // live beside its modules: seeding a test would pre-bundle its runner for
+  // the browser.
+  const directory = (dir: string, extensions: string): string[] => {
+    const entry = toOptimizeDepsEntry(dir);
+    return moduleGlob(entry, `${entry}/**/*.${extensions}`);
+  };
   const entries = resolved.pagesDir
     ? [
-        `${toOptimizeDepsEntry(resolved.pagesDir)}/**/*.${routeExtensions}`,
-        `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
-        ...apiEntries,
-        `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
-        `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
+        ...directory(resolved.pagesDir, routeExtensions),
+        ...directory(resolved.middlewareDir, scriptExtensions),
+        ...directory(resolved.apiDir, scriptExtensions),
+        ...directory(resolved.serverDir, scriptExtensions),
+        ...directory(resolved.islandsDir, scriptExtensions),
       ]
     : [
         toOptimizeDepsEntry(resolved.appFile),
-        `${toOptimizeDepsEntry(resolved.routesDir)}/**/*.${routeExtensions}`,
-        `${toOptimizeDepsEntry(resolved.shellsDir)}/**/*.${routeExtensions}`,
-        `${toOptimizeDepsEntry(resolved.middlewareDir)}/**/*.${scriptExtensions}`,
-        ...apiEntries,
-        `${toOptimizeDepsEntry(resolved.serverDir)}/**/*.{ts,js,tsx,jsx}`,
-        `${toOptimizeDepsEntry(resolved.islandsDir)}/**/*.${scriptExtensions}`,
-        `${toOptimizeDepsEntry(resolved.capabilitiesDir)}/**/*.{ts,js,tsx,jsx}`,
+        ...directory(resolved.routesDir, routeExtensions),
+        ...directory(resolved.shellsDir, routeExtensions),
+        ...directory(resolved.middlewareDir, scriptExtensions),
+        ...directory(resolved.apiDir, scriptExtensions),
+        ...directory(resolved.serverDir, scriptExtensions),
+        ...directory(resolved.islandsDir, scriptExtensions),
+        ...directory(resolved.capabilitiesDir, scriptExtensions),
       ];
 
   return [...new Set(entries.filter(Boolean))];
@@ -1258,9 +1264,14 @@ function watchPagesDirectory(
     toPosixPath(resolveConfigPath(root, resolved.pagesDir)),
     toPosixPath(resolveConfigPath(root, resolved.capabilitiesDir)),
   ];
+  // A test or mock appearing beside pages changes nothing the manifest reads.
   const isWatched = (file: string): boolean => {
     const path = toPosixPath(file);
-    return watched.some((dir) => path === dir || path.startsWith(`${dir}/`));
+    return watched.some(
+      (dir) =>
+        path === dir ||
+        (path.startsWith(`${dir}/`) && !isNonModuleFile(path.slice(dir.length + 1))),
+    );
   };
 
   for (const event of ["add", "unlink"] as const) {

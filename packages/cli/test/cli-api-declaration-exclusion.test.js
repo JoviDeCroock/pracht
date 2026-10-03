@@ -15,8 +15,8 @@ import {
 
 afterEach(cleanupTempDirs);
 
-describe("API declaration-file exclusion", () => {
-  it("omits src/api/*.d.ts from inspect, plan, typegen, and verify", () => {
+describe("API declaration and test file exclusion", () => {
+  it("omits src/api declarations, tests, and mocks from inspect, plan, typegen, and verify", () => {
     const appDir = createRepoTempDir("pracht-api-declaration-exclusion-");
     writeApp(appDir);
 
@@ -39,6 +39,7 @@ describe("API declaration-file exclusion", () => {
     const declaration = readFileSync(resolve(appDir, "src/pracht.d.ts"), "utf-8");
     expect(declaration).toContain('"/api/health"');
     expect(declaration).not.toContain("/api/types.d");
+    expect(declaration).not.toContain("/api/health.test");
 
     const verify = JSON.parse(runCli(["verify", "--json"], { cwd: appDir }).stdout);
     expect(verify.ok).toBe(true);
@@ -50,7 +51,9 @@ describe("API declaration-file exclusion", () => {
       message: "Loaded 1 discovered API route module into the app graph.",
       status: "ok",
     });
-    expect(JSON.stringify({ inspect, plan, verify })).not.toContain("/api/types.d");
+    const output = JSON.stringify({ inspect, plan, verify });
+    expect(output).not.toContain("/api/types.d");
+    expect(output).not.toMatch(/\.test|\.spec|__tests__|__mocks__/);
   }, 30_000);
 });
 
@@ -94,6 +97,21 @@ export const app = defineApp({ routes: [] });
 }
 `,
   );
+  // Colocated tests would run their suite, and fail the build, if imported.
+  const testSource = `import { test } from "node:test";
+test("health", () => {});
+export function GET() {
+  return new Response("test file");
+}
+`;
+  for (const file of [
+    "src/api/health.test.ts",
+    "src/api/health.spec.ts",
+    "src/api/__tests__/helpers.ts",
+    "src/api/__mocks__/db.ts",
+  ]) {
+    writeProjectFile(appDir, file, testSource);
+  }
   writeProjectFile(
     appDir,
     "src/api/types.d.ts",

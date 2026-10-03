@@ -17,7 +17,7 @@ import {
   isWithinDirectory,
   isPageSource,
   isRouteSource,
-  MODULE_SOURCE_RE,
+  isModuleSource,
   normalizePath,
   resolveApiRoutePath,
   toModuleSpecifier,
@@ -351,7 +351,7 @@ function collectChangedManifestModuleChecks(
     if (
       !(directory.additionalExtensions
         ? isRouteSource(file, project.additionalExtensions)
-        : MODULE_SOURCE_RE.test(file))
+        : isModuleSource(file))
     )
       continue;
 
@@ -1034,7 +1034,7 @@ export function collectApiVerification(
     return;
   }
 
-  const apiFiles = listFilesRecursively(apiDir).filter((file) => MODULE_SOURCE_RE.test(file));
+  const apiFiles = listFilesRecursively(apiDir).filter((file) => isModuleSource(file));
   const routeMap = new Map<string, string[]>();
 
   for (const file of apiFiles) {
@@ -1071,7 +1071,7 @@ export function collectApiVerification(
   }
 
   for (const file of changedApiFiles) {
-    if (!MODULE_SOURCE_RE.test(file)) continue;
+    if (!isModuleSource(file)) continue;
 
     const display = displayPath(project.root, file);
     if (!existsSync(file)) {

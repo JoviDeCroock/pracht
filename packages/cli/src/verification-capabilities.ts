@@ -38,7 +38,7 @@ import { parseAst } from "vite";
 import { extractRegistryEntries } from "./manifest.js";
 import { displayPath, resolveProjectPath, type ProjectConfig } from "./project.js";
 import { parserLanguage } from "./verification-pages.js";
-import { createCheck, type Check } from "./verification-helpers.js";
+import { createCheck, isModuleSource, type Check } from "./verification-helpers.js";
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
 const AGENT_POLICIES = new Set(["observe", "require"]);
@@ -225,7 +225,7 @@ function listCapabilityFiles(dir: string): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = resolve(dir, entry.name);
     if (entry.isDirectory()) files.push(...listCapabilityFiles(full));
-    else if (/\.(?:ts|tsx|js|jsx)$/.test(entry.name) && !entry.name.endsWith(".d.ts")) {
+    else if (isModuleSource(full)) {
       files.push(full);
     }
   }
