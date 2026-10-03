@@ -220,8 +220,8 @@ async function hydrateIsland(element: Element, options: HydrateIslandsOptions): 
   const children = slotChildren(element, options);
   if (children === false) {
     console.error(
-      `[pracht] Island "${file}" was not hydrated: the HTML parser moved its children ` +
-        "(a <div> inside a <p>, or unbalanced raw HTML?)",
+      `[pracht] Island "${file}" was not hydrated: the HTML parser moved its ` +
+        "children (block element in <p>, nested <a>/<button>, or bad raw HTML?)",
     );
     return;
   }

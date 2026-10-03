@@ -159,9 +159,11 @@ or a `<summary>` or `<legend>` that has to come first. Pracht throws an error na
 children instead. Children an island shows inside SVG or MathML must already be
 rendered there on the server.
 
-The browser also rearranges invalid nesting, such as a `<div>` inside a `<p>`,
-or raw HTML in `dangerouslySetInnerHTML` that is not well-formed. When that
-moves children out of their slot, the island stays server-rendered HTML instead
+The browser also rearranges invalid nesting: a `<div>` in children placed
+inside a `<p>`, an `<a>` or `<button>` inside another, or raw HTML in
+`dangerouslySetInnerHTML` that is not well-formed. In development, Pracht
+throws an error naming the island for the nesting it can see. If children are
+moved out of their slot anyway, the island stays server-rendered HTML instead
 of hydrating, and the console logs an error naming it. Pracht finds the slot's
 end by an HTML comment, so an HTML minifier must keep comments.
 

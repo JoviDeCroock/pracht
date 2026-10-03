@@ -581,6 +581,70 @@ describe("island children", () => {
     }
   });
 
+  it("rejects in dev children the HTML parser would move out of a <p>, <a>, or <button>", async () => {
+    const cases: [string, (props: { children?: unknown }) => any, () => unknown, string][] = [
+      [
+        "Lead",
+        ({ children }) => h("p", null, h("span", null, children as never)),
+        () => h("div", null, "block"),
+        "renders its children inside <p>, and they contain a <div>",
+      ],
+      [
+        "Card",
+        ({ children }) => h("a", { href: "/card" }, children as never),
+        () =>
+          h(function Link() {
+            return h("em", null, h("a", { href: "/x" }, "x"));
+          }, null),
+        "renders its children inside <a>, and they contain another <a>",
+      ],
+      [
+        "Action",
+        ({ children }) => h("button", null, children as never),
+        () => h("button", null, "inner"),
+        "renders its children inside <button>, and they contain another <button>",
+      ],
+    ];
+    for (const [name, island, children, reason] of cases) {
+      const html = await renderIslandPage({ [name]: island }, () =>
+        h(island as never, {}, children() as never),
+      );
+      expect(html, name).toContain(`Island "${name}" (/src/islands/${name}.tsx) ${reason}`);
+    }
+
+    // A <p> around the island counts too, but not one inside the children,
+    // behind a <button> or table cell, or with no island in between.
+    function Inline({ children }: { children?: unknown }) {
+      return h("span", null, children as never);
+    }
+    const outside = await renderIslandPage({ Inline }, () =>
+      h("p", null, h(Inline as never, {}, h("ul", null, h("li", null, "x")))),
+    );
+    expect(outside).toContain(
+      'Island "Inline" (/src/islands/Inline.tsx) renders its children inside <p>',
+    );
+    function Para({ children }: { children?: unknown }) {
+      return h(
+        "p",
+        null,
+        h("button", null, children as never),
+        h("table", null, h("tbody", null, h("tr", null, h("td", null, h("div", null, "cell"))))),
+      );
+    }
+    const fine = await renderIslandPage({ Para }, () =>
+      h("div", null, h(Para as never, {}, h("div", null, h("p", null, h("div", null, "inner"))))),
+    );
+    expect(fine).toContain("<button><pracht-slot");
+    expect(fine).not.toContain("renders its children");
+    // A <p> the island's own block element already closed is not the slot's.
+    const closedEarlier = await renderIslandPage({ Box }, () =>
+      h("p", null, h(Box as never, {}, h("div", null, "x"))),
+    );
+    expect(closedEarlier).not.toContain("renders its children");
+    const plain = await renderIslandPage({ Box }, () => h("p", null, h("div", null, "no island")));
+    expect(plain).not.toContain("renders its children");
+  });
+
   it("accepts children inside a table cell and a details body after the island's summary", async () => {
     function Cell({ children }: { children?: unknown }) {
       return h("table", null, h("tbody", null, h("tr", null, h("td", null, children as never))));

@@ -323,17 +323,38 @@ describe("island children the HTML parser moved", () => {
 
     expect(document.querySelector("pracht-island")!.hasAttribute("data-hydrated")).toBe(false);
     expect(document.body.innerHTML).toBe(before);
-    expect(error.mock.calls[0][0]).toContain("the HTML parser moved its children");
+    expect(error.mock.calls[0][0]).toContain(
+      'Island "/src/islands/Island.tsx" was not hydrated: the HTML parser moved its children ' +
+        "(block element in <p>, nested <a>/<button>, or bad raw HTML?)",
+    );
   }
 
   it("leaves an island alone when block children were hoisted out of a <p>", async () => {
     function Lead({ children }: { children?: ComponentChildren }) {
       return h("div", null, h("p", null, children), h("span", null, "after"));
     }
+    // Raw HTML: the server's dev check rejects a <div> it can see.
     await expectLeftUnhydrated(Lead, () =>
-      h(Lead, {}, h("div", { id: "block" }, "Block"), h("ul", null, h("li", null, "item"))),
+      h(
+        Lead,
+        {},
+        h("span", {
+          dangerouslySetInnerHTML: {
+            __html: '<div id="block">Block</div><ul><li>item</li></ul>',
+          },
+        }),
+      ),
     );
     expect(document.getElementById("block")).not.toBeNull();
+  });
+
+  it("leaves an island alone when a link in its children nests inside its <a>", async () => {
+    function Card({ children }: { children?: ComponentChildren }) {
+      return h("a", { href: "/card" }, children);
+    }
+    await expectLeftUnhydrated(Card, () =>
+      h(Card, {}, h("span", { dangerouslySetInnerHTML: { __html: '<a href="/x">x</a>' } })),
+    );
   });
 
   it("leaves an island alone when raw HTML in its children closes the slot early", async () => {

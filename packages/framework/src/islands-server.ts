@@ -130,6 +130,17 @@ function installIslandVnodeHook(): void {
     }
     if (previousHook) previousHook(vnode);
   };
+
+  if (DEV) {
+    // preact-render-to-string calls `options.__b` for every vnode it renders,
+    // after setting the vnode's parent (`__`).
+    const optionsWithDiff = options as { __b?: (vnode: RenderedVNode) => void };
+    const previousDiff = optionsWithDiff.__b;
+    optionsWithDiff.__b = (vnode) => {
+      checkSlotNesting(vnode);
+      if (previousDiff) previousDiff(vnode);
+    };
+  }
 }
 
 function renderOriginal(type: ComponentType<any>, props: Record<string, unknown>): VNode<any> {
@@ -274,8 +285,56 @@ const SLOT_FIRST_CHILD: Record<string, string> = { details: "summary", fieldset:
 
 interface RenderedVNode {
   type: unknown;
+  props?: { slot?: SlotState };
   __?: RenderedVNode | null;
   __c?: { getChildContext?: unknown } | null;
+}
+
+// Start tags that make the HTML parser close an open <p>.
+const CLOSES_P =
+  /^(address|article|aside|blockquote|center|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|li|listing|main|menu|nav|ol|p|plaintext|pre|search|section|summary|table|ul|xmp)$/;
+// Elements that end the parser's search for an open <p>, <a>, or <button>.
+const PARSER_SCOPE =
+  /^(applet|caption|html|table|td|th|marquee|object|template|svg|math|foreignObject)$/;
+
+/**
+ * Dev-only: a block element in an island's children with a <p> around the
+ * slot (or an <a> or <button> inside an <a> or <button>) makes the HTML parser
+ * close that element, taking the slot with it. The client would then leave the
+ * island unhydrated; say so on the server, where the parent tag is known.
+ */
+function checkSlotNesting(vnode: RenderedVNode): void {
+  const tag = vnode.type;
+  if (typeof tag !== "string") return;
+  const closes = tag === "a" || tag === "button" ? tag : CLOSES_P.test(tag) ? "p" : null;
+  if (!closes) return;
+  let slot: SlotState | undefined;
+  for (let parent = vnode.__; parent; parent = parent.__) {
+    const type = parent.type;
+    if (type === IslandSlot) {
+      slot ??= parent.props?.slot;
+    } else if (typeof type === "string") {
+      if (type === closes) {
+        if (!slot) return;
+        const { descriptor } = slot;
+        throw new Error(
+          `Island "${descriptor.name}" (${descriptor.file}) renders its children inside ` +
+            `<${closes}>, and they contain ${closes === "p" ? "a" : "another"} <${tag}>. The ` +
+            `browser ${closes === "p" ? "closes the <p>" : `cannot nest <${tag}>`} there and ` +
+            "moves the children out of the island, so it would not hydrate. Change the element " +
+            "around the children, or the children's markup.",
+        );
+      }
+      // The <p> cannot be open below a <button> or a block element (which
+      // closed it already).
+      if (
+        PARSER_SCOPE.test(type) ||
+        (closes === "p" && (type === "button" || CLOSES_P.test(type)))
+      ) {
+        return;
+      }
+    }
+  }
 }
 
 function IslandSlot(this: { __v?: RenderedVNode } | undefined, { slot }: { slot: SlotState }) {

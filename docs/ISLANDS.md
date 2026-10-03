@@ -214,13 +214,21 @@ How markup children work:
   marker out of the holder, so the bootstrap only requires the marker to be a
   direct child of each holder; nodes after it (output an async script appended
   before hydration, whitespace from a formatter) do not count. If a marker is
-  missing, the bootstrap logs an error naming the island and leaves it as
-  server HTML, which is also what an HTML minifier that strips comments causes
+  missing, the bootstrap logs an error naming the island's file and the usual
+  causes, and leaves it as server HTML, which is also what an HTML minifier that strips comments causes
   (streamed Suspense hydration needs comments too). The marker stays a comment
   rather than an element so `:last-child` and sibling selectors on the children
   keep matching. A `</template>` in hidden raw HTML still
   leaks the rest of that HTML into the page at parse time, where its scripts
   run, so raw HTML in children has to be well-formed.
+- **Dev nesting check.** In dev, an `options.__b` hook (preact-render-to-string
+  calls it for every vnode after setting its parent) walks up from each block
+  element, `<a>`, and `<button>`. If the walk crosses an `IslandSlot` before
+  reaching the `<p>` (or `<a>`/`<button>`) the parser would close, with no
+  scope boundary (`button` or another block element for `<p>`, `td`, `th`,
+  `caption`, `table`, `template`, `object`, `svg`, `math`, ...) in between, it
+  throws naming the island. Production skips the walk; raw HTML and precompiled subtrees are
+  invisible to it, so the client integrity check stays the backstop.
 - **Positions the parser cannot hold.** `IslandSlot` walks up
   preact-render-to-string's parent chain (`this.__v.__`) and throws, naming
   the island, when the slot would sit anywhere inside `textarea`, `title`,
