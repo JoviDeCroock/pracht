@@ -6,8 +6,8 @@ prev:
   href: /docs/rendering
   title: Rendering Modes
 next:
-  href: /docs/data-loading
-  title: Data Loading
+  href: /docs/server-islands
+  title: Server Islands
 ---
 
 ## Overview
@@ -244,6 +244,10 @@ throws an error naming the island for the nesting it can see. If children are
 moved out of their slot anyway, the island stays server-rendered HTML instead
 of hydrating, and the console logs an error naming it. Pracht finds the slot's
 end by an HTML comment, so an HTML minifier must keep comments.
+
+Island props are fixed when the page renders, so on an `ssg` or `isg` page they
+are the same for every visitor. For content that depends on who is asking, such
+as a cart count, render a [server island](/docs/server-islands) instead.
 
 ---
 

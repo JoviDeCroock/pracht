@@ -1,8 +1,13 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  createClientServerIslandModuleSource,
   createPrachtDevModuleSource,
+  createPrachtServerIslandsClientModuleSource,
   createPrachtServerModuleSource,
 } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
@@ -309,5 +314,70 @@ describe("createPrachtServerModuleSource static target export", () => {
 
     expect(source).toContain('export const clientEntryUrl = "/app/@pracht/client.js";');
     expect(source).toContain('export const islandsEntryUrl = "/app/@pracht/islands.js";');
+  });
+});
+
+describe("server islands codegen", () => {
+  it("registers every module of the server islands directory in the server entry", () => {
+    const source = createPrachtServerModuleSource(
+      { serverIslandsDir: "/app/server-islands" },
+      { base: "/app/" },
+    );
+    const glob = source.match(
+      /const serverIslandModules = import\.meta\.glob\((\[.*?\]), \{ eager: true \}\);/,
+    );
+    const patterns = JSON.parse(glob?.[1] ?? "[]") as string[];
+    expect(patterns[0]).toBe("/app/server-islands/**/*.{ts,tsx,js,jsx}");
+    // Colocated tests and mocks are not server islands.
+    expect(patterns.slice(1).every((pattern) => pattern.startsWith("!/app/server-islands/"))).toBe(
+      true,
+    );
+    expect(patterns.length).toBeGreaterThan(1);
+    expect(source).toContain(
+      "registerServerIslandModules(serverIslandModules, { replace: true });",
+    );
+    // Dev serves the swap script from a stable path under the deploy base.
+    expect(source).toContain('setServerIslandsClientEntryUrl("/app/@pracht/server-islands.js");');
+  });
+
+  it("leaves server islands out of a build without a server islands directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-no-server-islands-"));
+    try {
+      const source = createPrachtServerModuleSource({}, { root, isBuild: true });
+      expect(source).not.toContain("registerServerIslandModules");
+      expect(source).not.toContain("serverIslandModules");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("compiles a server island module to a client placeholder that keeps only its stylesheets", () => {
+    const source = createClientServerIslandModuleSource(
+      [
+        'import "./cart.css";',
+        "import './theme.scss?inline';",
+        'import { db } from "../server/db.ts";',
+        "export async function loader() { return db.count(); }",
+        "export default function Cart() { return null; }",
+      ].join("\n"),
+      "/src/server-islands/Cart.tsx",
+    );
+
+    expect(source).toBe(
+      [
+        'import "./cart.css";',
+        'import "./theme.scss?inline";',
+        'import { createClientServerIsland } from "@pracht/core/server-islands-component";',
+        "",
+        'export default createClientServerIsland("/src/server-islands/Cart.tsx");',
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("emits a swap entry that imports nothing from the app", () => {
+    expect(createPrachtServerIslandsClientModuleSource()).toBe(
+      'import { startServerIslands } from "@pracht/core/server-islands-client";\n\nstartServerIslands();\n',
+    );
   });
 });

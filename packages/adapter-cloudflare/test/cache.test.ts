@@ -83,6 +83,21 @@ describe("findCacheableIsgRoute", () => {
     expect(findCacheableIsgRoute(app, new Request("https://example.com/missing"))).toBeNull();
   });
 
+  it("never edge-caches the per-visitor server island endpoint, even under a catch-all ISG route", () => {
+    const catchAll = defineApp({
+      routes: [route("/*", "./routes/page.tsx", { render: "isg", revalidate: timeRevalidate(60) })],
+    });
+    expect(findCacheableIsgRoute(catchAll, new Request("https://example.com/docs"))).not.toBeNull();
+    expect(
+      findCacheableIsgRoute(
+        catchAll,
+        new Request(
+          "https://example.com/__pracht/server-island?island=/src/server-islands/Cart.tsx&path=/",
+        ),
+      ),
+    ).toBeNull();
+  });
+
   it("ignores ISG routes without a revalidate policy", () => {
     expect(findCacheableIsgRoute(app, new Request("https://example.com/stale"))).toBeNull();
   });

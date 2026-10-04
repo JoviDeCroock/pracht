@@ -80,6 +80,28 @@ for existing apps):
 Works in both the manifest router and the pages router
 (`export const HYDRATION = "islands"`). See [docs/ISLANDS.md](docs/ISLANDS.md).
 
+### Server Islands
+
+Cached pages with per-visitor parts, without making the route SSR:
+
+- Components in `src/server-islands/` (default export + optional `loader`) are
+  used as plain JSX in any page or shell, with an optional `fallback`.
+- On SSR pages they render inline. On SSG/ISG (and streamed) pages the shared
+  document carries the fallback, and the browser fills it from
+  `GET /__pracht/server-island`, which runs the page route's middleware and the
+  loader with the visitor's cookies — `Cache-Control: private, no-store`.
+- A server island runs only under routes whose route or shell module lists it
+  in `export const serverIslands`, so it is never reachable with weaker
+  middleware than the page that renders it. A page that renders a server island
+  it does not list fails to render.
+- Works with every hydration mode: a Preact-free swap script (~1.3 KB gzip) on
+  `none`/`islands` pages — islands inside a server island hydrate after the
+  swap — and an opaque client component on full-hydration pages, which refetches
+  when route data is revalidated. Apps without server islands pay nothing.
+- Props are untrusted input; a failing server island renders its fallback and
+  is reported through the error hook. See
+  [docs/SERVER_ISLANDS.md](docs/SERVER_ISLANDS.md).
+
 ### Data Loading
 
 Two styles, both fully supported — pick whichever fits your mental model:

@@ -185,6 +185,13 @@ export {
   type IslandDescriptor,
   type IslandUsage,
 } from "./islands-server.ts";
+export {
+  registerServerIslandModules,
+  setServerIslandsClientEntryUrl,
+  type ServerIslandDescriptor,
+} from "./server-islands-server.ts";
+export { PRACHT_SERVER_ISLAND_ENDPOINT } from "./server-islands-shared.ts";
+export { useServerIslandData } from "./server-islands-data.ts";
 export { notFound, PrachtHttpError } from "./types.ts";
 
 export type {
@@ -247,6 +254,10 @@ export type {
   HydrationMode,
   IslandStrategy,
   IslandProps,
+  ServerIslandLoaderArgs,
+  ServerIslandLoaderData,
+  ServerIslandModule,
+  ServerIslandProps,
   ResolvedApiRoute,
   ResolvedRoute,
   ResolvedPrachtApp,

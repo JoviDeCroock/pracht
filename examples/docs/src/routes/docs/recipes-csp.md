@@ -115,6 +115,10 @@ rendering. If a route `head()` returns inline `script` entries, such as JSON-LD,
 test that route with the CSP enabled and prefer route-specific hashes for exact
 inline content.
 
+[Server islands](/docs/server-islands) need nothing extra: the script that fills
+them is a same-origin module covered by `script-src 'self'` and
+`connect-src 'self'`.
+
 ## SSG/ISG Header Safety
 
 Headers on SSG and ISG pages are stored with the static output, replayed to

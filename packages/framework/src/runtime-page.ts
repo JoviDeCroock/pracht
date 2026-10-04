@@ -12,7 +12,7 @@
  * @internal Not part of the published API.
  */
 import { h } from "preact";
-import { parseRouteSearch, searchParamsToRecord } from "./api-validation.ts";
+import { searchParamsToRecord } from "./api-validation.ts";
 import { streamingHtmlResponse } from "./runtime-stream.ts";
 import type { FunctionComponent } from "preact";
 import { DEFER_RUNTIME_SHIM, resolveDeferredData, serializeDeferred } from "./defer.ts";
@@ -43,10 +43,13 @@ import {
   type IslandCapture,
 } from "./islands-server.ts";
 import { ISLANDS_NAVIGATION_DATA_ID, policyFingerprint } from "./islands-shared.ts";
+import { getServerIslandsRuntime } from "./server-islands-runtime.ts";
+import type { ServerIslandRenderState } from "./server-islands-server.ts";
 import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,
   ISLANDS_ENTRY_MANIFEST_KEY,
+  SERVER_ISLANDS_ENTRY_MANIFEST_KEY,
   mergeEntryPreloadUrls,
   resolveManifestEntries,
   resolvePageCssAssets,
@@ -59,7 +62,6 @@ import {
   mergeDocumentHeaders,
   mergeErrorHeadMetadata,
   mergeHeadMetadata,
-  runMiddlewareChain,
 } from "./runtime-middleware.ts";
 import { buildRouteStateUrl } from "./runtime-client-fetch.ts";
 import { SHELL_DATA_REQUEST_HEADER } from "./runtime-constants.ts";
@@ -82,10 +84,14 @@ import {
 import {
   composeRequestSignal,
   combineRequestSignals,
-  createRequestWaitUntil,
   isClientDisconnect,
   type PrachtRequestContext,
 } from "./runtime-request.ts";
+import {
+  applyRouteSearch,
+  createPageRouteArgs,
+  runPageMiddlewareChain,
+} from "./runtime-route-args.ts";
 import { PrachtHttpError } from "./types.ts";
 import type {
   BaseRouteArgs,
@@ -364,13 +370,12 @@ async function runPageLoader<TContext>(
   // Validate the query before anything reads it, so the loader, head(),
   // headers(), and the rendered tree's useSearch() all see the same parsed
   // value — and a rejected query never reaches the loader at all.
-  const search = await parseRouteSearch(job.routeModule.search, job.routeArgs.url.href);
-  if (search.error) {
-    throw Object.assign(new PrachtHttpError(400, search.error.message), {
-      issues: search.error.issues,
+  const searchError = await applyRouteSearch(job.routeArgs, job.routeModule.search);
+  if (searchError) {
+    throw Object.assign(new PrachtHttpError(400, searchError.message), {
+      issues: searchError.issues,
     });
   }
-  (job.routeArgs as LoaderArgs<TContext>).search = search.value;
 
   const { loader, loaderFile: resolvedLoaderFile } = await job.dataFunctionsPromise!;
   job.loaderFile = resolvedLoaderFile;
@@ -750,6 +755,27 @@ async function renderServerDocument<TContext>(
     );
   }
 
+  // Server islands. An SSR document renders them inline — their HTML
+  // replaces a token once the page has rendered. Every other document is
+  // shared (SSG/ISG) or already flushing (streaming), so it carries a
+  // placeholder the browser fills from the server island endpoint. Apps without a
+  // server islands directory never provide the context at all.
+  const serverIslands = getServerIslandsRuntime();
+  let serverIslandState: ServerIslandRenderState | null = null;
+  if (serverIslands) {
+    const inline = (match.route.render ?? "ssr") === "ssr" && !job.willStream;
+    serverIslandState = serverIslands.createRenderState(
+      inline ? "inline" : "defer",
+      0,
+      serverIslands.declared(job.routeModule, job.shellModule),
+    );
+    tree = h(
+      serverIslands.RenderContext.Provider as FunctionComponent<Record<string, unknown>>,
+      { value: serverIslandState },
+      tree,
+    );
+  }
+
   if (job.willStream) {
     // head/headers are already resolved above and the state script only
     // needs the awaited loader data, so the whole document shape is known
@@ -826,7 +852,22 @@ async function renderServerDocument<TContext>(
   }
 
   const renderToString = await getRenderToStringAsync();
-  const ssrContent = await renderToString(tree);
+  let ssrContent = await renderToString(tree);
+  if (serverIslands && serverIslandState) {
+    ssrContent = await serverIslands.resolveInline(ssrContent, serverIslandState, {
+      routeArgs: job.routeArgs,
+      onError: (error, serverIsland) => {
+        reportRequestError(ctx.options.onRouteError, error, ctx.requestPath, {
+          phase: "render",
+          serverIslandFile: serverIsland.file,
+          routeFile: match.route.file,
+          routeId: match.route.id,
+          routePath: match.route.path,
+          middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+        });
+      },
+    });
+  }
 
   if (hydration !== "full") {
     const islandFiles = [
@@ -848,6 +889,20 @@ async function renderServerDocument<TContext>(
             (islandFiles.length > 0
               ? "This usually means the @pracht/vite-plugin islands entry was not built — check that your islands live in the configured islands directory."
               : "This usually means generated page-runtime metadata was not forwarded by the deployment adapter."),
+        );
+      }
+    }
+
+    // Pending server islands on a page without the client runtime need the swap
+    // script; full-hydration pages fill them from the client server island component.
+    let serverIslandsEntryUrl: string | undefined;
+    if (serverIslands && serverIslandState?.deferred) {
+      serverIslandsEntryUrl = serverIslands.getClientEntryUrl();
+      if (!serverIslandsEntryUrl) {
+        throw new Error(
+          `Route "${match.route.path}" rendered a server island, but no server island swap ` +
+            "script URL is registered. This usually means the @pracht/vite-plugin server islands " +
+            "entry was not built — check that your server islands live in the configured server islands directory.",
         );
       }
     }
@@ -877,17 +932,22 @@ async function renderServerDocument<TContext>(
         head: withCapturedScripts(head, scriptCapture),
         body: ssrContent,
         clientEntryUrl: islandsEntryUrl,
+        serverIslandsEntryUrl,
         cssAssets: withIslandCssAssets(
           cssAssets,
           ctx.options.cssManifest,
           ctx.options.cssContentManifest,
           islandFiles,
         ),
-        modulePreloadUrls: islandsEntryUrl
-          ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
-              ...islandPreloadUrls,
-            ])
-          : [...islandPreloadUrls],
+        modulePreloadUrls: mergeEntryPreloadUrls(
+          ctx.options.jsManifest,
+          serverIslandsEntryUrl ? SERVER_ISLANDS_ENTRY_MANIFEST_KEY : "",
+          islandsEntryUrl
+            ? mergeEntryPreloadUrls(ctx.options.jsManifest, ISLANDS_ENTRY_MANIFEST_KEY, [
+                ...islandPreloadUrls,
+              ])
+            : [...islandPreloadUrls],
+        ),
         speculationRules: getAppSpeculationRules(ctx.resolvedApp),
         viewTransitions: ctx.resolvedApp.viewTransitions === true,
         webmcpCapabilities: hydration === "islands" ? match.route.capabilities : undefined,
@@ -989,23 +1049,13 @@ export async function renderPage<TContext>(
     ? combineRequestSignals(budgetSignal, abortController.signal)
     : budgetSignal;
   const pageContext = ctx.context;
-  const routeArgs: LoaderArgs<TContext> = {
+  const routeArgs: LoaderArgs<TContext> = createPageRouteArgs(options, match, {
     request,
-    params: match.params,
+    url: ctx.url,
     context: pageContext,
     signal: requestSignal,
-    url: ctx.url,
-    route: match.route,
-    pathname: match.pathname,
-    waitUntil: createRequestWaitUntil(options, ctx.requestPath, options.onRouteError, {
-      loaderFile: match.route.loaderFile,
-      middlewareFiles: [...(match.route.middlewareFiles ?? [])],
-      routeFile: match.route.file,
-      routeId: match.route.id,
-      routePath: match.route.path,
-      shellFile: match.route.shellFile,
-    }),
-  };
+    requestPath: ctx.requestPath,
+  });
   const timings = options.timings;
   const job: PageRenderJob<TContext> = {
     ctx,
@@ -1080,21 +1130,8 @@ export async function renderPage<TContext>(
       chainStart = performance.now();
     }
 
-    const response = await runMiddlewareChain({
-      context: pageContext,
-      middlewareFiles: match.route.middlewareFiles,
-      params: match.params,
-      pathname: match.pathname,
-      registry,
-      request,
-      route: match.route,
-      signal: requestSignal,
-      url: ctx.url,
-      waitUntil: routeArgs.waitUntil,
-      terminal,
-      onMiddlewareError: () => {
-        job.phase = "middleware";
-      },
+    const response = await runPageMiddlewareChain(routeArgs, registry, terminal, () => {
+      job.phase = "middleware";
     });
     if (timings) {
       timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);

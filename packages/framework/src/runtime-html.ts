@@ -139,6 +139,11 @@ export interface HtmlDocumentOptions {
   speculationRules?: SpeculationRulesDocument | null;
   /** Page-scoped WebMCP tools consumed by the islands bootstrap. */
   webmcpCapabilities?: readonly string[];
+  /**
+   * Server island swap script, emitted on islands and `hydration: "none"` pages
+   * that rendered a pending server island.
+   */
+  serverIslandsEntryUrl?: string;
   /** Opt the document into cross-document view transitions (`defineApp({ viewTransitions })`). */
   viewTransitions?: boolean;
   /**
@@ -188,6 +193,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     routeStatePreloadUrl,
     speculationRules,
     webmcpCapabilities = [],
+    serverIslandsEntryUrl,
     viewTransitions = false,
     islandsNavigation,
   } = options;
@@ -322,6 +328,12 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
       }></script>`
     : "";
 
+  // An external module like every other framework script, so `script-src
+  // 'self'` covers it on shared SSG/ISG documents that cannot carry a nonce.
+  const serverIslandsScript = serverIslandsEntryUrl
+    ? `<script type="module" src="${escapeHtml(serverIslandsEntryUrl)}"></script>`
+    : "";
+
   // Empty slots are dropped rather than interpolated: otherwise every document
   // carries a run of blank, whitespace-only lines for the tags this page does
   // not have.
@@ -346,7 +358,7 @@ export function buildHtmlDocumentParts(options: HtmlDocumentOptions): {
     "    ",
   );
   const trailingScripts = joinDocumentLines(
-    [stateScript, bootstrapScript, clientEntryAtEnd ? "" : entryScript],
+    [stateScript, bootstrapScript, clientEntryAtEnd ? "" : entryScript, serverIslandsScript],
     "    ",
   );
   const suffixScripts = joinDocumentLines([clientEntryAtEnd ? entryScript : ""], "    ");

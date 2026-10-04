@@ -338,6 +338,10 @@ swaps islands pages in place. See [ISLANDS.md](ISLANDS.md) for the
 full picture: island discovery, hydration strategies (`load`/`idle`/`visible`),
 prop serialization rules, and limitations.
 
+A route that is SSR only because a small part of it is personal can usually
+stay SSG/ISG and render that part as a server island (`src/server-islands/`),
+filled per visitor after load. See [SERVER_ISLANDS.md](SERVER_ISLANDS.md).
+
 ---
 
 ## How Rendering Interacts with Navigation

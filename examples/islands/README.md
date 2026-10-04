@@ -12,9 +12,16 @@ Demonstrates the islands architecture (partial hydration):
 - `/ssr` — SSR route with an `client="idle"` island, proving islands work at
   request time, not just at build time.
 - `/full` — a regular full-hydration route living in the same app.
+- `/server-islands`, `/server-islands/ssr`, `/server-islands/islands`,
+  `/server-islands/full` — a server island (`src/server-islands/Visitor.tsx`)
+  that greets whoever the `visitor` cookie names. The prerendered pages are
+  identical for every visitor and fill the server island after load; the SSR
+  page renders it inline. Set `document.cookie = "visitor=Ada"` and reload to
+  see it change.
 
 Islands live in `src/islands/` and are auto-discovered by the vite plugin.
-Routes opt in with `hydration: "islands"` in `src/routes.ts`.
+Routes opt in with `hydration: "islands"` in `src/routes.ts`. Server islands
+live in `src/server-islands/` (see `docs/SERVER_ISLANDS.md`).
 
 ```bash
 pnpm --filter @pracht/example-islands exec pracht dev

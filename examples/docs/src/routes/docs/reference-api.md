@@ -97,6 +97,21 @@ See [Coding Agents](/docs/coding-agents#constraints).
 
 ---
 
+## Server Islands
+
+Components in `src/server-islands/` rendered per request inside cached pages. See
+[Server Islands](/docs/server-islands).
+
+| Export | Description |
+| --- | --- |
+| `useServerIslandData<typeof loader>()` | Inside a server island component: the value its `loader` returned |
+| `ServerIslandLoaderArgs<TContext, TProps>` | Argument of a server island `loader`: the page's route args plus the server island's `props` (untrusted input) |
+| `ServerIslandProps` | Intersect into a server island's props for the framework-owned `fallback` |
+| `export const serverIslands` | Route or shell module export listing the server islands it renders; the endpoint runs only listed ones |
+| `ServerIslandLoaderData<T>` | The data type `useServerIslandData<T>()` resolves to |
+
+---
+
 ## Hooks
 
 | Export | Returns | Description |

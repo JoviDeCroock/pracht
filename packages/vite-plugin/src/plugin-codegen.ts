@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { parseAst } from "vite";
 import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
@@ -10,6 +10,7 @@ import {
 import {
   CLIENT_BROWSER_PATH,
   ISLANDS_CLIENT_BROWSER_PATH,
+  SERVER_ISLANDS_CLIENT_BROWSER_PATH,
   readClientBuildAssets,
 } from "./plugin-assets.ts";
 import { ROUTE_CSS_CONTENT_TOKEN, ROUTE_CSS_MANIFEST_TOKEN } from "./plugin-server-css.ts";
@@ -840,6 +841,47 @@ export function createPrachtIslandsClientModuleSource(
   ].join("\n");
 }
 
+/**
+ * Source of `virtual:pracht/server-islands-client` — the swap script islands and
+ * `hydration: "none"` pages load when they rendered a pending request-time
+ * server island. It imports nothing from the app: it fetches each pending server island's
+ * HTML and swaps it in.
+ */
+export function createPrachtServerIslandsClientModuleSource(): string {
+  return [
+    'import { startServerIslands } from "@pracht/core/server-islands-client";',
+    "",
+    "startServerIslands();",
+    "",
+  ].join("\n");
+}
+
+const STYLE_IMPORT_RE =
+  /^\s*import\s+(["'])([^"']+\.(?:css|scss|sass|less|styl|stylus|pcss|postcss|sss)(?:\?[^"']*)?)\1\s*;?\s*$/gm;
+
+/**
+ * What a server island module compiles to in the client bundle: a placeholder
+ * component that fills itself from the server island endpoint. The server island's own
+ * code — its loader and whatever that imports — never reaches the browser.
+ * Bare stylesheet imports are kept so a server island's CSS still ships with the
+ * page that renders it.
+ */
+export function createClientServerIslandModuleSource(
+  code: string,
+  serverIslandFile: string,
+): string {
+  const styleImports = [...code.matchAll(STYLE_IMPORT_RE)].map(
+    (match) => `import ${JSON.stringify(match[2])};`,
+  );
+  return [
+    ...styleImports,
+    'import { createClientServerIsland } from "@pracht/core/server-islands-component";',
+    "",
+    `export default createClientServerIsland(${JSON.stringify(serverIslandFile)});`,
+    "",
+  ].join("\n");
+}
+
 export function createPrachtServerModuleSource(
   options: PrachtPluginOptions = {},
   buildOptions: {
@@ -861,6 +903,7 @@ export function createPrachtServerModuleSource(
     : {
         clientEntryUrl: null,
         islandsEntryUrl: null,
+        serverIslandsEntryUrl: null,
         cssManifest: {},
         cssContentManifest: {},
         jsManifest: {},
@@ -900,10 +943,30 @@ export function createPrachtServerModuleSource(
     resolved.islandsDir,
     `${resolved.islandsDir}/**/*.{ts,tsx,js,jsx}`,
   );
+  const serverIslandsEntryUrl = buildOptions.isBuild
+    ? clientBuild.serverIslandsEntryUrl
+    : withDevBase(SERVER_ISLANDS_CLIENT_BROWSER_PATH);
+  const serverIslandsGlob = moduleGlob(
+    resolved.serverIslandsDir,
+    `${resolved.serverIslandsDir}/**/*.{ts,tsx,js,jsx}`,
+  );
+  // A build without a server islands directory never imports the server islands
+  // runtime, so its server bundle carries none of it. Dev always registers, so
+  // a directory created mid-session works without a restart.
+  const registersServerIslands =
+    !buildOptions.isBuild ||
+    existsSync(
+      resolve(buildOptions.root ?? process.cwd(), resolved.serverIslandsDir.replace(/^\//, "")),
+    );
 
   const source = [
     prachtImports,
     'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
+    ...(registersServerIslands
+      ? [
+          'import { registerServerIslandModules, setServerIslandsClientEntryUrl } from "@pracht/core/server";',
+        ]
+      : []),
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -919,6 +982,15 @@ export function createPrachtServerModuleSource(
     `setIslandsClientEntryUrl(${JSON.stringify(islandsEntryUrl ?? undefined)});`,
     "export const islandFiles = Object.keys(islandModules);",
     "",
+    ...(registersServerIslands
+      ? [
+          "// Server islands: detected like islands, rendered per request.",
+          `const serverIslandModules = import.meta.glob(${JSON.stringify(serverIslandsGlob)}, { eager: true });`,
+          "registerServerIslandModules(serverIslandModules, { replace: true });",
+          `setServerIslandsClientEntryUrl(${JSON.stringify(serverIslandsEntryUrl ?? undefined)});`,
+          "",
+        ]
+      : []),
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,

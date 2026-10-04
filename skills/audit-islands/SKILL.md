@@ -1,6 +1,6 @@
 ---
 name: audit-islands
-version: 1.0.1
+version: 1.1.0
 description: |
   Audit pracht hydration: over-hydrated routes that should be `hydration:
   "islands"` or `"none"`, dead interactivity outside the islands directory,
@@ -138,6 +138,19 @@ Navigation API, since those remain full loads. Page-change animation does not ne
 `@view-transition` rule and animate as cross-document view transitions, so
 flag only apps that load extra JavaScript to animate such navigations.
 
+### 3g. Personal data in islands on cached pages (`warn`)
+
+Island props on an `ssg`/`isg` route are fixed at build or regeneration time
+and shared by every visitor. Flag islands that exist only to fetch per-visitor
+content after load (a hand-rolled `fetch` of the session, cart, or "signed in
+as" data in `useEffect`) and islands whose props look personal. Suggest a
+server island instead (`src/server-islands/`, see
+<https://pracht.resynapse.dev/docs/server-islands>): its
+loader runs per request with the route's middleware context, and it may
+contain islands, which hydrate once the server island is swapped in. On
+full-hydration pages islands inside a server island stay static HTML — flag those
+(`warn`) if they are expected to be interactive.
+
 ## Step 4: Report
 
 | Route | File | Severity | Finding | Suggested fix |
@@ -160,5 +173,7 @@ finding.
    routes.
 4. Verify hydration in a running app via `html[data-pracht-islands-hydrated="true"]`
    (set after all `load` islands hydrate) and per-island `data-hydrated="true"`.
+   Server islands report `html[data-pracht-server-islands-ready="true"]` once every server
+   island fetch the page started has settled, on every hydration mode.
 
 $ARGUMENTS

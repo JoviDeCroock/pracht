@@ -43,6 +43,9 @@ const LAB_PAGES = [
   "slot3",
 ];
 
+// Prerendered islands pages whose server islands are fetched after load.
+const SERVER_ISLAND_PAGES = ["one", "two", "kept1", "kept2", "hidden"];
+
 const LAB_FILES: Record<string, string> = {
   "src/shells/lab.tsx": `
 import type { ShellProps } from "@pracht/core";
@@ -52,6 +55,7 @@ export function Shell({ children }: ShellProps) {
     <div>
       <nav>
         {${JSON.stringify(LAB_PAGES)}.map((p) => <a href={"/lab/" + p} id={"go-" + p.replace("/", "-")}>{p}</a>)}
+        {${JSON.stringify(SERVER_ISLAND_PAGES)}.map((p) => <a href={"/lab/si/" + p} id={"go-si-" + p}>si {p}</a>)}
         <a href="/lab-full" id="go-full">full</a>
         <a href="/api/lab-api" id="go-api">api</a>
         <a href="/lab/b" id="go-b-reload" data-pracht-reload>reload b</a>
@@ -180,6 +184,30 @@ export function head() { return { title: "Slot3" }; }
 export function Component() {
   return <section><h1>Slot3</h1><Disclosure summary="Shared" open><p data-testid="slot-text">one</p><Counter start={10} /></Disclosure></section>;
 }`,
+  // Server islands on prerendered pages: each shows its fallback until the
+  // swap script fetches it. kept1 and kept2 pass one disclosure the same
+  // children, a server island among them, so a swap carries it over.
+  ...Object.fromEntries(
+    [
+      ["one", '<Visitor greeting="One" fallback={<p>Loading visitor…</p>} />'],
+      ["two", '<Visitor greeting="Two" fallback={<p>Loading visitor…</p>} />'],
+      ...["kept1", "kept2"].map((page) => [
+        page,
+        '<Disclosure summary="Kept" open><Visitor greeting="Kept" fallback={<p>Loading visitor…</p>} /></Disclosure>',
+      ]),
+      [
+        "hidden",
+        '<Disclosure summary="Hidden"><Visitor greeting="Hidden" fallback={<p>Loading visitor…</p>} /></Disclosure>',
+      ],
+    ].map(([page, body]) => [
+      `src/routes/lab/si-${page}.tsx`,
+      `import Disclosure from "../../islands/Disclosure.tsx";
+import Visitor from "../../server-islands/Visitor.tsx";
+export const serverIslands = [Visitor];
+export function head() { return { title: "SI ${page}" }; }
+export function Component() { return <section><h1>SI ${page}</h1>${body}</section>; }`,
+    ]),
+  ),
   "src/routes/lab/files.tsx": `export function Component() { return <section><h1>Files</h1></section>; }`,
   "src/routes/lab/param.tsx": `export function Component() { return <section><h1>Param</h1></section>; }`,
   "public/lab/files/report.zip": "PK not really a zip",
@@ -202,6 +230,11 @@ ${LAB_PAGES.map(
       route("/lab/relaxed", () => import("./routes/lab/relaxed.tsx"), { middleware: ["labRelax"] }),
       route("/lab/files/*", () => import("./routes/lab/files.tsx")),
       route("/lab/p/:slug", () => import("./routes/lab/param.tsx")),
+    ]),
+    group({ shell: "lab", hydration: "islands", render: "ssg", middleware: ["visitor"] }, [
+${SERVER_ISLAND_PAGES.map(
+  (page) => `      route("/lab/si/${page}", () => import("./routes/lab/si-${page}.tsx")),`,
+).join("\n")}
     ]),
     group({ shell: "lab", render: "ssr" }, [
       route("/lab-full", () => import("./routes/lab/full.tsx")),
@@ -240,13 +273,15 @@ test.describe.serial("islands navigation", () => {
         'guide: () => import("./shells/guide.tsx"),',
         'guide: () => import("./shells/guide.tsx"),\n    lab: () => import("./shells/lab.tsx"),',
       )
+      // Into the app's own middleware map: a second `middleware` key would
+      // replace it.
       .replace(
-        "viewTransitions: true,",
-        'viewTransitions: true,\n  middleware: { labRelax: "./middleware/lab-relax.ts" },',
+        "  middleware: {\n",
+        '  middleware: {\n    labRelax: "./middleware/lab-relax.ts",\n',
       );
     expect(routes).toContain('route("/lab/a"');
     expect(routes).toContain("lab: () =>");
-    expect(routes).toContain("labRelax");
+    expect(routes).toContain('labRelax: "./middleware/lab-relax.ts"');
     writeFileSync(routesPath, routes);
     for (const [path, source] of Object.entries(LAB_FILES)) {
       mkdirSync(dirname(resolve(exampleDir, path)), { recursive: true });
@@ -346,6 +381,88 @@ test.describe.serial("islands navigation", () => {
     await expect(page).toHaveURL(`${origin}/static`);
     await page.unroute(`${origin}/guide`);
     expect(documents).toEqual(["/guide"]);
+  });
+
+  test("fills the server islands a swapped-in page brings", async ({ page }) => {
+    await page.context().addCookies([{ name: "visitor", value: "Ada", url: origin }]);
+    const fetched: string[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === "/__pracht/server-island") {
+        fetched.push(JSON.parse(url.searchParams.get("props") ?? "{}").greeting);
+      }
+    });
+    const visitor = page.getByTestId("visitor");
+    const shellCounter = 'pracht-island[island="/src/islands/ShellCounter.tsx"]';
+    const marked = (selector: string) =>
+      page.evaluate(
+        (s) => (document.querySelector(s) as (Element & { mark?: string }) | null)?.mark,
+        selector,
+      );
+
+    await page.goto(`${origin}/lab/si/one`);
+    await hydrated(page);
+    await page.waitForSelector('html[data-pracht-server-islands-ready="true"]');
+    await expect(visitor).toHaveText("One, Ada");
+    await page.evaluate((selector) => {
+      (window as { marker?: string }).marker = "first document";
+      (document.querySelector(selector) as Element & { mark?: string }).mark = "shell";
+    }, shellCounter);
+    await page.getByTestId("shell-increment").click();
+    await expect(page.getByTestId("shell-count")).toHaveText("1");
+
+    // The swapped-in page's pending server island is fetched once; the shell
+    // island the swap carried over has nothing to do with it and keeps its state.
+    await clickInPlace(page, "#go-si-two");
+    await expect(page.locator("h1")).toHaveText("SI two");
+    expect(await sameDocument(page)).toBe("first document");
+    await expect(visitor).toHaveText("Two, Ada");
+    await expect(page.getByTestId("shell-count")).toHaveText("1");
+    expect(await marked(shellCounter)).toBe("shell");
+
+    // Back and forth, and through a page without server islands: every page
+    // shown fetches its own server island once.
+    await page.goBack();
+    await expect(page.locator("h1")).toHaveText("SI one");
+    await expect(visitor).toHaveText("One, Ada");
+    await page.goForward();
+    await expect(page.locator("h1")).toHaveText("SI two");
+    await expect(visitor).toHaveText("Two, Ada");
+    await clickInPlace(page, "#go-a");
+    await expect(page.locator("h1")).toHaveText("A");
+    await clickInPlace(page, "#go-si-one");
+    await expect(visitor).toHaveText("One, Ada");
+    expect(await sameDocument(page)).toBe("first document");
+    await page.waitForTimeout(300);
+    expect(fetched).toEqual(["One", "Two", "One", "Two", "One"]);
+    await expect(page.getByTestId("shell-count")).toHaveText("1");
+
+    // An island carried over with the server island it holds already filled:
+    // the incoming page's pending copy is dropped, never fetched.
+    const disclosure = 'pracht-island[island="/src/islands/Disclosure.tsx"]';
+    await clickInPlace(page, "#go-si-kept1");
+    await expect(visitor).toHaveText("Kept, Ada");
+    await page.evaluate((selector) => {
+      (document.querySelector(selector) as Element & { mark?: string }).mark = "kept1";
+    }, disclosure);
+    await clickInPlace(page, "#go-si-kept2");
+    await expect(page.locator("h1")).toHaveText("SI kept2");
+    expect(await marked(disclosure)).toBe("kept1");
+    await expect(visitor).toHaveText("Kept, Ada");
+    await page.waitForTimeout(300);
+    expect(fetched.slice(5)).toEqual(["Kept"]);
+
+    // Unplaced children ship in a <template>: their server island is fetched
+    // when the island first shows them.
+    await clickInPlace(page, "#go-si-hidden");
+    await expect(page.locator("h1")).toHaveText("SI hidden");
+    await hydrated(page);
+    await page.waitForTimeout(300);
+    expect(fetched.slice(5)).toEqual(["Kept"]);
+    await page.getByRole("button", { name: "Hidden" }).click();
+    await expect(visitor).toHaveText("Hidden, Ada");
+    expect(fetched.slice(5)).toEqual(["Kept", "Hidden"]);
+    expect(await sameDocument(page)).toBe("first document");
   });
 
   test("keeps a carried island's DOM state", async ({ page }) => {

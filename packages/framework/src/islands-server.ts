@@ -556,16 +556,27 @@ function validateIslandStrategy(client: unknown, descriptor: IslandDescriptor): 
 export function validateIslandProps(
   props: Record<string, unknown>,
   descriptor: Pick<IslandDescriptor, "file" | "name">,
+  kind: SerializedPropsKind = "Island",
 ): void {
   for (const [key, value] of Object.entries(props)) {
-    validateIslandPropValue(value, `props.${key}`, descriptor, new Set());
+    validateIslandPropValue(value, `props.${key}`, { ...descriptor, kind }, new Set());
   }
+}
+
+/**
+ * Which component received the props. Server islands share the island rules: their
+ * props are serialized into the page and posted back with the server island request.
+ */
+export type SerializedPropsKind = "Island" | "Server island";
+
+interface PropOwner extends Pick<IslandDescriptor, "file" | "name"> {
+  kind: SerializedPropsKind;
 }
 
 function validateIslandPropValue(
   value: unknown,
   path: string,
-  descriptor: Pick<IslandDescriptor, "file" | "name">,
+  descriptor: PropOwner,
   seen: Set<unknown>,
 ): void {
   if (value === null || typeof value === "string" || typeof value === "boolean") return;
@@ -637,15 +648,14 @@ function validateIslandPropValue(
   throw islandPropError(path, `has unsupported type "${typeof value}"`, descriptor);
 }
 
-function islandPropError(
-  path: string,
-  reason: string,
-  descriptor: Pick<IslandDescriptor, "file" | "name">,
-): Error {
+function islandPropError(path: string, reason: string, descriptor: PropOwner): Error {
+  const travel =
+    descriptor.kind === "Island"
+      ? "Island props are serialized into the HTML and revived in the browser"
+      : "Server island props are serialized into the HTML and sent back with each server island request";
   return new Error(
-    `Island "${descriptor.name}" (${descriptor.file}) received a prop that is not ` +
-      `JSON-serializable: ${path} ${reason}. Island props are serialized into the HTML ` +
-      "and revived in the browser, so they must be JSON-serializable values " +
+    `${descriptor.kind} "${descriptor.name}" (${descriptor.file}) received a prop that is not ` +
+      `JSON-serializable: ${path} ${reason}. ${travel}, so they must be JSON-serializable values ` +
       "(string, finite number, boolean, null, arrays, and plain objects).",
   );
 }
