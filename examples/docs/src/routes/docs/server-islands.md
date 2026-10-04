@@ -78,7 +78,8 @@ A route or shell lists every server island it renders in
 `export const serverIslands = [...]`, including ones rendered by components it
 uses. The shell's list covers every route under it. Rendering a server island
 the page does not list fails the render with an error naming the module to add
-it to. A server island rendered inside another server island needs no listing.
+it to; on an `spa` route, the dev console warns instead. A server island
+rendered inside another server island needs no listing.
 
 `fallback` is what the page shows until the server island arrives. The page
 keeps it when the server island fails, or when middleware or the loader answers

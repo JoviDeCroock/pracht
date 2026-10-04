@@ -157,7 +157,12 @@ export const serverIslands = [CartCount];
 
 The endpoint runs server island R for page path P only when R's component is
 in the `serverIslands` export of **the route module P matches** or of **that
-route's shell module**. Both modules are loaded through the registry exactly as
+route's shell module**, and R's file is the one registered for that component.
+`registerServerIslandModules()` rejects two files sharing one default export:
+lists hold components while the endpoint runs the requested file's loader, so
+a shared component would let an unlisted file's loader run under a route that
+lists its twin. The generated server module registers with `replace: true`, so
+a server island file removed in dev stops answering. Both modules are loaded through the registry exactly as
 a page render loads them (`resolveRegistryModule()`), and the check compares
 component identity with the registered server island, so it holds the same way
 in dev and in a build with no build-time analysis.
@@ -167,11 +172,13 @@ exactly the ones P's own page runs and sees. A server island is never more
 reachable than the page that lists it. If P's middleware gates, the gate
 applies; if P is public, R is public.
 
-The list is enforced from both sides. A page render whose route and shell do
-not list a server island it renders directly (`depth === 0` in the render
-state) throws, naming the server island and the export to add it to. So a
-server island that renders on a page is always one the endpoint will serve for
-that page, and a list cannot silently fall behind the JSX. A server island
+The list is enforced from both sides. A server document render whose route and
+shell do not list a server island it renders directly (`depth === 0` in the
+render state) throws, naming the server island and the export to add it to, so
+on server-rendered pages a list cannot fall behind the JSX. Renders that never
+happen on the server (`spa` route components, an SPA shell's `Loading`, error
+documents) carry no render state and are not checked; there the endpoint's 404
+leaves the fallback, and the dev client logs a warning. A server island
 rendered inside another one resolves inline with its parent, in the page render
 or in the endpoint, and never reaches the endpoint alone, so it needs no
 listing. The client module transform strips `serverIslands` from browser route
@@ -194,6 +201,8 @@ What the binding does **not** do:
 
 - A route or shell without the export, or with a non-array one, lists nothing,
   and every server island request for it gets the 404.
+- A route or shell module that fails to load answers `500`, reported through
+  `onRouteError`, before the server island is looked up.
 - An unknown server island and an unlisted one get the same `404 Unknown server
   island`, from the same point, after `props` and `path` were validated for
   both, so neither the status nor the order of checks tells a caller which

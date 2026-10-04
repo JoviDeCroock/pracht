@@ -59,6 +59,14 @@ export async function loadServerIsland(
     // Only the endpoint's own fragment is swapped in. A static host that
     // answers unknown URLs with its SPA fallback document also says 200.
     if (response.status !== 200 || response.headers.get(SERVER_ISLAND_REQUEST_HEADER) !== "1") {
+      // A route renders on the server only when it is not `spa`, so a list that
+      // fell behind the JSX of a client-only render shows up here, not as an error.
+      if (import.meta.env?.DEV && response.status === 404) {
+        console.warn(
+          `[pracht] The server island ${file} was refused for ${location.pathname}. ` +
+            "List it in `export const serverIslands` of that page's route or shell module.",
+        );
+      }
       return "empty";
     }
     element.innerHTML = await response.text();

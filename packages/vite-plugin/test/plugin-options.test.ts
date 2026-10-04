@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -330,9 +333,22 @@ describe("server islands codegen", () => {
       true,
     );
     expect(patterns.length).toBeGreaterThan(1);
-    expect(source).toContain("registerServerIslandModules(serverIslandModules);");
+    expect(source).toContain(
+      "registerServerIslandModules(serverIslandModules, { replace: true });",
+    );
     // Dev serves the swap script from a stable path under the deploy base.
     expect(source).toContain('setServerIslandsClientEntryUrl("/app/@pracht/server-islands.js");');
+  });
+
+  it("leaves server islands out of a build without a server islands directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-no-server-islands-"));
+    try {
+      const source = createPrachtServerModuleSource({}, { root, isBuild: true });
+      expect(source).not.toContain("registerServerIslandModules");
+      expect(source).not.toContain("serverIslandModules");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("compiles a server island module to a client placeholder that keeps only its stylesheets", () => {

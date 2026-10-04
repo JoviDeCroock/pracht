@@ -122,9 +122,8 @@ export interface ServerIslandRenderEnv {
   onError: (error: unknown, descriptor: ServerIslandDescriptor) => void;
 }
 
-export const ServerIslandRenderContext = /* @__PURE__ */ createContext<ServerIslandRenderState | null>(
-  null,
-);
+export const ServerIslandRenderContext =
+  /* @__PURE__ */ createContext<ServerIslandRenderState | null>(null);
 
 // Server islands render server islands: a server island's own markup is resolved inline too. Past
 // this depth the nesting is almost certainly a server island rendering itself.
@@ -154,9 +153,18 @@ class ServerIslandResponse {
  * Register server island modules discovered from the server islands directory. Called by
  * the generated `virtual:pracht/server` module with the eager
  * `import.meta.glob` result. The default export is the server island; an optional
- * `loader` export runs at request time. Safe to call multiple times.
+ * `loader` export runs at request time. Calls add to the registry; with
+ * `replace`, the call is the complete set (the generated module, which runs
+ * again in dev when a server island file is added or removed).
  */
-export function registerServerIslandModules(modules: Record<string, unknown>): void {
+export function registerServerIslandModules(
+  modules: Record<string, unknown>,
+  { replace = false }: { replace?: boolean } = {},
+): void {
+  if (replace) {
+    serverIslandRegistry.clear();
+    serverIslandsByFile.clear();
+  }
   for (const [file, mod] of Object.entries(modules)) {
     if (!mod || typeof mod !== "object") continue;
     const { default: component, loader } = mod as Partial<ServerIslandModule>;
@@ -167,11 +175,22 @@ export function registerServerIslandModules(modules: Record<string, unknown>): v
       component,
       loader: typeof loader === "function" ? loader : undefined,
     };
+    // Routes list components, and the endpoint runs the loader of the requested
+    // file, so one component must map to exactly one file.
+    const existing = serverIslandRegistry.get(component);
+    if (existing && existing.file !== file) {
+      throw new Error(
+        `Server islands ${existing.file} and ${file} export the same default component. ` +
+          "Give each server island file its own component.",
+      );
+    }
     serverIslandRegistry.set(component, descriptor);
     serverIslandsByFile.set(file, descriptor);
   }
 
-  if (serverIslandRegistry.size > 0) {
+  if (serverIslandRegistry.size === 0) {
+    installServerIslandsRuntime(undefined);
+  } else {
     installServerIslandVnodeHook();
     installServerIslandsRuntime({
       createRenderState: createServerIslandRenderState,
@@ -528,15 +547,32 @@ export async function handleServerIslandRequest<TContext>(
   // that does not exist and one the route does not list get the same answer,
   // checked at the same point, so a caller cannot tell them apart or probe for
   // server island names.
-  const [routeModule, shellModule] = await Promise.all([
-    resolveRegistryModule<RouteModule>(ctx.registry.routeModules, match.route.file),
-    match.route.shellFile
-      ? resolveRegistryModule<ShellModule>(ctx.registry.shellModules, match.route.shellFile)
-      : undefined,
-  ]);
+  let routeModule: RouteModule | undefined;
+  let shellModule: ShellModule | undefined;
+  try {
+    [routeModule, shellModule] = await Promise.all([
+      resolveRegistryModule<RouteModule>(ctx.registry.routeModules, match.route.file),
+      match.route.shellFile
+        ? resolveRegistryModule<ShellModule>(ctx.registry.shellModules, match.route.shellFile)
+        : undefined,
+    ]);
+  } catch (error: unknown) {
+    reportRequestError(options.onRouteError, error, pagePath, {
+      middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+      phase: "render",
+      routeFile: match.route.file,
+      routeId: match.route.id,
+      routePath: match.route.path,
+    });
+    return serverIslandTextResponse("Internal Server Error", 500);
+  }
   const file = url.searchParams.get(SERVER_ISLAND_QUERY_FILE) ?? "";
   const descriptor = serverIslandsByFile.get(file);
-  if (!descriptor || !declaredServerIslands(routeModule, shellModule).has(descriptor.component)) {
+  if (
+    !descriptor ||
+    serverIslandRegistry.get(descriptor.component) !== descriptor ||
+    !declaredServerIslands(routeModule, shellModule).has(descriptor.component)
+  ) {
     return serverIslandTextResponse("Unknown server island", 404);
   }
 

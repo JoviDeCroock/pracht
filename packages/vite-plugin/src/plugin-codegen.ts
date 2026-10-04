@@ -986,7 +986,7 @@ export function createPrachtServerModuleSource(
       ? [
           "// Server islands: detected like islands, rendered per request.",
           `const serverIslandModules = import.meta.glob(${JSON.stringify(serverIslandsGlob)}, { eager: true });`,
-          "registerServerIslandModules(serverIslandModules);",
+          "registerServerIslandModules(serverIslandModules, { replace: true });",
           `setServerIslandsClientEntryUrl(${JSON.stringify(serverIslandsEntryUrl ?? undefined)});`,
           "",
         ]

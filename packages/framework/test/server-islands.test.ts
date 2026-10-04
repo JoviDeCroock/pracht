@@ -665,6 +665,70 @@ describe("server island endpoint route binding", () => {
   });
 });
 
+describe("server island registry", () => {
+  it("rejects two server island files that share one component", () => {
+    function Shared() {
+      return null;
+    }
+    expect(() =>
+      registerServerIslandModules({
+        "/src/server-islands/Visitor.tsx": { default: Shared },
+        "/src/server-islands/AdminVisitor.tsx": { default: Shared, loader: () => "secret" },
+      }),
+    ).toThrow("export the same default component");
+  });
+
+  it("forgets server islands a replacing registration no longer has", async () => {
+    const { ServerIsland } = registerVisitorServerIsland();
+    function Other() {
+      return null;
+    }
+    registerServerIslandModules(
+      { "/src/server-islands/Other.tsx": { default: Other } },
+      {
+        replace: true,
+      },
+    );
+    pageServerIslands = [ServerIsland, Other];
+
+    const response = await handlePrachtRequest({
+      app: createApp("ssg"),
+      registry: createRegistry(() => null),
+      request: serverIslandRequest({
+        island: "/src/server-islands/Visitor.tsx",
+        path: "/products/1",
+      }),
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("reports a route module that fails to load and answers 500", async () => {
+    registerVisitorServerIsland();
+    const onRouteError = vi.fn();
+
+    const response = await handlePrachtRequest({
+      app: createApp("ssg"),
+      registry: {
+        ...createRegistry(() => null),
+        routeModules: {
+          "./routes/page.tsx": async () => {
+            throw new Error("route module failed to load");
+          },
+        },
+      },
+      request: serverIslandRequest({
+        island: "/src/server-islands/Visitor.tsx",
+        path: "/products/1",
+      }),
+      onRouteError,
+    });
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(onRouteError.mock.calls[0]![0].message).toBe("route module failed to load");
+  });
+});
+
 describe("server island declarations", () => {
   it("fails a page render that uses a server island its route does not list", async () => {
     const { ServerIsland } = registerVisitorServerIsland();
