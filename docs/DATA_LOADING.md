@@ -271,6 +271,27 @@ scanner no import to follow, and the client entry imports it eagerly.
 `Register["root"]` as `RootState<typeof import("./root")>`, both read from
 the registry keys.
 
+**Browser copy.** `dehydrate` is the root's only server-only export. The
+client module transform runs `stripServerOnlyExportsForClient(…, { appRoot:
+true })` on every non-SSR transform of the registered root file, removing
+`dehydrate` and pruning the bindings and imports only it referenced, as route
+loaders are pruned. Route export names (`loader`, `head`, …) mean nothing in a
+root and are kept. The file is matched by canonical path (`appRootFile` in
+`index.ts`, resolved in `configResolved` and again whenever the client entry
+is regenerated), not by a `?pracht-client` query: components import the root
+for its context, and a query would hand the entry a second module instance
+with a second context. A declarator that binds `dehydrate` beside other names
+— `export const { setup, Root, dehydrate, hydrate } = createQueryRoot()` —
+is kept whole, because the browser needs those bindings and its initializer
+ships for them anyway; `export *` is kept too. A server-only dependency
+therefore stays out of the browser only when it reaches `dehydrate` through
+its own function, variable, or named re-export. The match is on the exported
+name, so `export { dehydrate as hydrate }` keeps `hydrate`. A destructuring
+declarator survives while any name it binds is still exported or used. When
+retained code still references the removed `dehydrate` (`hydrate` calls it,
+`export default dehydrate`, `{ dehydrate }` in a kept object), the root ships
+unstripped instead of throwing in the browser.
+
 **Server** (`runtime-root.ts`): `setup()` runs once per request context,
 cached in a `WeakMap` keyed by it, so a `notFound()` re-render reuses the same
 state. It runs at the top of the page terminal — after middleware, before any

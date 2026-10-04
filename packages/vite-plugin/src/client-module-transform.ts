@@ -26,10 +26,13 @@ export {
 } from "./client-module-query.ts";
 
 const SERVER_ONLY_EXPORTS = new Set(["loader", "head", "headers", "getStaticPaths", "markdown"]);
+const APP_ROOT_SERVER_ONLY_EXPORTS = new Set(["dehydrate"]);
 
 export interface StripServerOnlyExportsOptions {
   /** Strip the dedicated pages-router middleware module from the client graph. */
   middleware?: boolean;
+  /** Project the `defineApp({ root })` module: strip `dehydrate` instead of route exports. */
+  appRoot?: boolean;
 }
 
 export function stripServerOnlyExportsForClient(
@@ -50,22 +53,63 @@ export function stripServerOnlyExportsForClient(
   }
 
   const initialBindingNames = collectCurrentTopLevelBindingNames(states);
+  const appRoot = options.appRoot === true;
   const { changed, candidates } = removeServerOnlyExports(
     states,
     initialBindingNames,
-    SERVER_ONLY_EXPORTS,
+    appRoot ? APP_ROOT_SERVER_ONLY_EXPORTS : SERVER_ONLY_EXPORTS,
+    // `export const { setup, Root, dehydrate, hydrate } = createQueryRoot()` is
+    // the documented `@pracht/query` root. Its other bindings are what the
+    // browser renders and hydrates with, and they come from the same call, so
+    // the declarator stays: dropping it would drop the root, and its
+    // initializer ships for those bindings either way.
+    { keepSharedDeclarators: appRoot },
   );
 
   if (!changed) return code;
 
   pruneDeadBindings(states, initialBindingNames, candidates);
+  // A root whose kept code still calls or re-exports `dehydrate` would throw in
+  // the browser without it, so it ships whole, as it did before stripping.
+  if (appRoot && hasDanglingReferences(states, initialBindingNames)) return code;
   return renderProgram(code, states);
+}
+
+/** Whether retained code references a top-level binding the strip removed. */
+function hasDanglingReferences(
+  states: StatementState[],
+  initialBindingNames: Set<string>,
+): boolean {
+  const remaining = collectCurrentTopLevelBindingNames(states);
+  const referenced = analyzeRetainedStatements(normalizeRetainedStatements(states), {
+    knownTopLevelNames: initialBindingNames,
+  }).referencedTopLevelNames;
+  // Scope analysis does not count export specifiers or `export default name`.
+  for (const state of states) {
+    const statement = state.node;
+    if (state.removed) continue;
+    if (statement.type === "ExportDefaultDeclaration") {
+      const name = getIdentifierName(statement.declaration as OxcNode);
+      if (name) referenced.add(name);
+      continue;
+    }
+    if (statement.type !== "ExportNamedDeclaration" || statement.source) continue;
+    for (const index of getRemainingSpecifierIndices(state)) {
+      const localName = getIdentifierName(statement.specifiers[index].local as OxcNode | null);
+      if (localName) referenced.add(localName);
+    }
+  }
+  for (const name of referenced) {
+    if (!remaining.has(name)) return true;
+  }
+  return false;
 }
 
 function removeServerOnlyExports(
   states: StatementState[],
   initialBindingNames: Set<string>,
   serverOnlyExports: ReadonlySet<string>,
+  { keepSharedDeclarators }: { keepSharedDeclarators: boolean },
 ): { candidates: Set<string>; changed: boolean } {
   let changed = false;
   const candidates = new Set<string>();
@@ -91,11 +135,13 @@ function removeServerOnlyExports(
     }
 
     if (declaration?.type === "VariableDeclaration") {
-      const removable = getRemainingDeclaratorIndices(state).filter((index) =>
-        collectBindingNamesFromPattern(declaration.declarations[index].id).some((name) =>
-          serverOnlyExports.has(name),
-        ),
-      );
+      const removable = getRemainingDeclaratorIndices(state).filter((index) => {
+        const names = collectBindingNamesFromPattern(declaration.declarations[index].id);
+        const isServerOnly = (name: string) => serverOnlyExports.has(name);
+        return keepSharedDeclarators
+          ? names.length > 0 && names.every(isServerOnly)
+          : names.some(isServerOnly);
+      });
 
       if (removable.length === 0) continue;
 
@@ -126,9 +172,10 @@ function removeServerOnlyExports(
       const specifier = statement.specifiers[index] as OxcNode;
       if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") return false;
 
-      const localName = getIdentifierName(specifier.local as OxcNode | null);
+      // An export is server-only by the name it is exported as:
+      // `export { dehydrate as hydrate }` is the browser's `hydrate`.
       const exportedName = getIdentifierName(specifier.exported as OxcNode | null);
-      return serverOnlyExports.has(localName ?? "") || serverOnlyExports.has(exportedName ?? "");
+      return serverOnlyExports.has(exportedName ?? "");
     });
 
     if (removableSpecifiers.length === 0) continue;
@@ -171,7 +218,10 @@ function pruneDeadBindings(
     for (const name of pendingNames) {
       const binding = bindings.get(name);
       if (!binding) continue;
-      if (exportedNames.has(name) || referencedNames.has(name)) continue;
+      // A destructuring declarator binds several names; it is dead only when
+      // none of them is still exported or used.
+      const isLive = (bound: string) => exportedNames.has(bound) || referencedNames.has(bound);
+      if ([...binding.names].some(isLive)) continue;
 
       removeBinding(states, binding);
       enqueueDependencies(candidates, binding.dependencies);

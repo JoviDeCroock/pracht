@@ -88,9 +88,13 @@ The Vite plugin strips the server-only exports `loader`, `head`, `headers`,
 query (`middleware` is not a route-file export — middleware lives in the
 manifest); see the client module transform notes in `docs/ARCHITECTURE.md`
 and `docs/ENV.md`. But a component that imports `../server/db` will still
-pull `db` into the client bundle. Flag those imports. The app root gets no
-stripping at all: the whole module ships to the browser, `setup()` and
-`dehydrate()` included.
+pull `db` into the client bundle. Flag those imports. The app root's browser
+copy loses only `dehydrate` and the imports nothing else uses; `setup()`,
+`Root`, `hydrate()`, and everything they import ship. A `dehydrate` bound in
+the same destructuring as those (`export const { setup, Root, dehydrate,
+hydrate } = createRoot(…)`) or reached through `export *` ships with them, so
+flag a server-only value passed into that call. A root whose other code calls
+or re-exports `dehydrate` ships whole; flag its server-only imports too.
 
 ## Step 4: Hidden surfaces
 

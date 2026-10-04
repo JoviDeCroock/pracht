@@ -34,7 +34,8 @@ adapters for Node, Cloudflare Workers, Netlify, and Vercel.
   not a route, so never add a catch-all \`route("/*", ...)\` for that purpose.
   \`root\` names an optional module rendered above every shell and never remounted
   (\`setup\`, \`Root\`, \`dehydrate\`, \`hydrate\`), for client infrastructure such as
-  \`@pracht/query\`; it ships to the browser, and loaders read its state as \`args.root\`.
+  \`@pracht/query\`; everything but \`dehydrate\` ships to the browser, and loaders
+  read its state as \`args.root\`.
 - \`src/routes/\` — route modules: \`Component\`, optional \`loader\`, \`head\`, \`ErrorBoundary\`, \`getStaticPaths\`.
 - \`src/shells/\` — named layout wrappers (\`Shell\`, optional \`loader\` read with \`useShellData()\`, \`head\`, \`Loading\`).
 - \`src/middleware/\` — server middleware: \`export const middleware: MiddlewareFn\`.
