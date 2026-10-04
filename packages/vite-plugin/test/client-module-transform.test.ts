@@ -268,6 +268,79 @@ export const middleware = async (_args, next) => next();
     expect(transformed).not.toContain("export default");
   });
 
+  it("removes the app root's dehydrate and imports used only by it", () => {
+    const source = `
+import { createContext } from "preact";
+import { snapshotForBrowser } from "./server/snapshot";
+import { apiKey } from "./server/config";
+
+export const StoreContext = createContext(null);
+
+export function setup() {
+  return { items: new Map() };
+}
+
+export function Root({ state, children }) {
+  return <StoreContext.Provider value={state}>{children}</StoreContext.Provider>;
+}
+
+export function dehydrate(state) {
+  return snapshotForBrowser(state, apiKey);
+}
+
+export function hydrate(state, snapshot) {
+  Object.assign(state, snapshot);
+}
+
+export function loader() {
+  return "ROOT_EXPORT_NAMED_LOADER";
+}
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "/src/root.tsx", {
+      appRoot: true,
+    });
+
+    expect(transformed).not.toContain("./server/snapshot");
+    expect(transformed).not.toContain("./server/config");
+    expect(transformed).not.toContain("function dehydrate");
+    expect(transformed).toContain("function setup");
+    expect(transformed).toContain("function Root");
+    expect(transformed).toContain("function hydrate");
+    expect(transformed).toContain("StoreContext");
+    // Route export names mean nothing in a root module.
+    expect(transformed).toContain("ROOT_EXPORT_NAMED_LOADER");
+    expectValidModuleSource(transformed);
+  });
+
+  it("removes a re-exported app root dehydrate", () => {
+    const source = `
+export { dehydrate } from "./server/dehydrate";
+export { hydrate } from "./hydrate";
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "/src/root.ts", {
+      appRoot: true,
+    });
+
+    expect(transformed).not.toContain("./server/dehydrate");
+    expect(transformed).toContain('export { hydrate } from "./hydrate";');
+  });
+
+  it("keeps an app root declarator whose other bindings the browser needs", () => {
+    const source = `
+import { createQueryRoot } from "@pracht/query";
+
+export const { setup, Root, dehydrate, hydrate } = createQueryRoot();
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "/src/root.ts", {
+      appRoot: true,
+    });
+
+    expect(transformed).toBe(source);
+  });
+
   it("preserves an ordinary client export named middleware in route modules", () => {
     const source = `
 export const middleware = "CLIENT_MIDDLEWARE_LABEL";
@@ -1303,6 +1376,90 @@ export function Component() {
     expect(readBuiltJs(root)).toContain("CO_LOCATED_CONSTANT_MARKER");
   });
 
+  it("excludes imports used only by the app root's dehydrate from browser bundles", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    mkdirSync(join(root, "src", "server"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  root: "./root.tsx",
+  routes: [route("/", () => import("./routes/home.tsx"), { id: "home" })],
+});
+`,
+    );
+    writeFileSync(
+      join(root, "src", "server", "snapshot.ts"),
+      'export const snapshot = () => "ROOT_DEHYDRATE_SERVER_MARKER";\n',
+    );
+    writeFileSync(
+      join(root, "src", "root.tsx"),
+      `import { createContext } from "preact";
+import { snapshot } from "./server/snapshot";
+
+export const LabelContext = createContext("ROOT_CONTEXT_CLIENT_MARKER");
+
+export function setup() {
+  return {};
+}
+
+export function dehydrate() {
+  return snapshot();
+}
+`,
+    );
+    // A route importing the root directly (for its context) gets the same
+    // projection the client entry does.
+    writeFileSync(
+      join(root, "src", "routes", "home.tsx"),
+      `import { useContext } from "preact/hooks";
+import { LabelContext } from "../root.tsx";
+
+export function Component() {
+  return <main>{useContext(LabelContext)}</main>;
+}
+`,
+    );
+
+    await buildTempProject(root, MANIFEST_PLUGIN_OPTIONS);
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("ROOT_CONTEXT_CLIENT_MARKER");
+    expect(output).not.toContain("ROOT_DEHYDRATE_SERVER_MARKER");
+  });
+
+  it("excludes imports used only by a pages _root dehydrate from browser bundles", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "pages", "index.tsx"),
+      "export default function Home() { return <main>home</main>; }\n",
+    );
+    writeFileSync(
+      join(root, "src", "secret.ts"),
+      'export const secret = "PAGES_ROOT_DEHYDRATE_SERVER_MARKER";\n',
+    );
+    writeFileSync(
+      join(root, "src", "pages", "_root.tsx"),
+      `import { secret } from "../secret";
+
+export function setup() {
+  return { label: "PAGES_ROOT_SETUP_CLIENT_MARKER" };
+}
+
+export const dehydrate = () => secret;
+`,
+    );
+
+    await buildTempProject(root);
+
+    const output = readBuiltJs(root);
+    expect(output).toContain("PAGES_ROOT_SETUP_CLIENT_MARKER");
+    expect(output).not.toContain("PAGES_ROOT_DEHYDRATE_SERVER_MARKER");
+  });
+
   it("excludes imports used only by typed inline loaders from browser bundles", async () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "pages"), { recursive: true });
@@ -1419,6 +1576,46 @@ export default function Home() {
       { ssr: false },
     );
     expect(componentResult).toBeNull();
+  });
+
+  it("strips dehydrate from the registered app root in the client environment only", async () => {
+    const root = makeTempProject();
+    const rootSource = [
+      'import { secret } from "./server/secret";',
+      "export function setup() {",
+      "  return {};",
+      "}",
+      "export function dehydrate() {",
+      "  return secret;",
+      "}",
+      "",
+    ].join("\n");
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      'import { defineApp } from "@pracht/core";\nexport const app = defineApp({ root: "./app-root.ts", routes: [] });\n',
+    );
+    writeFileSync(join(root, "src", "app-root.ts"), rootSource);
+
+    const plugins = pracht(MANIFEST_PLUGIN_OPTIONS);
+    const transformPlugin = plugins.find((p) => p.name === "pracht:client-module-transform");
+    if (!transformPlugin || typeof transformPlugin.transform !== "function") {
+      throw new Error("pracht:client-module-transform plugin is missing a transform hook");
+    }
+    findPrachtConfigResolved(plugins)({ root, command: "build" } as never);
+    const rootFileId = join(root, "src", "app-root.ts");
+
+    const clientResult = await callTransform(transformPlugin.transform, rootSource, rootFileId, {
+      ssr: false,
+    });
+    expect(clientResult).not.toContain("./server/secret");
+    expect(clientResult).not.toContain("function dehydrate");
+    expect(clientResult).toContain("function setup");
+
+    const ssrResult = await callTransform(transformPlugin.transform, rootSource, rootFileId, {
+      ssr: true,
+    });
+    expect(ssrResult).toBeNull();
   });
 });
 

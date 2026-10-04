@@ -1119,7 +1119,8 @@ export interface RootModule<TState = any> {
   /**
    * Server only: a JSON-serializable snapshot of the state to send to the
    * browser. Called after a document renders and after the loaders of a
-   * route-state request run. Return `undefined` to send nothing.
+   * route-state request run. Return `undefined` to send nothing. Left out of
+   * the browser bundle, with the imports only it uses.
    */
   dehydrate?: (state: TState) => unknown;
   /**
