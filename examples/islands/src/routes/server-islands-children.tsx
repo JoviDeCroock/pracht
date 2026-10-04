@@ -1,6 +1,8 @@
 import Disclosure from "../islands/Disclosure.tsx";
 import Visitor from "../server-islands/Visitor.tsx";
 
+export const serverIslands = [Visitor];
+
 // Server islands passed into an island as children. The open disclosure places
 // its children on the server; the closed one ships them unplaced, so their
 // server island is fetched only once the disclosure is first opened.

@@ -12,7 +12,7 @@ import type {
   PrachtContextExtensions,
 } from "@pracht/capabilities/server/internal";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { ComponentChildren, FunctionComponent } from "preact";
+import type { ComponentChildren, ComponentType, FunctionComponent } from "preact";
 
 import type { ApiValidationIssue } from "./api-validation.ts";
 import type { RouteConstraint } from "./constraints.ts";
@@ -1112,6 +1112,12 @@ export interface RouteModule<TContext = any, TLoader extends LoaderLike = undefi
   // (Markdown-for-Agents). The runtime returns this string with
   // `Content-Type: text/markdown` instead of rendering the component.
   markdown?: string;
+  /**
+   * The server islands this page renders. A cached page fills them from the
+   * server island endpoint, which runs only server islands its route lists here
+   * or in its shell's `serverIslands`, under this route's middleware.
+   */
+  serverIslands?: readonly ComponentType<any>[];
 }
 
 export interface ShellModule<TContext = any> {
@@ -1126,6 +1132,8 @@ export interface ShellModule<TContext = any> {
   ErrorBoundary?: FunctionComponent<ErrorBoundaryProps>;
   head?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadMetadata>;
   headers?: (args: BaseRouteArgs<TContext>) => MaybePromise<HeadersInit>;
+  /** The server islands the shell renders, for every route that uses it. */
+  serverIslands?: readonly ComponentType<any>[];
 }
 
 /** What an app root's `setup()` receives. */

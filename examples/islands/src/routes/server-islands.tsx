@@ -1,5 +1,7 @@
 import Visitor from "../server-islands/Visitor.tsx";
 
+export const serverIslands = [Visitor];
+
 // Shared by the SSG and SSR server island routes: the server island is rendered inline on
 // SSR and filled after load on the prerendered page.
 export function Component() {

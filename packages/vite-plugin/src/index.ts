@@ -19,10 +19,6 @@ import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
-import {
-  createDevServerIslandBindingsMiddleware,
-  createServerIslandBindingsPlugin,
-} from "./server-island-bindings.ts";
 import { createClientModulePrefreshPlugin } from "./client-module-prefresh.ts";
 import { reachesRouteHintedModule } from "./head-hint-reload.ts";
 import { sendRouteDataStale } from "./route-data-stale.ts";
@@ -598,14 +594,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
 
       if (resolved.adapter.ownsDevServer) {
-        // First, ahead of the adapter's own request handling: it strips the
-        // route↔server island bindings header from every request before setting it.
-        server.middlewares.use(
-          createDevServerIslandBindingsMiddleware(server, {
-            serverIslandsDir: resolved.serverIslandsDir,
-            basePathRetained: true,
-          }),
-        );
         server.middlewares.use(createOwnedDevEntryMiddleware(server));
         server.middlewares.use(createDevCssInjectionMiddleware(server));
         return;
@@ -620,12 +608,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const backgroundWork = createWaitUntilTracker();
       devBackgroundWork = backgroundWork;
       return () => {
-        server.middlewares.use(
-          createDevServerIslandBindingsMiddleware(server, {
-            serverIslandsDir: resolved.serverIslandsDir,
-            basePathRetained: false,
-          }),
-        );
         server.middlewares.use(
           createDevSSRMiddleware(server, {
             adapterDev: resolved.adapter.dev,
@@ -947,13 +929,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     inlineCss: resolved.inlineCss,
   });
 
-  const serverIslandBindingsPlugin = createServerIslandBindingsPlugin({
-    serverIslandsDir: resolved.serverIslandsDir,
-    routesDir: resolved.routesDir,
-    shellsDir: resolved.shellsDir,
-    pagesDir: resolved.pagesDir,
-  });
-
   const optimizeDepsEntriesPlugin: Plugin = {
     name: "pracht:optimize-deps-entries",
     enforce: "post",
@@ -992,7 +967,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     ...(clientModulePrefreshPlugin ? [clientModulePrefreshPlugin] : []),
     ...(edgeRuntimeSafetyPlugin ? [edgeRuntimeSafetyPlugin] : []),
     serverCssAssetsPlugin,
-    serverIslandBindingsPlugin,
     createEnvSafetyPlugin(resolved.envSafety),
   ];
 

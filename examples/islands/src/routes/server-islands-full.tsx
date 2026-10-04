@@ -1,6 +1,8 @@
 import { useState } from "preact/hooks";
 import Visitor from "../server-islands/Visitor.tsx";
 
+export const serverIslands = [Visitor];
+
 // A cached full-hydration page: the whole tree hydrates, and the server island is an
 // opaque subtree the client fills in after hydration. Re-rendering the page
 // (the button) must leave the server island's HTML alone.

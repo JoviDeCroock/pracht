@@ -186,11 +186,8 @@ export {
   type IslandUsage,
 } from "./islands-server.ts";
 export {
-  readServerIslandBindingsFromDevServer,
   registerServerIslandModules,
-  setServerIslandBindings,
   setServerIslandsClientEntryUrl,
-  type ServerIslandBindings,
   type ServerIslandDescriptor,
 } from "./server-islands-server.ts";
 export { PRACHT_SERVER_ISLAND_ENDPOINT } from "./server-islands-shared.ts";

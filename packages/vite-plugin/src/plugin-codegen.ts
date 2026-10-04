@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { parseAst } from "vite";
 import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
@@ -14,7 +14,6 @@ import {
   readClientBuildAssets,
 } from "./plugin-assets.ts";
 import { ROUTE_CSS_CONTENT_TOKEN, ROUTE_CSS_MANIFEST_TOKEN } from "./plugin-server-css.ts";
-import { SERVER_ISLAND_BINDINGS_TOKEN } from "./server-island-bindings.ts";
 import {
   resolveOptions,
   type PrachtPluginOptions,
@@ -951,14 +950,23 @@ export function createPrachtServerModuleSource(
     resolved.serverIslandsDir,
     `${resolved.serverIslandsDir}/**/*.{ts,tsx,js,jsx}`,
   );
+  // A build without a server islands directory never imports the server islands
+  // runtime, so its server bundle carries none of it. Dev always registers, so
+  // a directory created mid-session works without a restart.
+  const registersServerIslands =
+    !buildOptions.isBuild ||
+    existsSync(
+      resolve(buildOptions.root ?? process.cwd(), resolved.serverIslandsDir.replace(/^\//, "")),
+    );
 
   const source = [
     prachtImports,
     'import { registerServerIslands, setIslandsClientEntryUrl } from "@pracht/core/server";',
-    'import { registerServerIslandModules, setServerIslandsClientEntryUrl } from "@pracht/core/server";',
-    buildOptions.isBuild
-      ? 'import { setServerIslandBindings } from "@pracht/core/server";'
-      : 'import { readServerIslandBindingsFromDevServer } from "@pracht/core/server";',
+    ...(registersServerIslands
+      ? [
+          'import { registerServerIslandModules, setServerIslandsClientEntryUrl } from "@pracht/core/server";',
+        ]
+      : []),
     appImport,
     "",
     `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
@@ -974,18 +982,15 @@ export function createPrachtServerModuleSource(
     `setIslandsClientEntryUrl(${JSON.stringify(islandsEntryUrl ?? undefined)});`,
     "export const islandFiles = Object.keys(islandModules);",
     "",
-    "// Server islands: detected like islands, rendered per request.",
-    `const serverIslandModules = import.meta.glob(${JSON.stringify(serverIslandsGlob)}, { eager: true });`,
-    "registerServerIslandModules(serverIslandModules);",
-    `setServerIslandsClientEntryUrl(${JSON.stringify(serverIslandsEntryUrl ?? undefined)});`,
-    // Which server islands each route and shell module imports. The server island endpoint
-    // runs a server island only under a route that renders it. A build splices the
-    // map in from its module graph (see server-island-bindings.ts); the dev server
-    // computes it per server island request.
-    buildOptions.isBuild
-      ? `setServerIslandBindings(${JSON.stringify(SERVER_ISLAND_BINDINGS_TOKEN)});`
-      : "readServerIslandBindingsFromDevServer();",
-    "",
+    ...(registersServerIslands
+      ? [
+          "// Server islands: detected like islands, rendered per request.",
+          `const serverIslandModules = import.meta.glob(${JSON.stringify(serverIslandsGlob)}, { eager: true });`,
+          "registerServerIslandModules(serverIslandModules);",
+          `setServerIslandsClientEntryUrl(${JSON.stringify(serverIslandsEntryUrl ?? undefined)});`,
+          "",
+        ]
+      : []),
     "export const resolvedApp = resolveApp(app);",
     "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
     `export const apiRoutes = resolveApiRoutes(Object.keys(apiModules), ${JSON.stringify(resolved.apiDir)});`,

@@ -39,10 +39,13 @@ export default function CartCount({ label }: { label: string } & ServerIslandPro
 }
 ```
 
-Import it into any page or shell and use it as plain JSX, with a `fallback`:
+Import it into any page or shell, list it in that module's `serverIslands`
+export, and use it as plain JSX with a `fallback`:
 
 ```tsx [src/shells/public.tsx]
 import CartCount from "../server-islands/CartCount.tsx";
+
+export const serverIslands = [CartCount];
 
 export function Shell({ children }: ShellProps) {
   return (
@@ -71,12 +74,11 @@ middleware built, the [app root](/docs/shells#the-app-root) state as `root`, and
 island's `props`. Read its return value with
 `useServerIslandData<typeof loader>()`.
 
-A server island runs for a page only when that page's route or shell imports it
-with a static `import`, directly or through components they import. Importing
-`{ Button }` from a barrel that also re-exports a server island does not count;
-a namespace import (`import * as ui`) counts for everything the barrel
-re-exports. One loaded with `import()` keeps its fallback on cached pages, and
-the dev server logs why.
+A route or shell lists every server island it renders in
+`export const serverIslands = [...]`, including ones rendered by components it
+uses. The shell's list covers every route under it. Rendering a server island
+the page does not list fails the render with an error naming the module to add
+it to. A server island rendered inside another server island needs no listing.
 
 `fallback` is what the page shows until the server island arrives. The page
 keeps it when the server island fails, or when middleware or the loader answers
@@ -130,11 +132,11 @@ browser asks for it with the page path and props in a URL any caller can edit.
 **Server island props are untrusted input: authorize from `context` inside the
 loader**, as the `if (!context.user)` check above does.
 
-Which pages a server island runs for follows its static imports, and that is
-not an authorization check. Anyone who passes a page's middleware can request
-every server island that page imports, including one it renders only
-conditionally, such as `{isAdmin && <AdminStats />}`. A loader that returns
-private data checks `context` itself.
+A server island runs only for pages whose route or shell lists it, under that
+page's middleware, but the list is not an authorization check. Anyone who passes
+a page's middleware can request every server island that page lists, including
+one it renders only conditionally, such as `{isAdmin && <AdminStats />}`. A
+loader that returns private data checks `context` itself.
 
 Server island responses are always `Cache-Control: private, no-store`, so the
 page around them stays cacheable.

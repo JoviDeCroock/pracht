@@ -36,6 +36,7 @@ export default function CartCount(props: { label: string } & ServerIslandProps) 
 }
 
 // any page or shell
+export const serverIslands = [CartCount];
 <CartCount label="Cart" fallback={<a href="/cart">Cart</a>} />
 ```
 
@@ -45,8 +46,11 @@ export default function CartCount(props: { label: string } & ServerIslandProps) 
 - Props must be JSON-serializable (the island validator, with server island
   wording); children are rejected.
 - Loader data is only rendered, never serialized, so it can be any value.
+- A route or shell that renders a server island lists it in its
+  `serverIslands` export (see "Route binding").
 
-The surface is one directory, one hook, two types, and one prop.
+The surface is one directory, one hook, two types, one prop, and one route
+export.
 
 ## Architecture
 
@@ -108,7 +112,8 @@ directory the path is routed like any other URL. `handleServerIslandRequest()`:
    path;
 3. strips the deploy base and matches the page path against the route table;
 4. checks the route binding (below): the `island` parameter must name a
-   registered server island that the matched route renders;
+   registered server island that the matched route or its shell lists in
+   `serverIslands`;
 5. builds a page request — the page URL with the request's headers and signal —
    and runs the matched route's middleware chain around a terminal that runs
    the loader and renders the server island (with `PrachtRuntimeProvider` for
@@ -126,8 +131,8 @@ an islands page, `x-pracht-islands` names the islands bootstrap URL.
 ## Route binding
 
 This is the security boundary of the endpoint. Read it before changing
-`boundServerIslandsFor()` (`server-islands-server.ts`) or
-`server-island-bindings.ts`.
+`declaredServerIslands()` or the declaration check in `ServerIslandBoundary`
+(`server-islands-server.ts`).
 
 ### The problem it closes
 
@@ -143,17 +148,34 @@ client chunk of every full-hydration route that renders one.
 
 ### The rule
 
-The endpoint runs server island R for page path P only when R is reachable
-through **static imports** from **the route module P matches** or **that
-route's shell module**. Both are resolved to registry keys exactly as the
-runtime resolves them to load the page (`resolveRegistryModule()`'s lookup), so
-the binding is checked against the modules that actually render P's document.
+Route and shell modules list the server islands they render:
+
+```tsx
+import CartCount from "../server-islands/CartCount.tsx";
+export const serverIslands = [CartCount];
+```
+
+The endpoint runs server island R for page path P only when R's component is
+in the `serverIslands` export of **the route module P matches** or of **that
+route's shell module**. Both modules are loaded through the registry exactly as
+a page render loads them (`resolveRegistryModule()`), and the check compares
+component identity with the registered server island, so it holds the same way
+in dev and in a build with no build-time analysis.
 
 Consequence: the middleware that runs and the params the loader sees are
 exactly the ones P's own page runs and sees. A server island is never more
-reachable than the page that renders it. If P's middleware gates, the gate
-applies; if P is public, R is public — and anyone could already have loaded P
-and seen R rendered inline on an SSR page.
+reachable than the page that lists it. If P's middleware gates, the gate
+applies; if P is public, R is public.
+
+The list is enforced from both sides. A page render whose route and shell do
+not list a server island it renders directly (`depth === 0` in the render
+state) throws, naming the server island and the export to add it to. So a
+server island that renders on a page is always one the endpoint will serve for
+that page, and a list cannot silently fall behind the JSX. A server island
+rendered inside another one resolves inline with its parent, in the page render
+or in the endpoint, and never reaches the endpoint alone, so it needs no
+listing. The client module transform strips `serverIslands` from browser route
+and shell modules with the other server-only exports.
 
 What the binding does **not** do:
 
@@ -161,83 +183,28 @@ What the binding does **not** do:
   route (see "Trust Decisions").
 - It does not follow render-time conditions. A page that renders
   `{isAdmin && <AdminStats />}` behind a loader check, not middleware, still
-  binds `AdminStats`, and the endpoint runs it for anyone who gets through that
+  lists `AdminStats`, and the endpoint runs it for anyone who gets through that
   page's middleware. Gates that must protect a server island belong in
   middleware or in its own loader.
-
-### Graph shapes
-
-The binding follows the static import graph from the route and shell modules:
-
-| Shape | Bound? | Why |
-| --- | --- | --- |
-| Route or shell imports the server island | Yes | The direct case. |
-| Through a shared component (`Header` → `Cart`) | Yes | The component renders it wherever it is used. |
-| A server island imported by a server island | Yes | The outer one renders it; nested islands resolve inline anyway. |
-| Through a barrel (`export { default as X } from`, `export *`) | Only for importers of X | A re-export edge is followed only for the names its importer imports. `import { Button } from "./ui"` does not bind the `X` that `./ui` also re-exports; `import { X }` does. `export *` forwards only names the barrel does not declare itself. |
-| A namespace import (`import * as ui`) | Everything it re-exports | The walk cannot tell which members are used. |
-| A module whose own code is used | All of its imports | Once any export the module declares itself is used, all its `import` declarations are followed: there is no analysis inside a module. Type-only imports and exports are skipped. |
-| Only through `import()` | No | See below. |
-| `?raw` / `?url` import of the file | No | That is its text or URL, not a rendered component. |
-| One route module under two routes | Per route | Each route binds its own module and its own shell, so one component under two shells binds a shell's server islands to one route only. |
-| Through dependencies, virtual modules, files outside the root | Not walked | None can import app server islands; entering the generated server module, which imports every server island, would bind them all. |
-
-`import()` is not followed, deliberately. A dynamic import is where apps put
-lazy registries and "component maps" that import many things; following it
-would let one shared lazy map bind every server island to every route that
-touches it. A server island rendered through `lazy()` still renders inline on
-an SSR page, but the endpoint refuses it, so on a cached page it keeps its
-fallback. The dev server says so, once per page and server island, when it
-refuses a server island whose file exists.
-
-### Where it is computed
-
-Both halves read each module's links from its source file with
-`@babel/parser` (`parseServerIslandSourceLinks()`: imports with the names they
-import, re-exports by name, `export *`, the names the module declares) and
-resolve specifiers with the host's resolver (`createSourceServerIslandGraph()`).
-A module that is not JavaScript or TypeScript source, or that does not parse,
-is opaque: every import the host reports for it is followed, as used.
-
-- **Build.** `createServerIslandBindingsPlugin()` runs in the server build's
-  `generateBundle`, resolves with `this.resolve()` (opaque modules use
-  `getModuleInfo(id).importedIds`) from every route and shell
-  module, and splices `{ [module key]: server island files }` into the
-  `__PRACHT_SERVER_ISLAND_BINDINGS__` token in the generated server module, the
-  way the route CSS manifest is spliced. The runtime installs it with
-  `setServerIslandBindings()`.
-- **Dev.** A connect middleware (`createDevServerIslandBindingsMiddleware()`)
-  sits in front of the runtime — first in the stack for adapter-owned dev
-  servers (Cloudflare), right before the dev SSR middleware otherwise. For a
-  server island request it matches the page path with the dev metadata module,
-  walks from the route and shell modules, resolving with the server
-  environment's `pluginContainer.resolveId()` (opaque modules use
-  `transformRequest(url).deps`). Modules are read from disk, not transformed,
-  so the answer does not depend on what was rendered first and never caches a
-  transform ahead of an edit. It passes the map in the
-  `x-pracht-dev-server-island-bindings` request header. The generated dev
-  server module calls `readServerIslandBindingsFromDevServer()`, which makes the
-  runtime read that header.
-
-Both walks use the same rules (`collectBoundServerIslands()`), and a unit test
-builds and serves one fixture app both ways and requires identical maps.
+- A list may name a server island the page never renders. That widens the
+  endpoint to it under this route's middleware; it is the author's explicit
+  choice, visible in the route module.
 
 ### Failing closed
 
-- No bindings installed, a token the build never replaced, or a map that does
-  not parse: nothing is bound, and every server island request gets the 404.
-- Dev: the middleware strips every copy of the dev header from **every**
-  request — `req.headers` and `req.rawHeaders`, because the Cloudflare plugin
-  builds its `Request` from `rawHeaders` — before setting its own, so the
-  runtime only ever reads what the middleware wrote. A request path the
-  middleware does not recognise carries no header and is refused. A built app
-  never reads the header; `pracht preview` runs the build.
-- The header is removed from the page request that middleware and the loader
-  see.
-- An unknown server island and an unbound one get the same `404 Unknown server
+- A route or shell without the export, or with a non-array one, lists nothing,
+  and every server island request for it gets the 404.
+- An unknown server island and an unlisted one get the same `404 Unknown server
   island`, from the same point, after `props` and `path` were validated for
   both, so neither the status nor the order of checks tells a caller which
-  server islands exist.
+  server islands exist. The route and shell modules are loaded before that
+  check whatever the `island` parameter says.
+
+An earlier revision inferred the binding from the static import graph (Rollup's
+at build time, Vite's per request in dev, handed to the runtime in a dev-only
+header). Every review round found a graph shape it got wrong (barrels, shared
+modules), and keeping dev and build in agreement took a fixture test of its own.
+The explicit list replaced it.
 
 ## Browser
 
@@ -377,8 +344,6 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
 - Render server islands from pages and shells, not from inside islands: an
   island's client code would get the placeholder component, and a pending
   server island inside an island would be filled twice.
-- A server island reached only through `import()` is not bound (see "Route
-  binding") and keeps its fallback on cached pages.
 - A server island's data is not part of route-state JSON; on full-hydration
   pages a client navigation mounts it fresh and fetches it.
 - Server islands in the shell of a not-found or error document never fill: the
@@ -406,14 +371,9 @@ no nonce (`script-src 'self'`, `connect-src 'self'`). See [CSP.md](CSP.md).
 - `packages/framework/test/server-islands.test.ts` — detection, placeholder and
   inline rendering, fallback on failure, islands capture, the endpoint
   (middleware, loader args, no-store, 204/4xx/500 paths, islands header), and
-  route binding: the admin-gate and `params` exploits, shell binding, failing
-  closed without or with a malformed map, unknown and unbound
-  indistinguishable, dev header handling.
-- `packages/vite-plugin/test/server-island-bindings.test.ts` — the walk over
-  synthetic graphs and in-memory sources (barrel names, `export *`, namespace
-  and type-only imports), and one fixture app (shared component, barrel, nested
-  server island, `import()`, `?raw`, shell) built with Rollup and served by
-  Vite dev, both required to produce the same map.
+  route binding: the admin-gate and `params` exploits, shell lists, unknown and
+  unlisted indistinguishable, and the render-time check for an unlisted server
+  island (nested ones exempt).
 - `packages/framework/test/server-islands-client.test.ts` — the swap script and
   the client component under jsdom (hydration keeps markup, pending fill,
   client-navigation mount, the response marker, refresh).

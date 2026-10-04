@@ -1,5 +1,7 @@
 import Visitor from "../server-islands/Visitor.tsx";
 
+export const serverIslands = [Visitor];
+
 // A cached islands page whose server island brings an island along: the island
 // hydrates once the server island's HTML has been swapped in.
 export function Component() {

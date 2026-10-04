@@ -61,14 +61,6 @@ export const SERVER_ISLAND_SCAN_EVENT = "pracht:server-islands-scan";
  */
 export const SERVER_ISLAND_REFRESH_EVENT = "pracht:server-islands-refresh";
 
-/**
- * Development only. The dev server computes which server islands the requested
- * page's route and shell modules import, and hands that map to the runtime in
- * this request header — after removing any copy the client sent. A built app
- * never reads it: its bindings ship in the server bundle.
- */
-export const DEV_SERVER_ISLAND_BINDINGS_HEADER = "x-pracht-dev-server-island-bindings";
-
 /** Query parameters of the server island endpoint. */
 export const SERVER_ISLAND_QUERY_FILE = "island";
 export const SERVER_ISLAND_QUERY_PROPS = "props";

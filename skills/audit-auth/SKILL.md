@@ -176,13 +176,12 @@ target. From `pracht inspect api --json`:
 
 Every module in `src/server-islands/` (or `pracht({ serverIslandsDir })`) is
 reachable at `GET /__pracht/server-island` with the visitor's cookies, for any
-page whose route or shell imports it statically — with that route's middleware
+page whose route or shell lists it in `export const serverIslands = [...]` —
+with that route's middleware
 (see <https://pracht.resynapse.dev/docs/server-islands#security>). Map each
-server island to the routes that import it, directly or through shared
-components, shells, and barrel names they import (a namespace import of a
-barrel counts for everything it re-exports).
+server island to the routes that list it, directly or through their shell.
 
-- Flag a server island imported by both gated and ungated routes whose loader
+- Flag a server island listed by both gated and ungated routes whose loader
   returns user-specific data without checking `context` itself — `error`: the
   ungated route serves it to anyone.
 - Flag pages that gate a server island only at render time

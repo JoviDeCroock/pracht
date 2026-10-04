@@ -549,7 +549,7 @@ ISG page costs one extra request after load:
 ```
 
 The endpoint runs a server island only under a route whose route or shell
-module imports it statically; anything else gets the same `404` as a server
+module lists it in `serverIslands`; anything else gets the same `404` as a server
 island that does not exist (see "Route binding" in
 [SERVER_ISLANDS.md](SERVER_ISLANDS.md)). Middleware or a loader that answers
 with a `Response` yields `204`; a thrown error yields `500`. Either way the page

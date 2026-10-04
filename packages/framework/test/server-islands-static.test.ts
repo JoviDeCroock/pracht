@@ -28,7 +28,10 @@ describe("server islands on a static export", () => {
       app: defineApp({ routes: [route("/", "./routes/page.tsx", { render: "ssg" })] }),
       registry: {
         routeModules: {
-          "./routes/page.tsx": async () => ({ Component: () => h(Cart, null) }),
+          "./routes/page.tsx": async () => ({
+            Component: () => h(Cart, null),
+            serverIslands: [Cart],
+          }),
         },
       },
       request: new Request("http://localhost/"),

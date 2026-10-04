@@ -90,10 +90,10 @@ Cached pages with per-visitor parts, without making the route SSR:
   document carries the fallback, and the browser fills it from
   `GET /__pracht/server-island`, which runs the page route's middleware and the
   loader with the visitor's cookies — `Cache-Control: private, no-store`.
-- A server island runs only under routes whose route or shell module imports
-  it statically, so it is never reachable with weaker middleware than the page
-  that renders it. The binding is computed from the module graph at build time
-  and per request in dev.
+- A server island runs only under routes whose route or shell module lists it
+  in `export const serverIslands`, so it is never reachable with weaker
+  middleware than the page that renders it. A page that renders a server island
+  it does not list fails to render.
 - Works with every hydration mode: a Preact-free swap script (~1.3 KB gzip) on
   `none`/`islands` pages — islands inside a server island hydrate after the
   swap — and an opaque client component on full-hydration pages, which refetches

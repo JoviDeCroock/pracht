@@ -176,19 +176,15 @@ test("the server island endpoint is private and only answers same-origin scripts
   expect(withoutHeader.status()).toBe(400);
 });
 
-test("the server island endpoint refuses a server island for a page that does not render it", async ({
+test("the server island endpoint refuses a server island for a page that does not list it", async ({
   request,
 }) => {
-  const serverIslandAt = (
-    serverIsland: string,
-    path: string,
-    headers: Record<string, string> = {},
-  ) =>
+  const serverIslandAt = (serverIsland: string, path: string) =>
     request.get(`/__pracht/server-island?${new URLSearchParams({ island: serverIsland, path })}`, {
-      headers: { "x-pracht-server-island": "1", cookie: "visitor=Ada", ...headers },
+      headers: { "x-pracht-server-island": "1", cookie: "visitor=Ada" },
     });
 
-  // /static renders no server island, so the Visitor server island never runs under it —
+  // /static lists no server island, so the Visitor server island never runs under it —
   // and the answer is the one a server island that does not exist gets.
   const unbound = await serverIslandAt("/src/server-islands/Visitor.tsx", "/static");
   const unknown = await serverIslandAt("/src/server-islands/Nope.tsx", "/static");
@@ -196,15 +192,6 @@ test("the server island endpoint refuses a server island for a page that does no
   expect(unbound.headers()["cache-control"]).toBe("private, no-store");
   expect(await unbound.text()).toBe("Unknown server island");
   expect(await unbound.text()).toBe(await unknown.text());
-
-  // The development bindings travel in a header the dev server owns; a copy
-  // sent by the client is dropped before the app sees the request.
-  const spoofed = await serverIslandAt("/src/server-islands/Visitor.tsx", "/static", {
-    "x-pracht-dev-server-island-bindings": JSON.stringify({
-      "/src/routes/static-page.tsx": ["/src/server-islands/Visitor.tsx"],
-    }),
-  });
-  expect(spoofed.status()).toBe(404);
 
   expect(
     (await serverIslandAt("/src/server-islands/Visitor.tsx", "/server-islands")).status(),

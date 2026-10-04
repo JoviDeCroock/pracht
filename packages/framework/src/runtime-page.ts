@@ -43,14 +43,8 @@ import {
   type IslandCapture,
 } from "./islands-server.ts";
 import { ISLANDS_NAVIGATION_DATA_ID, policyFingerprint } from "./islands-shared.ts";
-import {
-  createServerIslandRenderState,
-  getServerIslandsClientEntryUrl,
-  hasRegisteredServerIslands,
-  ServerIslandRenderContext,
-  resolveInlineServerIslands,
-  type ServerIslandRenderState,
-} from "./server-islands-server.ts";
+import { getServerIslandsRuntime } from "./server-islands-runtime.ts";
+import type { ServerIslandRenderState } from "./server-islands-server.ts";
 import { createScriptCapture, ScriptCaptureContext, withCapturedScripts } from "./script.ts";
 import {
   CLIENT_ENTRY_MANIFEST_KEY,
@@ -766,12 +760,17 @@ async function renderServerDocument<TContext>(
   // shared (SSG/ISG) or already flushing (streaming), so it carries a
   // placeholder the browser fills from the server island endpoint. Apps without a
   // server islands directory never provide the context at all.
+  const serverIslands = getServerIslandsRuntime();
   let serverIslandState: ServerIslandRenderState | null = null;
-  if (hasRegisteredServerIslands()) {
+  if (serverIslands) {
     const inline = (match.route.render ?? "ssr") === "ssr" && !job.willStream;
-    serverIslandState = createServerIslandRenderState(inline ? "inline" : "defer");
+    serverIslandState = serverIslands.createRenderState(
+      inline ? "inline" : "defer",
+      0,
+      serverIslands.declared(job.routeModule, job.shellModule),
+    );
     tree = h(
-      ServerIslandRenderContext.Provider as FunctionComponent<Record<string, unknown>>,
+      serverIslands.RenderContext.Provider as FunctionComponent<Record<string, unknown>>,
       { value: serverIslandState },
       tree,
     );
@@ -854,8 +853,8 @@ async function renderServerDocument<TContext>(
 
   const renderToString = await getRenderToStringAsync();
   let ssrContent = await renderToString(tree);
-  if (serverIslandState) {
-    ssrContent = await resolveInlineServerIslands(ssrContent, serverIslandState, {
+  if (serverIslands && serverIslandState) {
+    ssrContent = await serverIslands.resolveInline(ssrContent, serverIslandState, {
       routeArgs: job.routeArgs,
       onError: (error, serverIsland) => {
         reportRequestError(ctx.options.onRouteError, error, ctx.requestPath, {
@@ -897,8 +896,8 @@ async function renderServerDocument<TContext>(
     // Pending server islands on a page without the client runtime need the swap
     // script; full-hydration pages fill them from the client server island component.
     let serverIslandsEntryUrl: string | undefined;
-    if (serverIslandState?.deferred) {
-      serverIslandsEntryUrl = getServerIslandsClientEntryUrl();
+    if (serverIslands && serverIslandState?.deferred) {
+      serverIslandsEntryUrl = serverIslands.getClientEntryUrl();
       if (!serverIslandsEntryUrl) {
         throw new Error(
           `Route "${match.route.path}" rendered a server island, but no server island swap ` +

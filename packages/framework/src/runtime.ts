@@ -1,5 +1,5 @@
 import { matchAppRoute } from "./app.ts";
-import { handleServerIslandRequest, hasRegisteredServerIslands } from "./server-islands-server.ts";
+import { getServerIslandsRuntime } from "./server-islands-runtime.ts";
 import { PRACHT_SERVER_ISLAND_ENDPOINT } from "./server-islands-shared.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
 import {
@@ -61,8 +61,9 @@ async function handlePrachtRequestPipeline<TContext>(
 
   // Only apps with a server islands directory own this path; every other app routes
   // it like any other URL.
-  if (ctx.routePathname === PRACHT_SERVER_ISLAND_ENDPOINT && hasRegisteredServerIslands()) {
-    return handleServerIslandRequest(ctx);
+  const serverIslands = getServerIslandsRuntime();
+  if (ctx.routePathname === PRACHT_SERVER_ISLAND_ENDPOINT && serverIslands) {
+    return serverIslands.handleRequest(ctx);
   }
 
   const apiResponse = await dispatchApi(ctx);

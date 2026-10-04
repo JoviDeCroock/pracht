@@ -356,8 +356,7 @@ test("islands build hydrates islands only and ships minimal JS", async ({ page }
     await page.getByTestId("increment").click();
     await expect(page.getByTestId("count")).toHaveText("Count: 2");
 
-    // Route binding: the build ships which routes render which server islands, and
-    // the endpoint refuses a server island for a page whose route does not render it
+    // The endpoint refuses a server island for a page whose route does not list it
     // exactly as it refuses one that does not exist.
     const serverIslandAt = (serverIsland: string, path: string) =>
       fetch(

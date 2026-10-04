@@ -203,6 +203,7 @@ export function Component() {
       `src/routes/lab/si-${page}.tsx`,
       `import Disclosure from "../../islands/Disclosure.tsx";
 import Visitor from "../../server-islands/Visitor.tsx";
+export const serverIslands = [Visitor];
 export function head() { return { title: "SI ${page}" }; }
 export function Component() { return <section><h1>SI ${page}</h1>${body}</section>; }`,
     ]),

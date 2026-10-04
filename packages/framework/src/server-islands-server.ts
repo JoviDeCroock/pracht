@@ -12,7 +12,6 @@ import {
 } from "./islands-server.ts";
 import { ServerIslandDataContext } from "./server-islands-data.ts";
 import {
-  DEV_SERVER_ISLAND_BINDINGS_HEADER,
   MAX_SERVER_ISLAND_PROPS_LENGTH,
   SERVER_ISLAND_ELEMENT,
   SERVER_ISLAND_FILE_ATTRIBUTE,
@@ -30,8 +29,9 @@ import {
   type PrachtRuntimeValue,
 } from "./runtime-context.ts";
 import { reportRequestError, type PrachtRuntimeDiagnosticPhase } from "./runtime-errors.ts";
+import { installServerIslandsRuntime } from "./server-islands-runtime.ts";
 import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
-import { getSuffixIndex, normalizeModulePath, resolveRegistryModule } from "./runtime-manifest.ts";
+import { resolveRegistryModule } from "./runtime-manifest.ts";
 import {
   composeRequestSignal,
   isClientDisconnect,
@@ -49,11 +49,10 @@ import { ScriptCaptureContext, type ScriptCapture } from "./script.ts";
 import type {
   BaseRouteArgs,
   HydrationMode,
-  ModuleRegistry,
   ServerIslandLoaderArgs,
   ServerIslandModule,
-  ResolvedRoute,
   RouteModule,
+  ShellModule,
 } from "./types.ts";
 
 /**
@@ -101,6 +100,12 @@ interface PendingServerIsland {
 /** Per-render server island state, threaded through the page render via context. */
 export interface ServerIslandRenderState {
   mode: "inline" | "defer";
+  /**
+   * The server islands the page's route and shell modules list in their
+   * `serverIslands` exports. A page may render only these directly; `null`
+   * outside a page render.
+   */
+  declared: ReadonlySet<ComponentType<any>> | null;
   /** Set when the render emitted at least one pending placeholder. */
   deferred: boolean;
   pending: PendingServerIsland[];
@@ -117,7 +122,9 @@ export interface ServerIslandRenderEnv {
   onError: (error: unknown, descriptor: ServerIslandDescriptor) => void;
 }
 
-export const ServerIslandRenderContext = createContext<ServerIslandRenderState | null>(null);
+export const ServerIslandRenderContext = /* @__PURE__ */ createContext<ServerIslandRenderState | null>(
+  null,
+);
 
 // Server islands render server islands: a server island's own markup is resolved inline too. Past
 // this depth the nesting is almost certainly a server island rendering itself.
@@ -127,26 +134,6 @@ const serverIslandRegistry = new Map<ComponentType<any>, ServerIslandDescriptor>
 const serverIslandsByFile = new Map<string, ServerIslandDescriptor>();
 let serverIslandsClientEntryUrl: string | undefined;
 
-/**
- * The server islands each route and shell module reaches through its static imports,
- * keyed by the module's registry key ("/src/routes/admin.tsx") and listing
- * server island files ("/src/server-islands/AdminStats.tsx"). The server island endpoint runs a
- * server island only under a route whose own module or shell is in this map with
- * that server island — see docs/SERVER_ISLANDS.md, "Route binding".
- */
-export type ServerIslandBindings = Readonly<Record<string, readonly string[]>>;
-
-/**
- * Where the endpoint reads the bindings from. A build ships them in the server
- * bundle; the dev server computes them per request and passes them in a
- * header it controls. Unset means neither, and every server island request is
- * refused.
- */
-type ServerIslandBindingSource =
-  | { kind: "manifest"; bindings: ServerIslandBindings }
-  | { kind: "dev-server" };
-
-let serverIslandBindingSource: ServerIslandBindingSource | undefined;
 let vnodeHookInstalled = false;
 
 // Same set-then-consume sentinel as islands: `h()` is synchronous, so the
@@ -186,6 +173,14 @@ export function registerServerIslandModules(modules: Record<string, unknown>): v
 
   if (serverIslandRegistry.size > 0) {
     installServerIslandVnodeHook();
+    installServerIslandsRuntime({
+      createRenderState: createServerIslandRenderState,
+      declared: declaredServerIslands,
+      getClientEntryUrl: getServerIslandsClientEntryUrl,
+      handleRequest: handleServerIslandRequest,
+      RenderContext: ServerIslandRenderContext,
+      resolveInline: resolveInlineServerIslands,
+    });
   }
 }
 
@@ -197,84 +192,24 @@ export function getServerIslandsClientEntryUrl(): string | undefined {
   return serverIslandsClientEntryUrl;
 }
 
-export function hasRegisteredServerIslands(): boolean {
-  return serverIslandRegistry.size > 0;
-}
-
 /**
- * Install the route↔server island bindings a build computed from its module graph.
- * Accepts the JSON the build spliced into the server bundle; anything that is
- * not a map of string arrays binds nothing, so a build that never filled it
- * in refuses every server island request instead of serving them all.
+ * The server islands a page may render: those its route module and its shell
+ * module list in their `serverIslands` exports. The endpoint runs a server island
+ * only under a route that lists it, so the middleware and params it sees are
+ * those of a page that renders it.
  */
-export function setServerIslandBindings(bindings: ServerIslandBindings | string): void {
-  serverIslandBindingSource = { kind: "manifest", bindings: parseServerIslandBindings(bindings) };
-}
-
-/**
- * Development: read each server island request's bindings from the header the dev
- * server sets (it strips any copy the client sent first). Only the generated
- * development server module calls this.
- */
-export function readServerIslandBindingsFromDevServer(): void {
-  serverIslandBindingSource = { kind: "dev-server" };
-}
-
-function parseServerIslandBindings(raw: unknown): ServerIslandBindings {
-  let value = raw;
-  if (typeof value === "string") {
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return {};
+export function declaredServerIslands(
+  routeModule: Pick<RouteModule, "serverIslands"> | undefined,
+  shellModule: Pick<ShellModule, "serverIslands"> | undefined,
+): Set<ComponentType<any>> {
+  const declared = new Set<ComponentType<any>>();
+  for (const list of [routeModule?.serverIslands, shellModule?.serverIslands]) {
+    if (!Array.isArray(list)) continue;
+    for (const component of list) {
+      if (typeof component === "function") declared.add(component);
     }
   }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const bindings: Record<string, readonly string[]> = Object.create(null);
-  for (const [key, files] of Object.entries(value)) {
-    if (Array.isArray(files) && files.every((file) => typeof file === "string")) {
-      bindings[key] = files;
-    }
-  }
-  return bindings;
-}
-
-/** The registry key the runtime loads `file` from — `resolveRegistryModule()`'s lookup. */
-function registryKeyFor(
-  modules: Record<string, unknown> | undefined,
-  file: string | undefined,
-): string | undefined {
-  if (!modules || !file) return undefined;
-  if (Object.hasOwn(modules, file)) return file;
-  return getSuffixIndex(modules).get(normalizeModulePath(file));
-}
-
-/**
- * The server island files `route` may run: those its own module or its shell module
- * imports statically. These are the modules that render its document, so a
- * server island is never reachable under a route — its middleware, its params — that
- * would not render it itself.
- */
-function boundServerIslandsFor(
-  route: ResolvedRoute,
-  registry: ModuleRegistry,
-  request: Request,
-): ReadonlySet<string> {
-  const bindings =
-    serverIslandBindingSource?.kind === "manifest"
-      ? serverIslandBindingSource.bindings
-      : serverIslandBindingSource?.kind === "dev-server"
-        ? parseServerIslandBindings(request.headers.get(DEV_SERVER_ISLAND_BINDINGS_HEADER) ?? "")
-        : {};
-  const bound = new Set<string>();
-  for (const key of [
-    registryKeyFor(registry.routeModules, route.file),
-    registryKeyFor(registry.shellModules, route.shellFile),
-  ]) {
-    if (key === undefined || !Object.hasOwn(bindings, key)) continue;
-    for (const file of bindings[key]!) bound.add(file);
-  }
-  return bound;
+  return declared;
 }
 
 /** @internal Reset module state for tests. */
@@ -282,15 +217,16 @@ export function _resetServerIslandsForTesting(): void {
   serverIslandRegistry.clear();
   serverIslandsByFile.clear();
   serverIslandsClientEntryUrl = undefined;
-  serverIslandBindingSource = undefined;
+  installServerIslandsRuntime(undefined);
   skipWrapForType = null;
 }
 
 export function createServerIslandRenderState(
   mode: ServerIslandRenderState["mode"],
   depth = 0,
+  declared: ReadonlySet<ComponentType<any>> | null = null,
 ): ServerIslandRenderState {
-  return { mode, deferred: false, pending: [], token: createRenderToken(), depth };
+  return { mode, declared, deferred: false, pending: [], token: createRenderToken(), depth };
 }
 
 function createRenderToken(): string {
@@ -354,6 +290,15 @@ function ServerIslandBoundary(props: Record<string, unknown>) {
   }
   delete serverIslandProps.children;
   validateIslandProps(serverIslandProps, descriptor, "Server island");
+  // Only the page's own server islands need listing: one rendered inside another
+  // server island resolves inline with it and never reaches the endpoint alone.
+  if (state && state.depth === 0 && state.declared && !state.declared.has(type)) {
+    throw new Error(
+      `Server island "${descriptor.name}" (${descriptor.file}) is rendered by a page that does not ` +
+        "list it. Add it to `export const serverIslands = [...]` in the route module, or in the " +
+        "shell module when the shell renders it.",
+    );
+  }
 
   const serializedProps = JSON.stringify(serverIslandProps);
   const attributes: Record<string, unknown> = {
@@ -522,8 +467,8 @@ function serverIslandTextResponse(
  * page the browser is on.
  *
  * The request names the server island, its props, and the page path. The page path
- * is matched against the route table, and the server island must be bound to that
- * route: imported by its route module or shell module (`boundServerIslandsFor`).
+ * is matched against the route table, and the server island must be listed in that
+ * route's `serverIslands` export or its shell's (`declaredServerIslands`).
  * That route's middleware chain then runs around the server island, with a request
  * whose URL is the page's and whose headers (cookies included) are the server island
  * request's — so session and auth middleware populate `context` exactly as
@@ -579,26 +524,27 @@ export async function handleServerIslandRequest<TContext>(
   const match = routePathname === null ? undefined : matchAppRoute(ctx.resolvedApp, routePathname);
   if (!match) return serverIslandTextResponse("No route matches the server island path", 404);
 
-  // Route binding: the server island must be one this route's own module or shell
-  // imports. A server island that does not exist and one the route does not render
-  // get the same answer, checked at the same point, so a caller cannot tell
-  // them apart or probe for server island names.
+  // The server island must be one this route or its shell lists. A server island
+  // that does not exist and one the route does not list get the same answer,
+  // checked at the same point, so a caller cannot tell them apart or probe for
+  // server island names.
+  const [routeModule, shellModule] = await Promise.all([
+    resolveRegistryModule<RouteModule>(ctx.registry.routeModules, match.route.file),
+    match.route.shellFile
+      ? resolveRegistryModule<ShellModule>(ctx.registry.shellModules, match.route.shellFile)
+      : undefined,
+  ]);
   const file = url.searchParams.get(SERVER_ISLAND_QUERY_FILE) ?? "";
   const descriptor = serverIslandsByFile.get(file);
-  if (
-    !descriptor ||
-    !boundServerIslandsFor(match.route, ctx.registry, request).has(descriptor.file)
-  ) {
+  if (!descriptor || !declaredServerIslands(routeModule, shellModule).has(descriptor.component)) {
     return serverIslandTextResponse("Unknown server island", 404);
   }
 
   // The page's URL with the server island request's headers: middleware and the
   // loader see the page they are rendering for, and the visitor's cookies.
-  const pageHeaders = new Headers(request.headers);
-  pageHeaders.delete(DEV_SERVER_ISLAND_BINDINGS_HEADER);
   const pageRequest = new Request(pageUrl, {
     method: "GET",
-    headers: pageHeaders,
+    headers: new Headers(request.headers),
     signal: request.signal,
   });
   const signal = composeRequestSignal(pageRequest, ctx.loaderTimeoutMs);
@@ -625,10 +571,6 @@ export async function handleServerIslandRequest<TContext>(
     phase = "loader";
     // The loader sees the page's `search` exactly as an inline render would:
     // validated by the route module's `search` export.
-    const routeModule = await resolveRegistryModule<RouteModule>(
-      ctx.registry.routeModules,
-      match.route.file,
-    );
     const searchError = await applyRouteSearch(routeArgs, routeModule?.search);
     if (searchError) return serverIslandTextResponse(searchError.message, 400);
     // The same app root state the page's loaders get inline.

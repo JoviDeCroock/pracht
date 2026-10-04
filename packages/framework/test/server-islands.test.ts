@@ -1,4 +1,4 @@
-import { h, type ComponentChildren } from "preact";
+import { h, type ComponentChildren, type ComponentType } from "preact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defineApp, group, handlePrachtRequest, route, useServerIslandData } from "../src/index.ts";
@@ -9,9 +9,7 @@ import {
 } from "../src/islands-server.ts";
 import {
   _resetServerIslandsForTesting,
-  readServerIslandBindingsFromDevServer,
   registerServerIslandModules,
-  setServerIslandBindings,
   setServerIslandsClientEntryUrl,
 } from "../src/server-islands-server.ts";
 import type {
@@ -21,9 +19,13 @@ import type {
   HydrationMode,
 } from "../src/index.ts";
 
+// What `./routes/page.tsx` lists in its `serverIslands` export.
+let pageServerIslands: ComponentType<any>[] = [];
+
 afterEach(() => {
   _resetServerIslandsForTesting();
   _resetIslandsForTesting();
+  pageServerIslands = [];
 });
 
 interface VisitorContext {
@@ -74,8 +76,8 @@ function registerVisitorServerIsland(setup: Setup = {}) {
     "/src/server-islands/Visitor.tsx": { default: ServerIsland, loader },
   });
   setServerIslandsClientEntryUrl(SERVER_ISLANDS_ENTRY);
-  // Both routes of `createApp()` render `./routes/page.tsx`, which renders it.
-  setServerIslandBindings({ "./routes/page.tsx": ["/src/server-islands/Visitor.tsx"] });
+  // Both routes of `createApp()` render `./routes/page.tsx`, which lists it.
+  pageServerIslands = [ServerIsland];
   return { ServerIsland, loader };
 }
 
@@ -97,7 +99,7 @@ function createApp(render: RenderMode, hydration?: HydrationMode) {
 function createRegistry(Component: () => ComponentChildren, middleware = visitorMiddleware) {
   return {
     routeModules: {
-      "./routes/page.tsx": async () => ({ Component }),
+      "./routes/page.tsx": async () => ({ Component, serverIslands: pageServerIslands }),
     },
     middlewareModules: {
       "./middleware/visitor.ts": async () => ({ middleware }),
@@ -373,6 +375,7 @@ describe("server island endpoint", () => {
         routeModules: {
           "./routes/page.tsx": async () => ({
             Component: () => h(ServerIsland, { greeting: "Hi" }),
+            serverIslands: [ServerIsland],
           }),
         },
       },
@@ -503,21 +506,11 @@ describe("server island endpoint route binding", () => {
   const ORG_DATA = "/src/server-islands/OrgData.tsx";
   const CART = "/src/server-islands/Cart.tsx";
 
-  // Registry keys are what `import.meta.glob` produces; the manifest names
-  // modules relative to it, and the runtime resolves one to the other.
-  const BINDINGS = {
-    "/src/routes/admin.tsx": [ADMIN_STATS],
-    "/src/routes/org.tsx": [ORG_DATA],
-    "/src/shells/site.tsx": [CART],
-  };
-
   const hasCookie = (request: Request, pattern: RegExp) =>
     pattern.test(request.headers.get("cookie") ?? "");
   const redirectHome = () => new Response(null, { status: 302, headers: { location: "/" } });
 
-  function setup(
-    bindings: Parameters<typeof setServerIslandBindings>[0] | "dev" | null = BINDINGS,
-  ) {
+  function setup() {
     const loaders = {
       adminStats: vi.fn(() => ({ revenue: "SECRET-REVENUE" })),
       orgData: vi.fn(({ params }: ServerIslandLoaderArgs) => ({ secret: `org-${params.org}` })),
@@ -545,8 +538,6 @@ describe("server island endpoint route binding", () => {
       [ORG_DATA]: { default: OrgData, loader: loaders.orgData },
       [CART]: { default: Cart, loader: loaders.cart },
     });
-    if (bindings === "dev") readServerIslandBindingsFromDevServer();
-    else if (bindings !== null) setServerIslandBindings(bindings);
 
     const app = defineApp({
       shells: { site: "./shells/site.tsx", plain: "./shells/plain.tsx" },
@@ -556,23 +547,30 @@ describe("server island endpoint route binding", () => {
         route("/static", "./routes/static.tsx", { render: "ssg" }),
         route("/org/:org/dash", "./routes/org.tsx", { render: "ssg", middleware: ["org"] }),
         route("/invite/:org", "./routes/invite.tsx", { render: "ssg" }),
-        // One page module under two shells: only the `site` shell renders Cart.
+        // One page module under two shells: only the `site` shell lists Cart.
         group({ shell: "site" }, [route("/news", "./routes/news.tsx", { render: "ssg" })]),
         group({ shell: "plain" }, [route("/plain-news", "./routes/news.tsx", { render: "ssg" })]),
       ],
     });
-    const page = async () => ({ Component: () => null });
-    const shell = async () => ({
-      Shell: ({ children }: { children: ComponentChildren }) => children,
+    const page = (serverIslands?: ComponentType<any>[]) => async () => ({
+      Component: () => null,
+      serverIslands,
     });
+    const shell = (serverIslands?: ComponentType<any>[]) => async () => ({
+      Shell: ({ children }: { children: ComponentChildren }) => children,
+      serverIslands,
+    });
+    // Registry keys are what `import.meta.glob` produces; the manifest names
+    // modules relative to it, and the runtime resolves one to the other.
     const registry = {
-      routeModules: Object.fromEntries(
-        ["admin", "static", "org", "invite", "news"].map((name) => [
-          `/src/routes/${name}.tsx`,
-          page,
-        ]),
-      ),
-      shellModules: { "/src/shells/site.tsx": shell, "/src/shells/plain.tsx": shell },
+      routeModules: {
+        "/src/routes/admin.tsx": page([AdminStats]),
+        "/src/routes/static.tsx": page(),
+        "/src/routes/org.tsx": page([OrgData]),
+        "/src/routes/invite.tsx": page(),
+        "/src/routes/news.tsx": page(),
+      },
+      shellModules: { "/src/shells/site.tsx": shell([Cart]), "/src/shells/plain.tsx": shell() },
       middlewareModules: {
         "/src/middleware/admin.ts": async () => ({ middleware: middleware.admin }),
         "/src/middleware/org.ts": async () => ({ middleware: middleware.org }),
@@ -593,7 +591,7 @@ describe("server island endpoint route binding", () => {
     return { status: response.status, body: await response.text(), headers };
   }
 
-  it("refuses a gated page's server island under a route that does not render it", async () => {
+  it("refuses a gated page's server island under a route that does not list it", async () => {
     // The exploit: AdminStats is rendered only on /admin, behind `admin`
     // middleware, and its loader does no check of its own.
     const { loaders, middleware, send } = setup();
@@ -608,7 +606,7 @@ describe("server island endpoint route binding", () => {
     expect(middleware.admin).not.toHaveBeenCalled();
   });
 
-  it("runs a bound server island behind its own route's middleware", async () => {
+  it("runs a listed server island behind its own route's middleware", async () => {
     const { loaders, send } = setup();
 
     const anonymous = await send({ island: ADMIN_STATS, path: "/admin" });
@@ -620,7 +618,7 @@ describe("server island endpoint route binding", () => {
     expect(await admin.text()).toBe("<p>SECRET-REVENUE</p>");
   });
 
-  it("never hands a server island params from a route that does not render it", async () => {
+  it("never hands a server island params from a route that does not list it", async () => {
     // OrgData trusts `params.org` because /org/:org/dash checks membership;
     // /invite/:org has the same param and no such check.
     const { loaders, send } = setup();
@@ -639,32 +637,16 @@ describe("server island endpoint route binding", () => {
     expect(await member.text()).toBe("<p>org-mine</p>");
   });
 
-  it("binds a shell's server island to the routes using that shell only", async () => {
+  it("runs a shell's server island for the routes using that shell only", async () => {
     const { send } = setup();
 
     expect((await send({ island: CART, path: "/news" })).status).toBe(200);
-    // The same page module under a shell that does not render Cart.
+    // The same page module under a shell that does not list Cart.
     expect((await send({ island: CART, path: "/plain-news" })).status).toBe(404);
     expect((await send({ island: CART, path: "/static" })).status).toBe(404);
   });
 
-  it("refuses every server island when no bindings were installed or they do not parse", async () => {
-    for (const bindings of [
-      null,
-      "not json",
-      "__PRACHT_SERVER_ISLAND_BINDINGS__",
-      "[]",
-      '{"a":1}',
-    ]) {
-      const { loaders, send } = setup(bindings);
-      const response = await send({ island: CART, path: "/news" });
-      expect({ bindings, status: response.status }).toEqual({ bindings, status: 404 });
-      expect(loaders.cart).not.toHaveBeenCalled();
-      _resetServerIslandsForTesting();
-    }
-  });
-
-  it("gives an unknown and an unbound server island the same answer for every malformed request", async () => {
+  it("gives an unknown and an unlisted server island the same answer for every malformed request", async () => {
     const { send } = setup();
     const malformed: Array<Record<string, string>> = [
       { path: "/static", props: "[1]" },
@@ -681,47 +663,46 @@ describe("server island endpoint route binding", () => {
       expect(known).toEqual(unknown);
     }
   });
+});
 
-  it("ignores a client-sent development bindings header in a built app", async () => {
-    const { loaders, send } = setup();
+describe("server island declarations", () => {
+  it("fails a page render that uses a server island its route does not list", async () => {
+    const { ServerIsland } = registerVisitorServerIsland();
+    pageServerIslands = [];
+    const onRouteError = vi.fn();
 
-    const response = await send(
-      { island: ADMIN_STATS, path: "/static" },
-      {
-        "x-pracht-dev-server-island-bindings": JSON.stringify({
-          "/src/routes/static.tsx": [ADMIN_STATS],
-        }),
-      },
-    );
-
-    expect(response.status).toBe(404);
-    expect(loaders.adminStats).not.toHaveBeenCalled();
-  });
-
-  it("reads development bindings from the dev server's header, and nothing else", async () => {
-    const { loaders, middleware, send } = setup("dev");
-    const header = (bindings: object) => ({
-      "x-pracht-dev-server-island-bindings": JSON.stringify(bindings),
-      cookie: "role=admin",
+    const response = await handlePrachtRequest({
+      app: createApp("ssg"),
+      registry: createRegistry(() => h(ServerIsland, { greeting: "Hi" })),
+      request: new Request("http://localhost/products/1"),
+      onRouteError,
     });
 
-    expect(
-      (await send({ island: ADMIN_STATS, path: "/admin" }, { cookie: "role=admin" })).status,
-    ).toBe(404);
-    expect(
-      (
-        await send(
-          { island: ADMIN_STATS, path: "/admin" },
-          header({ "/src/routes/static.tsx": [ADMIN_STATS] }),
-        )
-      ).status,
-    ).toBe(404);
+    expect(response.status).toBe(500);
+    expect(onRouteError.mock.calls[0]![0].message).toContain("export const serverIslands = [...]");
+  });
 
-    const bound = await send({ island: ADMIN_STATS, path: "/admin" }, header(BINDINGS));
-    expect(bound.status).toBe(200);
-    // Middleware and the loader never see the header.
-    const [args] = middleware.admin.mock.calls[0]!;
-    expect(args.request.headers.has("x-pracht-dev-server-island-bindings")).toBe(false);
-    expect(loaders.adminStats).toHaveBeenCalledOnce();
+  it("does not ask a server island nested in another to be listed", async () => {
+    registerVisitorServerIsland();
+    function Nested() {
+      return h("span", null, "nested");
+    }
+    function Outer() {
+      return h("div", null, h(Nested, null));
+    }
+    registerServerIslandModules({
+      "/src/server-islands/Outer.tsx": { default: Outer },
+      "/src/server-islands/Nested.tsx": { default: Nested },
+    });
+    pageServerIslands = [Outer];
+
+    const response = await handlePrachtRequest({
+      app: createApp("ssr"),
+      registry: createRegistry(() => h(Outer, null)),
+      request: new Request("http://localhost/products/1"),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("<span>nested</span>");
   });
 });

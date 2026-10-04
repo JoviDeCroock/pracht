@@ -305,8 +305,8 @@ Server islands (`src/server-islands/`) are the exception to "one render per
 document": on SSR pages they render inline after the page, and on SSG/ISG pages
 the document carries a fallback that the browser fills from
 `GET /__pracht/server-island`, which runs the page route's middleware and the
-server island loader per visitor — only for routes that import that server
-island (the route binding). See [SERVER_ISLANDS.md](SERVER_ISLANDS.md).
+server island loader per visitor — only for routes whose route or shell module
+lists that server island in `serverIslands` (the route binding). See [SERVER_ISLANDS.md](SERVER_ISLANDS.md).
 
 ### SSG Build
 
