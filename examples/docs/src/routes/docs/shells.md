@@ -208,4 +208,4 @@ Loaders read the request's state as `args.root`, typed by `pracht typegen`. What
 
 The root is not a data source of its own: data that depends on the request comes from loaders, and data a layout shows from its [shell loader](#shell-data). Islands render without the app root, on the server too, so pass them what they need as props. An app that registers none ships none of this code. In the [pages router](/docs/routing#file-conventions), the root is `pages/_root.tsx`.
 
-The module is bundled for the browser, so keep secrets in middleware and loaders. The one exception is `dehydrate`: exported as its own function, variable, or named re-export, it is left out of the browser bundle together with the imports only it uses, so it may read server-only modules.
+The module is bundled for the browser, so keep secrets in middleware and loaders. The one exception is `dehydrate`: exported as its own function, variable, or named re-export, it is left out of the browser bundle together with the imports only it uses, so it may read server-only modules. If other root code calls or re-exports `dehydrate`, the whole module ships.

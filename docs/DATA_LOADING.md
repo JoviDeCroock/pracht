@@ -285,7 +285,12 @@ with a second context. A declarator that binds `dehydrate` beside other names
 is kept whole, because the browser needs those bindings and its initializer
 ships for them anyway; `export *` is kept too. A server-only dependency
 therefore stays out of the browser only when it reaches `dehydrate` through
-its own function, variable, or named re-export.
+its own function, variable, or named re-export. The match is on the exported
+name, so `export { dehydrate as hydrate }` keeps `hydrate`. A destructuring
+declarator survives while any name it binds is still exported or used. When
+retained code still references the removed `dehydrate` (`hydrate` calls it,
+`export default dehydrate`, `{ dehydrate }` in a kept object), the root ships
+unstripped instead of throwing in the browser.
 
 **Server** (`runtime-root.ts`): `setup()` runs once per request context,
 cached in a `WeakMap` keyed by it, so a `notFound()` re-render reuses the same

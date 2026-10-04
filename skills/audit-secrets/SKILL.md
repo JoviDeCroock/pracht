@@ -93,7 +93,8 @@ copy loses only `dehydrate` and the imports nothing else uses; `setup()`,
 `Root`, `hydrate()`, and everything they import ship. A `dehydrate` bound in
 the same destructuring as those (`export const { setup, Root, dehydrate,
 hydrate } = createRoot(…)`) or reached through `export *` ships with them, so
-flag a server-only value passed into that call.
+flag a server-only value passed into that call. A root whose other code calls
+or re-exports `dehydrate` ships whole; flag its server-only imports too.
 
 ## Step 4: Hidden surfaces
 

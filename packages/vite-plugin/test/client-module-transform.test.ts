@@ -341,6 +341,52 @@ export const { setup, Root, dehydrate, hydrate } = createQueryRoot();
     expect(transformed).toBe(source);
   });
 
+  it("keeps an app root declarator exported through a specifier list", () => {
+    const source = `
+import { createQueryRoot } from "@pracht/query";
+
+const { setup, Root, dehydrate, hydrate } = createQueryRoot();
+export { setup, Root, dehydrate, hydrate };
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "/src/root.ts", {
+      appRoot: true,
+    });
+
+    expect(transformed).toContain("createQueryRoot();");
+    expect(transformed).toContain("export { setup, Root, hydrate };");
+    expectValidModuleSource(transformed);
+  });
+
+  it("keeps an app root's dehydrate when retained code still uses it", () => {
+    for (const source of [
+      `export function dehydrate(s) { return s; }\nexport function hydrate(s) { dehydrate(s); }\n`,
+      `export function dehydrate(s) { return s; }\nexport const api = { dehydrate };\n`,
+      `export function dehydrate(s) { return s; }\nexport default dehydrate;\n`,
+      `export function dehydrate(s) { return s; }\nexport { dehydrate as default };\n`,
+    ]) {
+      expect(stripServerOnlyExportsForClient(source, "/src/root.ts", { appRoot: true })).toBe(
+        source,
+      );
+    }
+  });
+
+  it("matches an app root export by its exported name", () => {
+    const source = `
+function dehydrate(s) {
+  return s;
+}
+export { dehydrate as hydrate };
+export { dehydrate as clientDehydrate } from "@tanstack/query-core";
+`;
+
+    const transformed = stripServerOnlyExportsForClient(source, "/src/root.ts", {
+      appRoot: true,
+    });
+
+    expect(transformed).toBe(source);
+  });
+
   it("preserves an ordinary client export named middleware in route modules", () => {
     const source = `
 export const middleware = "CLIENT_MIDDLEWARE_LABEL";
