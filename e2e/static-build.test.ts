@@ -115,7 +115,12 @@ async function startDumbStaticHost(
 
 function stopServer(server: Server | undefined): Promise<void> {
   if (!server) return Promise.resolve();
-  return new Promise((resolveClose) => server.close(() => resolveClose()));
+  return new Promise((resolveClose) => {
+    server.close(() => resolveClose());
+    // The page is still open, and Chromium may hold a speculative socket that
+    // has sent no request yet; `close()` waits on it indefinitely.
+    server.closeAllConnections();
+  });
 }
 
 function createTempExampleDir(
