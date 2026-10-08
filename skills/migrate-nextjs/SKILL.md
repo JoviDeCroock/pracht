@@ -1,6 +1,6 @@
 ---
 name: migrate-nextjs
-version: 1.8.0
+version: 1.8.1
 description: |
   Migrate a Next.js app to pracht: App or Pages Router pages, layouts, middleware,
   API routes, data fetching, and metadata — plus React→Preact, `className`→`class`,
@@ -337,8 +337,8 @@ and fix errors iteratively.
 | `next`          | `@pracht/core` + `@pracht/cli` + `@pracht/vite-plugin` + a target adapter    |
 | `next/image`    | `@pracht/image`                                                              |
 | `react`, `react-dom` | `preact`                                                                |
-| `next/font/local` | `defineFont()` from `@pracht/core` — register via `head() { return { fonts: [font] } }`, use `font.className`/`font.style` |
-| `next/font/google` | Download the woff2 files into `public/fonts/` (e.g. via google-webfonts-helper), then `defineFont()` — pracht never fetches fonts at build time |
+| `next/font/local` | Import WOFF2 with `?url&no-inline` into [`defineFont()`](https://pracht.resynapse.dev/docs/fonts); register `head().fonts`, apply `font.className`/`font.style` |
+| `next/font/google` | Self-host WOFF2 in `src/fonts/`, then follow `next/font/local`; pracht never fetches fonts at build time |
 | `@next/mdx`     | `@mdx-js/rollup` (Vite plugin)                                               |
 | `next-auth`     | Direct integration in middleware/loaders                                     |
 | `next/og`       | `@vercel/og` or a custom solution                                            |

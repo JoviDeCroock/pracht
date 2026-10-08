@@ -768,10 +768,11 @@ the `@font-face` rules, deduped across shell and route contributions:
 
 ```typescript
 import { defineFont } from "@pracht/core";
+import interUrl from "./fonts/inter-latin.woff2?url&no-inline";
 
 const inter = defineFont({
   family: "Inter",
-  src: "/fonts/inter-latin.woff2",
+  src: interUrl,
   weight: "100 900",
   fallbacks: ["Arial", "sans-serif"],
 });
@@ -780,6 +781,13 @@ export function head() {
   return { title: "My Site", fonts: [inter] };
 }
 ```
+
+Source-directory imports let Vite emit a content-hashed asset and apply the
+deploy base. `?url&no-inline` prevents small fonts from becoming data URLs,
+so preload links and `@font-face` share the emitted file. The font helper
+uses the supplied URL unchanged; it does not emit files or calculate fallback
+metrics. Files served from `public/` retain stable names and need cache
+revalidation if their bytes can change.
 
 Use `inter.className`, `inter.style`, or `inter.fontFamily` in components. See
 the Fonts page in the docs site

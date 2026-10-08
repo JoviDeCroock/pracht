@@ -12,18 +12,21 @@ next:
 
 ## Quick Start
 
-Put the font file in `public/` and describe it once with `defineFont()`:
+Put a self-hosted WOFF2 file in `src/fonts/` and import its URL into `defineFont()`:
 
 ```ts [src/fonts.ts]
 import { defineFont } from "@pracht/core";
+import interUrl from "./fonts/inter-latin.woff2?url&no-inline";
 
 export const inter = defineFont({
   family: "Inter",
-  src: "/fonts/inter-latin.woff2",
+  src: interUrl,
   weight: "100 900", // variable font range
   fallbacks: ["Arial", "sans-serif"],
 });
 ```
+
+Vite emits the font as a content-hashed asset and applies your deploy `base` to the imported URL. `?url&no-inline` keeps even small subsets in a separate file, so the preload and `@font-face` use the same URL. Keep `vite/client` in your TypeScript types for asset imports.
 
 Register it in a shell (site-wide) or route `head()` via the `fonts` array, and use it in components:
 
@@ -42,12 +45,16 @@ export function Shell({ children }) {
 The server expands each font into head HTML, so routes with `hydration: "none"` get the same output:
 
 ```html
-<link data-pracht-font-preload rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossorigin="anonymous">
+<link data-pracht-font-preload rel="preload" as="font" type="font/woff2" href="/assets/inter-latin-HASH.woff2" crossorigin="anonymous">
 <style data-pracht-fonts>
-@font-face{font-family:"Inter";src:url("/fonts/inter-latin.woff2") format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Inter";src:url("/assets/inter-latin-HASH.woff2") format("woff2");font-weight:100 900;font-display:swap}
 .pracht-font-inter-xxxx{font-family:"Inter", "Arial", sans-serif}
 </style>
 ```
+
+The asset hash in this example represents the filename Vite emits at build time. A changed font gets a new URL; configure your host to cache hashed assets for a year with `Cache-Control: public, max-age=31536000, immutable`.
+
+If you need a stable URL, put the file in `public/fonts/` and set `src: "/fonts/inter-latin.woff2"` instead. Public files keep their names; use revalidation rather than immutable caching when their bytes can change. Preloading helps font discovery; use the fallback metrics below to reduce layout shift.
 
 ## Using the Font in Components
 
@@ -81,7 +88,7 @@ CSS and preload links to match the new route.
 ```ts
 defineFont({
   family: "Inter",           // required — @font-face family name
-  src: "/fonts/inter.woff2", // required — public path, or an array of variants
+  src: "/fonts/inter.woff2", // required — imported URL, public path, or variant array
   weight: "100 900",         // font-weight descriptor (number, string, or range)
   style: "italic",           // font-style descriptor
   display: "swap",           // font-display (default "swap")
