@@ -25,7 +25,7 @@ pnpm --filter @pracht/example-basic dev
 
 ### Safe Chain installs
 
-Repository installs use [Aikido Safe Chain](https://github.com/AikidoSec/safe-chain)
+Local repository installs use [Aikido Safe Chain](https://github.com/AikidoSec/safe-chain)
 through `pnpm run deps:install`. The first run downloads a pinned binary into
 `.tmp/safe-chain` and then installs the workspace dependencies.
 

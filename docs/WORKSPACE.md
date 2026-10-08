@@ -39,8 +39,12 @@ constraint; the CLI test is.
 
 Repository dependency commands use [Aikido Safe Chain](https://github.com/AikidoSec/safe-chain)
 by default. Contributor and agent instructions use the root install script;
-all dependency installs in CI, docs publishing, and release workflows invoke
-the same wrapper, including the release job's global npm toolchain upgrade.
+CI, docs publishing, and release workflows follow the upstream
+[GitHub Actions example](https://github.com/AikidoSec/safe-chain#github-actions-example):
+download the pinned 1.5.24 installer, verify its SHA-256, and run it with
+`--ci` after Node and pnpm setup. Its executable shims enter `GITHUB_PATH`,
+so subsequent ordinary `pnpm install` and `npm install` commands use Safe
+Chain, including the release job's global npm toolchain upgrade.
 
 ```sh
 pnpm run deps:install --frozen-lockfile
@@ -59,7 +63,7 @@ The binary's `bin/` layout keeps its runtime data under `.tmp`. Setup creates
 an empty local `config.json` when absent, avoiding upstream's legacy
 `~/.aikido/config.json` lookup while preserving existing local configuration.
 Delete `.tmp/safe-chain` to reset it; the next invocation bootstraps again.
-There are no workspace dependencies or shell aliases for Safe Chain.
+The local wrapper adds no workspace dependencies or shell aliases.
 
 The wrapper forwards arguments to `safe-chain pnpm` (or `safe-chain npm`
 with the leading `--package-manager=npm` selector), inherits the caller's
