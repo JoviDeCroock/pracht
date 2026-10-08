@@ -35,6 +35,51 @@ the port-lease helper. On 22.17 and below that import throws
 passes the flag explicitly to the fixture builds it spawns, so it is not the
 constraint; the CLI test is.
 
+### Dependency installations
+
+Repository dependency commands use [Aikido Safe Chain](https://github.com/AikidoSec/safe-chain)
+by default. Contributor and agent instructions use the root install script;
+all dependency installs in CI, docs publishing, and release workflows invoke
+the same wrapper, including the release job's global npm toolchain upgrade.
+
+```sh
+pnpm run deps:install --frozen-lockfile
+node scripts/safe-chain.mjs --filter @pracht/example-basic add <package>
+node scripts/safe-chain.mjs update <package>
+node scripts/safe-chain.mjs --package-manager=npm install -g npm@11.15.0
+```
+
+`scripts/safe-chain.mjs` automatically downloads the pinned 1.5.24 standalone
+release into `.tmp/safe-chain/1.5.24/bin/` on first use. It verifies the release
+SHA-256 before saving and before each execution. It supports macOS, Linux,
+and Windows on x64 and arm64. `pnpm run safe:setup` can prefetch the binary;
+`pnpm run safe:pnpm <arguments>` remains a compatibility alias.
+
+The binary's `bin/` layout keeps its runtime data under `.tmp`. Setup creates
+an empty local `config.json` when absent, avoiding upstream's legacy
+`~/.aikido/config.json` lookup while preserving existing local configuration.
+Delete `.tmp/safe-chain` to reset it; the next invocation bootstraps again.
+There are no workspace dependencies or shell aliases for Safe Chain.
+
+The wrapper forwards arguments to `safe-chain pnpm` (or `safe-chain npm`
+with the leading `--package-manager=npm` selector), inherits the caller's
+working directory and environment, and preserves nonzero child exit codes.
+Download, checksum, and spawn failures stop the command without an unwrapped
+fallback. Direct `pnpm install` is not intercepted: contributors and agents
+must use the documented entry point. Published packages and generated apps
+keep their existing installation behavior.
+
+Safe Chain intercepts registry downloads. A repeat install served from pnpm's
+store does not establish that existing cached packages were scanned. For a
+download-path check, use a temporary project and a fresh `--store-dir=<path>`.
+The default Safe Chain minimum package age is 48 hours; pnpm's seven-day
+`minimumReleaseAge`, pinned exceptions, `blockExoticSubdeps`, and build
+approvals still apply. GitHub, the npm registry, and Aikido's threat feeds
+must be reachable. The bootstrap download is checked by checksum.
+
+Public contributor instructions live on the
+[Examples page](https://pracht.resynapse.dev/docs/examples#safe-chain-installs).
+
 ## Packages
 
 | Path                          | Package                      | Current role                                                                                                 |
@@ -254,7 +299,7 @@ on it.
   metadata, middleware redirects, auth-gated routes, SPA mode, route-state JSON,
   404 handling, hydration, client-side navigation, API routes (GET, POST, 405,
   404), and the Cloudflare/Vercel build outputs. The root `prepare` script
-  installs Playwright Chromium during `pnpm install` so local E2E runs have
+  installs Playwright Chromium during `pnpm run deps:install` so local E2E runs have
   their browser dependency ready by default.
 - **Custom Vite plugins** — Users bring their own Vite plugins (MDX, Tailwind,
   image tools, PWA, etc.) alongside `pracht()` in `vite.config.ts`. No special

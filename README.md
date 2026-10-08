@@ -166,4 +166,10 @@ The skills are distributed three ways (see the [catalog](skills/README.md)):
 
 ## Contributing
 
+Install the repository dependencies with `pnpm run deps:install --frozen-lockfile`.
+This automatically sets up the pinned local [Safe Chain](https://github.com/AikidoSec/safe-chain)
+binary and runs pnpm through its package checks. For dependency changes, use
+`node scripts/safe-chain.mjs <pnpm arguments>`, for example
+`node scripts/safe-chain.mjs --filter @pracht/example-basic add <package>`.
+
 Use the GitHub issue templates for bug reports and feature requests. When opening a pull request, follow [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).

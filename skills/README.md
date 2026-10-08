@@ -70,6 +70,15 @@ collide with other skill packs installed in the same app.
 | `/typed-routes`       | Generate and adopt route-id based typed links/navigation.         |
 | `/configure-isg`      | Wire ISG revalidation (time + webhook) per adapter.               |
 
+## Repository dependency commands
+
+When applying a skill inside the Pracht framework repository, install with
+`pnpm run deps:install` and run dependency changes through
+`node scripts/safe-chain.mjs <pnpm arguments>`, including workspace filters.
+The wrapper automatically sets up Safe Chain. Apply this convention to the
+install commands in skills when working in this repo; app projects use their
+own package-manager setup.
+
 ## Conventions
 
 - Use `pracht inspect routes --json`, `pracht inspect api --json`, and

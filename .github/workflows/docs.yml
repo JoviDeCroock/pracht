@@ -45,7 +45,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        run: node scripts/safe-chain.mjs install --frozen-lockfile --ignore-scripts
 
       - name: Build workspace and docs
         run: |

@@ -28,7 +28,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install --ignore-scripts
+        run: node scripts/safe-chain.mjs install --ignore-scripts
 
       - name: Build
         run: pnpm build
@@ -62,7 +62,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: node scripts/safe-chain.mjs install
 
       - name: Restore build output
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -102,7 +102,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: node scripts/safe-chain.mjs install
 
       - name: Restore build output
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -146,7 +146,7 @@ jobs:
           cache: pnpm
 
       - name: Install dependencies
-        run: pnpm install
+        run: node scripts/safe-chain.mjs install
 
       - name: Restore build output
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

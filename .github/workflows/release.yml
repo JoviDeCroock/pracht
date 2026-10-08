@@ -37,10 +37,10 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        run: node scripts/safe-chain.mjs install --frozen-lockfile --ignore-scripts
 
       - name: Install npm
-        run: npm install -g npm@11.15.0
+        run: node scripts/safe-chain.mjs --package-manager=npm install -g npm@11.15.0
 
       - name: Create Release Pull Request
         id: changesets
@@ -86,10 +86,10 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        run: node scripts/safe-chain.mjs install --frozen-lockfile --ignore-scripts
 
       - name: Install npm
-        run: npm install -g npm@11.15.0
+        run: node scripts/safe-chain.mjs --package-manager=npm install -g npm@11.15.0
 
       # No separate build step: stage-packages.mjs stages each package with
       # `pnpm publish`, whose prepublishOnly hook builds it. Package types resolve
