@@ -17,9 +17,29 @@ but `showcase` and `docs` also run in the
 
 ```sh
 git clone https://github.com/JoviDeCroock/pracht
-cd pracht && pnpm install && pnpm build
+cd pracht
+pnpm run deps:install --frozen-lockfile
+pnpm build
 pnpm --filter @pracht/example-basic dev
 ```
+
+### Safe Chain installs
+
+Local repository installs use [Aikido Safe Chain](https://github.com/AikidoSec/safe-chain)
+through `pnpm run deps:install`. The first run downloads a pinned binary into
+`.tmp/safe-chain` and then installs the workspace dependencies.
+
+For later dependency changes, pass the usual pnpm arguments to the wrapper:
+
+```sh
+node scripts/safe-chain.mjs --filter @pracht/example-basic add <package>
+node scripts/safe-chain.mjs update <package>
+```
+
+Run `pnpm run safe:pnpm safe-chain-verify` to check the setup; it prints
+`OK: Safe-chain works!`. The workspace's seven-day release-age policy still
+applies. These commands are for contributors working in this repository.
+
 
 ---
 

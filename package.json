@@ -27,7 +27,10 @@
     "bench": "node ./bench/run.mjs",
     "bench:check": "node ./bench/run.mjs --bytes-only --check",
     "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js dev",
-    "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js build"
+    "build:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js build",
+    "deps:install": "node ./scripts/safe-chain.mjs install",
+    "safe:setup": "node ./scripts/safe-chain.mjs --setup",
+    "safe:pnpm": "node ./scripts/safe-chain.mjs"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.6.0",
