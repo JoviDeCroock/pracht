@@ -13,6 +13,7 @@ export {
   defaultLoader,
   cloudflareLoader,
   vercelLoader,
+  netlifyLoader,
   passthroughLoader,
   DEFAULT_IMAGE_ENDPOINT,
   DEFAULT_QUALITY,

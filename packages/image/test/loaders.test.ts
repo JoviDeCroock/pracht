@@ -4,6 +4,7 @@ import {
   cloudflareLoader,
   createDefaultLoader,
   defaultLoader,
+  netlifyLoader,
   passthroughLoader,
   vercelLoader,
 } from "../src/index.ts";
@@ -78,5 +79,39 @@ describe("vercelLoader", () => {
 describe("passthroughLoader", () => {
   it("returns the source untouched", () => {
     expect(passthroughLoader({ src: "/hero.jpg", width: 3840, quality: 10 })).toBe("/hero.jpg");
+  });
+});
+
+describe("netlifyLoader", () => {
+  it("encodes local sources and defaults to quality 75", () => {
+    expect(netlifyLoader({ src: "/hero image.jpg", width: 828 })).toBe(
+      "/.netlify/images?url=%2Fhero%20image.jpg&w=828&q=75",
+    );
+  });
+
+  it("keeps remote source query parameters inside the encoded url", () => {
+    const url = new URL(
+      netlifyLoader({
+        src: "https://images.example.com/cover.jpg?edition=2&title=A B",
+        width: 640,
+        quality: 60,
+      }),
+      "https://books.netlify.app",
+    );
+    expect(url.pathname).toBe("/.netlify/images");
+    expect([...url.searchParams]).toEqual([
+      ["url", "https://images.example.com/cover.jpg?edition=2&title=A B"],
+      ["w", "640"],
+      ["q", "60"],
+    ]);
+  });
+
+  it("keeps the platform endpoint at the origin root under a deploy base", async () => {
+    vi.resetModules();
+    vi.stubEnv("BASE_URL", "/books/");
+    const { netlifyLoader: loader } = await import("../src/index.ts");
+    expect(loader({ src: "/books/hero.jpg", width: 640 })).toBe(
+      "/.netlify/images?url=%2Fbooks%2Fhero.jpg&w=640&q=75",
+    );
   });
 });

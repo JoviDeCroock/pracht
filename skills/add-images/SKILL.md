@@ -1,9 +1,9 @@
 ---
 name: add-images
-version: 1.0.1
+version: 1.1.0
 description: |
   Wire `@pracht/image`: the CLS-safe zero-runtime `<Image>`, the loader for your
-  target (sharp endpoint, Cloudflare, Vercel, passthrough), `?pracht` build-time
+  target (sharp endpoint, Cloudflare, Vercel, Netlify, passthrough), `?pracht` build-time
   imports with blur placeholders, prebuilt WebP variants, and the optimization
   endpoint's security settings.
   Use for "add images", "optimize images", "responsive images", "next/image
@@ -39,6 +39,7 @@ pracht inspect build --json   # adapterTarget (requires a prior `pracht build`)
 | Node | `defaultLoader` + the built-in endpoint | needs `sharp`; put a CDN in front |
 | Cloudflare | `cloudflareLoader` | Image Resizing must be enabled on the zone; sharp does not run on Workers |
 | Vercel | `vercelLoader` | needs an `images` section in the project config; Vercel only serves widths listed in `images.sizes` |
+| Netlify | `netlifyLoader` | Image CDN; remote sources need `images.remote_images` in `netlify.toml`; no sharp endpoint |
 | Static host | `passthroughLoader` | no image service — srcset is omitted |
 | Any target, no runtime service | `?pracht&pracht-static` imports | prebuilt WebP variants, no loader involved |
 
@@ -76,8 +77,21 @@ configureImage({
 
 `createDefaultLoader("/my/endpoint")` builds a default-style loader for a custom
 endpoint path. Root-absolute endpoints pick up Vite's deploy `base`
-automatically; provider loaders (`cloudflareLoader`, `vercelLoader`)
+automatically; provider loaders (`cloudflareLoader`, `vercelLoader`, `netlifyLoader`)
 deliberately stay at the origin root.
+
+For Netlify, use `configureImage({ loader: import.meta.env.DEV ?
+passthroughLoader : netlifyLoader })` so `pracht dev` renders original images.
+Import both loaders from `@pracht/image`. For remote sources, merge the
+allowed URL patterns into the existing `netlify.toml`:
+
+```toml
+[images]
+remote_images = ['https://images\.example\.com/.*']
+```
+
+Local source files need no image-service configuration; Netlify negotiates
+the output format and caches resized images. Skip the Node endpoint step.
 
 ## Step 4: Render images
 

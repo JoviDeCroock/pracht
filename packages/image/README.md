@@ -11,7 +11,7 @@ next/image's loader pattern.
   `loading="lazy"` + `decoding="async"` by default, `priority` for
   above-the-fold images.
 - Loaders for the built-in endpoint, Cloudflare Image Resizing, Vercel Image
-  Optimization, or plain passthrough.
+  Optimization, Netlify Image CDN, or plain passthrough.
 - A Node optimization endpoint (`@pracht/image/node`) backed by
   [sharp](https://sharp.pixelplumbing.com) (optional peer dependency) with a
   trusted-local-origin/remote-allowlist security model and revalidated cache
@@ -42,6 +42,17 @@ import hero from "./hero.jpg?pracht"; // { src, width, height, blurDataURL }
 
 <Image src={hero} alt="Hero" placeholder="blur" />;
 ```
+
+For Netlify deployments, configure the native image service once in `src/routes.ts`:
+
+```ts
+import { configureImage, netlifyLoader, passthroughLoader } from "@pracht/image";
+
+configureImage({ loader: import.meta.env.DEV ? passthroughLoader : netlifyLoader });
+```
+
+Allow remote sources with `[images].remote_images` in `netlify.toml`; local
+source files need no image-service configuration.
 
 For prebuilt responsive files, import
 `./hero.jpg?pracht&pracht-static`. Configure the candidate widths and quality
