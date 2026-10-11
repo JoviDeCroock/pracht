@@ -36,6 +36,47 @@ export function markdownFileHeaders(
 }
 
 /**
+ * The reason a prerendered page's own markup keeps it out of search indexes:
+ * a robots `<meta>` (`robots`, `googlebot`, a crawler name such as `googlebot`, or
+ * `http-equiv="X-Robots-Tag"`) whose content says `noindex` or `none`.
+ * Attribute order, quoting, and case do not matter.
+ */
+export function markdownFileHtmlReason(html: string): string | undefined {
+  for (const tag of html.matchAll(/<meta\b([^>]*)>/gi)) {
+    const attributes = parseAttributes(tag[1]);
+    const name = (attributes.get("name") ?? "").trim().toLowerCase();
+    const httpEquiv = (attributes.get("http-equiv") ?? "").trim().toLowerCase();
+    const isRobots = /^(robots|[a-z0-9-]*bot(-[a-z0-9-]+)?)$/.test(name) || httpEquiv === "x-robots-tag";
+    if (!isRobots) continue;
+    const content = attributes.get("content") ?? "";
+    if (/(^|[\s,:])(noindex|none)(?=[\s,]|$)/i.test(content)) {
+      return `the page has <meta name="${name || httpEquiv}" content="${content.trim()}">`;
+    }
+  }
+  return undefined;
+}
+
+function parseAttributes(source: string): Map<string, string> {
+  const attributes = new Map<string, string>();
+  const pattern = /([^\s"'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  for (const match of source.matchAll(pattern)) {
+    const key = match[1].toLowerCase();
+    if (attributes.has(key)) continue;
+    attributes.set(key, decodeEntities(match[2] ?? match[3] ?? match[4] ?? ""));
+  }
+  return attributes;
+}
+
+function decodeEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|quot|apos|lt|gt);/gi, (entity, body: string) => {
+    const lower = body.toLowerCase();
+    if (lower.startsWith("#x")) return String.fromCodePoint(Number.parseInt(lower.slice(2), 16));
+    if (lower.startsWith("#")) return String.fromCodePoint(Number.parseInt(lower.slice(1), 10));
+    return { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">" }[lower] ?? entity;
+  });
+}
+
+/**
  * The URL a page links its Markdown file at: the route-space path under the
  * deploy base. An absolute or protocol-relative base points assets at a CDN
  * and leaves documents at the origin root, as the runtime's `withBase()` does.

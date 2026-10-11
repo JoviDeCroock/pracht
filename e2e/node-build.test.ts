@@ -540,7 +540,24 @@ test("page Markdown files never replace a public/ file and can be switched off",
       "- [/](/): supports `Accept: text/markdown`",
     );
 
+    // A page that noindexes itself through `head()` gets no public copy.
     rmSync(publicMarkdown);
+    const homeRoutePath = resolve(exampleDir, "src/routes/home.tsx");
+    const homeRoute = readFileSync(homeRoutePath, "utf-8");
+    writeFileSync(
+      homeRoutePath,
+      `${homeRoute}\nexport function head() {\n  return { meta: [{ content: "noindex", name: "robots" }] };\n}\n`,
+      "utf-8",
+    );
+    const noindexOutput = buildExampleOutput(exampleDir, { PRACHT_ADAPTER: "node" });
+    expect(noindexOutput).toContain('/ (the page has <meta name="robots" content="noindex">)');
+    expect(existsSync(resolve(clientDir, "index.md"))).toBe(false);
+    expect(readFileSync(resolve(clientDir, "index.html"), "utf-8")).not.toContain(
+      'type="text/markdown"',
+    );
+    expect(readFileSync(resolve(clientDir, "llms.txt"), "utf-8")).not.toContain(".md)");
+    writeFileSync(homeRoutePath, homeRoute, "utf-8");
+
     const viteConfigPath = resolve(exampleDir, "vite.config.ts");
     writeFileSync(
       viteConfigPath,

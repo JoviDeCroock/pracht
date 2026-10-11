@@ -239,6 +239,13 @@ export function prachtContent(options: PrachtContentOptions): Plugin[] {
 
   const artifactPlugin: Plugin = {
     name: "pracht:content-artifacts",
+    // Lets the pracht dev server see the exact paths artifacts occupy, so a
+    // page's `.md` file is not planned over one (as the build does not).
+    api: {
+      async listArtifactPaths(): Promise<string[]> {
+        return (await collectArtifacts(collections)).map((artifact) => artifact.path);
+      },
+    },
     apply(_config, env) {
       return env.command === "serve" || (env.command === "build" && !env.isSsrBuild);
     },

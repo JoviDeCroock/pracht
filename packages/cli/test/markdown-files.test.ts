@@ -5,6 +5,7 @@ import {
   injectMarkdownAlternateLink,
   markdownFileHeaders,
   markdownFileHref,
+  markdownFileHtmlReason,
 } from "../src/markdown-files.js";
 
 describe("markdownFileHeaders", () => {
@@ -93,5 +94,45 @@ describe("formatMarkdownSkipList", () => {
     expect(formatMarkdownSkipList(entries)).toBe(
       "/p0 (ISG route), /p1 (ISG route), /p2 (ISG route), /p3 (ISG route), /p4 (ISG route), and 2 more",
     );
+  });
+});
+
+describe("markdownFileHtmlReason", () => {
+  const doc = (meta: string) => `<!DOCTYPE html><html><head>${meta}</head><body></body></html>`;
+
+  it("finds a robots meta that says noindex, however it is written", () => {
+    for (const meta of [
+      '<meta name="robots" content="noindex">',
+      "<meta content='noindex, nofollow' name='ROBOTS'>",
+      "<META NAME=googlebot CONTENT=NoIndex>",
+      '<meta data-pracht-owned name="bingbot" content="none" />',
+      '<meta http-equiv="X-Robots-Tag" content="noarchive, noindex">',
+      '<meta name="robots" content="googlebot: noindex">',
+      '<meta name="robots" content="&#110;oindex">',
+    ]) {
+      expect(markdownFileHtmlReason(doc(meta)), meta).toBeDefined();
+    }
+    expect(markdownFileHtmlReason(doc('<meta name="robots" content="noindex">'))).toBe(
+      'the page has <meta name="robots" content="noindex">',
+    );
+  });
+
+  it("ignores other meta tags and indexable robots values", () => {
+    for (const meta of [
+      '<meta name="robots" content="index, follow">',
+      '<meta name="robots" content="noarchive">',
+      '<meta name="description" content="noindex">',
+      '<meta property="og:title" content="none">',
+      '<meta name="robots-ish" content="noindex">',
+      '<meta name="robots">',
+    ]) {
+      expect(markdownFileHtmlReason(doc(meta)), meta).toBeUndefined();
+    }
+    // Escaped text in the body is not markup.
+    expect(
+      markdownFileHtmlReason(
+        '<body><pre>&lt;meta name="robots" content="noindex"&gt;</pre></body>',
+      ),
+    ).toBeUndefined();
   });
 });

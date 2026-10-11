@@ -104,9 +104,13 @@ charset=utf-8` — the same set the runtime Markdown response carries. The build
 records them in the headers manifest under `/<path>.md`, which the Node,
 Netlify, and Cloudflare adapters apply by pathname and Vercel turns into an
 exact-path header route. A static export has no header layer, as for its HTML.
-A page whose headers keep it out of indexes or shared caches
-(`X-Robots-Tag: noindex`/`none`, `Cache-Control: private`/`no-store`) gets no
-file: a public copy would undo exactly that. The dangerous-header check that
+A page kept out of indexes or shared caches gets no file, since a public copy
+would undo exactly that: `X-Robots-Tag: noindex`/`none` or
+`Cache-Control: private`/`no-store` in its headers, or a robots `<meta>`
+(`robots`, `googlebot`, a crawler name such as `googlebot`, or `http-equiv="X-Robots-Tag"`) with
+`noindex`/`none` in its prerendered HTML. The CLI scans the HTML rather than
+carrying merged `head()` metadata out of `prerenderApp()`, which ships in every
+server bundle. The dangerous-header check that
 refuses `Set-Cookie` and friends on SSG documents already ran on the same
 headers.
 
@@ -147,11 +151,15 @@ arguments links no `.md` file.
 
 **Dev.** `pracht dev` runs the same plan against the live graph: `/<path>.md`
 answers the route's `markdown` export for exactly the planned pages (dynamic
-params only from `getStaticPaths()`), and any other `.md` URL falls through to
-the app, which answers it like any URL — normally with its 404. The dev llms.txt
-links the same list. Dev does not prerender, so it cannot apply the
-`noindex`/`private` header rule and does not send the page's headers on the
-file. The Cloudflare adapter's dev server (owned by the Cloudflare Vite plugin)
+params only from `getStaticPaths()`), and any other `.md` URL is answered by the
+app's runtime — a route that matches it, or the runtime 404, as in production.
+The dev llms.txt links the same list. Files already "in the output" are
+`public/` files and content artifacts, which `@pracht/content` reports through
+its Vite plugin's `api.listArtifactPaths()`. The plan is cached until a watched
+file changes or the server module reloads; a route whose module or
+`getStaticPaths()` throws is left out with a warning rather than turning `.md`
+requests into 500s. Dev does not prerender, so it cannot apply the
+`noindex`/`private` rule and does not send the page's headers on the file. The Cloudflare adapter's dev server (owned by the Cloudflare Vite plugin)
 serves neither.
 
 **Why default-on.** The rule elsewhere is that agent surface is opt-in. A route

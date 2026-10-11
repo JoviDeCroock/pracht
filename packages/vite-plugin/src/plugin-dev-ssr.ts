@@ -19,6 +19,7 @@ import {
   planMarkdownFiles,
   resolveRegistryModule,
 } from "@pracht/core";
+import type { MarkdownFilePlan } from "@pracht/core";
 import type { AgentTrafficBuffer } from "./agent-traffic.ts";
 import type { PrachtAdapterDevOptions } from "./plugin-adapter.ts";
 import { createAgentTrafficBuffer } from "./agent-traffic.ts";
@@ -131,6 +132,7 @@ export function createDevSSRMiddleware(
     devBase === "/" || !path.startsWith("/") ? path : `${devBase}${path.slice(1)}`;
   let warnedDevtoolsCollision = false;
   let warnedLlmsTxtCollision = false;
+  const markdownPlans = createDevMarkdownPlanCache(server);
   // Dev-only agent traffic log, scoped to this dev server. Fed by the
   // `onCapabilityAudit` option below, which the runtime already calls for every
   // capability dispatch on every transport (HTTP, WebMCP, remote MCP, and
@@ -217,7 +219,7 @@ export function createDevSSRMiddleware(
 
         const llmsTxt: string = await serverMod.generateLlmsTxt({
           markdownFiles: options.markdownFiles
-            ? (await planDevMarkdownFiles(server, serverMod)).files.map((file) => file.pagePath)
+            ? (await markdownPlans.get(serverMod)).files.map((file) => file.pagePath)
             : [],
         });
         res.statusCode = 200;
@@ -242,10 +244,7 @@ export function createDevSSRMiddleware(
         requestUrl.pathname.endsWith(".md") &&
         BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase())
       ) {
-        const file = findDevMarkdownFile(
-          await planDevMarkdownFiles(server, serverMod),
-          requestUrl.pathname,
-        );
+        const file = findDevMarkdownFile(await markdownPlans.get(serverMod), requestUrl.pathname);
         if (file) {
           res.statusCode = 200;
           res.setHeader("content-type", "text/markdown; charset=utf-8");
@@ -583,15 +582,76 @@ export async function runDevConfigureServer(
   await configureModule.configureServer(createDevConfigureServerTarget(httpServer as Server));
 }
 
-/** The build's Markdown file plan, computed from the live app graph. */
-function planDevMarkdownFiles(server: ViteDevServer, serverMod: Record<string, unknown>) {
-  const publicDir = server.config.publicDir;
-  return planMarkdownFiles({
-    app: serverMod.resolvedApp as ResolvedPrachtApp,
-    apiRoutes: serverMod.apiRoutes as ResolvedApiRoute[] | undefined,
-    registry: serverMod.registry as ModuleRegistry | undefined,
-    fileExists: publicDir ? (markdownPath) => existsSync(join(publicDir, markdownPath)) : undefined,
+/**
+ * The build's Markdown file plan, computed from the live app graph and kept
+ * until a watched file changes (or the server module reloads), so a burst of
+ * `.md` and llms.txt requests runs `getStaticPaths()` once. A route whose
+ * module or `getStaticPaths()` throws is left out with a warning; any other
+ * failure plans no files — never a dev 500 for every `.md` URL.
+ */
+export function createDevMarkdownPlanCache(
+  server: Pick<ViteDevServer, "config" | "watcher">,
+  plan: typeof planMarkdownFiles = planMarkdownFiles,
+): { get(serverMod: Record<string, unknown>): Promise<MarkdownFilePlan> } {
+  let cached: { plan: Promise<MarkdownFilePlan>; serverMod: unknown } | undefined;
+  server.watcher?.on("all", () => {
+    cached = undefined;
   });
+  const warn = (message: string) => server.config.logger.warn(`[pracht] ${message}`);
+  const compute = async (serverMod: Record<string, unknown>): Promise<MarkdownFilePlan> => {
+    try {
+      const publicDir = server.config.publicDir;
+      const artifacts = await listDevArtifactPaths(server.config.plugins);
+      return await plan({
+        app: serverMod.resolvedApp as ResolvedPrachtApp,
+        apiRoutes: serverMod.apiRoutes as ResolvedApiRoute[] | undefined,
+        registry: serverMod.registry as ModuleRegistry | undefined,
+        fileExists: (markdownPath) =>
+          artifacts.has(decodeDevPath(markdownPath)) ||
+          Boolean(publicDir && existsSync(join(publicDir, markdownPath))),
+        onRouteError: (route, error) =>
+          warn(
+            `No .md file for route "${route.path}" in dev: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+      });
+    } catch (error) {
+      warn(
+        `Could not plan .md files in dev; none are served until a file changes: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { files: [], skipped: [] };
+    }
+  };
+  return {
+    get(serverMod) {
+      if (cached?.serverMod !== serverMod) cached = { plan: compute(serverMod), serverMod };
+      return cached.plan;
+    },
+  };
+}
+
+/**
+ * Static files other plugins serve in dev at exact paths (content artifacts),
+ * through the plugin `api.listArtifactPaths()` hook. The build sees these as
+ * files already in the output.
+ */
+async function listDevArtifactPaths(plugins: readonly { api?: unknown }[]): Promise<Set<string>> {
+  const paths = new Set<string>();
+  for (const plugin of plugins) {
+    const list = (
+      plugin.api as { listArtifactPaths?: () => Promise<readonly string[]> } | undefined
+    )?.listArtifactPaths;
+    if (typeof list !== "function") continue;
+    for (const path of await list()) paths.add(decodeDevPath(path));
+  }
+  return paths;
+}
+
+function decodeDevPath(path: string): string {
+  try {
+    return decodeURIComponent(path).normalize("NFC");
+  } catch {
+    return path;
+  }
 }
 
 /** The planned file a dev request names, comparing decoded paths. */
@@ -599,15 +659,8 @@ export function findDevMarkdownFile<TFile extends { markdownPath: string }>(
   plan: { files: TFile[] },
   pathname: string,
 ): TFile | undefined {
-  const decode = (path: string) => {
-    try {
-      return decodeURIComponent(path).normalize("NFC");
-    } catch {
-      return path;
-    }
-  };
-  const target = decode(pathname);
-  return plan.files.find((file) => decode(file.markdownPath) === target);
+  const target = decodeDevPath(pathname);
+  return plan.files.find((file) => decodeDevPath(file.markdownPath) === target);
 }
 
 /**

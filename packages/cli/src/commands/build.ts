@@ -36,6 +36,7 @@ import {
   injectMarkdownAlternateLink,
   markdownFileHeaders,
   markdownFileHref,
+  markdownFileHtmlReason,
 } from "../markdown-files.js";
 import {
   collectBundleReport,
@@ -694,9 +695,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       for (const file of plan.files) {
         const page = pagesByPath.get(file.pagePath);
         if (!page) continue;
+        // A page kept out of indexes or shared caches gets no public copy.
         const served = markdownFileHeaders(page.headers);
-        if ("reason" in served) {
-          markdownFileSkips.push({ pagePath: file.pagePath, reason: served.reason });
+        const reason = "reason" in served ? served.reason : markdownFileHtmlReason(page.html);
+        if (reason !== undefined || !("headers" in served)) {
+          markdownFileSkips.push({ pagePath: file.pagePath, reason: reason ?? "" });
           continue;
         }
         headersManifest[file.markdownPath] = served.headers;

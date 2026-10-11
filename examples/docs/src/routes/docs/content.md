@@ -105,7 +105,7 @@ artifacts: [
 
 Like every artifact, it is served live in development and emitted to
 `dist/client/` at build time. SSG pages with a `markdown` export already get a
-[`<path>.md` file](/docs/agents#a-md-url-for-every-static-page) from the
+[`<path>.md` file](/docs/agents#a-md-url-for-static-markdown-pages) from the
 build, so use this for a different representation or path. An artifact at
 exactly `<path>.md` wins: the build keeps it and links nothing.
 
