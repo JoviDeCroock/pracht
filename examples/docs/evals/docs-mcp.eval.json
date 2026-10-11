@@ -1,6 +1,6 @@
 {
   "name": "docs MCP server",
-  "task": "What a coding agent does with the docs MCP server: list the pages, search, read the top hit's section, and get a useful answer for a bad page, a traversal attempt, and invalid input.",
+  "task": "What a coding agent does with the docs MCP server: list the pages, search, read each top hit (an introduction and a section) by passing it straight through, and get a useful answer for an empty query, a bad page, a traversal attempt, and invalid input.",
   "transport": "mcp",
   "steps": [
     {
@@ -14,7 +14,7 @@
     {
       "capability": "docs.search",
       "input": {
-        "query": "remote mcp oauth",
+        "query": "what is pracht",
         "limit": 3
       },
       "expect": {
@@ -32,7 +32,47 @@
         "ok": true,
         "output": {
           "found": true,
+          "page": "/docs/why-pracht",
+          "section": "",
           "truncated": false
+        }
+      }
+    },
+    {
+      "capability": "docs.search",
+      "input": {
+        "query": "remote mcp oauth",
+        "limit": 3
+      },
+      "expect": {
+        "ok": true,
+        "status": 200
+      }
+    },
+    {
+      "capability": "docs.read",
+      "input": {
+        "page": "$steps[3].data.results.0.page",
+        "section": "$steps[3].data.results.0.section"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "found": true,
+          "sections": [],
+          "truncated": false
+        }
+      }
+    },
+    {
+      "capability": "docs.search",
+      "input": {
+        "query": "how is the"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "results": []
         }
       }
     },

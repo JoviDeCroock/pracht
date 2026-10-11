@@ -62,7 +62,7 @@ export async function writeRelease(directory, revision) {
   return release;
 }
 
-export async function checkRelease(directory, origin, fetchImpl = fetch) {
+export async function checkRelease(directory, origin, fetchImpl = fetch, options = {}) {
   const expected = JSON.parse(await readFile(resolve(directory, `.${metadataPath}`), "utf8"));
   const fetchAsset = async (path) => {
     const url = new URL(path, origin);
@@ -84,28 +84,49 @@ export async function checkRelease(directory, origin, fetchImpl = fetch) {
     if (digest(await fetchAsset(path)) !== hash)
       throw new Error(`Deployed content differs from this build: ${path}.`);
   }
-  await checkMcp(origin, expected.assets, fetchImpl);
+  await checkMcp(origin, expected.assets, fetchImpl, options);
   return expected.revision;
 }
 
 /**
  * Drive the docs MCP server the way an MCP host does: handshake, list the
  * tools, and run one search whose hits must be pages this build published.
+ * A 5xx, network error, or timeout is retried twice with backoff, since a
+ * fresh deployment can still be propagating; anything else fails at once.
  */
-export async function checkMcp(origin, assets, fetchImpl = fetch) {
+export async function checkMcp(origin, assets, fetchImpl = fetch, { retryDelayMs = 1_000 } = {}) {
   let protocolVersion;
+  const attempt = async (method, request) => {
+    for (let tries = 1; ; tries++) {
+      let response;
+      try {
+        response = await request();
+      } catch (error) {
+        if (tries >= 3) throw new Error(`MCP ${method} failed: ${error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** (tries - 1)));
+        continue;
+      }
+      if (response.status >= 500 && tries < 3) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * 2 ** (tries - 1)));
+        continue;
+      }
+      return response;
+    }
+  };
   const rpc = async (id, method, params) => {
-    const response = await fetchImpl(new URL(mcpPath, origin), {
-      method: "POST",
-      headers: {
-        accept: "application/json, text/event-stream",
-        "content-type": "application/json",
-        ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
+    const response = await attempt(method, () =>
+      fetchImpl(new URL(mcpPath, origin), {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          "content-type": "application/json",
+          ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      }),
+    );
     if (!response.ok) throw new Error(`MCP ${method} returned HTTP ${response.status}.`);
     const message = await response.json();
     if (message.error) throw new Error(`MCP ${method} failed: ${message.error.message}`);

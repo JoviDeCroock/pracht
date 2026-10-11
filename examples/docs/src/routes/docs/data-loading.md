@@ -453,7 +453,7 @@ For optimistic UI, read `navigation.formData` while the request is in flight. Fo
 
 ## Head Metadata
 
-The `head` export controls the route's `<head>`. It receives the loader data:
+The `head` export sets the page's `<title>`, meta tags, and links. It receives the loader data:
 
 ```ts
 export function head({ data }: HeadArgs<typeof loader>) {

@@ -93,6 +93,40 @@ describe("docs publication verification", () => {
       "/docs/removed",
     );
   });
+  it("retries a transient MCP failure", async () => {
+    const { directory, fetch } = await fixture();
+    const failures = { left: 2 };
+    const flaky = async (url, init) => {
+      if (url.pathname === "/mcp" && failures.left > 0) {
+        failures.left--;
+        if (failures.left === 1) return new Response("unavailable", { status: 503 });
+        throw new TypeError("fetch failed");
+      }
+      return fetch(url, init);
+    };
+    await expect(
+      checkRelease(directory, "https://docs.invalid", flaky, { retryDelayMs: 1 }),
+    ).resolves.toBe(revision);
+    expect(failures.left).toBe(0);
+  });
+  it("gives up after three attempts, and never retries a 4xx", async () => {
+    const { directory, files } = await fixture();
+    let calls = 0;
+    const respond = (status) => async (url) => {
+      if (url.pathname !== "/mcp") return new Response(files[url.pathname] ?? "missing");
+      calls++;
+      return new Response("nope", { status });
+    };
+    await expect(
+      checkRelease(directory, "https://docs.invalid", respond(502), { retryDelayMs: 1 }),
+    ).rejects.toThrow("MCP initialize returned HTTP 502");
+    expect(calls).toBe(3);
+    calls = 0;
+    await expect(
+      checkRelease(directory, "https://docs.invalid", respond(400), { retryDelayMs: 1 }),
+    ).rejects.toThrow("HTTP 400");
+    expect(calls).toBe(1);
+  });
   it("fails the publish when the MCP endpoint is not served", async () => {
     const { directory, files } = await fixture();
     const fetch = async (url) =>

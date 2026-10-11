@@ -44,6 +44,6 @@ export default defineCapability({
   effect: "read",
   expose: { mcp: true },
   async run() {
-    return { groups: listDocs(await docsIndex(), NAV) };
+    return { groups: listDocs(docsIndex(), NAV) };
   },
 });
