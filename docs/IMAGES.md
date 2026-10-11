@@ -191,6 +191,7 @@ A loader is `({ src, width, quality }) => string`.
 | `defaultLoader` | `[base]/api/_pracht/image?url=…&w=…&q=…` | the built-in endpoint below |
 | `cloudflareLoader` | `/cdn-cgi/image/width=…,quality=…,format=auto/<src>` | Cloudflare Image Resizing (zone feature must be enabled) |
 | `vercelLoader` | `/_vercel/image?url=…&w=…&q=…` | Vercel Image Optimization (`images` config required; Vercel only serves widths in `images.sizes`) |
+| `netlifyLoader` | `/.netlify/images?url=…&w=…&q=…` | Netlify Image CDN (`images.remote_images` required for remote sources) |
 | `passthroughLoader` | `<src>` unchanged | static hosts without an image service (srcset is omitted) |
 
 Configure globally once (e.g. at the top of `src/routes.ts`, so it applies on
@@ -210,8 +211,22 @@ configureImage({
 `createDefaultLoader("/my/endpoint")` builds a default-style loader for a
 custom endpoint path. Root-absolute default/custom endpoints automatically
 pick up Vite's deploy `base`; absolute, protocol-relative, and relative
-endpoints are left as written. Provider-owned `cloudflareLoader` and
-`vercelLoader` URLs deliberately remain at the origin root.
+endpoints are left as written. Provider-owned `cloudflareLoader`,
+`vercelLoader`, and `netlifyLoader` URLs deliberately remain at the origin root.
+Netlify negotiates the output format from the browser request; the loader
+sends the source URL, target width, and quality (default `75`). Local source
+URLs retain their deploy-base prefix inside the encoded `url` parameter.
+
+For Netlify, configure `netlifyLoader` in production and `passthroughLoader`
+in `pracht dev`. Allow remote sources in `netlify.toml`:
+
+```toml
+[images]
+remote_images = ['https://images\.example\.com/.*']
+```
+
+Local source files need no image-service configuration. Netlify caches the
+transformed output; no sharp endpoint is needed for this loader.
 
 ## The optimization endpoint
 
@@ -314,11 +329,13 @@ cancelled.
 - **adapter-vercel** — prefer `configureImage({ loader: vercelLoader })` with
   an `images` section in your Vercel project config; keep `images.sizes` in
   sync with your device sizes.
+- **adapter-netlify** — prefer `configureImage({ loader: netlifyLoader })`;
+  allow remote sources with `[images].remote_images` in `netlify.toml`.
 - **Static hosts** — use `passthroughLoader`.
 - **`pracht dev`** — API routes are served by the dev server, so set
   `PRACHT_ORIGIN` to its exact origin (for example,
   `http://localhost:3000`) and install sharp. Platform loaders
-  (`cloudflareLoader`, `vercelLoader`) generate URLs that only resolve on the
+  (`cloudflareLoader`, `vercelLoader`, `netlifyLoader`) generate URLs that only resolve on the
   deployed platform; if you want dev previews with those, pass
   `loader: passthroughLoader` conditionally (e.g. based on
   `import.meta.env.DEV`).

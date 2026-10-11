@@ -215,9 +215,33 @@ configureImage({
 | `defaultLoader` | The `/api/_pracht/image` endpoint |
 | `cloudflareLoader` | Cloudflare Image Resizing |
 | `vercelLoader` | Vercel Image Optimization |
+| `netlifyLoader` | Netlify Image CDN |
 | `passthroughLoader` | Static hosts without an image service |
 
 You can also pass a `loader` prop to a single `<Image>` when one image needs different handling.
+
+### Netlify Image CDN
+
+Configure `netlifyLoader` for deployment and use the original images during `pracht dev`:
+
+```ts [src/routes.ts]
+import { configureImage, netlifyLoader, passthroughLoader } from "@pracht/image";
+
+configureImage({
+  loader: import.meta.env.DEV ? passthroughLoader : netlifyLoader,
+});
+```
+
+Deployed images use `/.netlify/images` with responsive widths and quality `75` by default. Netlify negotiates the format and caches the transformed images. No `sharp` endpoint is needed.
+
+Local source files work without image-service configuration. For remote sources, add the allowed URL patterns to `netlify.toml`:
+
+```toml [netlify.toml]
+[images]
+remote_images = ['https://images\.example\.com/.*']
+```
+
+See [Netlify Image CDN](https://docs.netlify.com/build/image-cdn/overview/) for configuration options.
 
 ---
 
@@ -250,6 +274,7 @@ Every redirect destination is checked against the same allowlist. The endpoint s
 | Node | Set the same trusted origin on `nodeAdapter({ canonicalOrigin })` and `createImageHandler({ localOrigin })`, then use the default loader |
 | Cloudflare Workers | Use `cloudflareLoader`; `sharp` does not run in Workers |
 | Vercel | Use `vercelLoader` and keep Vercel image sizes aligned with your Pracht breakpoints |
+| Netlify | Use `netlifyLoader` and configure `images.remote_images` for remote sources |
 | Static hosting | Use `passthroughLoader` so images render without an optimization backend |
 
 See the `examples/basic` gallery route for a complete endpoint, `?pracht` import, and blur-placeholder example.

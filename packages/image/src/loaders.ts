@@ -66,6 +66,14 @@ export const vercelLoader: ImageLoader = ({ src, width, quality }) =>
   `/_vercel/image?url=${encodeURIComponent(src)}&w=${width}&q=${quality ?? DEFAULT_QUALITY}`;
 
 /**
+ * Netlify Image CDN. Netlify negotiates the output format automatically;
+ * remote sources must match `images.remote_images` in netlify.toml.
+ * https://docs.netlify.com/build/image-cdn/overview/
+ */
+export const netlifyLoader: ImageLoader = ({ src, width, quality }) =>
+  `/.netlify/images?url=${encodeURIComponent(src)}&w=${width}&q=${quality ?? DEFAULT_QUALITY}`;
+
+/**
  * No optimization: the browser fetches the original file. Use for static
  * hosts without an image service. `<Image>` skips `srcset` entirely when
  * every candidate resolves to the same URL.
