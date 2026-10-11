@@ -197,12 +197,11 @@ export interface PrachtPluginOptions {
    */
   llmsTxt?: false | PrachtLlmsTxtOptions;
   /**
-   * Publish `<path>.md` next to every SSG page whose route declares a Markdown
-   * representation (a `markdown` export or `markdown: true`), link it from the
-   * page's `<head>` and from llms.txt, and serve `/<path>.md` in `pracht dev`.
-   * The build writes the file only when the page answers a build-time
-   * `Accept: text/markdown` request with 200 Markdown. Defaults to `true`;
-   * `false` keeps Markdown available through `Accept` negotiation only.
+   * Publish `<path>.md` next to every SSG page whose route has a static
+   * `markdown` string export and no middleware, link it from the page's
+   * `<head>` and from llms.txt, and serve `/<path>.md` in `pracht dev`. The
+   * file is the export verbatim, served with the page's headers. Defaults to
+   * `true`; `false` keeps Markdown available through `Accept` negotiation only.
    */
   markdownFiles?: boolean;
   /**

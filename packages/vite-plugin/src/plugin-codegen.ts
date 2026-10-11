@@ -1036,7 +1036,7 @@ export function createPrachtServerModuleSource(
           "// `pracht build` writes it to dist/client/llms.txt; the dev SSR",
           "// middleware serves it at /llms.txt.",
           `const llmsTxtConfig = ${JSON.stringify(llmsTxtConfig)};`,
-          "// `pracht build` passes the pages whose Markdown file it wrote.",
+          "// `pracht build` and the dev server pass the pages that have a `.md` file.",
           "export const generateLlmsTxt = (overrides = {}) =>",
           "  buildLlmsTxt({ ...llmsTxtConfig, ...overrides, apiRoutes, app: resolvedApp, registry });",
         ]
@@ -1096,7 +1096,6 @@ interface ResolvedLlmsTxtConfig {
   include?: string[];
   exclude?: string[];
   maxPagesPerRoute?: number;
-  markdownFiles?: boolean;
 }
 
 /**
@@ -1128,9 +1127,6 @@ function resolveLlmsTxtConfig(
   if (resolved.llmsTxt.maxPagesPerRoute !== undefined) {
     config.maxPagesPerRoute = resolved.llmsTxt.maxPagesPerRoute;
   }
-  // Dev links every eligible page's `.md` URL (it serves them on demand); the
-  // build overrides this with the pages whose file it actually wrote.
-  if (resolved.markdownFiles) config.markdownFiles = true;
   return config;
 }
 

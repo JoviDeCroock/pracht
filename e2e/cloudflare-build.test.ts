@@ -225,32 +225,38 @@ test("built Cloudflare worker bootstraps WebMCP on a zero-island route", async (
       "/products/3": true,
     });
 
-    const markdownFilePath = resolve(exampleDir, "dist/client/products/1.md");
-    expect(readFileSync(markdownFilePath, "utf-8")).toBe("# Product 1\n");
+    // Only the home page has a static string `markdown` export and no
+    // middleware, so only it gets a `.md` file.
+    const markdownFilePath = resolve(exampleDir, "dist/client/index.md");
+    const markdownSource = readFileSync(markdownFilePath, "utf-8");
+    expect(markdownSource.startsWith("# Pracht Example\n")).toBe(true);
+    expect(existsSync(resolve(exampleDir, "dist/client/products/1.md"))).toBe(false);
 
     const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
     const { default: worker } = await import(pathToFileURL(serverEntryPath).href);
 
     // A `.md` URL is an asset, never a negotiated route: even a
-    // markdown-preferring request goes to the ASSETS binding, which types the
-    // file from its extension.
+    // markdown-preferring request goes to the ASSETS binding, and the worker
+    // applies the page's headers from the headers manifest to it.
     const assetRequests: string[] = [];
+    const clientFiles: Record<string, string> = {
+      "/_pracht/headers.json": "dist/client/_pracht/headers.json",
+      "/_pracht/markdown.json": "dist/client/_pracht/markdown.json",
+    };
     const markdownFile = await worker.fetch(
-      new Request("https://example.com/products/1.md", { headers: { accept: "text/markdown" } }),
+      new Request("https://example.com/index.md", { headers: { accept: "text/markdown" } }),
       {
         ASSETS: {
           fetch: async (input: Request | URL | string) => {
             const url = new URL(input instanceof Request ? input.url : String(input));
             assetRequests.push(url.pathname);
-            if (url.pathname === "/_pracht/markdown.json") {
+            if (clientFiles[url.pathname]) {
               return new Response(
-                readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8"),
+                readFileSync(resolve(exampleDir, clientFiles[url.pathname]), "utf-8"),
               );
             }
-            if (url.pathname === "/products/1.md") {
-              return new Response(readFileSync(markdownFilePath, "utf-8"), {
-                headers: { "content-type": "text/markdown; charset=utf-8" },
-              });
+            if (url.pathname === "/index.md") {
+              return new Response(markdownSource, { headers: { "content-type": "text/markdown" } });
             }
             return new Response("not found", { status: 404 });
           },
@@ -260,8 +266,9 @@ test("built Cloudflare worker bootstraps WebMCP on a zero-island route", async (
     );
     expect(markdownFile.status).toBe(200);
     expect(markdownFile.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
-    expect(await markdownFile.text()).toBe("# Product 1\n");
-    expect(assetRequests).toContain("/products/1.md");
+    expect(markdownFile.headers.get("x-pracht-shell")).toBe("public");
+    expect(await markdownFile.text()).toBe(markdownSource);
+    expect(assetRequests).toContain("/index.md");
 
     const response = await worker.fetch(
       new Request("https://example.com/agent-tools"),

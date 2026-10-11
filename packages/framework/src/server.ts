@@ -124,7 +124,6 @@ export type {
 export { verifyAgentSignature } from "./runtime-agent-auth.ts";
 export type { VerifyAgentSignatureOptions } from "./runtime-agent-auth.ts";
 export {
-  hasMarkdownRepresentation,
   MARKDOWN_MEDIA_TYPE,
   markdownResponse,
   prefersMarkdown,
@@ -151,11 +150,6 @@ export type {
 export { buildLlmsTxt } from "./llms-txt.ts";
 export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
 export { buildStaticFallbackHtml, describeRenderError, prerenderApp } from "./prerender.ts";
-export {
-  injectMarkdownAlternateLink,
-  markdownFilePagePaths,
-  markdownFilePath,
-} from "./markdown-files.ts";
 export { buildStaticRouteStateUrl, STATIC_STATE_PREFIX } from "./runtime-static.ts";
 export {
   createISGRegenerationRequest,

@@ -447,3 +447,9 @@ function encodeDynamicPathSegment(part: string): string {
   }
   return encodeURIComponent(part);
 }
+
+/** Page path → its Markdown file's path: `/about` → `/about.md`, `/` → `/index.md`. */
+export function markdownFilePath(pagePath: string): string {
+  const trimmed = pagePath.length > 1 ? pagePath.replace(/\/+$/, "") : pagePath;
+  return trimmed === "/" || trimmed === "" ? "/index.md" : `${trimmed}.md`;
+}

@@ -116,7 +116,7 @@ Both representations carry `Vary: Accept`, so caches keep them apart. Routes wit
 
 ### A `.md` URL for every static page
 
-Many agent fetchers never send `Accept`, and a static host cannot negotiate. So `pracht build` also writes the Markdown of every SSG page that has one to a file next to the page: `/docs/routing` becomes `/docs/routing.md`, and `/` becomes `/index.md`. The page's HTML links it, so an agent that fetched the HTML can find it:
+Many agent fetchers never send `Accept`, and a static host cannot negotiate. So `pracht build` also writes a page's `markdown` export to a file next to the page: `/docs/routing` becomes `/docs/routing.md`, and `/` becomes `/index.md`. The page's HTML links it, so an agent that fetched the HTML can find it:
 
 ```html
 <link rel="alternate" type="text/markdown" href="/docs/routing.md">
@@ -126,7 +126,9 @@ Many agent fetchers never send `Accept`, and a static host cannot negotiate. So 
 curl https://pracht.resynapse.dev/docs/routing.md
 ```
 
-The build gets that Markdown by sending the page the same `Accept: text/markdown` request an agent would, so your middleware decides. A route that answers Markdown only to verified agents, or redirects the request, gets no file. ISG and SSR pages get no file either; they keep negotiation only. A file that already exists at that path, such as `public/docs/routing.md`, is never overwritten: the build warns and leaves yours in place. `pracht dev` serves the same `.md` URLs.
+A page gets a file only when its Markdown is the same for every visitor: an SSG route with a `markdown` string export and no middleware. The file holds that export and is served with the page's headers. Routes with middleware or `markdown: true`, and ISG or SSR pages, keep `Accept` negotiation only, and so does a page whose headers send `X-Robots-Tag: noindex` or `Cache-Control: private`. The build prints a note naming each Markdown page left without a file and why.
+
+A file already at that path, such as `public/docs/routing.md`, is never overwritten. `pracht dev` serves the same `.md` URLs.
 
 To keep Markdown behind `Accept` only, turn the files off:
 

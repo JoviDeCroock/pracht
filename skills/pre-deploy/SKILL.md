@@ -206,8 +206,8 @@ must do and what the build cannot enforce.
   serves `dist/client/` the way a dumb host would. Check `/`, one dynamic SSG
   path, one deep link into a SPA route, and one unknown URL.
 - A static host cannot negotiate `Accept`, so agents read an SSG page's
-  Markdown at `/<path>.md` (written by the build for routes exporting
-  `markdown` or declaring `markdown: true`). Check the host serves `.md` as
+  Markdown at `/<path>.md` (written by the build for routes with a `markdown`
+  export and no middleware). Check the host serves `.md` as
   `text/markdown; charset=utf-8` — nginx's stock `mime.types` lacks it — and
   read the build note naming Markdown-capable pages that got no file.
 - Sub-path deploys (GitHub Pages *project* site, S3 key prefix) need Vite

@@ -140,13 +140,13 @@ describe("buildLlmsTxt", () => {
     expect(output).toContain("- [/about](/about)");
   });
 
-  // The llms.txt convention: an SSG page with a `.md` file next to it is
-  // listed by that file. SSR pages have no file and keep the negotiation note.
-  it("links the .md file of SSG pages that have one", async () => {
+  // The llms.txt convention: a page with a `.md` file next to it is listed by
+  // that file. Only the pages the caller names have one.
+  it("links the .md file of the pages that have one", async () => {
     const output = await buildLlmsTxt({
       app: createResolvedApp(),
       apiRoutes,
-      markdownFiles: true,
+      markdownFiles: ["/"],
       registry: createRegistry(),
       title: "Pracht Test App",
     });
@@ -156,13 +156,10 @@ describe("buildLlmsTxt", () => {
     expect(output).toContain("- [/blog/hello-world](/blog/hello-world)\n");
   });
 
-  // The build passes the pages whose file it actually wrote: a page whose
-  // middleware withheld Markdown at build time keeps its plain entry.
-  it("links only the pages the build wrote a file for", async () => {
+  it("links no .md file unless told which exist", async () => {
     const output = await buildLlmsTxt({
       app: createResolvedApp(),
       apiRoutes,
-      markdownFiles: [],
       registry: createRegistry(),
       title: "Pracht Test App",
     });
