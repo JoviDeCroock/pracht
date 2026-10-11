@@ -178,6 +178,9 @@ navigation — including navigating _to_ SSR routes.
 │           ◄────────────────────────────────── { post, relatedPosts }         │
 │           renderToStringAsync(Shell + Component)                              │
 │           write → dist/client/blog/hello/index.html                          │
+│           if the route declares Markdown: same request with                  │
+│             Accept: text/markdown → 200 text/markdown?                       │
+│             write → dist/client/blog/hello.md (+ <link rel="alternate">)     │
 │                                                                               │
 │  ✓ dist/client/ is a complete static site                                    │
 │    No server required for these routes                                        │

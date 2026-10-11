@@ -203,9 +203,27 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
     });
     expect(source).toContain('import { buildLlmsTxt } from "@pracht/core/server";');
     expect(source).toContain(
-      'const llmsTxtConfig = {"title":"My App","description":"Demo.","origin":"https://example.com"};',
+      'const llmsTxtConfig = {"title":"My App","description":"Demo.","origin":"https://example.com","markdownFiles":true};',
     );
-    expect(source).toContain("export const generateLlmsTxt = () =>");
+    expect(source).toContain("export const generateLlmsTxt = (overrides = {}) =>");
+    expect(source).not.toContain("export const markdownFiles");
+  });
+
+  // The opt-out reaches both consumers: llms.txt stops linking `.md` URLs,
+  // and the CLI reads the export to skip writing the files.
+  it("records markdownFiles: false for llms.txt and the build", () => {
+    const source = createPrachtServerModuleSource({
+      llmsTxt: { title: "My App" },
+      markdownFiles: false,
+    });
+    expect(source).toContain('const llmsTxtConfig = {"title":"My App"};');
+    expect(source).toContain("export const markdownFiles = false;");
+  });
+
+  it("rejects a non-boolean markdownFiles", () => {
+    expect(() => resolveOptions({ markdownFiles: "yes" as unknown as boolean })).toThrow(
+      "pracht({ markdownFiles }) expects a boolean",
+    );
   });
 
   // `0` means "list every instance". A truthiness check when serializing the

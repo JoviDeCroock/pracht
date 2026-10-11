@@ -12,7 +12,9 @@ test("GET /llms.txt serves the generated llms.txt in dev", async ({ request }) =
   expect(body.startsWith("# Pracht Pages Example\n")).toBe(true);
   expect(body).toContain("## Pages");
   expect(body).toContain("- [/](/)");
-  expect(body).toContain("- [/about](/about): supports `Accept: text/markdown`");
+  // An SSG page with a Markdown representation is listed by its `.md` URL,
+  // which the dev server serves like the build's static file.
+  expect(body).toContain("- [/about](/about.md): Markdown version of `/about`");
 
   // Dynamic SSG routes are expanded through getStaticPaths(); the raw
   // pattern must not appear.
@@ -35,4 +37,15 @@ test("llms.txt page ordering is stable", async ({ request }) => {
   const sorted = [...paths].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   expect(paths.length).toBeGreaterThan(3);
   expect(paths).toEqual(sorted);
+});
+
+test("GET /<page>.md serves the page's Markdown in dev", async ({ request }) => {
+  const response = await request.get("/about.md");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toBe("text/markdown; charset=utf-8");
+  expect(await response.text()).toContain("# About");
+
+  // Pages without a Markdown representation have no `.md` URL.
+  const missing = await request.get("/pricing.md");
+  expect(missing.status()).toBe(404);
 });

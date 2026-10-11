@@ -1028,14 +1028,17 @@ export function createPrachtServerModuleSource(
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,
     `export const budgets = ${JSON.stringify(resolved.budgets)};`,
     "export { prerenderApp };",
+    // Only the opt-out is recorded; the CLI treats a missing export as enabled.
+    ...(resolved.markdownFiles ? [] : ["export const markdownFiles = false;"]),
     ...(llmsTxtConfig
       ? [
           "// llms.txt (https://llmstxt.org) generated from the resolved app graph.",
           "// `pracht build` writes it to dist/client/llms.txt; the dev SSR",
           "// middleware serves it at /llms.txt.",
           `const llmsTxtConfig = ${JSON.stringify(llmsTxtConfig)};`,
-          "export const generateLlmsTxt = () =>",
-          "  buildLlmsTxt({ ...llmsTxtConfig, apiRoutes, app: resolvedApp, registry });",
+          "// `pracht build` passes the pages whose Markdown file it wrote.",
+          "export const generateLlmsTxt = (overrides = {}) =>",
+          "  buildLlmsTxt({ ...llmsTxtConfig, ...overrides, apiRoutes, app: resolvedApp, registry });",
         ]
       : []),
     "",
@@ -1093,6 +1096,7 @@ interface ResolvedLlmsTxtConfig {
   include?: string[];
   exclude?: string[];
   maxPagesPerRoute?: number;
+  markdownFiles?: boolean;
 }
 
 /**
@@ -1124,6 +1128,9 @@ function resolveLlmsTxtConfig(
   if (resolved.llmsTxt.maxPagesPerRoute !== undefined) {
     config.maxPagesPerRoute = resolved.llmsTxt.maxPagesPerRoute;
   }
+  // Dev links every eligible page's `.md` URL (it serves them on demand); the
+  // build overrides this with the pages whose file it actually wrote.
+  if (resolved.markdownFiles) config.markdownFiles = true;
   return config;
 }
 

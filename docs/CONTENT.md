@@ -178,7 +178,11 @@ document list. `prachtContent()` serves their output live in development beneath
 Vite's configured deployment base and emits the same bytes during the client
 build. `rawContentArtifacts()` and
 `llmsTxtArtifacts()` cover common cases; a custom generator can emit JSON,
-XML, Markdown, or binary `Uint8Array` content.
+XML, Markdown, or binary `Uint8Array` content. A `text/markdown` artifact at
+exactly `<page>.md` stands in for the `.md` file `pracht build` would otherwise
+write for that SSG page (see
+[DATA_LOADING.md](DATA_LOADING.md#markdown-files-for-ssg-pages)); any other
+artifact at that path makes the build skip the page's file with a warning.
 Frontmatter titles used as `llms.txt` link labels escape Markdown brackets, and
 titles or descriptions containing YAML line breaks are folded into one line so
 one document cannot create extra summary entries accidentally.

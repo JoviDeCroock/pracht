@@ -140,6 +140,56 @@ describe("buildLlmsTxt", () => {
     expect(output).toContain("- [/about](/about)");
   });
 
+  // The llms.txt convention: an SSG page with a `.md` file next to it is
+  // listed by that file. SSR pages have no file and keep the negotiation note.
+  it("links the .md file of SSG pages that have one", async () => {
+    const output = await buildLlmsTxt({
+      app: createResolvedApp(),
+      apiRoutes,
+      markdownFiles: true,
+      registry: createRegistry(),
+      title: "Pracht Test App",
+    });
+
+    expect(output).toContain("- [/](/index.md): Markdown version of `/`\n");
+    expect(output).toContain("- [/about](/about): supports `Accept: text/markdown`\n");
+    expect(output).toContain("- [/blog/hello-world](/blog/hello-world)\n");
+  });
+
+  // The build passes the pages whose file it actually wrote: a page whose
+  // middleware withheld Markdown at build time keeps its plain entry.
+  it("links only the pages the build wrote a file for", async () => {
+    const output = await buildLlmsTxt({
+      app: createResolvedApp(),
+      apiRoutes,
+      markdownFiles: [],
+      registry: createRegistry(),
+      title: "Pracht Test App",
+    });
+
+    expect(output).toContain("- [/](/): supports `Accept: text/markdown`\n");
+    expect(output).not.toContain(".md");
+  });
+
+  it("links .md files under the origin and deploy base", async () => {
+    vi.stubEnv("BASE_URL", "/my-project/");
+    vi.resetModules();
+    const { buildLlmsTxt: build } = await import("../src/llms-txt.ts");
+
+    const output = await build({
+      app: createResolvedApp(),
+      apiRoutes,
+      markdownFiles: ["/"],
+      origin: "https://example.com",
+      registry: createRegistry(),
+      title: "Pracht Test App",
+    });
+
+    expect(output).toContain(
+      "- [/](https://example.com/my-project/index.md): Markdown version of `/`\n",
+    );
+  });
+
   it("renders metadata-declared markdown without a registry or dynamic expansion", async () => {
     const output = await buildLlmsTxt({
       app: createResolvedApp(),

@@ -65,6 +65,80 @@ their prerendered document keeps answering markdown-preferring requests instead
 of falling through to a render (see
 [ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path)).
 
+### Markdown files for SSG pages
+
+Negotiation needs the client to send `Accept: text/markdown`, and many agent
+fetchers never do; a static host cannot negotiate at all. So `pracht build`
+also publishes the Markdown of every SSG page whose route declares a Markdown
+representation as a plain file next to the page, the llms.txt convention:
+
+| Page               | HTML                         | Markdown             |
+| ------------------ | ---------------------------- | -------------------- |
+| `/`                | `index.html`                 | `index.md`           |
+| `/docs/routing`    | `docs/routing/index.html`    | `docs/routing.md`    |
+| `/posts/caf%C3%A9` | `posts/caf%C3%A9/index.html` | `posts/caf%C3%A9.md` |
+
+Trailing slashes do not matter: `/docs/routing/` is the same page and the same
+`docs/routing.md`. Static exports write decoded paths (`posts/café.md`) for the
+same reason their HTML does. The file is base-free like the rest of
+`dist/client/`; the URL carries the deploy base.
+
+How a page gets its file (`prerenderApp({ markdownFiles: true })`, the helpers in
+`packages/framework/src/markdown-files.ts`, and the write loop in
+`packages/cli/src/commands/build.ts`):
+
+1. **Planning, before anything renders.** Only `render: "ssg"` pages whose route
+   declares Markdown are candidates. ISG is excluded because a static file next
+   to a revalidating page would serve the build-time copy forever; SSR and SPA
+   pages have no build-time render. A candidate loses its file when its `.md`
+   path is a concrete prerendered page or an exact page/API route, when an
+   earlier page already claimed the same case- and encoding-insensitive path
+   (`/` and a literal `/index` both map to `/index.md`, and `/` wins, matching
+   how `pracht dev` resolves that URL), or when a file already exists there — a `public/` file or a
+   `@pracht/content` artifact is the author's and is never overwritten. One
+   aggregated warning names the skipped paths. The exception is a content
+   artifact declared as `text/markdown` at exactly `<path>.md` (the documented
+   `rawContentArtifacts({ path: (d) => \`${d.path}.md\` })` shape): it already
+   is the page's Markdown, so nothing is written, no warning is printed, and the
+   page still links it and is listed by it in llms.txt. Dynamic routes do not count as
+   owners: `/blog/:slug` also matches `/blog/hello.md`, and shadowing that one
+   param value is the trade every static asset already makes.
+2. **The build-time request.** After the HTML renders, the same URL is requested
+   again with `Accept: text/markdown` through `handlePrachtRequest`, so
+   middleware, loaders, and `headers()` run exactly as for a live agent. Only a
+   `200` whose `Content-Type` is `text/markdown` becomes a file. A route whose
+   middleware negotiates only for verified agents answers this anonymous
+   request with HTML and gets no file — the build must never publish to
+   everyone what the runtime reserves for some. A redirect or 4xx gets no file
+   and an aggregated note; a 5xx gets a warning with the underlying error but
+   does not fail the build, because the HTML page is fine and runtime
+   negotiation behaves as before.
+3. **Linking.** A page that got its file carries
+   `<link rel="alternate" type="text/markdown" href="<base><path>.md">` in its
+   head (with the islands-navigation ownership marker when the document has
+   one, so in-place navigation adds and removes it). llms.txt lists that page
+   by its `.md` URL — the build passes the exact list of written pages to
+   `generateLlmsTxt()`, so a gated page keeps its plain entry.
+
+The negotiated representation is unchanged: `/docs/routing` with
+`Accept: text/markdown` still runs the route and still carries `Vary: Accept`.
+The file is a second, static URL for the same content, served by each adapter's
+static layer (see
+[ADAPTERS.md](ADAPTERS.md#markdown-and-the-static-fast-path)). `pracht dev`
+serves `/<path>.md` on demand for the same SSG routes so llms.txt links do not
+404 during development; the Cloudflare adapter's dev server (owned by the
+Cloudflare Vite plugin) does not.
+
+**Why default-on.** The rule elsewhere is that agent surface is opt-in. A route
+that exports `markdown` or declares `markdown: true` has already opted in to
+publishing Markdown at its URL; a `.md` file publishes the same bytes to the
+same audience at a second URL, and middleware that withholds Markdown from an
+anonymous request withholds the file too. Apps with no Markdown routes get no
+files and byte-identical HTML. `pracht({ markdownFiles: false })` turns the
+files, links, dev URLs, and llms.txt `.md` entries off for apps that want
+negotiation only — for example to keep `.md` duplicates out of search indexes,
+or to keep the deploy directory small.
+
 ### What a loader can return
 
 Route loader data travels to the browser in the hydration-state script,

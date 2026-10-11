@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 import {
   mcpResourceMetadataPath,
@@ -44,6 +44,11 @@ interface VercelBuildOutputOptions {
   functionName?: string;
   headersManifest?: Record<string, Record<string, string>>;
   isgManifest: Record<string, ISGManifestEntry>;
+  /**
+   * Markdown companions the build wrote, relative to dist/client
+   * (`about.md`). Each gets an explicit `text/markdown; charset=utf-8` type.
+   */
+  markdownFiles?: string[];
   /** Prerendered routes whose module exports `markdown`. */
   markdownRoutes?: string[];
   revalidateToken?: string;
@@ -72,6 +77,7 @@ export function writeVercelBuildOutput({
   functionName,
   headersManifest = {},
   isgManifest,
+  markdownFiles = [],
   markdownRoutes = [],
   revalidateToken = process.env.PRACHT_REVALIDATE_TOKEN || randomBytes(32).toString("hex"),
   regions,
@@ -128,6 +134,9 @@ export function writeVercelBuildOutput({
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
         deployBase,
+        markdownFiles: markdownFiles.map((file) =>
+          relative(staticDir, join(staticDeployDir, file)).split(sep).join("/"),
+        ),
       }),
       null,
       2,
@@ -289,6 +298,7 @@ function createVercelOutputConfig({
   deployBase,
   functionName,
   headersManifest,
+  markdownFiles,
   markdownRoutes,
   runtimeRoutes,
   staticAssetRoutes,
@@ -298,6 +308,7 @@ function createVercelOutputConfig({
   deployBase: string;
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
+  markdownFiles: string[];
   markdownRoutes: string[];
   runtimeRoutes: string[];
   staticAssetRoutes: string[];
@@ -419,10 +430,20 @@ function createVercelOutputConfig({
   routes.push({ handle: "filesystem" });
   routes.push({ dest: target, src: "/(.*)" });
 
+  // `<path>.md` companions are plain static files reached through
+  // `handle: filesystem`. Their type is stated rather than left to the
+  // platform's extension table, so every adapter answers the same header.
+  const overrides = Object.fromEntries(
+    [...markdownFiles]
+      .sort()
+      .map((file) => [file, { contentType: "text/markdown; charset=utf-8" }]),
+  );
+
   return {
     framework: {
       version: VERSION,
     },
+    ...(markdownFiles.length > 0 ? { overrides } : {}),
     routes,
     version: 3,
   };

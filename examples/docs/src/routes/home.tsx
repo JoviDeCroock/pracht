@@ -133,9 +133,9 @@ const AGENT_DOC_LINKS: { href: string; text: string }[] = [
 export const markdown = [
   "# Agent guidance",
   "",
-  "Doing fetches with `Accept: text/markdown` to the following URLs will provide you with documentation:",
+  "Each link below is the Markdown version of a documentation page. The page URL without `.md` answers the same Markdown to requests sent with `Accept: text/markdown`.",
   "",
-  ...AGENT_DOC_LINKS.map((l) => `- [${l.text}](${l.href})`),
+  ...AGENT_DOC_LINKS.map((l) => `- [${l.text}](${l.href}.md)`),
   "",
 ].join("\n");
 
