@@ -145,7 +145,12 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
   are external inputs of the CLI in `scripts/build.mjs`, so a docs edit rebuilds
   it. The `get_docs` (`topic?`), `list_docs`, and `search_docs` MCP tools read
   the same bundle via `packages/cli/src/docs.ts`; topics only ever resolve to
-  index entries, never to a path.
+  index entries, never to a path. Section anchors are derived from Markdown
+  but must equal the ids the site renders through marked;
+  `examples/docs/test/cli-docs-anchors.test.ts` compares them on every page
+  against the site's `src/utils/heading-slug.ts`. CI caches
+  `packages/cli/docs` with `packages/*/dist`, so jobs that skip the build
+  still have the bundle.
 
 ---
 

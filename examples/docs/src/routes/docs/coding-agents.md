@@ -122,7 +122,7 @@ pracht dev
 
 [`pracht llms`](/docs/cli#pracht-llms) prints pracht's authoring guide for coding agents: project layout, conventions, constraints, and the verify/plan/report loop. `pracht llms --write` saves it as `llms.txt` in the app root, and the `get_docs` MCP tool serves the same text.
 
-pracht is newer than most models' training data, and this site documents the latest code, which can be ahead of the version your app installs. Every page here also ships inside `@pracht/cli`, so the agent can read the docs that match the app: [`pracht docs <topic>`](/docs/cli#pracht-docs) prints one, `pracht docs --search <query>` finds sections, and the files sit in `node_modules/@pracht/cli/docs/`. The guide and the `AGENTS.md` that `create-pracht` seeds both point there.
+pracht is newer than most models' training data, and this site documents the latest code, which can be ahead of the version your app installs. Every page here also ships inside `@pracht/cli`, so the agent can read the docs of the installed CLI release: [`pracht docs <topic>`](/docs/cli#pracht-docs) prints one, `pracht docs --search <query>` finds sections, and the files sit in `node_modules/@pracht/cli/docs/`. The guide and the `AGENTS.md` that `create-pracht` seeds both point there.
 
 > [!NOTE]
 > This is the *framework's* guide, for an agent editing your source. It is unrelated to the [`llms.txt` your app generates](/docs/agents#llmstxt) for agents *using* your deployed site. Same filename, opposite direction.

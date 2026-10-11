@@ -33,7 +33,7 @@ Reach for these before deep manual inspection:
 | ---- | --- |
 | `pracht verify` (`--changed` to scope to git-changed files) | Fast confidence check |
 | `pracht doctor` | Broader broken wiring or missing files |
-| `pracht docs <topic>` / `pracht docs --search <query>` | The docs for the *installed* pracht version — check documented behavior before calling it a bug |
+| `pracht docs <topic>` / `pracht docs --search <query>` | Docs bundled with the installed CLI — check documented behavior before calling it a bug. Older CLIs lack the command; read https://pracht.resynapse.dev/llms.txt instead |
 | `pracht inspect routes\|api\|build --json` | The resolved graph — never reconstruct it from source |
 | `GET /_pracht` (JSON at `/_pracht.json`) | Same graph from a running dev server, no CLI needed |
 | `Server-Timing` on dev SSR responses | `mw` / `loader` / `render` durations in ms — which phase is slow |

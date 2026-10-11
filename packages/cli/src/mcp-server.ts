@@ -40,7 +40,12 @@ const cwdInput = {
     .describe("Absolute path to the pracht app root. Defaults to the server's working directory."),
 };
 
-export function createPrachtMcpServer(): McpServer {
+export interface PrachtMcpServerOptions {
+  /** Directory of the bundled docs pages; defaults to the package's `docs/`. */
+  docsDir?: string;
+}
+
+export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}): McpServer {
   const server = new McpServer({
     name: "pracht",
     version: VERSION,
@@ -258,9 +263,9 @@ export function createPrachtMcpServer(): McpServer {
     },
     guardText(({ topic }) => {
       if (topic === undefined || topic.trim() === "") return AUTHORING_GUIDE;
-      const match = matchDocsTopic(loadDocsIndex(), topic);
+      const match = matchDocsTopic(loadDocsIndex(docsDir), topic, { surface: "mcp" });
       if (!match.ok) throw new Error(match.message);
-      const markdown = readDocsPage(match.page);
+      const markdown = readDocsPage(match.page, docsDir);
       if (!match.anchor) return markdown;
       const section = extractDocsSection(markdown, match.anchor);
       if (!section.ok) throw new Error(`${match.page.slug}: ${section.message}`);
@@ -276,7 +281,7 @@ export function createPrachtMcpServer(): McpServer {
       inputSchema: {},
     },
     guard(() => {
-      const index = loadDocsIndex();
+      const index = loadDocsIndex(docsDir);
       return { version: VERSION, site: index.site, pages: index.pages };
     }),
   );
@@ -287,11 +292,15 @@ export function createPrachtMcpServer(): McpServer {
       description:
         "Keyword search over the pracht docs bundled with the installed CLI. Returns the best-matching sections (slug, heading, anchor, snippet); read one with get_docs({ topic: `<slug>#<anchor>` }). Same payload as `pracht docs --search <query> --json`.",
       inputSchema: {
-        query: z.string().describe("Keywords; every word must match, e.g. `loader revalidate`."),
+        query: z
+          .string()
+          .describe(
+            "Keywords, e.g. `loader revalidate`; sections matching more of them rank first.",
+          ),
         limit: z.number().int().min(1).max(50).optional().describe("Maximum results (default 10)."),
       },
     },
-    guard(({ limit, query }) => ({ query, results: searchDocs(query, { limit }) })),
+    guard(({ limit, query }) => ({ query, results: searchDocs(query, { dir: docsDir, limit }) })),
   );
 
   server.registerTool(

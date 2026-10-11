@@ -7,7 +7,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createPrachtMcpServer } from "../src/mcp-server.ts";
+import { createPrachtMcpServer, type PrachtMcpServerOptions } from "../src/mcp-server.ts";
+import { writeDocsFixture } from "./helpers/docs-fixture.ts";
 import { removeTempDir } from "./helpers/remove-temp-dir.ts";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
@@ -63,8 +64,6 @@ describe("pracht MCP server", () => {
     );
   });
 
-  // The bundled docs come from `scripts/sync-docs.js` during the package
-  // build, which the test suite already requires.
   it("keeps get_docs without a topic as the authoring guide", async () => {
     const client = await connectClient();
     const result = await client.callTool({ name: "get_docs", arguments: {} });
@@ -75,15 +74,18 @@ describe("pracht MCP server", () => {
   });
 
   it("lists, searches, and reads the bundled docs", async () => {
-    const client = await connectClient();
+    const client = await connectClient({
+      docsDir: writeDocsFixture(createTempDir("pracht-mcp-docs-")),
+    });
 
     const list = await callToolJson(client, "list_docs", {});
-    expect(list.pages.map((page: { slug: string }) => page.slug)).toContain("routing");
+    expect(list.pages.map((page: { slug: string }) => page.slug)).toEqual([
+      "routing",
+      "data-loading",
+    ]);
 
     const search = await callToolJson(client, "search_docs", { query: "route manifest" });
-    expect(search.results.length).toBeGreaterThan(0);
-    const hit = search.results[0];
-    expect(hit).toMatchObject({ slug: expect.any(String), anchor: expect.any(String) });
+    expect(search.results[0]).toMatchObject({ slug: "routing", anchor: "route-manifest" });
 
     const page = await client.callTool({ name: "get_docs", arguments: { topic: "routing" } });
     expect(page.isError).toBeFalsy();
@@ -91,14 +93,16 @@ describe("pracht MCP server", () => {
 
     const section = await client.callTool({
       name: "get_docs",
-      arguments: { topic: `${hit.slug}#${hit.anchor}` },
+      arguments: { topic: "routing#link-props" },
     });
     expect(section.isError).toBeFalsy();
-    expect(textContent(section)).toMatch(/^#{1,6} /);
+    expect(textContent(section)).toBe("## `<Link>` props\n\nLink takes a route id.\n");
   });
 
   it("reports unknown docs topics and empty searches as tool errors", async () => {
-    const client = await connectClient();
+    const client = await connectClient({
+      docsDir: writeDocsFixture(createTempDir("pracht-mcp-docs-")),
+    });
 
     const unknown = await client.callTool({
       name: "get_docs",
@@ -110,6 +114,9 @@ describe("pracht MCP server", () => {
     const typo = await client.callTool({ name: "get_docs", arguments: { topic: "rooting" } });
     expect(typo.isError).toBe(true);
     expect(textContent(typo)).toContain("Did you mean routing");
+    // An MCP client calls tools; it may have no shell to run `pracht docs` in.
+    expect(textContent(typo)).toContain("list_docs");
+    expect(textContent(typo)).not.toContain("pracht docs");
 
     const empty = await client.callTool({ name: "search_docs", arguments: { query: "  " } });
     expect(empty.isError).toBe(true);
@@ -278,8 +285,8 @@ export const app = defineApp({
   }, 30_000);
 });
 
-async function connectClient(): Promise<Client> {
-  const server = createPrachtMcpServer();
+async function connectClient(options?: PrachtMcpServerOptions): Promise<Client> {
+  const server = createPrachtMcpServer(options);
   const client = new Client({ name: "pracht-test-client", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 

@@ -39,7 +39,10 @@ jobs:
       - name: Cache build output
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: packages/*/dist
+          # `packages/cli/docs` is the docs bundle the CLI build writes.
+          path: |
+            packages/*/dist
+            packages/cli/docs
           key: build-${{ github.sha }}
 
   unit-tests:
@@ -67,7 +70,10 @@ jobs:
       - name: Restore build output
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: packages/*/dist
+          # `packages/cli/docs` is the docs bundle the CLI build writes.
+          path: |
+            packages/*/dist
+            packages/cli/docs
           key: build-${{ github.sha }}
 
       - name: Typecheck
@@ -107,7 +113,10 @@ jobs:
       - name: Restore build output
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: packages/*/dist
+          # `packages/cli/docs` is the docs bundle the CLI build writes.
+          path: |
+            packages/*/dist
+            packages/cli/docs
           key: build-${{ github.sha }}
 
       - name: Install Playwright browsers
@@ -151,7 +160,10 @@ jobs:
       - name: Restore build output
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: packages/*/dist
+          # `packages/cli/docs` is the docs bundle the CLI build writes.
+          path: |
+            packages/*/dist
+            packages/cli/docs
           key: build-${{ github.sha }}
 
       # Bytes only: chunk sizes are deterministic, so they can gate a PR.

@@ -12,9 +12,10 @@ Pracht is a full-stack Preact framework on Vite. Per-route render modes
 adapters for Node, Cloudflare Workers, Netlify, and Vercel.
 
 **Docs for your installed version:** \`pracht docs <topic>\` prints a page of the
-pracht docs bundled with this CLI (or read \`node_modules/@pracht/cli/docs/\`).
+pracht docs bundled with this CLI release (or read \`node_modules/@pracht/cli/docs/\`).
 \`pracht docs\` lists the pages; \`pracht docs --search <query>\` finds sections.
-Prefer them over memory and over the website, which can be ahead of your version.
+They match the installed \`@pracht/cli\`; other \`@pracht/*\` packages can release
+in between, so when a page seems out of date, check https://pracht.resynapse.dev/docs.
 
 ## Golden rules
 
