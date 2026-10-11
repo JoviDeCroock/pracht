@@ -1,6 +1,6 @@
 ---
 name: pracht-debug
-version: 1.4.0
+version: 1.5.0
 description: |
   Framework-aware debugging for pracht: route matching, loader and API errors,
   rendering and hydration, middleware, HMR, and build failures — root cause first.
@@ -33,6 +33,7 @@ Reach for these before deep manual inspection:
 | ---- | --- |
 | `pracht verify` (`--changed` to scope to git-changed files) | Fast confidence check |
 | `pracht doctor` | Broader broken wiring or missing files |
+| `pracht docs <topic>` / `pracht docs --search <query>` | The docs for the *installed* pracht version — check documented behavior before calling it a bug |
 | `pracht inspect routes\|api\|build --json` | The resolved graph — never reconstruct it from source |
 | `GET /_pracht` (JSON at `/_pracht.json`) | Same graph from a running dev server, no CLI needed |
 | `Server-Timing` on dev SSR responses | `mw` / `loader` / `render` durations in ms — which phase is slow |

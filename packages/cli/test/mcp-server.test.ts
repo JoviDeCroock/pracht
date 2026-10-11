@@ -51,14 +51,69 @@ describe("pracht MCP server", () => {
       "inspect_build",
       "inspect_capabilities",
       "inspect_routes",
+      "list_docs",
       "plan",
       "report",
+      "search_docs",
       "typegen",
       "verify",
     ]);
     expect(tools.find((tool) => tool.name === "inspect_routes")?.description).toContain(
       "streaming mode",
     );
+  });
+
+  // The bundled docs come from `scripts/sync-docs.js` during the package
+  // build, which the test suite already requires.
+  it("keeps get_docs without a topic as the authoring guide", async () => {
+    const client = await connectClient();
+    const result = await client.callTool({ name: "get_docs", arguments: {} });
+
+    expect(result.isError).toBeFalsy();
+    expect(textContent(result)).toContain("authoring guide for coding agents");
+    expect(textContent(result)).toContain("pracht docs <topic>");
+  });
+
+  it("lists, searches, and reads the bundled docs", async () => {
+    const client = await connectClient();
+
+    const list = await callToolJson(client, "list_docs", {});
+    expect(list.pages.map((page: { slug: string }) => page.slug)).toContain("routing");
+
+    const search = await callToolJson(client, "search_docs", { query: "route manifest" });
+    expect(search.results.length).toBeGreaterThan(0);
+    const hit = search.results[0];
+    expect(hit).toMatchObject({ slug: expect.any(String), anchor: expect.any(String) });
+
+    const page = await client.callTool({ name: "get_docs", arguments: { topic: "routing" } });
+    expect(page.isError).toBeFalsy();
+    expect(textContent(page)).toMatch(/^---\ntitle: "Routing"/);
+
+    const section = await client.callTool({
+      name: "get_docs",
+      arguments: { topic: `${hit.slug}#${hit.anchor}` },
+    });
+    expect(section.isError).toBeFalsy();
+    expect(textContent(section)).toMatch(/^#{1,6} /);
+  });
+
+  it("reports unknown docs topics and empty searches as tool errors", async () => {
+    const client = await connectClient();
+
+    const unknown = await client.callTool({
+      name: "get_docs",
+      arguments: { topic: "../../package" },
+    });
+    expect(unknown.isError).toBe(true);
+    expect(textContent(unknown)).toContain('Unknown docs topic "../../package"');
+
+    const typo = await client.callTool({ name: "get_docs", arguments: { topic: "rooting" } });
+    expect(typo.isError).toBe(true);
+    expect(textContent(typo)).toContain("Did you mean routing");
+
+    const empty = await client.callTool({ name: "search_docs", arguments: { query: "  " } });
+    expect(empty.isError).toBe(true);
+    expect(textContent(empty)).toContain("Pass a search query");
   });
 
   it("runs doctor against a fixture app", async () => {

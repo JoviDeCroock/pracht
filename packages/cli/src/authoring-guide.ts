@@ -2,13 +2,19 @@
  * The pracht authoring guide for coding agents, embedded in the CLI so any
  * agent in any pracht app can get the framework's conventions without repo
  * skills: `pracht llms` prints it, `pracht llms --write` writes llms.txt,
- * and the MCP server exposes it via the `get_docs` tool.
+ * and the MCP server exposes it via the `get_docs` tool. The full docs pages
+ * ship alongside it (see docs.ts); the guide points agents at them.
  */
 export const AUTHORING_GUIDE = `# Pracht — authoring guide for coding agents
 
 Pracht is a full-stack Preact framework on Vite. Per-route render modes
 (spa | ssr | ssg | isg), optional islands hydration, explicit routing, and
 adapters for Node, Cloudflare Workers, Netlify, and Vercel.
+
+**Docs for your installed version:** \`pracht docs <topic>\` prints a page of the
+pracht docs bundled with this CLI (or read \`node_modules/@pracht/cli/docs/\`).
+\`pracht docs\` lists the pages; \`pracht docs --search <query>\` finds sections.
+Prefer them over memory and over the website, which can be ahead of your version.
 
 ## Golden rules
 
@@ -217,6 +223,7 @@ policy change a human must approve.
 - \`pracht typegen\` — typed route ids/params for \`<Link>\`, \`href()\`, \`useNavigate()\`.
 - \`pracht eval [files] [--url] [--start "<cmd>"] [--browser <path>]\` — run scripted agent-task scenarios over HTTP, remote MCP, or native WebMCP; exits 1 on any failed expectation.
 - \`pracht doctor\` — app wiring diagnostics.
+- \`pracht docs [topic] [--search <query>]\` — the pracht docs for the installed version, offline.
 - \`pracht dev-mcp\` — this CLI as an authoring MCP server (inspect/verify/generate/docs tools).
   Not your app's own remote MCP endpoint, which serves capabilities to end-user agents.
 

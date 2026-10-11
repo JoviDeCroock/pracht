@@ -55,6 +55,13 @@ const IGNORED_INPUTS = new Set([
  * external inputs are hashed alongside the package's own sources.
  */
 const PACKAGE_OVERRIDES = {
+  // `scripts/sync-docs.js` copies the public docs site pages into the package
+  // so `pracht docs` serves the version that is installed. The pages and the
+  // sidebar (which supplies each page's section) are inputs; `docs/` is output.
+  "@pracht/cli": {
+    externalInputs: ["examples/docs/src/routes/docs", "examples/docs/src/shells/docs.tsx"],
+    outputs: ["dist", "docs"],
+  },
   // `scripts/sync-skills.js` copies `<repo>/skills/*/SKILL.md` into the
   // package, so the repo-level skills are inputs and `skills/` is the output.
   // `scripts/sync-versions.js` records sibling versions; a checkout reads

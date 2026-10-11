@@ -17,6 +17,7 @@ const main = defineCommand({
     build: () => import("./commands/build.js").then((m) => m.default),
     dev: () => import("./commands/dev.js").then((m) => m.default),
     "dev-mcp": () => import("./commands/dev-mcp.js").then((m) => m.default),
+    docs: () => import("./commands/docs.js").then((m) => m.default),
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
     eval: () => import("./commands/eval.js").then((m) => m.default),
     generate: () => import("./commands/generate.js").then((m) => m.default),

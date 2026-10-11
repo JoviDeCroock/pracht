@@ -29,6 +29,7 @@
   "files": [
     "bin",
     "dist",
+    "docs",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -41,7 +42,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node ./scripts/sync-docs.js",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
