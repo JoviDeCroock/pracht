@@ -77,7 +77,9 @@ Every tool accepts an optional `cwd` (absolute path to the app root). It default
 | `report` | `base?` | [PR-ready markdown](#pr-reports-from-machine-truth) |
 | `typegen` | `check?` | Regenerates typed routes and capability types; `check: true` only reports staleness |
 | `eval` | `url`, `files?` | Runs eval scenarios against an app you already started |
-| `get_docs` | — | The authoring guide from `pracht llms`. Agents should read it first |
+| `get_docs` | `topic?` | Without a topic, the authoring guide from `pracht llms`; agents should read it first. With one, that page (or `page#section`) of the [installed docs](#teaching-the-agent-pracht-llms-and-pracht-docs) |
+| `list_docs` | — | The installed docs pages: slug, title, summary, section, URL |
+| `search_docs` | `query`, `limit?` | The best-matching docs sections, each with a `slug#section` to pass to `get_docs` |
 
 **Scaffolding:** `generate_route`, `generate_shell`, `generate_middleware`, `generate_api`, and `generate_capability` take the [`pracht generate`](/docs/cli#pracht-generate) flags as camelCase inputs (`errorBoundary`, `staticPaths`), with lists as arrays. Each returns `{ kind, created, updated }`. When you edit a generated capability, keep `expose` and `effect` inline literals.
 
@@ -116,9 +118,11 @@ pracht dev
 
 ---
 
-## Teaching the Agent: pracht llms
+## Teaching the Agent: pracht llms and pracht docs
 
 [`pracht llms`](/docs/cli#pracht-llms) prints pracht's authoring guide for coding agents: project layout, conventions, constraints, and the verify/plan/report loop. `pracht llms --write` saves it as `llms.txt` in the app root, and the `get_docs` MCP tool serves the same text.
+
+pracht is newer than most models' training data, and this site documents the latest code, which can be ahead of the version your app installs. Every page here also ships inside `@pracht/cli`, so the agent can read the docs that match the app: [`pracht docs <topic>`](/docs/cli#pracht-docs) prints one, `pracht docs --search <query>` finds sections, and the files sit in `node_modules/@pracht/cli/docs/`. The guide and the `AGENTS.md` that `create-pracht` seeds both point there.
 
 > [!NOTE]
 > This is the *framework's* guide, for an agent editing your source. It is unrelated to the [`llms.txt` your app generates](/docs/agents#llmstxt) for agents *using* your deployed site. Same filename, opposite direction.

@@ -56,7 +56,7 @@ constraint; the CLI test is.
 | `packages/session`            | `@pracht/session`            | Sessions: AES-GCM-sealed cookie or store-backed session id, secret rotation, flash values, `sessionMiddleware()`/`requireSession()`, WebCrypto password hashing (see `docs/SESSION.md`) |
 | `packages/test`               | `@pracht/test`               | Testing utilities for app developers: typed loader/API/middleware args factories, a middleware chain runner, form submission helpers, and minimal response readers |
 | `packages/capabilities`       | `@pracht/capabilities`       | Capability primitive plus standalone server host and WebMCP registrar: contracts, validation, trust policy, HTTP/MCP dispatch, and the shared envelope/error protocol |
-| `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, `doctor`, and the `pracht dev-mcp` authoring server |
+| `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, `doctor`, `docs` (the site pages, bundled at build time), and the `pracht dev-mcp` authoring server |
 | `packages/start`              | `create-pracht`              | Project scaffolder: router choice, adapter choice, agent tooling (`.mcp.json`, skills, `AGENTS.md`)         |
 | `examples/basic`              | `@pracht/example-basic`      | The reference app: all four render modes, loaders, API routes, `@pracht/session` auth, capabilities, forms. Builds for four adapters from one source tree |
 | `examples/showcase`           | `@pracht/example-showcase`   | *Launchpad* — the whole capability graph and agent trust layer in one app: six operations projected to browser, forms, WebMCP, signed remote callers, and `/mcp` |
@@ -79,7 +79,11 @@ Two audiences, two trees, and they are not interchangeable.
 `examples/docs` is a real pracht app whose Markdown pages *are* the public
 documentation. It also generates `llms.txt`, the sitemap, and the agent-skills
 discovery index from those same files, so a page that is missing there is
-missing from every agent-facing surface too.
+missing from every agent-facing surface too. The `@pracht/cli` build also
+copies them into the published package for `pracht docs` (see
+`docs/AGENT_WORKFLOW.md`), so a page's nav section and its file name matter
+there as well; the URL mapping in `packages/cli/scripts/docs-bundle.js` mirrors
+`content.ts`.
 
 A user-facing change is not finished when `docs/` is updated. Adding a page
 means three edits: the Markdown file, a `route()` in
@@ -325,6 +329,9 @@ to regress:
   cache key is the shared root TypeScript config, the package's sources, and
   the *outputs* of its workspace dependencies — keying on outputs is what stops
   a rebuild that produced identical bytes from cascading through the graph.
+  A package that reads files outside its directory declares them in
+  `PACKAGE_OVERRIDES` (`create-pracht` reads `skills/`; `@pracht/cli` reads the
+  docs site pages and sidebar).
   `scripts/typecheck.mjs`
   runs the four TypeScript programs side by side, each with its own
   `.tsbuildinfo`. `tsBuildInfoFile` is passed per invocation rather than set in

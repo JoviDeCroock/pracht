@@ -6,6 +6,13 @@ import { z } from "zod";
 
 import { AUTHORING_GUIDE } from "./authoring-guide.js";
 import { VERSION } from "./constants.js";
+import {
+  extractDocsSection,
+  loadDocsIndex,
+  matchDocsTopic,
+  readDocsPage,
+  searchDocs,
+} from "./docs.js";
 import { readProjectConfig } from "./project.js";
 import { runDoctor, runVerification } from "./verification.js";
 import {
@@ -239,10 +246,52 @@ export function createPrachtMcpServer(): McpServer {
     "get_docs",
     {
       description:
-        "The pracht authoring guide for coding agents: project layout, conventions, constraints, and the commands to run before finishing a change. Read this before authoring pracht app code.",
+        "Without `topic`: the pracht authoring guide for coding agents (project layout, conventions, constraints, and the commands to run before finishing a change) — read it before authoring pracht app code. With `topic`: that page of the pracht docs bundled with the installed CLI, so it matches the app's pracht version. Find topics with list_docs or search_docs.",
+      inputSchema: {
+        topic: z
+          .string()
+          .optional()
+          .describe(
+            "Docs page slug or title, e.g. routing, data-loading, recipes-auth. Append #section to read one section, e.g. routing#route-manifest.",
+          ),
+      },
+    },
+    guardText(({ topic }) => {
+      if (topic === undefined || topic.trim() === "") return AUTHORING_GUIDE;
+      const match = matchDocsTopic(loadDocsIndex(), topic);
+      if (!match.ok) throw new Error(match.message);
+      const markdown = readDocsPage(match.page);
+      if (!match.anchor) return markdown;
+      const section = extractDocsSection(markdown, match.anchor);
+      if (!section.ok) throw new Error(`${match.page.slug}: ${section.message}`);
+      return section.markdown;
+    }),
+  );
+
+  server.registerTool(
+    "list_docs",
+    {
+      description:
+        "List the pracht docs pages bundled with the installed CLI: slug, title, one-line summary, section, and public URL. Read one with get_docs({ topic }). Same payload as `pracht docs --json`.",
       inputSchema: {},
     },
-    guardText(() => AUTHORING_GUIDE),
+    guard(() => {
+      const index = loadDocsIndex();
+      return { version: VERSION, site: index.site, pages: index.pages };
+    }),
+  );
+
+  server.registerTool(
+    "search_docs",
+    {
+      description:
+        "Keyword search over the pracht docs bundled with the installed CLI. Returns the best-matching sections (slug, heading, anchor, snippet); read one with get_docs({ topic: `<slug>#<anchor>` }). Same payload as `pracht docs --search <query> --json`.",
+      inputSchema: {
+        query: z.string().describe("Keywords; every word must match, e.g. `loader revalidate`."),
+        limit: z.number().int().min(1).max(50).optional().describe("Maximum results (default 10)."),
+      },
+    },
+    guard(({ limit, query }) => ({ query, results: searchDocs(query, { limit }) })),
   );
 
   server.registerTool(

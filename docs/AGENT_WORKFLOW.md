@@ -133,6 +133,19 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
   the app root. The MCP `get_docs` tool returns the same text, so any MCP client
   gets the conventions without repo-local skills. Source:
   `packages/cli/src/authoring-guide.ts`.
+- `pracht docs [topic] [--search q]` serves the public site pages
+  (`examples/docs/src/routes/docs/*.md`) bundled into `@pracht/cli`, so an agent
+  reads docs that match the installed version, offline. The package build runs
+  `packages/cli/scripts/sync-docs.js` (logic in `docs-bundle.js`), which writes the gitignored
+  `packages/cli/docs/` (`<slug>.md`, `index.json`, `index.md`): frontmatter is
+  reduced to `title`/`lead`/`url`, links to other docs pages become sibling
+  files (`routing.md#anchor`), other site paths become absolute
+  `https://pracht.resynapse.dev` URLs, and relative assets point at GitHub.
+  Sections come from the sidebar in `examples/docs/src/shells/docs.tsx`; both
+  are external inputs of the CLI in `scripts/build.mjs`, so a docs edit rebuilds
+  it. The `get_docs` (`topic?`), `list_docs`, and `search_docs` MCP tools read
+  the same bundle via `packages/cli/src/docs.ts`; topics only ever resolve to
+  index entries, never to a path.
 
 ---
 

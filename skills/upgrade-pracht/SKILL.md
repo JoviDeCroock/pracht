@@ -1,6 +1,6 @@
 ---
 name: upgrade-pracht
-version: 1.2.0
+version: 1.3.0
 description: |
   Upgrade the `@pracht/*` packages safely: inventory installed versions, read the
   changelogs between installed and target, map breaking changes to real usage,
@@ -120,6 +120,8 @@ pnpm up '@pracht/core@<v>' '@pracht/cli@<v>' '@pracht/vite-plugin@<v>' <adapters
 
 Upgrade every installed `@pracht/*` package in the same command. Apply the
 agreed code migrations with minimal diffs, one changelog entry at a time.
+`pracht docs <topic>` now serves the docs for the new version; read the page
+behind each changed API rather than relying on the docs site or memory.
 
 ## Step 6: Verification ladder
 

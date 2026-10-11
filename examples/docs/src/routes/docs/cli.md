@@ -1,6 +1,6 @@
 ---
 title: CLI
-lead: The `@pracht/cli` package covers development, production builds, inspection, verification, evaluation, scaffolding, previews, and agent integrations.
+lead: The `@pracht/cli` package covers development, production builds, inspection, verification, evaluation, scaffolding, previews, offline docs, and agent integrations.
 breadcrumb: CLI
 prev:
   href: /docs/env
@@ -351,6 +351,24 @@ pracht llms --out docs/pracht-guide.md
 ```
 
 The `get_docs` tool of [`pracht dev-mcp`](#pracht-dev-mcp) serves the same guide.
+
+---
+
+## pracht docs
+
+Prints the pracht docs that ship inside your installed `@pracht/cli`, so you and your coding agent read the version the app uses, offline:
+
+```sh
+pracht docs                          # list pages by section
+pracht docs routing                  # print a page as Markdown
+pracht docs routing#route-manifest   # print one section
+pracht docs --search "loader revalidate"
+pracht docs --json                   # the page list as JSON
+```
+
+A topic is a page slug, its title, or its site path, such as `recipes/auth`. An unknown topic exits 1 and suggests the closest pages. `--search` returns `slug#section` targets with a snippet; every word must match. `--json` also works with a topic or `--search`.
+
+Links between pages point at sibling files (`routing.md#…`), and the same files are in `node_modules/@pracht/cli/docs/`. The [`pracht dev-mcp`](#pracht-dev-mcp) tools `get_docs`, `list_docs`, and `search_docs` serve the same pages.
 
 ---
 

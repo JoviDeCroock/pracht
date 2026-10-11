@@ -151,6 +151,19 @@ pracht llms
 pracht llms --write
 ```
 
+### `pracht docs`
+
+Read the pracht docs that ship inside this package, so they match the installed
+version and work offline. With no topic it lists the pages; a topic prints one
+as Markdown (`slug#section` prints one section); `--search` finds sections.
+The files are also in `node_modules/@pracht/cli/docs/`.
+
+```bash
+pracht docs
+pracht docs routing
+pracht docs --search "loader revalidate"
+```
+
 ### `pracht generate route`
 
 Create a new route module. In manifest apps this also updates `src/routes.ts`.
@@ -240,8 +253,8 @@ pracht doctor --json
 ### `pracht dev-mcp`
 
 Start a Model Context Protocol server on stdio that exposes inspect, doctor,
-verify, plan, report, generate, and the authoring guide (`get_docs`) as native
-tools for coding agents. See
+verify, plan, report, generate, the authoring guide, and the bundled docs
+(`get_docs`, `list_docs`, `search_docs`) as native tools for coding agents. See
 [docs/MCP.md](https://github.com/JoviDeCroock/pracht/blob/main/docs/MCP.md)
 for client registration and the tool reference.
 

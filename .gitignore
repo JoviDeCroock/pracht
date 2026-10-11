@@ -11,4 +11,5 @@ test-results
 .dev.vars
 packages/start/skills
 packages/start/fallback-versions.json
+packages/cli/docs
 .gstack

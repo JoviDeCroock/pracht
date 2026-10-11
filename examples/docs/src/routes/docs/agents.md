@@ -169,7 +169,7 @@ curl https://pracht.resynapse.dev/llms-full.txt
 ```
 
 > [!NOTE]
-> `llms.txt` here means *your app's* index, generated from *your* graph. `pracht llms` is a different thing: it prints the framework's own authoring guide for a coding agent working in your repo. See [Coding Agents](/docs/coding-agents#teaching-the-agent-pracht-llms).
+> `llms.txt` here means *your app's* index, generated from *your* graph. `pracht llms` is a different thing: it prints the framework's own authoring guide for a coding agent working in your repo. See [Coding Agents](/docs/coding-agents#teaching-the-agent-pracht-llms-and-pracht-docs).
 
 ---
 

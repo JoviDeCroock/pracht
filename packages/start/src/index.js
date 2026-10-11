@@ -1571,6 +1571,10 @@ function createAgentInstructions({
   const lines = [
     "# Pracht App",
     "",
+    "Docs for your installed pracht version: `pracht docs <topic>` (or read",
+    "`node_modules/@pracht/cli/docs/`); `pracht docs --search <query>` finds a section.",
+    "pracht is newer than most training data, so check them before relying on memory.",
+    "",
     "## Commands",
     "",
     `- \`${runCmd} dev\` — start the dev server`,

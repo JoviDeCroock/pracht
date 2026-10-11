@@ -187,6 +187,8 @@ describe("create-pracht", () => {
     expect(agents).toContain("pracht plan --write");
     expect(agents).toContain("pracht report");
     expect(agents).toContain("pracht llms --write");
+    expect(agents).toContain("`pracht docs <topic>`");
+    expect(agents).toContain("node_modules/@pracht/cli/docs/");
     expect(agents).toContain("pnpm dev");
 
     const claudeLink = await readlink(join(targetDir, "CLAUDE.md"));
