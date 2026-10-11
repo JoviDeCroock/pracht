@@ -205,7 +205,7 @@ link. A section that matches no document produces neither a heading nor a file.
 When `origin` is set, each page in a full-text file starts with its title and a
 `Source:` line holding the page's URL, so an agent can cite the page it read.
 Point `link` only at URLs the site serves, such as the
-[`<path>.md` files](/docs/agents#a-md-url-for-every-static-page) the build
+[`<path>.md` files](/docs/agents#a-md-url-for-static-markdown-pages) the build
 writes for SSG pages.
 
 The build also fails when an artifact path collides with a file in `public/`, a
