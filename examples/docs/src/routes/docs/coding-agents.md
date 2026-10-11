@@ -61,6 +61,8 @@ Keep `--no-install`. It pins the server to the `@pracht/cli` this project depend
 
 Apps scaffolded with `create-pracht` get this file and the [core skills](#agent-skills) unless you pass `--no-agent-tools`. Cursor (`.cursor/mcp.json`), VS Code (`.vscode/mcp.json`), and other stdio clients take the same `command`/`args` shape; run it from the app root.
 
+Clients that browse the [official MCP Registry](https://registry.modelcontextprotocol.io) list it as `io.github.JoviDeCroock/pracht`. A registry install runs the latest `@pracht/cli` rather than your project's, so prefer the project config above in an app.
+
 ### Tools
 
 Every tool accepts an optional `cwd` (absolute path to the app root). It defaults to the server's working directory.
@@ -132,6 +134,8 @@ pracht is newer than most models' training data, and this site documents the lat
 ## The Docs MCP Server
 
 This site is also a remote MCP server, built from pracht's own [remote MCP projection](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser). Connect a coding agent to it and the agent searches and reads the current docs instead of relying on what it remembers. `pracht dev-mcp` knows your app; this server knows the framework.
+
+The official MCP Registry lists it as `io.github.JoviDeCroock/pracht-docs`.
 
 With Claude Code:
 

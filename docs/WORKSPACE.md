@@ -428,3 +428,26 @@ pnpm --dir examples/docs exec node scripts/docs-release.mjs check
 The final command checks production; it does not publish. Pass another origin
 to `check` to verify a preview deployment. Redirect/fallback documents
 `404.html` and `200.html` are excluded from the successful-page inventory.
+
+## External agent listings
+
+Agents also find pracht outside the docs site:
+
+- **MCP Registry.** `packages/cli/server.json` lists `pracht dev-mcp` as
+  `io.github.JoviDeCroock/pracht` (npm package `@pracht/cli`, which carries the
+  matching `mcpName`); `examples/docs/server.json` lists the docs site's remote
+  MCP server as `io.github.JoviDeCroock/pracht-docs`. The `MCP Registry`
+  workflow runs every six hours and after each docs publication, and
+  `.github/scripts/publish-mcp-registry.mjs` publishes an entry only when the
+  registry lacks that version and its target is live: the npm version must be
+  published with the right `mcpName` (releases are staged and approved by hand,
+  which is why this polls), and the remote endpoint must answer `initialize`.
+  The CLI entry takes its version from `packages/cli/package.json`; bump the
+  docs entry's `version` by hand when its metadata changes, because the
+  registry rejects republishing a version. The `mcp-publisher` binary is pinned
+  by version and SHA-256 in the workflow.
+- **Context7.** `context7.json` at the repository root scopes indexing to the
+  public docs pages and `skills/`, and carries the short rules agents see with
+  the library.
+- **GitHub topics** on the repository (`preact`, `mcp`, `llms-txt`, …) feed
+  repository search.
