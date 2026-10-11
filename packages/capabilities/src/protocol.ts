@@ -179,6 +179,7 @@ export const CAPABILITY_ERROR_CODES = [
   "invalid_input",
   "invalid_output",
   "invalid_json",
+  "payload_too_large",
   "internal_error",
   "method_not_allowed",
   "agent_required",

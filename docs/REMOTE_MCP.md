@@ -170,6 +170,7 @@ The split follows what actually failed:
 | --- | --- |
 | Unknown tool, malformed params, bad JSON-RPC | JSON-RPC `error` |
 | Unsupported protocol version, non-POST, browser-originated, cookie-bearing request | HTTP 400 / 405 / 403 |
+| Body over 1 MiB (declared `Content-Length` or counted while streaming) | HTTP 413 with a JSON-RPC `-32600` error; nothing is parsed |
 | Missing, rejected, or under-scoped bearer token (when `agents.mcp.auth` is set) | HTTP 401 / 403 with `WWW-Authenticate` |
 | Validation failure, middleware rejection, policy denial | `isError: true` result |
 

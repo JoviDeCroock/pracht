@@ -64,6 +64,7 @@ import type {
   PrachtCapability,
   PrachtContextExtensions,
 } from "./types.ts";
+import { decodeBody, MAX_CAPABILITY_BODY_BYTES, readBoundedBody } from "./body.ts";
 
 export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
 
@@ -833,9 +834,31 @@ async function dispatchCapabilityHttp<TContext>(
   const isFormPost =
     contentType.includes("application/x-www-form-urlencoded") ||
     contentType.includes("multipart/form-data");
+  // `undefined` is a stream that broke mid-read; it parses as malformed below.
+  let body: Uint8Array<ArrayBuffer> | null | undefined;
+  try {
+    body = await readBoundedBody(options.request);
+  } catch {
+    body = undefined;
+  }
+  if (body === null) {
+    return audited(
+      envelopeResponse(
+        413,
+        errorEnvelope({
+          code: "payload_too_large",
+          message: `Request body exceeds ${MAX_CAPABILITY_BODY_BYTES} bytes.`,
+        }),
+      ),
+      "payload_too_large",
+    );
+  }
   if (isFormPost) {
     try {
-      const form = await options.request.formData();
+      if (!body) throw new Error("unreadable body");
+      const form = await new Response(body, {
+        headers: { "content-type": contentType },
+      }).formData();
       input = coerceFormInput(capability.input, form.entries());
     } catch {
       return audited(
@@ -851,9 +874,10 @@ async function dispatchCapabilityHttp<TContext>(
     }
   } else {
     try {
-      const body = await options.request.text();
-      if (body.trim() !== "") {
-        input = JSON.parse(body);
+      if (!body) throw new Error("unreadable body");
+      const text = decodeBody(body);
+      if (text.trim() !== "") {
+        input = JSON.parse(text);
       }
     } catch {
       return audited(

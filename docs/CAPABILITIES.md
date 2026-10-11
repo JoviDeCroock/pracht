@@ -776,6 +776,15 @@ edge-only import inside `run()`.
   schema produces a redacted 500, never the raw value.
 - **Same-origin enforcement** — cross-origin browser POSTs are rejected by
   default, matching API-route CSRF policy.
+- **Bounded bodies** — HTTP dispatch and the remote MCP endpoint read at most
+  1 MiB (`MAX_CAPABILITY_BODY_BYTES`, the Node adapter's default `maxBodySize`)
+  through `readBoundedBody()` in `src/server/body.ts`. A declared
+  `Content-Length` over the cap is refused unread; otherwise the stream is
+  counted as it arrives, so a missing or understated length cannot buffer more
+  than one extra chunk. HTTP answers `413` with the `payload_too_large`
+  envelope. The cap is fixed: capability inputs are JSON, and file uploads
+  belong in API routes. Edge adapters do not cap bodies themselves, so this is
+  the only bound on Workers, Netlify, and Vercel.
 - **Fail closed** — a capability registry that cannot resolve (bad module,
   duplicate paths, unknown middleware) answers capability requests with 500
   and never partially serves.
