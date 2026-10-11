@@ -284,7 +284,9 @@ selects the string a generated route module can export as its server-only
 `llmsTxtArtifacts()` is collection-driven and can generate curated sections,
 a full-source companion, and a full-text file per section
 (`sections[n].fullPath`), listed under the summary's `## Optional` heading.
-`link(document)` chooses each entry's URL, for example the page's `.md` source.
+`link(document)` chooses each entry's URL, for example the page's `.md` source,
+and full-text files name it on a `Source:` line under each page's title.
+`sections[n].sort` orders a section's entries.
 It is separate from Pracht's core, app-graph `llmsTxt` option.
 Frontmatter titles are escaped when used as Markdown link labels, and YAML line
 breaks in titles or descriptions are folded so each document remains one

@@ -192,13 +192,17 @@ llmsTxtArtifacts({
 });
 ```
 
-Each section becomes a `##` list of its pages. A section with `fullPath` also
-gets a file holding only its pages, so an agent can load one area in a single
-fetch. Those files, and `/llms-full.txt`, are listed with their page and word
-counts under a final `## Optional` heading, because they repeat pages the
-sections already link. A section that matches no document produces neither a
-heading nor a file. Point `link` only at URLs the site serves, such as the
-`.md` files `rawContentArtifacts()` emits.
+Each section becomes a `##` list of its pages, in collection order unless the
+section passes a `sort` comparator. A section with `fullPath` also gets a file
+holding only its pages, so an agent can load one area in a single fetch. Those
+files, and `/llms-full.txt`, are listed with their page and word counts under a
+final `## Optional` heading, because they repeat pages the sections already
+link. A section that matches no document produces neither a heading nor a file.
+
+In every full-text file, each page starts with its title and a `Source:` line
+holding the URL the summary links, so an agent can cite the page it read. Point
+`link` only at URLs the site serves, such as the `.md` files
+`rawContentArtifacts()` emits.
 
 The build also fails when an artifact path collides with a file in `public/`, a
 prerendered page, or a request-time page or API route. The error names the

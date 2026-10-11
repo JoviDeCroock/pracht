@@ -219,8 +219,15 @@ neither.
 `llmsTxtArtifacts()` writes the summary (`summaryPath`, default `/llms.txt`),
 the global full-text file (`fullPath`, default `/llms-full.txt`, or `false`),
 and one full-text file per section that sets `section.fullPath`. A section file
-inlines exactly the documents that section matched, in collection order, under
-an H1 of `<title>: <heading>`; the global file inlines each matched
+inlines exactly the documents that section matched under an H1 of
+`<title>: <heading>`. Each inlined document is `# <title>`, then
+`Source: <url>` with the same origin-joined `link()` URL its summary entry
+uses (whitespace, control characters, and angle brackets percent-encoded; a
+relative URL when `origin` is unset), then its description blockquote and
+body. Entries follow collection order unless `section.sort` supplies a
+comparator, which orders both the section's summary list and its file; the
+global file follows the section traversal order, so it inherits those orders.
+The global file inlines each matched
 document once even when several sections list it, while a document listed by
 two sections appears in both section files. A section that matches nothing
 emits no `##` heading and no file, so a configured section path can disappear
@@ -236,10 +243,11 @@ defined: each must be a valid artifact path, and no two may be equal after case
 folding or form a file/directory pair. Collisions with pages, `public/`, or
 other generators are still caught by the build's artifact preflight.
 
-`link(document)` chooses the URL each summary entry points at; it defaults to
-`document.path`. It must return a root-relative path (a value that is not, such
-as `guide.md` or `//host/x`, fails generation and names the document), and it
-does not change what the full-text files inline. `origin` must be an absolute
+`link(document)` chooses the URL each summary entry points at and each
+full-text `Source:` line names; it defaults to `document.path`. It must return
+a root-relative path (a value that is not, such as `guide.md` or `//host/x`,
+fails generation and names the document), and it does not change what the
+full-text files inline. `origin` must be an absolute
 http(s) URL without query or fragment; trailing slashes are dropped and a base
 path is kept. Destinations percent-encode whitespace, control characters, and
 angle brackets, and backslash-escape parentheses, so a `link()` result stays
