@@ -5,6 +5,20 @@ export const app = defineApp({
     home: () => import("./shells/home.tsx"),
     docs: () => import("./shells/docs.tsx"),
   },
+  // The docs as read-only MCP tools, at https://pracht.resynapse.dev/mcp.
+  // Served from the same content collection as the pages and llms.txt.
+  capabilities: {
+    "docs.search": () => import("./capabilities/docs-search.ts"),
+    "docs.read": () => import("./capabilities/docs-read.ts"),
+    "docs.list": () => import("./capabilities/docs-list.ts"),
+  },
+  agents: {
+    mcp: {
+      serverInfo: { name: "pracht-docs", version: "1.0.0" },
+      instructions:
+        "Documentation for pracht, a full-stack Preact framework. Search with docs_search, then read a page or one section with docs_read. docs_list is the table of contents.",
+    },
+  },
   routes: [
     group({ shell: "home" }, [
       route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),

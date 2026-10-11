@@ -599,7 +599,9 @@ Supported protocol versions are negotiated on `initialize`, newest first:
 is a 400.
 
 `examples/basic` serves this endpoint; `e2e/capabilities.test.ts` exercises
-it end to end.
+it end to end. The public docs site (`examples/docs`) serves its documentation
+as read-only tools at <https://pracht.resynapse.dev/mcp>, with
+`examples/docs/evals/docs-mcp.eval.json` as its scenario.
 
 For a repeatable check rather than a curl, `pracht eval` drives this transport
 too: a scenario with `"transport": "mcp"` performs the real `initialize`

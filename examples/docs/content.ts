@@ -418,6 +418,9 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
     };
   },
   images: { sizes: "(max-width: 960px) 100vw, 960px" },
+  // The docs MCP tools read `body` and `compiled` from the runtime snapshot;
+  // nothing at request time needs the raw source with its frontmatter.
+  snapshot: { raw: false },
   artifacts: [
     llmsTxtArtifacts({
       origin: SITE_ORIGIN,
@@ -428,6 +431,8 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
         `Each page link below points at the page's Markdown: append \`.md\` to any docs URL, or request the page URL with \`Accept: text/markdown\`. For example, ${SITE_ORIGIN}/docs/routing.md is the Markdown of ${SITE_ORIGIN}/docs/routing.`,
         "",
         `Each section also has a full-text file, listed under Optional, that holds all of its pages, so one fetch loads one area of the docs. ${SITE_ORIGIN}/llms-full.txt holds every page.`,
+        "",
+        `These docs are also a remote MCP server: add ${SITE_ORIGIN}/mcp as a Streamable HTTP server for the read-only \`docs_search\`, \`docs_read\`, and \`docs_list\` tools.`,
         "",
         `Agent skills for building pracht apps are indexed at ${SITE_ORIGIN}/.well-known/agent-skills/index.json.`,
       ],

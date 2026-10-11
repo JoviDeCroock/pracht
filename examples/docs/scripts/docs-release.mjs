@@ -12,6 +12,8 @@ const requiredPaths = [
   "/.well-known/agent-skills/index.json",
 ];
 const digest = (body) => createHash("sha256").update(body).digest("hex");
+export const mcpPath = "/mcp";
+const mcpTools = ["docs_search", "docs_read", "docs_list"];
 
 async function filesIn(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -82,7 +84,55 @@ export async function checkRelease(directory, origin, fetchImpl = fetch) {
     if (digest(await fetchAsset(path)) !== hash)
       throw new Error(`Deployed content differs from this build: ${path}.`);
   }
+  await checkMcp(origin, expected.assets, fetchImpl);
   return expected.revision;
+}
+
+/**
+ * Drive the docs MCP server the way an MCP host does: handshake, list the
+ * tools, and run one search whose hits must be pages this build published.
+ */
+export async function checkMcp(origin, assets, fetchImpl = fetch) {
+  let protocolVersion;
+  const rpc = async (id, method, params) => {
+    const response = await fetchImpl(new URL(mcpPath, origin), {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        ...(protocolVersion ? { "mcp-protocol-version": protocolVersion } : {}),
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`MCP ${method} returned HTTP ${response.status}.`);
+    const message = await response.json();
+    if (message.error) throw new Error(`MCP ${method} failed: ${message.error.message}`);
+    return message.result;
+  };
+  const initialized = await rpc(1, "initialize", {
+    protocolVersion: "2025-11-25",
+    capabilities: {},
+    clientInfo: { name: "docs-release", version: "1" },
+  });
+  protocolVersion = initialized?.protocolVersion;
+  const listed = await rpc(2, "tools/list", {});
+  const names = (listed?.tools ?? []).map((tool) => tool.name);
+  for (const name of mcpTools) {
+    if (!names.includes(name)) throw new Error(`The docs MCP server does not list ${name}.`);
+  }
+  const searched = await rpc(3, "tools/call", {
+    name: "docs_search",
+    arguments: { query: "capabilities", limit: 3 },
+  });
+  const results = searched?.structuredContent?.results;
+  if (searched?.isError || !Array.isArray(results) || !results.length)
+    throw new Error("The docs MCP server returned no docs_search results.");
+  for (const result of results) {
+    if (!assets[result.page])
+      throw new Error(`docs_search returned a page this build did not publish: ${result.page}.`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -1,6 +1,6 @@
 ---
 title: Coding Agents
-lead: The other kind of agent — the one writing your app rather than using it. pracht hands coding agents the resolved app graph over MCP, an embedded authoring guide, installable skills, and machine-checkable proof that the change is the change it claims to be.
+lead: The other kind of agent — the one writing your app rather than using it. pracht hands coding agents the resolved app graph and these docs over MCP, an embedded authoring guide, installable skills, and machine-checkable proof that the change is the change it claims to be.
 breadcrumb: Coding Agents
 prev:
   href: /docs/agent-trust
@@ -126,6 +126,44 @@ pracht is newer than most models' training data, and this site documents the lat
 
 > [!NOTE]
 > This is the *framework's* guide, for an agent editing your source. It is unrelated to the [`llms.txt` your app generates](/docs/agents#llmstxt) for agents *using* your deployed site. Same filename, opposite direction.
+
+---
+
+## The Docs MCP Server
+
+This site is also a remote MCP server, built from pracht's own [remote MCP projection](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser). Connect a coding agent to it and the agent searches and reads the current docs instead of relying on what it remembers. `pracht dev-mcp` knows your app; this server knows the framework.
+
+With Claude Code:
+
+```sh
+claude mcp add --transport http pracht-docs https://pracht.resynapse.dev/mcp
+```
+
+Cursor and VS Code take the URL in their MCP config files:
+
+```json [.cursor/mcp.json]
+{
+  "mcpServers": {
+    "pracht-docs": { "url": "https://pracht.resynapse.dev/mcp" }
+  }
+}
+```
+
+```json [.vscode/mcp.json]
+{
+  "servers": {
+    "pracht-docs": { "type": "http", "url": "https://pracht.resynapse.dev/mcp" }
+  }
+}
+```
+
+| Tool | Inputs | Returns |
+| --- | --- | --- |
+| `docs_search` | `query`, `limit?` (1–20, default 8) | The best-matching sections, each with its `page`, `section` anchor, `url`, and a snippet |
+| `docs_read` | `page` (a path, slug, or URL), `section?` | The page or one section as Markdown, plus the page's section anchors |
+| `docs_list` | — | Every page with its one-line summary, grouped like the sidebar |
+
+The tools are read-only and need no account. Pass a search hit's `page` and `section` straight to `docs_read`. An unknown page or anchor answers `found: false` with the closest matches in `suggestions`.
 
 ---
 

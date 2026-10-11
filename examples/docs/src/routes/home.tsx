@@ -137,6 +137,8 @@ export const markdown = [
   "",
   ...AGENT_DOC_LINKS.map((l) => `- [${l.text}](${l.href})`),
   "",
+  "To search and read these docs as tools instead, connect an MCP client to `https://pracht.resynapse.dev/mcp` (Streamable HTTP): `docs_search`, `docs_read`, and `docs_list`.",
+  "",
 ].join("\n");
 
 export function head() {
@@ -155,6 +157,10 @@ export function headers() {
       '</.well-known/agent-skills/index.json>; rel="agent-skills"',
       '</sitemap.xml>; rel="sitemap"; type="application/xml"',
       '</docs/getting-started>; rel="service-doc"',
+      // No registered relation names an MCP endpoint, and the RFC 8631 ones
+      // (service-desc, service-doc) point at documents, not a protocol
+      // endpoint that answers GET with 405. Same convention as agent-skills.
+      '</mcp>; rel="mcp"',
     ].join(", "),
   };
 }

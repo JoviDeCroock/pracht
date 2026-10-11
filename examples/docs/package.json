@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@pracht/adapter-cloudflare": "workspace:*",
+    "@pracht/capabilities": "workspace:*",
     "@pracht/content": "workspace:*",
     "@pracht/core": "workspace:*",
     "@pracht/image": "workspace:*",

@@ -33,9 +33,23 @@ async function fixture() {
   }
   const release = await writeRelease(directory, revision);
   files[metadataPath] = JSON.stringify(release);
-  const fetch = async (url) =>
-    new Response(files[url.pathname] ?? "missing", { status: url.pathname in files ? 200 : 404 });
-  return { directory, files, fetch };
+  const mcp = { tools: ["docs_search", "docs_read", "docs_list"], page: "/docs/why-pracht" };
+  const fetch = async (url, init) => {
+    if (url.pathname === "/mcp") {
+      const { id, method } = JSON.parse(init.body);
+      const result =
+        method === "initialize"
+          ? { protocolVersion: "2025-11-25" }
+          : method === "tools/list"
+            ? { tools: mcp.tools.map((name) => ({ name })) }
+            : { structuredContent: { results: [{ page: mcp.page }] }, isError: false };
+      return Response.json({ jsonrpc: "2.0", id, result });
+    }
+    return new Response(files[url.pathname] ?? "missing", {
+      status: url.pathname in files ? 200 : 404,
+    });
+  };
+  return { directory, files, fetch, mcp };
 }
 afterEach(async () => {
   await Promise.all(
@@ -64,6 +78,28 @@ describe("docs publication verification", () => {
     const { directory, files, fetch } = await fixture();
     files[path] = "old content";
     await expect(checkRelease(directory, "https://docs.invalid", fetch)).rejects.toThrow(path);
+  });
+  it("fails the publish when the docs MCP server is missing a tool", async () => {
+    const { directory, fetch, mcp } = await fixture();
+    mcp.tools = ["docs_search", "docs_list"];
+    await expect(checkRelease(directory, "https://docs.invalid", fetch)).rejects.toThrow(
+      "does not list docs_read",
+    );
+  });
+  it("fails the publish when docs_search points at a page this build lacks", async () => {
+    const { directory, fetch, mcp } = await fixture();
+    mcp.page = "/docs/removed";
+    await expect(checkRelease(directory, "https://docs.invalid", fetch)).rejects.toThrow(
+      "/docs/removed",
+    );
+  });
+  it("fails the publish when the MCP endpoint is not served", async () => {
+    const { directory, files } = await fixture();
+    const fetch = async (url) =>
+      new Response(files[url.pathname] ?? "missing", { status: url.pathname in files ? 200 : 404 });
+    await expect(checkRelease(directory, "https://docs.invalid", fetch)).rejects.toThrow(
+      "MCP initialize returned HTTP 404",
+    );
   });
   it("refuses an index whose skill source is missing", async () => {
     const { directory } = await fixture();
