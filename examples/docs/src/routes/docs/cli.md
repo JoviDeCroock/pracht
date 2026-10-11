@@ -366,7 +366,7 @@ pracht docs --search "loader revalidate"
 pracht docs --json                   # the page list as JSON
 ```
 
-A topic is a page slug, its title, or its site path, such as `recipes/auth`. An unknown topic exits 1 and suggests the closest pages. `--search` returns `slug#section` targets with a snippet; every word must match. `--json` also works with a topic or `--search`.
+A topic is a page slug, its title, or its site path, such as `recipes/auth`. An unknown topic exits 1, naming close page names when there are any. `--search` takes one quoted query and returns `slug#section` targets with a snippet, best matches first. `--json` also works with a topic or `--search`.
 
 Links between pages point at sibling files (`routing.md#…`), and the same files are in `node_modules/@pracht/cli/docs/`. The [`pracht dev-mcp`](#pracht-dev-mcp) tools `get_docs`, `list_docs`, and `search_docs` serve the same pages.
 

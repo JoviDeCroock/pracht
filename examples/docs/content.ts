@@ -15,6 +15,8 @@ import { llmsTxtArtifacts } from "@pracht/content";
 import { defineMarkdownCollection } from "@pracht/markdown";
 import { Marked, Renderer } from "marked";
 
+import { slugify } from "./src/utils/heading-slug";
+
 // ── Inline highlight (same tokenizer as utils/highlight.ts) ──────────────────
 
 const KEYWORDS = new Set([
@@ -163,26 +165,6 @@ interface Frontmatter {
 }
 
 // ── Marked renderer ──────────────────────────────────────────────────────────
-
-/**
- * GitHub-flavoured heading slug: strip tags, lowercase, drop everything that is
- * not alphanumeric, a space, or a hyphen, then join on hyphens. The docs
- * cross-link each other by `#anchor`, and marked stopped emitting heading ids
- * in v13, so without this every one of those links scrolls nowhere.
- */
-function slugify(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N} -]/gu, "")
-    .trim()
-    .replace(/ /g, "-");
-}
 
 function createRenderer(): Renderer {
   const renderer = new Renderer();

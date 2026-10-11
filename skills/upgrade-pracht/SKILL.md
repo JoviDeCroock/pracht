@@ -120,8 +120,9 @@ pnpm up '@pracht/core@<v>' '@pracht/cli@<v>' '@pracht/vite-plugin@<v>' <adapters
 
 Upgrade every installed `@pracht/*` package in the same command. Apply the
 agreed code migrations with minimal diffs, one changelog entry at a time.
-`pracht docs <topic>` now serves the docs for the new version; read the page
-behind each changed API rather than relying on the docs site or memory.
+Then read the page behind each changed API with `pracht docs <topic>`, which
+serves the docs bundled with the newly installed CLI. A CLI without that
+command predates it; use https://pracht.resynapse.dev/llms.txt instead.
 
 ## Step 6: Verification ladder
 

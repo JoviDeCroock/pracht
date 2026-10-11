@@ -1,6 +1,7 @@
-// `scripts/sync-docs.js` (via `scripts/docs-bundle.js`) copies the public docs site pages into the CLI
-// package. Its output is what `pracht docs` and the dev-mcp docs tools serve,
-// so the link rewriting and the file selection are tested here directly.
+// `scripts/sync-docs.js` (via `scripts/docs-bundle.js`) copies the public docs
+// site pages into the CLI package. Its output is what `pracht docs` and the
+// dev-mcp docs tools serve, so the link rewriting and the file selection are
+// tested here directly — from source, never from a possibly stale build.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -15,6 +16,7 @@ import {
   splitFrontmatter,
   writeDocsBundle,
 } from "../scripts/docs-bundle.js";
+import { extractDocsSection } from "../src/docs.ts";
 
 afterEach(cleanupTempDirs);
 
@@ -51,6 +53,24 @@ describe("sync-docs", () => {
         if (target.startsWith("/")) broken.push(`${page.slug}: ${target}`);
         const sibling = /^([a-z0-9-]+)\.md(?:#|$)/.exec(target);
         if (sibling && !slugs.has(sibling[1])) broken.push(`${page.slug}: ${target}`);
+      }
+    }
+
+    expect(broken).toEqual([]);
+  });
+
+  it("resolves every cross-page anchor to a section of the target page", () => {
+    const { pages } = buildDocsBundle({ sourceDir: siteDocs, shellFile: siteShell });
+    const bySlug = new Map(pages.map((page) => [page.slug, page.markdown]));
+    const broken = [];
+
+    for (const page of pages) {
+      const prose = page.markdown.replace(/^```[\s\S]*?^```/gm, "").replace(/`[^`\n]*`/g, "");
+      for (const [, target, anchor] of prose.matchAll(/\]\((?:([a-z0-9-]+)\.md)?#([^)\s]+)\)/g)) {
+        const markdown = bySlug.get(target ?? page.slug);
+        if (!markdown || !extractDocsSection(markdown, anchor).ok) {
+          broken.push(`${page.slug}: ${target ?? ""}#${anchor}`);
+        }
       }
     }
 
