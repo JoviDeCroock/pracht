@@ -118,13 +118,26 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     );
     expect(config.headers).toBeUndefined();
 
-    // `.md` companions of Markdown-capable SSG pages are static files with an
-    // explicit type; no route claims them before `handle: filesystem`.
-    expect(readFileSync(resolve(vercelDir, "static/products/1.md"), "utf-8")).toBe("# Product 1\n");
-    expect(config.overrides).toMatchObject({
+    // The home page's `.md` file is a static file with an explicit type and
+    // the page's own headers; the products route negotiates through
+    // middleware, so it has no file.
+    expect(readFileSync(resolve(vercelDir, "static/index.md"), "utf-8")).toContain(
+      "# Pracht Example",
+    );
+    expect(existsSync(resolve(vercelDir, "static/products/1.md"))).toBe(false);
+    expect(config.overrides).toEqual({
       "index.md": { contentType: "text/markdown; charset=utf-8" },
-      "products/1.md": { contentType: "text/markdown; charset=utf-8" },
     });
+    expect(config.routes).toContainEqual(
+      expect.objectContaining({
+        continue: true,
+        headers: expect.objectContaining({
+          "content-type": "text/markdown; charset=utf-8",
+          "x-pracht-shell": "public",
+        }),
+        src: "^/index\\.md$",
+      }),
+    );
 
     const functionConfig = JSON.parse(readFileSync(functionConfigPath, "utf-8"));
     expect(functionConfig).toMatchObject({

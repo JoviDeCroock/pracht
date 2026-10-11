@@ -124,6 +124,9 @@ export {
 export type { InvokeCapabilityContext, ResolvedCapability } from "./runtime-capabilities.ts";
 export { describeRouteErrorModule, formatRequestErrorLine } from "./runtime-errors.ts";
 export { resolveRegistryModule } from "./runtime-manifest.ts";
+// Build-time only: `pracht build` plans `<path>.md` files with this.
+export { markdownFilePath, planMarkdownFiles } from "./markdown-files.ts";
+export type { MarkdownFile, MarkdownFilePlan, PlanMarkdownFilesOptions } from "./markdown-files.ts";
 export { createCapabilityTestHost } from "./testing-capabilities.ts";
 export type {
   CapabilityTestHost,

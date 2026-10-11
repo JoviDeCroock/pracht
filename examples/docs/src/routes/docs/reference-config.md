@@ -92,7 +92,7 @@ An unknown `client` key is an error.
 | `llmsTxt.origin` | *(unset)* | Origin prepended to every link, e.g. `"https://example.com"`. Links stay root-relative when omitted |
 | `llmsTxt.include` | `["pages", "api", "capabilities"]` | Which sections to emit |
 | `llmsTxt.exclude` | `[]` | Path patterns to leave out, using the same segment globs as `constraints` (`*` is one segment, trailing `**` is the rest) |
-| `markdownFiles` | `true` | Publish `<path>.md` next to each SSG page that has Markdown, linked from its head and from `llms.txt`. See [Markdown for agents](/docs/agents#a-md-url-for-every-static-page) |
+| `markdownFiles` | `true` | Publish `<path>.md` next to each SSG page with a `markdown` export and no middleware, linked from its head and from `llms.txt`. See [Markdown for agents](/docs/agents#a-md-url-for-every-static-page) |
 | `devPageTools` | `true` | Register the read-only `pracht_*` WebMCP [dev page tools](/docs/coding-agents#debugging-in-the-tab-dev-page-tools) on pages `pracht dev` serves. Never part of a build |
 
 > [!NOTE]

@@ -15,7 +15,8 @@ import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild, type Plugin } from "vite";
-import { matchRoutePath, routePathIsDynamic } from "@pracht/core";
+import { matchRoutePath, planMarkdownFiles, routePathIsDynamic } from "@pracht/core";
+import type { MarkdownFile } from "@pracht/core";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
@@ -30,6 +31,12 @@ import {
   validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
 } from "../build-static.js";
+import {
+  formatMarkdownSkipList,
+  injectMarkdownAlternateLink,
+  markdownFileHeaders,
+  markdownFileHref,
+} from "../markdown-files.js";
 import {
   collectBundleReport,
   evaluateBudgets,
@@ -599,16 +606,6 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const markdownFilesEnabled = serverMod.markdownFiles !== false;
 
     const { pages, isgManifest } = await prerenderApp({
-      markdownFiles: markdownFilesEnabled,
-      // `public/` and content artifacts are already in the client output; a
-      // file there is the author's and is never replaced. A Markdown content
-      // artifact at exactly `<path>.md` (`rawContentArtifacts()`) already is
-      // the page's Markdown, so the page links it instead of warning.
-      markdownFileExists: (markdownPath: string) => {
-        if (!existsSync(resolveMarkdownOutput(markdownPath))) return false;
-        const artifactType = contentArtifactHeaders[markdownPath]?.["content-type"] ?? "";
-        return artifactType.toLowerCase().startsWith("text/markdown") ? "markdown" : true;
-      },
       staticExport: isStaticExport,
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
@@ -674,6 +671,47 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         .map((page: { path: string }) => [page.path, true]),
     );
 
+    // `<path>.md` files. Planned before any page is written, while dist/client
+    // holds only `public/`, Vite's assets, and content artifacts — a file
+    // already there is never replaced — so each page's HTML can link its file.
+    const markdownFiles: MarkdownFile[] = [];
+    const markdownFileSkips: { pagePath: string; reason: string }[] = [];
+    if (markdownFilesEnabled) {
+      const plan = await planMarkdownFiles({
+        app: serverMod.resolvedApp,
+        apiRoutes: serverMod.apiRoutes,
+        registry: serverMod.registry,
+        pages: pages.map((page: { path: string }) => page.path),
+        fileExists: (markdownPath) => existsSync(resolveMarkdownOutput(markdownPath)),
+      });
+      markdownFileSkips.push(...plan.skipped);
+      const pagesByPath = new Map<string, { headers?: Record<string, string>; html: string }>(
+        pages.map((page: { path: string; headers?: Record<string, string>; html: string }) => [
+          page.path,
+          page,
+        ]),
+      );
+      for (const file of plan.files) {
+        const page = pagesByPath.get(file.pagePath);
+        if (!page) continue;
+        const served = markdownFileHeaders(page.headers);
+        if ("reason" in served) {
+          markdownFileSkips.push({ pagePath: file.pagePath, reason: served.reason });
+          continue;
+        }
+        headersManifest[file.markdownPath] = served.headers;
+        page.html = injectMarkdownAlternateLink(
+          page.html,
+          markdownFileHref(buildBase, file.markdownPath),
+        );
+        markdownFiles.push(file);
+      }
+    } else if (isStaticExport) {
+      for (const pagePath of Object.keys(markdownManifest)) {
+        markdownFileSkips.push({ pagePath, reason: "`markdownFiles: false`" });
+      }
+    }
+
     // With Workers Caching enabled, time-revalidated ISG pages are rendered
     // on demand and cached at the edge. A prerendered static snapshot would
     // be served ahead of the Worker and never revalidate, so it must not be
@@ -730,27 +768,26 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       }
     }
 
-    // `<path>.md` companions for SSG pages with a Markdown representation.
-    // Prerendering already decided which pages get one (and linked it from
-    // their HTML); this only writes them.
-    const markdownFilePages: string[] = [];
     const markdownFileOutputs: string[] = [];
-    for (const page of pages as Array<{
-      path: string;
-      markdownFile?: { path: string; source?: string };
-    }>) {
-      if (!page.markdownFile) continue;
-      markdownFilePages.push(page.path);
-      // No `source`: a Markdown content artifact already sits at that path.
-      if (page.markdownFile.source === undefined) continue;
-      const filePath = resolveMarkdownOutput(page.markdownFile.path);
+    for (const file of markdownFiles) {
+      const filePath = resolveMarkdownOutput(file.markdownPath);
       mkdirSync(dirname(filePath), { recursive: true });
-      writeFileSync(filePath, page.markdownFile.source, "utf-8");
+      writeFileSync(filePath, file.source, "utf-8");
       markdownFileOutputs.push(relative(clientDir, filePath).split(sep).join("/"));
     }
     if (markdownFileOutputs.length > 0) {
       log(
         `\n  Markdown → ${markdownFileOutputs.length} .md file(s) next to their SSG pages (e.g. dist/client/${markdownFileOutputs[0]})\n`,
+      );
+    }
+    if (markdownFileSkips.length > 0) {
+      // A static host cannot negotiate, so there the file is the only Markdown.
+      const fallback = isStaticExport
+        ? "a static host answers `Accept: text/markdown` with HTML"
+        : "they still answer `Accept: text/markdown`";
+      log(
+        `\n  Note: no .md file for ${markdownFileSkips.length} Markdown-capable page(s); ${fallback}: ` +
+          `${formatMarkdownSkipList(markdownFileSkips)}.\n`,
       );
     }
 
@@ -772,7 +809,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         );
       }
       const llmsTxt: string = await serverMod.generateLlmsTxt({
-        markdownFiles: markdownFilePages,
+        markdownFiles: markdownFiles.map((file) => file.pagePath),
       });
       writeFileSync(resolve(clientDir, "llms.txt"), llmsTxt, "utf-8");
       log("\n  llms.txt → dist/client/llms.txt\n");
@@ -905,20 +942,6 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         log,
       });
 
-      // A static host cannot negotiate `Accept`, so the `.md` files are the
-      // only Markdown it serves. Name the Markdown-capable pages left without
-      // one (ISG cannot reach a static export; these are denied or colliding).
-      const pagesWithMarkdownFile = new Set(markdownFilePages);
-      const withoutMarkdownFile = Object.keys(markdownManifest).filter(
-        (path) => !pagesWithMarkdownFile.has(path),
-      );
-      if (withoutMarkdownFile.length > 0) {
-        log(
-          `  Note: a static host answers \`Accept: text/markdown\` with HTML, and ${withoutMarkdownFile.length} ` +
-            `Markdown-capable page(s) have no .md file (first: ${withoutMarkdownFile[0]}).\n`,
-        );
-      }
-
       const inlineCssTip = describeInlineCssOpportunity({ clientDir, pages });
       if (inlineCssTip) log(`\n${inlineCssTip}`);
 
@@ -978,7 +1001,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         regions: serverMod.vercelRegions,
         root,
         runtimeRoutes: resolveVercelRuntimeRoutes(serverMod.resolvedApp?.agents),
-        staticAssetRoutes: Object.keys(contentArtifactHeaders),
+        // Markdown files are exact-path static files like content artifacts;
+        // listing them applies their headers-manifest entry on Vercel.
+        staticAssetRoutes: [
+          ...Object.keys(contentArtifactHeaders),
+          ...markdownFiles.map((file) => file.markdownPath),
+        ],
         staticRoutes: [
           ...pages
             .map((page: { path: string }) => page.path)

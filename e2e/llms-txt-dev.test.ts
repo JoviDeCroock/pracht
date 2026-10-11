@@ -12,9 +12,9 @@ test("GET /llms.txt serves the generated llms.txt in dev", async ({ request }) =
   expect(body.startsWith("# Pracht Pages Example\n")).toBe(true);
   expect(body).toContain("## Pages");
   expect(body).toContain("- [/](/)");
-  // An SSG page with a Markdown representation is listed by its `.md` URL,
-  // which the dev server serves like the build's static file.
-  expect(body).toContain("- [/about](/about.md): Markdown version of `/about`");
+  // `/about` exports `markdown`, but the root `_middleware.ts` runs on every
+  // page, so it negotiates per request and has no `.md` file.
+  expect(body).toContain("- [/about](/about): supports `Accept: text/markdown`");
 
   // Dynamic SSG routes are expanded through getStaticPaths(); the raw
   // pattern must not appear.
@@ -39,13 +39,17 @@ test("llms.txt page ordering is stable", async ({ request }) => {
   expect(paths).toEqual(sorted);
 });
 
-test("GET /<page>.md serves the page's Markdown in dev", async ({ request }) => {
-  const response = await request.get("/about.md");
-  expect(response.status()).toBe(200);
-  expect(response.headers()["content-type"]).toBe("text/markdown; charset=utf-8");
-  expect(await response.text()).toContain("# About");
+test("GET /<page>.md has no Markdown for pages without a file", async ({ request }) => {
+  // Pages without a file in the build have no `.md` URL here either (`/about`
+  // has middleware, `/pricing` is ISG); the app answers with its own 404
+  // rather than the dev server's bare one.
+  for (const path of ["/about.md", "/pricing.md", "/nope.md"]) {
+    const missing = await request.get(path);
+    expect(missing.status()).toBe(404);
+    expect(await missing.text()).not.toContain("Cannot GET");
+  }
 
-  // Pages without a Markdown representation have no `.md` URL.
-  const missing = await request.get("/pricing.md");
-  expect(missing.status()).toBe(404);
+  // A URL a dynamic route matches is that route's, as in production.
+  const dynamic = await request.get("/blog/hello-world.md");
+  expect(dynamic.headers()["content-type"]).not.toContain("text/markdown");
 });

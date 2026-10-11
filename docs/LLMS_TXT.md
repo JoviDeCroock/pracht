@@ -82,11 +82,13 @@ Set `maxPagesPerRoute: 0` to list every instance.
   directly, and the Cloudflare worker serves it through the `ASSETS` binding.
 - **Dev** — the dev server serves `/llms.txt` live from the current app graph
   (routes added or removed show up on the next request), and serves the `.md`
-  URLs it links on demand. Dev cannot know what build-time middleware would
-  answer, so it links the `.md` URL of every SSG page with a Markdown
-  representation. With the Cloudflare adapter the Cloudflare vite plugin owns
-  the dev server, so `/llms.txt` and the `.md` URLs are only available in build
-  output there.
+  URLs it links on demand. It runs the build's own plan (`planMarkdownFiles()`)
+  to decide which pages have one, so dev and build link the same files. With
+  the Cloudflare adapter the Cloudflare vite plugin owns the dev server, so
+  `/llms.txt` and the `.md` URLs are only available in build output there.
+
+`generateLlmsTxt()` called with no arguments links no `.md` file: only the
+caller knows which files exist.
 
 ## Output format
 
@@ -129,14 +131,13 @@ comparison, so repeated builds produce byte-identical files.
   entry, up to `maxPagesPerRoute` per route (see
   [Large collections](#large-collections)). Dynamic SSR/SPA routes are
   skipped — there is no concrete URL to link.
-- Pages with a Markdown representation (a server-only `markdown` export, or
-  `markdown: true` route metadata for middleware-owned negotiation — see
-  [DATA_LOADING.md](DATA_LOADING.md#markdown-files-for-ssg-pages)) link their
-  `.md` file instead of the HTML page, per the llms.txt convention, when one was
-  written: SSG pages whose build-time Markdown request answered 200. Every
-  other Markdown-capable page (SSR, ISG, a gated SSG page, or any page under
-  `pracht({ markdownFiles: false })`) keeps its HTML link annotated with
-  `supports \`Accept: text/markdown\``.
+- A page with a `.md` file next to it (an SSG page with a static `markdown`
+  export and no middleware — see
+  [DATA_LOADING.md](DATA_LOADING.md#markdown-files-for-ssg-pages)) links that
+  file instead of the HTML page, per the llms.txt convention. Every other
+  Markdown-capable page (`markdown: true`, middleware, SSR, ISG, a skipped
+  collision, or any page under `pracht({ markdownFiles: false })`) keeps its
+  HTML link annotated with `supports \`Accept: text/markdown\``.
 - Link names are the route paths themselves. Page titles are not derivable
   statically (`head()` needs a request), and paths are unambiguous for agents.
 

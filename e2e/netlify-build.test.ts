@@ -104,17 +104,21 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(productMarkdown.headers.get("vary")).toContain("Accept");
       expect(await productMarkdown.text()).toBe("# Product 1\n");
 
-      // The build also wrote that answer to `/products/1.md`, a plain static
-      // file served from the bundled client output whatever the client sends.
+      // The home page's `markdown` export is also a static `/index.md`, served
+      // from the bundled client output with the page's own headers whatever
+      // the client sends. The products route negotiates through middleware,
+      // so it has no file.
       for (const accept of ["*/*", "text/markdown"]) {
         const markdownFile = await handler(
-          new Request("https://example.com/products/1.md", { headers: { accept } }),
+          new Request("https://example.com/index.md", { headers: { accept } }),
           context,
         );
         expect(markdownFile.status).toBe(200);
         expect(markdownFile.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
-        expect(await markdownFile.text()).toBe("# Product 1\n");
+        expect(markdownFile.headers.get("x-pracht-shell")).toBe("public");
+        expect(await markdownFile.text()).toContain("# Pracht Example");
       }
+      expect(existsSync(resolve(exampleDir, "dist/client/products/1.md"))).toBe(false);
 
       const api = await handler(new Request("https://example.com/api/health"), context);
       expect(api.headers.get("cache-control")).toBe("private, no-cache");

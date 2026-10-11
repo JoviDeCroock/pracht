@@ -1039,7 +1039,7 @@ test("static export serves non-ASCII prerender paths on a URL-decoding host", as
       readFileSync(resolve(exampleDir, "dist/client/posts/café/index.html"), "utf-8"),
     ).toContain('<link rel="alternate" type="text/markdown" href="/posts/caf%C3%A9.md">');
     // Every page now has its file, so the build has nothing to warn about.
-    expect(output).not.toContain("Markdown-capable page(s) have no .md file");
+    expect(output).not.toContain("no .md file for");
 
     const host = await startDumbStaticHost(resolve(exampleDir, "dist/client"));
     server = host.server;

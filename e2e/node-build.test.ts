@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, test } from "@playwright/test";
@@ -109,22 +109,23 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(productMarkdown.headers.get("vary")).toContain("Accept");
     expect(await productMarkdown.text()).toBe("# Product 1\n");
 
-    // Markdown-capable SSG pages also get a `.md` file, linked from their head
-    // and served as a static file whatever the client accepts.
-    expect(readFileSync(resolve(exampleDir, "dist/client/products/1.md"), "utf-8")).toBe(
-      "# Product 1\n",
-    );
-    expect(existsSync(resolve(exampleDir, "dist/client/index.md"))).toBe(true);
+    // An SSG page with a `markdown` export and no middleware also gets a
+    // `.md` file: the export verbatim, linked from the page's head, served
+    // with the page's own headers whatever the client accepts. The products
+    // route negotiates through middleware, so its pages get none.
+    const rootMarkdownSource = readFileSync(resolve(exampleDir, "dist/client/index.md"), "utf-8");
+    expect(rootMarkdownSource.startsWith("# Pracht Example\n")).toBe(true);
+    expect(existsSync(resolve(exampleDir, "dist/client/products/1.md"))).toBe(false);
     expect(homeHtml).toContain('<link rel="alternate" type="text/markdown" href="/index.md">');
+    for (const accept of ["*/*", "text/markdown"]) {
+      const rootMarkdownFile = await fetch(`${origin}/index.md`, { headers: { accept } });
+      expect(rootMarkdownFile.status).toBe(200);
+      expect(rootMarkdownFile.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+      expect(rootMarkdownFile.headers.get("x-pracht-shell")).toBe("public");
+      expect(await rootMarkdownFile.text()).toBe(rootMarkdownSource);
+    }
     const productMarkdownFile = await fetch(`${origin}/products/1.md`);
-    expect(productMarkdownFile.status).toBe(200);
-    expect(productMarkdownFile.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
-    expect(await productMarkdownFile.text()).toBe("# Product 1\n");
-    const rootMarkdownFile = await fetch(`${origin}/index.md`, {
-      headers: { accept: "text/markdown" },
-    });
-    expect(rootMarkdownFile.status).toBe(200);
-    await expect(rootMarkdownFile.text()).resolves.toContain("# Pracht Example");
+    expect(productMarkdownFile.headers.get("content-type") ?? "").not.toContain("text/markdown");
 
     // Dynamic SSG routes should be prerendered as static HTML files
     for (const id of ["1", "2", "3"]) {
@@ -144,11 +145,11 @@ test("pracht build emits a deployable Node server entry", async () => {
     const llmsTxt = readFileSync(llmsTxtPath, "utf-8");
     expect(llmsTxt.startsWith("# Pracht Example\n")).toBe(true);
     expect(llmsTxt).toContain("> Example app for the pracht framework.");
-    // SSG pages with a Markdown representation are listed by their `.md` file.
+    // Pages with a `.md` file are listed by it.
     expect(llmsTxt).toContain("- [/](/index.md): Markdown version of `/`");
     // Dynamic SSG instances are listed; the raw pattern is not.
-    expect(llmsTxt).toContain("- [/products/1](/products/1.md): Markdown version of `/products/1`");
-    expect(llmsTxt).toContain("- [/products/3](/products/3.md): Markdown version of `/products/3`");
+    expect(llmsTxt).toContain("- [/products/1](/products/1): supports `Accept: text/markdown`");
+    expect(llmsTxt).toContain("- [/products/3](/products/3): supports `Accept: text/markdown`");
     expect(llmsTxt).not.toContain("/products/:productId");
     expect(llmsTxt).toContain("- [/api/echo](/api/echo): POST");
     expect(llmsTxt).toContain("- [/api/health](/api/health): GET");
@@ -523,21 +524,23 @@ test("page Markdown files never replace a public/ file and can be switched off",
 
   const { exampleDir, tempDir } = createTempExampleDir("pracht-node-markdown-files-");
   try {
-    mkdirSync(resolve(exampleDir, "public/products"), { recursive: true });
-    writeFileSync(resolve(exampleDir, "public/products/2.md"), "# Hand-written\n", "utf-8");
+    const publicMarkdown = resolve(exampleDir, "public/index.md");
+    mkdirSync(dirname(publicMarkdown), { recursive: true });
+    writeFileSync(publicMarkdown, "# Hand-written\n", "utf-8");
 
     const output = buildExampleOutput(exampleDir, { PRACHT_ADAPTER: "node" });
     const clientDir = resolve(exampleDir, "dist/client");
-    expect(readFileSync(resolve(clientDir, "products/2.md"), "utf-8")).toBe("# Hand-written\n");
-    expect(readFileSync(resolve(clientDir, "products/2/index.html"), "utf-8")).not.toContain(
+    expect(readFileSync(resolve(clientDir, "index.md"), "utf-8")).toBe("# Hand-written\n");
+    expect(readFileSync(resolve(clientDir, "index.html"), "utf-8")).not.toContain(
       'type="text/markdown"',
     );
-    expect(output).toContain("/products/2.md (a file already exists there)");
-    expect(readFileSync(resolve(clientDir, "products/1.md"), "utf-8")).toBe("# Product 1\n");
-    const llmsTxt = readFileSync(resolve(clientDir, "llms.txt"), "utf-8");
-    expect(llmsTxt).toContain("- [/products/1](/products/1.md): Markdown version of `/products/1`");
-    expect(llmsTxt).toContain("- [/products/2](/products/2): supports `Accept: text/markdown`");
+    expect(output).toContain("/ (/index.md already exists)");
+    expect(output).toContain("/products/1 (middleware decides)");
+    expect(readFileSync(resolve(clientDir, "llms.txt"), "utf-8")).toContain(
+      "- [/](/): supports `Accept: text/markdown`",
+    );
 
+    rmSync(publicMarkdown);
     const viteConfigPath = resolve(exampleDir, "vite.config.ts");
     writeFileSync(
       viteConfigPath,
@@ -550,7 +553,6 @@ test("page Markdown files never replace a public/ file and can be switched off",
     expect(readFileSync(viteConfigPath, "utf-8")).toContain("markdownFiles: false");
     buildExampleOutput(exampleDir, { PRACHT_ADAPTER: "node" });
     expect(existsSync(resolve(clientDir, "index.md"))).toBe(false);
-    expect(existsSync(resolve(clientDir, "products/1.md"))).toBe(false);
     expect(readFileSync(resolve(clientDir, "index.html"), "utf-8")).not.toContain(
       'type="text/markdown"',
     );

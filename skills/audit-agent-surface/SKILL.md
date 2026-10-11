@@ -249,11 +249,11 @@ With `agents.mcp.auth`, check:
 - Routes exporting `markdown` or declaring `markdown: true` serve a Markdown
   representation to agents. Confirm the Markdown variant is not more permissive
   than the HTML page (it carries `Vary: Accept`, so it is separately cached).
-  SSG pages among them also publish it as a static `dist/client/<path>.md`
-  file that anyone can fetch, unless `pracht({ markdownFiles: false })`. The
-  build writes only what an anonymous `Accept: text/markdown` request got, so
-  list `dist/client/**/*.md` and confirm none holds content the middleware
-  meant for verified agents only.
+  An SSG route with a `markdown` export and no middleware also publishes the
+  export as a static `dist/client/<path>.md` file anyone can fetch, unless
+  `pracht({ markdownFiles: false })`. List `dist/client/**/*.md` and confirm
+  each export is meant for every visitor; gate a route with middleware to keep
+  its Markdown out of the files.
 - An enabled OpenAPI document (`/openapi.json`, `dist/client/openapi.json`) is
   public unless the host protects it — check descriptions and examples for
   internal hostnames or credentials, and that "Try it out" mutation endpoints

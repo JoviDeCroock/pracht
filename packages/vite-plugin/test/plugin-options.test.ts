@@ -203,20 +203,19 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
     });
     expect(source).toContain('import { buildLlmsTxt } from "@pracht/core/server";');
     expect(source).toContain(
-      'const llmsTxtConfig = {"title":"My App","description":"Demo.","origin":"https://example.com","markdownFiles":true};',
+      'const llmsTxtConfig = {"title":"My App","description":"Demo.","origin":"https://example.com"};',
     );
     expect(source).toContain("export const generateLlmsTxt = (overrides = {}) =>");
     expect(source).not.toContain("export const markdownFiles");
   });
 
-  // The opt-out reaches both consumers: llms.txt stops linking `.md` URLs,
-  // and the CLI reads the export to skip writing the files.
-  it("records markdownFiles: false for llms.txt and the build", () => {
+  // The CLI reads the export to skip writing the files; llms.txt then links
+  // none, because the build passes it the (empty) list of files it wrote.
+  it("records markdownFiles: false for the build", () => {
     const source = createPrachtServerModuleSource({
       llmsTxt: { title: "My App" },
       markdownFiles: false,
     });
-    expect(source).toContain('const llmsTxtConfig = {"title":"My App"};');
     expect(source).toContain("export const markdownFiles = false;");
   });
 

@@ -1454,12 +1454,12 @@ client-side fetch to an external API instead.
   act on it, so publishing it would ship the full route list and header policy
   as dead bytes.
 - **Markdown**: a static host cannot negotiate `Accept`, so `/<path>` always
-  answers with the HTML file. SSG pages whose route declares a Markdown
-  representation publish it at `/<path>.md` instead (see
+  answers with the HTML file. SSG pages with a static `markdown` export and no
+  middleware publish it at `/<path>.md` instead (see
   [Markdown files](#markdown-files)); the host must type `.md` as
   `text/markdown; charset=utf-8` (GitHub Pages and most CDNs do; nginx's
-  stock `mime.types` does not). The build names Markdown-capable pages that
-  ended up without a file.
+  stock `mime.types` does not) and, as for the HTML, apply any route headers
+  itself. The build names Markdown-capable pages that got no file, and why.
 - **Non-ASCII dynamic params**: prerender output directories use the *decoded*
   form (`/posts/caf%C3%A9` → `posts/café/index.html`), because every
   mainstream static host decodes the request before the filesystem lookup.
@@ -1643,26 +1643,31 @@ a sanitized `Accept: text/html` and can only produce HTML.
 
 A `.md` file in `dist/client/` is a different thing entirely: a plain static
 asset served by content type, not by negotiation. Two kinds end up there — the
-`<path>.md` files `pracht build` writes for SSG pages with a Markdown
-representation (see
+`<path>.md` files `pracht build` writes for SSG pages with a static `markdown`
+export and no middleware (see
 [DATA_LOADING.md](DATA_LOADING.md#markdown-files-for-ssg-pages)), and files
 copied from `public/`. Neither path is in the markdown manifest, so every
-adapter's static layer answers them whatever the client sends:
+adapter's static layer answers them whatever the client sends. Build-written
+files also have a headers-manifest entry under `/<path>.md` — the page's own
+headers with `Content-Type: text/markdown; charset=utf-8` — applied the same
+way as the page's:
 
-- **Node and Netlify** serve them from the client output with
-  `Content-Type: text/markdown; charset=utf-8` (the adapters' MIME tables).
-  Netlify's function claims `/*`, so the file is read from the bundled client
-  output like every other non-excluded static file.
-- **Cloudflare** serves them through the platform asset layer or the `ASSETS`
-  binding, which types `.md` as `text/markdown; charset=utf-8` (text types get
-  the charset appended). The worker's `wantsRouteMarkdown()` check never claims
-  them, because `/about.md` is not a manifest path.
+- **Node and Netlify** serve them from the client output and apply the
+  headers manifest by pathname (`public/` files get the MIME table's
+  `text/markdown; charset=utf-8`). Netlify's function claims `/*`, so the file
+  is read from the bundled client output like every other non-excluded static
+  file.
+- **Cloudflare** fetches them through the `ASSETS` binding (with
+  `run_worker_first`), which types `.md` as `text/markdown; charset=utf-8`,
+  and the worker applies `/_pracht/headers.json` by pathname. The worker's
+  `wantsRouteMarkdown()` check never claims them, because `/about.md` is not a
+  manifest path.
 - **Vercel** reaches them through `handle: filesystem`; no `Accept` route
-  matches a `.md` URL. Build-written files are additionally listed in the Build
-  Output `overrides` with an explicit `contentType`, so the header does not
-  depend on the platform's extension table.
+  matches a `.md` URL. Build-written files are listed as exact-path static
+  assets, so their headers become `continue` header routes, and in the Build
+  Output `overrides` with an explicit `contentType`.
 - **Static** export writes them at decoded paths, like its HTML; the host types
-  them.
+  them and applies no route headers.
 
 This is also the route to take for a corpus that is markdown all the way down (a
 skills catalog, a docs mirror): put it in `public/`, and the build never writes
