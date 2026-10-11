@@ -114,7 +114,7 @@ pracht switches to Markdown only when the client explicitly prefers it:
 
 Both representations carry `Vary: Accept`, so caches keep them apart. Routes without Markdown ignore `Accept` and always serve HTML.
 
-### A `.md` URL for every static page
+### A `.md` URL for static Markdown pages
 
 Many agent fetchers never send `Accept`, and a static host cannot negotiate. So `pracht build` also writes a page's `markdown` export to a file next to the page: `/docs/routing` becomes `/docs/routing.md`, and `/` becomes `/index.md`. The page's HTML links it, so an agent that fetched the HTML can find it:
 
@@ -126,9 +126,9 @@ Many agent fetchers never send `Accept`, and a static host cannot negotiate. So 
 curl https://pracht.resynapse.dev/docs/routing.md
 ```
 
-A page gets a file only when its Markdown is the same for every visitor: an SSG route with a `markdown` string export and no middleware. The file holds that export and is served with the page's headers. Routes with middleware or `markdown: true`, and ISG or SSR pages, keep `Accept` negotiation only, and so does a page whose headers send `X-Robots-Tag: noindex` or `Cache-Control: private`. The build prints a note naming each Markdown page left without a file and why.
+A page gets a file only when its Markdown is the same for every visitor: an SSG route with a `markdown` string export and no middleware. The file holds that export and is served with the page's headers. Routes with middleware or `markdown: true`, and ISG or SSR pages, keep `Accept` negotiation only, and so does a page marked `noindex` (by `X-Robots-Tag` or a robots `<meta>` from `head()`) or sent with `Cache-Control: private`. The build prints a note naming each Markdown page left without a file and why.
 
-A file already at that path, such as `public/docs/routing.md`, is never overwritten. `pracht dev` serves the same `.md` URLs.
+A file already at that path, such as `public/docs/routing.md`, is never overwritten. `pracht dev` serves the same `.md` URLs, except that it does not render pages, so it still serves one for a page whose `noindex` or `private` headers keep it out of the build.
 
 To keep Markdown behind `Accept` only, turn the files off:
 

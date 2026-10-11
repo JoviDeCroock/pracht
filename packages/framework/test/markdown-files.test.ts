@@ -177,4 +177,31 @@ describe("planMarkdownFiles", () => {
     expect(result.skipped[0].reason).toBe('/guide.md is taken by the page route "/guide.md/intro"');
     expect(result.skipped[1].reason).toBe('/docs.md is taken by the page route "/docs.md/:slug"');
   });
+
+  it("leaves out a route whose getStaticPaths() throws when told to", async () => {
+    const app = defineApp({
+      routes: [
+        route("/", "./routes/home.tsx", { render: "ssg" }),
+        route("/blog/:slug", "./routes/post.tsx", { render: "ssg" }),
+      ],
+    });
+    const registry = {
+      routeModules: {
+        "/src/routes/home.tsx": page("# Home\n"),
+        "/src/routes/post.tsx": page("# Post\n", {
+          getStaticPaths: () => {
+            throw new Error("no posts");
+          },
+        }),
+      },
+    };
+    await expect(plan(app, registry)).rejects.toThrow("no posts");
+
+    const failed: string[] = [];
+    const { files } = await plan(app, registry, {
+      onRouteError: (route, error) => failed.push(`${route.path}: ${(error as Error).message}`),
+    });
+    expect(files.map((file) => file.pagePath)).toEqual(["/"]);
+    expect(failed).toEqual(["/blog/:slug: no posts"]);
+  });
 });

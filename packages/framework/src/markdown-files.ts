@@ -54,6 +54,12 @@ export interface PlanMarkdownFilesOptions {
   pages?: readonly string[];
   /** Whether a file or directory already sits at a Markdown path in the output. */
   fileExists?: (markdownPath: string) => boolean;
+  /**
+   * Called when a route's module or `getStaticPaths()` fails while the page
+   * list is being derived (only when `pages` is omitted). The route is then
+   * left out of the plan instead of failing it; without this the error throws.
+   */
+  onRouteError?: (route: ResolvedRoute, error: unknown) => void;
 }
 
 /**
@@ -67,7 +73,8 @@ export async function planMarkdownFiles(
   options: PlanMarkdownFilesOptions,
 ): Promise<MarkdownFilePlan> {
   const { app, registry } = options;
-  const pages = options.pages ?? (await collectPrerenderedPaths(app, registry));
+  const pages =
+    options.pages ?? (await collectPrerenderedPaths(app, registry, options.onRouteError));
 
   const exactOwners = new Map<string, string>();
   const parentOwners = new Map<string, string>();
@@ -114,7 +121,14 @@ export async function planMarkdownFiles(
       routeModule = resolveRegistryModule<RouteModule>(registry?.routeModules, route.file);
       modules.set(route.file, routeModule);
     }
-    const markdown = (await routeModule)?.markdown;
+    let markdown: unknown;
+    try {
+      markdown = (await routeModule)?.markdown;
+    } catch (error) {
+      if (!options.onRouteError) throw error;
+      options.onRouteError(route, error);
+      continue;
+    }
     const source = typeof markdown === "string" ? markdown : undefined;
     if (source === undefined && route.markdown !== true) continue;
 
@@ -152,6 +166,7 @@ function ineligibleReason(route: ResolvedRoute, source: string | undefined): str
 async function collectPrerenderedPaths(
   app: ResolvedPrachtApp,
   registry: ModuleRegistry | undefined,
+  onRouteError: PlanMarkdownFilesOptions["onRouteError"],
 ): Promise<string[]> {
   const paths: string[] = [];
   for (const route of app.routes) {
@@ -160,13 +175,17 @@ async function collectPrerenderedPaths(
       paths.push(route.path);
       continue;
     }
-    const routeModule = await resolveRegistryModule<RouteModule>(
-      registry?.routeModules,
-      route.file,
-    );
-    if (typeof routeModule?.getStaticPaths !== "function") continue;
-    for (const params of await routeModule.getStaticPaths()) {
-      paths.push(buildPathFromSegments(route.segments, params));
+    try {
+      const routeModule = await resolveRegistryModule<RouteModule>(
+        registry?.routeModules,
+        route.file,
+      );
+      if (typeof routeModule?.getStaticPaths !== "function") continue;
+      const params = await routeModule.getStaticPaths();
+      paths.push(...params.map((entry) => buildPathFromSegments(route.segments, entry)));
+    } catch (error) {
+      if (!onRouteError) throw error;
+      onRouteError(route, error);
     }
   }
   return paths;

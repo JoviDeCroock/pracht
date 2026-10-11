@@ -34,7 +34,7 @@ On Node, Cloudflare, and Netlify, a prerendered route that exports `markdown`
 (or sets `markdown: true` when middleware handles negotiation) is served as
 Markdown when the request prefers `text/markdown`. Every other request gets the
 static HTML. An SSG page with a `markdown` export and no middleware also gets a
-static `<path>.md` file on every adapter (see [Markdown for agents](/docs/agents#a-md-url-for-every-static-page)).
+static `<path>.md` file on every adapter (see [Markdown for agents](/docs/agents#a-md-url-for-static-markdown-pages)).
 
 ---
 
