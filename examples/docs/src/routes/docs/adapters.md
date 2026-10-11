@@ -33,7 +33,8 @@ to every visitor. Anything that depends on the visitor belongs on an SSR route.
 On Node, Cloudflare, and Netlify, a prerendered route that exports `markdown`
 (or sets `markdown: true` when middleware handles negotiation) is served as
 Markdown when the request prefers `text/markdown`. Every other request gets the
-static HTML.
+static HTML. SSG pages also publish that Markdown as a static `<path>.md` file
+on every adapter (see [Markdown for agents](/docs/agents#a-md-url-for-every-static-page)).
 
 ---
 
@@ -620,9 +621,11 @@ The host, not pracht, sets response headers. The headers each route would have
 sent are recorded in `dist/server/headers-manifest.json`; mirror the ones you
 need in the host's config.
 
-A static host always answers with the HTML file, so routes that export
-`markdown` lose `Accept` negotiation; the build prints a note. Publish `.md`
-files under `public/` when a raw-Markdown corpus matters.
+A static host always answers `/about` with the HTML file, so `Accept`
+negotiation does not apply; agents read an SSG page's Markdown at `/about.md`
+instead. Make sure the host serves `.md` as `text/markdown; charset=utf-8`
+(nginx's default `mime.types` has no entry for it). The build prints a note
+naming Markdown-capable pages that got no `.md` file.
 
 To serve a static export under a sub-path, see
 [Sub-Path Deploys](/docs/deployment#sub-path-deploys).

@@ -108,6 +108,8 @@ export function createDevSSRMiddleware(
   options: {
     maxBodySize?: number;
     llmsTxt?: boolean;
+    /** Serve `/<path>.md` for SSG routes with a Markdown representation, as the build writes them. */
+    markdownFiles?: boolean;
     /** Tracks `waitUntil()` work so closing the dev server can wait for it. */
     waitUntil?: (promise: Promise<unknown>) => void;
     /** The adapter's dev hooks, chiefly the context factory production calls. */
@@ -223,6 +225,66 @@ export function createDevSSRMiddleware(
         });
         res.end(llmsTxt);
         return;
+      }
+
+      // `pracht build` writes `/<path>.md` next to SSG pages with a Markdown
+      // representation; serve the same URL here so llms.txt links and the
+      // pages' `<link rel="alternate">` do not 404 in dev. A `public/` file of
+      // the same name was already served by Vite, which matches the build
+      // (it never overwrites one).
+      if (
+        options.markdownFiles &&
+        requestUrl.pathname.endsWith(".md") &&
+        BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase())
+      ) {
+        const markdownRequest = await resolveDevMarkdownFileRequest(
+          framework as Parameters<typeof resolveDevMarkdownFileRequest>[0],
+          serverMod as Parameters<typeof resolveDevMarkdownFileRequest>[1],
+          requestUrl.pathname,
+        );
+        if (markdownRequest !== null) {
+          const webRequest = await nodeToWebRequest(req, maxBodySize, devBase);
+          const pageUrl = new URL(webRequest.url);
+          pageUrl.pathname = withDevBase(markdownRequest);
+          const headers = new Headers(webRequest.headers);
+          // A static file answers whatever the client sends; ask the route
+          // for its Markdown exactly as the build does.
+          headers.set("accept", "text/markdown");
+          const pageRequest = new Request(pageUrl, { headers, method: webRequest.method });
+          const context = contextModuleId
+            ? await createDevContext(
+                server,
+                contextModuleId,
+                createContextArgs({ request: pageRequest, req, res, waitUntil: contextWaitUntil }),
+              )
+            : undefined;
+          const markdownResponse: Response = await framework.handlePrachtRequest({
+            app: serverMod.resolvedApp,
+            context,
+            registry: serverMod.registry,
+            request: pageRequest,
+            debugErrors: true,
+            waitUntil: options.waitUntil,
+            onRouteError: (error: unknown, _requestPath: string, context?: RouteErrorContext) => {
+              logDevRequestError(server, { context, error, path: requestUrl.pathname });
+            },
+            apiRoutes: serverMod.apiRoutes,
+          });
+          const markdownType = (markdownResponse.headers.get("content-type") ?? "").toLowerCase();
+          if (markdownResponse.status === 200 && markdownType.startsWith("text/markdown")) {
+            const body = await markdownResponse.text();
+            res.statusCode = 200;
+            res.setHeader("content-type", "text/markdown; charset=utf-8");
+            applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
+              res.setHeader(key, value);
+            });
+            res.end((req.method ?? "GET").toUpperCase() === "HEAD" ? undefined : body);
+            return;
+          }
+          // No file would be written for this answer either (an agent-gated
+          // middleware, a redirect): fall through to the normal 404 path.
+          await markdownResponse.body?.cancel();
+        }
       }
 
       if (shouldBypassDevSSR(requestUrl, req, routeMatchers)) {
@@ -543,6 +605,50 @@ export async function runDevConfigureServer(
     );
   }
   await configureModule.configureServer(createDevConfigureServerTarget(httpServer as Server));
+}
+
+/**
+ * The base-free page path whose Markdown `/<path>.md` stands for in dev, or
+ * `null` when the build would write no file there: the path is itself an exact
+ * page or API route, or no SSG route with a Markdown representation owns it.
+ */
+export async function resolveDevMarkdownFileRequest(
+  framework: {
+    hasMarkdownRepresentation: (route: ResolvedRoute, routeModule: unknown) => boolean;
+    markdownFilePagePaths: (pathname: string) => string[];
+    matchApiRoute: (routes: ResolvedApiRoute[], pathname: string) => unknown;
+    matchAppRoute: (
+      app: ResolvedPrachtApp,
+      pathname: string,
+    ) => { route: ResolvedRoute } | undefined;
+    resolveRegistryModule: (modules: unknown, file: string) => Promise<unknown>;
+  },
+  serverMod: {
+    apiRoutes?: ResolvedApiRoute[];
+    registry?: ModuleRegistry;
+    resolvedApp: ResolvedPrachtApp;
+  },
+  pathname: string,
+): Promise<string | null> {
+  const isExact = (route: { segments: ResolvedRoute["segments"] }) =>
+    !route.segments.some((segment) => segment.type === "param" || segment.type === "catchall");
+  const exactPage = framework.matchAppRoute(serverMod.resolvedApp, pathname);
+  if (exactPage && isExact(exactPage.route)) return null;
+  const exactApi = framework.matchApiRoute(serverMod.apiRoutes ?? [], pathname) as
+    | { route: ResolvedApiRoute }
+    | undefined;
+  if (exactApi && isExact(exactApi.route)) return null;
+
+  for (const pagePath of framework.markdownFilePagePaths(pathname)) {
+    const match = framework.matchAppRoute(serverMod.resolvedApp, pagePath);
+    if (!match || match.route.render !== "ssg") continue;
+    const routeModule = await framework.resolveRegistryModule(
+      serverMod.registry?.routeModules,
+      match.route.file,
+    );
+    if (framework.hasMarkdownRepresentation(match.route, routeModule)) return pagePath;
+  }
+  return null;
 }
 
 /**

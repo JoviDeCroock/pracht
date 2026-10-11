@@ -1453,10 +1453,13 @@ client-side fetch to an external API instead.
   `dist/server/` rather than the deployable `dist/client/`: no static host can
   act on it, so publishing it would ship the full route list and header policy
   as dead bytes.
-- **Markdown negotiation**: routes exporting `markdown` rely on server-side
-  `Accept` negotiation; a static host always answers with the HTML file. The
-  build prints a note when this applies — publish `.md` files under `public/`
-  when a raw-markdown corpus matters.
+- **Markdown**: a static host cannot negotiate `Accept`, so `/<path>` always
+  answers with the HTML file. SSG pages whose route declares a Markdown
+  representation publish it at `/<path>.md` instead (see
+  [Markdown files](#markdown-files)); the host must type `.md` as
+  `text/markdown; charset=utf-8` (GitHub Pages and most CDNs do; nginx's
+  stock `mime.types` does not). The build names Markdown-capable pages that
+  ended up without a file.
 - **Non-ASCII dynamic params**: prerender output directories use the *decoded*
   form (`/posts/caf%C3%A9` → `posts/café/index.html`), because every
   mainstream static host decodes the request before the filesystem lookup.
@@ -1621,16 +1624,6 @@ and hashed assets are never re-rendered because a client sent an odd `Accept`.
 The build emits an empty manifest for SSR-only apps too, so public files keep
 the same guarantee even when the app has no prerendered documents.
 
-A `.md` file in `public/` is a different thing entirely: it is a plain static
-asset, copied to `dist/client/` by the build and served by content type, not by
-negotiation. Those files answer every request the same way: the Node and
-Netlify adapters send `Content-Type: text/markdown; charset=utf-8`, and on
-Cloudflare and Vercel
-the platform's own asset layer types the file (the `ASSETS` binding and the
-static rewrite respectively, neither of which the adapter intercepts). This is
-the route to take for a corpus that is markdown all the way down (a skills
-catalog, a docs mirror); no middleware is needed to correct the header.
-
 Vercel reaches the same outcome through its routing table rather than adapter
 code, because the platform serves prerendered files before any function runs.
 The build emits an `Accept`-conditional route to the render function, ahead of
@@ -1645,6 +1638,35 @@ representation. Every other prerendered page keeps its static fast path
 whatever the client sends. ISG routes with a Markdown representation route to
 the render function rather than their prerender function, which re-renders on
 a sanitized `Accept: text/html` and can only produce HTML.
+
+### Markdown files
+
+A `.md` file in `dist/client/` is a different thing entirely: a plain static
+asset served by content type, not by negotiation. Two kinds end up there — the
+`<path>.md` files `pracht build` writes for SSG pages with a Markdown
+representation (see
+[DATA_LOADING.md](DATA_LOADING.md#markdown-files-for-ssg-pages)), and files
+copied from `public/`. Neither path is in the markdown manifest, so every
+adapter's static layer answers them whatever the client sends:
+
+- **Node and Netlify** serve them from the client output with
+  `Content-Type: text/markdown; charset=utf-8` (the adapters' MIME tables).
+  Netlify's function claims `/*`, so the file is read from the bundled client
+  output like every other non-excluded static file.
+- **Cloudflare** serves them through the platform asset layer or the `ASSETS`
+  binding, which types `.md` as `text/markdown; charset=utf-8` (text types get
+  the charset appended). The worker's `wantsRouteMarkdown()` check never claims
+  them, because `/about.md` is not a manifest path.
+- **Vercel** reaches them through `handle: filesystem`; no `Accept` route
+  matches a `.md` URL. Build-written files are additionally listed in the Build
+  Output `overrides` with an explicit `contentType`, so the header does not
+  depend on the platform's extension table.
+- **Static** export writes them at decoded paths, like its HTML; the host types
+  them.
+
+This is also the route to take for a corpus that is markdown all the way down (a
+skills catalog, a docs mirror): put it in `public/`, and the build never writes
+a page's `.md` over it.
 
 ---
 

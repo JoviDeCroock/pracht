@@ -75,14 +75,18 @@ Set `maxPagesPerRoute: 0` to list every instance.
 
 ## What it does
 
-- **Build** — `pracht build` writes `dist/client/llms.txt`. All four adapters
-  serve it as a regular static file: the Node handler and the Vercel Build
-  Output `handle: filesystem` route pick it up directly, and the Cloudflare
-  worker serves it through the `ASSETS` binding.
+- **Build** — `pracht build` writes `dist/client/llms.txt` after prerendering,
+  passing `generateLlmsTxt({ markdownFiles })` the pages whose `.md` file it
+  actually wrote. All four adapters serve it as a regular static file: the Node
+  handler and the Vercel Build Output `handle: filesystem` route pick it up
+  directly, and the Cloudflare worker serves it through the `ASSETS` binding.
 - **Dev** — the dev server serves `/llms.txt` live from the current app graph
-  (routes added or removed show up on the next request). With the Cloudflare
-  adapter the Cloudflare vite plugin owns the dev server, so `/llms.txt` is
-  only available in build output there.
+  (routes added or removed show up on the next request), and serves the `.md`
+  URLs it links on demand. Dev cannot know what build-time middleware would
+  answer, so it links the `.md` URL of every SSG page with a Markdown
+  representation. With the Cloudflare adapter the Cloudflare vite plugin owns
+  the dev server, so `/llms.txt` and the `.md` URLs are only available in build
+  output there.
 
 ## Output format
 
@@ -96,8 +100,9 @@ blockquote summary, and H2 sections containing markdown link lists.
 
 ## Pages
 
-- [/](/): supports `Accept: text/markdown`
+- [/](/index.md): Markdown version of `/`
 - [/blog/hello-world](/blog/hello-world)
+- [/dashboard](/dashboard): supports `Accept: text/markdown`
 - [/pricing](/pricing)
 
 ## API
@@ -124,9 +129,13 @@ comparison, so repeated builds produce byte-identical files.
   entry, up to `maxPagesPerRoute` per route (see
   [Large collections](#large-collections)). Dynamic SSR/SPA routes are
   skipped — there is no concrete URL to link.
-- Routes with a server-only `markdown` export, or `markdown: true` route
-  metadata for middleware-owned negotiation (see
-  [docs/DATA_LOADING.md](DATA_LOADING.md)), are annotated with
+- Pages with a Markdown representation (a server-only `markdown` export, or
+  `markdown: true` route metadata for middleware-owned negotiation — see
+  [DATA_LOADING.md](DATA_LOADING.md#markdown-files-for-ssg-pages)) link their
+  `.md` file instead of the HTML page, per the llms.txt convention, when one was
+  written: SSG pages whose build-time Markdown request answered 200. Every
+  other Markdown-capable page (SSR, ISG, a gated SSG page, or any page under
+  `pracht({ markdownFiles: false })`) keeps its HTML link annotated with
   `supports \`Accept: text/markdown\``.
 - Link names are the route paths themselves. Page titles are not derivable
   statically (`head()` needs a request), and paths are unambiguous for agents.

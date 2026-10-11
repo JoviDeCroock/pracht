@@ -104,6 +104,18 @@ test("pracht build emits a working Netlify Functions v2 entry", async () => {
       expect(productMarkdown.headers.get("vary")).toContain("Accept");
       expect(await productMarkdown.text()).toBe("# Product 1\n");
 
+      // The build also wrote that answer to `/products/1.md`, a plain static
+      // file served from the bundled client output whatever the client sends.
+      for (const accept of ["*/*", "text/markdown"]) {
+        const markdownFile = await handler(
+          new Request("https://example.com/products/1.md", { headers: { accept } }),
+          context,
+        );
+        expect(markdownFile.status).toBe(200);
+        expect(markdownFile.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+        expect(await markdownFile.text()).toBe("# Product 1\n");
+      }
+
       const api = await handler(new Request("https://example.com/api/health"), context);
       expect(api.headers.get("cache-control")).toBe("private, no-cache");
       await expect(api.json()).resolves.toEqual({ status: "ok" });

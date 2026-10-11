@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -109,6 +109,23 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(productMarkdown.headers.get("vary")).toContain("Accept");
     expect(await productMarkdown.text()).toBe("# Product 1\n");
 
+    // Markdown-capable SSG pages also get a `.md` file, linked from their head
+    // and served as a static file whatever the client accepts.
+    expect(readFileSync(resolve(exampleDir, "dist/client/products/1.md"), "utf-8")).toBe(
+      "# Product 1\n",
+    );
+    expect(existsSync(resolve(exampleDir, "dist/client/index.md"))).toBe(true);
+    expect(homeHtml).toContain('<link rel="alternate" type="text/markdown" href="/index.md">');
+    const productMarkdownFile = await fetch(`${origin}/products/1.md`);
+    expect(productMarkdownFile.status).toBe(200);
+    expect(productMarkdownFile.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(await productMarkdownFile.text()).toBe("# Product 1\n");
+    const rootMarkdownFile = await fetch(`${origin}/index.md`, {
+      headers: { accept: "text/markdown" },
+    });
+    expect(rootMarkdownFile.status).toBe(200);
+    await expect(rootMarkdownFile.text()).resolves.toContain("# Pracht Example");
+
     // Dynamic SSG routes should be prerendered as static HTML files
     for (const id of ["1", "2", "3"]) {
       const htmlPath = resolve(exampleDir, `dist/client/products/${id}/index.html`);
@@ -127,10 +144,11 @@ test("pracht build emits a deployable Node server entry", async () => {
     const llmsTxt = readFileSync(llmsTxtPath, "utf-8");
     expect(llmsTxt.startsWith("# Pracht Example\n")).toBe(true);
     expect(llmsTxt).toContain("> Example app for the pracht framework.");
-    expect(llmsTxt).toContain("- [/](/): supports `Accept: text/markdown`");
+    // SSG pages with a Markdown representation are listed by their `.md` file.
+    expect(llmsTxt).toContain("- [/](/index.md): Markdown version of `/`");
     // Dynamic SSG instances are listed; the raw pattern is not.
-    expect(llmsTxt).toContain("- [/products/1](/products/1): supports `Accept: text/markdown`");
-    expect(llmsTxt).toContain("- [/products/3](/products/3): supports `Accept: text/markdown`");
+    expect(llmsTxt).toContain("- [/products/1](/products/1.md): Markdown version of `/products/1`");
+    expect(llmsTxt).toContain("- [/products/3](/products/3.md): Markdown version of `/products/3`");
     expect(llmsTxt).not.toContain("/products/:productId");
     expect(llmsTxt).toContain("- [/api/echo](/api/echo): POST");
     expect(llmsTxt).toContain("- [/api/health](/api/health): GET");
@@ -468,6 +486,8 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
     expect(
       JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
     ).toEqual({});
+    // SSR pages render per request; a static `.md` would be a stale copy.
+    expect(existsSync(resolve(exampleDir, "dist/client/index.md"))).toBe(false);
 
     const serverEntryPath = resolve(exampleDir, "dist/server/server.js");
     server = spawn(process.execPath, [serverEntryPath], {
@@ -494,6 +514,48 @@ test("SSR-only builds keep static assets on the fast path for Markdown requests"
       await waitForExit(server);
     }
     portLease?.release();
+    rmSync(tempDir, { force: true, recursive: true });
+  }
+});
+
+test("page Markdown files never replace a public/ file and can be switched off", () => {
+  test.setTimeout(180_000);
+
+  const { exampleDir, tempDir } = createTempExampleDir("pracht-node-markdown-files-");
+  try {
+    mkdirSync(resolve(exampleDir, "public/products"), { recursive: true });
+    writeFileSync(resolve(exampleDir, "public/products/2.md"), "# Hand-written\n", "utf-8");
+
+    const output = buildExampleOutput(exampleDir, { PRACHT_ADAPTER: "node" });
+    const clientDir = resolve(exampleDir, "dist/client");
+    expect(readFileSync(resolve(clientDir, "products/2.md"), "utf-8")).toBe("# Hand-written\n");
+    expect(readFileSync(resolve(clientDir, "products/2/index.html"), "utf-8")).not.toContain(
+      'type="text/markdown"',
+    );
+    expect(output).toContain("/products/2.md (a file already exists there)");
+    expect(readFileSync(resolve(clientDir, "products/1.md"), "utf-8")).toBe("# Product 1\n");
+    const llmsTxt = readFileSync(resolve(clientDir, "llms.txt"), "utf-8");
+    expect(llmsTxt).toContain("- [/products/1](/products/1.md): Markdown version of `/products/1`");
+    expect(llmsTxt).toContain("- [/products/2](/products/2): supports `Accept: text/markdown`");
+
+    const viteConfigPath = resolve(exampleDir, "vite.config.ts");
+    writeFileSync(
+      viteConfigPath,
+      readFileSync(viteConfigPath, "utf-8").replace(
+        '        apiDir: "/src/api",',
+        '        apiDir: "/src/api",\n        markdownFiles: false,',
+      ),
+      "utf-8",
+    );
+    expect(readFileSync(viteConfigPath, "utf-8")).toContain("markdownFiles: false");
+    buildExampleOutput(exampleDir, { PRACHT_ADAPTER: "node" });
+    expect(existsSync(resolve(clientDir, "index.md"))).toBe(false);
+    expect(existsSync(resolve(clientDir, "products/1.md"))).toBe(false);
+    expect(readFileSync(resolve(clientDir, "index.html"), "utf-8")).not.toContain(
+      'type="text/markdown"',
+    );
+    expect(readFileSync(resolve(clientDir, "llms.txt"), "utf-8")).not.toContain(".md)");
+  } finally {
     rmSync(tempDir, { force: true, recursive: true });
   }
 });
@@ -627,6 +689,21 @@ function buildExample(exampleDir: string, env: Record<string, string>): void {
     },
     stdio: "pipe",
   });
+}
+
+function buildExampleOutput(exampleDir: string, env: Record<string, string>): string {
+  const result = spawnSync(process.execPath, [cliEntry, "build"], {
+    cwd: exampleDir,
+    encoding: "utf-8",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: "--experimental-strip-types",
+      ...env,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) throw new Error(result.stderr || result.stdout || "build failed");
+  return `${result.stdout}\n${result.stderr}`;
 }
 
 function readTextFiles(dir: string): string {

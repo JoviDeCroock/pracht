@@ -114,9 +114,29 @@ pracht switches to Markdown only when the client explicitly prefers it:
 
 Both representations carry `Vary: Accept`, so caches keep them apart. Routes without Markdown ignore `Accept` and always serve HTML.
 
+### A `.md` URL for every static page
+
+Many agent fetchers never send `Accept`, and a static host cannot negotiate. So `pracht build` also writes the Markdown of every SSG page that has one to a file next to the page: `/docs/routing` becomes `/docs/routing.md`, and `/` becomes `/index.md`. The page's HTML links it, so an agent that fetched the HTML can find it:
+
+```html
+<link rel="alternate" type="text/markdown" href="/docs/routing.md">
+```
+
+```sh
+curl https://pracht.resynapse.dev/docs/routing.md
+```
+
+The build gets that Markdown by sending the page the same `Accept: text/markdown` request an agent would, so your middleware decides. A route that answers Markdown only to verified agents, or redirects the request, gets no file. ISG and SSR pages get no file either; they keep negotiation only. A file that already exists at that path, such as `public/docs/routing.md`, is never overwritten: the build warns and leaves yours in place. `pracht dev` serves the same `.md` URLs.
+
+To keep Markdown behind `Accept` only, turn the files off:
+
+```ts [vite.config.ts]
+pracht({ adapter: nodeAdapter(), markdownFiles: false });
+```
+
 ### llms.txt
 
-The Vite plugin's `llmsTxt` option emits [`/llms.txt`](https://llmstxt.org) from your app graph: every page, every API endpoint with its methods, and every HTTP-exposed [capability](/docs/capabilities) with its endpoint, effect class, and description. Markdown routes are marked as supporting `Accept: text/markdown`.
+The Vite plugin's `llmsTxt` option emits [`/llms.txt`](https://llmstxt.org) from your app graph: every page, every API endpoint with its methods, and every HTTP-exposed [capability](/docs/capabilities) with its endpoint, effect class, and description. A page with a `.md` file is listed by that URL (`- [/docs/routing](/docs/routing.md): Markdown version of ...`); other Markdown routes are marked as supporting `Accept: text/markdown`.
 
 ```ts [vite.config.ts]
 pracht({

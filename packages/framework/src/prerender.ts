@@ -1,8 +1,9 @@
 import { DEFAULT_LOADER_TIMEOUT_MS, resolveApp } from "./app.ts";
 import { withBase } from "./base.ts";
-import { buildPathFromSegments } from "./route-matching.ts";
+import { injectMarkdownAlternateLink, markdownFilePath } from "./markdown-files.ts";
+import { buildPathFromSegments, normalizeRoutePath } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
-import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
+import { hasMarkdownRepresentation, MARKDOWN_MEDIA_TYPE } from "./runtime-negotiation.ts";
 import { NOT_FOUND_ROUTE_ID, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { routeNeedsServerFetch, routeNeedsShellData } from "./runtime-client-fetch.ts";
 import {
@@ -38,6 +39,16 @@ export interface PrerenderResult {
   routeState?: string;
   /** Whether this page is a `render: "spa"` shell (staticExport builds only). */
   spa?: boolean;
+  /**
+   * The page's Markdown file, when `markdownFiles` is enabled and the route
+   * answered a build-time `Accept: text/markdown` request with a 200 Markdown
+   * response. `path` is base-free and route-space (`/about.md`, `/index.md`
+   * for the root); `html` then already links it with
+   * `<link rel="alternate" type="text/markdown">`. `source` is absent when the
+   * path already holds the page's Markdown (see `markdownFileExists`): the page
+   * links that file and nothing is written.
+   */
+  markdownFile?: { path: string; source?: string };
 }
 
 export interface ISGManifestEntry {
@@ -77,6 +88,24 @@ export interface PrerenderAppOptions {
    * loader state so the build can serialize it for client-side navigation.
    */
   staticExport?: boolean;
+  /**
+   * Also capture a `<path>.md` file for every SSG page whose route declares a
+   * Markdown representation. The page is requested a second time with
+   * `Accept: text/markdown` through the normal handler, so middleware decides
+   * exactly as it does at runtime; only a 200 `text/markdown` answer becomes a
+   * file. ISG pages are skipped (a static file would never revalidate), as are
+   * pages whose Markdown path is owned by a route or an existing file.
+   */
+  markdownFiles?: boolean;
+  /**
+   * Whether a file already occupies a Markdown path (base-free, route-space,
+   * e.g. `/about.md`) in the client output. `true` (a `public/` file, any other
+   * artifact) means the page gets no Markdown file and no link, with a warning.
+   * `"markdown"` means the file is a declared Markdown artifact for this page
+   * (`rawContentArtifacts()` at `<path>.md`): nothing is written over it, and
+   * the page links it without a warning.
+   */
+  markdownFileExists?: (markdownPath: string) => boolean | "markdown";
 }
 
 export async function prerenderApp(options: PrerenderAppOptions): Promise<PrerenderResult[]>;
@@ -120,6 +149,10 @@ async function prerenderAppPages(
     render: string;
     revalidate?: RouteRevalidate;
     route: ResolvedRoute;
+    /** Set when this page should try to emit a Markdown file. */
+    markdownPath?: string;
+    /** The Markdown path already holds this page's Markdown; link it only. */
+    markdownExists?: boolean;
   }[] = [];
   for (const route of resolved.routes) {
     const render = route.render;
@@ -138,6 +171,58 @@ async function prerenderAppPages(
       work.push({ pathname, render, revalidate: route.revalidate, route });
     }
   }
+
+  if (options.markdownFiles === true) {
+    await planMarkdownFiles(work, resolved, options);
+  }
+  const declinedMarkdown: string[] = [];
+
+  // The same request a markdown-preferring agent sends at runtime, through
+  // the same handler: middleware that only negotiates for verified agents, or
+  // that redirects, answers something other than 200 Markdown here and the
+  // page simply gets no file.
+  const renderMarkdownFile = async (
+    url: URL,
+    item: { pathname: string; markdownPath?: string },
+    waitUntil: (promise: Promise<unknown>) => void,
+  ): Promise<string | undefined> => {
+    let markdownError: unknown;
+    const response = await handlePrachtRequest({
+      app: options.app,
+      request: new Request(url, { method: "GET", headers: { accept: MARKDOWN_MEDIA_TYPE } }),
+      registry: options.registry,
+      clientEntryUrl: options.clientEntryUrl,
+      islandsEntryUrl: options.islandsEntryUrl,
+      islandsBootstrapRequired: options.islandsBootstrapRequired,
+      apiRoutes: options.apiRoutes,
+      cssManifest: options.cssManifest,
+      cssContentManifest: options.cssContentManifest,
+      jsManifest: options.jsManifest,
+      waitUntil,
+      onRouteError: (error, requestPath, context) => {
+        if (reportBackgroundFailure(error, requestPath, context)) return;
+        markdownError = error;
+      },
+    });
+    const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+    if (response.status === 200 && contentType.startsWith(MARKDOWN_MEDIA_TYPE)) {
+      return response.text();
+    }
+    await response.body?.cancel();
+    if (response.status >= 500) {
+      console.warn(
+        `  Warning: the Markdown request for SSG route "${item.pathname}" returned status ${response.status}; ` +
+          `no ${item.markdownPath} file is written.` +
+          describeRenderError(markdownError, options.app.loaderTimeoutMs),
+      );
+    } else if (response.status !== 200) {
+      const location = response.headers.get("location");
+      declinedMarkdown.push(
+        `${item.pathname} (status ${response.status}${location ? `, redirect: ${location}` : ""})`,
+      );
+    }
+    return undefined;
+  };
 
   const concurrency = options.concurrency ?? 10;
   if (!Number.isInteger(concurrency) || concurrency <= 0) {
@@ -229,7 +314,19 @@ async function prerenderAppPages(
 
         assertSafePrerenderHeaders(response.headers, item);
 
-        const html = await response.text();
+        let html = await response.text();
+
+        let markdownFile: { path: string; source?: string } | undefined;
+        if (item.markdownPath !== undefined && item.markdownExists === true) {
+          markdownFile = { path: item.markdownPath };
+          html = injectMarkdownAlternateLink(html, withBase(item.markdownPath));
+        } else if (item.markdownPath !== undefined) {
+          const source = await renderMarkdownFile(url, item, waitUntil);
+          if (source !== undefined) {
+            markdownFile = { path: item.markdownPath, source };
+            html = injectMarkdownAlternateLink(html, withBase(item.markdownPath));
+          }
+        }
 
         // Static exports serialize SSG loader payloads to static JSON files so
         // client-side navigation can fetch it without a server. Rendering the
@@ -295,6 +392,7 @@ async function prerenderAppPages(
           html,
           item,
           markdown: hasMarkdownRepresentation(item.route, routeModule),
+          markdownFile,
           routeState,
         };
       }),
@@ -307,6 +405,7 @@ async function prerenderAppPages(
         html: result.html,
         headers: result.headers,
         markdown: result.markdown,
+        ...(result.markdownFile !== undefined ? { markdownFile: result.markdownFile } : {}),
         ...(result.routeState !== undefined ? { routeState: result.routeState } : {}),
         ...(result.item.render === "spa" ? { spa: true } : {}),
       });
@@ -317,6 +416,13 @@ async function prerenderAppPages(
         };
       }
     }
+  }
+
+  if (declinedMarkdown.length > 0) {
+    console.warn(
+      `  Note: no Markdown file for ${formatPathList(declinedMarkdown)}: the build-time ` +
+        "`Accept: text/markdown` request did not return 200. The page still negotiates at runtime.",
+    );
   }
 
   if (work.length > 0 && failedPrerenders === work.length) {
@@ -337,6 +443,109 @@ async function prerenderAppPages(
   }
 
   return results;
+}
+
+/**
+ * Decide, before anything renders, which SSG pages may write a Markdown file.
+ *
+ * A Markdown file is a static file: every adapter serves it ahead of the app,
+ * so it must never take a URL something else answers. A page loses its file
+ * when its Markdown path is a concrete page or an exact page/API route
+ * (`/about.md` as a route), when an earlier page already claimed the same
+ * case-insensitive path (`/` and `/index` both map to `/index.md`), or when a
+ * file already exists there (`public/about.md`, a content artifact). Dynamic
+ * routes do not count: a static file shadowing `/blog/:slug` for the one
+ * value `hello.md` is the same trade every static asset already makes.
+ */
+async function planMarkdownFiles(
+  work: {
+    pathname: string;
+    render: string;
+    route: ResolvedRoute;
+    markdownPath?: string;
+    markdownExists?: boolean;
+  }[],
+  resolved: ReturnType<typeof resolveApp>,
+  options: PrerenderAppOptions,
+): Promise<void> {
+  const owners = new Map<string, string>();
+  const addOwner = (path: string, description: string) => {
+    const key = portableMarkdownKey(path);
+    if (!owners.has(key)) owners.set(key, description);
+  };
+  for (const route of resolved.routes) {
+    if (!route.segments.some((s) => s.type === "param" || s.type === "catchall")) {
+      addOwner(route.path, `the page route "${route.path}"`);
+    }
+  }
+  for (const route of options.apiRoutes ?? []) {
+    if (!route.segments.some((s) => s.type === "param" || s.type === "catchall")) {
+      addOwner(route.path, `the API route "${route.path}"`);
+    }
+  }
+  for (const item of work) addOwner(item.pathname, `the page "${item.pathname}"`);
+
+  const modules = new Map<string, RouteModule | undefined>();
+  const claimed = new Map<string, string>();
+  const skipped: string[] = [];
+  // The root claims `/index.md` ahead of a literal `/index` route, the same
+  // order the dev server resolves that URL in.
+  const candidates = [...work].sort(
+    (left, right) => Number(right.pathname === "/") - Number(left.pathname === "/"),
+  );
+  for (const item of candidates) {
+    if (item.render !== "ssg") continue;
+    if (!modules.has(item.route.file)) {
+      modules.set(
+        item.route.file,
+        await resolveRegistryModule<RouteModule>(options.registry?.routeModules, item.route.file),
+      );
+    }
+    if (!hasMarkdownRepresentation(item.route, modules.get(item.route.file))) continue;
+
+    const markdownPath = markdownFilePath(item.pathname);
+    const key = portableMarkdownKey(markdownPath);
+    const owner = owners.get(key) ?? claimed.get(key);
+    if (owner !== undefined) {
+      skipped.push(`${markdownPath} (already ${owner})`);
+      continue;
+    }
+    const existing = options.markdownFileExists?.(markdownPath) ?? false;
+    if (existing === true) {
+      skipped.push(`${markdownPath} (a file already exists there)`);
+      continue;
+    }
+    claimed.set(key, `the Markdown file of "${item.pathname}"`);
+    item.markdownPath = markdownPath;
+    if (existing === "markdown") item.markdownExists = true;
+  }
+
+  if (skipped.length > 0) {
+    console.warn(
+      `  Warning: not writing ${skipped.length === 1 ? "a Markdown file" : `${skipped.length} Markdown files`} ` +
+        `because the path is taken: ${formatPathList(skipped)}. Rename the route or file to publish it.`,
+    );
+  }
+}
+
+/** Case- and encoding-insensitive key, so collisions match portable filesystems. */
+function portableMarkdownKey(path: string): string {
+  return normalizeRoutePath(path)
+    .split("/")
+    .map((segment) => {
+      let decoded = segment;
+      try {
+        decoded = decodeURIComponent(segment);
+      } catch {}
+      return decoded.normalize("NFC").toLowerCase();
+    })
+    .join("/");
+}
+
+/** Name a handful of entries and count the rest, so a large site's log stays short. */
+function formatPathList(entries: string[]): string {
+  const shown = entries.slice(0, 5).join(", ");
+  return entries.length > 5 ? `${shown}, and ${entries.length - 5} more` : shown;
 }
 
 /**

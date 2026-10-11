@@ -197,6 +197,15 @@ export interface PrachtPluginOptions {
    */
   llmsTxt?: false | PrachtLlmsTxtOptions;
   /**
+   * Publish `<path>.md` next to every SSG page whose route declares a Markdown
+   * representation (a `markdown` export or `markdown: true`), link it from the
+   * page's `<head>` and from llms.txt, and serve `/<path>.md` in `pracht dev`.
+   * The build writes the file only when the page answers a build-time
+   * `Accept: text/markdown` request with 200 Markdown. Defaults to `true`;
+   * `false` keeps Markdown available through `Accept` negotiation only.
+   */
+  markdownFiles?: boolean;
+  /**
    * Register the dev-only, read-only `pracht_*` WebMCP page tools on every
    * document `pracht dev` serves, so an agent-driven browser can ask the tab
    * which route matched, what its loader returned, which islands hydrated,
@@ -239,6 +248,7 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   precompileSsrJsx: false,
   envSafety: {},
   llmsTxt: false,
+  markdownFiles: true,
   devPageTools: true,
 };
 
@@ -254,6 +264,14 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   }
   if (resolved.devPageTools === undefined) {
     resolved.devPageTools = true;
+  }
+  if (resolved.markdownFiles === undefined) {
+    resolved.markdownFiles = true;
+  }
+  if (typeof resolved.markdownFiles !== "boolean") {
+    throw new Error(
+      `pracht({ markdownFiles }) expects a boolean, got ${JSON.stringify(resolved.markdownFiles)}.`,
+    );
   }
   if (typeof resolved.devPageTools !== "boolean") {
     throw new Error("pracht({ devPageTools }) expects a boolean.");

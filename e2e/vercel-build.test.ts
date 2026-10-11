@@ -118,6 +118,14 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     );
     expect(config.headers).toBeUndefined();
 
+    // `.md` companions of Markdown-capable SSG pages are static files with an
+    // explicit type; no route claims them before `handle: filesystem`.
+    expect(readFileSync(resolve(vercelDir, "static/products/1.md"), "utf-8")).toBe("# Product 1\n");
+    expect(config.overrides).toMatchObject({
+      "index.md": { contentType: "text/markdown; charset=utf-8" },
+      "products/1.md": { contentType: "text/markdown; charset=utf-8" },
+    });
+
     const functionConfig = JSON.parse(readFileSync(functionConfigPath, "utf-8"));
     expect(functionConfig).toMatchObject({
       runtime: "edge",

@@ -570,6 +570,37 @@ export function resolvePrerenderOutputPath(clientDir: string, routePath: string)
 }
 
 /**
+ * Output file for a page's Markdown companion (`/about.md` → `about.md`,
+ * `/index.md` for the root), confined to the client directory like every
+ * other prerendered file.
+ */
+export function resolveMarkdownFileOutputPath(clientDir: string, markdownPath: string): string {
+  if (
+    markdownPath.includes("\0") ||
+    !markdownPath.startsWith("/") ||
+    !markdownPath.endsWith(".md")
+  ) {
+    throw new Error(`Refusing to write Markdown file ${JSON.stringify(markdownPath)}.`);
+  }
+
+  const root = resolve(clientDir);
+  const filePath = resolve(root, `.${markdownPath}`);
+  const relativePath = relative(root, filePath);
+  if (
+    relativePath === "" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    throw new Error(
+      `Refusing to write Markdown file ${JSON.stringify(markdownPath)} outside dist/client (${filePath}).`,
+    );
+  }
+
+  return filePath;
+}
+
+/**
  * Per-page CSS at or below this many raw bytes is small enough that the extra
  * round trip costs more than the duplication does. Roughly the initial
  * congestion window, so a stylesheet under it would have arrived with the

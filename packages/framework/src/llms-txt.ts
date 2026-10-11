@@ -16,6 +16,7 @@ import { buildPathFromSegments } from "./app.ts";
 import { API_METHOD_ORDER } from "./app-graph.ts";
 import { withBase } from "./base.ts";
 import { matchRoutePattern } from "./constraints.ts";
+import { markdownFilePath } from "./markdown-files.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
 import type {
@@ -80,6 +81,18 @@ export interface BuildLlmsTxtOptions {
    * section names the route and the ratio it lists.
    */
   maxPagesPerRoute?: number;
+  /**
+   * Which pages have a `<path>.md` file next to them, linked instead of the
+   * HTML page per the llms.txt convention.
+   *
+   * - `true` — every SSG page whose route declares a Markdown representation
+   *   (the dev server, which serves `/<path>.md` on demand).
+   * - an array of page paths — exactly those pages (`pracht build`, after
+   *   prerendering decided which files were actually written).
+   * - `false` or omitted — none; Markdown-capable pages keep the
+   *   `supports Accept: text/markdown` note.
+   */
+  markdownFiles?: boolean | readonly string[];
 }
 
 /**
@@ -92,6 +105,8 @@ interface LlmsTxtPageEntry {
   path: string;
   /** True when the route declares a Markdown representation. */
   markdown: boolean;
+  /** True when the page is prerendered as SSG (and so can have a `.md` file). */
+  ssg: boolean;
 }
 
 /** One dynamic route whose instances were capped, for the truncation note. */
@@ -168,7 +183,15 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
         lines.push("", ...collected.truncated.map(formatTruncationNote));
       }
       lines.push("", "## Pages", "");
+      const hasMarkdownFile = createMarkdownFileMatcher(options.markdownFiles);
       for (const page of collected.pages) {
+        if (page.markdown && hasMarkdownFile(page)) {
+          // The llms.txt convention: link the page's Markdown, not its HTML.
+          lines.push(
+            `- [${page.path}](${link(markdownFilePath(page.path))}): Markdown version of \`${page.path}\``,
+          );
+          continue;
+        }
         const note = page.markdown ? ": supports `Accept: text/markdown`" : "";
         lines.push(`- [${page.path}](${link(page.path)})${note}`);
       }
@@ -205,6 +228,15 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function createMarkdownFileMatcher(
+  markdownFiles: boolean | readonly string[] | undefined,
+): (page: LlmsTxtPageEntry) => boolean {
+  if (markdownFiles === true) return (page) => page.ssg;
+  if (!markdownFiles) return () => false;
+  const paths = new Set(markdownFiles);
+  return (page) => paths.has(page.path);
 }
 
 /**
@@ -307,10 +339,11 @@ async function collectPageEntries(
   for (const route of routes) {
     const routeModule = await loadRouteModule(registry, route.file);
     const markdown = hasMarkdownRepresentation(route, routeModule);
+    const ssg = route.render === "ssg";
 
     if (!isDynamicRoute(route)) {
       if (!options.isExcluded(route.path) && !entries.has(route.path)) {
-        entries.set(route.path, { markdown, path: route.path });
+        entries.set(route.path, { markdown, path: route.path, ssg });
       }
       continue;
     }
@@ -355,7 +388,7 @@ async function collectPageEntries(
       truncated.push({ listed: limit, omitted: paths.length - limit, routePath: route.path });
     }
     for (const path of paths.slice(0, limit)) {
-      entries.set(path, { markdown, path });
+      entries.set(path, { markdown, path, ssg });
     }
   }
 

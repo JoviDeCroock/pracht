@@ -205,10 +205,11 @@ must do and what the build cannot enforce.
 - Smoke test the real output, not the dev server: `pracht preview --skip-build`
   serves `dist/client/` the way a dumb host would. Check `/`, one dynamic SSG
   path, one deep link into a SPA route, and one unknown URL.
-- Routes exporting `markdown` rely on server-side `Accept` negotiation, which a
-  static host cannot do — agents asking for `text/markdown` get HTML. The build
-  prints a note; publish `.md` files under `public/` if a raw-markdown corpus
-  matters.
+- A static host cannot negotiate `Accept`, so agents read an SSG page's
+  Markdown at `/<path>.md` (written by the build for routes exporting
+  `markdown` or declaring `markdown: true`). Check the host serves `.md` as
+  `text/markdown; charset=utf-8` — nginx's stock `mime.types` lacks it — and
+  read the build note naming Markdown-capable pages that got no file.
 - Sub-path deploys (GitHub Pages *project* site, S3 key prefix) need Vite
   `base` set to that path (`base: "/my-project/"`), matching the deploy path
   exactly — a mismatch 404s every asset. Then confirm no hand-written

@@ -72,6 +72,44 @@ describe("writeVercelBuildOutput", () => {
     }
   });
 
+  // `/guide.md` is a plain static file: no route claims it before
+  // `handle: filesystem`, and its type is stated rather than left to the
+  // platform's extension table.
+  it("types written .md files explicitly, under the deploy base", () => {
+    const root = createBuildRoot();
+    const based = createBuildRoot();
+
+    writeVercelBuildOutput({
+      isgManifest: {},
+      markdownFiles: ["guide.md", "index.md"],
+      markdownRoutes: ["/", "/guide"],
+      root,
+      staticRoutes: ["/", "/guide"],
+    });
+    writeVercelBuildOutput({
+      base: "/docs/",
+      isgManifest: {},
+      markdownFiles: ["guide.md"],
+      markdownRoutes: ["/guide"],
+      root: based,
+      staticRoutes: ["/guide"],
+    });
+
+    const read = (dir: string) =>
+      JSON.parse(readFileSync(join(dir, ".vercel/output/config.json"), "utf-8")) as {
+        overrides?: Record<string, { contentType: string }>;
+        routes: { src?: string }[];
+      };
+    expect(read(root).overrides).toEqual({
+      "guide.md": { contentType: "text/markdown; charset=utf-8" },
+      "index.md": { contentType: "text/markdown; charset=utf-8" },
+    });
+    expect(read(root).routes.some((entry) => entry.src?.includes("\\.md"))).toBe(false);
+    expect(read(based).overrides).toEqual({
+      "docs/guide.md": { contentType: "text/markdown; charset=utf-8" },
+    });
+  });
+
   it("emits markdown routing only for routes that export markdown", () => {
     const withMarkdown = createBuildRoot();
     const withoutMarkdown = createBuildRoot();

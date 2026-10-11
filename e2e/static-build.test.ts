@@ -37,6 +37,7 @@ const MIME: Record<string, string> = {
   ".css": "text/css",
   ".json": "application/json",
   ".txt": "text/plain; charset=utf-8",
+  ".md": "text/markdown; charset=utf-8",
 };
 
 async function fileAt(path: string): Promise<string | null> {
@@ -886,6 +887,13 @@ test("static export deploys under a sub-path Vite base", async ({ page }) => {
       readFileSync(routesPath, "utf-8").replace('route("/about",', 'route("/app/about",'),
       "utf-8",
     );
+    // A Markdown representation publishes a base-free `.md` file, linked
+    // under the base.
+    writeFileSync(
+      resolve(exampleDir, "src/routes/about.tsx"),
+      `${readFileSync(resolve(exampleDir, "src/routes/about.tsx"), "utf-8")}\nexport const markdown = "# About\\n";\n`,
+      "utf-8",
+    );
     buildExample(exampleDir, { PRACHT_STATIC_FALLBACK: "200.html" });
 
     const clientDir = resolve(exampleDir, "dist/client");
@@ -898,9 +906,16 @@ test("static export deploys under a sub-path Vite base", async ({ page }) => {
     const homeHtml = readFileSync(resolve(clientDir, "index.html"), "utf-8");
     expect(homeHtml).toContain('src="/app/assets/');
     expect(homeHtml).not.toMatch(/src="\/assets\//);
+    expect(readFileSync(resolve(clientDir, "app/about.md"), "utf-8")).toBe("# About\n");
+    expect(readFileSync(resolve(clientDir, "app/about/index.html"), "utf-8")).toContain(
+      '<link rel="alternate" type="text/markdown" href="/app/app/about.md">',
+    );
 
     server = (await startDumbStaticHost(clientDir, { base: "/app/", fallback: "200.html" })).server;
     const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const aboutMarkdown = await fetch(`${origin}/app/app/about.md`);
+    expect(aboutMarkdown.status).toBe(200);
+    expect(await aboutMarkdown.text()).toBe("# About\n");
 
     const failedRequests: string[] = [];
     page.on("response", (response) => {
@@ -1006,7 +1021,7 @@ test("static export serves non-ASCII prerender paths on a URL-decoding host", as
       readFileSync(postPath, "utf-8").replace(
         '"second-post": { title: "Second post", body: "Another build-time post." },',
         '"second-post": { title: "Second post", body: "Another build-time post." },\n  "café": { title: "Café", body: "Unicode slug." },',
-      ),
+      ) + '\nexport const markdown = "# Post\\n";\n',
       "utf-8",
     );
 
@@ -1017,6 +1032,14 @@ test("static export serves non-ASCII prerender paths on a URL-decoding host", as
     // spelling would build fine and 404 for every ordinary link.
     expect(existsSync(resolve(exampleDir, "dist/client/posts/café/index.html"))).toBe(true);
     expect(existsSync(resolve(exampleDir, "dist/client/posts/caf%C3%A9/index.html"))).toBe(false);
+    // Its Markdown file follows the same rule; the link keeps the URL form.
+    expect(existsSync(resolve(exampleDir, "dist/client/posts/café.md"))).toBe(true);
+    expect(existsSync(resolve(exampleDir, "dist/client/posts/caf%C3%A9.md"))).toBe(false);
+    expect(
+      readFileSync(resolve(exampleDir, "dist/client/posts/café/index.html"), "utf-8"),
+    ).toContain('<link rel="alternate" type="text/markdown" href="/posts/caf%C3%A9.md">');
+    // Every page now has its file, so the build has nothing to warn about.
+    expect(output).not.toContain("Markdown-capable page(s) have no .md file");
 
     const host = await startDumbStaticHost(resolve(exampleDir, "dist/client"));
     server = host.server;
@@ -1025,6 +1048,10 @@ test("static export serves non-ASCII prerender paths on a URL-decoding host", as
     const response = await fetch(`${host.origin}/posts/${encodeURIComponent("café")}/`);
     expect(response.status).toBe(200);
     expect(await response.text()).toContain("Café");
+    const markdown = await fetch(`${host.origin}/posts/${encodeURIComponent("café")}.md`);
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+    expect(await markdown.text()).toBe("# Post\n");
 
     // The route-state file still keys off the raw encoded pathname, which is
     // what the client derives from location.pathname.

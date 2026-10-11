@@ -104,7 +104,10 @@ artifacts: [
 ```
 
 Like every artifact, it is served live in development and emitted to
-`dist/client/` at build time.
+`dist/client/` at build time. SSG pages with Markdown already get a
+[`<path>.md` file](/docs/agents#a-md-url-for-every-static-page) from the
+build, so use this for a different representation or path; an artifact at
+exactly `<path>.md` takes that file's place, and the page links to it.
 
 ### Parsing frontmatter yourself
 
