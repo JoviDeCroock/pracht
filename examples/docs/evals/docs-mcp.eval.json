@@ -1,0 +1,117 @@
+{
+  "name": "docs MCP server",
+  "task": "What a coding agent does with the docs MCP server: list the pages, search, read the top hit's section, and get a useful answer for a bad page, a traversal attempt, and invalid input.",
+  "transport": "mcp",
+  "steps": [
+    {
+      "capability": "docs.list",
+      "input": {},
+      "expect": {
+        "ok": true,
+        "status": 200
+      }
+    },
+    {
+      "capability": "docs.search",
+      "input": {
+        "query": "remote mcp oauth",
+        "limit": 3
+      },
+      "expect": {
+        "ok": true,
+        "status": 200
+      }
+    },
+    {
+      "capability": "docs.read",
+      "input": {
+        "page": "$steps[1].data.results.0.page",
+        "section": "$steps[1].data.results.0.section"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "found": true,
+          "truncated": false
+        }
+      }
+    },
+    {
+      "capability": "docs.read",
+      "input": {
+        "page": "capabilities",
+        "section": "talking-to-it"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "found": true,
+          "page": "/docs/capabilities",
+          "section": "talking-to-it",
+          "url": "https://pracht.resynapse.dev/docs/capabilities#talking-to-it"
+        }
+      }
+    },
+    {
+      "capability": "docs.read",
+      "input": {
+        "page": "capabilites"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "found": false,
+          "markdown": "",
+          "page": ""
+        }
+      }
+    },
+    {
+      "capability": "docs.read",
+      "input": {
+        "page": "../../wrangler.jsonc"
+      },
+      "expect": {
+        "ok": true,
+        "output": {
+          "found": false,
+          "markdown": ""
+        }
+      }
+    },
+    {
+      "capability": "docs.search",
+      "input": {
+        "query": ""
+      },
+      "expect": {
+        "ok": false,
+        "status": 400,
+        "errorCode": "invalid_input"
+      }
+    },
+    {
+      "capability": "docs.search",
+      "input": {
+        "query": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "expect": {
+        "ok": false,
+        "status": 400,
+        "errorCode": "invalid_input"
+      }
+    },
+    {
+      "capability": "docs.read",
+      "input": {
+        "page": "capabilities",
+        "path": "/etc/passwd"
+      },
+      "expect": {
+        "ok": false,
+        "status": 400,
+        "errorCode": "invalid_input"
+      }
+    }
+  ]
+}

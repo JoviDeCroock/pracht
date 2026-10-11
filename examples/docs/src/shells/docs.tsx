@@ -40,7 +40,8 @@ import {
 import "../styles/global.css";
 import { inter } from "../fonts";
 
-const NAV = [
+/** The sidebar. The docs MCP server's `docs.list` tool groups pages the same way. */
+export const NAV = [
   {
     label: "Getting Started",
     links: [

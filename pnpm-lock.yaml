@@ -198,6 +198,9 @@ importers:
       '@pracht/adapter-cloudflare':
         specifier: workspace:*
         version: link:../../packages/adapter-cloudflare
+      '@pracht/capabilities':
+        specifier: workspace:*
+        version: link:../../packages/capabilities
       '@pracht/content':
         specifier: workspace:*
         version: link:../../packages/content

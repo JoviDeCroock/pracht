@@ -195,3 +195,4 @@ commands and [Adapters](/docs/adapters) for what each adapter emits.
 - **Loaders & API routes** — server-side data fetching and mutations. See [Data Loading](/docs/data-loading).
 - **Adapters** — deploy to Node.js, Cloudflare Workers, Netlify, Vercel, or a static host. See [Adapters](/docs/adapters).
 - **Capabilities** — typed operations your app exposes to agents as well as to its own UI. See [The Agentic Web](/docs/agents).
+- **Docs for your agent** — connect a coding agent to these docs over MCP with `claude mcp add --transport http pracht-docs https://pracht.resynapse.dev/mcp`. See [Coding Agents](/docs/coding-agents#the-docs-mcp-server).

@@ -322,12 +322,18 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
     };
   },
   images: { sizes: "(max-width: 960px) 100vw, 960px" },
+  // The docs MCP tools read `body` and `compiled` from the runtime snapshot;
+  // nothing at request time needs the raw source with its frontmatter.
+  snapshot: { raw: false },
   artifacts: [
     llmsTxtArtifacts({
       origin: "https://pracht.resynapse.dev",
       title: "pracht",
       description:
         "A full-stack Preact framework built on Vite with hybrid rendering (SSG, SSR, ISG, SPA) and a unified data-loading model.",
+      details: [
+        "These docs are also a remote MCP server: add `https://pracht.resynapse.dev/mcp` as a Streamable HTTP server for the read-only `docs_search`, `docs_read`, and `docs_list` tools.",
+      ],
       sections: [{ heading: "Docs", match: "/docs" }],
     }),
   ],

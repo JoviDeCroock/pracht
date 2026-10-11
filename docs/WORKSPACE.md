@@ -64,7 +64,7 @@ constraint; the CLI test is.
 | `examples/pages-router`       | `@pracht/example-pages-router` | File-system routing with no manifest, including the `_app.tsx` shell convention                            |
 | `examples/static`             | `@pracht/example-static`     | Pure static export: build-time loaders, `getStaticPaths()`, loaderless SPA routes, `200.html` fallback, loader-backed `404.html` |
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
-| `examples/docs`               | `@pracht/example-docs`       | **The published documentation site** — every page under `src/routes/docs/*.md` is public user- and agent-facing docs. Cloudflare adapter, all routes SSG, generates `llms.txt`, sitemap, and the agent-skills index |
+| `examples/docs`               | `@pracht/example-docs`       | **The published documentation site** — every page under `src/routes/docs/*.md` is public user- and agent-facing docs. Cloudflare adapter, all routes SSG, generates `llms.txt`, sitemap, and the agent-skills index, and serves the docs MCP server at `/mcp` |
 | `examples/tsrx`               | `@pracht/example-tsrx`       | Mixed `.tsrx` (TSRX/Ripple-flavoured Preact) and `.tsx` routes via `@tsrx/vite-plugin-preact`                |
 
 ## Documentation
@@ -78,8 +78,13 @@ Two audiences, two trees, and they are not interchangeable.
 
 `examples/docs` is a real pracht app whose Markdown pages *are* the public
 documentation. It also generates `llms.txt`, the sitemap, and the agent-skills
-discovery index from those same files, so a page that is missing there is
-missing from every agent-facing surface too.
+discovery index from those same files, and serves them as read-only remote MCP
+tools (`docs.search`, `docs.read`, `docs.list` in `src/capabilities/`) at
+`/mcp`, so a page that is missing there is missing from every agent-facing
+surface too. The tools index the `docs` collection's runtime snapshot
+(`src/server/docs-index.ts`) on first call; `docs.list` groups pages by the
+shell's `NAV`, and `test/docs-mcp.test.ts` fails when a page is missing from it
+or when a search hit's anchor does not exist on the rendered page.
 
 A user-facing change is not finished when `docs/` is updated. Adding a page
 means three edits: the Markdown file, a `route()` in
@@ -399,8 +404,10 @@ Publication builds the workspace and docs, then writes
 `dist/client/.well-known/pracht-build.json` with the commit SHA and SHA-256
 hashes of the generated HTML, `llms.txt`, and agent-skills assets. After
 `wrangler deploy`, the workflow fetches the public revision marker and compares
-live content with the local build inventory. Missing pages, stale content, and
-an old deployment fail the job, even if the deploy command succeeded.
+live content with the local build inventory, then drives the docs MCP server
+(`initialize`, `tools/list`, one `docs_search` whose hits must be pages in that
+inventory). Missing pages, stale content, an old deployment, and a broken MCP
+endpoint fail the job, even if the deploy command succeeded.
 
 To prepare and inspect the same release locally, from the repository root:
 
