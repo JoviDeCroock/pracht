@@ -1,0 +1,14 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.JoviDeCroock/pracht-docs",
+  "title": "pracht docs",
+  "description": "Search and read the pracht framework documentation: guides, recipes, and API reference.",
+  "repository": {
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "source": "github",
+    "subfolder": "examples/docs"
+  },
+  "websiteUrl": "https://pracht.resynapse.dev",
+  "version": "1.0.0",
+  "remotes": [{ "type": "streamable-http", "url": "https://pracht.resynapse.dev/mcp" }]
+}

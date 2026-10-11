@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.JoviDeCroock/pracht",
+  "title": "pracht dev-mcp",
+  "description": "Inspect, verify, diff, and scaffold a pracht app's routes, API, and capabilities from its app graph.",
+  "repository": {
+    "url": "https://github.com/JoviDeCroock/pracht",
+    "source": "github",
+    "subfolder": "packages/cli"
+  },
+  "websiteUrl": "https://pracht.resynapse.dev/docs/coding-agents",
+  "version": "1.15.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@pracht/cli",
+      "version": "1.15.0",
+      "transport": { "type": "stdio" },
+      "packageArguments": [{ "type": "positional", "value": "dev-mcp" }]
+    }
+  ]
+}

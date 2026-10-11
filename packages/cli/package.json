@@ -2,6 +2,7 @@
   "name": "@pracht/cli",
   "version": "1.15.0",
   "description": "CLI for developing, building, validating, inspecting, and scaffolding Pracht apps.",
+  "mcpName": "io.github.JoviDeCroock/pracht",
   "keywords": [
     "pracht",
     "preact",
@@ -10,6 +11,8 @@
     "ssr",
     "scaffold",
     "inspect",
+    "mcp",
+    "agents",
     "doctor",
     "framework"
   ],

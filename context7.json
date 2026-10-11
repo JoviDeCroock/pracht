@@ -1,0 +1,15 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "pracht",
+  "description": "Full-stack Preact framework on Vite: an explicit route manifest, per-route SSG/SSR/ISG/SPA rendering, loaders, API routes, islands, and typed capabilities exposed to agents over HTTP, WebMCP, and remote MCP. Adapters for Cloudflare Workers, Vercel, Netlify, Node.js, and static hosts.",
+  "folders": ["examples/docs/src/routes/docs", "skills"],
+  "excludeFolders": ["**/node_modules", "**/dist"],
+  "excludeFiles": ["CHANGELOG.md", "AGENTS.md", "CLAUDE.md"],
+  "rules": [
+    "Components are Preact, not React: import hooks from `preact/hooks` and prefer `class` over `className`.",
+    "Wire routes, shells, middleware, and render modes in `src/routes.ts` with `defineApp()`, or use the file-system `src/pages/` router.",
+    "Choose a render mode per route (`ssg`, `ssr`, `isg`, `spa`); fetch data in a route `loader` and handle mutations in `src/api/` routes.",
+    "Scaffold with `pracht generate route|shell|middleware|api|capability` instead of hand-writing wiring, then run `pracht verify`.",
+    "Docs for the installed version: run `pracht docs <topic>`; the site is https://pracht.resynapse.dev and its index is /llms.txt."
+  ]
+}
