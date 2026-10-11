@@ -9,6 +9,7 @@ import {
   parseFrontmatter,
   rawContentArtifacts,
 } from "../src/index.ts";
+import type { ContentArtifactGenerator } from "../src/index.ts";
 import { contentLoader, defineSnapshotCollection, markdownRepresentation } from "../src/runtime.ts";
 
 const temporaryDirectories: string[] = [];
@@ -599,9 +600,7 @@ describe("collection integration helpers", () => {
 
     expect(summary).toContain("- [Use \\[brackets\\] safely](/guide): Line one - injected list");
     expect(summary).not.toContain("\n- injected list");
-    expect(full).toContain(
-      "# Use [brackets] safely\n\nSource: /guide\n\n> Line one - injected list",
-    );
+    expect(full).toContain("# Use [brackets] safely\n\n> Line one - injected list");
   });
 
   it("preserves parentheses in llms.txt link destinations", async () => {
@@ -786,16 +785,16 @@ describe("collection integration helpers", () => {
         "",
       ].join("\n"),
     );
-    // Every inlined page carries the URL the summary links, so an agent can cite it.
+    // Every inlined page cites its canonical page URL, not the `link()` target.
     expect(source("/llms-recipes.txt")).toBe(
-      "# Example: Recipes\n\n> Example docs.\n\n---\n\n# Auth\n\nSource: https://example.com/docs/recipes-auth.md\n\nAuth body\n\n",
+      "# Example: Recipes\n\n> Example docs.\n\n---\n\n# Auth\n\nSource: https://example.com/docs/recipes-auth\n\nAuth body\n\n",
     );
     expect(source("/llms-basics.txt")).toContain("Guide body");
     expect(source("/llms-basics.txt")).toContain("> Begin here");
     expect(source("/llms-basics.txt")).not.toContain("Auth body");
     expect(source("/llms-full.txt")).toContain("Auth body");
     expect(source("/llms-full.txt")).toContain(
-      "# Start\n\nSource: https://example.com/docs/start.md\n\n> Begin here\n\nStart body",
+      "# Start\n\nSource: https://example.com/docs/start\n\n> Begin here\n\nStart body",
     );
     expect(link).toHaveBeenCalledTimes(3);
   });
@@ -927,14 +926,14 @@ describe("collection integration helpers", () => {
           title: "Docs",
           fullPath: false,
           origin: "https://example.com/base//",
-          link: () => "/a b/(c)\n<d>.md",
+          link: () => "/a b/(c)<d>.md",
           sections: [{ heading: "Docs [v2] (beta)", match: "/", fullPath: "/llms-docs.txt" }],
         }),
       ],
     });
 
     const summary = String((await collection.emitArtifacts())[0].source);
-    expect(summary).toContain("- [Guide](https://example.com/base/a%20b/\\(c\\)%0A%3Cd%3E.md)");
+    expect(summary).toContain("- [Guide](https://example.com/base/a%20b/\\(c\\)%3Cd%3E.md)");
     expect(summary).toContain("## Docs [v2] (beta)");
     expect(summary).toContain(
       "- [Docs \\[v2\\] (beta) (full text)](https://example.com/base/llms-docs.txt)",
@@ -960,9 +959,65 @@ describe("collection integration helpers", () => {
     }
   });
 
+  it("treats an empty origin as unset and keeps origin-less full text unchanged", async () => {
+    const root = await fixture({ "guide.md": "---\ntitle: Guide\n---\nBody" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [
+        llmsTxtArtifacts({ title: "Docs", origin: "", link: (document) => `${document.path}.md` }),
+      ],
+    });
+
+    const [summary, full] = await collection.emitArtifacts();
+    expect(String(summary.source)).toContain("- [Guide](/guide.md)");
+    expect(String(full.source)).toBe("# Docs\n\n---\n\n# Guide\n\nBody\n\n");
+  });
+
+  it("types section and link callbacks with the collection's frontmatter", () => {
+    const generator = llmsTxtArtifacts<{ title: string; order: number }, string>({
+      title: "Docs",
+      link: (document) => `${document.path}.md`,
+      sections: [
+        {
+          heading: "Docs",
+          match: (document) => document.frontmatter.order > 0,
+          sort: (a, b) => a.frontmatter.order - b.frontmatter.order,
+        },
+      ],
+    });
+    expectTypeOf(generator).toEqualTypeOf<
+      ContentArtifactGenerator<{ title: string; order: number }, string>
+    >();
+    defineCollection<{ title: string; order: number }, string>({
+      name: "docs",
+      root: "/tmp",
+      compile: ({ body }) => body,
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          sections: [
+            {
+              heading: "Docs",
+              match: "/",
+              sort: (a, b) => a.frontmatter.order - b.frontmatter.order,
+            },
+          ],
+        }),
+      ],
+    });
+  });
+
   it("rejects a link() result that is not a root-relative URL", async () => {
     const root = await fixture({ "guide.md": "Body" });
-    for (const value of ["guide.md", "//evil.example/guide", "https://example.com/guide", 42]) {
+    for (const value of [
+      "guide.md",
+      "//evil.example/guide",
+      "/\\evil.example/guide",
+      "/guide\nmore",
+      "https://example.com/guide",
+      42,
+    ]) {
       const collection = defineCollection({
         name: "docs",
         root,
@@ -977,6 +1032,12 @@ describe("collection integration helpers", () => {
   it("rejects malformed llms.txt options when the generator is defined", () => {
     const define = llmsTxtArtifacts as (options: unknown) => unknown;
     expect(() => define({ title: "Docs", link: "/docs" })).toThrow(/`link` must be a function/);
+    expect(() =>
+      define({ title: "Docs", sections: [{ heading: " optional ", match: "/" }] }),
+    ).toThrow(/`sections\[0\]`.heading "Optional" is reserved/);
+    expect(() =>
+      define({ title: "Docs", sections: [{ heading: "Optional", match: "/", optional: true }] }),
+    ).not.toThrow();
     expect(() => define({ title: "Docs", origin: "example.com" })).toThrow(
       /`origin` must be an absolute http\(s\) URL/,
     );

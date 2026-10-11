@@ -337,11 +337,11 @@ curl https://pracht.resynapse.dev/.well-known/agent-skills/index.json
 }
 ```
 
-The home page advertises it, along with the docs index at `/llms.txt`, in an [RFC 8288](https://datatracker.ietf.org/doc/html/rfc8288) `Link` header:
+The home page advertises it, along with the docs index at `/llms.txt`, with [RFC 8288](https://datatracker.ietf.org/doc/html/rfc8288) `Link` headers:
 
 ```
-Link: </llms.txt>; rel="describedby"; type="text/markdown",
-      </.well-known/agent-skills/index.json>; rel="agent-skills"
+Link: </llms.txt>; rel="describedby"; type="text/markdown"
+Link: </.well-known/agent-skills/index.json>; rel="agent-skills"
 ```
 
 ### Installing One by Hand

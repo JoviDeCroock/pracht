@@ -199,9 +199,9 @@ files, and `/llms-full.txt`, are listed with their page and word counts under a
 final `## Optional` heading, because they repeat pages the sections already
 link. A section that matches no document produces neither a heading nor a file.
 
-In every full-text file, each page starts with its title and a `Source:` line
-holding the URL the summary links, so an agent can cite the page it read. Point
-`link` only at URLs the site serves, such as the `.md` files
+When `origin` is set, each page in a full-text file starts with its title and a
+`Source:` line holding the page's URL, so an agent can cite the page it read.
+Point `link` only at URLs the site serves, such as the `.md` files
 `rawContentArtifacts()` emits.
 
 The build also fails when an artifact path collides with a file in `public/`, a

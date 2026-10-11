@@ -183,8 +183,8 @@ that publishes its own index.
 For agents, link entries to Markdown and split the full text by section:
 `` link: (document) => `${document.path}.md` `` (only when those URLs exist,
 e.g. via `rawContentArtifacts()`), and `fullPath: "/llms-guides.txt"` on a
-section to emit a file with just its pages (each page gets a `Source:` URL
-line; `sort` orders a section's entries). Section files and
+section to emit a file with just its pages (with `origin` set, each page gets
+a `Source:` line with its page URL; `sort` orders a section's entries). Section files and
 `/llms-full.txt` are listed under a trailing `## Optional` heading; a section
 that matches nothing emits no file. Duplicate or file/directory-colliding
 artifact paths throw when the helper is defined.
