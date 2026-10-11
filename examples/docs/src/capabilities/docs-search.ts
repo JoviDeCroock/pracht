@@ -55,13 +55,17 @@ export default defineCapability({
           additionalProperties: false,
         },
       },
+      message: {
+        type: "string",
+        description: "Why there are no results, when there are none; otherwise empty.",
+      },
     },
-    required: ["results"],
+    required: ["results", "message"],
     additionalProperties: false,
   },
   effect: "read",
   expose: { mcp: true },
   async run({ input }: CapabilityRunArgs<SearchInput>) {
-    return { results: searchDocs(await docsIndex(), input.query, input.limit) };
+    return searchDocs(docsIndex(), input.query, input.limit);
   },
 });

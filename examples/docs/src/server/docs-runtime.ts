@@ -1,18 +1,13 @@
-import docs from "virtual:pracht/content/docs";
+import data from "virtual:docs-mcp-index";
 
-import { buildDocsIndex, type DocsIndex } from "./docs-index.ts";
+import { hydrateDocsIndex, type DocsIndex } from "./docs-index.ts";
 
-let pending: Promise<DocsIndex> | undefined;
+let index: DocsIndex | undefined;
 
 /**
- * The index over the deployed `docs` collection snapshot, built on the first
- * tool call and reused for the life of the isolate. A failed build is not
- * cached, so the next call retries.
+ * The prebuilt docs index (see vite-plugin-docs-index.ts), turned into lookups
+ * on the first tool call and reused for the life of the isolate.
  */
-export function docsIndex(): Promise<DocsIndex> {
-  pending ??= buildDocsIndex(docs).catch((error: unknown) => {
-    pending = undefined;
-    throw error;
-  });
-  return pending;
+export function docsIndex(): DocsIndex {
+  return (index ??= hydrateDocsIndex(data));
 }

@@ -81,10 +81,15 @@ documentation. It also generates `llms.txt`, the sitemap, and the agent-skills
 discovery index from those same files, and serves them as read-only remote MCP
 tools (`docs.search`, `docs.read`, `docs.list` in `src/capabilities/`) at
 `/mcp`, so a page that is missing there is missing from every agent-facing
-surface too. The tools index the `docs` collection's runtime snapshot
-(`src/server/docs-index.ts`) on first call; `docs.list` groups pages by the
-shell's `NAV`, and `test/docs-mcp.test.ts` fails when a page is missing from it
-or when a search hit's anchor does not exist on the rendered page.
+surface too. `vite-plugin-docs-index.ts` builds the search index from the
+`docs` collection at build time (`docs-index-build.ts`: sections,
+anchors taken from the compiled headings, and stemmed postings) and serves it
+as the server-only `virtual:docs-mcp-index`, so the Worker parses one JSON
+document on its first call instead of every page's compiled HTML. The build
+fails when a page's headings and compiled ids disagree. `docs.list` groups
+pages by the shell's `NAV`; `test/docs-mcp.test.ts` loads the module through
+the plugin's own hooks and fails when a page is missing from `NAV` or a search
+hit's anchor does not exist on the rendered page.
 
 A user-facing change is not finished when `docs/` is updated. Adding a page
 means three edits: the Markdown file, a `route()` in

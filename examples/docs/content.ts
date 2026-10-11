@@ -322,9 +322,6 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
     };
   },
   images: { sizes: "(max-width: 960px) 100vw, 960px" },
-  // The docs MCP tools read `body` and `compiled` from the runtime snapshot;
-  // nothing at request time needs the raw source with its frontmatter.
-  snapshot: { raw: false },
   artifacts: [
     llmsTxtArtifacts({
       origin: "https://pracht.resynapse.dev",

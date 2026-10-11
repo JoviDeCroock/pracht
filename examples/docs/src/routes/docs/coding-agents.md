@@ -156,7 +156,7 @@ Cursor and VS Code take the URL in their MCP config files:
 | Tool | Inputs | Returns |
 | --- | --- | --- |
 | `docs_search` | `query`, `limit?` (1–20, default 8) | The best-matching sections, each with its `page`, `section` anchor, `url`, and a snippet |
-| `docs_read` | `page` (a path, slug, or URL), `section?` | The page or one section as Markdown, plus the page's section anchors |
+| `docs_read` | `page` (a path, slug, or URL), `section?` | One section as Markdown, or the whole page with its section anchors |
 | `docs_list` | — | Every page with its one-line summary, grouped like the sidebar |
 
 The tools are read-only and need no account. Pass a search hit's `page` and `section` straight to `docs_read`. An unknown page or anchor answers `found: false` with the closest matches in `suggestions`.

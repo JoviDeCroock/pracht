@@ -7,6 +7,7 @@ import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
 import { docsContent } from "./content";
 import { sitemap } from "./vite-plugin-sitemap";
 import { agentSkills } from "./vite-plugin-agent-skills";
+import { docsIndex } from "./vite-plugin-docs-index";
 
 const SITE_ORIGIN = "https://pracht.resynapse.dev";
 const routesFile = fileURLToPath(new URL("./src/routes.ts", import.meta.url));
@@ -29,6 +30,7 @@ export default defineConfig({
       ],
     }),
     agentSkills({ origin: SITE_ORIGIN, skillsDir }),
+    docsIndex({ collection: docsContent }),
     pracht({ adapter: cloudflareAdapter() }),
   ],
 });

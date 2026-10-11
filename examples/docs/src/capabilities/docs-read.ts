@@ -11,7 +11,7 @@ interface ReadInput {
 export default defineCapability({
   title: "Read a pracht docs page",
   description:
-    "Return one page of the pracht documentation as Markdown, or only one section of it. `page` accepts a path (/docs/capabilities), a slug (capabilities, recipes/auth), or a page URL. `sections` lists the page's anchors. An unknown page or section answers found: false with the closest matches.",
+    "Return one page of the pracht documentation as Markdown, or only one section of it. `page` accepts a path (/docs/capabilities), a slug (capabilities, recipes/auth), or a page URL. A whole-page read lists the page's anchors in `sections`. An unknown page or section answers found: false with the closest matches.",
   input: {
     type: "object",
     properties: {
@@ -23,10 +23,9 @@ export default defineCapability({
       },
       section: {
         type: "string",
-        minLength: 1,
         maxLength: 200,
         description:
-          "Heading anchor from docs_search or `sections`, e.g. remote-mcp-tools-for-agents-without-a-browser.",
+          "Heading anchor from docs_search or `sections`, e.g. remote-mcp-tools-for-agents-without-a-browser. Empty or omitted reads the whole page.",
       },
     },
     required: ["page"],
@@ -75,6 +74,6 @@ export default defineCapability({
   effect: "read",
   expose: { mcp: true },
   async run({ input }: CapabilityRunArgs<ReadInput>) {
-    return readDoc(await docsIndex(), input.page, input.section);
+    return readDoc(docsIndex(), input.page, input.section);
   },
 });
