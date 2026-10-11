@@ -1,5 +1,48 @@
 # @pracht/cli
 
+## 1.15.0
+
+### Minor Changes
+
+- [#416](https://github.com/JoviDeCroock/pracht/pull/416) [`769929a`](https://github.com/JoviDeCroock/pracht/commit/769929a6656956b6cf94796465340879884131f2) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `defineApp({ root })` (`pages/_root.tsx` in the pages router), an app root that wraps every shell, stays mounted across client navigations, and gives loaders per-request state as `args.root`.
+
+- [#427](https://github.com/JoviDeCroock/pracht/pull/427) [`5fa4ef2`](https://github.com/JoviDeCroock/pracht/commit/5fa4ef2a4e47e1a2bbb3c1f570c3e9dd0467345a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { islandsNavigation: true } })` swaps islands pages into the current document on link clicks and back/forward instead of loading a new one, keeping islands the two pages share mounted with their state.
+
+- [#417](https://github.com/JoviDeCroock/pracht/pull/417) [`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Loaders, middleware, API routes, `head()`/`headers()`, and capability `run()` now receive `waitUntil(promise)`, which keeps work running after the response on every adapter. Migration: code that builds these args by hand must pass `waitUntil` (for example `waitUntil: () => {}`).
+
+- [#420](https://github.com/JoviDeCroock/pracht/pull/420) [`d0e8bac`](https://github.com/JoviDeCroock/pracht/commit/d0e8bac992e1abe8562dfe77aa930f901b7b9bf0) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Shells can export a `loader`, read with `useShellData()` from the shell and every route inside it and reused on client navigations that stay in the shell. `pracht typegen` types `useShellData("app")`, and `pracht generate shell --loader` scaffolds one.
+
+- [#411](https://github.com/JoviDeCroock/pracht/pull/411) [`6f7efeb`](https://github.com/JoviDeCroock/pracht/commit/6f7efeb8ce963e70d3f6906c601a4e46dd16b529) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A static export's `notFound` page can now use `hydration: "islands"` or `"none"`, so `404.html` no longer loads the client router. Such a page cannot show the requested URL, and `staticAdapter({ fallback })` still requires a fully hydrated not-found page.
+
+- [#419](https://github.com/JoviDeCroock/pracht/pull/419) [`8309084`](https://github.com/JoviDeCroock/pracht/commit/830908420b91ac8691fd0335ec449f20ca520680) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Route modules can export a `search` Standard Schema: loaders and `useSearch()` get the parsed, typed query, `<Link search>` and `href()` are type-checked against it, and a rejected query renders the route's error boundary with a 400.
+
+### Patch Changes
+
+- [#408](https://github.com/JoviDeCroock/pracht/pull/408) [`f5dce54`](https://github.com/JoviDeCroock/pracht/commit/f5dce542e7b800be92a04d3156baa9ad5968d016) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Running the CLI on an unsupported Node now fails with `pracht requires Node >= 22.18 (found 18.17.1).`, and new apps ship an `.nvmrc` and an `engines.node` field.
+
+- [`a7fefd3`](https://github.com/JoviDeCroock/pracht/commit/a7fefd323beddc05659f31e6cd48c4ebadccaa3b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New apps' `tsconfig.client.json` now includes `src/**/*.d.ts`, so typed `useRouteData()`, `useSearch()`, and `<Link route>` are checked in client code, and `pracht doctor` warns when an existing app's client config leaves `src/pracht.d.ts` out.
+
+- [`480c94d`](https://github.com/JoviDeCroock/pracht/commit/480c94da6f00f14db99939c37d1d53fd9fe7fe0a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht dev` now reloads `.env` files when you save one, so `process.env` and `serverEnv` pick up the change without restarting the command.
+
+- [`08bb21c`](https://github.com/JoviDeCroock/pracht/commit/08bb21c52de1b28c4e3be2ab77cc9f0e46d7a0ec) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht dev` keeps regenerating `src/pracht.d.ts` after edits to `routes.ts` restart the dev server, and starts syncing as soon as `pracht typegen` first runs during the session.
+
+- [`804bac2`](https://github.com/JoviDeCroock/pracht/commit/804bac204a924636bc4b2213e6759d1af66cd77c) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht doctor` now warns when a Cloudflare app's `wrangler.jsonc` omits `assets.run_worker_first`, which leaves prerendered pages without ISG, Markdown negotiation, and route headers.
+
+- [`dfedd00`](https://github.com/JoviDeCroock/pracht/commit/dfedd00504fc0016ff2de0f14e55fac2ad6b0e19) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Test files (`*.test.*`, `*.spec.*`, and anything under `__tests__/` or `__mocks__/`) beside your routes, API routes, middleware, server modules, capabilities, and islands are no longer picked up as app modules.
+
+- [#412](https://github.com/JoviDeCroock/pracht/pull/412) [`5acd333`](https://github.com/JoviDeCroock/pracht/commit/5acd333cb09d2d3523ba8b8c7d15d2fba5ac026d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A static export whose pages each link a small stylesheet now finishes its build with a tip pointing at `pracht({ inlineCss: true })`, which trades that render-blocking request for bytes repeated per document.
+
+- [#414](https://github.com/JoviDeCroock/pracht/pull/414) [`804ced5`](https://github.com/JoviDeCroock/pracht/commit/804ced52afa3ad29ff271656f463603982a501d5) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht inspect build` now reports the stylesheets of `hydration: "none"` and `"islands"` routes, and `pracht build` writes the route-to-stylesheet mapping to `dist/server/css-manifest.json`.
+
+- [#421](https://github.com/JoviDeCroock/pracht/pull/421) [`09543a9`](https://github.com/JoviDeCroock/pracht/commit/09543a91385f55fe8db0cdf20fd9b3d8438e6839) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Server islands: components in `src/server-islands/` render per request, with the visitor's cookies and the middleware of the page that renders them, inside otherwise cached SSG/ISG pages, showing a `fallback` until they load. A route or shell lists the server islands it renders in `export const serverIslands`.
+
+- [#409](https://github.com/JoviDeCroock/pracht/pull/409) [`8e1478e`](https://github.com/JoviDeCroock/pracht/commit/8e1478e456ccfb23a32c38353f8f5c19022f00e3) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht typegen --check` no longer reports `src/pracht.d.ts` and `src/pracht-routes.ts` as stale after a formatter rewrites them, and regenerating leaves an already-correct file untouched.
+
+- [#410](https://github.com/JoviDeCroock/pracht/pull/410) [`3e77579`](https://github.com/JoviDeCroock/pracht/commit/3e77579a9fe562c1dbcd3ea2501d5498fdf1ebab) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht doctor` and `pracht verify` now warn when `tsconfig.json` uses a `moduleResolution` that predates package `exports` (`"node"`, `"node10"`, `"classic"`), which leaves every `@pracht/core` import unresolvable to `tsc` while Vite still builds the app.
+- Updated dependencies [[`769929a`](https://github.com/JoviDeCroock/pracht/commit/769929a6656956b6cf94796465340879884131f2), [`5091b83`](https://github.com/JoviDeCroock/pracht/commit/5091b83ffced8785654b742fbd63932b40ddbb58), [`be5203c`](https://github.com/JoviDeCroock/pracht/commit/be5203c03cb2d65a30bbd9874430f08b9b3483ca), [`5fa4ef2`](https://github.com/JoviDeCroock/pracht/commit/5fa4ef2a4e47e1a2bbb3c1f570c3e9dd0467345a), [`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4), [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950), [`a33c6ef`](https://github.com/JoviDeCroock/pracht/commit/a33c6efabd89a3dca622ab00123e32038fc37f28), [`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7), [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831), [`6038d57`](https://github.com/JoviDeCroock/pracht/commit/6038d57e508712b33a08a072d0ea8e72f3996d6e), [`09543a9`](https://github.com/JoviDeCroock/pracht/commit/09543a91385f55fe8db0cdf20fd9b3d8438e6839), [`d0e8bac`](https://github.com/JoviDeCroock/pracht/commit/d0e8bac992e1abe8562dfe77aa930f901b7b9bf0), [`f3f0234`](https://github.com/JoviDeCroock/pracht/commit/f3f0234bbd3b928ae682a4dbe4610d6b7cca6748), [`8309084`](https://github.com/JoviDeCroock/pracht/commit/830908420b91ac8691fd0335ec449f20ca520680)]:
+  - @pracht/core@0.19.0
+  - @pracht/capabilities@0.6.0
+
 ## 1.14.0
 
 ### Minor Changes

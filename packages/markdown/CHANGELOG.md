@@ -1,5 +1,13 @@
 # @pracht/markdown
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [[`f669bb5`](https://github.com/JoviDeCroock/pracht/commit/f669bb574a48a6bcfb3583701f86f6f330258ad8)]:
+  - @pracht/image@0.5.0
+  - @pracht/content@0.1.4
+
 ## 0.1.3
 
 ### Patch Changes

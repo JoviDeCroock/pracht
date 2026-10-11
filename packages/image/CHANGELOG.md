@@ -1,5 +1,11 @@
 # @pracht/image
 
+## 0.5.0
+
+### Minor Changes
+
+- [#429](https://github.com/JoviDeCroock/pracht/pull/429) [`f669bb5`](https://github.com/JoviDeCroock/pracht/commit/f669bb574a48a6bcfb3583701f86f6f330258ad8) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Use `netlifyLoader` to serve responsive images through Netlify Image CDN, with setup guidance in the image skill.
+
 ## 0.4.1
 
 ### Patch Changes

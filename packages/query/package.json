@@ -1,6 +1,6 @@
 {
   "name": "@pracht/query",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "TanStack Query for Pracht: a per-request QueryClient on the server, server-fetched queries hydrated into the browser cache on first load and on every client navigation, and query invalidation after capability mutations.",
   "keywords": [
     "pracht",

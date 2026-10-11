@@ -1,5 +1,51 @@
 # @pracht/vite-plugin
 
+## 0.14.0
+
+### Minor Changes
+
+- [#416](https://github.com/JoviDeCroock/pracht/pull/416) [`769929a`](https://github.com/JoviDeCroock/pracht/commit/769929a6656956b6cf94796465340879884131f2) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `defineApp({ root })` (`pages/_root.tsx` in the pages router), an app root that wraps every shell, stays mounted across client navigations, and gives loaders per-request state as `args.root`.
+
+- [#427](https://github.com/JoviDeCroock/pracht/pull/427) [`5fa4ef2`](https://github.com/JoviDeCroock/pracht/commit/5fa4ef2a4e47e1a2bbb3c1f570c3e9dd0467345a) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { islandsNavigation: true } })` swaps islands pages into the current document on link clicks and back/forward instead of loading a new one, keeping islands the two pages share mounted with their state.
+
+- [#417](https://github.com/JoviDeCroock/pracht/pull/417) [`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Loaders, middleware, API routes, `head()`/`headers()`, and capability `run()` now receive `waitUntil(promise)`, which keeps work running after the response on every adapter. Migration: code that builds these args by hand must pass `waitUntil` (for example `waitUntil: () => {}`).
+
+- [#407](https://github.com/JoviDeCroock/pracht/pull/407) [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { hydrationWarnings: true } })` keeps the hydration-mismatch reporter in production client and islands bundles, so a build can be walked for mismatches before it is deployed. Every mismatch is now reported as a `console.error` as well as in the on-page banner; the default build still compiles the reporter out.
+
+- [#418](https://github.com/JoviDeCroock/pracht/pull/418) [`6038d57`](https://github.com/JoviDeCroock/pracht/commit/6038d57e508712b33a08a072d0ea8e72f3996d6e) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ client: { richData: true } })` sends loader `Date`, `Map`, `Set`, `BigInt`, `RegExp`, `URL`, `undefined`, non-finite numbers, and shared or circular references to the browser as those types instead of as JSON. With it on, a loader that returns a function, symbol, or class instance without `toJSON()` fails with an error naming the path.
+
+- [#421](https://github.com/JoviDeCroock/pracht/pull/421) [`09543a9`](https://github.com/JoviDeCroock/pracht/commit/09543a91385f55fe8db0cdf20fd9b3d8438e6839) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Server islands: components in `src/server-islands/` render per request, with the visitor's cookies and the middleware of the page that renders them, inside otherwise cached SSG/ISG pages, showing a `fallback` until they load. A route or shell lists the server islands it renders in `export const serverIslands`.
+
+- [#420](https://github.com/JoviDeCroock/pracht/pull/420) [`d0e8bac`](https://github.com/JoviDeCroock/pracht/commit/d0e8bac992e1abe8562dfe77aa930f901b7b9bf0) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Shells can export a `loader`, read with `useShellData()` from the shell and every route inside it and reused on client navigations that stay in the shell. `pracht typegen` types `useShellData("app")`, and `pracht generate shell --loader` scaffolds one.
+
+- [#419](https://github.com/JoviDeCroock/pracht/pull/419) [`8309084`](https://github.com/JoviDeCroock/pracht/commit/830908420b91ac8691fd0335ec449f20ca520680) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Route modules can export a `search` Standard Schema: loaders and `useSearch()` get the parsed, typed query, `<Link search>` and `href()` are type-checked against it, and a rejected query renders the route's error boundary with a 400.
+
+### Patch Changes
+
+- [`8e942bd`](https://github.com/JoviDeCroock/pracht/commit/8e942bd8f9f7c305a3b74b43fb944a70ee484f81) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - An app root that exports `dehydrate` from an export list, renames it, or still uses it from other root code no longer breaks in the browser.
+
+- [#428](https://github.com/JoviDeCroock/pracht/pull/428) [`aa1bce2`](https://github.com/JoviDeCroock/pracht/commit/aa1bce217b2b3a023e99afd1196d87e7ab04ae0b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The app root's `dehydrate` export, and the imports only it uses, are left out of the browser bundle.
+
+- [#406](https://github.com/JoviDeCroock/pracht/pull/406) [`5b99426`](https://github.com/JoviDeCroock/pracht/commit/5b99426728d400dc5b581867de815149d4ef6791) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep files the app manifest never names out of the client bundle, so a draft route, a scratch copy, or a route deleted from the manifest but left in `src/routes/` is no longer compiled and published with its source. A manifest that imports its routes from another module or builds a specifier at runtime keeps the previous directory-wide registry.
+
+- [`5d6dad2`](https://github.com/JoviDeCroock/pracht/commit/5d6dad2bb434558eb357d8a9d301948db2c1611b) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The first `pracht dev` start in an app that installs `@pracht/core` from npm no longer reloads the page mid-hydration while Vite re-optimizes dependencies.
+
+- [`1f61f1e`](https://github.com/JoviDeCroock/pracht/commit/1f61f1efeb97de608d2c195b12826e6d27467492) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht dev` now builds `args.context` with the adapter's `createContextFrom` factory, so loaders, middleware, and API routes see the same context in development as in production.
+
+- [`9f97339`](https://github.com/JoviDeCroock/pracht/commit/9f973399388d27b258c67ab0d1eac7a2d51a3c5d) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht dev` now calls the Node adapter's `configureServerFrom` hook with its own HTTP server, so WebSocket servers attached there work in development too.
+
+- [`f201704`](https://github.com/JoviDeCroock/pracht/commit/f201704c91b32aabffdc028da9b37d599ecde8ce) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Routes with `hydration: "none"` or `"islands"` now ship their own stylesheets on Cloudflare and Vercel, where production builds previously linked only the shell's CSS.
+
+- [#424](https://github.com/JoviDeCroock/pracht/pull/424) [`7dd7534`](https://github.com/JoviDeCroock/pracht/commit/7dd75346e92d48263e05f72e4cc3b2e2351bfddd) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Keep the routes of a `group({ hydration: "islands" })` or `"none"` group out of the full client bundle when the group's options also hold an array, such as a `middleware` list.
+
+- [`dfedd00`](https://github.com/JoviDeCroock/pracht/commit/dfedd00504fc0016ff2de0f14e55fac2ad6b0e19) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Test files (`*.test.*`, `*.spec.*`, and anything under `__tests__/` or `__mocks__/`) beside your routes, API routes, middleware, server modules, capabilities, and islands are no longer picked up as app modules.
+
+- [`530dc2b`](https://github.com/JoviDeCroock/pracht/commit/530dc2b9a94a5840fc3b37cb131d370ef6987a00) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A route file shared by a full-hydration route and an `islands` or `none` route now hydrates on the full route.
+- Updated dependencies [[`769929a`](https://github.com/JoviDeCroock/pracht/commit/769929a6656956b6cf94796465340879884131f2), [`1f61f1e`](https://github.com/JoviDeCroock/pracht/commit/1f61f1efeb97de608d2c195b12826e6d27467492), [`9f97339`](https://github.com/JoviDeCroock/pracht/commit/9f973399388d27b258c67ab0d1eac7a2d51a3c5d), [`5091b83`](https://github.com/JoviDeCroock/pracht/commit/5091b83ffced8785654b742fbd63932b40ddbb58), [`be5203c`](https://github.com/JoviDeCroock/pracht/commit/be5203c03cb2d65a30bbd9874430f08b9b3483ca), [`5fa4ef2`](https://github.com/JoviDeCroock/pracht/commit/5fa4ef2a4e47e1a2bbb3c1f570c3e9dd0467345a), [`82cd57f`](https://github.com/JoviDeCroock/pracht/commit/82cd57f3e2d6fc2e4305353dc7f9f128cc069ba4), [`0dc51e0`](https://github.com/JoviDeCroock/pracht/commit/0dc51e0b62c766d771aaba1eaa962f5d28e5c950), [`af052e6`](https://github.com/JoviDeCroock/pracht/commit/af052e6e55c162984a461df5dd19727a839eb232), [`a33c6ef`](https://github.com/JoviDeCroock/pracht/commit/a33c6efabd89a3dca622ab00123e32038fc37f28), [`5affc0a`](https://github.com/JoviDeCroock/pracht/commit/5affc0adc916c5612a9749b939809aaebacfd7e7), [`10807de`](https://github.com/JoviDeCroock/pracht/commit/10807deae449423aeeaffa773f5ed519a6d85831), [`6038d57`](https://github.com/JoviDeCroock/pracht/commit/6038d57e508712b33a08a072d0ea8e72f3996d6e), [`09543a9`](https://github.com/JoviDeCroock/pracht/commit/09543a91385f55fe8db0cdf20fd9b3d8438e6839), [`d0e8bac`](https://github.com/JoviDeCroock/pracht/commit/d0e8bac992e1abe8562dfe77aa930f901b7b9bf0), [`f3f0234`](https://github.com/JoviDeCroock/pracht/commit/f3f0234bbd3b928ae682a4dbe4610d6b7cca6748), [`8309084`](https://github.com/JoviDeCroock/pracht/commit/830908420b91ac8691fd0335ec449f20ca520680)]:
+  - @pracht/core@0.19.0
+  - @pracht/adapter-node@0.5.0
+  - @pracht/capabilities@0.6.0
+
 ## 0.13.0
 
 ### Minor Changes
