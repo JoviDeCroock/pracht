@@ -173,11 +173,32 @@ lookup to pick one.
 A collection publishes nothing on its own. Raw sources, `llms.txt`, and
 capabilities each need an explicit opt-in.
 
-`llmsTxtArtifacts()` generates curated `/llms.txt` and `/llms-full.txt` from
-collection titles, descriptions, sections, and source. Pracht's app-graph
-`llmsTxt` option is different: it indexes routes, API routes, and capabilities.
-Enabling both at `/llms.txt` fails the build; set a different `summaryPath` or
-pick one.
+`llmsTxtArtifacts()` generates a curated `/llms.txt` from collection titles,
+descriptions, and sections, plus `/llms-full.txt` with every listed page
+inlined. Pracht's app-graph `llmsTxt` option is different: it indexes routes,
+API routes, and capabilities. Enabling both at `/llms.txt` fails the build; set
+a different `summaryPath` or pick one.
+
+```ts [content.ts]
+llmsTxtArtifacts({
+  title: "My docs",
+  origin: "https://example.com",
+  // Link each entry to the page's Markdown instead of its HTML.
+  link: (document) => `${document.path}.md`,
+  sections: [
+    { heading: "Guides", match: "/docs/guides", fullPath: "/llms-guides.txt" },
+    { heading: "API", match: "/docs/api", fullPath: "/llms-api.txt" },
+  ],
+});
+```
+
+Each section becomes a `##` list of its pages. A section with `fullPath` also
+gets a file holding only its pages, so an agent can load one area in a single
+fetch. Those files, and `/llms-full.txt`, are listed with their page and word
+counts under a final `## Optional` heading, because they repeat pages the
+sections already link. A section that matches no document produces neither a
+heading nor a file. Point `link` only at URLs the site serves, such as the
+`.md` files `rawContentArtifacts()` emits.
 
 The build also fails when an artifact path collides with a file in `public/`, a
 prerendered page, or a request-time page or API route. The error names the

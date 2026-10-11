@@ -180,6 +180,14 @@ the *authoring guide* for coding agents; `pracht llms --write` drops it in the
 app root, which is exactly the confusing filename collision to avoid in an app
 that publishes its own index.
 
+For agents, link entries to Markdown and split the full text by section:
+`` link: (document) => `${document.path}.md` `` (only when those URLs exist,
+e.g. via `rawContentArtifacts()`), and `fullPath: "/llms-guides.txt"` on a
+section to emit a file with just its pages. Section files and
+`/llms-full.txt` are listed under a trailing `## Optional` heading; a section
+that matches nothing emits no file. Duplicate or file/directory-colliding
+artifact paths throw when the helper is defined.
+
 Localization trap: a string `section.match` is compared against the
 **locale-neutral** route, so `match: "/docs"` indexes only the default locale
 while `rawContentArtifacts()` publishes every translation. Pass a `match`

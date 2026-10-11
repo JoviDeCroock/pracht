@@ -281,9 +281,11 @@ selects the string a generated route module can export as its server-only
 
 ## Optional agent surfaces
 
-`llmsTxtArtifacts()` is collection-driven and can generate curated sections
-and a full-source companion. It is separate from Pracht's core, app-graph
-`llmsTxt` option.
+`llmsTxtArtifacts()` is collection-driven and can generate curated sections,
+a full-source companion, and a full-text file per section
+(`sections[n].fullPath`), listed under the summary's `## Optional` heading.
+`link(document)` chooses each entry's URL, for example the page's `.md` source.
+It is separate from Pracht's core, app-graph `llmsTxt` option.
 Frontmatter titles are escaped when used as Markdown link labels, and YAML line
 breaks in titles or descriptions are folded so each document remains one
 summary entry. Link destinations escape parentheses and backslashes so valid

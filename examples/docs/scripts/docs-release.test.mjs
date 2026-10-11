@@ -14,6 +14,8 @@ async function fixture() {
     "/docs/why-pracht": "<html>islands</html>",
     "/docs/standalone-capabilities": "<html>standalone</html>",
     "/llms.txt": "# Docs",
+    "/llms-full.txt": "# Docs\n\n---\n\n# Page",
+    "/llms-agents.txt": "# Docs: Agents",
     "/.well-known/agent-skills/index.json": JSON.stringify({
       skills: [
         {
@@ -55,6 +57,7 @@ describe("docs publication verification", () => {
   it.each([
     "/docs/why-pracht",
     "/llms.txt",
+    "/llms-agents.txt",
     "/.well-known/agent-skills/index.json",
     "/skills/demo/SKILL.md",
   ])("detects stale content at %s despite a current revision marker", async (path) => {
@@ -71,5 +74,8 @@ describe("docs publication verification", () => {
     const { directory } = await fixture();
     await rm(join(directory, "llms.txt"));
     await expect(writeRelease(directory, revision)).rejects.toThrow("missing /llms.txt");
+    await writeFile(join(directory, "llms.txt"), "# Docs");
+    await rm(join(directory, "llms-full.txt"));
+    await expect(writeRelease(directory, revision)).rejects.toThrow("missing /llms-full.txt");
   });
 });
