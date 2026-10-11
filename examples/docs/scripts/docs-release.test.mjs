@@ -13,6 +13,7 @@ async function fixture() {
   const files = {
     "/docs/why-pracht": "<html>islands</html>",
     "/docs/standalone-capabilities": "<html>standalone</html>",
+    "/docs/why-pracht.md": "# Why pracht",
     "/llms.txt": "# Docs",
     "/llms-full.txt": "# Docs\n\n---\n\n# Page",
     "/llms-agents.txt": "# Docs: Agents",
@@ -27,7 +28,10 @@ async function fixture() {
     "/skills/demo/SKILL.md": "Skill source",
   };
   for (const [url, body] of Object.entries(files)) {
-    const file = join(directory, url.startsWith("/docs/") ? `${url}/index.html` : url);
+    const file = join(
+      directory,
+      url.startsWith("/docs/") && !url.endsWith(".md") ? `${url}/index.html` : url,
+    );
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, body);
   }
@@ -147,5 +151,8 @@ describe("docs publication verification", () => {
     await writeFile(join(directory, "llms.txt"), "# Docs");
     await rm(join(directory, "llms-full.txt"));
     await expect(writeRelease(directory, revision)).rejects.toThrow("missing /llms-full.txt");
+    await writeFile(join(directory, "llms-full.txt"), "# Docs");
+    await rm(join(directory, "docs/why-pracht.md"));
+    await expect(writeRelease(directory, revision)).rejects.toThrow("missing /docs/why-pracht.md");
   });
 });

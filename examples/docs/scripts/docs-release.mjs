@@ -7,6 +7,8 @@ export const metadataPath = "/.well-known/pracht-build.json";
 const requiredPaths = [
   "/docs/why-pracht",
   "/docs/standalone-capabilities",
+  // The Markdown files llms.txt links instead of the HTML pages.
+  "/docs/why-pracht.md",
   "/llms.txt",
   "/llms-full.txt",
   "/.well-known/agent-skills/index.json",
@@ -34,6 +36,8 @@ export async function writeRelease(directory, revision) {
     if (asset === "404.html" || asset === "200.html") continue;
     if (
       !asset.endsWith(".html") &&
+      // Each SSG page's Markdown file, which llms.txt links.
+      !(asset.endsWith(".md") && (asset === "index.md" || asset.startsWith("docs/"))) &&
       // llms.txt, llms-full.txt, and each section's full-text file.
       !/^llms(?:-[a-z0-9-]+)?\.txt$/.test(asset) &&
       !asset.startsWith(".well-known/agent-skills/") &&
