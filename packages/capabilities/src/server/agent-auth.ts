@@ -24,6 +24,7 @@
 
 import type { PrachtAgentIdentity } from "../protocol.ts";
 import type { WebBotAuthConfig, WebBotAuthStaticKey } from "./types.ts";
+import { decodeBody, readBoundedBody } from "./body.ts";
 
 export const SIGNATURE_AGENT_DIRECTORY_PATH = "/.well-known/http-message-signatures-directory";
 
@@ -361,31 +362,8 @@ async function fetchAgentDirectory(
 }
 
 async function readBodyWithCap(response: Response, maxBytes: number): Promise<string | null> {
-  const declaredLength = Number(response.headers.get("content-length") ?? "0");
-  if (declaredLength > maxBytes) return null;
-  if (!response.body) return "";
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalBytes += value.byteLength;
-    if (totalBytes > maxBytes) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-
-  const buffer = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    buffer.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(buffer);
+  const bytes = await readBoundedBody(response, maxBytes);
+  return bytes && decodeBody(bytes);
 }
 
 /** Parse a JWKS payload into Ed25519 keys keyed by thumbprint. Invalid entries are dropped. */

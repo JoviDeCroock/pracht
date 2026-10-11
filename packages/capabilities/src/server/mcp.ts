@@ -69,6 +69,7 @@ import type {
   MiddlewareModule,
   PrachtAgentsConfig,
 } from "./types.ts";
+import { decodeBody, MAX_CAPABILITY_BODY_BYTES, readBoundedBody } from "./body.ts";
 
 // The wire names live in `@pracht/capabilities` alongside the HTTP path
 // formula and the confirmation header, so the transport the CLI's eval runner
@@ -256,7 +257,18 @@ export interface HandleMcpRequestOptions<TContext> {
 
   let payload: unknown;
   try {
-    payload = JSON.parse(await request.text());
+    const bytes = await readBoundedBody(request);
+    if (!bytes) {
+      return respond(413, {
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: JSONRPC_INVALID_REQUEST,
+          message: `Request body exceeds ${MAX_CAPABILITY_BODY_BYTES} bytes.`,
+        },
+      });
+    }
+    payload = JSON.parse(decodeBody(bytes));
   } catch {
     return respond(400, {
       jsonrpc: "2.0",
