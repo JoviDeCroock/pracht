@@ -62,6 +62,14 @@ export interface LlmsTxtSection {
    * `## Optional`. Not emitted when the section matches no document.
    */
   fullPath?: string;
+  /**
+   * Order of this section's entries, in the summary and in its full-text
+   * file. Defaults to collection order.
+   */
+  sort?: (
+    a: ContentDocument<Record<string, unknown>, unknown>,
+    b: ContentDocument<Record<string, unknown>, unknown>,
+  ) => number;
 }
 
 export interface LlmsTxtArtifactsOptions {
@@ -153,6 +161,7 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
     for (const section of sections) {
       const matched = documents
         .filter((document) => matchesSection(document, section.match, collection.locales))
+        .sort(section.sort ?? (() => 0))
         .map(entryFor);
       if (!matched.length) continue;
       const lines = matched.map(
@@ -182,7 +191,15 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
       if (description) lines.push("", `> ${description}`);
       lines.push("");
       for (const entry of entries) {
-        lines.push("---", "", `# ${entry.title}`, "");
+        // The citable URL of the inlined page, the same one the summary links.
+        lines.push(
+          "---",
+          "",
+          `# ${entry.title}`,
+          "",
+          `Source: ${encodeUnsafeUrlCharacters(entry.url)}`,
+          "",
+        );
         if (entry.description) lines.push(`> ${entry.description}`, "");
         lines.push(entry.document.body.trim(), "");
       }
@@ -296,7 +313,7 @@ function normalizeSections(sections: unknown): readonly LlmsTxtSection[] {
     if (!section || typeof section !== "object" || Array.isArray(section)) {
       throw new TypeError(`${label} must be an object with \`heading\` and \`match\`.`);
     }
-    const { heading, match, optional, fullPath } = section as Record<string, unknown>;
+    const { heading, match, optional, fullPath, sort } = section as Record<string, unknown>;
     if (typeof heading !== "string" || !heading.trim() || /[\r\n]/.test(heading)) {
       throw new TypeError(`${label}.heading must be a non-empty single-line string.`);
     }
@@ -313,11 +330,15 @@ function normalizeSections(sections: unknown): readonly LlmsTxtSection[] {
         `${label}.fullPath must be an artifact path string such as "/llms-guides.txt".`,
       );
     }
+    if (sort !== undefined && typeof sort !== "function") {
+      throw new TypeError(`${label}.sort must be a comparator function \`(a, b) => number\`.`);
+    }
     return {
       heading: heading.trim(),
       match: match as LlmsTxtSection["match"],
       ...(optional === undefined ? {} : { optional }),
       ...(fullPath === undefined ? {} : { fullPath }),
+      ...(sort === undefined ? {} : { sort: sort as LlmsTxtSection["sort"] }),
     };
   });
 }
@@ -394,12 +415,16 @@ function escapeMarkdownLinkLabel(value: string): string {
   return value.replace(/([\\[\]])/g, "\\$1");
 }
 
+/**
+ * A space, control character, or angle bracket would end or corrupt a Markdown
+ * link destination or a bare URL; percent-encoding them keeps the same URL.
+ */
+function encodeUnsafeUrlCharacters(value: string): string {
+  return value.replace(/[\s\p{Cc}<>]/gu, (character) => encodeURIComponent(character));
+}
+
 function escapeMarkdownLinkDestination(value: string): string {
-  // A space, control character, or angle bracket would end or corrupt a
-  // Markdown link destination; percent-encoding them keeps the same URL.
-  return value
-    .replace(/[\s\p{Cc}<>]/gu, (character) => encodeURIComponent(character))
-    .replace(/([\\()])/g, "\\$1");
+  return encodeUnsafeUrlCharacters(value).replace(/([\\()])/g, "\\$1");
 }
 
 /** `origin` is already normalized without a trailing slash. */

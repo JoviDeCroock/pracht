@@ -599,7 +599,9 @@ describe("collection integration helpers", () => {
 
     expect(summary).toContain("- [Use \\[brackets\\] safely](/guide): Line one - injected list");
     expect(summary).not.toContain("\n- injected list");
-    expect(full).toContain("# Use [brackets] safely\n\n> Line one - injected list");
+    expect(full).toContain(
+      "# Use [brackets] safely\n\nSource: /guide\n\n> Line one - injected list",
+    );
   });
 
   it("preserves parentheses in llms.txt link destinations", async () => {
@@ -778,21 +780,23 @@ describe("collection integration helpers", () => {
         "",
         "## Optional",
         "",
-        "- [Basics (full text)](https://example.com/llms-basics.txt): 2 pages from Basics in one file, 12 words",
-        "- [Recipes (full text)](https://example.com/llms-recipes.txt): 1 page from Recipes in one file, 7 words",
-        "- [All pages (full text)](https://example.com/llms-full.txt): 3 pages from every section in one file, 14 words",
+        "- [Basics (full text)](https://example.com/llms-basics.txt): 2 pages from Basics in one file, 16 words",
+        "- [Recipes (full text)](https://example.com/llms-recipes.txt): 1 page from Recipes in one file, 9 words",
+        "- [All pages (full text)](https://example.com/llms-full.txt): 3 pages from every section in one file, 20 words",
         "",
       ].join("\n"),
     );
+    // Every inlined page carries the URL the summary links, so an agent can cite it.
     expect(source("/llms-recipes.txt")).toBe(
-      "# Example: Recipes\n\n> Example docs.\n\n---\n\n# Auth\n\nAuth body\n\n",
+      "# Example: Recipes\n\n> Example docs.\n\n---\n\n# Auth\n\nSource: https://example.com/docs/recipes-auth.md\n\nAuth body\n\n",
     );
     expect(source("/llms-basics.txt")).toContain("Guide body");
     expect(source("/llms-basics.txt")).toContain("> Begin here");
     expect(source("/llms-basics.txt")).not.toContain("Auth body");
     expect(source("/llms-full.txt")).toContain("Auth body");
-    // The bundles inline source; only the summary uses `link`.
-    expect(source("/llms-full.txt")).not.toContain(".md");
+    expect(source("/llms-full.txt")).toContain(
+      "# Start\n\nSource: https://example.com/docs/start.md\n\n> Begin here\n\nStart body",
+    );
     expect(link).toHaveBeenCalledTimes(3);
   });
 
@@ -849,6 +853,41 @@ describe("collection integration helpers", () => {
     expect(summary).not.toContain("All pages");
     expect(String(artifacts[1].source)).toContain("English body");
     expect(String(artifacts[1].source)).toContain("Corps");
+  });
+
+  it("orders a section's entries and full text with its sort comparator", async () => {
+    const root = await fixture({
+      "a.md": "---\ntitle: A\n---\nA body",
+      "b.md": "---\ntitle: B\n---\nB body",
+      "c.md": "---\ntitle: C\n---\nC body",
+    });
+    const order = ["/c", "/a", "/b"];
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          sections: [
+            {
+              heading: "Docs",
+              match: "/",
+              fullPath: "/llms-docs.txt",
+              sort: (a, b) => order.indexOf(a.path) - order.indexOf(b.path),
+            },
+          ],
+        }),
+      ],
+    });
+
+    const artifacts = await collection.emitArtifacts();
+    const headings = (path: string) =>
+      String(artifacts.find((artifact) => artifact.path === path)?.source).match(
+        /^# [ABC]$|^- \[[ABC]\]/gm,
+      );
+    expect(headings("/llms.txt")).toEqual(["- [C]", "- [A]", "- [B]"]);
+    expect(headings("/llms-docs.txt")).toEqual(["# C", "# A", "# B"]);
+    expect(headings("/llms-full.txt")).toEqual(["# C", "# A", "# B"]);
   });
 
   it("keeps optional sections and section bundles under one trailing Optional heading", async () => {
@@ -956,6 +995,9 @@ describe("collection integration helpers", () => {
     expect(() =>
       define({ title: "Docs", sections: [{ heading: "A", match: "/", fullPath: false }] }),
     ).toThrow(/`sections\[0\]`.fullPath must be an artifact path string/);
+    expect(() =>
+      define({ title: "Docs", sections: [{ heading: "A", match: "/", sort: "path" }] }),
+    ).toThrow(/`sections\[0\]`.sort must be a comparator function/);
     expect(() => define({ title: "Docs", fullPath: "/llms.txt" })).toThrow(
       /`summaryPath` and `fullPath` both emit "\/llms.txt"/,
     );

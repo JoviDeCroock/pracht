@@ -300,7 +300,8 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
 const SITE_ORIGIN = "https://pracht.resynapse.dev";
 
 /**
- * The llms.txt sections, in sidebar order (`src/shells/docs.tsx`). The sidebar's
+ * The llms.txt sections, in sidebar order (`src/shells/docs.tsx`); each
+ * section's pages keep the order listed here. The sidebar's
  * Core Concepts group is split in two and its small Guides, Advanced, and
  * Migration groups are merged, so each section's full-text file stays one
  * comfortable fetch. `test/site-content.test.ts` checks that every page sits in
@@ -431,11 +432,16 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
         `Agent skills for building pracht apps are indexed at ${SITE_ORIGIN}/.well-known/agent-skills/index.json.`,
       ],
       link: (document) => `${document.path}.md`,
-      sections: LLMS_SECTIONS.map(({ heading, fullPath, pages }) => ({
-        heading,
-        fullPath,
-        match: (document) => (pages as readonly string[]).includes(document.path),
-      })),
+      sections: LLMS_SECTIONS.map(({ heading, fullPath, pages }) => {
+        const order: readonly string[] = pages;
+        return {
+          heading,
+          fullPath,
+          match: (document) => order.includes(document.path),
+          // Sidebar order, so a section reads top to bottom like the nav.
+          sort: (a, b) => order.indexOf(a.path) - order.indexOf(b.path),
+        };
+      }),
     }),
   ],
 });
