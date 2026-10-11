@@ -220,11 +220,12 @@ neither.
 the global full-text file (`fullPath`, default `/llms-full.txt`, or `false`),
 and one full-text file per section that sets `section.fullPath`. A section file
 inlines exactly the documents that section matched under an H1 of
-`<title>: <heading>`. Each inlined document is `# <title>`, then
-`Source: <url>` with the same origin-joined `link()` URL its summary entry
-uses (whitespace, control characters, and angle brackets percent-encoded; a
-relative URL when `origin` is unset), then its description blockquote and
-body. Entries follow collection order unless `section.sort` supplies a
+`<title>: <heading>`. Each inlined document is `# <title>`, then, when
+`origin` is set, `Source: <url>` with the canonical page URL (`document.path`
+joined to the origin, the human page rather than the `link()` target), then
+its description blockquote and body. Without an origin there is no absolute URL
+to cite, so the line is omitted and the full text is byte-identical to the
+format before `Source:` existed. Entries follow collection order unless `section.sort` supplies a
 comparator, which orders both the section's summary list and its file; the
 global file follows the section traversal order, so it inherits those orders.
 The global file inlines each matched
@@ -243,17 +244,20 @@ defined: each must be a valid artifact path, and no two may be equal after case
 folding or form a file/directory pair. Collisions with pages, `public/`, or
 other generators are still caught by the build's artifact preflight.
 
-`link(document)` chooses the URL each summary entry points at and each
-full-text `Source:` line names; it defaults to `document.path`. It must return
-a root-relative path (a value that is not, such as `guide.md` or `//host/x`,
-fails generation and names the document), and it does not change what the
-full-text files inline. `origin` must be an absolute
-http(s) URL without query or fragment; trailing slashes are dropped and a base
-path is kept. Destinations percent-encode whitespace, control characters, and
+`link(document)` chooses the URL each summary entry points at; it defaults to
+`document.path`. It must return a root-relative path without backslashes or
+control characters (a value that is not, such as `guide.md`, `//host/x`, or
+`/\host/x`, fails generation and names the document), and it changes neither
+what the full-text files inline nor their `Source:` lines. `origin` must be an
+absolute http(s) URL without query or fragment; an empty string counts as
+unset, trailing slashes are dropped, and a base path is kept. Destinations percent-encode whitespace, control characters, and
 angle brackets, and backslash-escape parentheses, so a `link()` result stays
 one Markdown URL. The title, description, and section headings are single
 lines: titles and descriptions are folded, and a heading containing a line break
-is rejected.
+is rejected. A section headed `Optional` (any case) must set `optional: true`,
+because the helper already owns the single trailing `## Optional` heading and
+llms.txt parsers keep only one. `link`, `match`, and `sort` callbacks receive
+documents typed with the collection's frontmatter and compiled types.
 
 `llmsTxtArtifacts()` matches a string `section.match` against the
 **locale-neutral** route. A localized collection prefixes its translations

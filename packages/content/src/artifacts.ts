@@ -50,10 +50,13 @@ export function rawContentArtifacts<TFrontmatter extends Record<string, unknown>
     });
 }
 
-export interface LlmsTxtSection {
+export interface LlmsTxtSection<
+  TFrontmatter extends Record<string, unknown> = Record<string, unknown>,
+  TCompiled = unknown,
+> {
   /** `##` heading in the summary, also the label of the section's full-text file. */
   heading: string;
-  match: string | ((document: ContentDocument<Record<string, unknown>, unknown>) => boolean);
+  match: string | ((document: ContentDocument<TFrontmatter, TCompiled>) => boolean);
   /** List the section's entries under the summary's single trailing `## Optional` heading. */
   optional?: boolean;
   /**
@@ -67,19 +70,25 @@ export interface LlmsTxtSection {
    * file. Defaults to collection order.
    */
   sort?: (
-    a: ContentDocument<Record<string, unknown>, unknown>,
-    b: ContentDocument<Record<string, unknown>, unknown>,
+    a: ContentDocument<TFrontmatter, TCompiled>,
+    b: ContentDocument<TFrontmatter, TCompiled>,
   ) => number;
 }
 
-export interface LlmsTxtArtifactsOptions {
+export interface LlmsTxtArtifactsOptions<
+  TFrontmatter extends Record<string, unknown> = Record<string, unknown>,
+  TCompiled = unknown,
+> {
   title: string;
   description?: string;
-  /** Absolute site origin, optionally with a base path, prefixed to every link. */
+  /**
+   * Absolute site origin, optionally with a base path, prefixed to every link.
+   * An empty string is treated as unset.
+   */
   origin?: string;
   /** Free-form Markdown lines placed between the description and the first section. */
   details?: readonly string[];
-  sections?: readonly LlmsTxtSection[];
+  sections?: readonly LlmsTxtSection<TFrontmatter, TCompiled>[];
   summaryPath?: string;
   /** Set false to skip the full-source companion. Defaults to `/llms-full.txt`. */
   fullPath?: string | false;
@@ -87,7 +96,7 @@ export interface LlmsTxtArtifactsOptions {
    * Root-relative URL each summary entry links to, joined to `origin`.
    * Defaults to the document's route, `document.path`.
    */
-  link?: (document: ContentDocument<Record<string, unknown>, unknown>) => string;
+  link?: (document: ContentDocument<TFrontmatter, TCompiled>) => string;
   titleField?: string;
   descriptionField?: string;
 }
@@ -100,7 +109,7 @@ const MARKDOWN = "text/markdown; charset=utf-8";
  * generator remains app-graph driven.
  */
 export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, TCompiled>(
-  options: LlmsTxtArtifactsOptions,
+  options: LlmsTxtArtifactsOptions<TFrontmatter, TCompiled>,
 ): ContentArtifactGenerator<TFrontmatter, TCompiled> {
   assertOptionsObject(options, "llmsTxtArtifacts");
   if (typeof options.title !== "string" || !options.title.trim()) {
@@ -112,7 +121,7 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
     );
   }
   const origin = normalizeOrigin(options.origin);
-  const sections = normalizeSections(options.sections);
+  const sections = normalizeSections<TFrontmatter, TCompiled>(options.sections);
   const summaryPath = options.summaryPath ?? "/llms.txt";
   const fullPath = options.fullPath === undefined ? "/llms-full.txt" : options.fullPath;
   if (fullPath !== false && typeof fullPath !== "string") {
@@ -143,6 +152,9 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
         title: singleLineText(titleValue ?? document.path),
         description: descriptionValue ? singleLineText(descriptionValue) : undefined,
         url: joinOrigin(origin, linkFor(document, options.link)),
+        // The human page, cited in full-text files. Without an origin there is
+        // no absolute URL to cite, so the line is left out.
+        source: origin === undefined ? undefined : joinOrigin(origin, document.path),
       };
     };
     type Entry = ReturnType<typeof entryFor>;
@@ -191,15 +203,8 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
       if (description) lines.push("", `> ${description}`);
       lines.push("");
       for (const entry of entries) {
-        // The citable URL of the inlined page, the same one the summary links.
-        lines.push(
-          "---",
-          "",
-          `# ${entry.title}`,
-          "",
-          `Source: ${encodeUnsafeUrlCharacters(entry.url)}`,
-          "",
-        );
+        lines.push("---", "", `# ${entry.title}`, "");
+        if (entry.source) lines.push(`Source: ${encodeUnsafeUrlCharacters(entry.source)}`, "");
         if (entry.description) lines.push(`> ${entry.description}`, "");
         lines.push(entry.document.body.trim(), "");
       }
@@ -249,11 +254,11 @@ export function llmsTxtArtifacts<TFrontmatter extends Record<string, unknown>, T
 
 function matchesSection<TFrontmatter extends Record<string, unknown>, TCompiled>(
   document: ContentDocument<TFrontmatter, TCompiled>,
-  match: LlmsTxtSection["match"],
+  match: LlmsTxtSection<TFrontmatter, TCompiled>["match"],
   locales: ContentLocaleOptions | undefined,
 ): boolean {
   if (typeof match === "function") {
-    return match(document as ContentDocument<Record<string, unknown>, unknown>);
+    return match(document);
   }
   // Match the locale-neutral route, not the published one. The default locale
   // strategy prefixes translations (`/fr/docs/guide`), so a section written as
@@ -281,7 +286,8 @@ function localeNeutralPath(
 }
 
 function normalizeOrigin(origin: unknown): string | undefined {
-  if (origin === undefined) return undefined;
+  // `process.env.SITE_URL ?? ""` is a common way to make the origin optional.
+  if (origin === undefined || origin === "") return undefined;
   let url: URL | undefined;
   try {
     url = typeof origin === "string" ? new URL(origin) : undefined;
@@ -303,12 +309,14 @@ function normalizeOrigin(origin: unknown): string | undefined {
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
-function normalizeSections(sections: unknown): readonly LlmsTxtSection[] {
+function normalizeSections<TFrontmatter extends Record<string, unknown>, TCompiled>(
+  sections: unknown,
+): readonly LlmsTxtSection<TFrontmatter, TCompiled>[] {
   if (sections === undefined) return [{ heading: "Pages", match: () => true }];
   if (!Array.isArray(sections)) {
     throw new TypeError("llmsTxtArtifacts() `sections` must be an array of section objects.");
   }
-  return sections.map((section: unknown, index): LlmsTxtSection => {
+  return sections.map((section: unknown, index): LlmsTxtSection<TFrontmatter, TCompiled> => {
     const label = `llmsTxtArtifacts() \`sections[${index}]\``;
     if (!section || typeof section !== "object" || Array.isArray(section)) {
       throw new TypeError(`${label} must be an object with \`heading\` and \`match\`.`);
@@ -316,6 +324,14 @@ function normalizeSections(sections: unknown): readonly LlmsTxtSection[] {
     const { heading, match, optional, fullPath, sort } = section as Record<string, unknown>;
     if (typeof heading !== "string" || !heading.trim() || /[\r\n]/.test(heading)) {
       throw new TypeError(`${label}.heading must be a non-empty single-line string.`);
+    }
+    // The spec gives `## Optional` a meaning, and the helper already emits one
+    // trailing Optional section; a second heading of that name is dropped by
+    // parsers.
+    if (heading.trim().toLowerCase() === "optional" && optional !== true) {
+      throw new TypeError(
+        `${label}.heading "Optional" is reserved for skippable entries; set \`optional: true\` or choose another heading.`,
+      );
     }
     if (typeof match !== "function" && (typeof match !== "string" || !match.startsWith("/"))) {
       throw new TypeError(
@@ -335,10 +351,12 @@ function normalizeSections(sections: unknown): readonly LlmsTxtSection[] {
     }
     return {
       heading: heading.trim(),
-      match: match as LlmsTxtSection["match"],
+      match: match as LlmsTxtSection<TFrontmatter, TCompiled>["match"],
       ...(optional === undefined ? {} : { optional }),
       ...(fullPath === undefined ? {} : { fullPath }),
-      ...(sort === undefined ? {} : { sort: sort as LlmsTxtSection["sort"] }),
+      ...(sort === undefined
+        ? {}
+        : { sort: sort as LlmsTxtSection<TFrontmatter, TCompiled>["sort"] }),
     };
   });
 }
@@ -379,13 +397,19 @@ function assertDistinctArtifactPaths(paths: readonly (readonly [string, string])
 
 function linkFor<TFrontmatter extends Record<string, unknown>, TCompiled>(
   document: ContentDocument<TFrontmatter, TCompiled>,
-  link: LlmsTxtArtifactsOptions["link"],
+  link: LlmsTxtArtifactsOptions<TFrontmatter, TCompiled>["link"],
 ): string {
   if (!link) return document.path;
-  const value: unknown = link(document as ContentDocument<Record<string, unknown>, unknown>);
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) {
+  const value: unknown = link(document);
+  // `/\host` is a protocol-relative URL to browsers, as `//host` is.
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//") ||
+    /[\\\p{Cc}]/u.test(value)
+  ) {
     throw new TypeError(
-      `llmsTxtArtifacts() \`link\` must return a root-relative URL starting with "/"; received ${JSON.stringify(value)} for document ${JSON.stringify(document.path)}.`,
+      `llmsTxtArtifacts() \`link\` must return a root-relative URL starting with "/", without backslashes or control characters; received ${JSON.stringify(value)} for document ${JSON.stringify(document.path)}.`,
     );
   }
   return value;
