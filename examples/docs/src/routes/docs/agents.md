@@ -129,11 +129,17 @@ pracht({
 
 An agent can go from "never heard of this site" to a validated call in two requests: read `/llms.txt`, then POST the capability endpoint. A wrong input comes back path-scoped (`/limit: must be <= 20`) so the agent can correct itself.
 
-For curated sections and an `llms-full.txt` bundle with full page content, use the [`@pracht/content` collection](/docs/content) instead. This site does:
+For curated sections, Markdown links, and full-text files with whole pages inlined, use the [`@pracht/content` collection](/docs/content) instead. This site does:
 
 ```ts [examples/docs/content.ts]
 import { llmsTxtArtifacts } from "@pracht/content";
 import { defineMarkdownCollection } from "@pracht/markdown";
+
+// One entry per sidebar group (abridged).
+const groups = [
+  { heading: "Start here", fullPath: "/llms-start.txt", pages: ["/docs/getting-started"] },
+  { heading: "Agents", fullPath: "/llms-agents.txt", pages: ["/docs/agents", "/docs/capabilities"] },
+];
 
 export const docsContent = defineMarkdownCollection({
   name: "docs",
@@ -143,16 +149,22 @@ export const docsContent = defineMarkdownCollection({
     llmsTxtArtifacts({
       origin: "https://pracht.resynapse.dev",
       title: "pracht",
-      sections: [{ heading: "Docs", match: "/docs" }],
+      link: (document) => `${document.path}.md`,
+      sections: groups.map(({ heading, fullPath, pages }) => ({
+        heading,
+        fullPath,
+        match: (document) => pages.includes(document.path),
+      })),
     }),
   ],
 });
 ```
 
-That yields `/llms.txt`, a map of titles, descriptions, and URLs, plus `/llms-full.txt`, one Markdown bundle with every listed page:
+That yields `/llms.txt`, a map of titles, descriptions, and `.md` links grouped like the sidebar. Each group's pages are also bundled into one file, such as `/llms-agents.txt`, and `/llms-full.txt` holds every page:
 
 ```sh
 curl https://pracht.resynapse.dev/llms.txt
+curl https://pracht.resynapse.dev/llms-agents.txt
 curl https://pracht.resynapse.dev/llms-full.txt
 ```
 

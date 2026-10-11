@@ -8,6 +8,7 @@ const requiredPaths = [
   "/docs/why-pracht",
   "/docs/standalone-capabilities",
   "/llms.txt",
+  "/llms-full.txt",
   "/.well-known/agent-skills/index.json",
 ];
 const digest = (body) => createHash("sha256").update(body).digest("hex");
@@ -31,7 +32,8 @@ export async function writeRelease(directory, revision) {
     if (asset === "404.html" || asset === "200.html") continue;
     if (
       !asset.endsWith(".html") &&
-      asset !== "llms.txt" &&
+      // llms.txt, llms-full.txt, and each section's full-text file.
+      !/^llms(?:-[a-z0-9-]+)?\.txt$/.test(asset) &&
       !asset.startsWith(".well-known/agent-skills/") &&
       !asset.startsWith("skills/")
     )

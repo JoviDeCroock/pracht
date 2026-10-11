@@ -15,8 +15,8 @@ A content-heavy app otherwise tends to grow two implementations:
 
 Those readers drift on route mapping, frontmatter, locales, fallback, and cache
 invalidation. A collection is the single registry both sides consume. The docs
-example now uses it for Markdown route modules and curated `llms.txt` plus
-`llms-full.txt`; the former manifest-scanning `vite-plugin-llms-txt.ts` reader
+example now uses it for Markdown route modules and curated `llms.txt`,
+`llms-full.txt`, and per-section full-text files; the former manifest-scanning `vite-plugin-llms-txt.ts` reader
 has been removed.
 
 ## Boundary
@@ -215,6 +215,37 @@ Helper options are validated when the generator is defined rather than when it
 runs, and a generator that throws is reported with its collection name and
 `artifacts[n]` position — a failure inside a Vite build hook otherwise names
 neither.
+
+`llmsTxtArtifacts()` writes the summary (`summaryPath`, default `/llms.txt`),
+the global full-text file (`fullPath`, default `/llms-full.txt`, or `false`),
+and one full-text file per section that sets `section.fullPath`. A section file
+inlines exactly the documents that section matched, in collection order, under
+an H1 of `<title>: <heading>`; the global file inlines each matched
+document once even when several sections list it, while a document listed by
+two sections appears in both section files. A section that matches nothing
+emits no `##` heading and no file, so a configured section path can disappear
+from the output when its documents do. When at least one section file exists,
+the summary lists every section file and then the global file under a single
+trailing `## Optional` heading, with page and word counts (tokens containing a
+letter or digit, so Markdown syntax is not counted). They go there because they
+repeat pages the sections already link: llms.txt tooling that expands every
+non-optional link into a context window would otherwise read each page twice.
+Sections marked `optional` are merged into that same heading rather than each
+emitting its own `## Optional`. All emitted paths are checked when the helper is
+defined: each must be a valid artifact path, and no two may be equal after case
+folding or form a file/directory pair. Collisions with pages, `public/`, or
+other generators are still caught by the build's artifact preflight.
+
+`link(document)` chooses the URL each summary entry points at; it defaults to
+`document.path`. It must return a root-relative path (a value that is not, such
+as `guide.md` or `//host/x`, fails generation and names the document), and it
+does not change what the full-text files inline. `origin` must be an absolute
+http(s) URL without query or fragment; trailing slashes are dropped and a base
+path is kept. Destinations percent-encode whitespace, control characters, and
+angle brackets, and backslash-escape parentheses, so a `link()` result stays
+one Markdown URL. The title, description, and section headings are single
+lines: titles and descriptions are folded, and a heading containing a line break
+is rejected.
 
 `llmsTxtArtifacts()` matches a string `section.match` against the
 **locale-neutral** route. A localized collection prefixes its translations

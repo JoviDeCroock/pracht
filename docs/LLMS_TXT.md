@@ -152,8 +152,13 @@ name.
 - `/llms.txt` is reserved while the option is enabled; an app route at that
   path is shadowed in dev (a warning is logged) and by the static file in
   production.
-- If you need curated sections or an `llms-full.txt` with inlined page
-  content, use the opt-in
-  [`@pracht/content` collection helper](CONTENT.md#static-artifacts). The docs
-  site generates both files from the same registry that compiles its Markdown
-  route modules, so no second manifest/filesystem reader can drift.
+- If you need curated sections, links to each page's Markdown, or full-text
+  files with inlined page content (one for the site and one per section), use
+  the opt-in [`@pracht/content` collection helper](CONTENT.md#static-artifacts).
+  The docs site generates all of them from the same registry that compiles its
+  Markdown route modules, so no second manifest/filesystem reader can drift.
+  Its sections mirror the sidebar groups (`LLMS_SECTIONS` in
+  `examples/docs/content.ts`, checked against every page by
+  `examples/docs/test/site-content.test.ts`), and the homepage `Link` header
+  and the docs shell's `<link>` advertise `/llms.txt` with
+  `rel="describedby"`.

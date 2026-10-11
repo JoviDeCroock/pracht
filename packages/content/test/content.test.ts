@@ -717,6 +717,274 @@ describe("collection integration helpers", () => {
     expect(String((await collection.emitArtifacts())[0].source)).toContain("[Guide](/docs/guide)");
   });
 
+  it("links llms.txt entries to a chosen URL and splits full text per section", async () => {
+    const root = await fixture({
+      "start.md": "---\ntitle: Start\nlead: Begin here\n---\nStart body",
+      "guide.md": "---\ntitle: Guide\n---\nGuide body",
+      "recipes-auth.md": "---\ntitle: Auth\n---\nAuth body",
+    });
+    const link = vi.fn((document: { path: string }) => `${document.path}.md`);
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Example",
+          description: "Example docs.",
+          origin: "https://example.com/",
+          details: ["Append `.md` to any page URL for its Markdown."],
+          link,
+          sections: [
+            {
+              heading: "Basics",
+              match: (document) => !document.id.startsWith("recipes-"),
+              fullPath: "/llms-basics.txt",
+            },
+            { heading: "Recipes", match: "/docs/recipes-auth", fullPath: "/llms-recipes.txt" },
+            { heading: "Nothing", match: "/elsewhere", fullPath: "/llms-nothing.txt" },
+          ],
+        }),
+      ],
+    });
+
+    const artifacts = await collection.emitArtifacts();
+    const source = (path: string) =>
+      String(artifacts.find((artifact) => artifact.path === path)?.source);
+
+    // A section that selects nothing emits no file and no summary entry.
+    expect(artifacts.map((artifact) => artifact.path)).toEqual([
+      "/llms.txt",
+      "/llms-full.txt",
+      "/llms-basics.txt",
+      "/llms-recipes.txt",
+    ]);
+    expect(source("/llms.txt")).toBe(
+      [
+        "# Example",
+        "",
+        "> Example docs.",
+        "",
+        "Append `.md` to any page URL for its Markdown.",
+        "",
+        "## Basics",
+        "",
+        "- [Guide](https://example.com/docs/guide.md)",
+        "- [Start](https://example.com/docs/start.md): Begin here",
+        "",
+        "## Recipes",
+        "",
+        "- [Auth](https://example.com/docs/recipes-auth.md)",
+        "",
+        "## Optional",
+        "",
+        "- [Basics (full text)](https://example.com/llms-basics.txt): 2 pages from Basics in one file, 12 words",
+        "- [Recipes (full text)](https://example.com/llms-recipes.txt): 1 page from Recipes in one file, 7 words",
+        "- [All pages (full text)](https://example.com/llms-full.txt): 3 pages from every section in one file, 14 words",
+        "",
+      ].join("\n"),
+    );
+    expect(source("/llms-recipes.txt")).toBe(
+      "# Example: Recipes\n\n> Example docs.\n\n---\n\n# Auth\n\nAuth body\n\n",
+    );
+    expect(source("/llms-basics.txt")).toContain("Guide body");
+    expect(source("/llms-basics.txt")).toContain("> Begin here");
+    expect(source("/llms-basics.txt")).not.toContain("Auth body");
+    expect(source("/llms-full.txt")).toContain("Auth body");
+    // The bundles inline source; only the summary uses `link`.
+    expect(source("/llms-full.txt")).not.toContain(".md");
+    expect(link).toHaveBeenCalledTimes(3);
+  });
+
+  it("inlines a document listed by two sections once in llms-full.txt and once per section bundle", async () => {
+    const root = await fixture({ "guide.md": "---\ntitle: Guide\n---\nShared body" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          sections: [
+            { heading: "One", match: "/", fullPath: "/llms-one.txt" },
+            { heading: "Two", match: "/", fullPath: "/llms-two.txt" },
+          ],
+        }),
+      ],
+    });
+
+    const artifacts = await collection.emitArtifacts();
+    const occurrences = (path: string) =>
+      String(artifacts.find((artifact) => artifact.path === path)?.source).split("Shared body")
+        .length - 1;
+    expect(occurrences("/llms-full.txt")).toBe(1);
+    expect(occurrences("/llms-one.txt")).toBe(1);
+    expect(occurrences("/llms-two.txt")).toBe(1);
+  });
+
+  it("bundles every translation a locale-neutral section matches", async () => {
+    const root = await fixture({
+      "en/guide.md": "---\ntitle: Guide\n---\nEnglish body",
+      "fr/guide.md": "---\ntitle: Guide FR\n---\nCorps",
+    });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      routeBase: "/docs",
+      locales: { default: "en", supported: ["en", "fr"] },
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          link: (document) => `${document.path}.md`,
+          fullPath: false,
+          sections: [{ heading: "Docs", match: "/docs", fullPath: "/llms-docs.txt" }],
+        }),
+      ],
+    });
+
+    const artifacts = await collection.emitArtifacts();
+    const summary = String(artifacts[0].source);
+    expect(summary).toContain("[Guide FR](/fr/docs/guide.md)");
+    expect(summary).toContain("- [Docs (full text)](/llms-docs.txt): 2 pages from Docs");
+    // With the global file disabled, it is not advertised.
+    expect(summary).not.toContain("All pages");
+    expect(String(artifacts[1].source)).toContain("English body");
+    expect(String(artifacts[1].source)).toContain("Corps");
+  });
+
+  it("keeps optional sections and section bundles under one trailing Optional heading", async () => {
+    const root = await fixture({
+      "guide.md": "---\ntitle: Guide\n---\nBody",
+      "old.md": "---\ntitle: Old\n---\nBody",
+    });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          fullPath: false,
+          sections: [
+            { heading: "Archive", match: "/old", optional: true },
+            { heading: "Guides", match: "/guide", fullPath: "/llms-guides.txt" },
+          ],
+        }),
+      ],
+    });
+
+    const summary = String((await collection.emitArtifacts())[0].source);
+    expect(summary.match(/^## /gm)).toEqual(["## ", "## "]);
+    expect(summary).toContain(
+      "## Guides\n\n- [Guide](/guide)\n\n## Optional\n\n- [Old](/old)\n- [Guides (full text)](/llms-guides.txt)",
+    );
+  });
+
+  it("keeps link() destinations with spaces, parentheses, and brackets inside one link", async () => {
+    const root = await fixture({ "guide.md": "---\ntitle: Guide\n---\nBody" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs",
+          fullPath: false,
+          origin: "https://example.com/base//",
+          link: () => "/a b/(c)\n<d>.md",
+          sections: [{ heading: "Docs [v2] (beta)", match: "/", fullPath: "/llms-docs.txt" }],
+        }),
+      ],
+    });
+
+    const summary = String((await collection.emitArtifacts())[0].source);
+    expect(summary).toContain("- [Guide](https://example.com/base/a%20b/\\(c\\)%0A%3Cd%3E.md)");
+    expect(summary).toContain("## Docs [v2] (beta)");
+    expect(summary).toContain(
+      "- [Docs \\[v2\\] (beta) (full text)](https://example.com/base/llms-docs.txt)",
+    );
+  });
+
+  it("folds a multi-line title or description so it cannot open a section", async () => {
+    const root = await fixture({ "guide.md": "---\ntitle: Guide\n---\nBody" });
+    const collection = defineCollection({
+      name: "docs",
+      root,
+      artifacts: [
+        llmsTxtArtifacts({
+          title: "Docs\n## Injected",
+          description: "Line one\n## Also injected",
+          sections: [{ heading: "Docs", match: "/", fullPath: "/llms-docs.txt" }],
+        }),
+      ],
+    });
+
+    for (const artifact of await collection.emitArtifacts()) {
+      expect(String(artifact.source)).not.toMatch(/^## .*[Ii]njected/m);
+    }
+  });
+
+  it("rejects a link() result that is not a root-relative URL", async () => {
+    const root = await fixture({ "guide.md": "Body" });
+    for (const value of ["guide.md", "//evil.example/guide", "https://example.com/guide", 42]) {
+      const collection = defineCollection({
+        name: "docs",
+        root,
+        artifacts: [llmsTxtArtifacts({ title: "Docs", link: () => value as string })],
+      });
+      await expect(collection.emitArtifacts()).rejects.toThrow(
+        /`link` must return a root-relative URL starting with "\/"/,
+      );
+    }
+  });
+
+  it("rejects malformed llms.txt options when the generator is defined", () => {
+    const define = llmsTxtArtifacts as (options: unknown) => unknown;
+    expect(() => define({ title: "Docs", link: "/docs" })).toThrow(/`link` must be a function/);
+    expect(() => define({ title: "Docs", origin: "example.com" })).toThrow(
+      /`origin` must be an absolute http\(s\) URL/,
+    );
+    expect(() => define({ title: "Docs", origin: "https://example.com/?q=1" })).toThrow(
+      /`origin` must be an absolute http\(s\) URL/,
+    );
+    expect(() => define({ title: "Docs", sections: { heading: "Docs" } })).toThrow(
+      /`sections` must be an array/,
+    );
+    expect(() =>
+      define({ title: "Docs", sections: [{ heading: "A\n- [x](/x)", match: "/" }] }),
+    ).toThrow(/`sections\[0\]`.heading must be a non-empty single-line string/);
+    expect(() => define({ title: "Docs", sections: [{ heading: "A", match: "docs" }] })).toThrow(
+      /`sections\[0\]`.match must be a route prefix starting with "\/"/,
+    );
+    expect(() =>
+      define({ title: "Docs", sections: [{ heading: "A", match: "/", fullPath: false }] }),
+    ).toThrow(/`sections\[0\]`.fullPath must be an artifact path string/);
+    expect(() => define({ title: "Docs", fullPath: "/llms.txt" })).toThrow(
+      /`summaryPath` and `fullPath` both emit "\/llms.txt"/,
+    );
+    expect(() =>
+      define({
+        title: "Docs",
+        sections: [{ heading: "A", match: "/", fullPath: "/LLMS-full.txt" }],
+      }),
+    ).toThrow(/`fullPath` and `sections\[0\].fullPath` both emit/);
+    expect(() =>
+      define({
+        title: "Docs",
+        sections: [
+          { heading: "A", match: "/", fullPath: "/llms-a.txt" },
+          { heading: "B", match: "/", fullPath: "/llms-a.txt/" },
+        ],
+      }),
+    ).toThrow(/`sections\[0\].fullPath` and `sections\[1\].fullPath` both emit/);
+    expect(() =>
+      define({
+        title: "Docs",
+        sections: [{ heading: "A", match: "/", fullPath: "/llms.txt/a.txt" }],
+      }),
+    ).toThrow(/would need "\/llms.txt\/a.txt" to be both a file and a directory/);
+    expect(() =>
+      define({ title: "Docs", sections: [{ heading: "A", match: "/", fullPath: "/a b.txt" }] }),
+    ).toThrow(/`sections\[0\].fullPath` is not a valid artifact path/);
+  });
+
   it("rejects encoded artifact paths that adapters would map to different files", async () => {
     const root = await fixture({ "guide.md": "Guide" });
 

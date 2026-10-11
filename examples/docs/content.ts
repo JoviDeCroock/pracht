@@ -295,6 +295,101 @@ function buildDocPage(fm: Frontmatter, contentHtml: string): string {
   return parts.join("\n");
 }
 
+// ── llms.txt sections ───────────────────────────────────────────────────────
+
+const SITE_ORIGIN = "https://pracht.resynapse.dev";
+
+/**
+ * The llms.txt sections, in sidebar order (`src/shells/docs.tsx`). The sidebar's
+ * Core Concepts group is split in two and its small Guides, Advanced, and
+ * Migration groups are merged, so each section's full-text file stays one
+ * comfortable fetch. `test/site-content.test.ts` checks that every page sits in
+ * exactly one section.
+ */
+export const LLMS_SECTIONS = [
+  {
+    heading: "Start here",
+    fullPath: "/llms-start.txt",
+    pages: ["/docs/getting-started", "/docs/why-pracht", "/docs/demo-comparison", "/docs/routing"],
+  },
+  {
+    heading: "Rendering and UI",
+    fullPath: "/llms-rendering.txt",
+    pages: [
+      "/docs/rendering",
+      "/docs/islands",
+      "/docs/server-islands",
+      "/docs/shells",
+      "/docs/styling",
+      "/docs/fonts",
+      "/docs/images",
+    ],
+  },
+  {
+    heading: "Data and APIs",
+    fullPath: "/llms-data.txt",
+    pages: [
+      "/docs/data-loading",
+      "/docs/content",
+      "/docs/api-routes",
+      "/docs/api-validation",
+      "/docs/openapi",
+      "/docs/middleware",
+      "/docs/env",
+    ],
+  },
+  {
+    heading: "Guides",
+    fullPath: "/llms-guides.txt",
+    pages: [
+      "/docs/cli",
+      "/docs/deployment",
+      "/docs/prefetching",
+      "/docs/performance",
+      "/docs/migrate/nextjs",
+    ],
+  },
+  {
+    heading: "Agents",
+    fullPath: "/llms-agents.txt",
+    pages: [
+      "/docs/agents",
+      "/docs/capabilities",
+      "/docs/standalone-capabilities",
+      "/docs/agent-trust",
+      "/docs/coding-agents",
+    ],
+  },
+  {
+    heading: "Recipes",
+    fullPath: "/llms-recipes.txt",
+    pages: [
+      "/docs/recipes/i18n",
+      "/docs/recipes/auth",
+      "/docs/recipes/csp",
+      "/docs/recipes/forms",
+      "/docs/recipes/tanstack-query",
+      "/docs/recipes/view-transitions",
+      "/docs/recipes/testing",
+      "/docs/recipes/logging",
+      "/docs/recipes/streaming",
+      "/docs/recipes/fullstack-cloudflare",
+      "/docs/recipes/fullstack-vercel",
+    ],
+  },
+  {
+    heading: "Reference",
+    fullPath: "/llms-reference.txt",
+    pages: [
+      "/docs/adapters",
+      "/docs/reference/api",
+      "/docs/reference/config",
+      "/docs/reference/i18n",
+      "/docs/examples",
+    ],
+  },
+] as const;
+
 // ── Collection ───────────────────────────────────────────────────────────────
 
 export const docsContent = defineMarkdownCollection<Frontmatter>({
@@ -324,11 +419,23 @@ export const docsContent = defineMarkdownCollection<Frontmatter>({
   images: { sizes: "(max-width: 960px) 100vw, 960px" },
   artifacts: [
     llmsTxtArtifacts({
-      origin: "https://pracht.resynapse.dev",
+      origin: SITE_ORIGIN,
       title: "pracht",
       description:
         "A full-stack Preact framework built on Vite with hybrid rendering (SSG, SSR, ISG, SPA) and a unified data-loading model.",
-      sections: [{ heading: "Docs", match: "/docs" }],
+      details: [
+        `Each page link below points at the page's Markdown: append \`.md\` to any docs URL, or request the page URL with \`Accept: text/markdown\`. For example, ${SITE_ORIGIN}/docs/routing.md is the Markdown of ${SITE_ORIGIN}/docs/routing.`,
+        "",
+        `Each section also has a full-text file, listed under Optional, that holds all of its pages, so one fetch loads one area of the docs. ${SITE_ORIGIN}/llms-full.txt holds every page.`,
+        "",
+        `Agent skills for building pracht apps are indexed at ${SITE_ORIGIN}/.well-known/agent-skills/index.json.`,
+      ],
+      link: (document) => `${document.path}.md`,
+      sections: LLMS_SECTIONS.map(({ heading, fullPath, pages }) => ({
+        heading,
+        fullPath,
+        match: (document) => (pages as readonly string[]).includes(document.path),
+      })),
     }),
   ],
 });

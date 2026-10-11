@@ -146,9 +146,12 @@ export function head() {
 }
 
 export function headers() {
-  // RFC 8288 Link headers for agent discovery.
+  // RFC 8288 Link headers for agent discovery. llms.txt uses the registered
+  // `describedby` relation: it describes the site, so it is neither an
+  // `alternate` representation of this page nor its `service-doc`.
   return {
     link: [
+      '</llms.txt>; rel="describedby"; type="text/markdown"',
       '</.well-known/agent-skills/index.json>; rel="agent-skills"',
       '</sitemap.xml>; rel="sitemap"; type="application/xml"',
       '</docs/getting-started>; rel="service-doc"',

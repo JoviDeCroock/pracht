@@ -218,6 +218,9 @@ export function head() {
           "pracht documentation — routing, rendering modes, data loading, and deployment adapters.",
       },
     ],
+    // The docs index for agents, advertised the same way the homepage's
+    // `Link` header does.
+    link: [{ rel: "describedby", href: "/llms.txt", type: "text/markdown" }],
     fonts: [inter],
   };
 }

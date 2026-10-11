@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { LLMS_SECTIONS } from "../content.ts";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const siteRoot = resolve(here, "..");
 const docsDir = resolve(siteRoot, "src/routes/docs");
@@ -189,5 +191,20 @@ describe("docs site content", () => {
       }
     }
     expect(broken).toEqual([]);
+  });
+
+  it("files every page in exactly one llms.txt section, listed in sidebar order", () => {
+    // A page missing from LLMS_SECTIONS would vanish from llms.txt and every
+    // full-text file; one listed twice would be fetched twice by an agent.
+    const sectioned = LLMS_SECTIONS.flatMap((section) => [...section.pages]);
+    expect([...sectioned].sort()).toEqual(pages.map((page) => routeFor(page.file)).sort());
+
+    const shell = readFileSync(resolve(siteRoot, "src/shells/docs.tsx"), "utf-8");
+    const nav = [...shell.matchAll(/href: "(\/docs\/[^"]+)"/g)].map((match) => match[1]);
+    const order = (path: string) => nav.indexOf(path);
+    for (const section of LLMS_SECTIONS) {
+      const indexes = section.pages.map(order);
+      expect(indexes, section.heading).toEqual([...indexes].sort((a, b) => a - b));
+    }
   });
 });
