@@ -1,5 +1,11 @@
 # @pracht/capabilities
 
+## 0.6.1
+
+### Patch Changes
+
+- [`ba566ef`](https://github.com/JoviDeCroock/pracht/commit/ba566ef33c565cf65329f569a66caf320272613f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Capability HTTP endpoints and the remote MCP endpoint now refuse request bodies over 1 MiB with a 413 instead of buffering them unbounded.
+
 ## 0.6.0
 
 ### Minor Changes

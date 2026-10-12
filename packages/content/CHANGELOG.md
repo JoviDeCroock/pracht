@@ -1,5 +1,15 @@
 # @pracht/content
 
+## 0.2.0
+
+### Minor Changes
+
+- [`8a58931`](https://github.com/JoviDeCroock/pracht/commit/8a589313c4565ed66147ddab809f9a09e0156b53) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `llmsTxtArtifacts()` can emit a full-text file per section and choose each entry's link and order with `link` and `sort`. Sections marked `optional` now merge into one trailing `## Optional` heading, and invalid `origin` or `sections` options now throw when the helper is defined.
+
+### Patch Changes
+
+- [`4ad18d6`](https://github.com/JoviDeCroock/pracht/commit/4ad18d69b3503b8aae27605b548ecaa01d0d5619) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - SSG pages with a `markdown` export and no middleware now also publish it at `<path>.md` (`/index.md` for the root), linked from the page's `<head>` and from `llms.txt`, and served at the same URL by `pracht dev`; set `pracht({ markdownFiles: false })` to keep Markdown behind `Accept` negotiation only.
+
 ## 0.1.4
 
 ### Patch Changes

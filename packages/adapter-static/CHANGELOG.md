@@ -1,5 +1,12 @@
 # @pracht/adapter-static
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [[`4ad18d6`](https://github.com/JoviDeCroock/pracht/commit/4ad18d69b3503b8aae27605b548ecaa01d0d5619)]:
+  - @pracht/core@0.20.0
+
 ## 0.2.0
 
 ### Minor Changes

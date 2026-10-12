@@ -1,5 +1,19 @@
 # @pracht/cli
 
+## 1.16.0
+
+### Minor Changes
+
+- [`64c1db6`](https://github.com/JoviDeCroock/pracht/commit/64c1db6b1c8fb9539d43e35194c01907d8f9dd82) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Add `pracht docs [topic]`, which lists, prints, and searches the pracht docs bundled with the installed CLI, and let the `pracht dev-mcp` `get_docs` tool read a page by `topic` alongside new `list_docs` and `search_docs` tools.
+
+- [`4ad18d6`](https://github.com/JoviDeCroock/pracht/commit/4ad18d69b3503b8aae27605b548ecaa01d0d5619) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - SSG pages with a `markdown` export and no middleware now also publish it at `<path>.md` (`/index.md` for the root), linked from the page's `<head>` and from `llms.txt`, and served at the same URL by `pracht dev`; set `pracht({ markdownFiles: false })` to keep Markdown behind `Accept` negotiation only.
+
+### Patch Changes
+
+- [`1baf493`](https://github.com/JoviDeCroock/pracht/commit/1baf493c83409f58a04a27d0c98b2b4bcfaf8347) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht dev-mcp` is now discoverable in the official MCP Registry as `io.github.JoviDeCroock/pracht`.
+- Updated dependencies [[`4ad18d6`](https://github.com/JoviDeCroock/pracht/commit/4ad18d69b3503b8aae27605b548ecaa01d0d5619)]:
+  - @pracht/core@0.20.0
+
 ## 1.15.0
 
 ### Minor Changes

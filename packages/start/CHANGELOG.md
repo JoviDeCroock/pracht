@@ -1,5 +1,11 @@
 # create-pracht
 
+## 0.7.3
+
+### Patch Changes
+
+- [`64c1db6`](https://github.com/JoviDeCroock/pracht/commit/64c1db6b1c8fb9539d43e35194c01907d8f9dd82) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - The seeded `AGENTS.md` now points coding agents at `pracht docs <topic>` for docs matching the installed pracht version.
+
 ## 0.7.2
 
 ### Patch Changes
