@@ -73,6 +73,9 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 //   (covered by the prerendered-HTML pattern below)
 // - Prerendered route HTML: build.ts writes "<route>/index.html" under
 //   dist/client (routeToStaticHtmlPath in build-shared.ts)
+// - SSG Markdown files: build.ts writes "<route>.md" (root: index.md) under
+//   dist/client for SSG pages with a `markdown` export and no middleware
+//   (planMarkdownFiles in packages/framework/src/markdown-files.ts)
 // - Vercel Build Output API: build-shared.ts writeVercelBuildOutput emits
 //   .vercel/output/config.json, .vercel/output/static/ (copy of dist/client),
 //   and .vercel/output/functions/<functionName>.func/ (copy of dist/server,
@@ -88,6 +91,8 @@ const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   // fallback (`staticAdapter({ fallback })`, conventionally 200.html).
   /^dist\/client\/(?:404|200)\.html$/,
   /^dist\/client(?:\/[^/.]+)+\/index\.html$/,
+  /^dist\/client\/(?:<path>|[^/.]+(?:\/[^/.]+)*)\.md$/,
+  /^dist\/client\/\*\*\/\*\.md$/,
   /^\.vercel\/output\/?$/,
   /^\.vercel\/output\/config\.json$/,
   /^\.vercel\/output\/static\/?(?:[\w\-./<>:[\]]*)$/,

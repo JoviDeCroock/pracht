@@ -46,7 +46,8 @@ export function markdownFileHtmlReason(html: string): string | undefined {
     const attributes = parseAttributes(tag[1]);
     const name = (attributes.get("name") ?? "").trim().toLowerCase();
     const httpEquiv = (attributes.get("http-equiv") ?? "").trim().toLowerCase();
-    const isRobots = /^(robots|[a-z0-9-]*bot(-[a-z0-9-]+)?)$/.test(name) || httpEquiv === "x-robots-tag";
+    const isRobots =
+      /^(robots|[a-z0-9-]*bot(-[a-z0-9-]+)?)$/.test(name) || httpEquiv === "x-robots-tag";
     if (!isRobots) continue;
     const content = attributes.get("content") ?? "";
     if (/(^|[\s,:])(noindex|none)(?=[\s,]|$)/i.test(content)) {
