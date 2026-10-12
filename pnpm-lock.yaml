@@ -394,7 +394,7 @@ importers:
         specifier: ^1.0.0
         version: 1.31.1(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))(workerd@1.20260405.1)(wrangler@4.81.0)
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
       vite:
         specifier: ^7.0.0 || ^8.0.0
@@ -409,7 +409,7 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
       urlpattern-polyfill:
         specifier: ^10.1.0
@@ -421,22 +421,22 @@ importers:
   packages/adapter-node:
     dependencies:
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
 
   packages/adapter-static:
     dependencies:
       '@pracht/adapter-node':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../adapter-node
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
 
   packages/adapter-vercel:
     dependencies:
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
 
   packages/capabilities:
@@ -451,10 +451,10 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.4.3)
       '@pracht/capabilities':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../capabilities
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
       citty:
         specifier: ^0.1.6
@@ -481,7 +481,7 @@ importers:
   packages/framework:
     dependencies:
       '@pracht/capabilities':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../capabilities
       '@standard-schema/spec':
         specifier: ^1.0.0
@@ -500,7 +500,7 @@ importers:
   packages/i18n:
     dependencies:
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
 
   packages/image:
@@ -518,10 +518,10 @@ importers:
   packages/markdown:
     dependencies:
       '@pracht/content':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../content
       '@pracht/image':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../image
       marked:
         specifier: ^18.0.0
@@ -564,10 +564,10 @@ importers:
   packages/query:
     dependencies:
       '@pracht/capabilities':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../capabilities
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
     devDependencies:
       '@tanstack/preact-query':
@@ -583,7 +583,7 @@ importers:
   packages/session:
     dependencies:
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
 
   packages/start: {}
@@ -591,7 +591,7 @@ importers:
   packages/test:
     dependencies:
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
     devDependencies:
       '@standard-schema/spec':
@@ -604,16 +604,16 @@ importers:
         specifier: ^7.29.2
         version: 7.29.2
       '@pracht/adapter-node':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../adapter-node
       '@pracht/capabilities':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../capabilities
       '@pracht/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../framework
       '@pracht/preact-ssr-precompile':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../preact-ssr-precompile
       '@preact/preset-vite':
         specifier: ^2.10.5

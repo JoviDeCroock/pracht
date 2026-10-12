@@ -43,7 +43,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@pracht/adapter-node": "workspace:*",
-    "@pracht/core": "workspace:*"
+    "@pracht/adapter-node": "workspace:^",
+    "@pracht/core": "workspace:^"
   }
 }

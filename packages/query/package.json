@@ -44,8 +44,8 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@pracht/capabilities": "workspace:*",
-    "@pracht/core": "workspace:*"
+    "@pracht/capabilities": "workspace:^",
+    "@pracht/core": "workspace:^"
   },
   "peerDependencies": {
     "@tanstack/preact-query": "^5.91.0",

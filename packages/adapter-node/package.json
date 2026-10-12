@@ -45,6 +45,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@pracht/core": "workspace:*"
+    "@pracht/core": "workspace:^"
   }
 }

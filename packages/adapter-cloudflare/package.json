@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.0.0",
-    "@pracht/core": "workspace:*"
+    "@pracht/core": "workspace:^"
   },
   "peerDependencies": {
     "vite": "^7.0.0 || ^8.0.0",
