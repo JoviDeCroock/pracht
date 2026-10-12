@@ -126,7 +126,7 @@ Many agent fetchers never send `Accept`, and a static host cannot negotiate. So 
 curl https://pracht.resynapse.dev/docs/routing.md
 ```
 
-A page gets a file only when its Markdown is the same for every visitor: an SSG route with a `markdown` string export and no middleware. The file holds that export and is served with the page's headers. Routes with middleware or `markdown: true`, and ISG or SSR pages, keep `Accept` negotiation only, and so does a page marked `noindex` (by `X-Robots-Tag` or a robots `<meta>` from `head()`) or sent with `Cache-Control: private`. The build prints a note naming each Markdown page left without a file and why.
+A page gets a file only when its Markdown is the same for every visitor: an SSG route with a `markdown` string export and no middleware. The build then requests the page with `Accept: text/markdown`, as a cookieless visitor would, and writes only a Markdown answer, so a loader that redirects or returns 401 keeps the file out. Other routes keep `Accept` negotiation only, as does a page marked `noindex` (by `X-Robots-Tag` or a robots `<meta>`) or sent with `Cache-Control: private`. The build prints a note naming each Markdown page left without a file and why.
 
 A file already at that path, such as `public/docs/routing.md`, is never overwritten. `pracht dev` serves the same `.md` URLs, except that it does not render pages, so it still serves one for a page whose `noindex` or `private` headers keep it out of the build.
 

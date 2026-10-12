@@ -110,8 +110,9 @@ test("pracht build emits a deployable Node server entry", async () => {
     expect(await productMarkdown.text()).toBe("# Product 1\n");
 
     // An SSG page with a `markdown` export and no middleware also gets a
-    // `.md` file: the export verbatim, linked from the page's head, served
-    // with the page's own headers whatever the client accepts. The products
+    // `.md` file: its build-time `Accept: text/markdown` answer, linked from
+    // the page's head, served with that answer's headers whatever the client
+    // accepts. The products
     // route negotiates through middleware, so its pages get none.
     const rootMarkdownSource = readFileSync(resolve(exampleDir, "dist/client/index.md"), "utf-8");
     expect(rootMarkdownSource.startsWith("# Pracht Example\n")).toBe(true);
@@ -551,6 +552,24 @@ test("page Markdown files never replace a public/ file and can be switched off",
     );
     const noindexOutput = buildExampleOutput(exampleDir, { PRACHT_ADAPTER: "node" });
     expect(noindexOutput).toContain('/ (the page has <meta name="robots" content="noindex">)');
+    expect(existsSync(resolve(clientDir, "index.md"))).toBe(false);
+    expect(readFileSync(resolve(clientDir, "index.html"), "utf-8")).not.toContain(
+      'type="text/markdown"',
+    );
+    expect(readFileSync(resolve(clientDir, "llms.txt"), "utf-8")).not.toContain(".md)");
+
+    // A loader that refuses the Markdown request keeps the export private.
+    const gatedLoader = homeRoute.replace(
+      "export async function loader(_args: LoaderArgs) {\n",
+      "export async function loader({ request }: LoaderArgs) {\n" +
+        '  if (request.headers.get("accept")?.includes("text/markdown")) {\n' +
+        '    return new Response("Unauthorized", { status: 401 });\n' +
+        "  }\n",
+    );
+    expect(gatedLoader).not.toBe(homeRoute);
+    writeFileSync(homeRoutePath, gatedLoader, "utf-8");
+    const gatedOutput = buildExampleOutput(exampleDir, { PRACHT_ADAPTER: "node" });
+    expect(gatedOutput).toContain("/ (Accept: text/markdown answered 401)");
     expect(existsSync(resolve(clientDir, "index.md"))).toBe(false);
     expect(readFileSync(resolve(clientDir, "index.html"), "utf-8")).not.toContain(
       'type="text/markdown"',

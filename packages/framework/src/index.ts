@@ -229,7 +229,7 @@ export {
   type ShouldBlockNavigation,
 } from "./runtime.ts";
 export { prefetch, type PrefetchFn } from "./prefetch-api.ts";
-export { buildStaticFallbackHtml, prerenderApp } from "./prerender.ts";
+export { buildStaticFallbackHtml, prerenderApp, prerenderMarkdown } from "./prerender.ts";
 export {
   createISGRegenerationRequest,
   createRevalidationSingleFlight,
@@ -438,6 +438,8 @@ export type {
   ISGManifestEntry,
   PrerenderAppOptions,
   PrerenderAppResult,
+  PrerenderedMarkdown,
+  PrerenderMarkdownOptions,
   PrerenderResult,
 } from "./prerender.ts";
 export type { InitClientRouterOptions, NavigateFn } from "./router.ts";

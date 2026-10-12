@@ -149,7 +149,12 @@ export type {
 } from "./testing-capabilities.ts";
 export { buildLlmsTxt } from "./llms-txt.ts";
 export type { BuildLlmsTxtOptions, LlmsTxtSection } from "./llms-txt.ts";
-export { buildStaticFallbackHtml, describeRenderError, prerenderApp } from "./prerender.ts";
+export {
+  buildStaticFallbackHtml,
+  describeRenderError,
+  prerenderApp,
+  prerenderMarkdown,
+} from "./prerender.ts";
 export { buildStaticRouteStateUrl, STATIC_STATE_PREFIX } from "./runtime-static.ts";
 export {
   createISGRegenerationRequest,
@@ -307,6 +312,8 @@ export type {
   ISGManifestEntry,
   PrerenderAppOptions,
   PrerenderAppResult,
+  PrerenderedMarkdown,
+  PrerenderMarkdownOptions,
   PrerenderResult,
 } from "./prerender.ts";
 

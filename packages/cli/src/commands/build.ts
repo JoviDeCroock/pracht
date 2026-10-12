@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import { defineCommand } from "citty";
 import { build as viteBuild, type Plugin } from "vite";
 import { matchRoutePath, planMarkdownFiles, routePathIsDynamic } from "@pracht/core";
-import type { MarkdownFile } from "@pracht/core";
+import type { MarkdownFile, PrerenderedMarkdown } from "@pracht/core";
 
 import { readClientBuildAssets } from "../build-metadata.js";
 import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
@@ -692,22 +692,57 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           page,
         ]),
       );
+      const candidates: MarkdownFile[] = [];
       for (const file of plan.files) {
         const page = pagesByPath.get(file.pagePath);
         if (!page) continue;
         // A page kept out of indexes or shared caches gets no public copy.
         const served = markdownFileHeaders(page.headers);
         const reason = "reason" in served ? served.reason : markdownFileHtmlReason(page.html);
-        if (reason !== undefined || !("headers" in served)) {
-          markdownFileSkips.push({ pagePath: file.pagePath, reason: reason ?? "" });
+        if (reason !== undefined) {
+          markdownFileSkips.push({ pagePath: file.pagePath, reason });
           continue;
         }
+        candidates.push(file);
+      }
+      // The file is published only when the page's own URL answers a
+      // build-time `Accept: text/markdown` request with Markdown: loaders and
+      // middleware that withhold it at runtime keep it out of the build too.
+      const replayed: PrerenderedMarkdown[] =
+        typeof serverMod.prerenderMarkdown === "function"
+          ? await serverMod.prerenderMarkdown({
+              app: serverMod.resolvedApp,
+              apiRoutes: serverMod.apiRoutes,
+              registry: serverMod.registry,
+              paths: candidates.map((file) => file.pagePath),
+              concurrency: serverMod.prerenderConcurrency,
+            })
+          : candidates.map((file) => ({
+              pagePath: file.pagePath,
+              reason: "the server bundle cannot replay Markdown requests",
+            }));
+      const replayedByPath = new Map(replayed.map((result) => [result.pagePath, result]));
+      for (const file of candidates) {
+        const result = replayedByPath.get(file.pagePath);
+        if (!result || "reason" in result) {
+          markdownFileSkips.push({
+            pagePath: file.pagePath,
+            reason: result?.reason ?? "no Markdown response",
+          });
+          continue;
+        }
+        const served = markdownFileHeaders(result.headers);
+        if ("reason" in served) {
+          markdownFileSkips.push({ pagePath: file.pagePath, reason: served.reason });
+          continue;
+        }
+        const page = pagesByPath.get(file.pagePath)!;
         headersManifest[file.markdownPath] = served.headers;
         page.html = injectMarkdownAlternateLink(
           page.html,
           markdownFileHref(buildBase, file.markdownPath),
         );
-        markdownFiles.push(file);
+        markdownFiles.push({ ...file, source: result.source });
       }
     } else if (isStaticExport) {
       for (const pagePath of Object.keys(markdownManifest)) {

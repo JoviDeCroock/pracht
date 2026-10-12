@@ -2,7 +2,7 @@ import { DEFAULT_LOADER_TIMEOUT_MS, resolveApp } from "./app.ts";
 import { withBase } from "./base.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
-import { hasMarkdownRepresentation } from "./runtime-negotiation.ts";
+import { hasMarkdownRepresentation, MARKDOWN_MEDIA_TYPE } from "./runtime-negotiation.ts";
 import { NOT_FOUND_ROUTE_ID, ROUTE_STATE_REQUEST_HEADER } from "./runtime-constants.ts";
 import { routeNeedsServerFetch, routeNeedsShellData } from "./runtime-client-fetch.ts";
 import {
@@ -100,6 +100,98 @@ export async function prerenderApp(
       await Promise.allSettled(backgroundWork.splice(0));
     }
   }
+}
+
+export interface PrerenderMarkdownOptions {
+  app: PrachtApp;
+  registry?: ModuleRegistry;
+  apiRoutes?: ResolvedApiRoute[];
+  /** Base-free page paths to request (`/about`). */
+  paths: readonly string[];
+  /** Maximum number of requests in flight. Defaults to 10. */
+  concurrency?: number;
+}
+
+export type PrerenderedMarkdown =
+  | { pagePath: string; source: string; headers: Record<string, string> }
+  | { pagePath: string; reason: string };
+
+/**
+ * Request each page's own URL with `Accept: text/markdown`, as a visitor
+ * without cookies would. Middleware, shell and route loaders, and `headers()`
+ * run exactly as they do at runtime, so a page whose request path withholds
+ * Markdown (a redirect, a 401, a loader `Response`) yields a reason instead of
+ * a source. Only a 200 `text/markdown` answer is safe to publish as a static
+ * `<path>.md` file.
+ */
+export async function prerenderMarkdown(
+  options: PrerenderMarkdownOptions,
+): Promise<PrerenderedMarkdown[]> {
+  const concurrency = options.concurrency ?? 10;
+  if (!Number.isInteger(concurrency) || concurrency <= 0) {
+    throw new Error("prerenderMarkdown({ concurrency }) expects a positive integer.");
+  }
+  const backgroundWork: Promise<unknown>[] = [];
+  const waitUntil = (task: Promise<unknown>) => {
+    backgroundWork.push(task);
+  };
+  const results: PrerenderedMarkdown[] = [];
+  try {
+    for (let i = 0; i < options.paths.length; i += concurrency) {
+      const batch = options.paths.slice(i, i + concurrency);
+      results.push(
+        ...(await Promise.all(
+          batch.map((pagePath) => prerenderMarkdownPage(options, pagePath, waitUntil)),
+        )),
+      );
+    }
+  } finally {
+    while (backgroundWork.length > 0) {
+      await Promise.allSettled(backgroundWork.splice(0));
+    }
+  }
+  return results;
+}
+
+async function prerenderMarkdownPage(
+  options: PrerenderMarkdownOptions,
+  pagePath: string,
+  waitUntil: (promise: Promise<unknown>) => void,
+): Promise<PrerenderedMarkdown> {
+  const response = await handlePrachtRequest({
+    app: options.app,
+    request: new Request(new URL(withBase(pagePath), "http://localhost"), {
+      method: "GET",
+      headers: { accept: MARKDOWN_MEDIA_TYPE },
+    }),
+    registry: options.registry,
+    apiRoutes: options.apiRoutes,
+    waitUntil,
+    onRouteError: (error, requestPath, context) => {
+      reportBackgroundFailure(error, requestPath, context);
+    },
+  });
+  if (response.status !== 200) {
+    const location = response.headers.get("location");
+    const redirect = location ? ` (redirect: ${location})` : "";
+    return { pagePath, reason: `Accept: text/markdown answered ${response.status}${redirect}` };
+  }
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().startsWith(MARKDOWN_MEDIA_TYPE)) {
+    return {
+      pagePath,
+      reason: `Accept: text/markdown answered ${contentType || "no content type"}`,
+    };
+  }
+  const dangerous = [...response.headers.keys()].filter(isDangerousPrerenderHeader);
+  if (dangerous.length > 0) {
+    return { pagePath, reason: `the Markdown response sets ${dangerous.join(", ")}` };
+  }
+  return {
+    pagePath,
+    source: await response.text(),
+    headers: Object.fromEntries(response.headers),
+  };
 }
 
 async function prerenderAppPages(

@@ -917,8 +917,9 @@ export function createPrachtServerModuleSource(
   // @pracht/core/server (and therefore the same Preact context instances) as the
   // route/shell modules — avoids dual-copy issues during SSG prerendering.
   let prachtImports = adapter?.serverImports
-    ? adapter.serverImports + '\nimport { prerenderApp } from "@pracht/core/server";'
-    : 'import { resolveApp, resolveApiRoutes, prerenderApp } from "@pracht/core/server";';
+    ? adapter.serverImports +
+      '\nimport { prerenderApp, prerenderMarkdown } from "@pracht/core/server";'
+    : 'import { resolveApp, resolveApiRoutes, prerenderApp, prerenderMarkdown } from "@pracht/core/server";';
   if (llmsTxtConfig) {
     prachtImports += '\nimport { buildLlmsTxt } from "@pracht/core/server";';
   }
@@ -1027,7 +1028,7 @@ export function createPrachtServerModuleSource(
     `export const jsManifest = ${JSON.stringify(clientBuild.jsManifest)};`,
     `export const prerenderConcurrency = ${JSON.stringify(resolved.prerenderConcurrency)};`,
     `export const budgets = ${JSON.stringify(resolved.budgets)};`,
-    "export { prerenderApp };",
+    "export { prerenderApp, prerenderMarkdown };",
     // Only the opt-out is recorded; the CLI treats a missing export as enabled.
     ...(resolved.markdownFiles ? [] : ["export const markdownFiles = false;"]),
     ...(llmsTxtConfig

@@ -5,6 +5,7 @@ import {
   defineApp,
   group,
   handlePrachtRequest,
+  prerenderMarkdown,
   resolveApiRoutes,
   resolveApp,
   route,
@@ -203,5 +204,89 @@ describe("planMarkdownFiles", () => {
     });
     expect(files.map((file) => file.pagePath)).toEqual(["/"]);
     expect(failed).toEqual(["/blog/:slug: no posts"]);
+  });
+});
+
+describe("prerenderMarkdown", () => {
+  const markdownOnly =
+    (response: () => Response) =>
+    ({ request }: { request: Request }) =>
+      request.headers.get("accept")?.includes("text/markdown") ? response() : { ok: true };
+
+  it("withholds pages whose loaders refuse the Markdown request", async () => {
+    const app = defineApp({
+      shells: { gated: "./shells/gated.tsx" },
+      routes: [
+        route("/", "./routes/home.tsx", { render: "ssg" }),
+        route("/private", "./routes/private.tsx", { render: "ssg" }),
+        route("/moved", "./routes/moved.tsx", { render: "ssg" }),
+        route("/shelled", "./routes/home.tsx", { render: "ssg", shell: "gated" }),
+        route("/html", "./routes/html.tsx", { render: "ssg" }),
+      ],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: {
+        "/src/routes/home.tsx": page("# Home\n"),
+        "/src/routes/private.tsx": page("# Secret\n", {
+          loader: markdownOnly(() => new Response("Unauthorized", { status: 401 })),
+        }),
+        "/src/routes/moved.tsx": page("# Moved\n", {
+          loader: markdownOnly(() => Response.redirect("http://localhost/login", 302)),
+        }),
+        "/src/routes/html.tsx": page("# HTML\n", {
+          loader: markdownOnly(
+            () => new Response("<p>no</p>", { headers: { "content-type": "text/html" } }),
+          ),
+        }),
+      },
+      shellModules: {
+        "/src/shells/gated.tsx": async () => ({
+          Shell: ({ children }: { children?: unknown }) => h("div", null, children as never),
+          loader: markdownOnly(() => new Response("Forbidden", { status: 403 })),
+        }),
+      },
+    };
+
+    // The planner alone would publish every one of them.
+    const { files } = await plan(app, registry);
+    expect(files.map((file) => file.pagePath)).toEqual([
+      "/",
+      "/private",
+      "/moved",
+      "/shelled",
+      "/html",
+    ]);
+
+    const results = await prerenderMarkdown({
+      app,
+      registry,
+      paths: files.map((file) => file.pagePath),
+    });
+    expect(results).toEqual([
+      expect.objectContaining({ pagePath: "/", source: "# Home\n" }),
+      { pagePath: "/private", reason: "Accept: text/markdown answered 401" },
+      {
+        pagePath: "/moved",
+        reason: "Accept: text/markdown answered 302 (redirect: http://localhost/login)",
+      },
+      { pagePath: "/shelled", reason: "Accept: text/markdown answered 403" },
+      { pagePath: "/html", reason: "Accept: text/markdown answered text/html" },
+    ]);
+    const [home] = results;
+    expect("headers" in home && home.headers["content-type"]).toBe("text/markdown; charset=utf-8");
+  });
+
+  it("withholds a Markdown response that sets a cookie", async () => {
+    const app = defineApp({ routes: [route("/", "./routes/home.tsx", { render: "ssg" })] });
+    const registry = {
+      routeModules: {
+        "/src/routes/home.tsx": page("# Home\n", {
+          headers: () => ({ "set-cookie": "session=1" }),
+        }),
+      },
+    };
+    expect(await prerenderMarkdown({ app, registry, paths: ["/"] })).toEqual([
+      { pagePath: "/", reason: "the Markdown response sets set-cookie" },
+    ]);
   });
 });

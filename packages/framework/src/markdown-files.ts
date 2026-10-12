@@ -2,12 +2,12 @@
  * Which prerendered pages also get a `<path>.md` file (`/about` → `/about.md`,
  * the root at `/index.md`).
  *
- * A page gets one only when the file is exactly what its own URL answers to
- * `Accept: text/markdown`, for every visitor: an SSG route with a static
- * string `markdown` export and no middleware anywhere in its chain. The file
- * is that export, verbatim — the same body the runtime sends. A route whose
- * Markdown is decided per request (`markdown: true`, any middleware, ISG) keeps
- * negotiation and gets no file.
+ * The plan names the candidates: SSG routes with a static string `markdown`
+ * export and no middleware anywhere in their chain. A route whose Markdown is
+ * decided per request (`markdown: true`, any middleware, ISG) keeps
+ * negotiation and gets no file. A candidate is published only after
+ * `prerenderMarkdown()` replays its URL with `Accept: text/markdown` and gets
+ * Markdown back, so loaders and `headers()` decide as they do at runtime.
  *
  * Build- and dev-only: `pracht build` and the dev server call this; the request
  * runtime never imports it, so a server bundle pays nothing for it.
@@ -32,7 +32,7 @@ export interface MarkdownFile {
   pagePath: string;
   /** Base-free URL path of the file (`/about.md`). */
   markdownPath: string;
-  /** The file's contents: the route's `markdown` export, verbatim. */
+  /** The route's `markdown` export; the build writes the replayed response body. */
   source: string;
 }
 

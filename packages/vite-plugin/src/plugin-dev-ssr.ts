@@ -235,9 +235,10 @@ export function createDevSSRMiddleware(
       }
 
       // Serve `/<path>.md` for exactly the pages `pracht build` writes one
-      // for, with the same bytes: the route's `markdown` export. A `public/`
-      // file of that name was already served by Vite, and the build never
-      // overwrites one either.
+      // for: the page answers `Accept: text/markdown` through the app with a
+      // cookieless request, as the build does, and only a Markdown answer is
+      // served. A `public/` file of that name was already served by Vite, and
+      // the build never overwrites one either.
       let markdownFileMiss = false;
       if (
         options.markdownFiles &&
@@ -245,13 +246,21 @@ export function createDevSSRMiddleware(
         BODYLESS_METHODS.has((req.method ?? "GET").toUpperCase())
       ) {
         const file = findDevMarkdownFile(await markdownPlans.get(serverMod), requestUrl.pathname);
-        if (file) {
+        const [rendered] = file
+          ? await framework.prerenderMarkdown({
+              app: serverMod.resolvedApp,
+              apiRoutes: serverMod.apiRoutes,
+              registry: serverMod.registry,
+              paths: [file.pagePath],
+            })
+          : [];
+        if (rendered && "source" in rendered) {
           res.statusCode = 200;
           res.setHeader("content-type", "text/markdown; charset=utf-8");
           applyDefaultSecurityHeaders(new Headers()).forEach((value, key) => {
             res.setHeader(key, value);
           });
-          res.end((req.method ?? "GET").toUpperCase() === "HEAD" ? undefined : file.source);
+          res.end((req.method ?? "GET").toUpperCase() === "HEAD" ? undefined : rendered.source);
           return;
         }
         // No file in the build either: the app answers (a route, or its 404)

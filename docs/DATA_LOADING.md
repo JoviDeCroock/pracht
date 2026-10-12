@@ -86,10 +86,14 @@ same reason their HTML does. The file is base-free like the rest of
 **Which pages get one.** A file is a public, static copy served to every
 visitor, so a page gets one only when its Markdown cannot depend on the request:
 the route is `render: "ssg"`, its module has a static string `markdown` export,
-and no middleware runs anywhere in its chain (group or route). The file is that
-export verbatim — byte for byte the body the runtime sends for
-`Accept: text/markdown` at the page URL, since `markdownResponse()` does not
-transform it. Nothing is requested at build time. Everything else keeps
+and no middleware runs anywhere in its chain (group or route). The build then
+replays the page URL through `handlePrachtRequest()` with
+`Accept: text/markdown` and no cookies (`prerenderMarkdown()`), and the file is
+that response body. Shell and route loaders run before Markdown negotiation, so
+a loader that redirects, returns a 401, or returns any other `Response` for
+that request gets no file, exactly as the runtime withholds the Markdown; so
+does a non-200 status, a non-Markdown content type, or a response carrying a
+dangerous prerender header (`Set-Cookie` and friends). Everything else keeps
 negotiation and gets no file:
 
 - `markdown: true` routes, whose middleware produces the Markdown per request;
@@ -97,10 +101,10 @@ negotiation and gets no file:
 - ISG pages, whose static copy would never revalidate;
 - SSR and SPA pages, which have no build-time render.
 
-**Headers.** The file is served with the page's own prerendered headers (the
-`headers()` result, minus the body-specific `content-type`, `content-length`,
-`content-encoding`, and `etag`) plus `Content-Type: text/markdown;
-charset=utf-8` — the same set the runtime Markdown response carries. The build
+**Headers.** The file is served with the replayed Markdown response's headers
+(the `headers()` result plus `Vary: Accept` and the security defaults, minus
+the body-specific `content-length`, `content-encoding`, and `etag`) with
+`Content-Type: text/markdown; charset=utf-8`. The build
 records them in the headers manifest under `/<path>.md`, which the Node,
 Netlify, and Cloudflare adapters apply by pathname and Vercel turns into an
 exact-path header route. A static export has no header layer, as for its HTML.
@@ -108,7 +112,8 @@ A page kept out of indexes or shared caches gets no file, since a public copy
 would undo exactly that: `X-Robots-Tag: noindex`/`none` or
 `Cache-Control: private`/`no-store` in its headers, or a robots `<meta>`
 (`robots`, `googlebot`, a crawler name such as `googlebot`, or `http-equiv="X-Robots-Tag"`) with
-`noindex`/`none` in its prerendered HTML. The CLI scans the HTML rather than
+`noindex`/`none` in its prerendered HTML. The page headers are checked before
+the replay and the Markdown response headers after it. The CLI scans the HTML rather than
 carrying merged `head()` metadata out of `prerenderApp()`, which ships in every
 server bundle. The dangerous-header check that
 refuses `Set-Cookie` and friends on SSG documents already ran on the same
@@ -132,10 +137,16 @@ static export the note says the host answers `Accept: text/markdown` with HTML.
 
 **Where it lives.** `planMarkdownFiles()` in
 `packages/framework/src/markdown-files.ts` decides eligibility and collisions;
-`pracht build` and the dev server both call it. The headers rule, link
-injection, and writing live in `packages/cli/src/markdown-files.ts` and
-`packages/cli/src/commands/build.ts`. None of it is imported by the request
-runtime, so a server bundle pays nothing; with `llmsTxt` enabled the generator
+`pracht build` and the dev server both call it. `prerenderMarkdown()` in
+`packages/framework/src/prerender.ts` replays each candidate; the server entry
+exports it next to `prerenderApp` so the CLI uses the bundled module graph, and
+a server bundle without it publishes no files. The dev server replays a planned
+page on each `.md` request and answers the runtime 404 when it is withheld.
+The headers rule, link injection, and writing live in
+`packages/cli/src/markdown-files.ts` and `packages/cli/src/commands/build.ts`.
+The request runtime imports none of it; the server bundle carries only
+`prerenderMarkdown()`, a thin wrapper over `handlePrachtRequest()` that sits
+beside `prerenderApp()`. With `llmsTxt` enabled the generator
 adds one Markdown-link branch and the three-line `markdownFilePath()` helper
 (`examples/cloudflare`'s `server.js` grew 88 bytes gzipped).
 
