@@ -1,5 +1,16 @@
 # @pracht/vite-plugin
 
+## 0.15.0
+
+### Minor Changes
+
+- [`4ad18d6`](https://github.com/JoviDeCroock/pracht/commit/4ad18d69b3503b8aae27605b548ecaa01d0d5619) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - SSG pages with a `markdown` export and no middleware now also publish it at `<path>.md` (`/index.md` for the root), linked from the page's `<head>` and from `llms.txt`, and served at the same URL by `pracht dev`; set `pracht({ markdownFiles: false })` to keep Markdown behind `Accept` negotiation only.
+
+### Patch Changes
+
+- Updated dependencies [[`4ad18d6`](https://github.com/JoviDeCroock/pracht/commit/4ad18d69b3503b8aae27605b548ecaa01d0d5619)]:
+  - @pracht/core@0.20.0
+
 ## 0.14.0
 
 ### Minor Changes
