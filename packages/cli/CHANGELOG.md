@@ -1,5 +1,11 @@
 # @pracht/cli
 
+## 1.16.1
+
+### Patch Changes
+
+- [`063bf0e`](https://github.com/JoviDeCroock/pracht/commit/063bf0e13662b41bb024e81aad08bbe78f1e0a9f) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - A page's `<path>.md` file is now published only when the page answers a build-time `Accept: text/markdown` request with Markdown, so a loader that redirects or rejects that request no longer has its `markdown` export exposed as a public static file.
+
 ## 1.16.0
 
 ### Minor Changes
