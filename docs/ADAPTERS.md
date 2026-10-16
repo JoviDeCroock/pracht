@@ -1043,7 +1043,13 @@ typechecks in both programs with the file included.
 defaults `CloudflareContextArgs<TEnv>` to `CloudflareEnv`: the generated
 `Cloudflare.Env` when it has members, otherwise `Record<string, unknown>`, so
 `createContextFrom` modules get typed bindings without a type argument and
-nothing changes for apps without generated types.
+nothing changes for apps without generated types. The `workerEntry` API in
+`@pracht/adapter-cloudflare/worker` defaults `createPrachtHandler<TEnv>`,
+`PrachtHandlerOptions` and `PrachtHandler` to `PrachtWorkerEnv`: the generated
+`Cloudflare.Env`, otherwise `unknown`. The fallback stays `unknown` there (not a
+record) so an untyped Worker can still hand `pracht.fetch()` whatever `env` it
+received; with generated types, `satisfies PrachtHandler` types the Worker's own
+`fetch(request, env, ctx)` and `createContext({ env })` sees the bindings.
 
 Cloudflare itself permits `import { env } from "cloudflare:workers"` followed
 by a top-level binding read. Pracht graph commands cannot provide authoritative

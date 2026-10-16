@@ -88,11 +88,8 @@ without `run_worker_first`, Cloudflare serves prerendered pages straight from
 `headers()` exports and security headers are missing from those responses.
 `pracht doctor` warns when it is absent.
 
-`"!/assets/*"` serves Vite's hashed files without invoking the Worker;
-`pracht build` writes `dist/client/_headers` so they still get
-`Cache-Control: public, max-age=31536000, immutable` and security headers.
-`true` also works but bills an invocation per asset. A `public/_headers` of
-your own replaces the generated file.
+`"!/assets/*"` skips the Worker for Vite's hashed files; the `dist/client/_headers`
+that `pracht build` writes keeps them `immutable` with security headers.
 
 ### Build output
 
@@ -275,9 +272,8 @@ export async function loader({ context }: LoaderArgs) {
 }
 ```
 
-To type `context.env`, run `npx wrangler types`. It writes
-`worker-configuration.d.ts` with an `Env` interface for the bindings in
-`wrangler.jsonc`, plus the Workers runtime types. Register it once:
+`npx wrangler types` writes `worker-configuration.d.ts`, typing your
+`wrangler.jsonc` bindings as `Env`. Register it to type `context.env`:
 
 ```ts [src/env.d.ts]
 import "@pracht/core";
@@ -289,9 +285,8 @@ declare module "@pracht/core" {
 }
 ```
 
-`create-pracht` wires this up with a `cf-typegen` script, which `typecheck`
-also runs; rerun it after changing bindings. Without the file, `context.env` is
-`any`.
+`create-pracht` runs it as `cf-typegen` and before `typecheck`; rerun it after
+changing bindings. `createPrachtHandler({ createContext })` is typed from it too.
 
 `import { env } from "cloudflare:workers"` also works, but in API and
 capability modules read `env.DB` inside the handler or `run()`, not at module

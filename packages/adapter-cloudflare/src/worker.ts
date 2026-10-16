@@ -1,6 +1,13 @@
 import type { CloudflareContextArgs, CloudflareExecutionContext } from "./runtime.ts";
 
 /**
+ * The bindings `wrangler types` generated into `Cloudflare.Env`, or `unknown`
+ * when the app has not generated them, so an untyped Worker can still pass
+ * whatever `env` it receives.
+ */
+export type PrachtWorkerEnv = keyof Cloudflare.Env extends never ? unknown : Cloudflare.Env;
+
+/**
  * The fetch function the generated `virtual:pracht/server` module registers:
  * the same handler the generated Worker entry exports, with the app's
  * context factory passed per call.
@@ -22,7 +29,7 @@ export function registerPrachtWorker(fetch: PrachtWorkerFetch): void {
   registeredFetch = fetch;
 }
 
-export interface PrachtHandlerOptions<TEnv = unknown, TContext = unknown> {
+export interface PrachtHandlerOptions<TEnv = PrachtWorkerEnv, TContext = unknown> {
   /**
    * Build the `context` loaders, middleware, API routes, and capabilities
    * receive. Defaults to `{ env, executionContext }`.
@@ -30,7 +37,7 @@ export interface PrachtHandlerOptions<TEnv = unknown, TContext = unknown> {
   createContext?: (args: CloudflareContextArgs<TEnv>) => TContext | Promise<TContext>;
 }
 
-export interface PrachtHandler<TEnv = unknown> {
+export interface PrachtHandler<TEnv = PrachtWorkerEnv> {
   /** Serve a request through pracht: assets, ISG, pages, API routes, and capabilities. */
   fetch(
     request: Request,
@@ -55,7 +62,7 @@ export interface PrachtHandler<TEnv = unknown> {
  * };
  * ```
  */
-export function createPrachtHandler<TEnv = unknown, TContext = unknown>(
+export function createPrachtHandler<TEnv = PrachtWorkerEnv, TContext = unknown>(
   options: PrachtHandlerOptions<TEnv, TContext> = {},
 ): PrachtHandler<TEnv> {
   const createContext = options.createContext as
