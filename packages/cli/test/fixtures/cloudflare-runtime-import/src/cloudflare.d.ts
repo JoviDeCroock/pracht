@@ -9,6 +9,9 @@ declare module "cloudflare:workers" {
     constructor(value: unknown);
   }
   export class RpcTarget {}
+  export class RpcPromise {}
+  export class RpcProperty {}
+  export class ServiceStub {}
   export class WorkerEntrypoint {
     fetch?(request: Request): Response | Promise<Response>;
   }
@@ -44,4 +47,15 @@ declare module "cloudflare:email" {
 
 declare module "cloudflare:workflows" {
   export class WorkflowEntrypoint {}
+  export class NonRetryableError extends Error {
+    constructor(message: string, name?: string);
+  }
+}
+
+declare module "cloudflare:pipelines" {
+  export class PipelineTransformationEntrypoint {}
+}
+
+declare module "cloudflare:node" {
+  export function httpServerHandler(port: number): unknown;
 }

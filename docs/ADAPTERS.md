@@ -504,6 +504,19 @@ build).
   separate Worker modules instead of folding them into the entry file. If a
   named Wrangler environment overrides either setting, it must preserve the
   same contract; `pracht verify` checks those effective environment settings.
+- **Prerender stubs**: `pracht build` imports `server.js` in Node to prerender
+  SSG/ISG pages, so `packages/cli/src/prerender-module-hooks.ts` stubs every
+  `cloudflare:*` module the server bundle keeps external (`workers`,
+  `workflows`, `email`, `sockets`, `pipelines`, `node`). Every runtime export
+  must exist, or the import fails to link. Classes stay constructible and
+  subclassable; request-time helpers (`waitUntil`, `withEnv`, `cache.purge`,
+  `connect`, ...) throw when called. `env` and `exports` stay empty objects,
+  because Cloudflare allows top-level binding reads in entrypoint and context
+  modules, but reads during the prerender pass are recorded and the build
+  warns with their names. The graph-command stubs in
+  `@pracht/adapter-cloudflare` (`GRAPH_RUNTIME_STUBS`) mirror the same export
+  surface; `packages/cli/test/cloudflare-runtime-stubs.test.ts` enumerates the
+  installed workerd modules through Miniflare and checks both sets.
 - **Local preview**: `pracht preview` runs `pracht build` and then delegates to
   `wrangler dev --port <port>` against the built worker. It requires wrangler
   (in `node_modules` or on PATH) and a wrangler config; it errors with install
