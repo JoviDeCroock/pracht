@@ -1,5 +1,5 @@
 import { DEFAULT_LOADER_TIMEOUT_MS, resolveApp } from "./app.ts";
-import { withBase } from "./base.ts";
+import { applyTrailingSlash, withBase } from "./base.ts";
 import { buildPathFromSegments } from "./route-matching.ts";
 import { isDangerousPrerenderHeader, normalizeRouteRevalidate } from "./revalidation.ts";
 import { hasMarkdownRepresentation, MARKDOWN_MEDIA_TYPE } from "./runtime-negotiation.ts";
@@ -160,7 +160,7 @@ async function prerenderMarkdownPage(
 ): Promise<PrerenderedMarkdown> {
   const response = await handlePrachtRequest({
     app: options.app,
-    request: new Request(new URL(withBase(pagePath), "http://localhost"), {
+    request: new Request(new URL(withBase(applyTrailingSlash(pagePath)), "http://localhost"), {
       method: "GET",
       headers: { accept: MARKDOWN_MEDIA_TYPE },
     }),
@@ -243,8 +243,10 @@ async function prerenderAppPages(
         // Work items are route paths; the request is the URL a visitor would
         // ask for, base included. `handlePrachtRequest` strips the base back
         // off for matching, and the serialized hydration state then carries
-        // the same URL shape a client-side navigation produces.
-        const url = new URL(withBase(item.pathname), "http://localhost");
+        // the same URL shape a client-side navigation produces — including
+        // the `pracht({ trailingSlash })` spelling, which a non-canonical
+        // request would answer with a redirect instead of the page.
+        const url = new URL(withBase(applyTrailingSlash(item.pathname)), "http://localhost");
         const request = new Request(url, { method: "GET" });
 
         // The rendered response hides server error details (that is the right

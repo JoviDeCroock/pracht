@@ -62,6 +62,11 @@ candidate" if they don't already declare it.
 - **Duplicate titles** across routes — list collisions.
 - **Duplicate descriptions** — same.
 - **Missing canonical** on any route that has any `?query` variants.
+- **Duplicate trailing-slash URLs.** With the default
+  `pracht({ trailingSlash: "ignore" })` every page answers at `/about` and
+  `/about/`. Recommend `"always"` or `"never"`, which redirects the other
+  spelling with a 308, or a canonical link on every page. Canonicals, `og:url`,
+  and sitemap entries must use the spelling in `dist/server/routing.json`.
 - **Missing OG image** — most common issue; recommend a default image at
   shell level so every route inherits one.
 
@@ -105,6 +110,8 @@ Generate (or recommend generating) a sitemap from the route manifest:
   time — pull resolved paths from the prerender output, which is laid out as
   `dist/client/<route>/index.html` (clean URLs; e.g. `/about` →
   `dist/client/about/index.html`).
+- Write each URL in the app's canonical spelling: `/about/` under
+  `trailingSlash: "always"`, `/about` otherwise (the root is always `/`).
 - Default `<changefreq>` from the route's revalidate policy: `timeRevalidate`
   → `weekly` if `> 86400s`, `daily` if `> 3600s`, `hourly` otherwise.
 

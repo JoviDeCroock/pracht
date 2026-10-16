@@ -137,8 +137,10 @@ unbounded cold renders, so keep query shapes on shared ISG routes bounded.
 Cached hits skip middleware, so per-visitor policy belongs on SSR routes.
 
 Without `assets.html_handling`, the assets binding redirects `/guide` to
-`/guide/`, while Node serves `/guide` directly. The `"drop-trailing-slash"`
-value in the config above keeps one canonical URL across adapters.
+`/guide/`, while Node serves `/guide` directly. Set it to match
+[`trailingSlash`](/docs/routing#trailing-slashes): `"drop-trailing-slash"`, as
+in the config above, by default or with `"never"`, and `"force-trailing-slash"`
+with `"always"`. `pracht verify` warns when the two disagree.
 
 ### Composing the Worker
 
@@ -417,8 +419,8 @@ stay out of the function bundle too — but never exclude page URLs.
   `Netlify-CDN-Cache-Control` takes precedence over these defaults. On SSR and
   API responses, set `Netlify-CDN-Cache-Control` to control CDN caching; a
   `public` `Cache-Control` is otherwise copied into it.
-- An ISG URL with a trailing slash redirects to the slashless one, so only one
-  copy is cached. Unrelated query parameters, such as tracking tags, share the
+- An ISG URL in its non-canonical spelling redirects to the canonical one
+  (slashless unless `trailingSlash: "always"`), so only one copy is cached. Unrelated query parameters, such as tracking tags, share the
   page's cache entry. A custom `Netlify-Vary` header replaces pracht's default
   key.
 

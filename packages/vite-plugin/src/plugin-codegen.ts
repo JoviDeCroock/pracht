@@ -1005,6 +1005,9 @@ export function createPrachtServerModuleSource(
     // bases to "/" in SSR builds, but the static-export validator still needs
     // to reject the original value because the client build resolves it relatively.
     `export const configuredBase = ${JSON.stringify(buildOptions.configuredBase)};`,
+    // `pracht({ trailingSlash })`, read by the CLI for the build's routing
+    // metadata and by adapters whose output routing is generated at build time.
+    `export const buildTrailingSlash = ${JSON.stringify(resolved.trailingSlash)};`,
     `export const clientEntryUrl = ${JSON.stringify(clientEntryUrl ?? CLIENT_BROWSER_PATH)};`,
     `export const islandsEntryUrl = ${JSON.stringify(islandsEntryUrl ?? null)};`,
     `export const islandsBootstrapRequired = ${JSON.stringify(islandsBootstrapRequired)};`,
@@ -1086,6 +1089,7 @@ export function createPrachtDevModuleSource(
     `export const buildTarget = ${JSON.stringify(resolved.adapter?.id ?? "node")};`,
     `export const staticTarget = ${JSON.stringify(resolved.adapter?.staticTarget === true)};`,
     `export const buildBase = ${JSON.stringify(buildOptions.base ?? "/")};`,
+    `export const buildTrailingSlash = ${JSON.stringify(resolved.trailingSlash)};`,
     "",
   ].join("\n");
 }

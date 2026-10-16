@@ -9,6 +9,7 @@ import {
   applyDefaultSecurityHeaders,
   classifyRevalidationSkip,
   createBaseRedirectResponse,
+  createTrailingSlashRedirectResponse,
   createISGRegenerationRequest,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
@@ -28,6 +29,7 @@ import {
   resolveRevalidationToken,
   routeSupportsMarkdown,
   stripBase,
+  TRAILING_SLASH,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   type MarkdownManifest,
@@ -174,8 +176,11 @@ export function createNetlifyHandler<
     // Netlify chooses its CDN cache key before the function runs. Rendering a
     // slashless Request would therefore still leave `/pricing` and
     // `/pricing/` in separate durable entries. Redirect document requests to
-    // the manifest's canonical path so only the slashless URL renders.
+    // the manifest's canonical path so only the slashless URL renders —
+    // unless `pracht({ trailingSlash: "always" })` makes the other canonical,
+    // which the redirect below handles for every page.
     if (
+      TRAILING_SLASH !== "always" &&
       staticMethod &&
       !routeStateRequest &&
       !wantsMarkdown &&
@@ -201,9 +206,19 @@ export function createNetlifyHandler<
       !(pathname in isgManifest)
     ) {
       const file = await resolveStaticFile(options.staticDir, pathname);
+      // A prerendered page answers one spelling under `pracht({ trailingSlash })`.
+      const trailingSlashRedirect = file?.document
+        ? createTrailingSlashRedirectResponse(request)
+        : null;
+      if (trailingSlashRedirect) return trailingSlashRedirect;
       if (file) {
         return serveStaticFile(request, file, headersManifest, pathname, cache.staticMaxAge);
       }
+    }
+
+    if (pathname !== null && pathname in isgManifest) {
+      const trailingSlashRedirect = createTrailingSlashRedirectResponse(request);
+      if (trailingSlashRedirect) return trailingSlashRedirect;
     }
 
     const isgRoute =

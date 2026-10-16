@@ -83,6 +83,69 @@ export function resolveBaseRedirectLocation(pathname: string, search = ""): stri
   return `${PRACHT_BASE}${search}`;
 }
 
+// `pracht({ trailingSlash })`, defined for the client and server bundles
+// alike. Plain Node (the CLI, unit tests) leaves it undefined: the default.
+declare const __PRACHT_TRAILING_SLASH__: string | undefined;
+
+/**
+ * The trailing-slash policy: `"ignore"` (default) generates `/about` and
+ * accepts `/about/`; `"never"` and `"always"` make one spelling canonical.
+ *
+ * Every caller compares it against `"ignore"` first, so an app that keeps the
+ * default constant-folds the whole feature out of its bundles.
+ */
+export const TRAILING_SLASH: "ignore" | "never" | "always" =
+  typeof __PRACHT_TRAILING_SLASH__ === "undefined"
+    ? "ignore"
+    : (__PRACHT_TRAILING_SLASH__ as "ignore" | "never" | "always");
+
+/**
+ * The canonical spelling of a page path under the trailing-slash policy.
+ * Works on route paths (`/about`) and URL paths (`/app/about`) alike, and on
+ * paths alone, never a query or hash.
+ *
+ * The root — and with it a deploy base, which is the root as a URL — always
+ * keeps its slash. A last segment containing a dot (`/feed.xml`) is a file
+ * name and never gets one, so `"always"` leaves it slashless.
+ */
+export function applyTrailingSlash(pathname: string): string {
+  if (TRAILING_SLASH === "ignore" || !pathname.startsWith("/")) return pathname;
+  const trimmed = pathname.replace(/\/+$/, "");
+  if (trimmed === "" || (HAS_BASE && `${trimmed}/` === PRACHT_BASE)) return pathname;
+  if (TRAILING_SLASH === "never") return trimmed;
+  return trimmed.slice(trimmed.lastIndexOf("/") + 1).includes(".") ? trimmed : `${trimmed}/`;
+}
+
+/**
+ * `applyTrailingSlash()` for a root-absolute route href that may carry a query
+ * or hash. Relative and absolute URLs are returned unchanged, and so are API
+ * routes (always under `/api`) and framework endpoints, which keep answering
+ * the spelling they were given.
+ */
+export function applyTrailingSlashToHref(href: string): string {
+  if (TRAILING_SLASH === "ignore" || !href.startsWith("/") || href.startsWith("//")) return href;
+  const end = href.search(/[?#]/);
+  const pathname = end === -1 ? href : href.slice(0, end);
+  if (/^\/(?:api|_pracht|__pracht)(?:\/|$)/.test(pathname)) return href;
+  return `${applyTrailingSlash(pathname)}${end === -1 ? "" : href.slice(end)}`;
+}
+
+/**
+ * The location a page document request should be redirected to under the
+ * trailing-slash policy, or `null` when its URL is already canonical.
+ *
+ * @internal
+ */
+export function resolveTrailingSlashRedirectLocation(pathname: string, search = ""): string | null {
+  if (TRAILING_SLASH === "ignore") return null;
+  const canonical = applyTrailingSlash(pathname);
+  if (canonical === pathname) return null;
+  // Route matching collapses repeated slashes, so `//evil.example/` can match
+  // a page. Its canonical spelling must not become a protocol-relative
+  // Location that sends the visitor to another host.
+  return `${canonical.replace(/^\/{2,}/, "/")}${search}`;
+}
+
 function canonicalizeBaseSegment(segment: string): string | null {
   try {
     const decoded = decodeURIComponent(segment);

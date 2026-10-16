@@ -118,6 +118,8 @@ pracht build && npx wrangler deploy
   "assets": {
     "binding": "ASSETS",
     "directory": "dist/client",
+    // "force-trailing-slash" with pracht({ trailingSlash: "always" })
+    "html_handling": "drop-trailing-slash",
     "run_worker_first": true,
   },
 }
@@ -247,9 +249,9 @@ resource path or its reserved metadata paths is a build error because it would
 bypass the framework's authentication handler.
 
 Caching: Netlify durable caching implements time-based ISG and per-path cache
-tags implement authenticated webhook revalidation. A trailing-slash ISG
-document request permanently redirects to the canonical slashless URL before
-rendering, and webhook revalidation normalizes either spelling before purging
+tags implement authenticated webhook revalidation. An ISG document request in
+the non-canonical spelling permanently redirects to the canonical URL
+(slashless unless `trailingSlash: "always"`) before rendering, and webhook revalidation normalizes either spelling before purging
 the tag. Only `Cache-Control`, `CDN-Cache-Control`, and
 `Netlify-CDN-Cache-Control` override the adapter's cache defaults —
 provider-specific headers for another CDN do not; a window of `0` disables

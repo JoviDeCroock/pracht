@@ -194,3 +194,14 @@ function stripPrachtClientModuleQuery(id: string): string {
 
   return query.length > 0 ? `${path}?${query.join("&")}` : path;
 }
+
+/**
+ * `pracht({ trailingSlash })` as the server bundle recorded it; `"ignore"` for
+ * a bundle from an older pracht or a custom entry that does not say.
+ */
+export function readBuildTrailingSlash(serverMod: {
+  buildTrailingSlash?: unknown;
+}): "ignore" | "never" | "always" {
+  const value = serverMod.buildTrailingSlash;
+  return value === "never" || value === "always" ? value : "ignore";
+}

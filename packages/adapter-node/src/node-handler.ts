@@ -6,6 +6,7 @@ import { join, resolve, sep } from "node:path";
 import {
   applyDefaultSecurityHeaders,
   createBaseRedirectResponse,
+  createTrailingSlashRedirectResponse,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
   classifyRevalidationSkip,
@@ -58,7 +59,12 @@ import {
   writeNodeResponseHeaders,
   writeWebResponse,
 } from "./node-request.ts";
-import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
+import {
+  applyHeadersManifest,
+  resolveStaticFile,
+  toRouteKey,
+  type HeadersManifest,
+} from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
@@ -217,6 +223,14 @@ export function createNodeRequestHandler<TContext = unknown>(
     const compression: CompressionState | undefined = compressionEnabled
       ? { cache: compressedAssetCache, request }
       : undefined;
+    // Locations carry the public URL, deploy base included, even when a proxy
+    // forwarded the request without it.
+    const redirectToCanonicalPage = (): Response | null =>
+      createTrailingSlashRedirectResponse(
+        options.basePathStripped ? restoreBasePathInRequest(request) : request,
+      );
+    // ISG entries are keyed by route path; `/about/` is the same page.
+    const isgKey = routePathname === null ? null : toRouteKey(routePathname);
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     // Only routes that can actually answer with markdown skip the static and
     // ISG fast paths: the client has to prefer markdown over HTML (a browser's
@@ -256,6 +270,12 @@ export function createNodeRequestHandler<TContext = unknown>(
       routePathname !== null
     ) {
       const staticResult = await resolveStaticFile(staticDir, routePathname, isgManifest);
+      // A prerendered page answers one spelling under `pracht({ trailingSlash })`.
+      const trailingSlashRedirect = staticResult?.document ? redirectToCanonicalPage() : null;
+      if (trailingSlashRedirect) {
+        await writeWebResponse(res, trailingSlashRedirect);
+        return;
+      }
       if (staticResult) {
         await serveStaticFile(
           request,
@@ -275,16 +295,21 @@ export function createNodeRequestHandler<TContext = unknown>(
       !isMcpMetadataRequest &&
       !isTransportRouteStateRequest &&
       !wantsMarkdown &&
-      routePathname !== null &&
-      routePathname in isgManifest
+      isgKey !== null &&
+      isgKey in isgManifest
     ) {
+      const trailingSlashRedirect = redirectToCanonicalPage();
+      if (trailingSlashRedirect) {
+        await writeWebResponse(res, trailingSlashRedirect);
+        return;
+      }
       const served = await serveISGEntry(
         request,
         res,
         options,
         staticDir,
-        routePathname,
-        isgManifest[routePathname],
+        isgKey,
+        isgManifest[isgKey],
         headersManifest,
         { request, req, res },
         compression,
@@ -323,15 +348,15 @@ export function createNodeRequestHandler<TContext = unknown>(
       staticDir !== undefined &&
       request.method === "GET" &&
       !isTransportRouteStateRequest &&
-      routePathname !== null &&
-      routePathname in isgManifest &&
+      isgKey !== null &&
+      isgKey in isgManifest &&
       response.status === 200 &&
       (response.headers.get("content-type")?.includes("text/html") ?? false) &&
       isCacheableISGResponse(response);
 
     if (isIsgDocument) {
       const html = await response.clone().text();
-      const htmlPath = resolveContainedPath(staticDir, routePathname);
+      const htmlPath = resolveContainedPath(staticDir, isgKey);
       if (htmlPath) {
         await writeISGFile(htmlPath, html);
         compressedAssetCache.invalidatePath(htmlPath);

@@ -6,6 +6,13 @@ import { normalizeAdditionalExtensions } from "./route-extensions.ts";
 
 export type LlmsTxtSection = "pages" | "api" | "capabilities";
 
+/**
+ * Which spelling of a page URL is canonical: `"ignore"` (the default) answers
+ * both `/about` and `/about/` and generates the first; `"never"` and
+ * `"always"` generate one spelling and redirect the other to it with a 308.
+ */
+export type TrailingSlashPolicy = "ignore" | "never" | "always";
+
 export interface PrachtLlmsTxtOptions {
   /** H1 title. Defaults to the app's package.json `name`. */
   title?: string;
@@ -212,6 +219,18 @@ export interface PrachtPluginOptions {
    * Never part of a build either way. Enabled by default.
    */
   devPageTools?: boolean;
+  /**
+   * The canonical spelling of page URLs. `"ignore"` (the default) serves a
+   * page at both `/about` and `/about/` and generates links without the
+   * slash. `"never"` and `"always"` make one spelling canonical: links,
+   * `href()`, `redirect()`, client navigation, prerender requests, and
+   * llms.txt use it, and document requests for the other spelling get a 308
+   * that keeps the query string. The root and a deploy base keep their slash.
+   * API routes, files, route-state requests, and Markdown negotiation are
+   * never redirected. A last segment containing a dot (`/feed.xml`) is a file
+   * name and never gets a trailing slash.
+   */
+  trailingSlash?: TrailingSlashPolicy;
 }
 
 export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
@@ -249,7 +268,10 @@ const DEFAULTS: ResolvedPrachtPluginOptions = {
   llmsTxt: false,
   markdownFiles: true,
   devPageTools: true,
+  trailingSlash: "ignore",
 };
+
+const TRAILING_SLASH_POLICIES = new Set<unknown>(["ignore", "never", "always"]);
 
 export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPluginOptions {
   const resolved = {
@@ -274,6 +296,14 @@ export function resolveOptions(options: PrachtPluginOptions): ResolvedPrachtPlug
   }
   if (typeof resolved.devPageTools !== "boolean") {
     throw new Error("pracht({ devPageTools }) expects a boolean.");
+  }
+  if (resolved.trailingSlash === undefined) {
+    resolved.trailingSlash = "ignore";
+  }
+  if (!TRAILING_SLASH_POLICIES.has(resolved.trailingSlash)) {
+    throw new Error(
+      `pracht({ trailingSlash }) expects "ignore", "never", or "always", got ${JSON.stringify(resolved.trailingSlash)}.`,
+    );
   }
   resolved.client = resolveClientOptions(options.client);
   if (typeof resolved.vendorChunk !== "boolean") {

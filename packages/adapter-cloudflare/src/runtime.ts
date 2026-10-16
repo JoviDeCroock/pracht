@@ -3,6 +3,7 @@ import {
   applyDefaultSecurityHeaders,
   createBaseRedirectResponse,
   createISGRegenerationRequest,
+  createTrailingSlashRedirectResponse,
   createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
@@ -229,6 +230,10 @@ export function createCloudflareFetchHandler<
       }
     }
 
+    // An edge-cached ISG page never reaches the assets binding that
+    // canonicalizes the others, so `pracht({ trailingSlash })` applies here.
+    const edgeCacheRedirect = cacheRoute ? createTrailingSlashRedirectResponse(request) : null;
+    if (edgeCacheRedirect) return edgeCacheRedirect;
     const renderRequest = cacheRoute ? createWorkersCacheRenderRequest(request) : request;
     const context = options.createContext
       ? await options.createContext({ request: renderRequest, env, executionContext })
@@ -361,20 +366,29 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   if (!isDocumentAssetRequest(request, markdownManifest)) return null;
 
   const url = new URL(request.url);
-  const entry = isgManifest[url.pathname];
+  // Keyed by route path: `/about/` is the same page, and the same cache entry.
+  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") || "/" : url.pathname;
+  const entry = isgManifest[pathname];
   if (!entry) return null;
 
   const cache = getDefaultCache();
-  const cacheKey = createISGCacheKey(request, url.pathname);
+  const cacheKey = createISGCacheKey(request, pathname);
   const cached = cache ? await cache.match(cacheKey) : undefined;
   if (cached) {
+    // The assets binding's `html_handling` canonicalizes the spelling of every
+    // page it serves; a cached page skips it, so `pracht({ trailingSlash })`
+    // is applied here.
+    const trailingSlashRedirect = createTrailingSlashRedirectResponse(
+      restoreBasePathInRequest(request),
+    );
+    if (trailingSlashRedirect) return trailingSlashRedirect;
     const stale = isCloudflareISGStale(entry, cached);
     if (stale && cache) {
       executionContext.waitUntil(
-        regenerateCloudflareISGPage(cache, cacheKey, url.pathname, request, renderISGPage),
+        regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage),
       );
     }
-    return prepareCloudflareISGResponse(cached, headersManifest, url.pathname, stale);
+    return prepareCloudflareISGResponse(cached, headersManifest, pathname, stale);
   }
 
   const assetResponse = await maybeServeAsset(
@@ -390,7 +404,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   const stale = isCloudflareISGStale(entry, assetResponse);
   if (stale && cache) {
     executionContext.waitUntil(
-      regenerateCloudflareISGPage(cache, cacheKey, url.pathname, request, renderISGPage),
+      regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage),
     );
   }
 

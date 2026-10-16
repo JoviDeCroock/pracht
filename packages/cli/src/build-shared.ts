@@ -58,7 +58,17 @@ interface VercelBuildOutputOptions {
   runtimeRoutes?: string[];
   staticAssetRoutes?: string[];
   staticRoutes: string[];
+  /**
+   * `pracht({ trailingSlash })`. Under `"never"` or `"always"` the other
+   * spelling of every prerendered page is sent to the function, which answers
+   * it with a 308 to the canonical URL.
+   */
+  trailingSlash?: TrailingSlashPolicy;
+  /** Prerendered page paths (SSG and ISG) the trailing-slash policy covers. */
+  pageRoutes?: string[];
 }
+
+type TrailingSlashPolicy = "ignore" | "never" | "always";
 
 /** Runtime-owned agent paths that must win over Vercel's method-agnostic static rewrites. */
 export function resolveVercelRuntimeRoutes(agents: PrachtAgentsConfig | undefined): string[] {
@@ -85,6 +95,8 @@ export function writeVercelBuildOutput({
   runtimeRoutes = [],
   staticAssetRoutes = [],
   staticRoutes,
+  trailingSlash = "ignore",
+  pageRoutes = [],
 }: VercelBuildOutputOptions): string {
   const deployBase = resolveVercelDeployBase(base);
   const outputDir = join(root, ".vercel/output");
@@ -134,6 +146,8 @@ export function writeVercelBuildOutput({
         staticRoutes,
         isgRoutes: Object.keys(isgManifest),
         deployBase,
+        trailingSlash,
+        pageRoutes,
         markdownFiles: markdownFiles.map((file) =>
           relative(staticDir, join(staticDeployDir, file)).split(sep).join("/"),
         ),
@@ -304,7 +318,11 @@ function createVercelOutputConfig({
   staticAssetRoutes,
   staticRoutes,
   isgRoutes,
+  trailingSlash = "ignore",
+  pageRoutes = [],
 }: {
+  trailingSlash?: TrailingSlashPolicy;
+  pageRoutes?: string[];
   deployBase: string;
   functionName?: string;
   headersManifest: Record<string, Record<string, string>>;
@@ -407,7 +425,26 @@ function createVercelOutputConfig({
     src: routeToRouteExpression(withVercelDeployBase(route, deployBase)),
   });
 
+  // The non-canonical spelling of a prerendered page reaches the function,
+  // whose runtime answers it with a query-preserving 308. Only pages: content
+  // artifacts and generated files keep answering both spellings.
+  const pageRouteSet = new Set(pageRoutes);
+  const pushNonCanonicalEntry = (route: string) => {
+    if (trailingSlash === "ignore" || !pageRouteSet.has(route)) return;
+    const canonical = applyTrailingSlashPolicy(
+      withVercelDeployBase(route, deployBase),
+      deployBase,
+      trailingSlash,
+    );
+    if (canonical === null) return;
+    routes.push({
+      dest: target,
+      src: `^${escapeRegex(canonical.endsWith("/") ? canonical.slice(0, -1) : `${canonical}/`)}$`,
+    });
+  };
+
   for (const route of sortStaticRoutes(staticRoutes)) {
+    pushNonCanonicalEntry(route);
     if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
     routes.push({
       dest: withVercelDeployBase(routeToStaticHtmlPath(route), deployBase),
@@ -419,6 +456,7 @@ function createVercelOutputConfig({
     // ISG markdown routes go to the render function, not to their prerender
     // function: that one re-renders on a sanitized `Accept: text/html` to keep
     // the shared cache entry correct, so it can only ever produce HTML.
+    pushNonCanonicalEntry(route);
     if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
     const publicRoute = withVercelDeployBase(route, deployBase);
     routes.push({
@@ -549,6 +587,21 @@ function resolveVercelStaticDeployDir(staticDir: string, base: string): string {
       return decoded;
     });
   return join(staticDir, ...segments);
+}
+
+/**
+ * The canonical spelling of a public page path, mirroring the runtime's
+ * `applyTrailingSlash()`; `null` for the root, which has only one.
+ */
+function applyTrailingSlashPolicy(
+  publicRoute: string,
+  deployBase: string,
+  policy: "never" | "always",
+): string | null {
+  const trimmed = publicRoute.replace(/\/+$/, "");
+  if (trimmed === "" || `${trimmed}/` === deployBase) return null;
+  if (policy === "never") return trimmed;
+  return trimmed.slice(trimmed.lastIndexOf("/") + 1).includes(".") ? trimmed : `${trimmed}/`;
 }
 
 function routeToRouteExpression(route: string): string {

@@ -368,6 +368,22 @@ group({ pathPrefix: "/admin", shell: "admin", middleware: ["auth"] }, [
 
 `capabilities` is additive: a route keeps its group's page tools and adds its own. Navigation swaps in the destination route's tools. `hydration: "none"` routes cannot activate page tools.
 
+## Trailing Slashes
+
+By default a page answers at both `/about` and `/about/`, and every URL pracht generates uses `/about`. To make one spelling the only one, set `trailingSlash` on the Vite plugin:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [pracht({ trailingSlash: "always" })], // or "never"
+});
+```
+
+With `"always"`, `GET /about?ref=mail` answers `308` with `Location: /about/?ref=mail`, and `/about/` renders the page. `"never"` does the reverse. Hrefs from `<Link route>`, `href()`, `useNavigate()`, and `redirect()` use the canonical spelling, and so do `llms.txt` and the speculation rules. A hand-written `<a href="/about">` or `navigate("/about")` lands on `/about/` through the client router without a request for the other spelling.
+
+The root (`/`, or `/my-project/` under a [deploy base](/docs/deployment#sub-path-deploys)) always keeps its slash. A path whose last segment contains a dot, such as `/feed.xml`, never gets one. API routes, static files, route-state fetches, and `Accept: text/markdown` requests answer either spelling without a redirect. Route paths in the manifest stay slashless, while `useLocation()` reports the URL as the visitor sees it.
+
+Every adapter applies the policy, including to prerendered and ISG pages. On Cloudflare, set the assets binding's `html_handling` to match it; see [Adapters](/docs/adapters#cloudflare-workers). A static export writes every page as `about/index.html`, which most static hosts serve at `/about/`, so pair it with `"always"`.
+
 ---
 
 ## Pages Router (Auto-Discovery)

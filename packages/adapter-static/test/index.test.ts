@@ -94,6 +94,7 @@ describe("createStaticPreviewHandler", () => {
   async function startPreview(options?: {
     base?: string | null;
     fallback?: string | null;
+    trailingSlash?: "ignore" | "never" | "always";
   }): Promise<{
     origin: string;
     staticDir: string;
@@ -123,6 +124,7 @@ describe("createStaticPreviewHandler", () => {
       staticDir,
       base: options?.base ?? null,
       fallback: options?.fallback ?? null,
+      trailingSlash: options?.trailingSlash,
     });
     const server: Server = createServer((req, res) => {
       void handler(req, res);
@@ -239,5 +241,29 @@ describe("createStaticPreviewHandler", () => {
     const post = await fetch(`${origin}/about`, { method: "POST" });
     expect(post.status).toBe(405);
     expect(post.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  it('redirects pages to their slash form under trailingSlash: "always"', async () => {
+    const { origin } = await startPreview({ trailingSlash: "always" });
+    const about = await fetch(`${origin}/about?x=1`, { redirect: "manual" });
+    expect(about.status).toBe(308);
+    expect(about.headers.get("location")).toBe("/about/?x=1");
+    expect((await fetch(`${origin}/about/`)).status).toBe(200);
+    expect((await fetch(`${origin}/`)).status).toBe(200);
+    expect((await fetch(`${origin}/assets/app-abc.js`)).status).toBe(200);
+
+    const based = await startPreview({ base: "/app/", trailingSlash: "always" });
+    const basedAbout = await fetch(`${based.origin}/app/about`, { redirect: "manual" });
+    expect(basedAbout.headers.get("location")).toBe("/app/about/");
+    expect((await fetch(`${based.origin}/app/`, { redirect: "manual" })).status).toBe(200);
+  });
+
+  it('redirects pages to their slashless form under trailingSlash: "never"', async () => {
+    const { origin } = await startPreview({ trailingSlash: "never" });
+    const about = await fetch(`${origin}/about/`, { redirect: "manual" });
+    expect(about.status).toBe(308);
+    expect(about.headers.get("location")).toBe("/about");
+    expect((await fetch(`${origin}/about`)).status).toBe(200);
+    expect((await fetch(`${origin}/`)).status).toBe(200);
   });
 });

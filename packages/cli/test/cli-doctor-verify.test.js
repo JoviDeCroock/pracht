@@ -1476,6 +1476,55 @@ export const app = defineApp({
     expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
   });
 
+  it("expects the html_handling that matches pracht({ trailingSlash })", () => {
+    const writeApp = (prefix, htmlHandling) => {
+      const appDir = createTempDir(prefix);
+      writeCloudflareManifestApp(appDir);
+      writeProjectFile(
+        appDir,
+        "vite.config.ts",
+        `import { defineConfig } from "vite";
+import { pracht } from "@pracht/vite-plugin";
+import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+
+export default defineConfig({
+  plugins: [pracht({ adapter: cloudflareAdapter(), trailingSlash: "always" })],
+});
+`,
+      );
+      writeProjectFile(appDir, "dist/client/about/index.html", "<main>about</main>");
+      writeProjectFile(
+        appDir,
+        "wrangler.jsonc",
+        `{
+  "name": "fixture-app",
+  "main": "dist/server/worker.js",
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js"] }],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "dist/client",
+    "html_handling": "${htmlHandling}",
+    "run_worker_first": true,
+  },
+}
+`,
+      );
+      return JSON.parse(runCli(["doctor", "--json"], { cwd: appDir }).stdout);
+    };
+
+    const mismatched = writeApp("pracht-cli-doctor-cf-slash-mismatch-", "drop-trailing-slash");
+    expect(mismatched.checks).toContainEqual(
+      expect.objectContaining({
+        status: "warning",
+        message: expect.stringContaining('Set "html_handling": "force-trailing-slash"'),
+      }),
+    );
+
+    const matched = writeApp("pracht-cli-doctor-cf-slash-match-", "force-trailing-slash");
+    expect(matched.checks.some((check) => check.message.includes("html_handling"))).toBe(false);
+  });
+
   it("warns when Wrangler would rebundle Pracht's deferred server chunks", () => {
     const appDir = createTempDir("pracht-cli-doctor-cf-bundle-");
     writeCloudflareManifestApp(appDir);

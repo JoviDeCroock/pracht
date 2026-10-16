@@ -10,6 +10,12 @@ import type {
   SpeculationOption,
 } from "./types.ts";
 
+// `pracht({ trailingSlash })`. Declared in this module rather than imported:
+// Rolldown folds the condition only within a module.
+declare const __PRACHT_TRAILING_SLASH__: string | undefined;
+const TRAILING_SLASH_ENABLED =
+  typeof __PRACHT_TRAILING_SLASH__ !== "undefined" && __PRACHT_TRAILING_SLASH__ !== "ignore";
+
 interface HrefMatchesClause {
   href_matches: string[];
 }
@@ -166,7 +172,11 @@ function segmentsToHrefMatch(segments: readonly RouteSegment[]): string | null {
     if (segment.type === "param") return `:${segment.name}`;
     return "*";
   });
-  return base + parts.join("/");
+  // Under `pracht({ trailingSlash })` links may carry a slash the route
+  // segments do not; a catch-all already matches it.
+  const optionalSlash =
+    TRAILING_SLASH_ENABLED && segments[segments.length - 1].type !== "catchall" ? "{/}?" : "";
+  return base + parts.join("/") + optionalSlash;
 }
 
 function escapeStaticSegmentForUrlPattern(segment: string): string {

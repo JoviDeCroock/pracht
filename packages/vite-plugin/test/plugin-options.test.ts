@@ -219,6 +219,22 @@ describe("createPrachtServerModuleSource llmsTxt export", () => {
     expect(source).toContain("export const markdownFiles = false;");
   });
 
+  it("defaults trailingSlash to ignore and records the policy for the build", () => {
+    expect(resolveOptions({}).trailingSlash).toBe("ignore");
+    expect(createPrachtServerModuleSource({})).toContain(
+      'export const buildTrailingSlash = "ignore";',
+    );
+    expect(createPrachtServerModuleSource({ trailingSlash: "always" })).toContain(
+      'export const buildTrailingSlash = "always";',
+    );
+  });
+
+  it("rejects an unknown trailingSlash policy", () => {
+    expect(() => resolveOptions({ trailingSlash: "sometimes" as never })).toThrow(
+      'pracht({ trailingSlash }) expects "ignore", "never", or "always", got "sometimes".',
+    );
+  });
+
   it("rejects a non-boolean markdownFiles", () => {
     expect(() => resolveOptions({ markdownFiles: "yes" as unknown as boolean })).toThrow(
       "pracht({ markdownFiles }) expects a boolean",

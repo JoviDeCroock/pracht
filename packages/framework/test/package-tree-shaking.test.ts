@@ -75,6 +75,8 @@ async function bundleExport(
     customLogger: logger,
     define: {
       __PRACHT_PUBLIC_ENV__: "{}",
+      // Emitted by the plugin for every app; the default policy folds away.
+      __PRACHT_TRAILING_SLASH__: JSON.stringify("ignore"),
       ...options.define,
     },
     plugins: [

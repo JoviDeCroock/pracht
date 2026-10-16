@@ -15,7 +15,11 @@ import { collectCapabilityAppGraph } from "../app-graph.js";
 import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
 import { serializeMcpAuth, type McpAuthSnapshot } from "../graph-snapshot.js";
 import { handleCliError } from "../utils.js";
-import { readBuiltPageCssManifest, readClientBuildAssets } from "../build-metadata.js";
+import {
+  readBuildTrailingSlash,
+  readBuiltPageCssManifest,
+  readClientBuildAssets,
+} from "../build-metadata.js";
 
 const INSPECT_TARGETS = new Set(["routes", "api", "capabilities", "agents", "build", "all"]);
 
@@ -138,6 +142,11 @@ export interface InspectReport {
   /** The module `defineApp({ root })` registers; absent when there is none. */
   root?: string;
   routes?: InspectRoute[];
+  /**
+   * `pracht({ trailingSlash })`: whether page URLs end in a slash. Route
+   * `path`s stay the manifest's patterns; links and redirects use this spelling.
+   */
+  trailingSlash?: "ignore" | "never" | "always";
 }
 
 function withEffectiveHydration(route: AppGraphRoute): InspectRoute {
@@ -166,6 +175,9 @@ export async function runInspect(
       );
       const notFound = serverModule.resolvedApp.notFound;
       report.notFound = notFound ? withEffectiveHydration(serializeAppRoutes([notFound])[0]) : null;
+      report.trailingSlash = readBuildTrailingSlash(
+        serverModule as { buildTrailingSlash?: unknown },
+      );
       // The build registers the root from the manifest; the registry is where
       // the resolved module path lives.
       const [rootFile] = Object.keys(serverModule.registry?.rootModules ?? {});
@@ -330,7 +342,11 @@ function printInspectReport(report: InspectReport): void {
   console.log(`Pracht inspect (${report.mode} mode)`);
 
   if (report.routes) {
-    console.log("\nRoutes");
+    console.log(
+      report.trailingSlash && report.trailingSlash !== "ignore"
+        ? `\nRoutes (page URLs: trailingSlash ${JSON.stringify(report.trailingSlash)}, e.g. ${report.trailingSlash === "always" ? "/about/" : "/about"})`
+        : "\nRoutes",
+    );
     for (const route of report.routes) {
       // Shell and middleware belong here, not only in `--json`: this is the
       // view a human reviewer reads, and middleware is the security-relevant
