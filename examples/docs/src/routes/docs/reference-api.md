@@ -93,6 +93,10 @@ See [Coding Agents](/docs/coding-agents#constraints).
 | `defer(promise)` | Mark slow loader data for concurrent resolution. See [Data Loading](/docs/data-loading#deferred-values) |
 | `use(value)` | Read a `Deferred<T>`, promise, or settled value inside `<Suspense>` |
 | `Deferred<T>` | The typed marker returned by `defer()` |
+| `serverOnly(value)` | Keep a loader field out of the SSR document's hydration state. See [Data Loading](/docs/data-loading#server-only-values) |
+| `readServerOnly(value)` | Read a `ServerOnly<T>` in server code such as `head()` |
+| `ServerOnly<T>` | The typed marker returned by `serverOnly()` |
+| `<StaticHtml html>` | Render trusted HTML the server already wrote, without hydrating it |
 | `SearchArgs<typeof search>` | Types `args.search` as the route's `search` schema output. See [Routing](/docs/routing#search-params) |
 
 ---

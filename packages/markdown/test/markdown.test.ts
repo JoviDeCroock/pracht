@@ -12,12 +12,12 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function fixture(markdown: string) {
+async function fixture(markdown: string, options: { serverOnly?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "pracht-markdown-"));
   roots.push(root);
   const source = join(root, "post.md");
   await writeFile(source, markdown);
-  const collection = defineMarkdownCollection({ name: "test", root });
+  const collection = defineMarkdownCollection({ name: "test", root, ...options });
   return { collection, source };
 }
 
@@ -105,7 +105,30 @@ describe("defineMarkdownCollection", () => {
 
     const module = await collection.renderModule(source);
     expect(module).toContain("const __prachtHtml = renderMarkdownImages(");
-    expect(module).toContain("__html: __prachtHtml");
+    expect(module).toContain("serverOnly(__prachtHtml)");
+  });
+
+  it("serves the compiled markup as a server-only loader field", async () => {
+    const { collection, source } = await fixture("# Title\n\nBody text.");
+
+    const module = await collection.renderModule(source);
+    // The markup is reachable only from `loader`, which the client transform
+    // strips: the browser gets the prose as HTML, not a second time as JS.
+    expect(module).toContain("export function loader() {");
+    expect(module).toContain("return { html: serverOnly(__prachtHtml) };");
+    expect(module).toContain(
+      'return h(StaticHtml, { class: "pracht-markdown", html: data ? data.html : "" });',
+    );
+    expect(module).not.toContain("dangerouslySetInnerHTML");
+  });
+
+  it("keeps the compiled markup in the route chunk with serverOnly: false", async () => {
+    const { collection, source } = await fixture("# Title\n\nBody text.", { serverOnly: false });
+
+    const module = await collection.renderModule(source);
+    expect(module).not.toContain("export function loader");
+    expect(module).not.toContain("@pracht/core");
+    expect(module).toContain("dangerouslySetInnerHTML: { __html: __prachtHtml }");
   });
 
   it("rejects local query strings instead of ambiguously merging Vite queries", async () => {

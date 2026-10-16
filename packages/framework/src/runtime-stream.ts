@@ -32,6 +32,7 @@ import { escapeHtml, escapeScriptText } from "./runtime-html.ts";
 import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
 import { normalizeRouteError } from "./runtime-errors.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
+import { stripServerOnlyValues } from "./server-only-strip.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
 
 // `client.richData` (see route-data-codec.ts). Declared in this module rather
@@ -235,10 +236,13 @@ export async function streamingHtmlResponse(
             await writeDeferred(() => {
               let json: string;
               try {
+                // The boundary's markup is streamed into the document, so a
+                // serverOnly() field gets the placeholder here as well.
+                const shipped = stripServerOnlyValues(value);
                 json = RICH_ROUTE_DATA
-                  ? (JSON.stringify(encodeRouteData(value, `the deferred value "${id}"`)) ??
+                  ? (JSON.stringify(encodeRouteData(shipped, `the deferred value "${id}"`)) ??
                     "undefined")
-                  : (JSON.stringify(value) ?? "null");
+                  : (JSON.stringify(shipped) ?? "null");
               } catch (error) {
                 return errorScript(id, error);
               }

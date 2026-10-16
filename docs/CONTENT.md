@@ -87,6 +87,50 @@ Vite resource queries such as `?raw`, `?url`, `?url&inline`,
 `?url&no-inline`, `?worker`, and `?sharedworker` also retain their normal Vite
 semantics instead of being claimed by the collection route-module transform.
 
+### Generated route module shape
+
+A compiled document becomes a route module with four exports:
+
+```js
+export const markdown = "…raw source…";           // Accept: text/markdown, llms.txt
+export function head() { … }                       // frontmatter title by default
+export function loader() {                         // the compiled page
+  return { html: serverOnly(__prachtHtml) };
+}
+export function Component({ data }) {
+  return h(StaticHtml, { class: "pracht-markdown", html: data ? data.html : "" });
+}
+```
+
+`markdown`, `head`, and `loader` are all in the client module transform's
+server-only export list, so the compiled page and the raw source are pruned out
+of client builds along with them — the browser receives a route chunk of a
+couple of hundred bytes and adopts the prose the document already contains. The
+markup still reaches client-side navigations through the route-state response
+these routes already fetch for `head()`. See
+[DATA_LOADING.md](DATA_LOADING.md) for `serverOnly()` and `<StaticHtml>`.
+
+`defineMarkdownCollection({ serverOnly: false })` generates the previous shape
+instead — no `loader`, and a `Component` that closes over `__prachtHtml` through
+`dangerouslySetInnerHTML` — so the prose lives in an immutable route chunk
+rather than in every `no-store` route-state response.
+
+Consequences worth knowing:
+
+- The `{ html }` loader data is an implementation detail, not a contract:
+  `useRouteData()` returns the placeholder after hydration and the string after
+  a client-side navigation. It is deliberately undocumented on the site.
+- Relative-image assets are now discovered only during the server build, since
+  the imports live behind `loader`. `prachtImage()` already publishes
+  server-discovered static variants into the client directory from
+  `writeBundle()` — the same path `hydration: "none"` routes use.
+- Route hints still read the raw `.md` source, so a Markdown route reports
+  `hasLoader: false` although its compiled module exports `loader`. Navigation
+  is unaffected (the `head` hint is always true for `.md`), but a Markdown route
+  declared `render: "spa"` on the static adapter passes the "static SPA routes
+  must be loaderless" check, finds no route-state file, and renders an empty
+  boundary.
+
 ## Registry and paths
 
 `defineCollection()` accepts an absolute `root`. It recursively discovers
