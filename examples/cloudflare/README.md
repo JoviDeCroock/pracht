@@ -35,18 +35,21 @@ curl -X POST https://your-worker.example.workers.dev/api/revalidate \
 ## Deploy
 
 The `wrangler.jsonc` in this directory is yours to edit — add KV, D1, R2,
-cron triggers, or any other Cloudflare bindings as needed. Re-export named
-primitives such as Durable Object and Workflow classes from `src/cloudflare.ts`
-and configure `workerExportsFrom` so Wrangler can discover them from the
-generated Worker entry. Queue consumers, Cron Triggers, and Email Routing are
-default-export handlers instead; export `queue`, `scheduled`, or `email` from a
-dedicated module and configure `workerHandlersFrom`:
+cron triggers, or any other Cloudflare bindings as needed. `src/worker.ts` is
+the Worker module, configured with `cloudflareAdapter({ workerEntry })`: its
+default export serves requests through `createPrachtHandler()`, and its named
+exports are the Durable Object classes Wrangler binds. Add `queue`, `scheduled`,
+or `email` handlers to that default export:
 
 ```ts
-cloudflareAdapter({
-  workerExportsFrom: "/src/cloudflare.ts",
-  workerHandlersFrom: "/src/worker-handlers.ts",
-});
+export default {
+  fetch(request, env, ctx) {
+    return pracht.fetch(request, env, ctx);
+  },
+  async scheduled(controller, env, ctx) {
+    await runCronSweep(env);
+  },
+};
 ```
 
 For local secrets, create a gitignored `.dev.vars` file rather than prefixing

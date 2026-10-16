@@ -40,6 +40,10 @@
     "./cache": {
       "types": "./dist/cache.d.mts",
       "default": "./dist/cache.mjs"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.mts",
+      "default": "./dist/worker.mjs"
     }
   },
   "engines": {

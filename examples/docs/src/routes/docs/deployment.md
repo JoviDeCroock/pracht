@@ -79,7 +79,7 @@ read them from `context.env`. `pracht preview` runs Wrangler locally and reads
 local secrets from a gitignored `.dev.vars` file.
 
 Durable Objects, Workflows, queue and cron handlers, and ISG caching are
-covered in the [adapter reference](/docs/adapters#exporting-bindings-and-event-handlers).
+covered in the [adapter reference](/docs/adapters#composing-the-worker).
 
 ---
 

@@ -1,6 +1,10 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { inspect } from "node:util";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { cloudflareAdapter, createCloudflareServerEntryModule } from "../src/index.ts";
 
@@ -35,7 +39,7 @@ describe("createCloudflareServerEntryModule", () => {
     expect(source).toContain(
       'import { createContext as createPrachtContext } from "/src/server/context.ts";',
     );
-    expect(source).toContain("createContext: createPrachtContext");
+    expect(source).toContain("createContext = createPrachtContext");
     expect(source).toContain("createCloudflareFetchHandler");
     expect(source).toContain("islandsEntryUrl: islandsEntryUrl ?? undefined");
     expect(source).toContain("islandsBootstrapRequired");
@@ -189,7 +193,111 @@ describe("createCloudflareServerEntryModule", () => {
   });
 });
 
+describe("createCloudflareServerEntryModule with workerEntry", () => {
+  const tempDirs: string[] = [];
+  afterEach(() => {
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * Evaluate the generated module's tail against a real user Worker module:
+   * the manifest and handler above it are stubbed, the export wiring is not.
+   */
+  async function loadWorkerEntryTail(userSource: string): Promise<Record<string, any>> {
+    const source = createCloudflareServerEntryModule({ workerEntry: "/src/worker.ts" });
+    const tail = source.slice(source.indexOf("registerPrachtWorker(fetch);"));
+    const dir = mkdtempSync(join(tmpdir(), "pracht-worker-entry-"));
+    tempDirs.push(dir);
+    writeFileSync(join(dir, "user.mjs"), userSource);
+    writeFileSync(
+      join(dir, "server.mjs"),
+      [
+        'import * as prachtUserWorker from "./user.mjs";',
+        "export const registered = [];",
+        "function registerPrachtWorker(handler) { registered.push(handler); }",
+        "async function fetch() { return new Response('pracht'); }",
+        "export { fetch as prachtFetch };",
+        tail.replace('export * from "/src/worker.ts";', 'export * from "./user.mjs";'),
+      ].join("\n"),
+    );
+    return import(pathToFileURL(join(dir, "server.mjs")).href);
+  }
+
+  it("imports the app's Worker module instead of exporting a generated default", () => {
+    const source = createCloudflareServerEntryModule({ workerEntry: "/src/worker.ts" });
+
+    expect(source).toContain(
+      'import { registerPrachtWorker } from "@pracht/adapter-cloudflare/worker";',
+    );
+    expect(source).toContain('import * as prachtUserWorker from "/src/worker.ts";');
+    expect(source).toContain('export * from "/src/worker.ts";');
+    expect(source).not.toContain("export default { ...prachtWorkerHandlers, fetch };");
+    // Workers Caching and the assets binding still flow from adapter options.
+    expect(source).toContain("export const cloudflareWorkersCacheEnabled = false;");
+    expect(source).toContain('export const cloudflareAssetsBinding = "ASSETS";');
+  });
+
+  it("reads a ./ path relative to the Vite root", () => {
+    const source = createCloudflareServerEntryModule({ workerEntry: "./src/worker.ts" });
+
+    expect(source).toContain('import * as prachtUserWorker from "/src/worker.ts";');
+  });
+
+  it("deploys the module's default export and its class and handler-object exports", async () => {
+    const server = await loadWorkerEntryTail(
+      [
+        "export class Counter {}",
+        "export const Tail = { tail() {} };",
+        'export const VERSION = "1";',
+        "export const handler = { fetch() { return new Response('app'); } };",
+        "export default handler;",
+      ].join("\n"),
+    );
+
+    expect(server.default).toBe(server.handler);
+    expect(server.registered).toEqual([server.prachtFetch]);
+    expect(server.cloudflareWorkerEntrypointNames).toEqual(["Counter", "Tail", "handler"]);
+    expect(server.Counter).toBeTypeOf("function");
+  });
+
+  it("accepts a class-based default export with a fetch method", async () => {
+    const server = await loadWorkerEntryTail(
+      "export default class Worker { fetch() { return new Response('app'); } }",
+    );
+
+    expect(server.default).toBeTypeOf("function");
+    expect(server.cloudflareWorkerEntrypointNames).toEqual([]);
+  });
+
+  it.each([
+    ["no default export", "export class Counter {}"],
+    ["a default export without fetch", "export default { scheduled() {} };"],
+  ])("fails to load a Worker module with %s", async (_, userSource) => {
+    await expect(loadWorkerEntryTail(userSource)).rejects.toThrow(
+      "The Cloudflare workerEntry /src/worker.ts must default-export a Worker handler",
+    );
+  });
+});
+
 describe("cloudflareAdapter", () => {
+  it.each([
+    [{ workerExportsFrom: "/src/cloudflare.ts" }, "workerExportsFrom"],
+    [
+      { workerHandlersFrom: "/src/handlers.ts", createContextFrom: "/src/context.ts" },
+      "workerHandlersFrom, createContextFrom",
+    ],
+  ])("rejects workerEntry combined with %o", (options, names) => {
+    expect(() => cloudflareAdapter({ workerEntry: "/src/worker.ts", ...options })).toThrow(
+      `cloudflareAdapter({ workerEntry }) cannot be combined with ${names}.`,
+    );
+  });
+
+  it("rejects an empty workerEntry", () => {
+    expect(() => cloudflareAdapter({ workerEntry: " " })).toThrow(
+      "cloudflareAdapter({ workerEntry }) must be a module path",
+    );
+  });
+
   it("separates graph-safe stubs from the Cloudflare runtime plugins", () => {
     const adapter = cloudflareAdapter();
     const graphPlugins = adapter.graphVitePlugins?.() ?? [];

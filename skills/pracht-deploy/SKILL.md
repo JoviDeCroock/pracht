@@ -149,18 +149,38 @@ while omitting the production route.
 **Bindings.** Read them inside a loader, API handler, capability `run()`, or
 another request-time function — `context.env.MY_KV.get("key")`. Workers permits
 top-level `env` reads, but graph inspection deliberately fails them rather than
-report binding metadata it cannot authoritatively resolve. Durable Object and
-Workflow classes are named Worker exports: re-export them from
-`workerExportsFrom`. Queue consumers, Cron Triggers, and Email Routing are
-methods on the default export: expose named `queue`, `scheduled`, or `email`
-functions from `workerHandlersFrom`.
+report binding metadata it cannot authoritatively resolve.
+
+**Worker module.** When the app needs Durable Objects, Workflows, Cron
+Triggers, Queue consumers, Email Routing, or code around each request, give it
+its own Worker module with `cloudflareAdapter({ workerEntry: "/src/worker.ts" })`.
+Its default export is the deployed Worker (`fetch` plus `scheduled`, `queue`,
+`email`), its named class exports are deployed beside it, and
+`createPrachtHandler()` serves pracht from `fetch`. Pass `createContext` there;
+`workerEntry` cannot be combined with `workerExportsFrom`, `workerHandlersFrom`,
+or `createContextFrom`.
 
 ```ts
-cloudflareAdapter({
-  workerExportsFrom: "/src/cloudflare.ts",
-  workerHandlersFrom: "/src/worker-handlers.ts",
-});
+// src/worker.ts
+import { createPrachtHandler } from "@pracht/adapter-cloudflare/worker";
+
+export { Counter } from "./workers/counter.ts";
+
+const pracht = createPrachtHandler();
+
+export default {
+  fetch(request, env, ctx) {
+    return pracht.fetch(request, env, ctx);
+  },
+  async scheduled(controller, env, ctx) {
+    await runCronSweep(env, ctx);
+  },
+};
 ```
+
+To change headers on pracht's response, copy it first
+(`new Response(response.body, response)`): an API route that returns a
+subrequest or Durable Object response passes along its immutable headers.
 
 **ISG.** Works with no cache option: the worker-managed path serves the
 build-time snapshot, detects staleness, regenerates in the background per colo

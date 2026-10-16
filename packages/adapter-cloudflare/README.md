@@ -22,8 +22,9 @@ Deploy with:
 pracht build && wrangler deploy
 ```
 
-Export named Cloudflare primitives such as Durable Object and Workflow classes
-from a dedicated module:
+To add Durable Objects, Workflows, Cron Triggers, Queue consumers, or code
+around each request, write the Worker module yourself and serve pracht from its
+`fetch`:
 
 ```ts
 // vite.config.ts
@@ -32,36 +33,33 @@ import { pracht } from "@pracht/vite-plugin";
 import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
 
 export default defineConfig({
-  plugins: [
-    pracht({
-      adapter: cloudflareAdapter({
-        workerExportsFrom: "/src/cloudflare.ts",
-      }),
-    }),
-  ],
+  plugins: [pracht({ adapter: cloudflareAdapter({ workerEntry: "/src/worker.ts" }) })],
 });
 ```
 
 ```ts
-// src/cloudflare.ts
+// src/worker.ts
+import { createPrachtHandler } from "@pracht/adapter-cloudflare/worker";
+
 export { Counter } from "./workers/counter.ts";
+
+const pracht = createPrachtHandler();
+
+export default {
+  fetch(request, env, ctx) {
+    return pracht.fetch(request, env, ctx);
+  },
+  async scheduled(controller, env, ctx) {
+    await runCronSweep(env, ctx);
+  },
+};
 ```
 
-Keep the matching bindings and migrations in `wrangler.jsonc`.
-
-Queue consumers, Cron Triggers, Email Routing, and similar default-export
-handlers use a separate module configured through `workerHandlersFrom`:
-
-```ts
-cloudflareAdapter({
-  workerExportsFrom: "/src/cloudflare.ts",
-  workerHandlersFrom: "/src/worker-handlers.ts",
-});
-```
-
-The handlers module should export named `queue`, `scheduled`, `email`, or other
-handler functions. Pracht merges them into the Worker's default export next to
-its own `fetch` handler; `workerExportsFrom` alone does not install them.
+The default export is the deployed Worker and its named class exports are
+deployed beside it; keep their bindings and migrations in `wrangler.jsonc`.
+Pass `createContext` to `createPrachtHandler()` to shape the request context.
+The older `workerExportsFrom` and `workerHandlersFrom` options still extend the
+generated Worker but cannot be combined with `workerEntry`.
 
 ## Features
 
@@ -69,6 +67,8 @@ its own `fetch` handler; `workerExportsFrom` alone does not install them.
 - Static asset serving via `env.ASSETS`
 - SSG serving from `env.ASSETS` and ISG revalidation through the Workers Cache API
 - Execution context passing for Cloudflare-specific APIs
+- App-owned Worker modules via `cloudflareAdapter({ workerEntry })` and
+  `createPrachtHandler()` from `@pracht/adapter-cloudflare/worker`
 - Generated-entry context factories via `cloudflareAdapter({ createContextFrom })`
 - An explicit local-runtime inspector port via `cloudflareAdapter({ inspectorPort })`;
   set it when multiple Cloudflare Vite dev servers may start concurrently, or

@@ -140,58 +140,53 @@ Without `assets.html_handling`, the assets binding redirects `/guide` to
 `/guide/`, while Node serves `/guide` directly. The `"drop-trailing-slash"`
 value in the config above keeps one canonical URL across adapters.
 
-### Exporting bindings and event handlers
+### Composing the Worker
 
-Wrangler discovers class-based primitives such as Durable Objects and
-Workflows from named exports on the Worker entry. Point the adapter at a
-dedicated module that re-exports them:
+When the Worker needs more than pracht's request handling, such as Durable
+Objects, Cron Triggers, Queue consumers, or code around each request, write the
+Worker module yourself and point `workerEntry` at it:
 
 ```ts [vite.config.ts]
-import { defineConfig } from "vite";
-import { pracht } from "@pracht/vite-plugin";
-import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
-
-export default defineConfig({
-  plugins: [
-    pracht({
-      adapter: cloudflareAdapter({
-        workerExportsFrom: "/src/cloudflare.ts",
-      }),
-    }),
-  ],
-});
+cloudflareAdapter({ workerEntry: "/src/worker.ts" });
 ```
 
-```ts [src/cloudflare.ts]
+```ts [src/worker.ts]
+import { createPrachtHandler } from "@pracht/adapter-cloudflare/worker";
+
 export { Counter } from "./workers/counter.ts";
+
+const pracht = createPrachtHandler();
+
+export default {
+  async fetch(request, env, ctx) {
+    if (new URL(request.url).pathname === "/healthz") return new Response("ok");
+
+    const response = await pracht.fetch(request, env, ctx);
+    const wrapped = new Response(response.body, response);
+    wrapped.headers.set("x-served-by", "pracht");
+    return wrapped;
+  },
+
+  async scheduled(controller, env, ctx) {
+    await runCronSweep(env, ctx);
+  },
+
+  async queue(batch, env, ctx) {
+    for (const message of batch.messages) await processJob(message, env);
+  },
+};
 ```
 
-Keep the matching bindings and migrations in `wrangler.jsonc`.
+The default export is the deployed Worker: Cron Triggers, Queues, and Email
+Routing call its methods, and `pracht.fetch()` serves pages, API routes,
+assets, and ISG exactly as the generated Worker does. Named class exports,
+such as Durable Objects and Workflows, are deployed beside it; keep their
+bindings and migrations in `wrangler.jsonc`. `pracht dev` runs the same module.
 
-Queue consumers, Cron Triggers, Email Routing, and similar events are methods
-on the Worker's **default export**, not named exports. Export those handlers by
-name from a second module and point `workerHandlersFrom` at it:
-
-```ts [vite.config.ts]
-cloudflareAdapter({
-  workerExportsFrom: "/src/cloudflare.ts",
-  workerHandlersFrom: "/src/worker-handlers.ts",
-});
-```
-
-```ts [src/worker-handlers.ts]
-export async function queue(batch, env, ctx) {
-  for (const message of batch.messages) await processJob(message, env);
-}
-
-export async function scheduled(event, env, ctx) {
-  await runCronSweep(env, ctx);
-}
-```
-
-Pracht merges these methods beside its own `fetch` handler. A `fetch` export in
-the handler module is ignored; request handling belongs in API routes or
-middleware.
+Pass `createPrachtHandler({ createContext })` to shape the `context` loaders
+and API routes receive; it defaults to `{ env, executionContext }`. The older
+`workerExportsFrom`, `workerHandlersFrom`, and `createContextFrom` options keep
+working without a Worker module, but cannot be combined with `workerEntry`.
 
 ### Local preview and Worker bindings
 
@@ -656,7 +651,7 @@ export function createContext({ request }: { request: Request }) {
 // waitUntil-compatible context, without other Edge-only fields.
 ```
 
-Every loader, middleware, and API route handler receives the result as `args.context`, in `pracht dev` too. The dev server has no Vercel or Netlify runtime, so there the platform `context` argument holds only `waitUntil`.
+A Cloudflare app with its own [Worker module](#composing-the-worker) passes `createContext` to `createPrachtHandler()` instead. Every loader, middleware, and API route handler receives the result as `args.context`, in `pracht dev` too. The dev server has no Vercel or Netlify runtime, so there the platform `context` argument holds only `waitUntil`.
 
 ---
 

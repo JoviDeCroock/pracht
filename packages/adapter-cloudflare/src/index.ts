@@ -10,6 +10,7 @@ export type {
   CloudflareExecutionContext,
   CloudflareFetcher,
 } from "./runtime.ts";
+export type { PrachtHandler, PrachtHandlerOptions } from "./worker.ts";
 export {
   ISG_CACHE_TAG,
   purgeCache,
@@ -21,6 +22,16 @@ export {
 
 export interface CloudflareServerEntryModuleOptions {
   assetsBinding?: string;
+  /**
+   * Vite-resolvable module path (for example `/src/worker.ts`) that owns the
+   * Worker: its default export becomes the Worker's handler object and its
+   * named exports (Durable Object, Workflow, and WorkerEntrypoint classes)
+   * are deployed beside it. Serve pracht from its `fetch` with
+   * `createPrachtHandler()` from `@pracht/adapter-cloudflare/worker`.
+   * Replaces `workerExportsFrom`, `workerHandlersFrom`, and
+   * `createContextFrom`, which cannot be combined with it.
+   */
+  workerEntry?: string;
   workerExportsFrom?: string;
   /** Vite-resolvable module path exporting `createContext(args)`. */
   createContextFrom?: string;
@@ -138,23 +149,84 @@ function cloudflareGraphRuntimeStubs(): Plugin {
   };
 }
 
+const WORKER_ENTRY_EXCLUSIVE_OPTIONS = [
+  "workerExportsFrom",
+  "workerHandlersFrom",
+  "createContextFrom",
+] as const;
+
+function assertValidWorkerEntryOptions(options: CloudflareServerEntryModuleOptions): void {
+  if (options.workerEntry === undefined) return;
+  if (typeof options.workerEntry !== "string" || options.workerEntry.trim() === "") {
+    throw new Error(
+      'cloudflareAdapter({ workerEntry }) must be a module path such as "/src/worker.ts".',
+    );
+  }
+  const combined = WORKER_ENTRY_EXCLUSIVE_OPTIONS.filter((name) => options[name] !== undefined);
+  if (combined.length > 0) {
+    throw new Error(
+      `cloudflareAdapter({ workerEntry }) cannot be combined with ${combined.join(", ")}. ` +
+        "Export Worker classes and event handlers from the workerEntry module itself, and pass " +
+        "createContext to createPrachtHandler() there.",
+    );
+  }
+}
+
+/**
+ * The tail of `virtual:pracht/server` when the app owns its Worker module:
+ * the generated `fetch` is registered for `createPrachtHandler()` instead of
+ * being exported, and the app module's default and named exports become the
+ * Worker's.
+ */
+function createWorkerEntryExports(workerEntry: string): string[] {
+  return [
+    "registerPrachtWorker(fetch);",
+    "",
+    "const prachtWorkerDefault = prachtUserWorker.default;",
+    "if (",
+    '  !(typeof prachtWorkerDefault === "object" && prachtWorkerDefault !== null && typeof prachtWorkerDefault.fetch === "function") &&',
+    '  !(typeof prachtWorkerDefault === "function" && typeof prachtWorkerDefault.prototype?.fetch === "function")',
+    ") {",
+    "  throw new Error(",
+    `    ${JSON.stringify(`The Cloudflare workerEntry ${workerEntry} must default-export a Worker handler whose fetch() calls createPrachtHandler().fetch().`)},`,
+    "  );",
+    "}",
+    "export default prachtWorkerDefault;",
+    "",
+    `export * from ${JSON.stringify(workerEntry)};`,
+    // Only classes and handler objects are Worker entrypoints. The deploy
+    // entry leaves other values out, matching what the Cloudflare dev runtime
+    // registers from the same module.
+    "export const cloudflareWorkerEntrypointNames = Object.keys(prachtUserWorker).filter((name) => {",
+    "  const value = prachtUserWorker[name];",
+    '  return name !== "default" && (typeof value === "function" || (typeof value === "object" && value !== null));',
+    "});",
+  ];
+}
+
 export function createCloudflareServerEntryModule(
   options: CloudflareServerEntryModuleOptions = {},
 ): string {
+  assertValidWorkerEntryOptions(options);
   const assetsBinding = options.assetsBinding ?? "ASSETS";
   const cacheOptions = resolveWorkersCacheOptions(options.cache);
+  // Imported from a virtual module, so a `./` path would resolve against
+  // nothing. Read it as relative to the Vite root, like the `/src/...` form.
+  const workerEntry = options.workerEntry?.replace(/^\.\//, "/");
   // The entrypoint-name list lets `pracht build` write a clean deploy entry
   // (dist/server/worker.js) that re-exports only the default handler and these
   // classes: workerd validates every named export of the deployed entry module
   // and rejects the build metadata (buildTarget, manifests, ...) this module
   // also exports for the CLI's prerender pass.
-  const workerExports = options.workerExportsFrom
-    ? [
-        `export * from ${JSON.stringify(options.workerExportsFrom)};`,
-        `import * as prachtWorkerEntrypoints from ${JSON.stringify(options.workerExportsFrom)};`,
-        "export const cloudflareWorkerEntrypointNames = Object.keys(prachtWorkerEntrypoints);",
-      ]
-    : ["export const cloudflareWorkerEntrypointNames = [];"];
+  const workerExports = workerEntry
+    ? createWorkerEntryExports(workerEntry)
+    : options.workerExportsFrom
+      ? [
+          `export * from ${JSON.stringify(options.workerExportsFrom)};`,
+          `import * as prachtWorkerEntrypoints from ${JSON.stringify(options.workerExportsFrom)};`,
+          "export const cloudflareWorkerEntrypointNames = Object.keys(prachtWorkerEntrypoints);",
+        ]
+      : ["export const cloudflareWorkerEntrypointNames = [];"];
   const contextImport = options.createContextFrom
     ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
     : "const createPrachtContext = undefined;";
@@ -162,9 +234,17 @@ export function createCloudflareServerEntryModule(
     ? `import * as prachtWorkerHandlers from ${JSON.stringify(options.workerHandlersFrom)};`
     : "const prachtWorkerHandlers = {};";
 
+  const workerEntryImports = workerEntry
+    ? [
+        'import { registerPrachtWorker } from "@pracht/adapter-cloudflare/worker";',
+        `import * as prachtUserWorker from ${JSON.stringify(workerEntry)};`,
+      ]
+    : [];
+
   return [
     contextImport,
     handlersImport,
+    ...workerEntryImports,
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     `export const cloudflareWorkersCacheEnabled = ${JSON.stringify(Boolean(cacheOptions))};`,
     "",
@@ -216,7 +296,7 @@ export function createCloudflareServerEntryModule(
     "  return isgManifestPromise;",
     "}",
     "",
-    "async function fetch(request, env, executionContext) {",
+    "async function fetch(request, env, executionContext, createContext = createPrachtContext) {",
     `  const assets = env?.[${JSON.stringify(assetsBinding)}];`,
     '  const isUpgradeRequest = request.headers.has("upgrade");',
     '  const headersManifest = !isUpgradeRequest && assets && typeof assets.fetch === "function"',
@@ -244,13 +324,13 @@ export function createCloudflareServerEntryModule(
     "    headersManifest,",
     "    markdownManifest,",
     "    isgManifest,",
-    "    createContext: createPrachtContext,",
+    "    createContext,",
     `    cache: ${JSON.stringify(options.cache ?? false)},`,
     "  });",
     "  return handler(request, env, executionContext);",
     "}",
     "",
-    "export default { ...prachtWorkerHandlers, fetch };",
+    ...(workerEntry ? [] : ["export default { ...prachtWorkerHandlers, fetch };"]),
     "",
     ...workerExports,
     "",
@@ -262,10 +342,11 @@ export function createCloudflareServerEntryModule(
  *
  * ```ts
  * import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
- * pracht({ adapter: cloudflareAdapter({ workerExportsFrom: "/src/cloudflare.ts" }) })
+ * pracht({ adapter: cloudflareAdapter({ workerEntry: "/src/worker.ts" }) })
  * ```
  */
 export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): PrachtAdapter {
+  assertValidWorkerEntryOptions(options);
   return {
     id: "cloudflare",
     ownsDevServer: true,

@@ -686,12 +686,74 @@ checks an `x-revalidate-secret` header against a Worker secret.
 Purges are scoped to the Worker that owns the cache — no zone-level purge
 touches it, and `purgeCache` cannot touch other Workers.
 
+### App-owned Worker module (`workerEntry`)
+
+`cloudflareAdapter({ workerEntry: "/src/worker.ts" })` hands the Worker module
+to the app. The module is an ordinary Workers module: its default export is the
+deployed handler object (or a `WorkerEntrypoint`-style class with a `fetch`
+method), and its named exports are Durable Object, Workflow, and
+WorkerEntrypoint classes. Pracht runs from its `fetch` through
+`createPrachtHandler()` from `@pracht/adapter-cloudflare/worker`:
+
+```typescript
+// src/worker.ts
+import { createPrachtHandler } from "@pracht/adapter-cloudflare/worker";
+
+export { Counter } from "./workers/counter.ts";
+
+const pracht = createPrachtHandler({ createContext });
+
+export default {
+  fetch(request, env, ctx) {
+    return pracht.fetch(request, env, ctx);
+  },
+  scheduled(controller, env, ctx) {
+    /* ... */
+  },
+};
+```
+
+How it is wired:
+
+- `virtual:pracht/server` stays the Vite and Cloudflare-plugin entry, so the
+  build output, the Node prerender pass, and `dist/server/worker.js` are
+  unchanged in shape. In `workerEntry` mode the generated module imports the
+  app module, re-exports its named exports (`export *`) and its default, and
+  does not export the generated `{ fetch }` object.
+- The generated `fetch` (manifest reads, `createCloudflareFetchHandler`, ISG,
+  Workers Caching, base path, assets binding) is not exported but passed to
+  `registerPrachtWorker()` in `@pracht/adapter-cloudflare/worker`. That module
+  holds it in module state; `createPrachtHandler().fetch(request, env, ctx)`
+  calls it with the handler's own `createContext`. The app module evaluates
+  before the registration runs, which is why the lookup happens per request.
+  Both sides import the same package specifier, so they share one instance in
+  dev (Vite's workerd module runner) and in the bundled build.
+- `cloudflareWorkerEntrypointNames` is derived at module evaluation from the
+  app module's namespace: every non-`default` export whose value is a function
+  or a non-null object. That mirrors which exports the Cloudflare Vite plugin
+  registers in dev, so primitives such as `export const VERSION = "1"` never
+  reach the deploy entry, where workerd would reject them.
+- The generated module throws when the default export has no `fetch`
+  (object or class prototype), so `pracht build` fails during the prerender
+  import and `pracht dev` fails on load instead of deploying a Worker that
+  never serves pracht.
+- `workerEntry` is mutually exclusive with `workerExportsFrom`,
+  `workerHandlersFrom`, and `createContextFrom`; `cloudflareAdapter()` throws
+  when they are combined. A leading `./` is read as Vite-root-relative because
+  the importer is a virtual module.
+- Graph commands never load the app module: they read
+  `virtual:pracht/dev-metadata`. The Node prerender pass does evaluate it,
+  with `cloudflare:*` stubs, so its top level must not touch bindings.
+
+The options below remain for apps that only need to add classes or event
+handlers to the generated Worker.
+
 ### Exporting Cloudflare primitives (Workflows, Durable Objects, etc.)
 
 Wrangler requires named exports from the worker entry for Workflows, Durable
-Objects, and other class-based Cloudflare primitives. Use the
-`workerExportsFrom` option to point the adapter at a dedicated module that
-re-exports them:
+Objects, and other class-based Cloudflare primitives. Without `workerEntry`,
+use the `workerExportsFrom` option to point the adapter at a dedicated module
+that re-exports them:
 
 ```typescript
 cloudflareAdapter({
