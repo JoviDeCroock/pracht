@@ -101,9 +101,10 @@ pracht preview --skip-build
 
 - **Node** runs `dist/server/server.js` with the host environment. **Static**
   serves `dist/client/`.
-- **Cloudflare** runs `wrangler dev`. It needs Wrangler and a Wrangler config
-  whose `main` is `dist/server/worker.js`. Put local Worker secrets in a
-  gitignored `.dev.vars`; shell environment variables are not Worker bindings.
+- **Cloudflare** runs `wrangler dev` against the config `pracht build`
+  generates from your `wrangler.jsonc`, so it needs Wrangler and that file. Put
+  local Worker secrets in a gitignored `.dev.vars`; shell environment variables
+  are not Worker bindings.
 - **Netlify** and **Vercel** have no faithful local runtime. The command exits 1
   and points you to `netlify dev`, or `vercel build` and `vercel dev`.
 

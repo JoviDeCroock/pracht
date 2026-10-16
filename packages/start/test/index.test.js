@@ -479,13 +479,12 @@ describe("create-pracht", () => {
     // day it is scaffolded.
     expect(wranglerConfig).toMatch(/"compatibility_date": "\d{4}-\d{2}-\d{2}"/);
     expect(packageJson).not.toContain('"@cloudflare/vite-plugin"');
-    // Not server.js: workerd rejects the build metadata that module also
-    // exports, so the deployed entry has to be the wrapper `pracht build` emits.
-    expect(wranglerConfig).toContain('"main": "dist/server/worker.js"');
-    expect(wranglerConfig).not.toContain('"main": "dist/server/server.js"');
-    expect(wranglerConfig).toContain('"no_bundle": true');
-    expect(wranglerConfig).toContain('"type": "ESModule"');
-    expect(wranglerConfig).toContain('"**/*.js"');
+    // `pracht build` generates dist/server/wrangler.json with the entry,
+    // bundling, and assets directory, so the scaffold leaves them out.
+    expect(wranglerConfig).not.toContain('"main"');
+    expect(wranglerConfig).not.toContain('"no_bundle"');
+    expect(wranglerConfig).not.toContain('"directory"');
+    expect(wranglerConfig).toContain('"binding": "ASSETS"');
     // Content-hashed files are served without invoking the Worker.
     expect(wranglerConfig).toContain('"run_worker_first": ["/*", "!/assets/*"]');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(true);

@@ -104,19 +104,25 @@ For a PR deploy, `pracht report --base origin/main` produces a markdown summary
 
 ### Cloudflare Workers (`@pracht/adapter-cloudflare`)
 
-- `wrangler.toml`/`wrangler.jsonc` present at repo root, `assets.directory`
-  pointing at `dist/client`, and bindings declared for every `context.env.*`
-  access in loaders, middleware, and API routes (grep, then cross-check).
-- `main` points at `dist/server/worker.js` — the thin deploy wrapper
-  re-exporting only the default handler and Cloudflare entrypoint classes.
-  Pointing it at `dist/server/server.js` is an **error**: workerd validates
-  every named export of the deploy entry and rejects the build metadata
-  (`buildTarget`, manifests, `resolvedApp`, …) that `server.js` exports for the
-  prerender pass.
-- `no_bundle: true` plus an `ESModule` rule whose globs include `"**/*.js"`.
-  Pracht's Vite output is already bundled and may contain lazy server chunks;
-  these settings make Wrangler upload them as separate modules instead of
-  folding them into the entry.
+- `wrangler.toml`/`wrangler.jsonc` present at repo root with an assets block
+  binding `ASSETS`, and bindings declared for every `context.env.*` access in
+  loaders, middleware, and API routes (grep, then cross-check). `pracht build`
+  generates `dist/server/wrangler.json` from it with `main: "worker.js"`,
+  `no_bundle`, the `ESModule` rule, and the assets directory; confirm it exists
+  after the build and that `wrangler deploy` prints "Using redirected Wrangler
+  configuration".
+- If the config defines named environments, the deploy step must either build
+  with `CLOUDFLARE_ENV=<name>` or deploy with `--env <name>` from a config that
+  sets the keys below. Only then does a config need them:
+  - `main` points at `dist/server/worker.js` — the deploy entry exporting only
+    the default handler and Cloudflare entrypoint classes. Pointing it at
+    `dist/server/server.js` is an **error**: workerd validates every named
+    export of the deploy entry and rejects the build metadata (`buildTarget`,
+    manifests, `resolvedApp`, …) that `server.js` exports for the prerender
+    pass.
+  - `no_bundle: true` plus an `ESModule` rule whose globs include `"**/*.js"`,
+    so Wrangler uploads Pracht's lazy server chunks as separate modules instead
+    of folding them into the entry, and `assets.directory: "dist/client"`.
 - `compatibility_date` is set and is a date the installed workerd supports. It
   must not be *newer* than the runtime, or workerd refuses to start ("This
   Worker requires compatibility date X, but the newest date supported by this
@@ -141,9 +147,9 @@ For a PR deploy, `pracht report --base origin/main` produces a markdown summary
   allowlist or canonical redirect, or an uncached gateway with a normalized
   `cf.cacheKey` — and check that markdown-capable routes normalize `Accept` at
   the gateway when variant fan-out matters.
-- Bundle size: measure what actually deploys — `dist/server/worker.js` plus its
-  `dist/server/server.js` import and lazy chunks (`worker.js` alone is a few
-  lines; `no_bundle` uploads the pre-built module graph). The Workers limit is
+- Bundle size: measure what actually deploys — every `.js` file under
+  `dist/server/` (`worker.js` alone is a few lines; `no_bundle` uploads the
+  pre-built module graph). `npx wrangler deploy --dry-run` prints the total. The Workers limit is
   ~1 MB compressed on free, ~10 MB on paid. Warn at 80% of the active limit.
 
 ### Vercel (`@pracht/adapter-vercel`)

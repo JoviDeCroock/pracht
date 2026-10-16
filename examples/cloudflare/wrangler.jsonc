@@ -1,16 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pracht-example-cloudflare",
-  "main": "dist/server/worker.js",
-  "no_bundle": true,
-  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
+  // No "main" or assets "directory": `pracht build` generates
+  // dist/server/wrangler.json with them, and `wrangler deploy` uses it.
   "compatibility_date": "2026-04-06",
   // Workers Caching: lets Cloudflare serve cached ISG pages without invoking
   // the Worker; pracht sets the Cache-Control/Cache-Tag headers per route.
   "cache": { "enabled": true },
   "assets": {
     "binding": "ASSETS",
-    "directory": "dist/client",
     // Without this, the assets binding answers `GET /guide` with a 307 to
     // `/guide/`, so every prerendered route has a different canonical URL on
     // Cloudflare than on Node and Vercel — and the generated llms.txt, which

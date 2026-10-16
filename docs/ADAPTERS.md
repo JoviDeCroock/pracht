@@ -491,19 +491,6 @@ build).
 - **Default request context**: generated worker entries pass `{ env,
   executionContext }` to pracht so loaders, API routes, and middleware can
   access bindings without extra wiring.
-- **Build output**: `pracht({ adapter: cloudflareAdapter() })` makes `pracht build`
-  emit a Worker bundle in `dist/server/server.js` plus a thin deploy entry in
-  `dist/server/worker.js` that re-exports only the default handler and your
-  Cloudflare entrypoint classes (workerd rejects the build metadata that
-  `server.js` also exports for the prerender pass). Point `wrangler.jsonc`'s
-  `main` at `dist/server/worker.js` — you own that file, which lets you add
-  KV, D1, R2, cron, and any other Cloudflare bindings without losing them on
-  rebuild. Set `"no_bundle": true` and add an `ESModule` rule covering
-  `"**/*.js"` because this output is already bundled by Vite and may contain
-  lazy server chunks. The two settings make Wrangler upload those files as
-  separate Worker modules instead of folding them into the entry file. If a
-  named Wrangler environment overrides either setting, it must preserve the
-  same contract; `pracht verify` checks those effective environment settings.
 - **Prerender stubs**: `pracht build` imports `server.js` in Node to prerender
   SSG/ISG pages, so `packages/cli/src/prerender-module-hooks.ts` stubs every
   `cloudflare:*` module the server bundle keeps external (`workers`,
@@ -517,6 +504,47 @@ build).
   `@pracht/adapter-cloudflare` (`GRAPH_RUNTIME_STUBS`) mirror the same export
   surface; `packages/cli/test/cloudflare-runtime-stubs.test.ts` enumerates the
   installed workerd modules through Miniflare and checks both sets.
+- **Build output**: the server build *is* `@cloudflare/vite-plugin`'s Worker
+  build. During `vite build` the adapter names the plugin's Worker environment
+  `ssr` (the environment `pracht build`'s server step runs; dev keeps the
+  plugin's default name because pracht's dev tooling loads modules through the
+  Node `ssr` environment) and gives it two entries in `dist/server/`:
+  - `worker.js` — the plugin's Worker entry (`index` chunk, renamed), built
+    from `virtual:pracht/cloudflare-worker`, which re-exports the default from
+    `virtual:pracht/server` and everything the `workerEntry` (or
+    `workerExportsFrom`) module exports. In `workerEntry` mode that default is
+    the app module's, and importing `virtual:pracht/server` runs
+    `registerPrachtWorker(fetch)`. workerd validates every named export of the
+    deployed entry, so it must not carry build metadata. This is also the
+    Worker `main` in dev.
+  - `server.js` — `virtual:pracht/server` with all its build metadata
+    (`buildTarget`, manifests, `resolvedApp`, `cloudflareWorkerEntrypointNames`,
+    ...) for the CLI's Node prerender pass, `inspect`, and tooling that imports
+    the default handler. Shared code lives in chunks both entries import.
+
+  The plugin also writes `dist/server/wrangler.json` (the user's
+  `wrangler.jsonc` flattened, with `main: "worker.js"`, `no_bundle: true`, an
+  `ESModule` rule for `**/*.js`, and `assets.directory: "../client"`) and the
+  `.wrangler/deploy/config.json` redirect that `wrangler deploy` / `wrangler
+  dev` follow, so a user config needs neither `main` nor those settings. The
+  generated config is flattened to the environment selected with
+  `CLOUDFLARE_ENV` at build time. When the user config defines named
+  environments and the build selected none, the adapter deletes the redirect:
+  otherwise `wrangler deploy --env <name>` would silently deploy the top-level
+  config. Those users deploy from their own config, which then needs `main:
+  "dist/server/worker.js"`, `no_bundle`, the `ESModule` rule, and
+  `assets.directory`; `pracht verify` checks the bundling settings of any
+  config that declares `main`. After the prerender import, `pracht build`
+  imports `worker.js` too; if it exports a value that is neither a function
+  nor an object (`export const VERSION = "1"` in the app's Worker module,
+  which workerd rejects at startup), or an older adapter emitted no
+  `worker.js`, it writes a thin `worker.js` re-exporting only the default and
+  the entrypoint exports from `server.js`, and names what it left out.
+  Because the adapter owns the server environment
+  (`ownsServerEnvironment`), the vite-plugin skips its generic edge server
+  settings (`ssr.target: "webworker"`, `resolve.conditions`, `node:module`
+  external) — the Cloudflare plugin rejects `resolve.external` on Worker
+  environments and supplies its own `workerd`/`worker` conditions.
 - **Local preview**: `pracht preview` runs `pracht build` and then delegates to
   `wrangler dev --port <port>` against the built worker. It requires wrangler
   (in `node_modules` or on PATH) and a wrangler config; it errors with install
@@ -543,14 +571,16 @@ cloudflareAdapter({ inspectorPort: false, persistState: false });
 cloudflareAdapter({ persistState: { path: ".wrangler/state-dev-a" } });
 ```
 
-`configPath` points both the dev runtime and the build's Node-builtin check at
-a Wrangler config other than the default lookup (`wrangler.json`,
-`wrangler.jsonc`, `wrangler.toml`). Void (void.cloud) uses it: its
+`configPath` points the Cloudflare plugin (dev runtime and Worker build) and
+the build's Node-builtin check at a Wrangler config other than the default
+lookup (`wrangler.json`, `wrangler.jsonc`, `wrangler.toml`). Void (void.cloud) uses it: its
 `voidPlugin()` materialises `.void-wrangler.jsonc` from `void.config.ts`, and
 Void detects pracht by `@pracht/adapter-cloudflare` as a framework that owns its
 Cloudflare build. `void deploy` runs `pracht build`, wraps `dist/server/worker.js`
 for crons and queues, and deploys with `run_worker_first: true` and
-`html_handling: "drop-trailing-slash"`. Void's runtime helpers import
+`html_handling: "drop-trailing-slash"`. Void's plugin removes the
+`.wrangler/deploy/config.json` redirect after each build, so plain
+`wrangler deploy` does not pick up a Void app's generated config. Void's runtime helpers import
 `node:async_hooks`, which is why the adapter allows it under `nodejs_als`.
 Under Node.js compat v2 (`nodejs_compat` with a compatibility date of
 2024-09-23 or later, or `nodejs_compat_v2`) the adapter allows every builtin:
@@ -644,7 +674,6 @@ the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
 {
   "assets": {
     "binding": "ASSETS",
-    "directory": "dist/client",
     "html_handling": "drop-trailing-slash",
     "run_worker_first": ["/*", "!/assets/*"],
   },
@@ -785,11 +814,13 @@ export default {
 
 How it is wired:
 
-- `virtual:pracht/server` stays the Vite and Cloudflare-plugin entry, so the
-  build output, the Node prerender pass, and `dist/server/worker.js` are
-  unchanged in shape. In `workerEntry` mode the generated module imports the
-  app module, re-exports its named exports (`export *`) and its default, and
-  does not export the generated `{ fetch }` object.
+- `virtual:pracht/cloudflare-worker` stays the Cloudflare-plugin entry and
+  `virtual:pracht/server` the prerender entry, so the build output and the
+  Node prerender pass are unchanged in shape. In `workerEntry` mode the
+  generated server module imports the app module, re-exports its named
+  exports (`export *`) and its default, and does not export the generated
+  `{ fetch }` object; the Worker entry re-exports that default and the app
+  module's named exports.
 - The generated `fetch` (manifest reads, `createCloudflareFetchHandler`, ISG,
   Workers Caching, base path, assets binding) is not exported but passed to
   `registerPrachtWorker()` in `@pracht/adapter-cloudflare/worker`. That module
@@ -801,8 +832,9 @@ How it is wired:
 - `cloudflareWorkerEntrypointNames` is derived at module evaluation from the
   app module's namespace: every non-`default` export whose value is a function
   or a non-null object. That mirrors which exports the Cloudflare Vite plugin
-  registers in dev, so primitives such as `export const VERSION = "1"` never
-  reach the deploy entry, where workerd would reject them.
+  registers in dev. The Worker entry's static `export *` cannot filter by
+  value, so `pracht build` replaces `worker.js` with a thin re-export when the
+  module also exports a primitive such as `export const VERSION = "1"`.
 - The generated module throws when the default export has no `fetch`
   (object or class prototype), so `pracht build` fails during the prerender
   import and `pracht dev` fails on load instead of deploying a Worker that
@@ -890,8 +922,10 @@ That distinction is load-bearing for Web Bot Auth: HTTP Message Signatures
 cover `@authority`, so a request signed for `localhost:<port>` will not verify
 when the Worker sees `app.example.com`. Sign the effective Worker authority,
 temporarily disable the custom-domain route for local preview, or build first
-and select a separate config that keeps `main: "dist/server/worker.js"` but
-omits the production route:
+and select a separate config that omits the production route. `--config`
+bypasses the generated `dist/server/wrangler.json`, so that config needs
+`main: "dist/server/worker.js"`, `no_bundle`, the `ESModule` rule, and
+`assets.directory: "dist/client"`:
 
 ```sh
 pracht build
@@ -994,18 +1028,14 @@ The adapter handles everything — just declare bindings in `wrangler.jsonc`:
 
 ```jsonc
 {
-  "main": "dist/server/worker.js",
-  "no_bundle": true,
-  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "kv_namespaces": [{ "binding": "MY_KV", "id": "..." }],
   "d1_databases": [{ "binding": "DB", "database_name": "my-db", "database_id": "..." }],
 }
 ```
 
-The `main` field stays pointed at `dist/server/worker.js` for production
-deploys. During dev, the adapter automatically overrides the entry to
-pracht's virtual server module via `@cloudflare/vite-plugin` — no extra
-files needed.
+The adapter sets the Worker entry to `virtual:pracht/cloudflare-worker` through
+`@cloudflare/vite-plugin` in dev and in builds, overriding any `main` in the
+file.
 
 Bindings are available via `context.env` in loaders, middleware, and API routes:
 
@@ -1097,6 +1127,14 @@ export default {
     });
   },
 };
+```
+
+The Worker entry the Cloudflare plugin runs and deploys wraps it:
+
+```javascript
+// virtual:pracht/cloudflare-worker → dist/server/worker.js
+export { default } from "virtual:pracht/server";
+export * from "/src/worker.ts"; // the workerEntry or workerExportsFrom module
 ```
 
 ---

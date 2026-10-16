@@ -1431,20 +1431,12 @@ function createWranglerConfig(projectName) {
     "{",
     '  "$schema": "node_modules/wrangler/config-schema.json",',
     `  "name": ${JSON.stringify(projectName)},`,
-    // `pracht build` writes this thin wrapper next to server.js. It re-exports
-    // only the default handler and any Worker entrypoint classes: workerd
-    // validates every named export of the deployed entry module and rejects the
-    // build metadata (buildTarget, manifests, ...) server.js also exports.
-    '  "main": "dist/server/worker.js",',
-    // Pracht's Vite build is the authoritative bundle and may contain lazy
-    // server chunks. A second Wrangler bundle would inline them again; the
-    // module rule makes Wrangler upload those chunks next to the entry.
-    '  "no_bundle": true,',
-    '  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],',
+    // No `main`, `no_bundle`, module rules, or assets directory: `pracht build`
+    // writes dist/server/wrangler.json with all of them (pointing at the built
+    // dist/server/worker.js) and `wrangler deploy` / `wrangler dev` use it.
     `  "compatibility_date": ${JSON.stringify(compatibilityDate)},`,
     '  "assets": {',
     '    "binding": "ASSETS",',
-    '    "directory": "dist/client",',
     // The assets binding defaults to redirecting a prerendered route to its
     // trailing-slash form, so `GET /about` would answer 307 on Cloudflare
     // where Node and Vercel answer 200 — for the same app, and for every URL

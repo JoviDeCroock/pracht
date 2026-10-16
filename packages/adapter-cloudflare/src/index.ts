@@ -1,6 +1,10 @@
+import { rmSync } from "node:fs";
+import { isBuiltin } from "node:module";
+import { resolve } from "node:path";
+
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import type { Plugin } from "vite";
-import { cloudflare } from "@cloudflare/vite-plugin";
+import { cloudflare, type PluginConfig } from "@cloudflare/vite-plugin";
 import { resolveWorkersCacheOptions, type CloudflareWorkersCacheOption } from "./cache.ts";
 import { cloudflareEdgeNodeBuiltins } from "./node-builtins.ts";
 
@@ -245,11 +249,9 @@ export function createCloudflareServerEntryModule(
   // Imported from a virtual module, so a `./` path would resolve against
   // nothing. Read it as relative to the Vite root, like the `/src/...` form.
   const workerEntry = options.workerEntry?.replace(/^\.\//, "/");
-  // The entrypoint-name list lets `pracht build` write a clean deploy entry
-  // (dist/server/worker.js) that re-exports only the default handler and these
-  // classes: workerd validates every named export of the deployed entry module
-  // and rejects the build metadata (buildTarget, manifests, ...) this module
-  // also exports for the CLI's prerender pass.
+  // The deployed Worker entry is `virtual:pracht/cloudflare-worker`, built to
+  // dist/server/worker.js. The entrypoint-name list stays for CLIs that predate
+  // it and still write their own dist/server/worker.js wrapper from this list.
   const workerExports = workerEntry
     ? createWorkerEntryExports(workerEntry)
     : options.workerExportsFrom
@@ -369,6 +371,150 @@ export function createCloudflareServerEntryModule(
   ].join("\n");
 }
 
+/** The Worker module the Cloudflare plugin runs in dev and deploys from a build. */
+export const PRACHT_CLOUDFLARE_WORKER_MODULE_ID = "virtual:pracht/cloudflare-worker";
+const RESOLVED_CLOUDFLARE_WORKER_MODULE_ID = `\0${PRACHT_CLOUDFLARE_WORKER_MODULE_ID}`;
+
+/**
+ * Source of the Worker entry module: the default handler and the app's
+ * Cloudflare entrypoint classes, nothing else. workerd validates every named
+ * export of the deployed entry, so the build metadata `virtual:pracht/server`
+ * exports for the CLI's prerender pass stays out of it. With `workerEntry`,
+ * the default comes through `virtual:pracht/server`, which registers pracht's
+ * fetch for `createPrachtHandler()` and checks the app module's default.
+ */
+export function createCloudflareWorkerModule(
+  options: Pick<CloudflareServerEntryModuleOptions, "workerEntry" | "workerExportsFrom"> = {},
+): string {
+  const entrypointsFrom = options.workerEntry?.replace(/^\.\//, "/") ?? options.workerExportsFrom;
+  return [
+    'export { default } from "virtual:pracht/server";',
+    ...(entrypointsFrom ? [`export * from ${JSON.stringify(entrypointsFrom)};`] : []),
+    "",
+  ].join("\n");
+}
+
+/**
+ * Serves the Worker entry module and, for builds, shapes the output layout.
+ *
+ * `pracht build` runs its server build in Vite's `ssr` environment. Naming the
+ * Cloudflare plugin's Worker environment `ssr` for builds makes that one build
+ * the plugin's own Worker build, so it also writes `dist/server/wrangler.json`
+ * and the `.wrangler/deploy/config.json` redirect that `wrangler deploy` and
+ * `wrangler dev` follow. The Worker entry lands at `dist/server/worker.js`
+ * (the path existing deploy configs point at) and the prerender metadata in
+ * its own `dist/server/server.js` entry. Dev keeps the plugin's default
+ * environment name: pracht's dev tooling loads modules through Vite's Node
+ * `ssr` environment. A config with named environments built without
+ * `CLOUDFLARE_ENV` keeps no redirect (see `writeBundle`).
+ */
+function cloudflareWorkerPlugin(
+  cloudflareOptions: PluginConfig,
+  options: CloudflareServerEntryModuleOptions,
+): Plugin {
+  let root = process.cwd();
+  let generatedConfig: GeneratedWranglerConfig | undefined;
+
+  return {
+    name: "pracht:cloudflare-worker",
+    config: {
+      order: "pre",
+      handler(_config, env) {
+        // Read by the Cloudflare plugin's own `config` hook, which runs after this one.
+        cloudflareOptions.viteEnvironment = env.command === "build" ? { name: "ssr" } : undefined;
+        if (env.command !== "build") return;
+        return {
+          environments: {
+            client: { build: { outDir: "dist/client" } },
+            ssr: {
+              build: {
+                outDir: "dist/server",
+                rollupOptions: {
+                  input: { server: "virtual:pracht/server" },
+                  output: {
+                    // The Cloudflare plugin names its Worker entry chunk `index`.
+                    entryFileNames: (chunk: { name: string }) =>
+                      chunk.name === "index" ? "worker.js" : "[name].js",
+                  },
+                },
+              },
+            },
+          },
+        };
+      },
+    },
+    configEnvironment(name, config, env) {
+      if (name !== "ssr" || env.command !== "build") return;
+      // `@pracht/vite-plugin` releases without `ownsServerEnvironment` mark
+      // `node:module` and the runtime-provided builtins external on the edge
+      // server build, and the Cloudflare plugin rejects any `resolve.external`
+      // on a Worker environment. It resolves those builtins itself.
+      const external = config.resolve?.external;
+      if (config.resolve && Array.isArray(external)) {
+        config.resolve.external = external.filter((id) => !isBuiltin(id));
+      }
+    },
+    configResolved(config) {
+      root = config.root;
+    },
+    resolveId(id) {
+      if (id === PRACHT_CLOUDFLARE_WORKER_MODULE_ID) return RESOLVED_CLOUDFLARE_WORKER_MODULE_ID;
+    },
+    load(id) {
+      if (id === RESOLVED_CLOUDFLARE_WORKER_MODULE_ID) return createCloudflareWorkerModule(options);
+    },
+    generateBundle: {
+      order: "post",
+      handler(_outputOptions, bundle) {
+        if (this.environment?.name !== "ssr") return;
+        const asset = bundle["wrangler.json"];
+        generatedConfig =
+          asset?.type === "asset" ? readGeneratedWranglerConfig(asset.source) : undefined;
+      },
+    },
+    writeBundle: {
+      order: "post",
+      sequential: true,
+      handler() {
+        if (this.environment?.name !== "ssr" || !generatedConfig) return;
+        // The generated config is flattened to the environment selected while
+        // building (`CLOUDFLARE_ENV`). Built without one, the redirect would
+        // make `wrangler deploy --env <name>` ship the top-level config under
+        // the requested name, so leave Wrangler reading the user's own config.
+        if (generatedConfig.definedEnvironments.length > 0 && !generatedConfig.targetEnvironment) {
+          rmSync(resolve(root, ".wrangler/deploy/config.json"), { force: true });
+        }
+      },
+    },
+  };
+}
+
+interface GeneratedWranglerConfig {
+  definedEnvironments: string[];
+  targetEnvironment: string | undefined;
+}
+
+function readGeneratedWranglerConfig(
+  source: string | Uint8Array,
+): GeneratedWranglerConfig | undefined {
+  try {
+    const config = JSON.parse(
+      typeof source === "string" ? source : new TextDecoder().decode(source),
+    ) as Record<string, unknown>;
+    return {
+      definedEnvironments: Array.isArray(config.definedEnvironments)
+        ? config.definedEnvironments.filter((name): name is string => typeof name === "string")
+        : [],
+      targetEnvironment:
+        typeof config.targetEnvironment === "string" && config.targetEnvironment !== ""
+          ? config.targetEnvironment
+          : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Create a pracht adapter for Cloudflare Workers.
  *
@@ -382,6 +528,7 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
   return {
     id: "cloudflare",
     ownsDevServer: true,
+    ownsServerEnvironment: true,
     edge: true,
     serverImports:
       'import { resolveApp, resolveApiRoutes } from "@pracht/core/server";\nimport { createCloudflareFetchHandler } from "@pracht/adapter-cloudflare/runtime";',
@@ -395,14 +542,15 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
       return [cloudflareGraphRuntimeStubs()];
     },
     vitePlugins(): Plugin[] {
-      return cloudflare({
+      const cloudflareOptions: PluginConfig = {
         config: {
-          main: "virtual:pracht/server",
+          main: PRACHT_CLOUDFLARE_WORKER_MODULE_ID,
         },
         configPath: options.configPath,
         inspectorPort: options.inspectorPort,
         persistState: options.persistState,
-      });
+      };
+      return [cloudflareWorkerPlugin(cloudflareOptions, options), ...cloudflare(cloudflareOptions)];
     },
   };
 }

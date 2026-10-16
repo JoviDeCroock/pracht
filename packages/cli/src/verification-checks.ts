@@ -1317,12 +1317,18 @@ function collectCapabilitiesDependencyCheck(
 }
 
 /**
+ * `pracht build` writes `dist/server/wrangler.json` (with `main`, `no_bundle`,
+ * the module rule, and the assets directory) and redirects Wrangler to it, so
+ * a wrangler config without `main` needs none of those settings. A config that
+ * declares `main` is still read as-is by `wrangler deploy --config` and by
+ * `wrangler deploy --env` after a build without `CLOUDFLARE_ENV`, so its entry
+ * and bundling settings are checked.
+ *
  * `dist/server/server.js` also exports the build metadata the CLI's prerender
  * pass needs (buildTarget, manifests, the resolved app, ...). workerd validates
  * every named export of the deployed entry module and refuses to start when one
  * of them is not a handler, so pointing `main` at it fails at `wrangler dev` /
- * `wrangler deploy` time with an opaque type error. `pracht build` writes
- * `dist/server/worker.js` for exactly this reason.
+ * `wrangler deploy` time with an opaque type error.
  *
  * Reported as a warning, and only ever about an entry that was actually read.
  * Two things here are heuristics — which adapter the vite config resolves to
@@ -1342,6 +1348,9 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
   const assets = readWranglerAssets(configFile);
   collectCloudflareRunWorkerFirstCheck(assets, display, checks);
   collectCloudflareTrailingSlashCheck(project, root, assets, display, checks);
+  const mainEntries = readWranglerMainEntries(configFile);
+  if (mainEntries.length === 0) return;
+
   for (const bundling of readWranglerBundleSettings(configFile) ?? []) {
     if (bundling.noBundle === true && bundling.hasJavaScriptModuleRule) continue;
     const where = bundling.environment ? ` for environment "${bundling.environment}"` : "";
@@ -1353,7 +1362,7 @@ function collectCloudflareEntryCheck(project: ProjectConfig, root: string, check
     );
   }
 
-  for (const entry of readWranglerMainEntries(configFile)) {
+  for (const entry of mainEntries) {
     if (!normalizePath(entry.main).endsWith(SERVER_ENTRY_PATH)) continue;
 
     const where = entry.environment ? ` for environment "${entry.environment}"` : "";

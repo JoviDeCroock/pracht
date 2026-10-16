@@ -69,31 +69,27 @@ export default defineConfig({
 ```jsonc [wrangler.jsonc]
 {
   "name": "my-app",
-  "main": "dist/server/worker.js",
-  "no_bundle": true,
-  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "compatibility_date": "2026-04-06",
   "assets": {
     "binding": "ASSETS",
-    "directory": "dist/client",
     "html_handling": "drop-trailing-slash",
     "run_worker_first": ["/*", "!/assets/*"],
   },
 }
 ```
 
-`create-pracht` writes this file. Every key in it is load-bearing:
-without `run_worker_first`, Cloudflare serves prerendered pages straight from
-`dist/client`, so ISG never revalidates, Markdown negotiation stops, and
-`headers()` exports and security headers are missing from those responses.
-`pracht doctor` warns when it is absent.
+`pracht build` copies this file to `dist/server/wrangler.json`, adding `main`,
+bundling rules, and the assets directory, for `wrangler deploy` and
+`wrangler dev`. Older configs that set those keys still work.
 
-`"!/assets/*"` serves Vite's hashed files without the Worker; `pracht build`
-writes their immutable and security headers to `dist/client/_headers`.
+Without `run_worker_first`, prerendered pages skip the Worker, so ISG, Markdown
+negotiation, and `headers()` exports stop; `pracht doctor` warns about it.
+`"!/assets/*"` lets hashed files skip it; `pracht build` writes their headers
+to `dist/client/_headers`.
 
 ### Build output
 
-Running `pracht build` with the Cloudflare adapter emits:
+`pracht build` emits:
 
 ```
 dist/
@@ -101,11 +97,16 @@ dist/
     assets/
     index.html     // SSG pages
   server/
-    server.js      // Worker bundle used for the build/prerender pass
-    worker.js      // clean Wrangler deploy entry
+    worker.js      // Worker entry: default handler and your entrypoint classes
+    server.js      // build metadata for the prerender pass
+    wrangler.json  // deploy config generated from wrangler.jsonc
 ```
 
-The build never overwrites your root `wrangler.jsonc`, so add bindings there.
+With named Wrangler environments, run
+`CLOUDFLARE_ENV=staging pracht build && wrangler deploy`. Deploying with `--env`
+instead needs `"main": "dist/server/worker.js"`, `"no_bundle": true`, an
+`ESModule` rule for `"**/*.js"`, and `assets.directory: "dist/client"` in
+`wrangler.jsonc`.
 
 To run several dev servers at once, give each its own inspector port and local
 state path, or turn them off:
@@ -181,16 +182,15 @@ export default {
 };
 ```
 
-The default export is the deployed Worker: Cron Triggers, Queues, and Email
-Routing call its methods, and `pracht.fetch()` serves pages, API routes,
-assets, and ISG exactly as the generated Worker does. Named class exports,
-such as Durable Objects and Workflows, are deployed beside it; keep their
-bindings and migrations in `wrangler.jsonc`. `pracht dev` runs the same module.
+Cron Triggers, Queues, and Email Routing call the default export's methods,
+and `pracht.fetch()` serves everything the generated Worker does. Named class
+exports such as Durable Objects deploy beside it, with their bindings and
+migrations in `wrangler.jsonc`. `pracht dev` runs the same module.
 
 Pass `createPrachtHandler({ createContext })` to shape the `context` loaders
 and API routes receive; it defaults to `{ env, executionContext }`. The older
-`workerExportsFrom`, `workerHandlersFrom`, and `createContextFrom` options keep
-working without a Worker module, but cannot be combined with `workerEntry`.
+`workerExportsFrom`, `workerHandlersFrom`, and `createContextFrom` options still
+work, but not with `workerEntry`.
 
 ### Local preview and Worker bindings
 
@@ -208,8 +208,8 @@ With a custom-domain route in `wrangler.jsonc`, the Worker sees that domain in
 redirects and Web Bot Auth signatures, which cover `@authority`.
 
 `pracht preview` does not forward Wrangler's `--config` flag. To preview with a
-separate config that omits the production route, run Wrangler yourself; that
-config must keep `main: "dist/server/worker.js"`:
+separate config that omits the production route, run Wrangler yourself. It
+replaces the generated config, so it needs those keys too:
 
 ```sh
 pracht build

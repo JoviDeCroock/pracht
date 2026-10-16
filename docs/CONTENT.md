@@ -354,12 +354,12 @@ together would cut the file count, but a chunk is an evaluation unit: the first
 import of any module in it runs every module body it holds, so collecting one
 route's static paths would evaluate every route packed alongside it — including
 client-only ones whose bodies touch `Worker` or `document`.
-Cloudflare deployments must set `"no_bundle": true` and an `ESModule` rule
-covering `"**/*.js"` in `wrangler.jsonc`: Pracht's Vite output is already
-bundled, and the rule tells Wrangler to upload its chunks as Worker modules
-instead of inlining them into the entry. New `create-pracht` Cloudflare projects
-include both settings, while `pracht verify` warns older configs that omit
-either one.
+Cloudflare deployments must upload those chunks unchanged: `"no_bundle": true`
+plus an `ESModule` rule covering `"**/*.js"`, because Pracht's Vite output is
+already bundled and the rule tells Wrangler to upload its chunks as Worker
+modules instead of inlining them into the entry. The generated
+`dist/server/wrangler.json` carries both; a `wrangler.jsonc` that declares its
+own `main` must set them itself, and `pracht verify` warns when it omits either.
 
 This matters because of where the snapshot module ends up. Loaders import it,
 and the bundler hoists a module shared by several route modules into a chunk

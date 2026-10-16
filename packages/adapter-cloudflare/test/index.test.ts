@@ -1,12 +1,18 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { inspect } from "node:util";
 
+import type { Plugin } from "vite";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { cloudflareAdapter, createCloudflareServerEntryModule } from "../src/index.ts";
+import {
+  cloudflareAdapter,
+  createCloudflareServerEntryModule,
+  createCloudflareWorkerModule,
+  PRACHT_CLOUDFLARE_WORKER_MODULE_ID,
+} from "../src/index.ts";
 
 type ManifestReader = (
   request: Request,
@@ -486,5 +492,111 @@ describe("cloudflareAdapter", () => {
     expect(() =>
       resolveId.call({} as never, "cloudflare:unknown-runtime", undefined, { isEntry: false }),
     ).toThrow(/no Node stub for "cloudflare:unknown-runtime"/);
+  });
+});
+
+describe("Cloudflare Worker entry", () => {
+  function workerPlugin(options: Parameters<typeof cloudflareAdapter>[0] = {}): Plugin {
+    const plugin = cloudflareAdapter(options)
+      .vitePlugins?.()
+      .find((candidate) => candidate.name === "pracht:cloudflare-worker");
+    if (!plugin) throw new Error("Expected the pracht:cloudflare-worker plugin.");
+    return plugin;
+  }
+
+  function hook<T>(value: unknown): T {
+    const handler =
+      typeof value === "function" ? value : (value as { handler?: unknown } | undefined)?.handler;
+    if (typeof handler !== "function") throw new Error("Expected a plugin hook.");
+    return handler as T;
+  }
+
+  it("exports only the default handler and the app's entrypoint classes", () => {
+    expect(createCloudflareWorkerModule()).toBe(
+      'export { default } from "virtual:pracht/server";\n',
+    );
+    expect(createCloudflareWorkerModule({ workerExportsFrom: "/src/cloudflare.ts" })).toBe(
+      'export { default } from "virtual:pracht/server";\nexport * from "/src/cloudflare.ts";\n',
+    );
+    // The app's Worker module: its default reaches the entry through
+    // virtual:pracht/server, which registers pracht's fetch for it.
+    expect(createCloudflareWorkerModule({ workerEntry: "./src/worker.ts" })).toBe(
+      'export { default } from "virtual:pracht/server";\nexport * from "/src/worker.ts";\n',
+    );
+  });
+
+  it("serves the Worker entry module the Cloudflare plugin runs", async () => {
+    const plugin = workerPlugin({ workerExportsFrom: "/src/cloudflare.ts" });
+    const resolved = await hook<(id: string) => unknown>(plugin.resolveId).call(
+      {} as never,
+      PRACHT_CLOUDFLARE_WORKER_MODULE_ID,
+    );
+    expect(resolved).toBe(`\0${PRACHT_CLOUDFLARE_WORKER_MODULE_ID}`);
+    const source = await hook<(id: string) => unknown>(plugin.load).call(
+      {} as never,
+      String(resolved),
+    );
+    expect(source).toContain('export * from "/src/cloudflare.ts";');
+  });
+
+  it("lays out the build as dist/server/worker.js beside the server.js prerender entry", () => {
+    const plugin = workerPlugin();
+    // oxlint-disable-next-line typescript/no-explicit-any -- inspecting a Vite config fragment
+    type ConfigFragment = Record<string, any> | undefined;
+    const config = hook<(config: object, env: object) => ConfigFragment>(plugin.config);
+
+    expect(config({}, { command: "serve", mode: "development" })).toBeUndefined();
+
+    const build = config({}, { command: "build", mode: "production", isSsrBuild: true });
+    expect(build?.environments.client.build.outDir).toBe("dist/client");
+    expect(build?.environments.ssr.build.outDir).toBe("dist/server");
+    expect(build?.environments.ssr.build.rollupOptions.input).toEqual({
+      server: "virtual:pracht/server",
+    });
+    const entryFileNames = build?.environments.ssr.build.rollupOptions.output.entryFileNames;
+    expect(entryFileNames({ name: "index" })).toBe("worker.js");
+    expect(entryFileNames({ name: "server" })).toBe("[name].js");
+  });
+
+  it("drops builtin externals an older vite-plugin sets on the Worker environment", () => {
+    const plugin = workerPlugin();
+    const configEnvironment = hook<(name: string, config: object, env: object) => void>(
+      plugin.configEnvironment,
+    );
+    const config = { resolve: { external: ["node:module", "node:async_hooks", "some-package"] } };
+    configEnvironment("ssr", config, { command: "build" });
+    // The Cloudflare plugin rejects what is left with its own error.
+    expect(config.resolve.external).toEqual(["some-package"]);
+  });
+
+  it("keeps the wrangler deploy redirect unless named environments were not selected", () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-cf-redirect-"));
+    const redirect = join(root, ".wrangler/deploy/config.json");
+    const run = (generated: object) => {
+      mkdirSync(join(root, ".wrangler/deploy"), { recursive: true });
+      writeFileSync(redirect, "{}");
+      const plugin = workerPlugin();
+      hook<(config: object) => void>(plugin.configResolved)({ root });
+      const context = { environment: { name: "ssr" } } as never;
+      hook<(options: object, bundle: object) => void>(plugin.generateBundle).call(
+        context,
+        {},
+        {
+          "wrangler.json": { type: "asset", source: JSON.stringify(generated) },
+        },
+      );
+      hook<() => void>(plugin.writeBundle).call(context);
+      return existsSync(redirect);
+    };
+
+    try {
+      expect(run({ definedEnvironments: [] })).toBe(true);
+      expect(run({ definedEnvironments: ["staging"], targetEnvironment: "staging" })).toBe(true);
+      // Built without CLOUDFLARE_ENV, the redirect would make
+      // `wrangler deploy --env staging` ship the top-level config.
+      expect(run({ definedEnvironments: ["staging"] })).toBe(false);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
   });
 });
