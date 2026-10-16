@@ -91,11 +91,13 @@ export interface PrachtAdapter {
    */
   edge?: boolean;
   /**
-   * Node.js builtins the edge runtime provides, as `node:` specifiers. An
-   * edge server bundle may import these; any other builtin left in it fails
-   * the build. Called with the Vite root once per server build.
+   * Node.js builtins the edge runtime provides, as `node:` specifiers, or
+   * `true` when the adapter's own Vite plugins resolve every builtin the
+   * bundle imports. An edge server bundle may import these; any other builtin
+   * left in it fails the build. Listed builtins are also kept external.
+   * Called with the Vite root once per server build.
    */
-  edgeNodeBuiltins?(root: string): Iterable<string>;
+  edgeNodeBuiltins?(root: string): Iterable<string> | true;
   /**
    * If true, the adapter produces a pure static export with no server at
    * runtime (e.g. `@pracht/adapter-static`). Production builds then define

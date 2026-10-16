@@ -429,10 +429,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                     // the edge-runtime-safety plugin still fails the build if
                     // this or any other Node import survives tree shaking.
                     // Builtins the adapter's runtime provides are runtime
-                    // imports by design.
+                    // imports by design. When the adapter resolves every
+                    // builtin itself, it also decides which stay external.
                     external: [
                       "node:module",
-                      ...(resolved.adapter.edgeNodeBuiltins?.(resolve(configRoot)) ?? []),
+                      ...listedEdgeNodeBuiltins(resolved.adapter, configRoot),
                     ],
                   },
                 },
@@ -1092,14 +1093,14 @@ function createEdgeRuntimeSafetyPlugin(adapter: PrachtAdapter): Plugin {
       const isServerBundle = consumer ? consumer === "server" : isSsrBuild;
       if (!isServerBundle) return;
 
-      const provided = new Set(
-        [...(adapter.edgeNodeBuiltins?.(root) ?? [])].map(normalizeNodeBuiltin),
-      );
+      const provided = adapter.edgeNodeBuiltins?.(root) ?? [];
+      if (provided === true) return;
+      const allowed = new Set([...provided].map(normalizeNodeBuiltin));
       const survivors: Array<{ chunk: string; specifier: string }> = [];
       for (const [fileName, output] of Object.entries(bundle)) {
         if (output.type !== "chunk") continue;
         for (const specifier of collectNodeBuiltinImports(this.parse(output.code))) {
-          if (provided.has(normalizeNodeBuiltin(specifier))) continue;
+          if (allowed.has(normalizeNodeBuiltin(specifier))) continue;
           survivors.push({ chunk: fileName, specifier });
         }
       }
@@ -1114,6 +1115,11 @@ function createEdgeRuntimeSafetyPlugin(adapter: PrachtAdapter): Plugin {
       );
     },
   };
+}
+
+function listedEdgeNodeBuiltins(adapter: PrachtAdapter, root: string): string[] {
+  const provided = adapter.edgeNodeBuiltins?.(resolve(root));
+  return provided && provided !== true ? [...provided] : [];
 }
 
 function normalizeNodeBuiltin(specifier: string): string {

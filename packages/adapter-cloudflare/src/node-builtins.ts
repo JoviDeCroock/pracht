@@ -4,27 +4,41 @@ import { resolve } from "node:path";
 /** Wrangler's own lookup order: `wrangler.json` wins over `wrangler.jsonc`. */
 const WRANGLER_CONFIG_FILES = ["wrangler.json", "wrangler.jsonc", "wrangler.toml"];
 
+/** The compatibility date from which `nodejs_compat` means Node.js compat v2. */
+const NODE_COMPAT_V2_DATE = "2024-09-23";
+
 /**
- * Node.js builtins workerd provides for the Worker's compatibility flags.
- * `nodejs_compat` covers far more modules than this, but which ones depends on
- * the compatibility date; only `node:async_hooks` is known for every date that
- * either flag accepts, and it is the one Worker libraries (request-scoped
- * `AsyncLocalStorage`) actually need. Unknown or unreadable config allows none.
+ * Node.js builtins workerd provides for the Worker's compatibility settings,
+ * or `true` for all of them. Under Node.js compat v2 the Cloudflare Vite
+ * plugin resolves every builtin itself, to workerd's native module or to a
+ * polyfill, so any builtin left in the bundle is one workerd serves.
+ * `nodejs_als` alone provides only `node:async_hooks`. Unknown or unreadable
+ * config allows none.
  */
-export function cloudflareEdgeNodeBuiltins(root: string, configPath?: string): string[] {
-  const flags = readCompatibilityFlags(root, configPath);
-  return flags.includes("nodejs_als") || flags.includes("nodejs_compat")
-    ? ["node:async_hooks"]
-    : [];
+export function cloudflareEdgeNodeBuiltins(root: string, configPath?: string): string[] | true {
+  const config = readCompatibilityConfig(root, configPath);
+  if (!config) return [];
+  const { flags, date } = config;
+  const compat = flags.includes("nodejs_compat");
+  if (
+    flags.includes("nodejs_compat_v2") ||
+    (compat && date >= NODE_COMPAT_V2_DATE && !flags.includes("no_nodejs_compat_v2"))
+  ) {
+    return true;
+  }
+  return compat || flags.includes("nodejs_als") ? ["node:async_hooks"] : [];
 }
 
-function readCompatibilityFlags(root: string, configPath?: string): string[] {
+function readCompatibilityConfig(
+  root: string,
+  configPath?: string,
+): { flags: string[]; date: string } | undefined {
   const file = configPath
     ? resolve(root, configPath)
     : WRANGLER_CONFIG_FILES.map((name) => resolve(root, name)).find((candidate) =>
         existsSync(candidate),
       );
-  if (!file || file.endsWith(".toml")) return [];
+  if (!file || file.endsWith(".toml")) return undefined;
 
   let config: unknown;
   try {
@@ -32,10 +46,17 @@ function readCompatibilityFlags(root: string, configPath?: string): string[] {
       stripJsonComments(readFileSync(file, "utf-8")).replace(/,(\s*[}\]])/g, "$1"),
     );
   } catch {
-    return [];
+    return undefined;
   }
-  const flags = (config as { compatibility_flags?: unknown } | null)?.compatibility_flags;
-  return Array.isArray(flags) ? flags.filter((flag) => typeof flag === "string") : [];
+  const { compatibility_flags: flags, compatibility_date: date } = (config ?? {}) as {
+    compatibility_flags?: unknown;
+    compatibility_date?: unknown;
+  };
+  return {
+    flags: Array.isArray(flags) ? flags.filter((flag) => typeof flag === "string") : [],
+    // Wrangler's own default when the date is missing.
+    date: typeof date === "string" ? date : "2000-01-01",
+  };
 }
 
 /** Removes `//` and block comments without touching comment-like text inside strings. */

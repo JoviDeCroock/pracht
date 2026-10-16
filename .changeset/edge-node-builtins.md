@@ -3,4 +3,4 @@
 "@pracht/adapter-cloudflare": minor
 ---
 
-Cloudflare builds may import `node:async_hooks` when the Wrangler config enables `nodejs_als` or `nodejs_compat`, instead of failing the edge runtime check.
+Cloudflare builds may import any Node.js builtin when the Wrangler config enables `nodejs_compat`, and `node:async_hooks` under `nodejs_als`, instead of failing the edge runtime check.

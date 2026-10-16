@@ -595,6 +595,17 @@ describe("pracht plugin build config", () => {
     ).toThrow(/unavailable at runtime:\n  - node:fs in server\.js\nRemove/);
   });
 
+  it("allows every Node builtin when the adapter resolves them itself", () => {
+    const adapter: PrachtAdapter = { ...edgeAdapter, edgeNodeBuiltins: () => true };
+
+    expect(() =>
+      runEdgeRuntimeSafety(
+        { "server.js": chunk(["node:fs", "crypto"], ["node:child_process"]) },
+        adapter,
+      ),
+    ).not.toThrow();
+  });
+
   it.each([
     ["static", chunk(["node:module"])],
     ["dynamic", chunk([], ["node:fs"])],

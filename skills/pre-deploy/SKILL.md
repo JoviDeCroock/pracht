@@ -122,14 +122,15 @@ For a PR deploy, `pracht report --base origin/main` produces a markdown summary
   Worker requires compatibility date X, but the newest date supported by this
   server binary is Y"). Never set it to today's date — that is by construction
   at or beyond the newest released workerd.
-- **No Node-only APIs in the server bundle.** Grep the server files for `fs`,
-  `path` (Node form), `process.cwd`, `Buffer`, `__dirname`, `__filename`,
-  `crypto.createHash` (use `crypto.subtle`), `child_process`, `cluster`,
-  `worker_threads`. Check `compatibility_flags` first — with `nodejs_compat`,
-  `Buffer` and several `node:` modules are legal — and only flag what the
-  active flags do not cover. Dev already runs inside workerd via
-  `@cloudflare/vite-plugin`, so this is the backstop for code paths dev never
-  hits.
+- **No Node-only APIs in the server bundle.** Check `compatibility_flags`
+  first. Without `nodejs_compat`, `pracht build` already fails on any Node
+  builtin left in the bundle (`nodejs_als` allows `node:async_hooks`), so grep
+  for globals instead: `process.cwd`, `Buffer`, `__dirname`, `__filename`.
+  With `nodejs_compat` (compatibility date 2024-09-23 or later) every `node:`
+  import builds, but some modules are stubs that throw when called — flag
+  calls into `child_process`, `cluster`, `worker_threads` and writes through
+  `fs`. Dev already runs inside workerd via `@cloudflare/vite-plugin`, so this
+  is the backstop for code paths dev never hits.
 - An API route importing `@pracht/image/node` is an error on Workers (its
   optimizer needs `sharp`). Require `cloudflareLoader` or `passthroughLoader`.
 - ISG works out of the box via the per-colo Workers Cache API. If

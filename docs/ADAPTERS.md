@@ -538,9 +538,12 @@ Void detects pracht by `@pracht/adapter-cloudflare` as a framework that owns its
 Cloudflare build. `void deploy` runs `pracht build`, wraps `dist/server/worker.js`
 for crons and queues, and deploys with `run_worker_first: true` and
 `html_handling: "drop-trailing-slash"`. Void's runtime helpers import
-`node:async_hooks`, which is why the adapter allows it when `nodejs_als` or
-`nodejs_compat` is set. TOML configs are not parsed for this, so they allow no
-builtins.
+`node:async_hooks`, which is why the adapter allows it under `nodejs_als`.
+Under Node.js compat v2 (`nodejs_compat` with a compatibility date of
+2024-09-23 or later, or `nodejs_compat_v2`) the adapter allows every builtin:
+`@cloudflare/vite-plugin` resolves each one to workerd's native module or to a
+polyfill whose unsupported functions throw when called. TOML configs are not
+parsed for this, so they allow no builtins.
 
 ```typescript
 cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" });
@@ -1841,10 +1844,11 @@ export default async function handle(request) {
     // dependencies into the SSR output (ssr.noExternal = true).
     edge: true,
     // Optional, edge only: Node builtins the runtime provides, as node:
-    // specifiers. The server build keeps them as runtime imports, and the
-    // edge-runtime-safety check fails the build on any other builtin left in
-    // the bundle. The Cloudflare adapter returns node:async_hooks when the
-    // Wrangler config enables nodejs_als or nodejs_compat.
+    // specifiers, or true when the adapter's Vite plugins resolve every
+    // builtin. The server build keeps listed builtins as runtime imports, and
+    // the edge-runtime-safety check fails the build on any other builtin left
+    // in the bundle. The Cloudflare adapter returns true under Node.js compat
+    // v2 and node:async_hooks under nodejs_als.
     edgeNodeBuiltins(root) {
       return ["node:async_hooks"];
     },
