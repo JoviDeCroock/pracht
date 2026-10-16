@@ -2,6 +2,7 @@ import type { PrachtAdapter } from "@pracht/vite-plugin";
 import type { Plugin } from "vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { resolveWorkersCacheOptions, type CloudflareWorkersCacheOption } from "./cache.ts";
+import { cloudflareEdgeNodeBuiltins } from "./node-builtins.ts";
 
 export { createCloudflareFetchHandler } from "./runtime.ts";
 export type {
@@ -45,6 +46,14 @@ export interface CloudflareServerEntryModuleOptions {
 }
 
 export interface CloudflareViteAdapterOptions extends CloudflareServerEntryModuleOptions {
+  /**
+   * Wrangler config file the local Cloudflare runtime reads bindings and
+   * compatibility settings from, relative to the project root. Defaults to
+   * Cloudflare's lookup of `wrangler.jsonc`, `wrangler.json`, or
+   * `wrangler.toml`. Point it at a generated file, such as Void's
+   * `./.void-wrangler.jsonc`, when a tool owns the config.
+   */
+  configPath?: string;
   /**
    * Inspector port for the local Cloudflare runtime, or `false` to disable it.
    * Set this explicitly when multiple Cloudflare Vite dev servers can start at
@@ -275,6 +284,9 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
     createServerEntryModule() {
       return createCloudflareServerEntryModule(options);
     },
+    edgeNodeBuiltins(root) {
+      return cloudflareEdgeNodeBuiltins(root, options.configPath);
+    },
     graphVitePlugins(): Plugin[] {
       return [cloudflareGraphRuntimeStubs()];
     },
@@ -283,6 +295,7 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
         config: {
           main: "virtual:pracht/server",
         },
+        configPath: options.configPath,
         inspectorPort: options.inspectorPort,
         persistState: options.persistState,
       });

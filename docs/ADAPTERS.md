@@ -530,6 +530,22 @@ cloudflareAdapter({ inspectorPort: false, persistState: false });
 cloudflareAdapter({ persistState: { path: ".wrangler/state-dev-a" } });
 ```
 
+`configPath` points both the dev runtime and the build's Node-builtin check at
+a Wrangler config other than the default lookup (`wrangler.json`,
+`wrangler.jsonc`, `wrangler.toml`). Void (void.cloud) uses it: its
+`voidPlugin()` materialises `.void-wrangler.jsonc` from `void.config.ts`, and
+Void detects pracht by `@pracht/adapter-cloudflare` as a framework that owns its
+Cloudflare build. `void deploy` runs `pracht build`, wraps `dist/server/worker.js`
+for crons and queues, and deploys with `run_worker_first: true` and
+`html_handling: "drop-trailing-slash"`. Void's runtime helpers import
+`node:async_hooks`, which is why the adapter allows it when `nodejs_als` or
+`nodejs_compat` is set. TOML configs are not parsed for this, so they allow no
+builtins.
+
+```typescript
+cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" });
+```
+
 ### ISG via Workers Caching (`cache`)
 
 [Workers Caching](https://developers.cloudflare.com/workers/cache/) is a
@@ -1824,6 +1840,14 @@ export default async function handle(request) {
     // dependencies from node_modules at runtime. Forces Vite to bundle all
     // dependencies into the SSR output (ssr.noExternal = true).
     edge: true,
+    // Optional, edge only: Node builtins the runtime provides, as node:
+    // specifiers. The server build keeps them as runtime imports, and the
+    // edge-runtime-safety check fails the build on any other builtin left in
+    // the bundle. The Cloudflare adapter returns node:async_hooks when the
+    // Wrangler config enables nodejs_als or nodejs_compat.
+    edgeNodeBuiltins(root) {
+      return ["node:async_hooks"];
+    },
     // Optional: set to true when the adapter produces a pure static export
     // with no runtime server. Production builds then compile the client with
     // __PRACHT_STATIC_TARGET__ = true and tell the CLI to emit serialized

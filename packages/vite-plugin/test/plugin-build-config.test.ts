@@ -93,8 +93,11 @@ function getHook<T>(plugin: Plugin, name: keyof Plugin): T {
   return typeof hook === "object" && hook !== null && "handler" in hook ? hook.handler : hook;
 }
 
-function runEdgeRuntimeSafety(bundle: Record<string, unknown>): void {
-  const plugin = pracht({ adapter: edgeAdapter }).find(
+function runEdgeRuntimeSafety(
+  bundle: Record<string, unknown>,
+  adapter: PrachtAdapter = edgeAdapter,
+): void {
+  const plugin = pracht({ adapter }).find(
     (candidate) => candidate.name === "pracht:edge-runtime-safety",
   );
   if (!plugin) throw new Error("edge runtime safety plugin not found");
@@ -103,7 +106,7 @@ function runEdgeRuntimeSafety(bundle: Record<string, unknown>): void {
     plugin,
     "configResolved",
   );
-  configResolved.call({}, { build: { ssr: true } });
+  configResolved.call({}, { build: { ssr: true }, root: "/project" });
 
   const generateBundle = getHook<
     (this: unknown, options: unknown, output: Record<string, unknown>) => void
@@ -571,6 +574,25 @@ describe("pracht plugin build config", () => {
         "server.js": chunk(["cloudflare:workers"]),
       }),
     ).not.toThrow();
+  });
+
+  it("allows the Node builtins the adapter says its edge runtime provides", () => {
+    const roots: string[] = [];
+    const adapter: PrachtAdapter = {
+      ...edgeAdapter,
+      edgeNodeBuiltins(root) {
+        roots.push(root);
+        return ["node:async_hooks"];
+      },
+    };
+
+    expect(() =>
+      runEdgeRuntimeSafety({ "server.js": chunk(["node:async_hooks", "async_hooks"]) }, adapter),
+    ).not.toThrow();
+    expect(roots).toEqual(["/project"]);
+    expect(() =>
+      runEdgeRuntimeSafety({ "server.js": chunk(["node:async_hooks", "node:fs"]) }, adapter),
+    ).toThrow(/unavailable at runtime:\n  - node:fs in server\.js\nRemove/);
   });
 
   it.each([

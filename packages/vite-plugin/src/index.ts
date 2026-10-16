@@ -86,6 +86,7 @@ import {
   extensionGlob,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
+import type { PrachtAdapter } from "./plugin-adapter.ts";
 import type { RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
@@ -427,7 +428,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                     // it explicitly keeps successful Worker builds quiet;
                     // the edge-runtime-safety plugin still fails the build if
                     // this or any other Node import survives tree shaking.
-                    external: ["node:module"],
+                    // Builtins the adapter's runtime provides are runtime
+                    // imports by design.
+                    external: [
+                      "node:module",
+                      ...(resolved.adapter.edgeNodeBuiltins?.(resolve(configRoot)) ?? []),
+                    ],
                   },
                 },
               },
@@ -923,7 +929,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   };
 
   const edgeRuntimeSafetyPlugin: Plugin | null = resolved.adapter.edge
-    ? createEdgeRuntimeSafetyPlugin()
+    ? createEdgeRuntimeSafetyPlugin(resolved.adapter)
     : null;
 
   const serverCssAssetsPlugin = createServerCssAssetsPlugin({
@@ -1065,8 +1071,9 @@ function isGraphOnlyMode(): boolean {
   return process.env[PRACHT_GRAPH_ONLY_ENV] === "1";
 }
 
-function createEdgeRuntimeSafetyPlugin(): Plugin {
+function createEdgeRuntimeSafetyPlugin(adapter: PrachtAdapter): Plugin {
   let isSsrBuild = false;
+  let root = process.cwd();
 
   return {
     name: "pracht:edge-runtime-safety",
@@ -1075,6 +1082,7 @@ function createEdgeRuntimeSafetyPlugin(): Plugin {
 
     configResolved(config) {
       isSsrBuild = !!config.build.ssr;
+      root = config.root ?? root;
     },
 
     generateBundle(_options, bundle) {
@@ -1084,10 +1092,14 @@ function createEdgeRuntimeSafetyPlugin(): Plugin {
       const isServerBundle = consumer ? consumer === "server" : isSsrBuild;
       if (!isServerBundle) return;
 
+      const provided = new Set(
+        [...(adapter.edgeNodeBuiltins?.(root) ?? [])].map(normalizeNodeBuiltin),
+      );
       const survivors: Array<{ chunk: string; specifier: string }> = [];
       for (const [fileName, output] of Object.entries(bundle)) {
         if (output.type !== "chunk") continue;
         for (const specifier of collectNodeBuiltinImports(this.parse(output.code))) {
+          if (provided.has(normalizeNodeBuiltin(specifier))) continue;
           survivors.push({ chunk: fileName, specifier });
         }
       }
@@ -1102,6 +1114,10 @@ function createEdgeRuntimeSafetyPlugin(): Plugin {
       );
     },
   };
+}
+
+function normalizeNodeBuiltin(specifier: string): string {
+  return specifier.startsWith("node:") ? specifier : `node:${specifier}`;
 }
 
 function collectNodeBuiltinImports(program: unknown): Set<string> {
