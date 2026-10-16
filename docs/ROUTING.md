@@ -801,6 +801,66 @@ contain repeated slashes, malformed escapes, or a segment that decodes to `/`,
 `\\`, `.`, `..`, NUL, or another control character; every adapter rejects those
 bases during Vite config resolution.
 
+
+## Trailing-Slash Policy
+
+`pracht({ trailingSlash: "ignore" | "never" | "always" })` picks the canonical
+spelling of page URLs. It is a Vite plugin option, like `base`, because both
+the build (prerender, Vercel output routing, static preview) and both bundles
+(server runtime, client router) need it; `defineApp()` is runtime data the
+build would have to evaluate first. The plugin sets
+`__PRACHT_TRAILING_SLASH__` (a JSON string) for the client and server bundles,
+and the server entry exports it as `buildTrailingSlash` for the CLI.
+
+`"ignore"` is the default and is today's behaviour: matching accepts one
+optional trailing slash and generated URLs have none. It compiles every policy
+branch out — client modules that consult the policy declare the define
+locally (`TRAILING_SLASH_ENABLED`) instead of importing `TRAILING_SLASH` from
+`base.ts`, because Rolldown folds a condition only within a module and an
+imported flag would keep the code in multi-chunk builds. `pnpm bench:check`
+is byte-identical for apps on the default.
+
+`"never"` is not the default even though it matches the URLs pracht generates:
+redirecting `/about/` would change behaviour for every deployed app, and on a
+Cloudflare app still on the binding's `auto-trailing-slash` default it would
+fight the host's own redirect.
+
+### Canonical form
+
+`applyTrailingSlash(pathname)` in `base.ts` is the single definition, applied to
+route paths and URL paths alike:
+
+- The root, and a deploy base as a URL (`/app/`), keep their slash.
+- A last segment containing a dot (`/feed.xml`) is a file name: no slash under
+  `"always"`, and `/feed.xml/` redirects to `/feed.xml`.
+- Repeated trailing slashes collapse (`/about//` → `/about/` or `/about`).
+
+The CLI (`build-shared.ts`) and the static preview server carry small copies of
+the same rules because they run outside the bundles that receive the define.
+
+### Where it applies
+
+- **Generated URLs**: `buildHref()` (so `<Link>`, `href()`, `useNavigate()`,
+  `prefetch()`), `redirect()` (root-absolute targets outside `/api`,
+  `/_pracht`, and `/__pracht`), `llms.txt` page links, speculation-rule
+  patterns (`{/}?` suffix so either spelling matches), prerender and ISG
+  regeneration requests (`createISGRegenerationRequest()`), so the rendered
+  `useLocation()` and serialized route-state URL are the canonical one.
+- **Client router**: after a navigation target matches a page route, its
+  pathname is canonicalized before the route-state fetch and `pushState`.
+  Unmatched URLs keep their spelling and load as documents.
+- **Server**: `handlePrachtRequest()` redirects (`308`, query kept,
+  `cache-control: public, max-age=0, must-revalidate`) after a page route
+  matches and before middleware runs. API routes, the agent surface, server
+  islands, and 404s are dispatched first and never redirected. GET/HEAD only;
+  route-state requests (header or `_data=1`) and Markdown-preferring requests
+  are served at either spelling. `createTrailingSlashRedirectResponse()` is the
+  shared helper adapters call on their static and ISG fast paths.
+
+Route paths in the manifest, `match.pathname`, and every build manifest
+(headers, ISG, Markdown) stay slashless; adapters normalize a slashed request
+path to that key before lookups.
+
 ---
 
 ## Shells

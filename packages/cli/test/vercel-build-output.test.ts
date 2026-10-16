@@ -523,4 +523,67 @@ describe("writeVercelBuildOutput", () => {
       }),
     ).toThrow(/ISG route "\/app".*"app\.func".*main edge function "app\.func"/);
   });
+
+  it("sends the non-canonical spelling of prerendered pages to the function", () => {
+    const root = createBuildRoot();
+    const based = createBuildRoot();
+
+    writeVercelBuildOutput({
+      isgManifest: { "/pricing": { revalidate: timeRevalidate(60) } },
+      root,
+      staticRoutes: ["/", "/guide", "/feed.xml", "/raw"],
+      pageRoutes: ["/", "/guide", "/feed.xml", "/pricing"],
+      trailingSlash: "always",
+    });
+    writeVercelBuildOutput({
+      base: "/app/",
+      isgManifest: {},
+      root: based,
+      staticRoutes: ["/", "/guide"],
+      pageRoutes: ["/", "/guide"],
+      trailingSlash: "never",
+    });
+
+    const read = (dir: string) =>
+      (
+        JSON.parse(readFileSync(join(dir, ".vercel/output/config.json"), "utf-8")) as {
+          routes: { dest?: string; src?: string }[];
+        }
+      ).routes;
+    const routes = read(root);
+    const index = (src: string, dest?: string) =>
+      routes.findIndex((entry) => entry.src === src && (dest === undefined || entry.dest === dest));
+
+    // Ahead of the optional-slash rewrite that would otherwise claim it.
+    expect(index("^/guide$", "/render")).toBeGreaterThanOrEqual(0);
+    expect(index("^/guide$", "/render")).toBeLessThan(index("^/guide/?$", "/guide/index.html"));
+    expect(index("^/pricing$", "/render")).toBeLessThan(index("^/pricing/?$", "/pricing"));
+    // A file-named page keeps no slash; the root has one spelling; a
+    // non-page static route answers both.
+    expect(index("^/feed\\.xml/$", "/render")).toBeGreaterThanOrEqual(0);
+    expect(routes.filter((entry) => entry.src === "^/$")).toHaveLength(1);
+    expect(index("^/raw$", "/render")).toBe(-1);
+
+    const basedRoutes = read(based);
+    expect(
+      basedRoutes.some((entry) => entry.src === "^/app/guide/$" && entry.dest === "/render"),
+    ).toBe(true);
+    expect(basedRoutes.some((entry) => entry.src === "^/app/$" && entry.dest === "/render")).toBe(
+      false,
+    );
+  });
+
+  it("adds no trailing-slash routes by default", () => {
+    const root = createBuildRoot();
+    writeVercelBuildOutput({
+      isgManifest: {},
+      root,
+      staticRoutes: ["/guide"],
+      pageRoutes: ["/guide"],
+    });
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: { dest?: string; src?: string }[];
+    };
+    expect(config.routes.some((entry) => entry.src === "^/guide$")).toBe(false);
+  });
 });

@@ -21,6 +21,12 @@ export interface StaticPreviewHandlerOptions {
    * export under a sub-path does.
    */
   base?: string | null;
+  /**
+   * `pracht({ trailingSlash })`. Under `"always"` or `"never"` a page asked
+   * for by its other spelling is redirected (308, query kept), the way a host
+   * configured for that URL shape does. Files are served as named.
+   */
+  trailingSlash?: "ignore" | "never" | "always" | null;
 }
 
 /**
@@ -37,6 +43,7 @@ export function createStaticPreviewHandler(
   const staticDir = resolve(options.staticDir);
   const fallback = options.fallback ?? null;
   const base = normalizePreviewBase(options.base);
+  const trailingSlash = options.trailingSlash ?? "ignore";
   // Vite percent-encodes non-ASCII and spaces in `config.base`, while request
   // paths are decoded below to match the filesystem. Compare like with like,
   // but retain `base` itself for the encoded Location header.
@@ -55,8 +62,10 @@ export function createStaticPreviewHandler(
 
     let pathname: string;
     let search: string;
+    let publicPathname: string;
     try {
       const requestUrl = new URL(req.url ?? "/", "http://localhost");
+      publicPathname = requestUrl.pathname;
       pathname = decodeStaticPreviewPathname(requestUrl.pathname);
       search = requestUrl.search;
     } catch {
@@ -83,6 +92,15 @@ export function createStaticPreviewHandler(
     }
 
     const file = await resolveStaticFile(staticDir, pathname);
+    if (file?.document && trailingSlash !== "ignore") {
+      const canonical = canonicalPagePathname(publicPathname, base, trailingSlash);
+      if (canonical !== publicPathname) {
+        // Never a protocol-relative Location: `//host/` must stay on this origin.
+        res.writeHead(308, { location: `${canonical.replace(/^\/{2,}/, "/")}${search}` });
+        res.end();
+        return;
+      }
+    }
     if (file) {
       await sendFile(res, method, file.filePath, file.contentType, file.cacheControl, 200);
       return;
@@ -121,6 +139,18 @@ export function createStaticPreviewHandler(
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
     res.end("Not found");
   };
+}
+
+/**
+ * The spelling of a page URL under the trailing-slash policy, matching the
+ * framework's own: the root (or deploy base) keeps its slash, and a last
+ * segment containing a dot is a file name that never gets one.
+ */
+function canonicalPagePathname(pathname: string, base: string, policy: "never" | "always"): string {
+  const trimmed = pathname.replace(/\/+$/, "");
+  if (trimmed === "" || `${trimmed}/` === base) return pathname;
+  if (policy === "never") return trimmed;
+  return trimmed.slice(trimmed.lastIndexOf("/") + 1).includes(".") ? trimmed : `${trimmed}/`;
 }
 
 /**

@@ -16,6 +16,7 @@ import {
 } from "./runtime-page.ts";
 import {
   createRequestContext,
+  createTrailingSlashRedirectResponse,
   dispatchAgentSurface,
   dispatchApi,
   type HandlePrachtRequestOptions,
@@ -96,6 +97,13 @@ async function handlePrachtRequestPipeline<TContext>(
     );
   }
 
+  // A matched page answers one spelling of its URL under
+  // `pracht({ trailingSlash })`; the other is redirected before anything runs.
+  const trailingSlashRedirect = ctx.isRouteStateRequest
+    ? null
+    : createTrailingSlashRedirectResponse(ctx.request);
+  if (trailingSlashRedirect) return trailingSlashRedirect;
+
   if (!SAFE_METHODS.has(ctx.request.method)) {
     if (ctx.isRouteStateRequest) {
       return routeStateMethodNotAllowedResponse(match, ctx.exposeDiagnostics);
@@ -117,6 +125,7 @@ async function handlePrachtRequestPipeline<TContext>(
 // single import entry for the framework's runtime API.
 export {
   createBaseRedirectResponse,
+  createTrailingSlashRedirectResponse,
   isFirstPartyFetch,
   type PrachtRequestContext,
 } from "./runtime-request.ts";

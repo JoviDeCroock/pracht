@@ -336,6 +336,14 @@ describe("pracht plugin build config", () => {
     ).toBe("true");
   });
 
+  it("defines the trailing-slash policy for both bundles", () => {
+    expect(runConfigHook(edgeAdapter, false).define?.__PRACHT_TRAILING_SLASH__).toBe('"ignore"');
+    expect(
+      runConfigHook(edgeAdapter, true, { trailingSlash: "always" }).define
+        ?.__PRACHT_TRAILING_SLASH__,
+    ).toBe('"always"');
+  });
+
   it("sends plain JSON loader data unless the app opts in to rich data", () => {
     // The server bundle reads the same define, so both sides agree on the wire
     // format.

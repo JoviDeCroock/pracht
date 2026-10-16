@@ -1,3 +1,4 @@
+import { applyTrailingSlash } from "./base.ts";
 import { serverEnv } from "./env-server.ts";
 import type { RouteRevalidate, RouteRevalidatePolicy } from "./types.ts";
 
@@ -357,7 +358,9 @@ export function createISGRegenerationRequest(
     base === undefined
       ? new URL("http://localhost")
       : new URL(base instanceof Request ? base.url : base);
-  const regenerationUrl = new URL(pathname, baseUrl);
+  // The page's canonical spelling: under `pracht({ trailingSlash })` the
+  // other one answers with a redirect, which is not a page to cache.
+  const regenerationUrl = new URL(applyTrailingSlash(pathname), baseUrl);
 
   return new Request(regenerationUrl, {
     method: "GET",

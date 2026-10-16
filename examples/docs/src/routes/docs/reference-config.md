@@ -47,6 +47,7 @@ apps pass only an `adapter`.
 | `adapter` | Node adapter | Deployment target. See [Adapters](/docs/adapters) |
 | `pagesDir` | *(unset)* | Opt into [file-system routing](/docs/routing#pages-router-auto-discovery), e.g. `"/src/pages"`. Overrides `appFile` |
 | `pagesDefaultRender` | `"ssr"` | Render mode for pages that do not export `RENDER_MODE`. Pages router only |
+| `trailingSlash` | `"ignore"` | `"always"` or `"never"` makes `/about/` or `/about` the canonical page URL: links use it and the other spelling redirects with a `308`. `"ignore"` serves both. See [Trailing Slashes](/docs/routing#trailing-slashes) |
 
 ### Build
 

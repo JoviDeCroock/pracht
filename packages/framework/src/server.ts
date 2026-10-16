@@ -14,7 +14,13 @@ export {
   webhookRevalidate,
 } from "./app.ts";
 export { createHref } from "./href.ts";
-export { restoreBasePathInRequest, stripBase, withBase } from "./base.ts";
+export {
+  applyTrailingSlash,
+  restoreBasePathInRequest,
+  stripBase,
+  TRAILING_SLASH,
+  withBase,
+} from "./base.ts";
 export {
   isMcpResourceMetadataPath,
   mcpResourceMetadataPath,
@@ -57,6 +63,7 @@ export {
 export {
   applyDefaultSecurityHeaders,
   createBaseRedirectResponse,
+  createTrailingSlashRedirectResponse,
   formatServerTimingHeader,
   handlePrachtRequest,
   isProtocolSwitchResponse,

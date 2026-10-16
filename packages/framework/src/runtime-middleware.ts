@@ -1,4 +1,11 @@
-import { withBase } from "./base.ts";
+import { applyTrailingSlashToHref, withBase } from "./base.ts";
+
+// `pracht({ trailingSlash })`. Declared in this module rather than imported:
+// Rolldown folds the condition only within a module, so an imported flag would
+// keep the policy code in every multi-chunk build of an app on the default.
+declare const __PRACHT_TRAILING_SLASH__: string | undefined;
+const TRAILING_SLASH_ENABLED =
+  typeof __PRACHT_TRAILING_SLASH__ !== "undefined" && __PRACHT_TRAILING_SLASH__ !== "ignore";
 import { parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
 import { applyHeaders } from "./runtime-headers.ts";
@@ -92,7 +99,9 @@ export function buildRedirectResponse(
  * like any other middleware.
  */
 export function redirect(target: string, options: RedirectOptions = {}): Response {
-  const location = withBase(target);
+  // Root-absolute targets are route paths: canonical spelling under
+  // `pracht({ trailingSlash })`, then the deploy base.
+  const location = withBase(TRAILING_SLASH_ENABLED ? applyTrailingSlashToHref(target) : target);
   if (typeof options === "number") {
     return buildRedirectResponse(location, {
       baseUrl: REDIRECT_VALIDATION_BASE,

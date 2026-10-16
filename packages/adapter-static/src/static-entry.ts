@@ -146,6 +146,7 @@ export function createStaticServerEntryModule(options: StaticAdapterOptions = {}
     '    staticDir: resolve(serverDir, "../client"),',
     "    fallback: staticExportConfig.fallback,",
     "    base: buildBase,",
+    "    trailingSlash: buildTrailingSlash,",
     "  });",
     "  const server = createServer(handler);",
     `  const port = Number(process.env.PORT ?? ${port});`,

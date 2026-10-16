@@ -45,6 +45,7 @@ describe("@pracht/cli inspect", () => {
           streaming: null,
         },
       ],
+      trailingSlash: "ignore",
     });
 
     expect(api).toEqual({

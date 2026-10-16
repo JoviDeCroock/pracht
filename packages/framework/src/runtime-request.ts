@@ -22,7 +22,13 @@
  */
 import { DEFAULT_LOADER_TIMEOUT_MS, matchApiRoute, resolveApp } from "./app.ts";
 import { createWaitUntil, isSameOriginRequest } from "@pracht/capabilities/server/internal";
-import { resolveBaseRedirectLocation, restoreBasePathInRequest, stripBase } from "./base.ts";
+import {
+  resolveBaseRedirectLocation,
+  resolveTrailingSlashRedirectLocation,
+  restoreBasePathInRequest,
+  stripBase,
+  TRAILING_SLASH,
+} from "./base.ts";
 import {
   OAUTH_PROTECTED_RESOURCE_WELL_KNOWN,
   ROUTE_STATE_REQUEST_HEADER,
@@ -40,6 +46,7 @@ import {
 } from "./runtime-headers.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
 import { runMiddlewareChain } from "./runtime-middleware.ts";
+import { prefersMarkdown } from "./runtime-negotiation.ts";
 import { renderApiErrorResponse } from "./runtime-response.ts";
 import type { ResolvedCapability } from "./runtime-capabilities.ts";
 import type { PrachtPhaseTimings } from "./runtime-timing.ts";
@@ -353,6 +360,43 @@ export function createBaseRedirectResponse(request: Request): Response | null {
   if (request.method !== "GET" && request.method !== "HEAD") return null;
   const url = new URL(request.url);
   const location = resolveBaseRedirectLocation(url.pathname, url.search);
+  if (!location) return null;
+
+  return withDefaultSecurityHeaders(
+    new Response(null, {
+      status: 308,
+      headers: {
+        "cache-control": "public, max-age=0, must-revalidate",
+        location,
+      },
+    }),
+  );
+}
+
+/**
+ * Redirect a page document request to the canonical spelling chosen by
+ * `pracht({ trailingSlash })`. The caller has established that the URL names
+ * a page — a matched route, a prerendered document, an ISG entry — because
+ * API routes and files keep answering both spellings.
+ *
+ * Route-state fetches and Markdown negotiation are answered where they land:
+ * neither is a document a visitor bookmarks, and redirecting them would cost
+ * agents and the client router a round trip for nothing.
+ *
+ * @internal
+ */
+export function createTrailingSlashRedirectResponse(request: Request): Response | null {
+  if (TRAILING_SLASH === "ignore") return null;
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const url = new URL(request.url);
+  if (
+    request.headers.get(ROUTE_STATE_REQUEST_HEADER) === "1" ||
+    url.searchParams.get("_data") === "1" ||
+    prefersMarkdown(request.headers.get("accept"))
+  ) {
+    return null;
+  }
+  const location = resolveTrailingSlashRedirectLocation(url.pathname, url.search);
   if (!location) return null;
 
   return withDefaultSecurityHeaders(

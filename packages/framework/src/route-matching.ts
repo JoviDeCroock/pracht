@@ -8,7 +8,14 @@
  * to run in dev and at build time.
  */
 
-import { withBase } from "./base.ts";
+import { applyTrailingSlash, withBase } from "./base.ts";
+
+// `pracht({ trailingSlash })`. Declared in this module rather than imported:
+// Rolldown folds the condition only within a module, so an imported flag would
+// keep the policy code in every multi-chunk build of an app on the default.
+declare const __PRACHT_TRAILING_SLASH__: string | undefined;
+const TRAILING_SLASH_ENABLED =
+  typeof __PRACHT_TRAILING_SLASH__ !== "undefined" && __PRACHT_TRAILING_SLASH__ !== "ignore";
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import type {
   BuildHrefOptions,
@@ -233,7 +240,13 @@ function getCompiledHrefRoutes(routes: readonly HrefRouteDefinition[]): Compiled
       // Every caller hands this path to a browser, so it carries the deploy
       // base. Dynamic paths are based after their parameters are substituted.
       staticPath:
-        parameterNames.length === 0 ? withBase(buildPathFromSegments(segments, {})) : undefined,
+        parameterNames.length === 0
+          ? withBase(
+              TRAILING_SLASH_ENABLED
+                ? applyTrailingSlash(buildPathFromSegments(segments, {}))
+                : buildPathFromSegments(segments, {}),
+            )
+          : undefined,
     });
   }
 
@@ -283,7 +296,9 @@ export function buildHrefUntyped(
   // Every caller — <Link>, navigate(), prefetch(), href() — hands this to the
   // browser, so it is a URL path and carries the deploy base. Prerender output
   // paths use `buildPathFromSegments` directly and stay base-free.
-  const path = withBase(buildPathFromSegments(segments, params));
+  // `pracht({ trailingSlash })` picks the spelling; the default folds away.
+  const routePath = buildPathFromSegments(segments, params);
+  const path = withBase(TRAILING_SLASH_ENABLED ? applyTrailingSlash(routePath) : routePath);
   return `${path}${serializeSearch(options.search as SearchParamsInput | undefined)}${serializeHash(options.hash)}`;
 }
 
@@ -298,7 +313,11 @@ function buildCompiledHref(
   const route = compiledRoutes.byId.get(routeId);
   if (!route) throwUnknownRoute(routeId, compiledRoutes.registeredIds);
   validateCompiledHrefParams(route, params);
-  const path = route.staticPath ?? withBase(buildCompiledHrefPath(route.segments, params!));
+  let path = route.staticPath;
+  if (path === undefined) {
+    const routePath = buildCompiledHrefPath(route.segments, params!);
+    path = withBase(TRAILING_SLASH_ENABLED ? applyTrailingSlash(routePath) : routePath);
+  }
   const searchSuffix = serializeSearch(search as SearchParamsInput | undefined);
   const hashSuffix = serializeHash(hash);
   return searchSuffix || hashSuffix ? `${path}${searchSuffix}${hashSuffix}` : path;

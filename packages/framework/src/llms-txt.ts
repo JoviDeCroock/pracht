@@ -14,7 +14,7 @@
 
 import { buildPathFromSegments } from "./app.ts";
 import { API_METHOD_ORDER } from "./app-graph.ts";
-import { withBase } from "./base.ts";
+import { applyTrailingSlash, withBase } from "./base.ts";
 import { matchRoutePattern } from "./constraints.ts";
 import { markdownFilePath } from "./route-matching.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
@@ -146,6 +146,9 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
   // Paths come from the route table, so they carry no deploy base. The links
   // are for crawlers and agents, which need the URL as served.
   const link = (path: string): string => `${origin}${withBase(path)}`;
+  // Page URLs take the `pracht({ trailingSlash })` spelling; API paths and
+  // `.md` files are exact.
+  const pageLink = (path: string): string => link(applyTrailingSlash(path));
   const excludesPattern = createExcludeMatcher(options.exclude);
   const isExcluded = (path: string): boolean => isReservedPath(path) || excludesPattern(path);
 
@@ -185,7 +188,7 @@ export async function buildLlmsTxt(options: BuildLlmsTxtOptions): Promise<string
           continue;
         }
         const note = page.markdown ? ": supports `Accept: text/markdown`" : "";
-        lines.push(`- [${page.path}](${link(page.path)})${note}`);
+        lines.push(`- [${page.path}](${pageLink(page.path)})${note}`);
       }
     }
   }

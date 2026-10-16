@@ -266,6 +266,7 @@ export const app = defineApp({
           streaming: null,
         },
       ],
+      trailingSlash: "ignore",
     });
   }, 30_000);
 

@@ -49,6 +49,11 @@ export interface StaticFileResult {
   filePath: string;
   contentType: string;
   cacheControl: string;
+  /**
+   * The URL named a page and was answered with its `index.html`, rather than
+   * naming a file exactly — the response that follows the trailing-slash policy.
+   */
+  document?: boolean;
 }
 
 /**
@@ -79,7 +84,8 @@ export async function resolveStaticFile(
   }
 
   // ISG routes need staleness checks — let the ISG handler below deal with them.
-  if (pathname in isgManifest) {
+  // The manifest is keyed by route path, which carries no trailing slash.
+  if (toRouteKey(pathname) in isgManifest) {
     return null;
   }
 
@@ -97,10 +103,21 @@ export async function resolveStaticFile(
       filePath: indexPath,
       contentType: "text/html; charset=utf-8",
       cacheControl: "public, max-age=0, must-revalidate",
+      document: true,
     };
   }
 
   return null;
+}
+
+/**
+ * The route-path key the build manifests use for a URL path: `/about/` and
+ * `/about` are one page, recorded without the slash.
+ */
+export function toRouteKey(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith("/")
+    ? pathname.replace(/\/+$/, "") || "/"
+    : pathname;
 }
 
 function resolveUrlPath(staticRoot: string, pathname: string, suffix?: string): string | null {

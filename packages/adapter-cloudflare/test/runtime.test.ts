@@ -1169,3 +1169,61 @@ describe("portable waitUntil", () => {
     );
   });
 });
+
+describe("createCloudflareFetchHandler and pracht({ trailingSlash })", () => {
+  it("finds the ISG entry and cache for the slash form of a page", async () => {
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext } = createExecutionContext();
+    const host = "slash.example";
+    putCachedISGPage(store, cacheKeyUrl("/pricing", host), "<html>cached</html>", Date.now());
+    const { app, registry } = createPricingApp();
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+    });
+
+    const response = await handler(
+      new Request(`https://${host}/pricing/`),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-pracht-isg")).toBe("fresh");
+    await expect(response.text()).resolves.toContain("cached");
+  });
+
+  it('redirects a cached ISG page to its slash form under "always"', async () => {
+    vi.stubGlobal("__PRACHT_TRAILING_SLASH__", "always");
+    vi.resetModules();
+    const { createCloudflareFetchHandler: createHandler } = await import("../src/runtime.ts");
+    const { cache, store } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const { executionContext } = createExecutionContext();
+    const host = "always.example";
+    putCachedISGPage(store, cacheKeyUrl("/pricing", host), "<html>cached</html>", Date.now());
+    const { app, registry } = createPricingApp();
+    const handler = createHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+    });
+
+    const slashless = await handler(
+      new Request(`https://${host}/pricing?ref=1`),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+    expect(slashless.status).toBe(308);
+    expect(slashless.headers.get("location")).toBe("/pricing/?ref=1");
+
+    const canonical = await handler(
+      new Request(`https://${host}/pricing/`),
+      { ASSETS: create404Assets() },
+      executionContext,
+    );
+    expect(canonical.status).toBe(200);
+    await expect(canonical.text()).resolves.toContain("cached");
+  });
+});

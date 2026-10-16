@@ -113,6 +113,7 @@ export type {
   PrachtClientOptions,
   PrachtLlmsTxtOptions,
   PrachtPluginOptions,
+  TrailingSlashPolicy,
 } from "./plugin-options.ts";
 export { FRAMEWORK_VENDOR_CHUNK, frameworkChunkGroups, type ChunkGroup } from "./chunk-groups.ts";
 export {
@@ -371,6 +372,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_APP_ROOT__: appRootDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           __PRACHT_SERVER_ISLANDS__: serverIslandsDefine,
+          // One URL policy for the server runtime, the client router, and the
+          // prerender pass; the default compiles every branch of it away.
+          __PRACHT_TRAILING_SLASH__: JSON.stringify(resolved.trailingSlash),
           ...clientFeatureDefines,
         },
         // The vendor split only makes sense for the client bundle; the server

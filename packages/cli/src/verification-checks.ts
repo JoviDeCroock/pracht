@@ -1397,16 +1397,19 @@ function collectCloudflareRunWorkerFirstCheck(
 }
 
 /**
- * Cloudflare's assets binding defaults to `html_handling: "auto-trailing-slash"`,
- * which answers `GET /guide` with a 307 to `/guide/`. Node and Vercel answer
- * `200`, so the canonical URL of every prerendered route differs by adapter —
- * and the generated `llms.txt` emits the non-slash form, sending agents through
- * a redirect on Cloudflare only.
+ * Cloudflare's assets binding serves prerendered pages, so its `html_handling`
+ * decides their canonical spelling. It defaults to `"auto-trailing-slash"`,
+ * which answers `GET /guide` with a 307 to `/guide/`, while Node and Vercel
+ * answer `200` and the generated `llms.txt` emits the non-slash form.
+ *
+ * With `pracht({ trailingSlash: "always" | "never" })` the binding has to agree
+ * with the app: the opposite setting redirects every page the other way, and
+ * the two can bounce a cached ISG page between spellings.
  *
  * `create-pracht` writes `"drop-trailing-slash"` into new Cloudflare scaffolds;
- * this catches the apps that predate it. Warning-only and silent whenever
- * anything is unproven: a TOML config, an unparsable file, no assets block, or
- * an app with nothing prerendered to redirect.
+ * this catches the apps that predate it or have since changed their policy.
+ * Warning-only and silent whenever anything is unproven: a TOML config, an
+ * unparsable file, no assets block, or an app with nothing prerendered.
  */
 function collectCloudflareTrailingSlashCheck(
   project: ProjectConfig,
@@ -1415,18 +1418,63 @@ function collectCloudflareTrailingSlashCheck(
   display: string,
   checks: Check[],
 ): void {
-  if (!assets || assets.htmlHandling !== undefined) return;
-  if (!appHasPrerenderedRoutes(project, root)) return;
-
+  if (!assets) return;
+  const policy = readTrailingSlashPolicy(project, root);
+  const expected = policy === "always" ? "force-trailing-slash" : "drop-trailing-slash";
+  if (assets.htmlHandling === undefined) {
+    // The default already redirects `/about` to `/about/` for the
+    // `about/index.html` every prerendered page is written as.
+    if (policy === "always" || !appHasPrerenderedRoutes(project, root)) return;
+    checks.push(
+      createCheck(
+        "warning",
+        `${display} does not set "assets.html_handling". Cloudflare's default redirects ` +
+          "every prerendered route to its trailing-slash form (307), so its canonical URL " +
+          'differs from Node and Vercel. Add "html_handling": "drop-trailing-slash" ' +
+          '(or "none" when you do your own routing).',
+      ),
+    );
+    return;
+  }
+  const agrees =
+    assets.htmlHandling === expected ||
+    assets.htmlHandling === "none" ||
+    (policy === "always" && assets.htmlHandling === "auto-trailing-slash");
+  if (policy === "ignore" || agrees || !appHasPrerenderedRoutes(project, root)) return;
   checks.push(
     createCheck(
       "warning",
-      `${display} does not set "assets.html_handling". Cloudflare's default redirects ` +
-        "every prerendered route to its trailing-slash form (307), so its canonical URL " +
-        'differs from Node and Vercel. Add "html_handling": "drop-trailing-slash" ' +
-        '(or "none" when you do your own routing).',
+      `${display} sets "assets.html_handling": ${JSON.stringify(assets.htmlHandling)}, but ` +
+        `pracht({ trailingSlash: ${JSON.stringify(policy)} }) makes ` +
+        (policy === "always" ? "/about/" : "/about") +
+        " the canonical page URL. Cloudflare then redirects prerendered pages to the other " +
+        `spelling. Set "html_handling": ${JSON.stringify(expected)}.`,
     ),
   );
+}
+
+/**
+ * `pracht({ trailingSlash })`, from the last build's `dist/server/routing.json`
+ * when there is one, and otherwise from the Vite config's source text.
+ */
+function readTrailingSlashPolicy(
+  project: ProjectConfig,
+  root: string,
+): "ignore" | "never" | "always" {
+  const routingFile = resolve(root, "dist/server/routing.json");
+  if (existsSync(routingFile)) {
+    try {
+      const routing = JSON.parse(readFileSync(routingFile, "utf-8")) as { trailingSlash?: unknown };
+      if (routing.trailingSlash === "never" || routing.trailingSlash === "always") {
+        return routing.trailingSlash;
+      }
+      return "ignore";
+    } catch {
+      // Fall through to the source heuristic.
+    }
+  }
+  const match = /\btrailingSlash\s*:\s*["'](never|always)["']/.exec(project.rawConfig ?? "");
+  return match ? (match[1] as "never" | "always") : "ignore";
 }
 
 /**

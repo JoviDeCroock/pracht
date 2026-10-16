@@ -7,8 +7,15 @@ import type { FontHeadFragments } from "./font.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 
 import type { parseRouteSearch } from "./api-validation.ts";
-import { stripBase } from "./base.ts";
+import { applyTrailingSlash, stripBase } from "./base.ts";
 import { buildHrefUntyped, matchResolvedRoute } from "./route-matching.ts";
+
+// `pracht({ trailingSlash })`. Declared in this module rather than imported:
+// Rolldown folds the condition only within a module, so an imported flag would
+// keep the policy code in every multi-chunk build of an app on the default.
+declare const __PRACHT_TRAILING_SLASH__: string | undefined;
+const TRAILING_SLASH_ENABLED =
+  typeof __PRACHT_TRAILING_SLASH__ !== "undefined" && __PRACHT_TRAILING_SLASH__ !== "ignore";
 import {
   decodeFragmentId,
   findFragmentTarget,
@@ -816,6 +823,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       // No client route — fall back to full page load
       window.location.href = target.browserUrl;
       return;
+    }
+    // A page URL takes its `pracht({ trailingSlash })` spelling before it is
+    // fetched or pushed, so a hand-written `/about` lands on `/about/` without
+    // the server's redirect. Only matched pages: other URLs keep theirs.
+    if (TRAILING_SLASH_ENABLED) {
+      const urlPathname = applyTrailingSlash(target.urlPathname);
+      target.browserUrl = urlPathname + target.browserUrl.slice(target.urlPathname.length);
+      target.requestUrl = urlPathname + target.search;
+      target.urlPathname = urlPathname;
     }
 
     if (match.route.hydration === "islands" || match.route.hydration === "none") {

@@ -653,6 +653,17 @@ the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
 
 Use `"none"` instead when you do your own routing.
 
+With `pracht({ trailingSlash })` the binding is the canonicalizer for
+prerendered pages: `"force-trailing-slash"` for `"always"` (the default
+`"auto-trailing-slash"` behaves the same for the `about/index.html` files pracht
+writes), `"drop-trailing-slash"` for `"never"`. The Worker does not redirect
+static pages itself, so a mismatched setting serves the wrong spelling instead
+of looping; `pracht verify` warns about it, reading the policy from
+`dist/server/routing.json` or the Vite config. The Worker does redirect where
+the binding is skipped: an ISG page answered from `caches.default` and an
+edge-cached ISG route. ISG manifest lookups and Cache API keys use the slashless
+route path, so `/pricing/` and `/pricing` share one entry.
+
 `"run_worker_first": true` is what routes a request for a prerendered file
 through the Worker at all. Without it Cloudflare answers from the assets
 directory directly, so ISG revalidation, Markdown negotiation, `headers()`
@@ -1633,6 +1644,43 @@ static file resolution (NUL/backslash/symlink/traversal guards) and decodes URL
 segments to the same filesystem spelling used by static-export page output.
 
 ---
+
+## Trailing-slash policy and `dist/server/routing.json`
+
+Every build writes `dist/server/routing.json`:
+
+```json
+{ "base": "/", "trailingSlash": "always" }
+```
+
+No pracht runtime reads it. It exists for hosting platforms and deploy tooling
+that configure their own static-file layer, whose trailing-slash handling must
+agree with the app's or the two redirect each other: Cloudflare's
+`assets.html_handling` (`force-trailing-slash` for `"always"`,
+`drop-trailing-slash` for `"never"`), a CDN's directory-index rules, a reverse
+proxy's rewrites.
+
+Per adapter, with `"always"` or `"never"` (see
+[ROUTING.md](./ROUTING.md#trailing-slash-policy) for the rules):
+
+- **Node**: the runtime redirects SSR pages; the static fast path redirects a
+  page served from `<path>/index.html` (not an exactly named file), and the ISG
+  path redirects before serving. ISG lookups and snapshot writes use the
+  slashless key.
+- **Cloudflare**: the assets binding's `html_handling` canonicalizes prerendered
+  pages; the Worker redirects SSR pages, cached ISG hits, and edge-cached ISG
+  routes (see [Trailing slashes](#trailing-slashes)).
+- **Netlify**: the function redirects static documents and ISG pages before the
+  CDN keys them, so only the canonical URL is cached. Under `"ignore"`, the
+  ISG-only slashless redirect is unchanged.
+- **Vercel**: `config.json` routes the non-canonical spelling of each
+  prerendered page (SSG and ISG) to the render function, ahead of the
+  optional-slash static rewrite, and the runtime answers the `308`. Content
+  artifacts and generated files keep answering both spellings.
+- **Static**: pages are still written as `<path>/index.html`; `pracht preview`
+  redirects like a host configured for the policy. `"never"` warns at build
+  time, because most static hosts redirect `/about` to `/about/` for that
+  layout.
 
 ## Null-body response framing
 

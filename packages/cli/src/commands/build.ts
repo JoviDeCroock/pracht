@@ -18,7 +18,7 @@ import { build as viteBuild, type Plugin } from "vite";
 import { matchRoutePath, planMarkdownFiles, routePathIsDynamic } from "@pracht/core";
 import type { MarkdownFile, PrerenderedMarkdown } from "@pracht/core";
 
-import { readClientBuildAssets } from "../build-metadata.js";
+import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
 import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
 import {
   decodeStaticOutputPath,
@@ -583,12 +583,21 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const serverMod = await import(pathToFileURL(serverEntry).href);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
     const buildBase = typeof serverMod.buildBase === "string" ? serverMod.buildBase : "/";
+    const buildTrailingSlash = readBuildTrailingSlash(serverMod);
     const isStaticExport = isStaticExportBuild(serverMod);
     if (isStaticExport) {
       // Fail closed before prerendering: a static export has no server, so
       // Request-runtime routes/features and network-exposed capabilities are
       // build errors (with every offender listed at once).
       await validateStaticExport(serverMod);
+    }
+    if (isStaticExport && buildTrailingSlash === "never") {
+      reportBuildWarning(
+        '\n  Warning: trailingSlash: "never" with a static export. Each page is written as ' +
+          "<path>/index.html, which most static hosts serve at /<path>/ and redirect /<path> to. " +
+          'Use trailingSlash: "always", or a host configured to serve /<path> without a redirect.\n',
+        analyzeJson,
+      );
     }
     const { prerenderApp } = serverMod;
     // Asset URLs in prerendered documents must carry the deploy base; the
@@ -964,6 +973,16 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       writeFileSync(resolve(clientDir, "_pracht/markdown.json"), markdownManifestJson, "utf-8");
     }
 
+    // The URL shape the build was made for, for hosting platforms and deploy
+    // tooling that configure their own static-file routing (a CDN's
+    // trailing-slash handling has to agree with the app's, or the two
+    // redirect each other). No pracht runtime reads it.
+    writeFileSync(
+      resolve(root, "dist/server/routing.json"),
+      `${JSON.stringify({ base: buildBase, trailingSlash: buildTrailingSlash }, null, 2)}\n`,
+      "utf-8",
+    );
+
     // Every page's stylesheets, keyed by route or shell file. No runtime reads
     // this: it is the one place where the mapping for routes outside the client
     // bundle survives the build, so `pracht inspect` and anything auditing CSS
@@ -1072,6 +1091,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           ...generatedStaticRoutes,
           ...contentArtifactCleanRoutes,
         ],
+        trailingSlash: buildTrailingSlash,
+        pageRoutes: pages.map((page: { path: string }) => page.path),
       });
 
       log(`\n  Vercel build output → ${outputPath}\n`);
