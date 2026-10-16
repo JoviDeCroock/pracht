@@ -179,6 +179,13 @@ gateway with a pathname-only `cf.cacheKey`, and normalize `Accept` there for
 routes that export markdown or declare `markdown: true`. See
 `docs/ADAPTERS.md#cache-key-cardinality`.
 
+**Void.** To deploy with `void deploy`, put `voidPlugin()` from `void` before
+`pracht()` and use `cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" })`.
+Bindings and `compatibility_flags` (including `nodejs_als`) move from
+`wrangler.jsonc` to `void.config.ts`; delete `wrangler.jsonc`. Loaders that call
+`void/*` helpers must be on `render: "ssr"` routes — prerendering has no
+bindings.
+
 ---
 
 ## Netlify

@@ -284,6 +284,32 @@ pracht build
 npx wrangler deploy
 ```
 
+### Deploy with Void
+
+[Void](https://void.cloud/integrations/frameworks/overview) deploys apps built
+with this adapter and adds `void/db`, `void/kv`, cron jobs, and queues. Add
+`voidPlugin()` before `pracht()` and point the adapter at the Cloudflare
+config Void generates:
+
+```ts [vite.config.ts]
+import { cloudflareAdapter } from "@pracht/adapter-cloudflare";
+import { pracht } from "@pracht/vite-plugin";
+import { defineConfig } from "vite";
+import { voidPlugin } from "void";
+
+export default defineConfig({
+  plugins: [
+    voidPlugin(),
+    pracht({ adapter: cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" }) }),
+  ],
+});
+```
+
+Bindings and compatibility flags then live in `void.config.ts` instead of
+`wrangler.jsonc`; include `nodejs_als` in `compatibility_flags`. `void deploy`
+runs `pracht build`. Routes whose loaders use `void/*` helpers need
+`render: "ssr"`, because prerendering runs without bindings.
+
 ---
 
 ## Vercel
