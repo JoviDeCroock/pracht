@@ -77,7 +77,7 @@ export default defineConfig({
     "binding": "ASSETS",
     "directory": "dist/client",
     "html_handling": "drop-trailing-slash",
-    "run_worker_first": true,
+    "run_worker_first": ["/*", "!/assets/*"],
   },
 }
 ```
@@ -87,6 +87,12 @@ without `run_worker_first`, Cloudflare serves prerendered pages straight from
 `dist/client`, so ISG never revalidates, Markdown negotiation stops, and
 `headers()` exports and security headers are missing from those responses.
 `pracht doctor` warns when it is absent.
+
+`"!/assets/*"` serves Vite's hashed files without invoking the Worker;
+`pracht build` writes `dist/client/_headers` so they still get
+`Cache-Control: public, max-age=31536000, immutable` and security headers.
+`true` also works but bills an invocation per asset. A `public/_headers` of
+your own replaces the generated file.
 
 ### Build output
 
@@ -268,6 +274,24 @@ export async function loader({ context }: LoaderArgs) {
   return { user };
 }
 ```
+
+To type `context.env`, run `npx wrangler types`. It writes
+`worker-configuration.d.ts` with an `Env` interface for the bindings in
+`wrangler.jsonc`, plus the Workers runtime types. Register it once:
+
+```ts [src/env.d.ts]
+import "@pracht/core";
+
+declare module "@pracht/core" {
+  interface Register {
+    context: { env: Env; executionContext: ExecutionContext };
+  }
+}
+```
+
+`create-pracht` wires this up with a `cf-typegen` script, which `typecheck`
+also runs; rerun it after changing bindings. Without the file, `context.env` is
+`any`.
 
 `import { env } from "cloudflare:workers"` also works, but in API and
 capability modules read `env.DB` inside the handler or `run()`, not at module

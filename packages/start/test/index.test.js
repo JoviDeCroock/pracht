@@ -466,8 +466,11 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"@pracht\/adapter-cloudflare": "\^\d+\.\d+\.\d+"/);
 
     expect(packageJson).toContain('"preview": "pracht preview"');
-    expect(packageJson).toContain(
-      '"typecheck": "tsc --noEmit && tsc --noEmit --project tsconfig.client.json"',
+    // `wrangler types` generates the `Env` that src/env.d.ts registers, so the
+    // typecheck regenerates it before tsc reads it.
+    expect(parsedPackageJson.scripts["cf-typegen"]).toBe("wrangler types");
+    expect(parsedPackageJson.scripts.typecheck).toBe(
+      "wrangler types && tsc --noEmit && tsc --noEmit --project tsconfig.client.json",
     );
     expect(packageJson).toContain('"wrangler": "^4.81.0"');
     // A fixed date, never a generated one: workerd refuses to start when asked
@@ -483,6 +486,8 @@ describe("create-pracht", () => {
     expect(wranglerConfig).toContain('"no_bundle": true');
     expect(wranglerConfig).toContain('"type": "ESModule"');
     expect(wranglerConfig).toContain('"**/*.js"');
+    // Content-hashed files are served without invoking the Worker.
+    expect(wranglerConfig).toContain('"run_worker_first": ["/*", "!/assets/*"]');
     expect(existsSync(join(targetDir, "wrangler.jsonc"))).toBe(true);
     expect(existsSync(join(targetDir, "Dockerfile"))).toBe(false);
     expect(existsSync(join(targetDir, ".dockerignore"))).toBe(false);
@@ -526,6 +531,14 @@ describe("create-pracht", () => {
     const envDts = await readFile(join(targetDir, "src/env.d.ts"), "utf-8");
     expect(envDts).toContain("interface Register");
     expect(envDts).toContain("env: Env");
+
+    // Route loaders are type-checked by the client program too, so it has to
+    // see the generated binding types as well.
+    const clientTsconfig = JSON.parse(
+      await readFile(join(targetDir, "tsconfig.client.json"), "utf-8"),
+    );
+    expect(clientTsconfig.include).toContain("worker-configuration.d.ts");
+    expect(readme).toContain("pnpm run cf-typegen");
 
     const agents = await readFile(join(targetDir, "AGENTS.md"), "utf-8");
     expect(agents).toContain("wrangler.jsonc");

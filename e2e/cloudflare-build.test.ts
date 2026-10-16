@@ -67,9 +67,17 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
       assets: {
         directory: "dist/client",
         binding: "ASSETS",
-        run_worker_first: true,
+        run_worker_first: ["/*", "!/assets/*"],
       },
     });
+
+    // Hashed assets skip the Worker, so Cloudflare's static-assets layer must
+    // add the immutable policy and security headers the Worker would have.
+    const assetHeaders = readFileSync(resolve(distDir, "client/_headers"), "utf-8");
+    expect(assetHeaders).toContain(
+      "/assets/*\n  cache-control: public, max-age=31536000, immutable",
+    );
+    expect(assetHeaders).toContain("x-content-type-options: nosniff");
 
     const workerSource = readFileSync(serverEntryPath, "utf-8");
     expect(workerSource).toContain("cloudflareAssetsBinding");

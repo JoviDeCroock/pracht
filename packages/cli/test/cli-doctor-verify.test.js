@@ -1443,7 +1443,7 @@ export const app = defineApp({
     expect(report.checks).toContainEqual(
       expect.objectContaining({
         status: "warning",
-        message: expect.stringContaining('"assets.run_worker_first": true'),
+        message: expect.stringContaining('Add "run_worker_first": ["/*", "!/assets/*"]'),
       }),
     );
   });

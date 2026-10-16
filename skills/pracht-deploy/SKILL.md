@@ -120,19 +120,33 @@ pracht build && npx wrangler deploy
     "directory": "dist/client",
     // "force-trailing-slash" with pracht({ trailingSlash: "always" })
     "html_handling": "drop-trailing-slash",
-    "run_worker_first": true,
+    "run_worker_first": ["/*", "!/assets/*"],
   },
 }
 ```
 
 `no_bundle: true`, the `ESModule` rule, `"binding": "ASSETS"`, and
-`"run_worker_first": true` are all required. Without the first two, Wrangler
+`run_worker_first` are all required. Without the first two, Wrangler
 re-bundles Pracht's already-bundled Vite output — folding lazy server chunks
 into the entry or dropping them from the upload. Without the binding,
 `env.ASSETS` silently resolves to `null`: headers and ISG manifests load empty,
 so SSG serving, ISG revalidation, and per-route headers all no-op. If you
 rename the binding via `cloudflareAdapter({ assetsBinding: "STATIC" })`, the
-wrangler `binding` value must match.
+wrangler `binding` value must match. Without `run_worker_first`, prerendered
+pages skip the Worker, so ISG, Markdown negotiation, and route headers stop.
+The `"!/assets/*"` pattern keeps content-hashed files off the Worker;
+`pracht build` writes `dist/client/_headers` so they still get
+`Cache-Control: public, max-age=31536000, immutable` and the security headers
+(an app-owned `public/_headers` replaces it; the build warns what it must
+cover). `"run_worker_first": true` also works but invokes the Worker per asset.
+
+**Typed bindings.** `npx wrangler types` writes `worker-configuration.d.ts`
+(an `Env` interface for the wrangler bindings plus the Workers runtime types).
+Register `context: { env: Env; executionContext: ExecutionContext }` on
+`Register` in `src/env.d.ts` and include the file in every tsconfig that checks
+route modules (`tsconfig.client.json` in a scaffolded app). `create-pracht`
+wires a `cf-typegen` script and regenerates before `typecheck`; rerun it after
+changing bindings. Without the file `context.env` is `any`.
 
 **Local preview.** `pracht preview` builds, then delegates to `wrangler dev`
 against the config's `main`. Wrangler owns the binding environment: put

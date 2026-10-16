@@ -646,7 +646,7 @@ the Cloudflare scaffold's `wrangler.jsonc`. Existing apps should add it:
     "binding": "ASSETS",
     "directory": "dist/client",
     "html_handling": "drop-trailing-slash",
-    "run_worker_first": true,
+    "run_worker_first": ["/*", "!/assets/*"],
   },
 }
 ```
@@ -670,6 +670,33 @@ directory directly, so ISG revalidation, Markdown negotiation, `headers()`
 exports, and the default security headers never run for those files.
 `pracht doctor` warns when the top-level assets block lacks it (a pattern list
 is treated as a deliberate choice and stays silent).
+
+The scaffold's pattern list excludes `/assets/*`: Cloudflare's router worker
+gives negative patterns precedence (`parseStaticRouting` and the router worker
+in `workers-shared`; Wrangler 4.20+), so Vite's content-hashed files are served
+by the static-assets layer without a Worker invocation, and a missing file
+there is that layer's plain 404 rather than the app's not-found page. Nothing
+else under `/assets/` reaches the Worker either, so the path is reserved for
+build output, as it already is for Netlify's default `excludedPath`.
+
+Because those responses skip `maybeServeAsset()`, `pracht build` writes
+`dist/client/_headers` for the `cloudflare` target
+(`packages/cli/src/cloudflare-asset-headers.ts`): one `/assets/*` rule with
+`Cache-Control: public, max-age=31536000, immutable` and the output of
+`applyDefaultSecurityHeaders()`, followed by an exact rule for each
+headers-manifest entry under `/assets/` (a content artifact's
+`must-revalidate`, for example) that the Worker would otherwise have applied.
+The layer applies matching rules in file order and appends a header an earlier
+rule set, so each exact rule first detaches (`! cache-control`) what the
+wildcard set. Entries `_headers` cannot match exactly (`*`, `:segment`) are
+skipped with a build warning. The assets layer applies `_headers` to every
+response it produces, including the Worker's own `env.ASSETS.fetch()`, so the
+rule also gives hashed files the immutable policy under `"run_worker_first":
+true` and under a Vite deploy base, where `/<base>/assets/*` does not match
+the exclusion and the Worker fetches the base-free `/assets/...` path. Without
+the rule the layer's default is `public, max-age=0, must-revalidate`. Wrangler
+never uploads `_headers` as an asset. An app-owned `<publicDir>/_headers` wins:
+the build leaves it in place and warns about what it must cover.
 
 #### Cache-key cardinality
 
@@ -991,6 +1018,32 @@ export async function GET({ context }: BaseRouteArgs) {
   return Response.json({ value });
 }
 ```
+
+#### Typed `env`
+
+`context.env` gets its type from the app's `Register["context"]`. The
+`create-pracht` Cloudflare scaffold registers `{ env: Env; executionContext:
+ExecutionContext }` in `src/env.d.ts`, and both names come from
+`worker-configuration.d.ts`, which `wrangler types` generates from the wrangler
+config (a `Cloudflare.Env` interface, a global `Env` extending it, and the
+workerd runtime types). The scaffold adds a `cf-typegen` script, runs `wrangler
+types` before `tsc` in `typecheck`, runs `cf-typegen` once after a successful
+install so the file is in the initial commit, and adds the file to
+`tsconfig.client.json`'s `include` (route modules, and so their loaders, are in
+that program too; the base program has no `include` and picks it up anyway).
+Under `skipLibCheck`, an unresolved `Env` in `src/env.d.ts` degrades to `any`,
+so an app that never generates the file typechecks as before.
+
+The runtime types redeclare fetch-standard globals that `lib.dom` also
+declares. `skipLibCheck` hides those duplicate-declaration errors, and a
+browser island using DOM APIs, `fetch`, `Response`, `WebSocket`, and timers
+typechecks in both programs with the file included.
+
+`@pracht/adapter-cloudflare` declares an empty global `Cloudflare.Env` and
+defaults `CloudflareContextArgs<TEnv>` to `CloudflareEnv`: the generated
+`Cloudflare.Env` when it has members, otherwise `Record<string, unknown>`, so
+`createContextFrom` modules get typed bindings without a type argument and
+nothing changes for apps without generated types.
 
 Cloudflare itself permits `import { env } from "cloudflare:workers"` followed
 by a top-level binding read. Pracht graph commands cannot provide authoritative

@@ -66,7 +66,23 @@ export interface CloudflareExecutionContext {
   passThroughOnException?(): void;
 }
 
-export interface CloudflareContextArgs<TEnv = Record<string, unknown>> {
+declare global {
+  // The interface `wrangler types` fills from the wrangler config bindings.
+  // Declared empty here so the default below resolves without generated types.
+  namespace Cloudflare {
+    interface Env {}
+  }
+}
+
+/**
+ * The bindings `wrangler types` generated into `Cloudflare.Env`, or a plain
+ * record when the app has not generated them.
+ */
+export type CloudflareEnv = keyof Cloudflare.Env extends never
+  ? Record<string, unknown>
+  : Cloudflare.Env;
+
+export interface CloudflareContextArgs<TEnv = CloudflareEnv> {
   request: Request;
   env: TEnv;
   executionContext: CloudflareExecutionContext;
