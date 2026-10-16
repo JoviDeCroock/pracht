@@ -78,7 +78,10 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
     expect(workerSource).toContain("_pracht/markdown.json");
     expect(workerSource).toContain("_pracht/isg.json");
     expect(workerSource).toContain("createCloudflareFetchHandler");
-    expect(workerSource).toContain("server_default as default");
+    // The example owns its Worker module (`workerEntry`): the bundle registers
+    // pracht's handler for it and deploys that module's default export.
+    expect(workerSource).toContain("registerPrachtWorker(");
+    expect(workerSource).toContain("prachtWorkerDefault as default");
     expect(output).not.toContain("does not perform runtime revalidation");
 
     expect(
@@ -106,7 +109,7 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
     expect(existsSync(resolve(distDir, "client/pricing/index.html"))).toBe(false);
     expect(existsSync(resolve(distDir, "client/pricing.html"))).toBe(false);
 
-    // Cloudflare primitives configured via `workerExportsFrom` must be re-exported
+    // Classes exported from the `workerEntry` module must be re-exported
     expect(workerSource).toContain("Counter");
     // The Durable Object that owns the example's WebSocket connections. Its
     // handshake response has to survive the whole worker bundle — see

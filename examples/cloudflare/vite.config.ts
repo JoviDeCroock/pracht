@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [
     pracht({
       adapter: cloudflareAdapter({
-        workerExportsFrom: "/src/cloudflare.ts",
+        workerEntry: "/src/worker.ts",
         cache: true,
         // Playwright leases this alongside its HTTP ports so concurrent suites
         // cannot race Cloudflare's inspector probe or shared persisted state.
