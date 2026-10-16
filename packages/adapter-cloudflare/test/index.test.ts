@@ -233,7 +233,10 @@ describe("cloudflareAdapter", () => {
     expect(typeof runtime.tracing?.enterSpan).toBe("function");
     for (const className of [
       "RpcStub",
+      "RpcPromise",
+      "RpcProperty",
       "RpcTarget",
+      "ServiceStub",
       "WorkerEntrypoint",
       "DurableObject",
       "WorkflowEntrypoint",
@@ -249,6 +252,7 @@ describe("cloudflareAdapter", () => {
     for (const [moduleName, className] of [
       ["cloudflare:email", "EmailMessage"],
       ["cloudflare:workflows", "WorkflowEntrypoint"],
+      ["cloudflare:pipelines", "PipelineTransformationEntrypoint"],
     ] as const) {
       const resolvedModule = await resolveId.call({} as never, moduleName, undefined, {
         isEntry: false,
@@ -264,6 +268,18 @@ describe("cloudflareAdapter", () => {
         new RegExp(`${moduleName} ${className} is unavailable during graph inspection`),
       );
     }
+
+    // NonRetryableError is a plain Error subclass with no runtime dependency,
+    // so workflow modules can construct it while being inspected.
+    const workflowsId = await resolveId.call({} as never, "cloudflare:workflows", undefined, {
+      isEntry: false,
+    });
+    const workflows = await import(
+      `data:text/javascript;base64,${Buffer.from(String(await load.call({} as never, String(workflowsId), {}))).toString("base64")}`
+    );
+    const nonRetryable = new workflows.NonRetryableError("stop");
+    expect(nonRetryable).toBeInstanceOf(Error);
+    expect(nonRetryable.name).toBe("NonRetryableError");
 
     // Importing or retaining the binding environments is safe. Reading a
     // binding is runtime work and must fail before a placeholder can influence

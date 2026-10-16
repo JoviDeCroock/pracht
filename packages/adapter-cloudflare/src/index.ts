@@ -60,6 +60,11 @@ export interface CloudflareViteAdapterOptions extends CloudflareServerEntryModul
 }
 
 const GRAPH_RUNTIME_STUB_PREFIX = "\0pracht:cloudflare-graph-runtime:";
+
+// Every runtime export of each module must exist here, or a contract that
+// imports the missing name breaks graph commands. The export surface mirrors the prerender
+// stubs in @pracht/cli (`prerender-module-hooks.ts`); a test enumerates the
+// real workerd modules and checks both sets against them.
 const GRAPH_RUNTIME_STUBS: Record<string, string> = {
   "cloudflare:workers": [
     "function unavailable(api) { throw new Error(`cloudflare:workers ${api} is unavailable during graph inspection`); }",
@@ -87,7 +92,10 @@ const GRAPH_RUNTIME_STUBS: Record<string, string> = {
     "  });",
     "}",
     "export class RpcStub { constructor() { unavailable('RpcStub'); } }",
+    "export class RpcPromise { constructor() { unavailable('RpcPromise'); } }",
+    "export class RpcProperty { constructor() { unavailable('RpcProperty'); } }",
     "export class RpcTarget { constructor() { unavailable('RpcTarget'); } }",
+    "export class ServiceStub { constructor() { unavailable('ServiceStub'); } }",
     "export class WorkerEntrypoint { constructor() { unavailable('WorkerEntrypoint'); } }",
     "export class DurableObject { constructor() { unavailable('DurableObject'); } }",
     "export class WorkflowEntrypoint { constructor() { unavailable('WorkflowEntrypoint'); } }",
@@ -108,7 +116,21 @@ const GRAPH_RUNTIME_STUBS: Record<string, string> = {
     'export function connect() { throw new Error("cloudflare:sockets is unavailable during graph inspection"); }\n',
   "cloudflare:workflows": [
     "function unavailable(api) { throw new Error(`cloudflare:workflows ${api} is unavailable during graph inspection`); }",
+    "export class NonRetryableError extends Error {",
+    "  constructor(message, name = 'NonRetryableError') { super(message); this.name = name; }",
+    "}",
+    // Not a runtime export of `cloudflare:workflows`, but kept so older
+    // imports keep linking; `cloudflare:workers` is where it lives.
     "export class WorkflowEntrypoint { constructor() { unavailable('WorkflowEntrypoint'); } }",
+  ].join("\n"),
+  "cloudflare:pipelines": [
+    "function unavailable(api) { throw new Error(`cloudflare:pipelines ${api} is unavailable during graph inspection`); }",
+    "export class PipelineTransformationEntrypoint { constructor() { unavailable('PipelineTransformationEntrypoint'); } }",
+  ].join("\n"),
+  "cloudflare:node": [
+    "function unavailable(api) { throw new Error(`cloudflare:node ${api} is unavailable during graph inspection`); }",
+    "export function httpServerHandler() { return unavailable('httpServerHandler'); }",
+    "export function handleAsNodeRequest() { return unavailable('handleAsNodeRequest'); }",
   ].join("\n"),
 };
 

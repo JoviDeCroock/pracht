@@ -39,6 +39,10 @@ import {
   markdownFileHtmlReason,
 } from "../markdown-files.js";
 import {
+  formatPrerenderBindingReads,
+  takePrerenderBindingReads,
+} from "../prerender-module-hooks.js";
+import {
   collectBundleReport,
   evaluateBudgets,
   formatBudgetResults,
@@ -606,6 +610,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         : resolveMarkdownFileOutputPath(clientDir, markdownPath);
     const markdownFilesEnabled = serverMod.markdownFiles !== false;
 
+    // Cloudflare bindings read while prerendering resolve to undefined; name
+    // them so a page built from missing data is not silent.
+    const bindingReads = takePrerenderBindingReads();
+    const reportBindingReads = (): void => {
+      const report = formatPrerenderBindingReads(bindingReads);
+      if (report) reportBuildWarning(`\n  Warning: ${report}\n`, analyzeJson);
+      bindingReads.clear();
+    };
+    const failWithBindingReads = (error: unknown): never => {
+      reportBindingReads();
+      throw error;
+    };
+
     const { pages, isgManifest } = await prerenderApp({
       staticExport: isStaticExport,
       app: serverMod.resolvedApp,
@@ -619,7 +636,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       registry: serverMod.registry,
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
-    });
+    }).catch(failWithBindingReads);
     if (isStaticExport) {
       // getStaticPaths() can produce paths that are absent from the manifest.
       // Validate the concrete set before writing even the first page.
@@ -710,13 +727,15 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       // middleware that withhold it at runtime keep it out of the build too.
       const replayed: PrerenderedMarkdown[] =
         typeof serverMod.prerenderMarkdown === "function"
-          ? await serverMod.prerenderMarkdown({
-              app: serverMod.resolvedApp,
-              apiRoutes: serverMod.apiRoutes,
-              registry: serverMod.registry,
-              paths: candidates.map((file) => file.pagePath),
-              concurrency: serverMod.prerenderConcurrency,
-            })
+          ? await serverMod
+              .prerenderMarkdown({
+                app: serverMod.resolvedApp,
+                apiRoutes: serverMod.apiRoutes,
+                registry: serverMod.registry,
+                paths: candidates.map((file) => file.pagePath),
+                concurrency: serverMod.prerenderConcurrency,
+              })
+              .catch(failWithBindingReads)
           : candidates.map((file) => ({
               pagePath: file.pagePath,
               reason: "the server bundle cannot replay Markdown requests",
@@ -805,6 +824,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         log(prerenderLog.tail);
       }
     }
+    reportBindingReads();
 
     const markdownFileOutputs: string[] = [];
     for (const file of markdownFiles) {

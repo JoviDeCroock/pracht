@@ -277,6 +277,13 @@ capability modules read `env.DB` inside the handler or `run()`, not at module
 top level. Pracht inspects those modules without real bindings, and a top-level
 read fails with the binding's name.
 
+Bindings do not exist while `pracht build` prerenders SSG and ISG pages, so a
+binding read there returns `undefined` and the build prints
+`Warning: Prerendering read env.DB from cloudflare:workers` with every name it
+saw. Give pages that need bindings `render: "ssr"`, and use the `waitUntil`
+your loader receives rather than the one from `cloudflare:workers`, which
+throws while prerendering.
+
 ### Deploy
 
 ```sh

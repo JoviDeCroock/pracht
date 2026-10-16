@@ -5,8 +5,11 @@ import {
   DurableObject,
   env,
   exports as workerExports,
+  RpcPromise,
+  RpcProperty,
   RpcStub,
   RpcTarget,
+  ServiceStub,
   tracing,
   waitUntil,
   withEnv,
@@ -15,7 +18,12 @@ import {
   WorkerEntrypoint,
   WorkflowEntrypoint,
 } from "cloudflare:workers";
-import { WorkflowEntrypoint as ModuleWorkflowEntrypoint } from "cloudflare:workflows";
+import { httpServerHandler } from "cloudflare:node";
+import { PipelineTransformationEntrypoint } from "cloudflare:pipelines";
+import {
+  NonRetryableError,
+  WorkflowEntrypoint as ModuleWorkflowEntrypoint,
+} from "cloudflare:workflows";
 
 // Current runtime exports must retain their import shape while graph commands
 // initialize this contract in Vite's Node runner. Calling them still fails
@@ -25,14 +33,21 @@ class DurableMarker extends DurableObject {}
 class WorkflowMarker extends WorkflowEntrypoint {}
 class EmailMarker extends EmailMessage {}
 class ModuleWorkflowMarker extends ModuleWorkflowEntrypoint {}
+class PipelineMarker extends PipelineTransformationEntrypoint {}
 
 const runtimeShape = {
   cachePurge: cache.purge,
   DurableMarker,
   EmailMarker,
   env,
+  httpServerHandler,
+  nonRetryableError: new NonRetryableError("graph"),
+  PipelineMarker,
+  rpcPromise: RpcPromise,
+  rpcProperty: RpcProperty,
   rpcStub: RpcStub,
   rpcTarget: RpcTarget,
+  serviceStub: ServiceStub,
   tracingEnterSpan: tracing.enterSpan,
   waitUntil,
   withEnv,
