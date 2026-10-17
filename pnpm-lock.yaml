@@ -447,9 +447,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(zod@4.4.3)
       '@pracht/capabilities':
         specifier: workspace:^
         version: link:../capabilities
@@ -459,12 +456,16 @@ importers:
       citty:
         specifier: ^0.1.6
         version: 0.1.6
-      playwright-core:
-        specifier: ^1.59.1
-        version: 1.59.1
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
+      playwright-core:
+        specifier: ^1.59.1
+        version: 1.59.1
 
   packages/content:
     dependencies:
