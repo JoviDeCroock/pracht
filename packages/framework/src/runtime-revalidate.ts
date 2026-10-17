@@ -18,7 +18,9 @@ const SHELL_LOADERS_ENABLED =
  */
 declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
 
-// The latest revalidation started per runtime value. Keyed per runtime so the
+// The latest revalidation started per runtime provider, keyed by its stable
+// `revalidation` token: the runtime value itself changes with every commit, and
+// a handler can hold an older one. Keyed per provider so the
 // capability listener, which refreshes every mounted runtime at once, does not
 // supersede one runtime's refresh with another's.
 const latestRevalidations = new WeakMap<object, number>();
@@ -38,7 +40,7 @@ export async function revalidateRouteData(
   }
 
   const path = runtime?.url || window.location.pathname + window.location.search;
-  const key = runtime ?? latestRevalidations;
+  const key = runtime?.revalidation ?? runtime ?? latestRevalidations;
   const revalidation = ++revalidationCount;
   latestRevalidations.set(key, revalidation);
   const result = await fetchPrachtRouteState(path, { cache: "reload" });

@@ -747,6 +747,30 @@ describe("initClientRouter", () => {
     await expect(first).resolves.toEqual({ count: 2 });
     await flush();
     expect(root.querySelector("#count")?.textContent).toBe("3");
+
+    // A handler holding `revalidate` from an earlier render is ordered against
+    // one from the current render, although the two see different runtime values.
+    const stale = revalidate;
+    fetchSpy.mockResolvedValueOnce(createJsonResponse({ data: { count: 4 } }));
+    await stale();
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("4");
+    let releaseStale!: () => void;
+    fetchSpy
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          releaseStale = () => resolve(createJsonResponse({ data: { count: 5 } }));
+        }),
+      )
+      .mockResolvedValueOnce(createJsonResponse({ data: { count: 6 } }));
+    const slow = stale();
+    await revalidate();
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("6");
+    releaseStale();
+    await slow;
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("6");
   });
 
   it("does not let a stale revalidation overwrite fonts after navigation", async () => {
