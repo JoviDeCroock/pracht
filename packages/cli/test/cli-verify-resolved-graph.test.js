@@ -109,4 +109,37 @@ export const app = defineApp({
     expect(status).toBe(1);
     expect(messages(report, "error").join("\n")).toMatch(/ssg/i);
   });
+
+  it("resolves a bare route module path against the manifest", () => {
+    const appDir = createRepoTempDir("pracht-cli-verify-graph-bare-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  routes: [route("/", "routes/home.tsx", { id: "home", render: "ssr" })],
+});
+`,
+    });
+    writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }");
+
+    const { status, report } = verify(appDir);
+    expect(messages(report, "error")).toEqual([]);
+    expect(status).toBe(0);
+  });
+
+  it("warns when the app graph cannot be resolved instead of passing silently", () => {
+    const appDir = createRepoTempDir("pracht-cli-verify-graph-unresolved-");
+    writeManifestApp(appDir, {
+      routesSource: `import { defineApp, route } from "@pracht/core";
+
+export const app = defineApp({
+  routes: [route("/", "./routes/home.tsx", { id: "home", render: "ssr", shell: "typo" })],
+});
+`,
+    });
+    writeProjectFile(appDir, "src/routes/home.tsx", "export function Component() { return null; }");
+
+    const { report } = verify(appDir);
+    expect(messages(report, "warning").join("\n")).toContain("Could not resolve the app graph");
+  });
 });

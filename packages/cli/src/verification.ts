@@ -119,6 +119,23 @@ export async function runVerification(
   collectBudgetChecks(project, checks);
   await collectGraphChecks(project, checks, liveGraph);
 
+  // A graph that dev and build cannot resolve either (an unknown shell, a
+  // throwing manifest) must not pass silently behind the text fallback. It is
+  // a warning, not an error, because the same failure also covers apps whose
+  // dependencies are not installed, which verified green before.
+  const graphFailureReported = checks.some((check) =>
+    check.message.startsWith("Could not resolve the app graph"),
+  );
+  if (liveGraph && "error" in liveGraph && !graphFailureReported) {
+    checks.push(
+      createCheck(
+        "warning",
+        `Could not resolve the app graph, so the manifest checks read ${project.appFile} as ` +
+          `text and constraints were not evaluated: ${liveGraph.error}`,
+      ),
+    );
+  }
+
   if (options.changed && frameworkFiles.length === 0 && !changedInfo.warning) {
     checks.push(
       createCheck("ok", "No changed framework files were detected in the current project scope."),

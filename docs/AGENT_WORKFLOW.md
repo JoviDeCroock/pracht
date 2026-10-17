@@ -107,8 +107,9 @@ For a manifest app, `pracht verify` and `pracht doctor` always resolve the app
 graph (`tryResolveLiveGraph` in `verification-graph.ts`): route count, manifest
 module existence, shell and middleware registries, and constraints come from the
 resolved app, so routes spread in from other modules, extensionless imports, and
-a `constraints` variable passed by shorthand are all seen. Only when the graph
-cannot be resolved do the manifest checks fall back to scanning `routes.ts` text.
+a `constraints` variable passed by shorthand are all seen. When the graph cannot
+be resolved, the manifest checks fall back to scanning `routes.ts` text and a
+warning names the resolution error (an error when a graph check needed it).
 Pages apps still boot the graph only when they opt in (constraints declared or a
 snapshot committed).
 

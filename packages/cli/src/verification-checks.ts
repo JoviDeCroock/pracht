@@ -117,10 +117,13 @@ export function collectManifestVerification(
   const source = readFileSync(manifestPath, "utf-8");
   const relativeModules = manifest?.modules ?? [...extractRelativeModulePaths(source)];
   const routeCount = manifest?.routeCount ?? (source.match(/\broute\s*\(/g) ?? []).length;
+  // App-absolute refs ("/src/routes/home.tsx") resolve against the project
+  // root; every other ref, bare ("routes/home.tsx") included, against the
+  // manifest, as the generated registry does.
   const resolveManifestModule = (modulePath: string): string =>
-    modulePath.startsWith(".")
-      ? resolve(dirname(manifestPath), modulePath)
-      : resolveProjectPath(project.root, modulePath);
+    modulePath.startsWith("/")
+      ? resolveProjectPath(project.root, modulePath)
+      : resolve(dirname(manifestPath), modulePath);
 
   if (scope === "full") {
     checks.push(createCheck("ok", `Found app manifest at ${project.appFile}.`));
