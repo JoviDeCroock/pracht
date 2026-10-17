@@ -20,6 +20,13 @@ export type { ModuleWarmFn };
 
 const MAX_MATCH_CACHE_ENTRIES = 250;
 
+/**
+ * How many `viewport` and `render` prefetches run at once. Those fire for
+ * links nobody has pointed at, each one a loader run on the server, so a
+ * link-heavy page queues them instead of sending them all together.
+ */
+const MAX_PASSIVE_PREFETCHES = 3;
+
 const LINK_PREFETCH_STRATEGIES: ReadonlySet<string> = new Set([
   "none",
   "hover",
@@ -40,6 +47,8 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   const renderPrefetchedAnchors = new WeakSet<HTMLAnchorElement>();
   const observedAnchors = new WeakSet<HTMLAnchorElement>();
   const matchCache = new Map<string, MatchCacheEntry>();
+  const passiveQueue: string[] = [];
+  let passiveInFlight = 0;
   const browserSupportsSpeculationRules = supportsSpeculationRules();
 
   /** Route path for an href, or null when it is unparseable or outside the base. */
@@ -118,11 +127,36 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
     return entry.strategy;
   }
 
-  function prefetchHref(href: string): void {
+  function prefetchHref(href: string): Promise<unknown> | undefined {
     const match = getMatchEntry(href).match;
     if (!match) return;
-    prefetchRouteState(href, match.route);
     if (warmModules) warmModules(match);
+    return prefetchRouteState(href, match.route);
+  }
+
+  /**
+   * A prefetch the visitor did not ask for (`viewport`, `render`): skipped
+   * when they save data, and run at most `MAX_PASSIVE_PREFETCHES` at a time.
+   */
+  function prefetchPassively(href: string): void {
+    // Save-Data, or a 2G-class `effectiveType` (`2g`, `slow-2g`).
+    const connection = (
+      navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }
+    ).connection;
+    if (connection?.saveData || /2g/.test(connection?.effectiveType as string)) return;
+    passiveQueue.push(href);
+    drainPassiveQueue();
+  }
+
+  function drainPassiveQueue(): void {
+    while (passiveInFlight < MAX_PASSIVE_PREFETCHES && passiveQueue.length) {
+      passiveInFlight++;
+      const next = () => {
+        passiveInFlight--;
+        drainPassiveQueue();
+      };
+      Promise.resolve(prefetchHref(passiveQueue.shift()!)).then(next, next);
+    }
   }
 
   function prefetchAnchorOnIntent(anchor: HTMLAnchorElement, debounce: boolean): void {
@@ -198,7 +232,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
                 observedAnchors.delete(anchor);
                 continue;
               }
-              prefetchHref(href);
+              prefetchPassively(href);
               observer?.unobserve(anchor);
               observedAnchors.delete(anchor);
             }
@@ -217,7 +251,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       if (observedAnchors.delete(anchor)) observer?.unobserve(anchor);
       if (!renderPrefetchedAnchors.has(anchor)) {
         renderPrefetchedAnchors.add(anchor);
-        prefetchHref(href);
+        prefetchPassively(href);
       }
       return;
     }
