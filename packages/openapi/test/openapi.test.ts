@@ -433,6 +433,48 @@ describe("generateOpenApiDocument capabilities", () => {
     expect(result.warnings.map((warning) => warning.code)).toContain("capability_path_conflict");
   });
 
+  it("omits a capability that a GET-only or dynamic API route shadows", async () => {
+    const handler = defineApi({ handler: () => json({ ok: true }) });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [
+        graphRoute({ path: "/api/purge", file: "/src/api/purge.ts", methods: ["GET"] }),
+        graphRoute({
+          path: "/api/capabilities/notes/:action",
+          file: "/src/api/notes.ts",
+          methods: ["GET"],
+        }),
+      ],
+      loadModule: async () => ({ GET: handler }),
+      capabilities: sources,
+    });
+    expect(result.document.paths["/api/purge"]?.post).toBeUndefined();
+    expect(result.document.paths["/api/capabilities/notes/search"]).toBeUndefined();
+    expect(
+      result.warnings.filter((warning) => warning.code === "capability_path_conflict"),
+    ).toHaveLength(2);
+  });
+
+  it("drops a capability operationId an API operation already uses", async () => {
+    const handler = defineOpenApi(defineApi({ handler: () => json({ ok: true }) }), {
+      operationId: "notes.search",
+      responses: { 200: { description: "OK" } },
+    });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [graphRoute({ path: "/api/other", file: "/src/api/other.ts" })],
+      loadModule: async () => ({ POST: handler }),
+      capabilities: sources,
+    });
+    expect(result.document.paths["/api/other"]?.post?.operationId).toBe("notes.search");
+    expect(
+      result.document.paths["/api/capabilities/notes/search"]?.post?.operationId,
+    ).toBeUndefined();
+    expect(result.warnings.map((warning) => warning.code)).toContain(
+      "capability_operation_id_conflict",
+    );
+  });
+
   it("warns instead of failing when capabilities cannot be resolved", async () => {
     const result = await generateOpenApiDocument({
       info: { title: "Example", version: "1.0.0" },

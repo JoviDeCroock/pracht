@@ -258,8 +258,10 @@ body is its normalized input JSON Schema, `200` is the success envelope with the
 output schema under `data`, and `default` is the error envelope. Destructive
 capabilities document the optional `x-pracht-confirm` header. `x-pracht-effect`
 and `x-pracht-capability` carry the effect class and name. A capability whose
-path already has an API-route `POST` is omitted with `capability_path_conflict`,
-and a loader that throws yields `capability_load_failed` instead of failing
+path an API route matches (whatever its methods, since the API route answers
+first at runtime) is omitted with `capability_path_conflict`; one whose name is
+already an API `operationId` keeps its operation without an `operationId`
+(`capability_operation_id_conflict`); and a loader that throws yields `capability_load_failed` instead of failing
 generation. It is opt-in so existing documents and client generators do not
 gain operations on upgrade.
 

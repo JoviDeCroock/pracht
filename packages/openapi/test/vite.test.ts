@@ -135,7 +135,7 @@ describe("prachtOpenApi Vite integration", () => {
     expect(await codeFor({})).not.toContain("resolveAppCapabilities");
     const code = await codeFor({ capabilities: true });
     expect(code).toContain(
-      'import { resolveAppCapabilities as __prachtResolveAppCapabilities } from "@pracht/core";',
+      'import { resolveAppCapabilities as __prachtResolveAppCapabilities } from "@pracht/core/server";',
     );
     expect(code).toContain(
       "capabilities: () => __prachtResolveAppCapabilities(resolvedApp, registry)",

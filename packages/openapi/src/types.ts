@@ -141,6 +141,7 @@ export interface OpenApiOperationDescriptor {
 
 export type OpenApiWarningCode =
   | "capability_load_failed"
+  | "capability_operation_id_conflict"
   | "capability_path_conflict"
   | "catch_all_path"
   | "default_handler_omitted"

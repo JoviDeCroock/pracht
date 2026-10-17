@@ -1,4 +1,5 @@
 import type { ApiRouteSchemas } from "@pracht/core";
+import { matchRoutePath } from "@pracht/core";
 
 import { getOpenApiDescriptor } from "./descriptor.ts";
 import type {
@@ -244,6 +245,14 @@ async function addCapabilityOperations(
     return;
   }
 
+  const operationIds = new Set<string>();
+  for (const pathItem of Object.values(document.paths)) {
+    for (const operation of Object.values(pathItem)) {
+      const operationId = (operation as { operationId?: unknown } | undefined)?.operationId;
+      if (typeof operationId === "string") operationIds.add(operationId);
+    }
+  }
+
   for (const source of sources) {
     if (!source.httpPath) continue;
     const location = { file: source.file, path: source.httpPath };
@@ -256,16 +265,31 @@ async function addCapabilityOperations(
       );
       continue;
     }
-    const pathItem = (document.paths[source.httpPath] ??= {});
-    if (pathItem.post) {
+    // An API route that matches the path answers it at runtime, whatever
+    // methods it declares, so the capability is unreachable there.
+    const shadowing = options.routes.find(
+      (route) => matchRoutePath(route.path, source.httpPath!) !== null,
+    );
+    if (shadowing) {
       report(
         location,
         "capability_path_conflict",
-        `Capability ${JSON.stringify(source.name)} shares POST ${source.httpPath} with an API route, so it was omitted.`,
+        `Capability ${JSON.stringify(source.name)} is shadowed by the API route ${shadowing.path}, so it was omitted.`,
       );
       continue;
     }
-    pathItem.post = capabilityOperation(source, capability.input, capability.output);
+    const operation = capabilityOperation(source, capability.input, capability.output);
+    if (operationIds.has(source.name)) {
+      delete operation.operationId;
+      report(
+        location,
+        "capability_operation_id_conflict",
+        `An API operation already uses operationId ${JSON.stringify(source.name)}, so the capability operation has none.`,
+      );
+    } else {
+      operationIds.add(source.name);
+    }
+    (document.paths[source.httpPath] ??= {}).post = operation;
   }
 }
 
