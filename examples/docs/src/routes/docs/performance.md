@@ -21,11 +21,11 @@ These are the client JavaScript totals for the *same page*, rendering the
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
 | `hydration: "islands"` | **8.0 KB** | 17.6 KB | Preact, the island bootstrap, and the island chunks on the page. |
 | `hydration: "islands"`, islands navigation on | **11.7 KB** | 27.5 KB | Islands with `client: { islandsNavigation: true }`. |
-| `hydration: "full"` | **17.4 KB** | 42.6 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **15.9 KB** | 41.6 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **17.1 KB** | 41.7 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"`, rich data on | **17.7 KB** | 43.3 KB | Full hydration with `client: { richData: true }`. |
-| `hydration: "full"` + `preact/compat` | **18.2 KB** | 44.9 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "full"` | **17.3 KB** | 42.0 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **15.8 KB** | 41.0 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **17.1 KB** | 41.1 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"`, rich data on | **17.6 KB** | 42.6 KB | Full hydration with `client: { richData: true }`. |
+| `hydration: "full"` + `preact/compat` | **18.1 KB** | 44.6 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load: the route's chunks plus the chunk the router imports
 after hydration. Raw is the route's chunks only. Both come from

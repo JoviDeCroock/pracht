@@ -779,9 +779,11 @@ export function createPrachtClientModuleSource(
   const routeHints =
     buildOptions.routeHints ?? createRouteHintsForVirtualModules(resolved, buildOptions.root);
   // An app whose shells export no loader ships no shell hints to the browser.
-  const routeLoaderHints = routeHints.shellLoaders ? routeHints.loader : routeHints.routeLoader;
-  const routeHeadHints = routeHints.head;
-  const routeStaticPathsHints = routeHints.staticPaths;
+  // `getStaticPaths()` presence is only read by static-export builds.
+  const clientRouteHints = createClientRouteHintTable(
+    routeHints,
+    resolved.adapter?.staticTarget === true,
+  );
   const webmcpEnabled = hasWebmcpCapabilities(resolved, buildOptions.root);
   // Client-side search validation ships only when a route module can export a
   // `search` schema. Dev keeps it regardless, so adding the first schema does
@@ -895,9 +897,8 @@ export function createPrachtClientModuleSource(
     appImport,
     ...(appRoot ? [`import * as rootModule from ${JSON.stringify(appRoot.id)};`] : []),
     "",
-    `const routeLoaderHints = ${JSON.stringify(routeLoaderHints)};`,
-    `const routeHeadHints = ${JSON.stringify(routeHeadHints)};`,
-    `const routeStaticPathsHints = ${JSON.stringify(routeStaticPathsHints)};`,
+    `const APP_DIR = ${JSON.stringify(appDir)};`,
+    `const routeHints = ${JSON.stringify(clientRouteHints)};`,
     `const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
     `  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`,
@@ -911,10 +912,12 @@ export function createPrachtClientModuleSource(
     `};`,
     "",
     "const resolvedApp = resolveApp(app);",
-    "applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints);",
+    "applyRouteHints(resolvedApp, routeHints);",
     "",
-    ...createApplyRouteLoaderHintsSource(routeHints.shellLoaders),
-    `const APP_DIR = ${JSON.stringify(appDir)};`,
+    ...createApplyClientRouteHintsSource(
+      routeHints.shellLoaders,
+      resolved.adapter?.staticTarget === true,
+    ),
     "",
     "// Manifest refs are written relative to the app manifest file",
     '// ("./routes/home.tsx") while import.meta.glob keys are root-absolute',
@@ -1514,7 +1517,78 @@ function resolveLlmsTxtConfig(
   return config;
 }
 
-function createApplyRouteLoaderHintsSource(shellLoaders = true): string[] {
+/** Bits of a client route hint: what the scanned module exports. */
+const HINT_LOADER = 1;
+const HINT_HEAD = 2;
+const HINT_STATIC_PATHS = 4;
+
+/**
+ * The route hint table the browser entry carries: one root-absolute key per
+ * scanned route or shell module (`/src/routes/home.tsx`, which the entry's
+ * `canonicalModuleKey` turns any manifest ref into) and a bitfield of
+ * `HINT_*` flags. A module the scan saw exports none of them as `0`, so
+ * "known not to" stays distinct from "never scanned" (no key). The server
+ * tables keep their two keys and booleans; only the browser pays per route.
+ */
+function createClientRouteHintTable(
+  hints: VirtualModuleRouteHints,
+  staticPaths: boolean,
+): Record<string, number> {
+  const table: Record<string, number> = {};
+  const keys = new Set([...Object.keys(hints.loader), ...Object.keys(hints.head)]);
+  for (const key of keys) {
+    if (!key.startsWith("/")) continue;
+    table[key] =
+      (hints.loader[key] === true ? HINT_LOADER : 0) |
+      (hints.head[key] === true ? HINT_HEAD : 0) |
+      (staticPaths && hints.staticPaths[key] === true ? HINT_STATIC_PATHS : 0);
+  }
+  return table;
+}
+
+/**
+ * `applyRouteHints` for the browser entry, reading the bitfield table above.
+ * The rules match the server copy: a hint only ever adds `true`, and narrows
+ * to `false` only when the scan saw the module.
+ */
+function createApplyClientRouteHintsSource(shellLoaders: boolean, staticPaths: boolean): string[] {
+  return [
+    "function applyRouteHints(resolvedApp, hints) {",
+    "  for (const route of resolvedApp.routes) {",
+    "    const hint = hints[canonicalModuleKey(route.file)];",
+    "    const shellHint = route.shellFile ? hints[canonicalModuleKey(route.shellFile)] : undefined;",
+    "    if (hint !== undefined) {",
+    `      if (hint & ${HINT_LOADER}) route.hasLoader = true;`,
+    "      else if (route.hasLoader === undefined) route.hasLoader = false;",
+    ...(staticPaths
+      ? [
+          "      if (route.hasStaticPaths === undefined) {",
+          `        route.hasStaticPaths = (hint & ${HINT_STATIC_PATHS}) !== 0;`,
+          "      }",
+        ]
+      : []),
+    "    }",
+    ...(shellLoaders
+      ? [
+          `    if (shellHint !== undefined) route.hasShellLoader = (shellHint & ${HINT_LOADER}) !== 0;`,
+        ]
+      : []),
+    `    if ((hint & ${HINT_HEAD}) || (shellHint & ${HINT_HEAD})) {`,
+    "      route.hasHead = true;",
+    "    } else if (",
+    "      route.hasHead === undefined &&",
+    "      hint !== undefined &&",
+    "      (!route.shellFile || shellHint !== undefined)",
+    "    ) {",
+    "      route.hasHead = false;",
+    "    }",
+    "  }",
+    "}",
+    "",
+  ];
+}
+
+function createApplyRouteLoaderHintsSource(): string[] {
   return [
     "function applyRouteHints(resolvedApp, routeLoaderHints, routeHeadHints, routeStaticPathsHints) {",
     "  for (const route of resolvedApp.routes) {",
@@ -1524,12 +1598,8 @@ function createApplyRouteLoaderHintsSource(shellLoaders = true): string[] {
     "    } else if (typeof route.hasLoader === 'undefined' && typeof hint === 'boolean') {",
     "      route.hasLoader = hint;",
     "    }",
-    ...(shellLoaders
-      ? [
-          "    const shellLoaderHint = route.shellFile ? routeLoaderHints[route.shellFile] : undefined;",
-          "    if (typeof shellLoaderHint === 'boolean') route.hasShellLoader = shellLoaderHint;",
-        ]
-      : []),
+    "    const shellLoaderHint = route.shellFile ? routeLoaderHints[route.shellFile] : undefined;",
+    "    if (typeof shellLoaderHint === 'boolean') route.hasShellLoader = shellLoaderHint;",
     "    const routeHeadHint = routeHeadHints[route.file];",
     "    const shellHeadHint = route.shellFile ? routeHeadHints[route.shellFile] : undefined;",
     "    const hasCompleteHeadHints = typeof routeHeadHint === 'boolean' &&",
