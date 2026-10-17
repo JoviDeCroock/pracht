@@ -50,7 +50,7 @@ import {
   negotiateEncoding,
   protectIdentityEtag,
 } from "./node-compress.ts";
-import { regenerateISGPage, writeISGFile } from "./node-isg.ts";
+import { createISGRenderInput, regenerateISGPage, writeISGFile } from "./node-isg.ts";
 import {
   createClientDisconnectSignal,
   createWebRequest,
@@ -70,7 +70,13 @@ const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
 export interface NodeAdapterContextArgs {
   request: Request;
+  /**
+   * The visitor's `node:http` request. While rendering an ISG page it is a
+   * detached request mirroring `request` instead: that HTML is shared with
+   * every visitor, so it never sees one visitor's cookies or credentials.
+   */
   req: IncomingMessage;
+  /** The visitor's `node:http` response; detached while rendering an ISG page. */
   res: ServerResponse;
 }
 
@@ -249,11 +255,6 @@ export function createNodeRequestHandler<TContext = unknown>(
         options,
         staticDir,
         isgManifest,
-        {
-          request,
-          req,
-          res,
-        },
         compression,
         waitUntil,
       );
@@ -289,7 +290,10 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
     }
 
-    if (
+    // An ISG document request is answered from the snapshot, or rendered into
+    // one. Either way the HTML is shared, so it is rendered without the
+    // visitor's request.
+    const isgDocumentKey =
       staticDir &&
       isStaticAssetMethod(request.method) &&
       !isMcpMetadataRequest &&
@@ -297,7 +301,10 @@ export function createNodeRequestHandler<TContext = unknown>(
       !wantsMarkdown &&
       isgKey !== null &&
       isgKey in isgManifest
-    ) {
+        ? isgKey
+        : null;
+
+    if (staticDir && isgDocumentKey !== null) {
       const trailingSlashRedirect = redirectToCanonicalPage();
       if (trailingSlashRedirect) {
         await writeWebResponse(res, trailingSlashRedirect);
@@ -308,23 +315,34 @@ export function createNodeRequestHandler<TContext = unknown>(
         res,
         options,
         staticDir,
-        isgKey,
-        isgManifest[isgKey],
+        isgDocumentKey,
+        isgManifest[isgDocumentKey],
         headersManifest,
-        { request, req, res },
         compression,
         waitUntil,
       );
       if (served) return;
     }
 
-    let applicationRequest = createApplicationRequest(request, compression);
-    if (options.basePathStripped) {
-      applicationRequest = restoreBasePathInRequest(applicationRequest);
+    let applicationRequest: Request;
+    let context: TContext | undefined;
+    if (isgDocumentKey !== null) {
+      // Cold miss: no snapshot on disk yet. Render the page everyone will be
+      // served, not this visitor's version of it.
+      ({ request: applicationRequest, context } = await createISGRenderInput(
+        options,
+        isgDocumentKey,
+        request,
+      ));
+    } else {
+      applicationRequest = createApplicationRequest(request, compression);
+      if (options.basePathStripped) {
+        applicationRequest = restoreBasePathInRequest(applicationRequest);
+      }
+      context = options.createContext
+        ? await options.createContext({ request: applicationRequest, req, res })
+        : undefined;
     }
-    const context = options.createContext
-      ? await options.createContext({ request: applicationRequest, req, res })
-      : undefined;
 
     const response = await handlePrachtRequest({
       app: options.app,
@@ -347,16 +365,14 @@ export function createNodeRequestHandler<TContext = unknown>(
     const isIsgDocument =
       staticDir !== undefined &&
       request.method === "GET" &&
-      !isTransportRouteStateRequest &&
-      isgKey !== null &&
-      isgKey in isgManifest &&
+      isgDocumentKey !== null &&
       response.status === 200 &&
       (response.headers.get("content-type")?.includes("text/html") ?? false) &&
       isCacheableISGResponse(response);
 
     if (isIsgDocument) {
       const html = await response.clone().text();
-      const htmlPath = resolveContainedPath(staticDir, isgKey);
+      const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
       if (htmlPath) {
         await writeISGFile(htmlPath, html);
         compressedAssetCache.invalidatePath(htmlPath);
@@ -657,7 +673,6 @@ async function serveISGEntry<TContext>(
   pathname: string,
   entry: ISGManifestEntry,
   headersManifest: HeadersManifest,
-  contextArgs: NodeAdapterContextArgs,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
@@ -740,7 +755,7 @@ async function serveISGEntry<TContext>(
           options,
           pathname,
           htmlPath,
-          contextArgs,
+          request,
           compression,
           waitUntil,
         ).catch((err) => {
@@ -760,7 +775,6 @@ async function handleRevalidationEndpoint<TContext>(
   options: NodeAdapterOptions<TContext>,
   staticDir: string | undefined,
   isgManifest: Record<string, ISGManifestEntry>,
-  contextArgs: NodeAdapterContextArgs,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
@@ -801,7 +815,7 @@ async function handleRevalidationEndpoint<TContext>(
           options,
           pathname,
           htmlPath!,
-          contextArgs,
+          request,
           compression,
           waitUntil,
         )
@@ -823,11 +837,11 @@ async function regenerateISGPageAndInvalidateCache<TContext>(
   options: NodeAdapterOptions<TContext>,
   pathname: string,
   htmlPath: string,
-  contextArgs: NodeAdapterContextArgs,
+  origin: Request,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
-  const regenerated = await regenerateISGPage(options, pathname, htmlPath, contextArgs, waitUntil);
+  const regenerated = await regenerateISGPage(options, pathname, htmlPath, origin, waitUntil);
   if (regenerated) compression?.cache.invalidatePath(htmlPath);
   return regenerated;
 }

@@ -553,6 +553,138 @@ describe("createNodeRequestHandler", () => {
     expect(readFileSync(htmlPath, "utf-8")).toContain("/assets/islands-agent.js");
   });
 
+  describe("ISG renders never see the visitor's Node request", () => {
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    afterEach(() => {
+      if (previousToken === undefined) delete process.env.PRACHT_REVALIDATE_TOKEN;
+      else process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+    });
+
+    const sanitizedContextArgs = {
+      reqHeaders: { accept: "text/html", host: "localhost" },
+      reqUrl: "/p",
+      auth: null,
+    };
+
+    async function startPersonalizedIsgServer(options: {
+      staleSnapshot: boolean;
+      revalidate: ReturnType<typeof timeRevalidate> | ReturnType<typeof webhookRevalidate>;
+    }) {
+      const staticDir = makeTempDir();
+      const htmlDir = join(staticDir, "p");
+      const htmlPath = join(htmlDir, "index.html");
+      mkdirSync(htmlDir, { recursive: true });
+      if (options.staleSnapshot) {
+        writeFileSync(htmlPath, "<html><body>build</body></html>", "utf-8");
+        const staleAt = new Date(Date.now() - 60_000);
+        utimesSync(htmlPath, staleAt, staleAt);
+      }
+
+      const seen: Array<{
+        reqHeaders: IncomingMessage["headers"];
+        reqUrl: string | undefined;
+        auth: string | null;
+      }> = [];
+      const app = defineApp({
+        routes: [route("/p", "./routes/p.tsx", { render: "isg", revalidate: options.revalidate })],
+      });
+      const handler = createNodeRequestHandler({
+        app,
+        canonicalOrigin: "http://localhost",
+        // The idiomatic Node session lookup: read the cookie from `req`.
+        createContext: ({ request, req, res }) => {
+          seen.push({
+            reqHeaders: { ...req.headers },
+            reqUrl: req.url,
+            auth: request.headers.get("authorization"),
+          });
+          // Writing to the response must not reach the visitor.
+          res.setHeader("x-context", "touched");
+          return { user: /session=(\w+)/.exec(req.headers.cookie ?? "")?.[1] };
+        },
+        isgManifest: { "/p": { revalidate: options.revalidate } },
+        registry: {
+          routeModules: {
+            "./routes/p.tsx": async () => ({
+              Component: ({ data }) => `<main>Hello ${(data as { user: string }).user}</main>`,
+              loader: async ({ context }) => ({
+                user: (context as { user?: string }).user ?? "anonymous",
+              }),
+            }),
+          },
+        },
+        staticDir,
+      });
+
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Expected TCP address");
+      return { base: `http://127.0.0.1:${address.port}`, handler, htmlPath, seen };
+    }
+
+    it("regenerates a stale page without the triggering visitor's req or res", async () => {
+      const { base, handler, htmlPath, seen } = await startPersonalizedIsgServer({
+        staleSnapshot: true,
+        revalidate: timeRevalidate(1),
+      });
+
+      const stale = await fetch(`${base}/p`, { headers: { cookie: "session=alice" } });
+      expect(stale.headers.get("x-pracht-isg")).toBe("stale");
+      await stale.text();
+      await handler.drain();
+
+      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(seen).toEqual([sanitizedContextArgs]);
+      const anonymous = await fetch(`${base}/p`);
+      await expect(anonymous.text()).resolves.not.toContain("alice");
+    });
+
+    it("renders and persists a cold page from a sanitized request", async () => {
+      const { base, handler, htmlPath, seen } = await startPersonalizedIsgServer({
+        staleSnapshot: false,
+        revalidate: timeRevalidate(3600),
+      });
+
+      const cold = await fetch(`${base}/p?ref=alice`, {
+        headers: { cookie: "session=alice", authorization: "Bearer alice-token" },
+      });
+      expect(cold.status).toBe(200);
+      expect(cold.headers.get("x-context")).toBeNull();
+      await expect(cold.text()).resolves.toContain("Hello anonymous");
+      await handler.drain();
+
+      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(seen).toEqual([sanitizedContextArgs]);
+    });
+
+    it("regenerates from the webhook without the webhook caller's req or credentials", async () => {
+      process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+      const { base, htmlPath, seen } = await startPersonalizedIsgServer({
+        staleSnapshot: true,
+        revalidate: webhookRevalidate(),
+      });
+
+      const response = await fetch(`${base}/__pracht/revalidate`, {
+        body: JSON.stringify({ paths: ["/p"] }),
+        headers: {
+          authorization: "Bearer secret",
+          "content-type": "application/json",
+          cookie: "session=alice",
+        },
+        method: "POST",
+      });
+      await expect(response.json()).resolves.toMatchObject({ revalidated: ["/p"] });
+
+      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(seen).toEqual([sanitizedContextArgs]);
+    });
+  });
+
   it("authenticates webhook ISG revalidation and regenerates opted-in paths", async () => {
     const staticDir = makeTempDir();
     const htmlDir = join(staticDir, "pricing");
