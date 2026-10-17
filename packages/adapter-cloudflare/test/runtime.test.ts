@@ -1067,6 +1067,49 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
       vi.doUnmock("../src/cache.ts");
     }
   });
+
+  it.each([
+    ["rejects", () => Promise.resolve({ success: false, errors: ["rate limited"] })],
+    ["throws", () => Promise.reject(new Error("purge unavailable"))],
+  ])("reports an edge-cached path as failed when the purge %s", async (_label, outcome) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.resetModules();
+    const purge = vi.fn(outcome);
+    vi.doMock("../src/cache.ts", async () => ({
+      ...(await vi.importActual<typeof import("../src/cache.ts")>("../src/cache.ts")),
+      purgeCache: purge,
+    }));
+
+    try {
+      const { createCloudflareFetchHandler: createHandler } = await import("../src/runtime.ts");
+      const { cache } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const { app, registry } = createPricingApp();
+      const handler = createHandler({
+        app,
+        registry,
+        cache: true,
+        isgManifest: { "/pricing": { revalidate: isgRevalidate } },
+      });
+
+      const response = await handler(
+        createWebhookRequest("purge-fails.example", ["/pricing"], "secret"),
+        { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" },
+        executionContext,
+      );
+
+      expect(purge).toHaveBeenCalledOnce();
+      // Visitors of an edge-cached route still get the old page.
+      await expect(response.json()).resolves.toMatchObject({
+        details: [{ outcome: "failed", path: "/pricing", reason: "edge_purge_failed" }],
+        failed: ["/pricing"],
+        revalidated: [],
+      });
+    } finally {
+      vi.doUnmock("../src/cache.ts");
+    }
+  });
 });
 
 describe("WebSocket upgrades", () => {

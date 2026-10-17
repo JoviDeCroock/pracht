@@ -661,8 +661,10 @@ With the option on:
   parameters, and the request body never reach `createContext`, middleware, or
   loaders while producing a shared response.
 - Routes with both a time and a webhook policy are edge-cached, and
-  `POST /__pracht/revalidate` purges their edge entries after regenerating
-  the worker-managed copy.
+  `POST /__pracht/revalidate` purges their edge entries in every colo after
+  regenerating the worker-managed copy (`"scope": "global"`). A purge that
+  throws or resolves `{ success: false }` leaves visitors the old page, so
+  the path is reported in `failed` with reason `edge_purge_failed`.
 - The worker stamps ISG document responses with
   `cloudflare-cdn-cache-control: max-age=<revalidate>,
   stale-while-revalidate=<staleWhileRevalidate>` — the edge holds the page

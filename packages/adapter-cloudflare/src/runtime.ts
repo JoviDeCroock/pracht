@@ -23,7 +23,6 @@ import {
   classifyRevalidationSkip,
   readRevalidationRequest,
   RevalidationReport,
-  type RevalidationScope,
   restoreBasePathInRequest,
   routeSupportsMarkdown,
   setServerEnv,
@@ -511,24 +510,19 @@ async function handleCloudflareRevalidationEndpoint(
       // A failed regeneration keeps the existing cached copy and is reported
       // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
-        // The Cache API copy is current only in the data center that ran
-        // this request.
-        let scope: RevalidationScope = "colo";
         // Routes with both a time and a webhook policy are served through
-        // Workers Caching when the `cache` option is on — the edge copy must
-        // be purged too, or it keeps serving the old page until its TTL. That
-        // purge reaches every data center. A purge failure keeps the path in
-        // `revalidated` (the worker-managed copy is fresh); the edge falls
-        // back to its time window.
+        // Workers Caching when the `cache` option is on, never from the Cache
+        // API copy: only the edge purge, which reaches every data center,
+        // changes what visitors get. A rejected purge leaves them the old
+        // page until its time window, so the path is reported as failed.
         if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
-          try {
-            await purgeCache({ pathPrefixes: [withBase(pathname)] });
-            scope = "global";
-          } catch (err) {
-            console.error(`ISG edge cache purge failed for ${pathname}:`, err);
-          }
+          if (await purgeEdgeCopy(pathname)) report.revalidated(pathname, "global");
+          else report.failed(pathname, "edge_purge_failed");
+        } else {
+          // The Cache API copy is current only in the data center that ran
+          // this request.
+          report.revalidated(pathname, "colo");
         }
-        report.revalidated(pathname, scope);
       } else {
         report.failed(pathname, "regeneration_failed");
       }
@@ -539,6 +533,29 @@ async function handleCloudflareRevalidationEndpoint(
   }
 
   return jsonResponse(report.toJSON());
+}
+
+/**
+ * Purge a page's Workers Caching entries. `cache.purge()` resolves
+ * `{ success: false }` when Cloudflare rejects the purge (rate limits, for
+ * one) and throws when it cannot run; both mean the edge copy is unchanged.
+ */
+async function purgeEdgeCopy(pathname: string): Promise<boolean> {
+  try {
+    const result = await purgeCache({ pathPrefixes: [withBase(pathname)] });
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      (result as { success?: unknown }).success === false
+    ) {
+      console.error(`ISG edge cache purge was rejected for ${pathname}:`, result);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(`ISG edge cache purge failed for ${pathname}:`, err);
+    return false;
+  }
 }
 
 /**
