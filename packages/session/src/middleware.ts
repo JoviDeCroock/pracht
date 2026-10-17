@@ -1,4 +1,4 @@
-import { redirect } from "@pracht/core";
+import { redirect, stripBase } from "@pracht/core";
 import type { MiddlewareArgs, MiddlewareFn } from "@pracht/core";
 
 import type { Session, SessionStorage } from "./session.ts";
@@ -32,7 +32,9 @@ export interface RequireSessionOptions<
   /**
    * Query parameter carrying the path the visitor was trying to reach, so the
    * login handler can send them back. Default: `"redirect"`; pass `false` to
-   * redirect to a bare `loginPath`.
+   * redirect to a bare `loginPath`. Under a deploy base the value is the route
+   * path without the base (`/dashboard`, not `/my-project/dashboard`), so the
+   * login handler can hand it straight to `redirect()`, which adds the base.
    */
   redirectParam?: string | false;
   /**
@@ -134,7 +136,7 @@ export function requireSession<Data extends Record<string, unknown> = Record<str
         : redirect(
             redirectParam === false
               ? loginPath
-              : `${loginPath}?${redirectParam}=${encodeURIComponent(args.url.pathname + args.url.search)}`,
+              : `${loginPath}?${redirectParam}=${encodeURIComponent(returnPath(args.url))}`,
             { request: args.request },
           );
       return varyOnCookie(rejection, args);
@@ -187,6 +189,15 @@ function attachSession(context: unknown, key: string, session: unknown): void {
         "extensible. Read the session with storage.getSession(request) instead.",
     );
   }
+}
+
+/**
+ * The path to send the visitor back to after login, as a route path: the login
+ * handler passes it to `redirect()`, which puts the deploy base back on. A URL
+ * outside the base keeps its full path.
+ */
+function returnPath(url: URL): string {
+  return (stripBase(url.pathname) ?? url.pathname) + url.search;
 }
 
 function defaultUnauthorized(): Response {
