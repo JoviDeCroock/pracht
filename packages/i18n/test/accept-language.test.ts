@@ -123,6 +123,21 @@ describe("matchAcceptLanguage", () => {
     expect(matchAcceptLanguage("zh-Hans", ["zh-Hans-CN", "zh-Hant"])).toBe("zh-Hans-CN");
   });
 
+  it("prefers the script a region implies when no script subtag is sent", () => {
+    expect(matchAcceptLanguage("zh-TW", ["zh-Hans", "zh-Hant"])).toBe("zh-Hant");
+    expect(matchAcceptLanguage("zh-HK", ["zh-Hans", "zh-Hant"])).toBe("zh-Hant");
+    expect(matchAcceptLanguage("zh-CN", ["zh-Hant", "zh-Hans"])).toBe("zh-Hans");
+    expect(matchAcceptLanguage("zh-HK", ["zh-CN", "zh-TW"])).toBe("zh-TW");
+    expect(matchAcceptLanguage("zh-Hans", ["zh-TW", "zh-CN"])).toBe("zh-CN");
+    expect(matchAcceptLanguage("sr-ME", ["sr-Cyrl", "sr-Latn"])).toBe("sr-Latn");
+  });
+
+  it("keeps the old answer when no locale in the implied script exists", () => {
+    expect(matchAcceptLanguage("zh-TW", ["en", "zh-Hans"])).toBe("zh-Hans");
+    expect(matchAcceptLanguage("zh-TW, en;q=0.5", ["en", "zh-CN"])).toBe("zh-CN");
+    expect(matchAcceptLanguage("zh-Hant", ["zh-CN"])).toBe("zh-CN");
+  });
+
   it("respects q-value ordering", () => {
     expect(matchAcceptLanguage("nl;q=0.3, en;q=0.9", locales)).toBe("en");
   });
