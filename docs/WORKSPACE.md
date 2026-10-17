@@ -9,6 +9,13 @@ described in `VISION_MVP.md`.
 | --- | --- | --- |
 | Package manager | root `package.json#packageManager`, both workflows | `pnpm@11.3.0` |
 | Node | root `package.json#engines.node`, `.nvmrc`, `.node-version` | `>=22.18` / `22.22.3` |
+| Preact | every workspace `package.json`, the `create-pracht` scaffold | `11.0.1` / `^11.0.1` |
+
+The published peer ranges accept Preact 10 and 11. The workspace develops on 11,
+the version new projects get, and `.github/workflows/preact-10.yml` reruns the
+unit suite and the `basic` e2e project with `preact` overridden to 10.x. Keep the
+workspace pin, the scaffold's range, and `bench/baseline.json` moving together:
+the published bundle sizes are measured on the workspace pin.
 
 Every published package carries `engines.node: ">=22.18"` too, so an install on
 an older runtime warns instead of failing halfway through a build.
