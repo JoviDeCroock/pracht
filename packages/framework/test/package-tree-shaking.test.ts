@@ -442,7 +442,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_000);
+      expect(gzipBytes).toBeLessThanOrEqual(10_010);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -546,7 +546,7 @@ describe("published package tree shaking", () => {
         __PRACHT_SHELL_LOADERS__: "true",
       });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_800);
+      expect(gzipBytes).toBeLessThanOrEqual(10_810);
     });
   });
 

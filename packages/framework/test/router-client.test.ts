@@ -702,6 +702,77 @@ describe("initClientRouter", () => {
     );
   });
 
+  it("commits only the latest of two overlapping revalidations", async () => {
+    let revalidate!: () => Promise<unknown>;
+    function Dashboard() {
+      const data = useRouteData<{ count: number }>();
+      revalidate = useRevalidate();
+      return h("main", null, h("span", { id: "count" }, String(data.count)));
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/dashboard", "./routes/dashboard.tsx", { id: "dashboard", render: "ssr" })],
+      }),
+    );
+
+    root.innerHTML = '<main><span id="count">1</span></main>';
+    history.replaceState(null, "", "/dashboard");
+    await initClientRouter({
+      app,
+      routeModules: { "./routes/dashboard.tsx": async () => ({ default: Dashboard }) },
+      shellModules: {},
+      initialState: { data: { count: 1 }, routeId: "dashboard", url: "/dashboard" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    // The first request is slow and answers with older data than the second.
+    let releaseFirst!: () => void;
+    const firstResponse = new Promise<Response>((resolve) => {
+      releaseFirst = () => resolve(createJsonResponse({ data: { count: 2 } }));
+    });
+    fetchSpy
+      .mockReturnValueOnce(firstResponse)
+      .mockResolvedValueOnce(createJsonResponse({ data: { count: 3 } }));
+
+    const first = revalidate();
+    const second = revalidate();
+    await second;
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("3");
+
+    releaseFirst();
+    // The superseded caller still receives what it fetched.
+    await expect(first).resolves.toEqual({ count: 2 });
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("3");
+
+    // A handler holding `revalidate` from an earlier render is ordered against
+    // one from the current render, although the two see different runtime values.
+    const stale = revalidate;
+    fetchSpy.mockResolvedValueOnce(createJsonResponse({ data: { count: 4 } }));
+    await stale();
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("4");
+    let releaseStale!: () => void;
+    fetchSpy
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          releaseStale = () => resolve(createJsonResponse({ data: { count: 5 } }));
+        }),
+      )
+      .mockResolvedValueOnce(createJsonResponse({ data: { count: 6 } }));
+    const slow = stale();
+    await revalidate();
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("6");
+    releaseStale();
+    await slow;
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("6");
+  });
+
   it("does not let a stale revalidation overwrite fonts after navigation", async () => {
     function Dashboard() {
       const revalidate = useRevalidate();

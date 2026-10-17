@@ -653,7 +653,7 @@ export function Component() {
 }
 ```
 
-Revalidation bypasses `loaderCache` and always fetches fresh data.
+Revalidation bypasses `loaderCache` and always fetches fresh data. When revalidations overlap, the page keeps the data of the one started last, whichever response arrives first.
 
 ### useNavigation()
 

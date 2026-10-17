@@ -18,6 +18,14 @@ const SHELL_LOADERS_ENABLED =
  */
 declare const __PRACHT_SERVER_ISLANDS__: boolean | undefined;
 
+// The latest revalidation started per runtime provider, keyed by its stable
+// `revalidation` token: the runtime value itself changes with every commit, and
+// a handler can hold an older one. Keyed per provider so the
+// capability listener, which refreshes every mounted runtime at once, does not
+// supersede one runtime's refresh with another's.
+const latestRevalidations = new WeakMap<object, number>();
+let revalidationCount = 0;
+
 /**
  * Re-fetch the active route's loader data, and its shell's, and commit it.
  * Shared by `useRevalidate()`, `<Form capability>` submissions, and the
@@ -32,9 +40,18 @@ export async function revalidateRouteData(
   }
 
   const path = runtime?.url || window.location.pathname + window.location.search;
+  const key = runtime?.revalidation ?? runtime ?? latestRevalidations;
+  const revalidation = ++revalidationCount;
+  latestRevalidations.set(key, revalidation);
   const result = await fetchPrachtRouteState(path, { cache: "reload" });
+  // Overlapping revalidations (a double-clicked mutation, two quick capability
+  // calls) can settle out of order. Only the latest one commits or follows a
+  // redirect, so an older response that arrives last cannot put stale data
+  // back on screen; its own caller still receives what it fetched.
+  const superseded = latestRevalidations.get(key) !== revalidation;
 
   if (result.type === "redirect") {
+    if (superseded) return undefined;
     // No location on an opaque redirect: reload so the browser follows the
     // 3xx as a document navigation instead of re-fetching the same URL.
     if (!result.location) {
@@ -48,6 +65,7 @@ export async function revalidateRouteData(
   if (result.type === "error") {
     throw deserializeRouteError(result.error);
   }
+  if (superseded) return result.data;
 
   // The provider stamps setData() with the route state that started this
   // request, so a result that settles after navigation cannot overwrite the
