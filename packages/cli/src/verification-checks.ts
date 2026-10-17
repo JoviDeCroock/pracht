@@ -1388,10 +1388,11 @@ function collectCloudflareRunWorkerFirstCheck(
   checks.push(
     createCheck(
       "warning",
-      `${display} does not set "assets.run_worker_first": true. Cloudflare then serves ` +
+      `${display} does not set "assets.run_worker_first". Cloudflare then serves ` +
         "prerendered pages and other built files without running the Worker, so ISG " +
         "revalidation, Markdown negotiation, route headers() exports, and Pracht's security " +
-        'headers silently stop applying to them. Add "run_worker_first": true to the assets block.',
+        'headers silently stop applying to them. Add "run_worker_first": ["/*", "!/assets/*"] ' +
+        "to the assets block.",
     ),
   );
 }

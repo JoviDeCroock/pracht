@@ -8,6 +8,7 @@ export { createCloudflareFetchHandler } from "./runtime.ts";
 export type {
   CloudflareAdapterOptions,
   CloudflareContextArgs,
+  CloudflareEnv,
   CloudflareExecutionContext,
   CloudflareFetcher,
 } from "./runtime.ts";

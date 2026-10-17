@@ -16,7 +16,9 @@
     // Cloudflare than on Node and Vercel — and the generated llms.txt, which
     // emits the non-slash form, sends agents through a redirect.
     "html_handling": "drop-trailing-slash",
-    "run_worker_first": true,
+    // Everything runs the Worker except Vite's content-hashed files, which
+    // Cloudflare serves directly with the _headers rules pracht build writes.
+    "run_worker_first": ["/*", "!/assets/*"],
   },
   "kv_namespaces": [{ "binding": "MY_KV", "id": "abc123" }],
   "durable_objects": {

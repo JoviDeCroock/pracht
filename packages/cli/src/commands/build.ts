@@ -19,6 +19,7 @@ import { matchRoutePath, planMarkdownFiles, routePathIsDynamic } from "@pracht/c
 import type { MarkdownFile, PrerenderedMarkdown } from "@pracht/core";
 
 import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
+import { writeCloudflareAssetHeaders } from "../cloudflare-asset-headers.js";
 import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
 import {
   decodeStaticOutputPath,
@@ -1009,6 +1010,25 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       log(
         `\n  ISG manifest → dist/server/isg-manifest.json (${Object.keys(isgManifest).length} route(s))\n`,
       );
+    }
+
+    if (buildTarget === "cloudflare") {
+      const assetHeaders = writeCloudflareAssetHeaders(
+        clientDir,
+        publicDir,
+        headersManifest,
+        publicDirLabel,
+      );
+      if (assetHeaders.warning && !analyzeJson) {
+        console.warn(`\n  Warning: ${assetHeaders.warning}\n`);
+      }
+      if (assetHeaders.skipped.length > 0 && !analyzeJson) {
+        console.warn(
+          `\n  Warning: dist/client/_headers cannot match ${assetHeaders.skipped.join(", ")} ` +
+            "exactly, so Cloudflare serves them with the /assets/* immutable policy instead of " +
+            "their build headers. Rename them or keep them out of /assets/.\n",
+        );
+      }
     }
 
     if (isStaticExport) {

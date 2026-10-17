@@ -60,7 +60,7 @@ Add your D1 database and any other bindings to `wrangler.jsonc`:
     "binding": "ASSETS",
     "directory": "dist/client",
     "html_handling": "drop-trailing-slash",
-    "run_worker_first": true
+    "run_worker_first": ["/*", "!/assets/*"]
   },
   "d1_databases": [
     {
@@ -114,15 +114,31 @@ npx wrangler d1 migrations apply my-app-db --remote
 
 ## 4. Type Your Bindings
 
-Create a types file so your loaders and API routes get autocomplete:
+Generate types from `wrangler.jsonc`, so your loaders and API routes get
+autocomplete for `DB` and `CACHE`:
+
+```sh
+npx wrangler types
+```
+
+This writes `worker-configuration.d.ts`: the Workers runtime types
+(`D1Database`, `KVNamespace`, `ExecutionContext`) and an `Env` interface for
+your bindings, along these lines:
+
+```ts [worker-configuration.d.ts]
+declare namespace Cloudflare {
+  interface Env {
+    DB: D1Database;
+    CACHE: KVNamespace;
+  }
+}
+interface Env extends Cloudflare.Env {}
+```
+
+Register it:
 
 ```ts [src/env.d.ts]
 import "@pracht/core";
-
-interface Env {
-  DB: D1Database;
-  CACHE: KVNamespace;
-}
 
 declare module "@pracht/core" {
   interface Register {
@@ -133,6 +149,9 @@ declare module "@pracht/core" {
   }
 }
 ```
+
+Rerun `wrangler types` whenever you add a binding. A `create-pracht` app runs it
+as `cf-typegen` and before every `typecheck`.
 
 ---
 

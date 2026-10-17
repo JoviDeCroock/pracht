@@ -87,6 +87,8 @@ const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
   /^dist\/client\/\.vite\/manifest\.json$/,
   /^dist\/client\/(?:llms\.txt|openapi\.json)$/,
+  // Cloudflare target: the static-assets layer's header rules for /assets/*.
+  /^dist\/client\/_headers$/,
   // Static export fixed artifacts: the notFound document and the opt-in SPA
   // fallback (`staticAdapter({ fallback })`, conventionally 200.html).
   /^dist\/client\/(?:404|200)\.html$/,
