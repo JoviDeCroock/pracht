@@ -58,6 +58,7 @@ export default defineCommand({
     );
 
     const routeTypes = createGeneratedRouteTypesSync(root);
+    let configuredServers = 0;
     const server = await createServer({
       cacheDir: args.cacheDir,
       // Vite re-creates the dev server (and its file watcher) on every
@@ -67,7 +68,7 @@ export default defineCommand({
       plugins: [
         {
           name: "pracht:cli-dev",
-          configureServer(devServer) {
+          async configureServer(devServer) {
             routeTypes.attach(devServer);
             // Vite restarts the server when a `.env` file changes. Re-read the
             // files the moment the watcher reports it — synchronously, ahead
@@ -78,6 +79,12 @@ export default defineCommand({
                 if (dotEnvFiles.has(resolve(file))) dotEnv.load();
               });
             }
+            // Vite prints "server restarted" once the replacement server
+            // listens, but its new file watcher may still be attaching to the
+            // project. A save in that window is never reported, so a quick
+            // second edit to `routes.ts` was silently ignored. Hold the
+            // restart until the watcher sees the whole tree.
+            if (configuredServers++ > 0) await whenWatcherReady(devServer.watcher);
           },
         },
       ],
@@ -241,6 +248,34 @@ function createGeneratedRouteTypesSync(root: string): {
       void regenerate();
     },
   };
+}
+
+/** Longest a restart waits for its watcher; past it, Vite's own timing applies. */
+const WATCHER_READY_TIMEOUT_MS = 10_000;
+
+/**
+ * Resolve once a dev server's chokidar watcher has finished its initial scan.
+ *
+ * Vite exposes no public readiness flag and does not await the scan itself.
+ * chokidar's `_readyEmitted` is `false` until `ready` fires; any other value (a
+ * different watcher, or `server.watch: null`'s no-op watcher) keeps Vite's
+ * behaviour. The timeout stops a watcher that never becomes ready from
+ * blocking the restart.
+ */
+function whenWatcherReady(watcher: ViteDevServer["watcher"]): Promise<void> {
+  if ((watcher as { _readyEmitted?: unknown })._readyEmitted !== false) {
+    return Promise.resolve();
+  }
+  return new Promise((resolveReady) => {
+    const timer = setTimeout(done, WATCHER_READY_TIMEOUT_MS);
+    timer.unref();
+    watcher.once("ready", done);
+    function done(): void {
+      clearTimeout(timer);
+      watcher.off("ready", done);
+      resolveReady();
+    }
+  });
 }
 
 /** Whether `file` is the app manifest or one of its local imported modules. */

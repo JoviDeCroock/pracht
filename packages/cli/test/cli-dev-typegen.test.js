@@ -299,15 +299,36 @@ export const routes = [
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
+    let onOutput = () => {};
     child.stdout.setEncoding("utf-8");
     child.stderr.setEncoding("utf-8");
     child.stdout.on("data", (chunk) => {
       output += chunk;
+      onOutput();
     });
     child.stderr.on("data", (chunk) => {
       output += chunk;
+      onOutput();
     });
     const declaration = () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
+    const restartCount = () => output.split("server restarted").length - 1;
+    // Resolves in the same tick the restart is announced, so the next edit
+    // lands as early as a developer saving again could make it.
+    const restartAfter = (count) =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          onOutput = () => {};
+          reject(new Error(`No dev-server restart after edit ${count + 1}.\n${output}`));
+        }, 30_000);
+        onOutput = () => {
+          if (restartCount() <= count) return;
+          clearTimeout(timer);
+          onOutput = () => {};
+          resolve();
+        };
+        onOutput();
+      });
+    const ids = ["first-edit", "second-edit", "third-edit", "fourth-edit", "fifth-edit"];
 
     try {
       await waitFor(
@@ -316,22 +337,19 @@ export const routes = [
         () => output,
       );
 
-      for (const id of ["first-edit", "second-edit", "third-edit"]) {
-        const restarts = output.split("server restarted").length;
+      // Each edit is saved the moment the previous restart is announced. The
+      // replacement server's watcher must already see it: an edit it missed
+      // never restarts the server, and the test times out on that edit.
+      for (const id of ids) {
+        const restarts = restartCount();
         writeProjectFile(appDir, "src/routes.ts", addRoute(id));
-        await waitFor(
-          () => declaration().includes(`"${id}"`),
-          30_000,
-          () => output,
-        );
-        // Let the restart this edit triggered finish before the next edit, so
-        // the next one is observed by the replacement server's watcher.
-        await waitFor(
-          () => output.split("server restarted").length > restarts,
-          30_000,
-          () => output,
-        );
+        await restartAfter(restarts);
       }
+      await waitFor(
+        () => ids.every((id) => declaration().includes(`"${id}"`)),
+        30_000,
+        () => output,
+      );
 
       // Adding a route source file after the restarts is still observed.
       writeProjectFile(
