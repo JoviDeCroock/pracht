@@ -498,6 +498,7 @@ async function serveStaticFile(
         "cache-control": staticResult.cacheControl,
         etag: createWeakEtag(fileStat),
         "last-modified": fileStat.mtime.toUTCString(),
+        "accept-ranges": "bytes",
       }),
     );
     // `/page/index.html` names an ISG snapshot's file directly.
@@ -512,6 +513,31 @@ async function serveStaticFile(
       res.statusCode = 304;
       writeNodeHeaders(res, headers);
       res.end();
+      return;
+    }
+
+    // Ranges are served from the identity representation only; a request
+    // with a Range header is never compressed (see negotiateFileEncoding).
+    const range =
+      request.method === "GET" && encoding === null
+        ? resolveByteRange(request, headers, fileStat.size)
+        : null;
+    if (range === "unsatisfiable") {
+      res.statusCode = 416;
+      headers.set("content-range", `bytes */${fileStat.size}`);
+      writeNodeHeaders(res, headers);
+      res.end();
+      return;
+    }
+    if (range) {
+      res.statusCode = 206;
+      headers.set("content-range", `bytes ${range.start}-${range.end}/${fileStat.size}`);
+      headers.set("content-length", String(range.end - range.start + 1));
+      writeNodeHeaders(res, headers);
+      await pipeToResponse(
+        file.createReadStream({ start: range.start, end: range.end, autoClose: false }),
+        res,
+      );
       return;
     }
 
@@ -909,6 +935,44 @@ function applySnapshotOrManifestHeaders(
     return;
   }
   for (const [name, value] of Object.entries(snapshotHeaders)) headers.set(name, value);
+}
+
+/**
+ * The single byte range a `GET` asks for. Returns `null` to serve the whole
+ * file: no or malformed `Range`, several ranges, a unit other than `bytes`,
+ * or an `If-Range` that no longer matches (a weak `ETag` never does).
+ */
+function resolveByteRange(
+  request: Request,
+  headers: Headers,
+  size: number,
+): { start: number; end: number } | "unsatisfiable" | null {
+  const header = request.headers.get("range");
+  if (!header) return null;
+
+  const ifRange = request.headers.get("if-range")?.trim();
+  if (ifRange) {
+    const etag = headers.get("etag");
+    const matches = ifRange.startsWith('"')
+      ? etag !== null && !etag.startsWith("W/") && etag === ifRange
+      : !ifRange.startsWith("W/") && ifRange === headers.get("last-modified");
+    if (!matches) return null;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    if (suffix === 0 || size === 0) return "unsatisfiable";
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+
+  const start = Number(match[1]);
+  if (match[2] !== "" && Number(match[2]) < start) return null;
+  if (start >= size) return "unsatisfiable";
+  const end = match[2] === "" ? size - 1 : Number(match[2]);
+  return { start, end: Math.min(end, size - 1) };
 }
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {

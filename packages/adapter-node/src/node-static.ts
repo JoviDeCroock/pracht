@@ -10,6 +10,8 @@ export type { HeadersManifest } from "@pracht/core/server";
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".map": "application/json",
   ".css": "text/css",
   ".json": "application/json",
   ".png": "image/png",
@@ -17,6 +19,7 @@ const MIME_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".gif": "image/gif",
   ".webp": "image/webp",
+  ".avif": "image/avif",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".woff": "font/woff",
@@ -29,6 +32,15 @@ const MIME_TYPES: Record<string, string> = {
   ".xml": "application/xml",
   ".webmanifest": "application/manifest+json",
   ".wasm": "application/wasm",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".vtt": "text/vtt; charset=utf-8",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
+  ".wav": "audio/wav",
+  ".pdf": "application/pdf",
+  ".csv": "text/csv; charset=utf-8",
+  ".zip": "application/zip",
 };
 
 /**
