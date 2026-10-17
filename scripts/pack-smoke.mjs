@@ -293,16 +293,25 @@ try {
         "// @ts-expect-error -- an adapter is not a string",
         `export const notAString: string = ${adapter.factory}();`,
         `export const adapter: PrachtAdapter = ${adapter.factory}();`,
+        "// A shared config package exports an unannotated adapter; declaration",
+        "// emit must be able to name its type from the adapter package alone.",
+        `export const inferred = ${adapter.factory}();`,
+        `export function wrapped() { return ${adapter.factory}(); }`,
         "",
       ].join("\n"),
     );
     writeJson(join(appDir, "tsconfig.pack-smoke.json"), {
       extends: "./tsconfig.json",
+      compilerOptions: {
+        noEmit: false,
+        declaration: true,
+        emitDeclarationOnly: true,
+        outDir: "pack-smoke-out",
+      },
       include: ["pack-smoke-probe.ts"],
     });
-    run("pnpm", ["exec", "tsc", "--noEmit", "--project", "tsconfig.pack-smoke.json"], {
-      cwd: appDir,
-    });
+    run("pnpm", ["exec", "tsc", "--project", "tsconfig.pack-smoke.json"], { cwd: appDir });
+    rmSync(join(appDir, "pack-smoke-out"), { force: true, recursive: true });
     rmSync(join(appDir, "pack-smoke-probe.ts"));
     rmSync(join(appDir, "tsconfig.pack-smoke.json"));
 

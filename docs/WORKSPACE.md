@@ -414,8 +414,9 @@ way npm users get them:
   `node_modules` — the layout of pnpm's global virtual store. Walking up from a
   package's real path then never reaches the app's own dependencies, so a
   package resolves only what its `package.json` declares, as under Yarn PnP.
-- Run the app's `typecheck`, a probe that fails if the adapter factory's
-  published return type collapsed to `any`, and `pracht build`.
+- Run the app's `typecheck`, then `pracht build`. Between them a probe file
+  fails if the adapter factory's published return type collapsed to `any`, or
+  if declaration emit cannot name the type of an exported, unannotated adapter.
 - For the Node adapter, serve `/` from the build, then again from an
   `npm install --omit=dev` copy, which must not contain `vite`,
   `@pracht/vite-plugin` or `@pracht/cli`.
@@ -432,7 +433,9 @@ image. That is why the adapters' published types inline the `PrachtAdapter`
 contract from `packages/vite-plugin/src/plugin-adapter.ts` (their tsdown
 configs do not mark `@pracht/vite-plugin` external, and `scripts/build.mjs`
 lists that file as an adapter build input) instead of importing
-`@pracht/vite-plugin`. The inlined contract still names `vite`'s `Plugin`
+`@pracht/vite-plugin`. Each adapter also re-exports the type as
+`PrachtAdapter`, so declaration emit can name an unannotated
+`export const adapter = nodeAdapter()`. The inlined contract still names `vite`'s `Plugin`
 type, which is present in any app that runs pracht's Vite plugin and degrades
 only `vitePlugins()`' element type where it cannot resolve. Dev-only packages
 such as `@pracht/cli` declare what they import (`vite`, as an optional peer).

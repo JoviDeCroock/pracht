@@ -1147,3 +1147,7 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".xml": "application/xml; charset=utf-8",
 };
+
+// The contract the factory returns, carried in this package's own declarations
+// so a value of it can be named without importing `@pracht/vite-plugin`.
+export type { PrachtAdapter } from "@pracht/vite-plugin";
