@@ -340,9 +340,10 @@ export interface HandleMcpRequestOptions<TContext> {
   // rule for all of the preconditions: if a destructive tool would be served
   // and anything its confirmation flow needs is missing, the whole endpoint
   // answers an explanatory error instead of half-working.
-  if (projection.destructive.length > 0) {
+  const destructiveFiles = servableDestructiveMiddlewareFiles(projection, options);
+  if (destructiveFiles !== null) {
     try {
-      await loadDestructiveMcpRegistrationModules(options, projection.destructive);
+      await loadDestructiveMcpRegistrationModules(options, destructiveFiles);
     } catch (error: unknown) {
       const detail = options.exposeErrors && error instanceof Error ? `: ${error.message}` : ".";
       return respond(200, {
@@ -444,16 +445,42 @@ export interface HandleMcpRequestOptions<TContext> {
  * Importing is enough here. The middleware functions still execute only for a
  * real `tools/call`, through the ordinary capability pipeline.
  */
+/**
+ * The middleware files whose setup must load before any destructive tool this
+ * endpoint can serve, or `null` when it serves none. A scoped tool is never
+ * served without `agents.mcp.auth`, so it does not gate the endpoint then.
+ * Cached on the projection so a warm request does not walk every tool.
+ */
+function servableDestructiveMiddlewareFiles<TContext>(
+  projection: McpToolProjection,
+  options: HandleMcpRequestOptions<TContext>,
+): readonly string[] | null {
+  const hasAuth = !!options.mcp.auth;
+  const apiFiles = options.apiMiddlewareFiles ?? [];
+  const key = `${hasAuth ? 1 : 0}\0${apiFiles.join("\0")}`;
+  const cached = projection.destructiveFiles.get(key);
+  if (cached !== undefined) return cached;
+  const servable = projection.destructive.filter(
+    (entry) => hasAuth || requiredToolScopes(entry).length === 0,
+  );
+  let files: readonly string[] | null = null;
+  if (servable.length > 0) {
+    const set = new Set(apiFiles);
+    for (const capability of servable) {
+      for (const file of capability.middlewareFiles) set.add(file);
+    }
+    files = [...set];
+  }
+  projection.destructiveFiles.set(key, files);
+  return files;
+}
+
 async function loadDestructiveMcpRegistrationModules<TContext>(
   options: HandleMcpRequestOptions<TContext>,
-  capabilities: readonly ResolvedCapability[],
+  files: readonly string[],
 ): Promise<void> {
-  const files = new Set(options.apiMiddlewareFiles ?? []);
-  for (const capability of capabilities) {
-    for (const file of capability.middlewareFiles) files.add(file);
-  }
   await Promise.all(
-    [...files].map((file) =>
+    files.map((file) =>
       resolveRegistryModule<MiddlewareModule>(options.registry.middlewareModules, file),
     ),
   );
@@ -577,6 +604,8 @@ interface McpToolProjection {
   error: string | null;
   byToolName: ReadonlyMap<string, ResolvedCapability>;
   descriptors: ReadonlyMap<ResolvedCapability, ReturnType<typeof toolDescriptor>>;
+  /** {@link servableDestructiveMiddlewareFiles}, per auth presence and API middleware. */
+  destructiveFiles: Map<string, readonly string[] | null>;
 }
 
 const toolProjectionCache = new WeakMap<
@@ -619,6 +648,7 @@ function projectMcpTools(
     error,
     byToolName: new Map(exposed.map((entry) => [mcpToolName(entry.name), entry])),
     descriptors: new Map(exposed.map((entry) => [entry, toolDescriptor(entry)])),
+    destructiveFiles: new Map(),
   };
   if (!byConfig) {
     byConfig = new Map();

@@ -231,4 +231,24 @@ describe("scoped MCP tools", () => {
     expect(call.body.error).toMatchObject({ code: -32602 });
     expect(call.body.error.message).not.toContain("notes_purge,");
   });
+
+  it("does not let an unservable scoped destructive tool block the endpoint", async () => {
+    const host = createCapabilityHost({
+      capabilities: {
+        "notes.search": tool(),
+        "notes.purge": tool({
+          effect: "destructive",
+          expose: { mcp: { scopes: ["notes.write"] } },
+        }),
+      },
+      agents: { mcp: { destructive: true } },
+    });
+    const list = await send(host, rpc("tools/list"));
+    expect(list.body.error).toBeUndefined();
+    expect(list.body.result.tools.map((entry: { name: string }) => entry.name)).toEqual([
+      "notes_search",
+    ]);
+    const call = await send(host, rpc("tools/call", { name: "notes_search", arguments: {} }));
+    expect(call.body.error).toBeUndefined();
+  });
 });
