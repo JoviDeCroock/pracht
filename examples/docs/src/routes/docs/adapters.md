@@ -518,8 +518,8 @@ node dist/server/server.js
 ```
 
 Each server keeps ISG pages in its own `dist/client`, so
-`POST /__pracht/revalidate` reaches one replica only. Behind a load balancer,
-run ISG on one instance or share `dist/client` between replicas.
+`POST /__pracht/revalidate` reaches one replica only. Serve ISG routes from a
+single instance; replicas behind a load balancer drift apart.
 
 ### Graceful shutdown
 

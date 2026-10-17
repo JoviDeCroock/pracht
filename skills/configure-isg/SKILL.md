@@ -108,7 +108,7 @@ they identify manifest routes rather than public deployment URLs.
 
 | Adapter | Time revalidation | Webhook revalidation |
 | ------- | ----------------- | -------------------- |
-| Node | File mtime vs window, per server; serves stale, refreshes in background | Regenerates the on-disk HTML synchronously on the **receiving replica only** — behind a load balancer, run one instance or share `dist/client` |
+| Node | File mtime vs window, per server; serves stale, refreshes in background | Regenerates the on-disk HTML synchronously on the **receiving replica only** — serve ISG routes from a single instance |
 | Cloudflare (default) | Worker-managed Cache API timestamp, `env.ASSETS` fallback — **per colo** | Overwrites the Cache API entry in the receiving colo only |
 | Cloudflare (`cache: true`) | Edge-tier Workers Caching in front of the Worker for time-revalidated routes | Webhook-only routes keep the worker-managed path; time+webhook routes also get their edge entry purged |
 | Vercel | Build Output prerender functions: `.prerender-config.json` with `expiration` from the time policy and build HTML as fallback, next to a Node Serverless Function per ISG route (Vercel rejects ISR on an Edge Function) | For webhook revalidation, `x-vercel-cache` verifies the bypass; `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and **must be set at build time** (runtime-only setting → webhook paths report `failed` until you rebuild). Time-only ISR does not require the token. |
