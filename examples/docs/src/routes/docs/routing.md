@@ -50,7 +50,7 @@ File-based routing couples URLs to directories, which forces awkward nesting for
 - Shells and middleware are named, reusable references
 - URL structure is independent of file layout
 
-When `src/routes.ts` lists its route files inline, a file it never names, such as a draft, stays out of the client bundle.
+String-literal refs tell the build where modules live: a route module can sit outside `src/routes/`, and a file the manifest never names, such as a draft, stays out of the client bundle.
 
 ---
 
@@ -62,7 +62,7 @@ When `src/routes.ts` lists its route files inline, a file it never names, such a
 
 ### route(path, file, meta?)
 
-`path` is a URL pattern such as `/blog/:slug`, `file` is the route module's relative path, and `meta` is an optional `RouteMeta`:
+`path` is a URL pattern such as `/blog/:slug`, `file` is the route module's path relative to `src/routes.ts`, even from an imported module, and `meta` is an optional `RouteMeta`:
 
 | Field         | Type                                     | Description                                                                                        |
 | ------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -636,7 +636,7 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-The generated manifest carries everything auto-discovery registered. Remove `pagesDir` from your pracht config and point the discovery directories at the files it references; refs outside them fail at request time:
+The generated manifest carries everything auto-discovery registered. Remove `pagesDir` from your pracht config and point the discovery directories at the files it references:
 
 ```ts
 pracht({

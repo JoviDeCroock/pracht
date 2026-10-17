@@ -227,7 +227,7 @@ module ref directly. The full form accepts:
 
 | Field       | Type                            | Description                                       |
 | ----------- | ------------------------------- | ------------------------------------------------- |
-| `component` | `ModuleRef`                     | The page module (must live in the routes directory) |
+| `component` | `ModuleRef`                     | The page module (a string literal when it lives outside the routes directory) |
 | `loader`    | `ModuleRef`                     | Optional separate loader module                   |
 | `shell`     | `string`                        | Named shell from `defineApp.shells`               |
 | `middleware`| `string[]`                      | Named middleware to run for this page             |
@@ -700,12 +700,27 @@ stays out of `dist/client` — as does a shared module kept under `src/routes/`,
 which is still imported by the route that uses it rather than becoming an entry
 of its own.
 
-Refs are read out of the manifest file itself. When one could live somewhere
-that file does not show — the manifest imports its routes from another module,
-or builds a specifier at runtime — the registry falls back to covering both
+Refs are read out of the manifest file and the local modules it imports
+(followed up to 64 modules; every ref resolves against the manifest's
+directory, wherever it is written). When one could live somewhere the scan does
+not show — an import that does not resolve to a parseable module, or a
+specifier built at runtime — the registry falls back to covering both
 directories whole, because dropping a module a route needs would break
 navigation to it. The pages router is unaffected either way: there the
 directory *is* the route list.
+
+The registries are directory globs, so a module outside them is added
+explicitly when the manifest names it as a string literal (or
+`() => import("…")`) in a ref position: a `route()` component or `component:`,
+`notFound`, a `shells` entry, a `defineApp({ middleware })` entry, or a route
+`loader:`. Route and shell modules enter both the client and server registries
+(the client copy with `?pracht-client`, minus non-full-hydration routes);
+middleware and loader modules only the server's. After the server build,
+`pracht build` looks every resolved route, shell, `notFound`, and middleware
+file up in the built server registry with the runtime's own lookup and fails,
+naming each ref, when one matches nothing — those requests would 500.
+(`packages/vite-plugin/src/plugin-codegen.ts` `collectExternalManifestModules`,
+`packages/cli/src/manifest-modules.ts`.)
 
 ---
 

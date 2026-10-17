@@ -42,8 +42,8 @@ function prepareLeakyProject(): { tempDir: string; exampleDir: string } {
     writeFileSync(
       routesPath,
       routesSource.replace(
-        'route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),',
-        `route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),\n      route("/env-leak", () => import("./routes/env-leak.tsx"), { id: "env-leak", render: "ssr" }),`,
+        'route("/", () => import("./routes/home.tsx"), {',
+        `route("/env-leak", () => import("./routes/env-leak.tsx"), { id: "env-leak", render: "ssr" }),\n      route("/", () => import("./routes/home.tsx"), {`,
       ),
       "utf-8",
     );
