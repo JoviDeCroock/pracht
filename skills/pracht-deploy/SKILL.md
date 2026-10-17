@@ -26,7 +26,7 @@ adapter if it is missing (`pnpm add @pracht/adapter-*`), run `pracht build` to
 confirm the build succeeds, smoke-test the production runtime, and never push
 to production without explicit confirmation.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer
 `inspect_build`/`doctor`/`verify` over shelling out. `inspect_build` (like
 `pracht inspect build`) needs a prior `pracht build`; `pracht inspect` needs
 the pracht plugin in the vite config.
@@ -219,7 +219,7 @@ keys the exact path and query string, including parameter order and trailing
 slashes. Use a bounded query allowlist or canonical redirect, or an uncached
 gateway with a pathname-only `cf.cacheKey`, and normalize `Accept` there for
 routes that export markdown or declare `markdown: true`. See
-`docs/ADAPTERS.md#cache-key-cardinality`.
+<https://pracht.resynapse.dev/docs/adapters#isg-and-workers-caching>.
 
 **Void.** To deploy with `void deploy`, put `voidPlugin()` from `void` before
 `pracht()` and use `cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" })`.
@@ -325,8 +325,7 @@ pracht preview    # local static file server over dist/client/
 
 Upload `dist/client/` to any static host. `dist/server/` is build tooling —
 never deploy it. The host must serve `<dir>/index.html` for clean URLs and
-should use `404.html` as its error document. See `docs/ADAPTERS.md` § Static
-Adapter for host header configuration and the markdown-negotiation and
+should use `404.html` as its error document. See <https://pracht.resynapse.dev/docs/adapters#static-export> for host header configuration and the markdown-negotiation and
 base-path limitations.
 
 **Eligibility.** Every route must be `render: "ssg"` (or a loaderless,

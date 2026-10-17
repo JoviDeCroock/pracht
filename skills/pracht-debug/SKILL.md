@@ -42,7 +42,7 @@ Reach for these before deep manual inspection:
 `pracht inspect` needs the pracht plugin in the vite config; `inspect build`
 needs a prior `pracht build`. Under a Vite deploy base, prefix `/_pracht` with
 that base (links from the devtools and dev-404 pages already do). When the
-pracht MCP server is registered (docs/MCP.md), prefer the
+pracht MCP server is registered (`pracht dev-mcp`), prefer the
 `inspect_routes`/`inspect_api`/`doctor`/`verify` MCP tools — same payloads,
 structured results.
 

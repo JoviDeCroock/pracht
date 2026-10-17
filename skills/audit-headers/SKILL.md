@@ -61,7 +61,7 @@ pracht inspect routes --json
 pracht inspect api --json
 ```
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
@@ -103,7 +103,7 @@ permanently and submit to the preload list.
 
 ## Step 4: Content-Security-Policy
 
-Start from the canonical starter policy in `docs/CSP.md` — it includes
+Start from the canonical starter policy in <https://pracht.resynapse.dev/docs/recipes/csp> — it includes
 `'inline-speculation-rules'` in `script-src`, required for routes that opt
 into `speculation` (they emit an inline
 `<script type="speculationrules">`). Then add observed origins:
@@ -126,7 +126,7 @@ into `speculation` (they emit an inline
    `scriptNonce` from the shell `head()` and allow it in `script-src`; it also
    covers the speculation rules script.
 
-Output a draft CSP referencing `docs/CSP.md` and explain what each origin is
+Output a draft CSP referencing <https://pracht.resynapse.dev/docs/recipes/csp> and explain what each origin is
 for. Do not hand the user a CSP that breaks their site — present as draft.
 
 ## Step 5: Prerendered header manifest safety

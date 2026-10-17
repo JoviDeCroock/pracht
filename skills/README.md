@@ -79,7 +79,7 @@ collide with other skill packs installed in the same app.
   (`null` means the framework default applies); API entries include
   `hasDefaultHandler` for default-export dispatchers.
 - The same capabilities are available as native MCP tools via `pracht dev-mcp`
-  (inspect, doctor, verify, and generate) — see [docs/MCP.md](../docs/MCP.md).
+  (inspect, doctor, verify, and generate) — see [The Authoring MCP Server](https://pracht.resynapse.dev/docs/coding-agents#the-authoring-mcp-server).
   Prefer the MCP tools when the client has the server registered; every skill
   carries a reminder near its first CLI invocation.
 - State prerequisites: `pracht inspect` needs a vite config that registers the
