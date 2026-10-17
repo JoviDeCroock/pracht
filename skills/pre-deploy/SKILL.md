@@ -64,7 +64,8 @@ pracht verify webmcp --start "pracht preview" --json
 ```
 
 CI must install a pinned Chrome 150+ build and pass its executable with
-`--browser`; the verifier never silently downloads one. Treat unsupported API,
+`--browser`; the verifier never silently downloads one. The verifier drives
+Chrome through `playwright-core`, which the app must list as a dev dependency. Treat unsupported API,
 startup/registration failure, and graph drift as deployment errors. Do not add
 `--scenario` unless the repository already supplies an explicitly safe WebMCP
 eval scenario.
