@@ -1,5 +1,5 @@
 {
-  "note": "Byte sizes are deterministic for a given commit. Regenerate with `node bench/run.mjs --update`.",
+  "note": "Byte sizes are deterministic for a given commit. Regenerate with `node bench/run.mjs --bytes-only --update`.",
   "rungs": [
     {
       "rung": "hydration: none",
@@ -64,6 +64,26 @@
       "gzipBytes": 17468,
       "lazyGzipBytes": 1130,
       "coldGzipBytes": 18598
+    }
+  ],
+  "routeScale": [
+    {
+      "routes": 50,
+      "rung": "hydration: full, 50 routes",
+      "hydration": "full",
+      "bytes": 58364,
+      "gzipBytes": 18902,
+      "lazyGzipBytes": 1127,
+      "coldGzipBytes": 20029
+    },
+    {
+      "routes": 500,
+      "rung": "hydration: full, 500 routes",
+      "hydration": "full",
+      "bytes": 205974,
+      "gzipBytes": 40963,
+      "lazyGzipBytes": 1128,
+      "coldGzipBytes": 42091
     }
   ]
 }

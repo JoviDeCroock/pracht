@@ -18,6 +18,7 @@
  *   node bench/run.mjs --update        rewrite baseline.json from this run
  *   node bench/run.mjs --json          emit the raw results
  *   node bench/run.mjs --iterations=5  timing samples per metric (default 3)
+ *   node bench/run.mjs --requests=2000 requests per server probe (default 1000)
  */
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
@@ -26,6 +27,8 @@ import { tmpdir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { writeScaleApp } from "./scale-app.mjs";
 
 const benchDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(benchDir, "..");
@@ -65,6 +68,14 @@ const LADDER = [
   { rung: "hydration: full + preact/compat", build: "compat", route: "/full" },
 ];
 
+/**
+ * Route counts for the route-scale fixture (`scale-app.mjs`). Each one is a
+ * separate build of the same generated app; the measured row is the
+ * full-hydration `/` route, so the difference between two rows is what the
+ * extra routes add to every page.
+ */
+const ROUTE_SCALE = [50, 500];
+
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
 const option = (name, fallback) => {
@@ -74,15 +85,16 @@ const option = (name, fallback) => {
 
 const bytesOnly = flag("bytes-only");
 const iterations = Number.parseInt(option("iterations", "3"), 10);
+const probeRequests = Number.parseInt(option("requests", "1000"), 10);
 
 function fixtureDir(fixture) {
   return join(benchDir, "fixtures", fixture);
 }
 
-function runCli(fixture, cliArgs, env = {}) {
+function runCli(cwd, cliArgs, env = {}) {
   return new Promise((settle, fail) => {
     const child = spawn(process.execPath, [cliBin, ...cliArgs], {
-      cwd: fixtureDir(fixture),
+      cwd,
       env: { ...process.env, ...env, NO_COLOR: "1" },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -93,7 +105,7 @@ function runCli(fixture, cliArgs, env = {}) {
     child.on("error", fail);
     child.on("close", (code) => {
       if (code !== 0) {
-        fail(new Error(`pracht ${cliArgs.join(" ")} in ${fixture} exited ${code}\n${stderr}`));
+        fail(new Error(`pracht ${cliArgs.join(" ")} in ${cwd} exited ${code}\n${stderr}`));
         return;
       }
       settle(stdout);
@@ -117,13 +129,13 @@ function parseReport(stdout) {
  * hydrating route without appearing in any route total. Measuring them keeps
  * the published ladder from quietly understating a cold load.
  */
-function collectUnattributed(fixture, report) {
+function collectUnattributed(appDir, report) {
   const attributed = new Set(report.shared.chunks.map((chunk) => chunk.url));
   for (const route of report.routes) {
     for (const chunk of route.chunks) attributed.add(chunk.url);
   }
 
-  const assetsDir = join(fixtureDir(fixture), "dist/client/assets");
+  const assetsDir = join(appDir, "dist/client/assets");
   const chunks = [];
   for (const name of readdirSync(assetsDir).sort()) {
     if (!name.endsWith(".js")) continue;
@@ -237,138 +249,247 @@ function formatBytes(bytes) {
   return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
+/** One measured row: a route's hydration chunks plus the router's lazy runtime. */
+function measureRoute(report, routePath, unattributedChunks, label) {
+  const route = report.routes.find((candidate) => candidate.path === routePath);
+  if (!route) throw new Error(`${label} has no route ${routePath}`);
+  // The lazily-imported runtime hangs off the client router, and only a
+  // full-hydration route loads that. `hydration: "none"` ships nothing, and
+  // the islands bootstrap deliberately imports neither the router nor the
+  // prefetch runtime, so neither carries these bytes.
+  const lazy = (route.hydration ?? "full") === "full" ? unattributedChunks : [];
+  const lazyGzipBytes = lazy.reduce((total, chunk) => total + chunk.gzipBytes, 0);
+  return {
+    hydration: route.hydration ?? "full",
+    bytes: route.totalBytes,
+    gzipBytes: route.totalGzipBytes,
+    lazyGzipBytes,
+    lazyChunks: lazy.map((chunk) => chunk.name),
+    coldGzipBytes: route.totalGzipBytes + lazyGzipBytes,
+  };
+}
+
+const BYTE_KEYS = ["bytes", "gzipBytes", "lazyGzipBytes", "coldGzipBytes"];
+
+/** Drift lines between measured rows and their baseline, matched by `rung`. */
+function compareRows(measured, expected = []) {
+  const drift = [];
+  for (const row of measured) {
+    const baseline = expected.find((candidate) => candidate.rung === row.rung);
+    if (!baseline) {
+      drift.push(`${row.rung}: not in baseline`);
+      continue;
+    }
+    for (const key of BYTE_KEYS) {
+      if (baseline[key] !== row[key]) {
+        const delta = row[key] - baseline[key];
+        drift.push(
+          `${row.rung}: ${key} ${baseline[key]} → ${row[key]} (${delta > 0 ? "+" : ""}${delta})`,
+        );
+      }
+    }
+  }
+  for (const baseline of expected) {
+    if (!measured.some((row) => row.rung === baseline.rung)) {
+      drift.push(`${baseline.rung}: in baseline but not measured`);
+    }
+  }
+  return drift;
+}
+
+const baselineRow = ({ rung, hydration, bytes, gzipBytes, lazyGzipBytes, coldGzipBytes }) => ({
+  rung,
+  hydration,
+  bytes,
+  gzipBytes,
+  lazyGzipBytes,
+  coldGzipBytes,
+});
+
+/** Runs `ssr-probe.mjs` against one built app, in a process of its own. */
+function probeServer(appDir) {
+  return new Promise((settle, fail) => {
+    const child = spawn(
+      process.execPath,
+      [
+        "--expose-gc",
+        join(benchDir, "ssr-probe.mjs"),
+        join(appDir, "dist/server/server.js"),
+        String(probeRequests),
+      ],
+      {
+        cwd: appDir,
+        env: { ...process.env, NODE_ENV: "production" },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.on("error", fail);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        fail(new Error(`server probe in ${appDir} exited ${code}\n${stderr}`));
+        return;
+      }
+      settle(JSON.parse(stdout.trim().split("\n").at(-1)));
+    });
+  });
+}
+
+function printRows(title, rows) {
+  const width = Math.max(title.length, ...rows.map((row) => row.rung.length));
+  console.log("");
+  console.log(
+    `${title.padEnd(width)}  ${"Gzip".padStart(9)}  ${"Raw".padStart(9)}  ${"+ lazy".padStart(9)}`,
+  );
+  for (const row of rows) {
+    console.log(
+      `${row.rung.padEnd(width)}  ${formatBytes(row.gzipBytes).padStart(9)}  ${formatBytes(
+        row.bytes,
+      ).padStart(9)}  ${formatBytes(row.coldGzipBytes).padStart(9)}`,
+    );
+  }
+}
+
+function printResults(results) {
+  if (flag("json")) {
+    console.log(JSON.stringify(results, null, 2));
+    return;
+  }
+  printRows("Rung", results.rungs);
+  printRows("Route scale, `/`", results.routeScale);
+  if (results.timings) {
+    const { buildTime, devFirstRender } = results.timings;
+    console.log("");
+    console.log(`Timings (median of ${iterations}, first sample discarded)`);
+    console.log(
+      `  production build      ${buildTime.medianMs} ms  (${buildTime.minMs}–${buildTime.maxMs})`,
+    );
+    console.log(
+      `  dev first render      ${devFirstRender.medianMs} ms  (${devFirstRender.minMs}–${devFirstRender.maxMs})`,
+    );
+  }
+  if (results.server) {
+    console.log("");
+    console.log(`Server (${probeRequests} requests per row, 8 in flight, built Node handler)`);
+    for (const probe of results.server) {
+      for (const row of probe.results) {
+        const label = `${probe.routes} routes, ${row.kind}`.padEnd(32);
+        const failures = row.failures > 0 ? `  (${row.failures} failed)` : "";
+        console.log(
+          `  ${label} ${String(row.requestsPerSecond).padStart(6)} req/s  ` +
+            `${String(row.retainedBytesPerRequest).padStart(6)} B retained per request${failures}`,
+        );
+      }
+    }
+  }
+  if (results.timings) {
+    console.log("  Timings and heap figures are machine-dependent and are never gated in CI.");
+  }
+  console.log("");
+}
+
 async function main() {
   const reports = {};
   const unattributed = {};
 
   for (const build of BUILDS) {
     process.stderr.write(`building ${build.id}…\n`);
-    const stdout = await runCli(build.fixture, ["build", "--json"], build.env);
+    const appDir = fixtureDir(build.fixture);
+    const stdout = await runCli(appDir, ["build", "--json"], build.env);
     reports[build.id] = parseReport(stdout);
-    unattributed[build.id] = collectUnattributed(build.fixture, reports[build.id]);
+    unattributed[build.id] = collectUnattributed(appDir, reports[build.id]);
   }
 
-  const rungs = LADDER.map((entry) => {
-    const report = reports[entry.build];
-    const route = report.routes.find((candidate) => candidate.path === entry.route);
-    if (!route) throw new Error(`${entry.build} has no route ${entry.route}`);
-    // The lazily-imported runtime hangs off the client router, and only a
-    // full-hydration route loads that. `hydration: "none"` ships nothing, and
-    // the islands bootstrap deliberately imports neither the router nor the
-    // prefetch runtime, so neither carries these bytes.
-    const lazy = (route.hydration ?? "full") === "full" ? unattributed[entry.build] : [];
-    const lazyGzipBytes = lazy.reduce((total, chunk) => total + chunk.gzipBytes, 0);
-    return {
-      rung: entry.rung,
-      build: entry.build,
-      route: entry.route,
-      hydration: route.hydration ?? "full",
-      bytes: route.totalBytes,
-      gzipBytes: route.totalGzipBytes,
-      lazyGzipBytes,
-      lazyChunks: lazy.map((chunk) => chunk.name),
-      coldGzipBytes: route.totalGzipBytes + lazyGzipBytes,
-    };
-  });
+  const rungs = LADDER.map((entry) => ({
+    rung: entry.rung,
+    build: entry.build,
+    route: entry.route,
+    ...measureRoute(reports[entry.build], entry.route, unattributed[entry.build], entry.build),
+  }));
 
-  const results = { rungs, timings: null };
-
-  if (!bytesOnly) {
-    process.stderr.write("timing production build…\n");
-    const buildTime = await sample("build", iterations, async () => {
-      const started = performance.now();
-      await runCli("ladder", ["build"]);
-      return performance.now() - started;
-    });
-    process.stderr.write("timing dev first render…\n");
-    const devFirstRender = await sample("dev", iterations, () =>
-      measureDevFirstRender("ladder", "/full"),
-    );
-    results.timings = { iterations, buildTime, devFirstRender };
-  }
-
-  if (flag("json")) {
-    console.log(JSON.stringify(results, null, 2));
-  } else {
-    const width = Math.max(...rungs.map((rung) => rung.rung.length));
-    console.log("");
-    console.log(
-      `${"Rung".padEnd(width)}  ${"Gzip".padStart(9)}  ${"Raw".padStart(9)}  ${"+ lazy".padStart(9)}`,
-    );
-    for (const rung of rungs) {
-      console.log(
-        `${rung.rung.padEnd(width)}  ${formatBytes(rung.gzipBytes).padStart(9)}  ${formatBytes(
-          rung.bytes,
-        ).padStart(9)}  ${formatBytes(rung.coldGzipBytes).padStart(9)}`,
-      );
+  // The route-scale apps are generated outside the repository and removed at
+  // the end; they borrow the ladder fixture's installed dependencies.
+  const scaleRoot = mkdtempSync(join(tmpdir(), "pracht-bench-scale-"));
+  try {
+    const routeScale = [];
+    const scaleApps = [];
+    for (const routeCount of ROUTE_SCALE) {
+      process.stderr.write(`building ${routeCount}-route app…\n`);
+      const appDir = join(scaleRoot, String(routeCount));
+      writeScaleApp(appDir, routeCount, join(fixtureDir("ladder"), "node_modules"));
+      const report = parseReport(await runCli(appDir, ["build", "--json"]));
+      scaleApps.push({ routeCount, appDir });
+      routeScale.push({
+        rung: `hydration: full, ${routeCount} routes`,
+        routes: routeCount,
+        route: "/",
+        ...measureRoute(
+          report,
+          "/",
+          collectUnattributed(appDir, report),
+          `${routeCount}-route app`,
+        ),
+      });
     }
-    if (results.timings) {
-      const { buildTime, devFirstRender } = results.timings;
-      console.log("");
-      console.log(`Timings (median of ${iterations}, first sample discarded)`);
-      console.log(
-        `  production build      ${buildTime.medianMs} ms  (${buildTime.minMs}–${buildTime.maxMs})`,
-      );
-      console.log(
-        `  dev first render      ${devFirstRender.medianMs} ms  (${devFirstRender.minMs}–${devFirstRender.maxMs})`,
-      );
-      console.log("  Timings are machine-dependent and are never gated in CI.");
-    }
-    console.log("");
-  }
 
-  if (flag("update")) {
-    const baseline = {
-      note: "Byte sizes are deterministic for a given commit. Regenerate with `node bench/run.mjs --update`.",
-      rungs: rungs.map(({ rung, hydration, bytes, gzipBytes, lazyGzipBytes, coldGzipBytes }) => ({
-        rung,
-        hydration,
-        bytes,
-        gzipBytes,
-        lazyGzipBytes,
-        coldGzipBytes,
-      })),
-    };
-    writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
-    console.log(`Wrote ${baselinePath}`);
-  }
+    const results = { rungs, routeScale, timings: null, server: null };
 
-  if (flag("check")) {
-    const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
-    const drift = [];
-    for (const rung of rungs) {
-      const expected = baseline.rungs.find((candidate) => candidate.rung === rung.rung);
-      if (!expected) {
-        drift.push(`${rung.rung}: not in baseline`);
-        continue;
-      }
-      for (const key of ["bytes", "gzipBytes", "lazyGzipBytes", "coldGzipBytes"]) {
-        if (expected[key] !== rung[key]) {
-          drift.push(
-            `${rung.rung}: ${key} ${expected[key]} → ${rung[key]} (${
-              rung[key] > expected[key] ? "+" : ""
-            }${rung[key] - expected[key]})`,
-          );
-        }
+    if (!bytesOnly) {
+      process.stderr.write("timing production build…\n");
+      const buildTime = await sample("build", iterations, async () => {
+        const started = performance.now();
+        await runCli(fixtureDir("ladder"), ["build"]);
+        return performance.now() - started;
+      });
+      process.stderr.write("timing dev first render…\n");
+      const devFirstRender = await sample("dev", iterations, () =>
+        measureDevFirstRender("ladder", "/full"),
+      );
+      results.timings = { iterations, buildTime, devFirstRender };
+
+      results.server = [];
+      for (const { routeCount, appDir } of scaleApps) {
+        process.stderr.write(`probing the ${routeCount}-route server…\n`);
+        results.server.push(await probeServer(appDir));
       }
     }
-    for (const expected of baseline.rungs) {
-      if (!rungs.some((rung) => rung.rung === expected.rung)) {
-        drift.push(`${expected.rung}: in baseline but not measured`);
+
+    printResults(results);
+
+    if (flag("update")) {
+      const baseline = {
+        note: "Byte sizes are deterministic for a given commit. Regenerate with `node bench/run.mjs --bytes-only --update`.",
+        rungs: rungs.map(baselineRow),
+        routeScale: routeScale.map((row) => ({ routes: row.routes, ...baselineRow(row) })),
+      };
+      writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
+      console.log(`Wrote ${baselinePath}`);
+    }
+
+    if (flag("check")) {
+      const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+      const drift = [
+        ...compareRows(rungs, baseline.rungs),
+        ...compareRows(routeScale, baseline.routeScale),
+      ];
+      if (drift.length > 0) {
+        console.error("\nClient bytes drifted from bench/baseline.json:\n");
+        for (const line of drift) console.error(`  ${line}`);
+        console.error(
+          "\nIf the change is intended, run `node bench/run.mjs --bytes-only --update` and" +
+            " include the new baseline in the commit — and update the published numbers in" +
+            " examples/docs/src/routes/docs/performance.md.\n",
+        );
+        process.exitCode = 1;
+        return;
       }
+      console.log("Client bytes match bench/baseline.json.");
     }
-    if (drift.length > 0) {
-      console.error("\nClient bytes drifted from bench/baseline.json:\n");
-      for (const line of drift) console.error(`  ${line}`);
-      console.error(
-        "\nIf the change is intended, run `node bench/run.mjs --bytes-only --update` and" +
-          " include the new baseline in the commit — and update the published numbers in" +
-          " examples/docs/src/routes/docs/performance.md.\n",
-      );
-      process.exitCode = 1;
-      return;
-    }
-    console.log("Client bytes match bench/baseline.json.");
+  } finally {
+    rmSync(scaleRoot, { force: true, recursive: true });
   }
 }
 

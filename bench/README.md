@@ -8,6 +8,7 @@ pnpm bench              # bytes + timings, printed as a table
 pnpm bench:check        # bytes only, fails when they drift (what CI runs)
 node bench/run.mjs --json
 node bench/run.mjs --bytes-only --update   # re-record bench/baseline.json
+node bench/run.mjs --requests=2000         # more requests per server-probe row
 ```
 
 ## Two kinds of number
@@ -50,6 +51,30 @@ runtime and nothing else.
 client graph. It is a separate app on purpose: `preact/compat` lands in the
 shared vendor chunk, so measuring it inside the ladder build would inflate every
 other rung.
+
+## The route-scale fixture
+
+The ladder has three routes, so nothing that grows with the manifest shows up
+in it. `scale-app.mjs` generates one app at a given route count: every route
+server-rendered with full hydration, half with a loader, one in three with a
+dynamic segment. The harness builds it at 50 and 500 routes in a temporary
+directory (borrowing `fixtures/ladder/node_modules`) and measures `/` in each.
+
+| Row                          | What it shows                                   |
+| ---------------------------- | ----------------------------------------------- |
+| `hydration: full, 50 routes`  | A small app's full-hydration page               |
+| `hydration: full, 500 routes` | The same page once the manifest is 10× larger   |
+
+The rows are bytes, so they live in `baseline.json` under `routeScale` and
+`--check` gates them exactly like the ladder.
+
+With timings on (no `--bytes-only`), `ssr-probe.mjs` serves each built app
+through its own Node handler over loopback — `--requests` requests per row,
+8 in flight, after a warm-up — and reports requests per second and the heap
+retained after a full GC, per request, for an SSR document, a route-state
+request and a 404. The heap figure includes the probe's own client and is a
+trend line, not an absolute: a jump between two commits means some per-request
+state now outlives its response. Neither number is gated.
 
 ## What `+ lazy` counts
 
