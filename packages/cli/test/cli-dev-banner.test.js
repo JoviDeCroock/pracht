@@ -70,4 +70,45 @@ describe("@pracht/cli dev banner", () => {
       await stopChild(child);
     }
   }, 120_000);
+
+  it("pracht dev prints the banner once a manifest that failed at startup is fixed", async () => {
+    const appDir = createRepoTempDir("pracht-cli-dev-banner-recover-");
+    writeTypedManifestApp(appDir);
+    const manifestPath = join(appDir, "src/routes.ts");
+    const manifest = readFileSync(manifestPath, "utf-8");
+    writeProjectFile(appDir, "src/routes.ts", `throw new Error("broken manifest");\n${manifest}`);
+
+    const child = spawn(process.execPath, [cliPath, "dev", "--port", "5614"], {
+      cwd: appDir,
+      env: { ...process.env, NO_COLOR: "1" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf-8");
+    child.stderr.setEncoding("utf-8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    try {
+      await waitFor(
+        () => output.includes("http://"),
+        30_000,
+        () => output,
+      );
+      expect(output).not.toContain("Routes (");
+
+      writeProjectFile(appDir, "src/routes.ts", manifest);
+      await waitFor(
+        () => stripVTControlCharacters(output).includes("Routes ("),
+        60_000,
+        () => output,
+      );
+    } finally {
+      await stopChild(child);
+    }
+  }, 120_000);
 });

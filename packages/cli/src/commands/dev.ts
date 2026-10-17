@@ -58,9 +58,9 @@ export default defineCommand({
     );
 
     const routeTypes = createGeneratedRouteTypesSync(root);
-    // Set once the first banner prints. Vite keeps the URLs on a restart (and
-    // prints them itself when they change), so later banners reuse them.
-    let bannerUrls: { local: string[]; network: string[] } | null = null;
+    // Set once the first server listens; servers created after that are
+    // restarts, whose banner follows Vite's own "server restarted".
+    let listened = false;
     const server = await createServer({
       cacheDir: args.cacheDir,
       // Vite re-creates the dev server (and its file watcher) on every
@@ -83,11 +83,10 @@ export default defineCommand({
             }
             // A restart (a `routes.ts` edit, above all) can change every table
             // in the banner, so print it again once the new server listens.
-            const restartedUrls = bannerUrls;
-            if (restartedUrls) {
+            if (listened) {
               devServer.httpServer?.once("listening", () => {
                 setTimeout(() => {
-                  void printDevBanner(devServer, root, restartedUrls).catch(() => {
+                  void printDevBanner(devServer, root).catch(() => {
                     // A manifest that no longer loads is reported by the
                     // error overlay; keep the restart log quiet.
                   });
@@ -102,6 +101,7 @@ export default defineCommand({
     });
 
     await server.listen();
+    listened = true;
     // Vite closes the server on SIGTERM; do the same for Ctrl+C so work
     // registered with `waitUntil()` gets its bounded drain. A second Ctrl+C
     // falls through to the default and exits immediately.
@@ -112,9 +112,7 @@ export default defineCommand({
     routeTypes.start();
 
     try {
-      const urls = server.resolvedUrls ?? { local: [], network: [] };
-      await printDevBanner(server, root, urls);
-      bannerUrls = urls;
+      await printDevBanner(server, root);
       if (!watchesGeneratedRouteTypes) {
         console.log(
           "\n  Tip: run `pracht typegen` once to enable typed routes and `apiFetch()`; `pracht dev` will keep them in sync.\n",
@@ -128,14 +126,15 @@ export default defineCommand({
   },
 });
 
-async function printDevBanner(
-  server: ViteDevServer,
-  root: string,
-  urls: { local: string[]; network: string[] },
-): Promise<void> {
+async function printDevBanner(server: ViteDevServer, root: string): Promise<void> {
   const graph = await collectAppGraph(server, root, {
     appFile: readProjectConfig(root).appFile,
   });
+  // A restarted server resolves its URLs just after it starts listening.
+  for (let attempt = 0; !server.resolvedUrls && attempt < 40; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const urls = server.resolvedUrls ?? { local: [], network: [] };
   console.log(
     formatDevBanner({
       apiRoutes: graph.api,
