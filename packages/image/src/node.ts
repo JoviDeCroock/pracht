@@ -55,6 +55,28 @@ export interface CreateImageHandlerOptions {
   fetchImage?: (url: URL, request: Request, signal?: AbortSignal) => Promise<Response>;
   /** Override how sharp is imported (useful for tests). */
   loadSharp?: () => Promise<unknown>;
+  /**
+   * Query parameters kept on a relative source that names an image file
+   * (`/hero.png?v=2`). Every other parameter is dropped before the source is
+   * fetched, so `/hero.png?bust=1` and `/hero.png?bust=2` are one image and
+   * one cache entry. A relative source without an image file extension (an
+   * API route that draws an image) keeps its whole query. Defaults to none.
+   */
+  sourceQueryParams?: string[];
+  /**
+   * In-process cache of optimized images, keyed on the source URL, width,
+   * quality and output format, so a repeated request skips the fetch and the
+   * encode. Defaults to `{ maxBytes: 50 MiB, maxAge: 3600 }` (seconds);
+   * `false` turns it off, and so does a `cacheControl` with `private`,
+   * `no-store` or `no-cache`.
+   */
+  cache?: { maxBytes?: number; maxAge?: number } | false;
+  /**
+   * How many images are fetched and optimized at once. Further requests wait
+   * for a free slot; when 64 are already waiting, new ones get a `503`.
+   * Defaults to 4.
+   */
+  maxConcurrency?: number;
 }
 
 const SHARP_INSTALL_HINT =
@@ -67,6 +89,100 @@ const DEFAULT_MAX_WIDTH = 3840;
 const DEFAULT_MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS = 3;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const DEFAULT_CACHE_MAX_BYTES = 50 * 1024 * 1024;
+const DEFAULT_CACHE_MAX_AGE = 3600;
+const DEFAULT_MAX_CONCURRENCY = 4;
+const MAX_QUEUED = 64;
+const IMAGE_FILE_PATTERN = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)$/i;
+
+interface CachedImage {
+  body: Uint8Array;
+  headers: Record<string, string>;
+  expiresAt: number;
+}
+
+/** Least-recently-used byte-bounded cache; `Map` keeps insertion order. */
+function createImageCache(maxBytes: number, maxAgeMs: number) {
+  const entries = new Map<string, CachedImage>();
+  let bytes = 0;
+
+  function remove(key: string, entry: CachedImage): void {
+    entries.delete(key);
+    bytes -= entry.body.byteLength;
+  }
+
+  return {
+    get(key: string): CachedImage | undefined {
+      const entry = entries.get(key);
+      if (!entry) return undefined;
+      remove(key, entry);
+      if (entry.expiresAt <= Date.now()) return undefined;
+      entries.set(key, entry);
+      bytes += entry.body.byteLength;
+      return entry;
+    },
+    set(key: string, body: Uint8Array, headers: Record<string, string>): void {
+      if (body.byteLength > maxBytes) return;
+      const existing = entries.get(key);
+      if (existing) remove(key, existing);
+      entries.set(key, { body, headers, expiresAt: Date.now() + maxAgeMs });
+      bytes += body.byteLength;
+      for (const [oldestKey, oldest] of entries) {
+        if (bytes <= maxBytes) break;
+        remove(oldestKey, oldest);
+      }
+    },
+  };
+}
+
+/** A counting semaphore with a bounded wait queue. */
+function createLimiter(max: number) {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return {
+    /** Resolves `true` once a slot is held, or `false` when the queue is full. */
+    acquire(): Promise<boolean> {
+      if (active < max) {
+        active += 1;
+        return Promise.resolve(true);
+      }
+      if (waiting.length >= MAX_QUEUED) return Promise.resolve(false);
+      return new Promise((resolve) => {
+        waiting.push(() => resolve(true));
+      });
+    },
+    release(): void {
+      const next = waiting.shift();
+      // The slot passes straight to the next waiter, so `active` is unchanged.
+      if (next) next();
+      else active -= 1;
+    },
+  };
+}
+
+/**
+ * Drop every query parameter not in `keep` from a relative image-file source.
+ * A static file ignores its query, so the result fetches the same bytes.
+ */
+function normalizeLocalSource(target: URL, keep: ReadonlySet<string>): void {
+  if (!target.search || !IMAGE_FILE_PATTERN.test(target.pathname)) return;
+  const kept = new URLSearchParams();
+  for (const [name, value] of target.searchParams) {
+    if (keep.has(name)) kept.append(name, value);
+  }
+  kept.sort();
+  const search = kept.toString();
+  target.search = search ? `?${search}` : "";
+}
+
+function preferredFormat(
+  accept: string,
+  formats: ReadonlyArray<"image/avif" | "image/webp">,
+): "image/avif" | "image/webp" | null {
+  if (formats.includes("image/avif") && acceptsFormat(accept, "image/avif")) return "image/avif";
+  if (formats.includes("image/webp") && acceptsFormat(accept, "image/webp")) return "image/webp";
+  return null;
+}
 
 /** Minimal structural typing for the parts of sharp we use. */
 interface SharpPipeline {
@@ -265,11 +381,24 @@ export function createImageHandler(
         signal,
       }));
   const importSharp = createSharpImporter(options.loadSharp ?? (() => import("sharp")));
+  const sourceQueryParams = new Set(options.sourceQueryParams ?? []);
+  // A response the endpoint itself marks private must not be replayed from a
+  // cache shared by every caller (a custom `fetchImage` may forward cookies).
+  const shareable = !/\b(?:private|no-store|no-cache)\b/i.test(cacheControl);
+  const cache =
+    options.cache === false || !shareable
+      ? null
+      : createImageCache(
+          options.cache?.maxBytes ?? DEFAULT_CACHE_MAX_BYTES,
+          (options.cache?.maxAge ?? DEFAULT_CACHE_MAX_AGE) * 1000,
+        );
+  const maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1) {
+    throw new Error("createImageHandler({ maxConcurrency }) expects a positive integer.");
+  }
+  const limiter = createLimiter(maxConcurrency);
 
-  return async function handleImageRequest({
-    request,
-    signal,
-  }: ImageHandlerArgs): Promise<Response> {
+  async function handleImageRequest({ request, signal }: ImageHandlerArgs): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response("Method Not Allowed", { status: 405, headers: { allow: "GET, HEAD" } });
     }
@@ -317,6 +446,7 @@ export function createImageHandler(
           'Relative "url" values must remain on the configured localOrigin.',
         );
       }
+      normalizeLocalSource(target, sourceQueryParams);
     } else {
       return errorResponse(
         400,
@@ -351,6 +481,44 @@ export function createImageHandler(
       }
     }
 
+    const accept = request.headers.get("accept") ?? "";
+    const format = preferredFormat(accept, formats);
+    const cacheKey = `${target.href}\n${width}\n${quality}\n${format ?? ""}`;
+    const cached = cache?.get(cacheKey);
+    if (cached) {
+      return new Response(imageResponseBody(request, cached.body), { headers: cached.headers });
+    }
+
+    if (!(await limiter.acquire())) {
+      return new Response("The image endpoint is busy. Retry shortly.", {
+        status: 503,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+          "cache-control": "no-store",
+          "retry-after": "1",
+        },
+      });
+    }
+    try {
+      if (signal?.aborted) return errorResponse(503, "The image request was aborted.");
+      const result = await optimize(request, signal, source, target, width, quality, format);
+      if (result instanceof Response) return result;
+      cache?.set(cacheKey, result.body, result.headers);
+      return new Response(imageResponseBody(request, result.body), { headers: result.headers });
+    } finally {
+      limiter.release();
+    }
+  }
+
+  async function optimize(
+    request: Request,
+    signal: AbortSignal | undefined,
+    source: string,
+    target: URL,
+    width: number,
+    quality: number,
+    format: "image/avif" | "image/webp" | null,
+  ): Promise<Response | { body: Uint8Array; headers: Record<string, string> }> {
     let upstream: Response;
     let currentTarget = target;
     let redirectCount = 0;
@@ -443,7 +611,7 @@ export function createImageHandler(
       if (sourceType === "image/svg+xml") {
         headers["content-disposition"] = "attachment";
       }
-      return new Response(imageResponseBody(request, sourceBytes), { headers });
+      return { body: sourceBytes, headers };
     }
 
     let sharp: SharpFactory;
@@ -453,13 +621,12 @@ export function createImageHandler(
       return errorResponse(500, SHARP_INSTALL_HINT);
     }
 
-    const accept = request.headers.get("accept") ?? "";
     let pipeline = sharp(sourceBytes).rotate().resize({ width, withoutEnlargement: true });
     let contentType: string;
-    if (formats.includes("image/avif") && acceptsFormat(accept, "image/avif")) {
+    if (format === "image/avif") {
       pipeline = pipeline.avif({ quality });
       contentType = "image/avif";
-    } else if (formats.includes("image/webp") && acceptsFormat(accept, "image/webp")) {
+    } else if (format === "image/webp") {
       pipeline = pipeline.webp({ quality });
       contentType = "image/webp";
     } else if (sourceType === "image/png") {
@@ -477,8 +644,8 @@ export function createImageHandler(
       return errorResponse(500, `Failed to optimize source image "${source}".`);
     }
 
-    return new Response(imageResponseBody(request, output), {
-      headers: { ...baseHeaders, "content-type": contentType },
-    });
-  };
+    return { body: output, headers: { ...baseHeaders, "content-type": contentType } };
+  }
+
+  return handleImageRequest;
 }
