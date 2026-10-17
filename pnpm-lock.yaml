@@ -393,33 +393,35 @@ importers:
       '@cloudflare/vite-plugin':
         specifier: ^1.0.0
         version: 1.31.1(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))(workerd@1.20260405.1)(wrangler@4.81.0)
-      '@pracht/core':
-        specifier: workspace:^
-        version: link:../framework
       vite:
         specifier: ^7.0.0 || ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
       wrangler:
         specifier: ^4.81.0
         version: 4.81.0
+    devDependencies:
+      '@pracht/core':
+        specifier: workspace:^
+        version: link:../framework
 
   packages/adapter-netlify:
     dependencies:
       '@netlify/functions':
         specifier: ^5.3.0
         version: 5.3.0
-      '@pracht/core':
-        specifier: workspace:^
-        version: link:../framework
       urlpattern-polyfill:
         specifier: ^10.1.0
         version: 10.1.0
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
+    devDependencies:
+      '@pracht/core':
+        specifier: workspace:^
+        version: link:../framework
 
   packages/adapter-node:
-    dependencies:
+    devDependencies:
       '@pracht/core':
         specifier: workspace:^
         version: link:../framework
@@ -429,12 +431,13 @@ importers:
       '@pracht/adapter-node':
         specifier: workspace:^
         version: link:../adapter-node
+    devDependencies:
       '@pracht/core':
         specifier: workspace:^
         version: link:../framework
 
   packages/adapter-vercel:
-    dependencies:
+    devDependencies:
       '@pracht/core':
         specifier: workspace:^
         version: link:../framework
@@ -498,7 +501,7 @@ importers:
         version: 6.7.0(preact@11.0.0-rc.1)
 
   packages/i18n:
-    dependencies:
+    devDependencies:
       '@pracht/core':
         specifier: workspace:^
         version: link:../framework
@@ -566,10 +569,10 @@ importers:
       '@pracht/capabilities':
         specifier: workspace:^
         version: link:../capabilities
+    devDependencies:
       '@pracht/core':
         specifier: workspace:^
         version: link:../framework
-    devDependencies:
       '@tanstack/preact-query':
         specifier: ^5.91.0
         version: 5.103.1(preact@11.0.0-rc.1)
@@ -581,7 +584,7 @@ importers:
         version: 6.7.0(preact@11.0.0-rc.1)
 
   packages/session:
-    dependencies:
+    devDependencies:
       '@pracht/core':
         specifier: workspace:^
         version: link:../framework
@@ -589,11 +592,10 @@ importers:
   packages/start: {}
 
   packages/test:
-    dependencies:
+    devDependencies:
       '@pracht/core':
         specifier: workspace:^
         version: link:../framework
-    devDependencies:
       '@standard-schema/spec':
         specifier: ^1.0.0
         version: 1.1.0
@@ -609,9 +611,6 @@ importers:
       '@pracht/capabilities':
         specifier: workspace:^
         version: link:../capabilities
-      '@pracht/core':
-        specifier: workspace:^
-        version: link:../framework
       '@pracht/preact-ssr-precompile':
         specifier: workspace:^
         version: link:../preact-ssr-precompile
@@ -627,6 +626,10 @@ importers:
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
+    devDependencies:
+      '@pracht/core':
+        specifier: workspace:^
+        version: link:../framework
 
 packages:
 
