@@ -573,7 +573,7 @@ what a document load does for assistive technology. It runs from the
 after-commit callback, next to scroll restoration:
 
 - Focus starts over on the new page's first `[autofocus]` element inside the
-  router root, else on `<body>` (a temporary `tabindex="-1"`, the same trick
+  router root (scrolled into view, as a document load does), else on `<body>` (a temporary `tabindex="-1"`, the same trick
   `settleFocus()` in `islands-navigation.ts` uses). The next Tab then starts at
   the top. This is skipped when the active element is no longer the one that
   had focus when the navigation started (the page moved focus itself, e.g. in a
@@ -582,7 +582,7 @@ after-commit callback, next to scroll restoration:
   appended to `<body>` outside the router root, so hydration never sees it)
   reads out, 50 ms after commit so route effects have run: `document.title` if
   it changed during the navigation, else the root's first `<h1>`, else the
-  title. The router does not update `<title>` itself (head metadata is
+  pathname (the unchanged title would name the page being left). The router does not update `<title>` itself (head metadata is
   server-rendered), so the heading is the usual source.
 - A navigation that keeps the pathname (a query or filter change) does
   neither.

@@ -21,6 +21,7 @@ const app = resolveApp(
       route("/form", "./routes/form.tsx", { id: "form", render: "ssr" }),
       route("/grabs", "./routes/grabs.tsx", { id: "grabs", render: "ssr" }),
       route("/titled", "./routes/titled.tsx", { id: "titled", render: "ssr" }),
+      route("/plain", "./routes/plain.tsx", { id: "plain", render: "ssr" }),
     ],
   }),
 );
@@ -53,6 +54,7 @@ const routeModules = {
   }),
   "./routes/grabs.tsx": async () => ({ default: Grabs }),
   "./routes/titled.tsx": async () => ({ default: Titled }),
+  "./routes/plain.tsx": async () => ({ default: () => h("main", null, h("p", null, "Plain")) }),
 };
 
 describe("client router: focus and announcement after navigation", () => {
@@ -134,10 +136,13 @@ describe("client router: focus and announcement after navigation", () => {
     await vi.waitFor(() => expect(announcement()).toBe("About us"));
   });
 
-  it("focuses the new page's autofocus element", async () => {
+  it("focuses the new page's autofocus element and scrolls it into view", async () => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
     await window.__PRACHT_NAVIGATE__!("/form");
     await flush();
     expect(document.activeElement?.id).toBe("auto");
+    const call = focus.mock.calls[focus.mock.instances.indexOf(document.activeElement as never)];
+    expect(call?.[0]?.preventScroll).not.toBe(true);
   });
 
   it("leaves focus the page moved itself", async () => {
@@ -151,6 +156,12 @@ describe("client router: focus and announcement after navigation", () => {
     await window.__PRACHT_NAVIGATE__!("/titled");
     await flush(60);
     await vi.waitFor(() => expect(announcement()).toBe("Titled page"));
+  });
+
+  it("announces the path of a page with no heading and no title of its own", async () => {
+    await window.__PRACHT_NAVIGATE__!("/plain");
+    await flush(60);
+    await vi.waitFor(() => expect(announcement()).toBe("/plain"));
   });
 
   it("neither moves focus nor announces when only the query changes", async () => {

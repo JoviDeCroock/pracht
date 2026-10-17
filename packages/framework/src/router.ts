@@ -1535,7 +1535,8 @@ const NO_SCROLL: FocusOptions = { preventScroll: true };
  * navigation to another page. Focus starts over on the page's `autofocus`
  * element, else on the body so the next Tab starts at the top, unless the app
  * already moved focus somewhere else. A visually hidden live region then reads
- * out the page: a title the app set, else its first heading.
+ * out the page: a title the app set, else its first heading, else its path
+ * (the title still names the page being left).
  */
 function settlePageFocus(
   root: HTMLElement,
@@ -1546,8 +1547,9 @@ function settlePageFocus(
   const body = document.body;
   const active = document.activeElement;
   if (resetFocus && (!active || active === body || active === focused)) {
+    // Scrolled into view, as a document load would; the body reset is not.
     const autofocus = root.querySelector<HTMLElement>("[autofocus]");
-    autofocus?.focus(NO_SCROLL);
+    autofocus?.focus();
     if (document.activeElement !== autofocus) {
       // The body takes focus only while it has a tabindex; focusing it for
       // that instant moves the sequential focus starting point to the top.
@@ -1571,7 +1573,9 @@ function settlePageFocus(
   const doc = document;
   setTimeout(() => {
     region.textContent =
-      (doc.title !== title && doc.title) || root.querySelector("h1")?.textContent || doc.title;
+      (doc.title !== title && doc.title) ||
+      root.querySelector("h1")?.textContent ||
+      doc.location.pathname;
   }, 50);
 }
 
