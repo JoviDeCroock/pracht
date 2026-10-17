@@ -702,6 +702,53 @@ describe("initClientRouter", () => {
     );
   });
 
+  it("commits only the latest of two overlapping revalidations", async () => {
+    let revalidate!: () => Promise<unknown>;
+    function Dashboard() {
+      const data = useRouteData<{ count: number }>();
+      revalidate = useRevalidate();
+      return h("main", null, h("span", { id: "count" }, String(data.count)));
+    }
+
+    const app = resolveApp(
+      defineApp({
+        routes: [route("/dashboard", "./routes/dashboard.tsx", { id: "dashboard", render: "ssr" })],
+      }),
+    );
+
+    root.innerHTML = '<main><span id="count">1</span></main>';
+    history.replaceState(null, "", "/dashboard");
+    await initClientRouter({
+      app,
+      routeModules: { "./routes/dashboard.tsx": async () => ({ default: Dashboard }) },
+      shellModules: {},
+      initialState: { data: { count: 1 }, routeId: "dashboard", url: "/dashboard" },
+      root,
+      findModuleKey: (_modules, file) => file,
+    });
+
+    // The first request is slow and answers with older data than the second.
+    let releaseFirst!: () => void;
+    const firstResponse = new Promise<Response>((resolve) => {
+      releaseFirst = () => resolve(createJsonResponse({ data: { count: 2 } }));
+    });
+    fetchSpy
+      .mockReturnValueOnce(firstResponse)
+      .mockResolvedValueOnce(createJsonResponse({ data: { count: 3 } }));
+
+    const first = revalidate();
+    const second = revalidate();
+    await second;
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("3");
+
+    releaseFirst();
+    // The superseded caller still receives what it fetched.
+    await expect(first).resolves.toEqual({ count: 2 });
+    await flush();
+    expect(root.querySelector("#count")?.textContent).toBe("3");
+  });
+
   it("does not let a stale revalidation overwrite fonts after navigation", async () => {
     function Dashboard() {
       const revalidate = useRevalidate();

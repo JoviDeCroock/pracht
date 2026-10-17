@@ -1194,6 +1194,13 @@ export function Component() {
 }
 ```
 
+Every revalidation path goes through `revalidateRouteData()`, which numbers the
+requests it starts per runtime value (a `WeakMap`, so the capability listener's
+refresh of every mounted runtime does not cross-supersede). Only the latest
+request for a runtime commits data, fonts, shell data, the server-island refresh,
+or a redirect. A superseded one still resolves with what it fetched (or throws
+its error) for its own caller. Requests are not aborted.
+
 ### `useNavigation()`
 
 Reactive pending state for the current client navigation or `<Form>`
