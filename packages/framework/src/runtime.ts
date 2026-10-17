@@ -20,6 +20,7 @@ import {
   dispatchAgentSurface,
   dispatchApi,
   type HandlePrachtRequestOptions,
+  type PrachtRequestContext,
 } from "./runtime-request.ts";
 
 export type { HandlePrachtRequestOptions };
@@ -59,7 +60,16 @@ async function handlePrachtRequestPipeline<TContext>(
   const prepared = await createRequestContext(options);
   if (prepared.response) return prepared.response;
   const ctx = prepared.ctx;
+  try {
+    return await dispatchRequest(ctx);
+  } finally {
+    // The response exists. Only a streamed body and `waitUntil` work, which
+    // took their own holds, still keep the request budget running.
+    ctx.budget.release();
+  }
+}
 
+async function dispatchRequest<TContext>(ctx: PrachtRequestContext<TContext>): Promise<Response> {
   // Only apps with a server islands directory own this path; every other app routes
   // it like any other URL.
   const serverIslands = getServerIslandsRuntime();
