@@ -445,6 +445,44 @@ function holdUntilRead(
   });
 }
 
+/**
+ * `defineApp({ enforceLoaderTimeout })`: settle with `work`, or reject with the
+ * signal's reason as soon as it aborts, whichever comes first. Application
+ * code that ignores its `signal` can no longer hold the response; whatever it
+ * produces afterwards is discarded.
+ */
+export function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  const discard = () => {
+    void work.then(
+      (late) => {
+        if (late instanceof Response) void late.body?.cancel().catch(() => {});
+      },
+      () => {},
+    );
+  };
+  if (signal.aborted) {
+    discard();
+    return Promise.reject(signal.reason);
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      discard();
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** Distinguish a client disconnect from a request-budget expiry. */
 export function isClientDisconnect(request: Request, signal: AbortSignal): boolean {
   if (!signal.aborted) return false;
@@ -925,7 +963,7 @@ export async function dispatchApi<TContext>(
   };
 
   try {
-    const response = await runMiddlewareChain({
+    const chain = runMiddlewareChain({
       context: apiContext,
       middlewareFiles: apiMiddlewareFiles,
       params: apiMatch.params,
@@ -941,6 +979,9 @@ export async function dispatchApi<TContext>(
         currentPhase = "middleware";
       },
     });
+    const response = ctx.resolvedApp.enforceLoaderTimeout
+      ? await untilAborted(chain, requestSignal)
+      : await chain;
     return withDefaultSecurityHeaders(withEnhancedCapabilityFormRedirect(response, request));
   } catch (error: unknown) {
     // Same short-circuit contract as page loaders: a thrown `Response` is

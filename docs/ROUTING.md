@@ -914,10 +914,13 @@ Server side (`runtime-page.ts`):
 
 - The shell loader gets the route's `BaseRouteArgs` (same request, params,
   middleware context, signal, matched route) and runs after middleware,
-  **concurrently** with the route loader (`runPageLoaders`). Both settle before
-  either outcome is used, so the answer is deterministic: a shell error or
-  `Response` wins over the route's, because the shell wraps the route. A shell
-  loader failure is attributed to the shell file as `loaderFile`.
+  **concurrently** with the route loader (`runPageLoaders`). The answer is
+  deterministic: a shell error or `Response` wins over the route's, because the
+  shell wraps the route. So once the shell has answered, the response does not
+  wait for the route loader — only until it has started, after which it writes
+  nothing the error path reads — and the still-running route loader takes a
+  hold on the request budget so its `signal` still times out. A shell loader
+  failure is attributed to the shell file as `loaderFile`.
 - Its data (`defer()` values resolved; shell data never streams) is provided
   through `ShellDataContext` (`runtime-shell-data.ts`), serialized as
   `shellData` in the hydration state and the route-state JSON

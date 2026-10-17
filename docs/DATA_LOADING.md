@@ -287,6 +287,17 @@ bounds SSG/ISG builds too. A budget tuned down for an edge runtime fails the
 build for any loader slower than it, and the build error names the route and
 the budget.
 
+`defineApp({ enforceLoaderTimeout: true })` makes the budget a response
+deadline too: `renderPage` and `dispatchApi` race the middleware chain against
+the signal (`untilAborted` in `runtime-request.ts`), so a loader, middleware,
+or API handler that ignores `signal` cannot hold the response. Expiry takes the
+same error path as a loader that rethrows the abort (a reported `TimeoutError`
+and the error document), a disconnect answers 499, and a late result is
+discarded with its body cancelled. It is opt-in because it changes what an app
+whose loaders outlive the budget sends: without it the response waits for them,
+as it always has. Server islands and a streamed body after its first flush are
+outside the race; the stream already stops on the signal.
+
 The two abort reasons are distinguished when the request fails. A client
 disconnect skips `onRouteError` and returns an empty 499 — reporting an
 abandoned navigation would fill an app's error tracker with faults it cannot

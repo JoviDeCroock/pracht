@@ -129,7 +129,9 @@ For loaders that call `fetch` or any I/O:
 - Verify it is forwarded to outbound `fetch(url, { signal })` calls and to any
   database client that accepts cancellation.
 - A loader that ignores `signal` keeps work running after the client navigates
-  away.
+  away, and holds the response past `loaderTimeoutMs`. Where a driver cannot
+  take a signal, suggest `defineApp({ enforceLoaderTimeout: true })` so the
+  response still answers when the budget runs out.
 
 ### 2e. Loader cache safety
 
