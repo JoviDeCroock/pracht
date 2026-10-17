@@ -336,6 +336,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     if (!cached) {
       cached = modules[key]();
       moduleCache.set(key, cached);
+      // A failed import (a chunk a newer deploy removed, a network blip) is
+      // not cached: the next navigation or hover asks again. Attaching the
+      // handler also keeps a failed hover warm-up from surfacing as an
+      // unhandled rejection.
+      cached.catch(() => moduleCache.delete(key));
     }
     return cached;
   }
@@ -1006,6 +1011,31 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
 
       if (navigationId !== latestNavigationId) return;
 
+      // Module imports started above are already in-flight. History moves only
+      // once they have resolved, so the URL bar never shows a page that is not
+      // on screen and a superseded navigation leaves no entry behind.
+      const routeState = await resolveRouteState(
+        match,
+        state,
+        target.requestUrl,
+        routeModPromise,
+        shellModPromise,
+      ).catch(() => null);
+      if (navigationId !== latestNavigationId) return;
+
+      if (!routeState) {
+        // A route or shell chunk failed to load — typically one a newer deploy
+        // removed — or the module renders nothing. A document navigation loads
+        // the current build. The static fallback document is exempt: the host
+        // would answer with that same document, which would try again.
+        if (IS_STATIC_TARGET && opts?._staticFallback) {
+          console.error(`[pracht] could not load the route module for ${target.browserUrl}`);
+        } else {
+          window.location.href = target.browserUrl;
+        }
+        return;
+      }
+
       if (!opts?._popstate) {
         // Remember where the outgoing history entry was scrolled to before
         // this entry is replaced / a new one is pushed.
@@ -1024,21 +1054,6 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         currentDocumentPath =
           hashIndex === -1 ? target.browserUrl : target.browserUrl.slice(0, hashIndex);
         if (BLOCKER_ENABLED) currentBrowserHref = target.browserUrl;
-      }
-
-      // Module imports started above are already in-flight
-      const routeState = await resolveRouteState(
-        match,
-        state,
-        target.requestUrl,
-        routeModPromise,
-        shellModPromise,
-      );
-      if (navigationId !== latestNavigationId) return;
-
-      if (!routeState) {
-        window.location.href = target.browserUrl;
-        return;
       }
 
       const commit = () => {
