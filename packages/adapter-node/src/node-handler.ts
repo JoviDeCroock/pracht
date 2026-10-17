@@ -209,7 +209,19 @@ export function createNodeRequestHandler<TContext = unknown>(
       });
     } catch (err) {
       if (err instanceof Error && err.message === "Request body too large") {
+        // The rest of the body is never read, so the connection cannot be
+        // reused for another request.
         res.statusCode = 413;
+        writeNodeResponseHeaders(
+          res,
+          applyDefaultSecurityHeaders(
+            new Headers({
+              "cache-control": "no-store",
+              connection: "close",
+              "content-type": "text/plain; charset=utf-8",
+            }),
+          ),
+        );
         res.end("Payload Too Large");
         return;
       }

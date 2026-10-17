@@ -416,7 +416,62 @@ describe("createNodeRequestHandler", () => {
     });
 
     expect(response.status).toBe(413);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("connection")).toBe("close");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.text()).resolves.toBe("Payload Too Large");
+
+    // Without a Content-Length the limit applies while streaming.
+    const chunked = await fetch(`http://127.0.0.1:${address.port}/upload`, {
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("too"));
+          controller.enqueue(new TextEncoder().encode("-large"));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+      method: "POST",
+    } as RequestInit);
+    expect(chunked.status).toBe(413);
+    expect(chunked.headers.get("x-content-type-options")).toBe("nosniff");
+    await chunked.text();
+  });
+
+  it("hands API routes the exact request body", async () => {
+    const app = defineApp({ routes: [] });
+    const handler = createNodeRequestHandler({
+      app,
+      apiRoutes: resolveApiRoutes(["/src/api/echo.ts"]),
+      registry: {
+        apiModules: {
+          "/src/api/echo.ts": async () => ({
+            POST: async ({ request }: { request: Request }) => {
+              const bytes = new Uint8Array(await request.arrayBuffer());
+              return Response.json({ length: bytes.byteLength, last: bytes.at(-1) });
+            },
+          }),
+        },
+      },
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP address");
+
+    for (const length of [3, 70_000]) {
+      const body = new Uint8Array(length).fill(7);
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/echo`, {
+        body,
+        headers: { origin: `http://127.0.0.1:${address.port}` },
+        method: "POST",
+      });
+      await expect(response.json()).resolves.toEqual({ length, last: 7 });
+    }
   });
 
   it("preserves multiple Set-Cookie headers from framework responses", async () => {
