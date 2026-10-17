@@ -120,7 +120,8 @@ Components in `src/server-islands/` rendered per request inside cached pages. Se
 | `useShellData(shell?)` | The shell loader's data, or `undefined` | The loader result of the active route's shell, readable from the shell and its routes. Pass the shell name to type it; any other shell's name throws. See [Shells](/docs/shells#shell-data) |
 | `useParams()` | `Record<string, string>` | Matched dynamic segments. See [Routing](/docs/routing#reading-params) |
 | `useLocation()` | `{ pathname, search }` | The current URL as the visitor sees it, deploy base included |
-| `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws — navigate instead |
+| `useSearchParams()` | `ReadonlyURLSearchParams` | The query string, reactively. Mutating it throws — use `useSetSearchParams()` |
+| `useSetSearchParams()` | `(next, options?) => Promise<void>` | Navigate to the current page with a new query string. See [Data Loading](/docs/data-loading#usesetsearchparams) |
 | `useSearch(routeId?)` | The parsed query | The active route's `search` schema output, or the raw query without one. See [Routing](/docs/routing#search-params) |
 | `useNavigate()` | `(to, options?) => Promise<void>` | Imperative navigation, by path or route object |
 | `useNavigation()` | `{ state, location?, formData? }` | Pending state for the current navigation or `<Form>` submission: `"idle"`, `"loading"`, or `"submitting"` |

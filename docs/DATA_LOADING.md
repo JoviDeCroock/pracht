@@ -1169,9 +1169,17 @@ with `lang=zh` without causing a hydration mismatch. Use `useIsHydrated()` or
 stable fallback UI when query-dependent markup should not visibly change after
 hydration.
 
-Changing the returned object is intentionally unsupported; navigate to a new
-URL to update the query string. SSG loader data remains build-time data and is
-not rerun for the visitor query. Use SSR when query parameters must affect
+Changing the returned object is intentionally unsupported (the mutators throw);
+`useSetSearchParams()` returns a stable module-level setter that builds the new
+query (string, `URLSearchParams`, record with array values repeated, or a
+function of a copy of `window.location.search`) and navigates to
+`window.location.pathname` plus that query through `window.__PRACHT_NAVIGATE__`
+with `{ replace, preserveScroll }`, or as a document navigation when the page
+has no client router. The hash is dropped. A `GET` `<Form clientNavigation>`
+does the same for a form: after any `schema` check it replaces the action's
+query with the fields and calls `navigateToClientLocation()`; without the prop,
+or for a cross-origin action, it stays a native submission. SSG loader data
+remains build-time data and is not rerun for the visitor query. Use SSR when query parameters must affect
 server-loaded data or the initial HTML.
 
 ### `useSearch()`

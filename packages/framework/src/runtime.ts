@@ -158,6 +158,7 @@ export {
   useSearch,
   useShellData,
   useSearchParams,
+  useSetSearchParams,
   type FormProps,
   type LinkHrefGuidance,
   type LinkProps,
@@ -172,6 +173,9 @@ export {
   type ShouldBlockNavigation,
   type PrachtHydrationState,
   type ReadonlyURLSearchParams,
+  type SearchParamsInit,
+  type SetSearchParams,
+  type SetSearchParamsOptions,
   type StartAppOptions,
 } from "./runtime-hooks.ts";
 export {

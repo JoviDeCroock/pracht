@@ -40,6 +40,7 @@ import {
   useNavigation,
   useRouteData,
   useSearchParams,
+  useSetSearchParams,
   type Blocker,
   type Location,
   type PrachtHydrationState,
@@ -139,6 +140,32 @@ describe("<Form> action submissions", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     // Not preventing the default is what lets the browser navigate.
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("navigates a GET form through the router when it opts into client navigation", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/search?q=old&page=2#results");
+    render(
+      h(
+        Form,
+        { action: "/search", method: "get", clientNavigation: true },
+        h("input", { name: "q", value: "pracht" }),
+        h("input", { name: "tag", value: "a" }),
+        h("input", { name: "tag", value: "b" }),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const event = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+    await flush();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Like the browser: the form's fields replace the action's query.
+    expect(navigate).toHaveBeenCalledWith("/search?q=pracht&tag=a&tag=b", expect.anything());
   });
 
   it("fetches a POST submission with the redirect handshake header and form fields", async () => {
@@ -721,5 +748,57 @@ describe("readHydrationState() and startApp()", () => {
 
     expect(startApp()).toEqual({ from: "html" });
     expect(startApp({ initialData: { from: "caller" } })).toEqual({ from: "caller" });
+  });
+});
+
+describe("useSetSearchParams()", () => {
+  function renderSetter(): ReturnType<typeof useSetSearchParams> {
+    let setter!: ReturnType<typeof useSetSearchParams>;
+    function Probe() {
+      setter = useSetSearchParams();
+      return null;
+    }
+    render(h(Probe, null), root);
+    return setter;
+  }
+
+  it("navigates to the current page with the new query", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/products?lang=en#top");
+
+    await renderSetter()({ lang: "zh", tag: ["a", "b"], empty: undefined });
+
+    expect(navigate).toHaveBeenCalledWith("/products?lang=zh&tag=a&tag=b", undefined);
+  });
+
+  it("derives the query from the current one and passes navigation options", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/products?lang=en&page=3");
+
+    await renderSetter()(
+      (current) => {
+        current.delete("page");
+        current.set("sort", "price");
+        return current;
+      },
+      { replace: true, preserveScroll: true },
+    );
+
+    expect(navigate).toHaveBeenCalledWith("/products?lang=en&sort=price", {
+      replace: true,
+      preserveScroll: true,
+    });
+  });
+
+  it("drops the query entirely when nothing is left", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/products?lang=en");
+
+    await renderSetter()("");
+
+    expect(navigate).toHaveBeenCalledWith("/products", undefined);
   });
 });

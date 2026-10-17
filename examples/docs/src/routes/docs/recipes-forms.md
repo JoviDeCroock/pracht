@@ -327,6 +327,23 @@ export function Component({ data }: RouteComponentProps<typeof loader>) {
 
 ---
 
+## Search Forms
+
+A `GET` `<Form>` submits like a plain HTML form: the browser loads the action with the fields as its query. Add `clientNavigation` to go through the client router instead. The page updates without a document reload, and `useNavigation()` reports the pending load:
+
+```tsx
+import { Form } from "@pracht/core";
+
+<Form method="get" action="/search" clientNavigation>
+  <input name="q" type="search" />
+  <button type="submit">Search</button>
+</Form>
+```
+
+The fields replace the action's query, as they do natively. A cross-origin action is always submitted natively.
+
+---
+
 ## Tips
 
 - Always validate on the server. Client-side validation is a UX nicety, not a security boundary.

@@ -640,7 +640,20 @@ export function Component() {
 }
 ```
 
-To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML, and a [`search` schema](/docs/routing#search-params) when you want it validated and typed.
+To change the query, use `useSetSearchParams()`. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML, and a [`search` schema](/docs/routing#search-params) when you want it validated and typed.
+
+### useSetSearchParams()
+
+Change the current page's query. Loaders re-run and `useSearchParams()` updates:
+
+```tsx
+const setSearchParams = useSetSearchParams();
+
+setSearchParams({ sort: "price", tag: ["a", "b"] }, { preserveScroll: true });
+setSearchParams((query) => (query.delete("page"), query), { replace: true });
+```
+
+It also accepts a string or `URLSearchParams`.
 
 ### useRevalidate()
 

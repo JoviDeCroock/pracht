@@ -146,6 +146,13 @@ export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName
    * clone, so the body is never consumed before this callback.
    */
   onResponse?: (response: Response) => void;
+  /**
+   * For a `GET` form: navigate to the action with the form's fields as its
+   * query through the client router (no document reload, loader data fetched
+   * like any navigation) instead of the browser's native submission.
+   * Cross-origin actions stay native. Off by default.
+   */
+  clientNavigation?: boolean;
 }
 
 /**
@@ -337,6 +344,56 @@ export function useSearchParams(): ReadonlyURLSearchParams {
   return useMemo(() => new PrachtReadonlyURLSearchParams(search), [search]);
 }
 
+/** A new query string: a string, `URLSearchParams`, or a record of fields. */
+export type SearchParamsInit =
+  | string
+  | URLSearchParams
+  | Record<string, string | readonly string[] | null | undefined>;
+
+export interface SetSearchParamsOptions {
+  /** Replace the current history entry instead of pushing a new one. */
+  replace?: boolean;
+  /** Keep the scroll position, as a filter or search box usually wants. */
+  preserveScroll?: boolean;
+}
+
+export type SetSearchParams = (
+  next: SearchParamsInit | ((current: URLSearchParams) => SearchParamsInit),
+  options?: SetSearchParamsOptions,
+) => Promise<void>;
+
+function setSearchParams(
+  next: SearchParamsInit | ((current: URLSearchParams) => SearchParamsInit),
+  options?: SetSearchParamsOptions,
+): Promise<void> {
+  let init = typeof next === "function" ? next(new URLSearchParams(window.location.search)) : next;
+  if (typeof init === "object" && !(init instanceof URLSearchParams)) {
+    const params = new URLSearchParams();
+    for (const [name, value] of Object.entries(init)) {
+      for (const item of typeof value === "string" ? [value] : (value ?? [])) {
+        params.append(name, item);
+      }
+    }
+    init = params;
+  }
+  const query = new URLSearchParams(init).toString();
+  const target = window.location.pathname + (query ? `?${query}` : "");
+  if (window.__PRACHT_NAVIGATE__) return window.__PRACHT_NAVIGATE__(target, options);
+  if (options?.replace) window.location.replace(target);
+  else window.location.href = target;
+  return Promise.resolve();
+}
+
+/**
+ * Change the query string of the current page. The setter navigates to the
+ * same path with the new query, through the client router when the page has
+ * one (loaders re-run, `useSearchParams()` updates), else as a document load.
+ * Pass a function to derive the new query from the current one.
+ */
+export function useSetSearchParams(): SetSearchParams {
+  return setSearchParams;
+}
+
 export function useParams(): RouteParams {
   return useContext(RouteDataContext)?.params ?? {};
 }
@@ -498,6 +555,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
     schema,
     onValidationIssues,
     onResponse,
+    clientNavigation,
     ...rest
   } = props;
   // Capability forms post to the capability's HTTP projection; the action
@@ -689,7 +747,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
       const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
       const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
       const isSafeMethod = SAFE_METHODS.has(formMethod);
-      if (isSafeMethod && !schema) {
+      if (isSafeMethod && !schema && !clientNavigation) {
         return;
       }
 
@@ -715,6 +773,14 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           onValidationIssues?.(result.issues);
           return;
         }
+      }
+
+      if (isSafeMethod && clientNavigation && actionTarget && !isCrossOriginAction) {
+        // The fields replace the action's query, as a native GET submission does.
+        actionTarget.search = new URLSearchParams(formData as unknown as string[][]).toString();
+        actionTarget.hash = "";
+        await navigateToClientLocation(actionTarget.href);
+        return;
       }
 
       if (isSafeMethod || isCrossOriginAction) {
