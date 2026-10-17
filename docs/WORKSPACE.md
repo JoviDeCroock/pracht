@@ -325,9 +325,9 @@ two mutating steps; the build still writes `packages/*/dist`.
 gate CI runs as its own job. Client bytes are deterministic, so a drift is
 always a real change; four fixture builds cost about five seconds, which is
 cheap enough to sit beside the unit tests rather than be discovered on CI. When
-the drift is intended, run `node bench/run.mjs --bytes-only --update`, commit
-`bench/baseline.json`, and update the published table in
-`examples/docs/src/routes/docs/performance.md`.
+the drift is intended, run `pnpm bench:update` and commit the result: it
+rewrites `bench/baseline.json` and every page that quotes it (listed in
+`bench/published-numbers.mjs`, and checked by a unit test).
 
 The individual scripts (`pnpm run build|format|lint|typecheck|test|e2e`) still
 work on their own; `verify` only changes how they are scheduled.
