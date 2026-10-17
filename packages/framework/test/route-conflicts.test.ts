@@ -104,6 +104,23 @@ describe("route declaration-order diagnostics", () => {
     expect(matchAppRoute(resolveApp(defineApp({ routes: [] })), "/")).toBeUndefined();
   });
 
+  it("does not flag a static segment that a parameter cannot decode", () => {
+    const app = defineApp({
+      routes: [
+        route("/download/*", "./routes/download.tsx", { id: "download" }),
+        route("/download/100%", "./routes/full.tsx", { id: "full" }),
+        route("/files/:name", "./routes/file.tsx", { id: "file" }),
+        route("/files/50%off", "./routes/sale.tsx", { id: "sale" }),
+      ],
+    });
+
+    resolveApp(app);
+
+    expect(warnings()).toEqual([]);
+    expect(matchAppRoute(app, "/download/100%")?.route.id).toBe("full");
+    expect(matchAppRoute(app, "/files/50%off")?.route.id).toBe("sale");
+  });
+
   it("says each thing once however often the app is resolved", () => {
     const app = defineApp({
       routes: [route("/x/:id", "./routes/x.tsx"), route("/x/new", "./routes/x-new.tsx")],

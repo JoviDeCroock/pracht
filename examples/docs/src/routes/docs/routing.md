@@ -123,8 +123,8 @@ route("/blog/new", "./routes/new-post.tsx"), // first, or /blog/:slug takes it
 route("/blog/:slug", "./routes/blog-post.tsx"),
 ```
 
-The dev server and `pracht build` warn when an earlier route matches every URL
-a later one does, or two routes share an id.
+The dev server warns when an earlier route matches every URL a later one does,
+or two routes share an id.
 
 ### Reading params
 

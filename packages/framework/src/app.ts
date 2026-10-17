@@ -292,8 +292,11 @@ function warnRouteConflicts(routes: readonly ResolvedRoute[]): void {
   };
 
   const byId = new Map<string, ResolvedRoute>();
-  // Indexes of earlier routes, bucketed by first segment so a route is only
-  // compared with routes that could match its first segment ("" is the root).
+  // A fully static route only covers its own path, so static routes are found
+  // by path and never compared pairwise. Earlier routes with a parameter or
+  // catch-all are bucketed by first segment, so a route is only compared with
+  // those that could match its first segment ("" is the root).
+  const staticPaths = new Map<string, number>();
   const byFirstStatic = new Map<string, number[]>();
   const firstDynamic: number[] = [];
 
@@ -311,9 +314,13 @@ function warnRouteConflicts(routes: readonly ResolvedRoute[]): void {
       }
     }
 
+    const isStatic = route.segments.every((segment) => segment.type === "static");
+    const staticPath = isStatic
+      ? route.segments.map((segment) => (segment as { value: string }).value).join("/")
+      : "";
+    let shadow = isStatic ? staticPaths.get(staticPath) : undefined;
     const head = route.segments[0];
     const key = head === undefined ? "" : head.type === "static" ? head.value : undefined;
-    let shadow: number | undefined;
     for (const candidates of [firstDynamic, key === undefined ? [] : byFirstStatic.get(key)]) {
       for (const earlier of candidates ?? []) {
         if (shadow !== undefined && earlier > shadow) break;
@@ -332,7 +339,9 @@ function warnRouteConflicts(routes: readonly ResolvedRoute[]): void {
       );
     }
 
-    if (key === undefined) {
+    if (isStatic) {
+      if (!staticPaths.has(staticPath)) staticPaths.set(staticPath, index);
+    } else if (key === undefined) {
       firstDynamic.push(index);
     } else {
       const bucket = byFirstStatic.get(key);
@@ -349,14 +358,30 @@ function routeCoversRoute(
 ): boolean {
   for (let index = 0; index < earlier.length; index += 1) {
     const segment = earlier[index]!;
-    if (segment.type === "catchall") return true;
+    if (segment.type === "catchall") {
+      return later.slice(index).every((rest) => rest.type !== "static" || decodes(rest.value));
+    }
     const other = later[index];
     if (other === undefined || other.type === "catchall") return false;
     if (segment.type === "static" && (other.type !== "static" || other.value !== segment.value)) {
       return false;
     }
+    // A parameter rejects a segment that does not percent-decode, which a
+    // static segment such as `100%` still matches literally.
+    if (segment.type !== "static" && other.type === "static" && !decodes(other.value)) {
+      return false;
+    }
   }
   return later.length === earlier.length;
+}
+
+function decodes(value: string): boolean {
+  try {
+    decodeURIComponent(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

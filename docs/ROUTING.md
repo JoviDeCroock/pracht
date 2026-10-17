@@ -692,8 +692,9 @@ whose pattern matches wins: declaration order is the precedence rule for the
 manifest (the pages router sorts by specificity before it emits one). For
 typical app sizes (tens to low hundreds of routes) this is effectively instant.
 
-Because order is the rule, `resolveApp` warns (dev server and Node/CLI only,
-never in the browser or a production bundle) about what order makes silent:
+Because order is the rule, `resolveApp` warns (dev server and plain Node only,
+never in the browser or a production bundle, so `pracht build` does not print
+it) about what order makes silent:
 
 - a route no URL can reach because an earlier route matches every URL it does
   (`/blog/:slug` above `/blog/new`, a repeated path, a catch-all or a
@@ -703,8 +704,11 @@ never in the browser or a production bundle) about what order makes silent:
 
 Both are warnings, not errors: neither fails at runtime today, and turning them
 into build failures would break apps that work. Each message prints once per
-process. The check buckets earlier routes by first segment, so it stays close
-to linear for real manifests.
+process. A fully static route only covers its own path, so static routes are
+looked up by path; routes with a parameter or catch-all are bucketed by first
+segment, so the check stays close to linear even for thousands of static
+routes. A parameter or catch-all does not cover a static segment that fails to
+percent-decode (`/download/100%`), because matching rejects it there.
 
 ### What reaches the client bundle
 
