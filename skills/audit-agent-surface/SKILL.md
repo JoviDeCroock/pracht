@@ -204,8 +204,7 @@ With `agents.mcp.auth`, check:
   `webBotAuth.requireComponents` lacks `@method` and `@path`, `warn`: a captured
   signature replays onto any endpoint for `maxLifetimeSeconds` (24 h default).
 - Confirm an audit sink exists (`setCapabilityAuditHook()`,
-  `addCapabilityAuditListener()`, or `onCapabilityAudit`) — without one there
-  is no record of who called what. Grep for all three; `setCapabilityAuditHook`
+  `addCapabilityAuditListener()`, or `onCapabilityAudit`). Grep for all three; `setCapabilityAuditHook`
   is a single slot, so two calls to it mean one sink is silently dead — report
   that as a `warn` and point at `addCapabilityAuditListener(name, hook)`. Also
   flag a computed or non-constant sink name: same-name registration is what

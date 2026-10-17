@@ -333,19 +333,16 @@ export interface HandleMcpRequestOptions<TContext> {
     });
   }
 
-  const exposedCapabilities = mcpExposedCapabilities(options.capabilities, options.mcp);
+  const projection = projectMcpTools(options.capabilities, options.mcp);
 
   // Fail closed, loudly, rather than advertising destructive tools that every
   // call would refuse — or worse, serving commits that could be replayed. One
   // rule for all of the preconditions: if a destructive tool would be served
   // and anything its confirmation flow needs is missing, the whole endpoint
   // answers an explanatory error instead of half-working.
-  const destructiveCapabilities = exposedCapabilities.filter(
-    (entry) => entry.capability.effect === "destructive",
-  );
-  if (destructiveCapabilities.length > 0) {
+  if (projection.destructive.length > 0) {
     try {
-      await loadDestructiveMcpRegistrationModules(options, destructiveCapabilities);
+      await loadDestructiveMcpRegistrationModules(options, projection.destructive);
     } catch (error: unknown) {
       const detail = options.exposeErrors && error instanceof Error ? `: ${error.message}` : ".";
       return respond(200, {
@@ -372,37 +369,11 @@ export interface HandleMcpRequestOptions<TContext> {
     }
   }
 
-  const invalidToolNames = exposedCapabilities.filter(
-    (entry) => !isValidMcpToolName(mcpToolName(entry.name)),
-  );
-  if (invalidToolNames.length > 0) {
+  if (projection.error !== null) {
     return respond(200, {
       jsonrpc: "2.0",
       id,
-      error: {
-        code: JSONRPC_INTERNAL_ERROR,
-        message:
-          `${MCP_TOOL_NAME_ERROR}: ` +
-          invalidToolNames.map((entry) => `${entry.name} → ${mcpToolName(entry.name)}`).join("; "),
-      },
-    });
-  }
-
-  const collisions = findMcpToolNameCollisions(exposedCapabilities.map((entry) => entry.name));
-  if (collisions.length > 0) {
-    // `pracht verify` reports this at build time; refuse to serve an
-    // ambiguous tool list rather than picking a winner at random.
-    return respond(200, {
-      jsonrpc: "2.0",
-      id,
-      error: {
-        code: JSONRPC_INTERNAL_ERROR,
-        message:
-          "Capability names collide as MCP tool names: " +
-          collisions
-            .map((collision) => `${collision.capabilities.join(" / ")} → ${collision.toolName}`)
-            .join("; "),
-      },
+      error: { code: JSONRPC_INTERNAL_ERROR, message: projection.error },
     });
   }
 
@@ -436,15 +407,20 @@ export interface HandleMcpRequestOptions<TContext> {
     case "ping":
       return respond(200, { jsonrpc: "2.0", id, result: {} });
 
-    case "tools/list":
-      return respond(200, {
-        jsonrpc: "2.0",
-        id,
-        result: { tools: exposedCapabilities.map(toolDescriptor) },
-      });
+    case "tools/list": {
+      const page = listToolsPage(projection, options, message.params);
+      if (page === null) {
+        return respond(200, {
+          jsonrpc: "2.0",
+          id,
+          error: { code: JSONRPC_INVALID_PARAMS, message: "Invalid tools/list cursor." },
+        });
+      }
+      return respond(200, { jsonrpc: "2.0", id, result: page });
+    }
 
     case "tools/call":
-      return handleToolsCall(options, id, message.params, activeVersion);
+      return handleToolsCall(options, projection, id, message.params, activeVersion);
 
     default:
       return respond(200, {
@@ -584,6 +560,139 @@ async function authenticateMcp<TContext>(
 // ---------------------------------------------------------------------------
 // tools/list
 // ---------------------------------------------------------------------------
+
+/** Tools per `tools/list` page when `agents.mcp.pageSize` is unset. */
+export const DEFAULT_MCP_TOOLS_PAGE_SIZE = 100;
+
+/**
+ * Everything the transport derives from one resolved graph: the served tools,
+ * their descriptors, a name index for `tools/call`, and any graph-wide naming
+ * error. Computed once per graph and destructive opt-in rather than on every
+ * request, so a large graph costs O(1) per `tools/call`.
+ */
+interface McpToolProjection {
+  exposed: readonly ResolvedCapability[];
+  destructive: readonly ResolvedCapability[];
+  /** Why the projection cannot be served, or `null`. */
+  error: string | null;
+  byToolName: ReadonlyMap<string, ResolvedCapability>;
+  descriptors: ReadonlyMap<ResolvedCapability, ReturnType<typeof toolDescriptor>>;
+}
+
+const toolProjectionCache = new WeakMap<
+  readonly ResolvedCapability[],
+  Map<boolean, McpToolProjection>
+>();
+
+function projectMcpTools(
+  capabilities: readonly ResolvedCapability[],
+  mcp: McpProjectionConfig | undefined,
+): McpToolProjection {
+  const allowDestructive = mcp?.destructive === true;
+  let byConfig = toolProjectionCache.get(capabilities);
+  const cached = byConfig?.get(allowDestructive);
+  if (cached) return cached;
+
+  const exposed = mcpExposedCapabilities(capabilities, mcp);
+  let error: string | null = null;
+  const invalidToolNames = exposed.filter((entry) => !isValidMcpToolName(mcpToolName(entry.name)));
+  if (invalidToolNames.length > 0) {
+    error =
+      `${MCP_TOOL_NAME_ERROR}: ` +
+      invalidToolNames.map((entry) => `${entry.name} → ${mcpToolName(entry.name)}`).join("; ");
+  } else {
+    const collisions = findMcpToolNameCollisions(exposed.map((entry) => entry.name));
+    // `pracht verify` reports this at build time; refuse to serve an
+    // ambiguous tool list rather than picking a winner at random.
+    if (collisions.length > 0) {
+      error =
+        "Capability names collide as MCP tool names: " +
+        collisions
+          .map((collision) => `${collision.capabilities.join(" / ")} → ${collision.toolName}`)
+          .join("; ");
+    }
+  }
+
+  const projection: McpToolProjection = {
+    exposed,
+    destructive: exposed.filter((entry) => entry.capability.effect === "destructive"),
+    error,
+    byToolName: new Map(exposed.map((entry) => [mcpToolName(entry.name), entry])),
+    descriptors: new Map(exposed.map((entry) => [entry, toolDescriptor(entry)])),
+  };
+  if (!byConfig) {
+    byConfig = new Map();
+    toolProjectionCache.set(capabilities, byConfig);
+  }
+  byConfig.set(allowDestructive, projection);
+  return projection;
+}
+
+/** OAuth scopes a caller must hold to see and call this tool. */
+function requiredToolScopes(entry: ResolvedCapability): readonly string[] {
+  return entry.capability.expose?.mcpScopes ?? [];
+}
+
+/**
+ * Whether this caller may see and call the tool. A tool that declares scopes
+ * is served only to a verified token carrying all of them, so an endpoint
+ * without `agents.mcp.auth` never serves one.
+ */
+function isToolVisible<TContext>(
+  entry: ResolvedCapability,
+  options: HandleMcpRequestOptions<TContext>,
+): boolean {
+  const required = requiredToolScopes(entry);
+  if (required.length === 0) return true;
+  const granted = options.mcp.auth ? options.tokenPrincipal?.scopes : undefined;
+  return !!granted && required.every((scope) => granted.includes(scope));
+}
+
+/**
+ * One page of the caller's tools. The cursor is opaque to clients: it names
+ * the last tool of the previous page, so a page boundary stays put when tools
+ * the caller cannot see come and go. `null` means the cursor is invalid.
+ */
+function listToolsPage<TContext>(
+  projection: McpToolProjection,
+  options: HandleMcpRequestOptions<TContext>,
+  rawParams: unknown,
+): { tools: unknown[]; nextCursor?: string } | null {
+  if (rawParams !== undefined && rawParams !== null && !isObjectRecord(rawParams)) return null;
+  const cursor = rawParams?.cursor;
+  if (cursor !== undefined && typeof cursor !== "string") return null;
+
+  const visible = projection.exposed.filter((entry) => isToolVisible(entry, options));
+  let start = 0;
+  if (cursor !== undefined) {
+    const after = decodeToolsCursor(cursor);
+    const index =
+      after === null ? -1 : visible.findIndex((entry) => mcpToolName(entry.name) === after);
+    if (index === -1) return null;
+    start = index + 1;
+  }
+
+  const pageSize = options.mcp.pageSize ?? DEFAULT_MCP_TOOLS_PAGE_SIZE;
+  const page = visible.slice(start, start + pageSize);
+  const tools = page.map((entry) => projection.descriptors.get(entry)!);
+  if (start + pageSize >= visible.length || page.length === 0) return { tools };
+  return { tools, nextCursor: encodeToolsCursor(mcpToolName(page[page.length - 1]!.name)) };
+}
+
+function encodeToolsCursor(toolName: string): string {
+  return btoa(toolName).replace(/=+$/, "");
+}
+
+function decodeToolsCursor(cursor: string): string | null {
+  if (!/^[A-Za-z0-9+/]{1,128}$/.test(cursor)) return null;
+  try {
+    const name = atob(cursor.padEnd(cursor.length + ((4 - (cursor.length % 4)) % 4), "="));
+    return isValidMcpToolName(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 function toolDescriptor(entry: ResolvedCapability) {
   const { capability } = entry;
   const destructive = capability.effect === "destructive";
@@ -627,6 +736,7 @@ function toolDescriptor(entry: ResolvedCapability) {
 
 async function handleToolsCall<TContext>(
   options: HandleMcpRequestOptions<TContext>,
+  projection: McpToolProjection,
   id: string | number,
   rawParams: unknown,
   // Threaded rather than defaulted: `tools/call` is the method that does the
@@ -661,8 +771,21 @@ async function handleToolsCall<TContext>(
     });
   }
 
-  const exposed = mcpExposedCapabilities(options.capabilities, options.mcp);
-  const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
+  const served = projection.byToolName.get(params.name);
+  if (served && options.mcp.auth && !isToolVisible(served, options)) {
+    // Step-up: the token is valid but lacks this tool's scopes. Answer the
+    // challenge the MCP authorization spec defines so the host can request
+    // them, rather than pretending the tool does not exist.
+    const required = requiredToolScopes(served);
+    const { mcpAuthChallengeResponse } = await import("./mcp-auth.ts");
+    return mcpAuthChallengeResponse(options.mcp.auth, {
+      status: 403,
+      error: "insufficient_scope",
+      description: `The token is missing scope(s) this tool requires: ${required.join(" ")}.`,
+      scope: [...new Set([...(options.mcp.auth.requiredScopes ?? []), ...required])],
+    });
+  }
+  const match = served && isToolVisible(served, options) ? served : undefined;
   if (!match) {
     const failed = getCapabilityLoadFailures(options.capabilities).find(
       (failure) => mcpToolName(failure.name) === params.name,
@@ -685,7 +808,12 @@ async function handleToolsCall<TContext>(
         code: JSONRPC_INVALID_PARAMS,
         message:
           `Unknown tool ${JSON.stringify(params.name)}. Known tools: ` +
-          `${exposed.map((entry) => mcpToolName(entry.name)).join(", ") || "(none)"}.`,
+          `${
+            projection.exposed
+              .filter((entry) => isToolVisible(entry, options))
+              .map((entry) => mcpToolName(entry.name))
+              .join(", ") || "(none)"
+          }.`,
       },
     });
   }

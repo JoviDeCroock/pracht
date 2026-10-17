@@ -591,7 +591,7 @@ export function extractCapabilityProjection(
     webmcp,
     webmcpUntrustedContent,
     inputSchema,
-    mcp: expose.mcp === true,
+    mcp: expose.mcp === true || isPlainObject(expose.mcp),
     ...readGuardProperties(properties, truncated),
   };
 }

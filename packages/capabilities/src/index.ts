@@ -17,6 +17,7 @@ export type {
   CapabilityRunArgs,
   CapabilityValidationResult,
   CapabilityValidation,
+  CapabilityMcpOptions,
   CapabilityWebmcpOptions,
   WaitUntil,
 } from "./capability.ts";

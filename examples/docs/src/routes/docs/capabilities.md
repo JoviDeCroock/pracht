@@ -361,7 +361,7 @@ POST /mcp
 
 Validation, middleware, `agentPolicy`, and auditing are identical across HTTP, WebMCP, and MCP. Nested `invokeCapability()` calls under MCP are [guarded](/docs/agent-trust#remote-mcp-composition-is-guarded): they re-apply the callee's `agentPolicy` and refuse unconfirmed destructive callees.
 
-The endpoint is stateless (no sessions or server→client streams), so it runs unchanged on the Node, Cloudflare, Netlify, and Vercel adapters.
+The endpoint is stateless (no sessions or server→client streams), so it runs unchanged on every serverful adapter.
 
 ### What an Agent Sees
 
@@ -382,11 +382,13 @@ The endpoint is stateless (no sessions or server→client streams), so it runs u
 }
 ```
 
-Annotations are UX hints; the server enforces the effect class. `write` capabilities omit `destructiveHint`, and `destructive` ones set it to `true`.
+Annotations are UX hints; the server enforces the effect class.
+
+`tools/list` returns 100 tools per page (`agents.mcp.pageSize`) and a `nextCursor` while more remain.
 
 Dots in names become underscores: `notes.search` becomes `notes_search`. Names that collide after that mapping, or exceed 64 characters, fail `pracht verify`, and the endpoint answers every call with an error until you rename them.
 
-Results carry both the validated output and a text rendering, for hosts that only read text:
+Results carry the validated output and a text rendering:
 
 ```jsonc
 {
@@ -543,7 +545,9 @@ WWW-Authenticate: Bearer error="invalid_token",
   scope="notes.read"
 ```
 
-`resource_metadata` tells a new host which authorization server to use. The check runs before the JSON-RPC body is parsed, so an unauthenticated caller learns nothing about your tools.
+With `expose: { mcp: { scopes: ["notes.write"] } }`, only tokens carrying those scopes see the tool; calling it without them returns the `403` challenge. Scoped tools need `auth`.
+
+`resource_metadata` tells a new host which authorization server to use. Unauthenticated callers learn nothing about your tools.
 
 #### Writing `verify`
 
@@ -570,7 +574,7 @@ const verify: McpTokenVerifier = async (token) => {
 export default verify;
 ```
 
-`jose` runs on Workers and Vercel Edge, but any library or an introspection call works too.
+Any JWT library or an introspection call works.
 
 The hook fails closed with `401 invalid_token`, and a `verify` module that fails to load makes inspection report the endpoint `blocked`. The second argument holds a readable `request` clone.
 
