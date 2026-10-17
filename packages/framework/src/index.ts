@@ -438,6 +438,8 @@ export type {
   ISGManifestEntry,
   PrerenderAppOptions,
   PrerenderAppResult,
+  PrerenderPageInfo,
+  PrerenderPath,
   PrerenderedMarkdown,
   PrerenderMarkdownOptions,
   PrerenderResult,

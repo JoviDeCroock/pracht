@@ -59,6 +59,14 @@ test("pracht build emits a deployable Node server entry", async () => {
       JSON.parse(readFileSync(resolve(exampleDir, "dist/client/_pracht/markdown.json"), "utf-8")),
     ).toEqual(markdownManifest);
 
+    // Pages share header sets, so the manifest stores each once and the
+    // server below still answers every page with its own headers.
+    const headersManifest = JSON.parse(
+      readFileSync(resolve(exampleDir, "dist/server/headers-manifest.json"), "utf-8"),
+    );
+    expect(headersManifest.version).toBe(2);
+    expect(headersManifest.sets.length).toBeLessThan(Object.keys(headersManifest.paths).length);
+
     const serverSource = readFileSync(serverEntryPath, "utf-8");
     expect(serverSource).toContain('buildTarget = "node"');
     expect(serverSource).toContain("createNodeRequestHandler");

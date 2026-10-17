@@ -49,7 +49,8 @@ export function Component({ data }) {
 ```
 
 The build runs the loader and renderer for each returned path, 10 at a time by
-default (`pracht({ prerenderConcurrency })`).
+default (`pracht({ prerenderConcurrency })`), and writes each page to disk as
+soon as it renders, so build memory does not grow with the HTML of the whole site.
 
 With a serverful adapter, a path that prerenders a redirect or 4xx is skipped
 with a warning and rendered live instead. A 5xx fails the build, and so does a

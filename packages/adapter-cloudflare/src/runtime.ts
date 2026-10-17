@@ -1,4 +1,4 @@
-import { applyHeadersManifest } from "@pracht/core/server";
+import { applyHeadersManifest, type SharedHeadersManifest } from "@pracht/core/server";
 import {
   applyDefaultSecurityHeaders,
   createBaseRedirectResponse,
@@ -38,7 +38,7 @@ import {
   resolveWorkersCacheOptions,
 } from "./cache.ts";
 
-type HeadersManifest = Record<string, Record<string, string>>;
+type HeadersManifest = Record<string, Record<string, string>> | SharedHeadersManifest;
 type ISGManifest = Record<string, ISGManifestEntry>;
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";

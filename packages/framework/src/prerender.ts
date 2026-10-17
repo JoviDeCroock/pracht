@@ -45,6 +45,20 @@ export interface ISGManifestEntry {
   generatedAt?: number;
 }
 
+/** A path `prerenderApp()` is about to render. */
+export interface PrerenderPath {
+  path: string;
+  render: string;
+}
+
+/** What `onPage` learns about a page besides its output. */
+export interface PrerenderPageInfo {
+  /** The page's position in the render order `onPaths` received. */
+  index: number;
+  /** The page's ISG manifest entry, for an ISG route. */
+  isg?: ISGManifestEntry;
+}
+
 export interface PrerenderAppResult {
   pages: PrerenderResult[];
   isgManifest: Record<string, ISGManifestEntry>;
@@ -71,6 +85,18 @@ export interface PrerenderAppOptions {
   jsManifest?: Record<string, string[]>;
   /** Maximum number of pages rendered concurrently. Defaults to 10. */
   concurrency?: number;
+  /**
+   * Called once with every path about to be rendered, before the first render
+   * starts — the place to reject output paths before anything is written.
+   */
+  onPaths?: (paths: readonly PrerenderPath[]) => void | Promise<void>;
+  /**
+   * Receives each page as soon as it has rendered, in completion order. Pages
+   * handed to it are not kept: the result's `pages` is then empty, so a build
+   * can write each one out and hold none of the site's HTML in memory. A
+   * rejection stops the prerender and is rethrown once in-flight pages settle.
+   */
+  onPage?: (page: PrerenderResult, info: PrerenderPageInfo) => void | Promise<void>;
   /**
    * Static-export mode (`@pracht/adapter-static`): additionally prerender
    * loaderless `render: "spa"` routes (their shell document), and capture SSG
@@ -135,16 +161,11 @@ export async function prerenderMarkdown(
   const waitUntil = (task: Promise<unknown>) => {
     backgroundWork.push(task);
   };
-  const results: PrerenderedMarkdown[] = [];
+  const results: PrerenderedMarkdown[] = Array.from({ length: options.paths.length });
   try {
-    for (let i = 0; i < options.paths.length; i += concurrency) {
-      const batch = options.paths.slice(i, i + concurrency);
-      results.push(
-        ...(await Promise.all(
-          batch.map((pagePath) => prerenderMarkdownPage(options, pagePath, waitUntil)),
-        )),
-      );
-    }
+    await runPool(options.paths.length, concurrency, async (index) => {
+      results[index] = await prerenderMarkdownPage(options, options.paths[index]!, waitUntil);
+    });
   } finally {
     while (backgroundWork.length > 0) {
       await Promise.allSettled(backgroundWork.splice(0));
@@ -199,14 +220,13 @@ async function prerenderAppPages(
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<PrerenderResult[] | PrerenderAppResult> {
   const resolved = resolveApp(options.app);
-  const results: PrerenderResult[] = [];
   const isgManifest: Record<string, ISGManifestEntry> = {};
   const generatedAt = Date.now();
   let failedPrerenders = 0;
   let firstPrerenderError: unknown;
   let firstPrerenderPath: string | undefined;
 
-  // Collect all work items first, then render in parallel batches
+  // Collect all work items first, then render them through a bounded pool
   const work: {
     pathname: string;
     render: string;
@@ -236,182 +256,195 @@ async function prerenderAppPages(
     throw new Error("prerenderApp({ concurrency }) expects a positive integer.");
   }
 
-  for (let i = 0; i < work.length; i += concurrency) {
-    const batch = work.slice(i, i + concurrency);
-    const batchResults = await Promise.all(
-      batch.map(async (item) => {
-        // Work items are route paths; the request is the URL a visitor would
-        // ask for, base included. `handlePrachtRequest` strips the base back
-        // off for matching, and the serialized hydration state then carries
-        // the same URL shape a client-side navigation produces — including
-        // the `pracht({ trailingSlash })` spelling, which a non-canonical
-        // request would answer with a redirect instead of the page.
-        const url = new URL(withBase(applyTrailingSlash(item.pathname)), "http://localhost");
-        const request = new Request(url, { method: "GET" });
+  await options.onPaths?.(work.map((item) => ({ path: item.pathname, render: item.render })));
 
-        // The rendered response hides server error details (that is the right
-        // default for a served page), so capture the raw throw for the build
-        // error below.
-        let renderError: unknown;
-        const [response, routeModule] = await Promise.all([
-          handlePrachtRequest({
-            app: options.app,
-            request,
-            registry: options.registry,
-            clientEntryUrl: options.clientEntryUrl,
-            islandsEntryUrl: options.islandsEntryUrl,
-            islandsBootstrapRequired: options.islandsBootstrapRequired,
-            apiRoutes: options.apiRoutes,
-            cssManifest: options.cssManifest,
-            cssContentManifest: options.cssContentManifest,
-            jsManifest: options.jsManifest,
-            waitUntil,
-            onRouteError: (error, requestPath, context) => {
-              if (reportBackgroundFailure(error, requestPath, context)) return;
-              renderError = error;
-            },
-          }),
-          resolveRegistryModule<RouteModule>(options.registry?.routeModules, item.route.file),
-        ]);
+  // Without `onPage`, pages are returned in render order; with it, none are
+  // kept. ISG entries are recorded by position so the manifest's key order
+  // does not depend on which page finished first.
+  const pages: (PrerenderResult | undefined)[] = [];
+  const isgEntries: (ISGManifestEntry | undefined)[] = [];
 
-        if (response.status !== 200) {
-          if (options.staticExport === true) {
-            const location = response.headers.get("location");
-            const redirectDetail = location ? ` (redirect: ${location})` : "";
-            throw new Error(
-              `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}": ` +
-                `document request returned status ${response.status}${redirectDetail}. ` +
-                "A static build cannot preserve request-time redirects or failures; make the loader succeed at build time or use a serverful adapter." +
-                describeRenderError(renderError, options.app.loaderTimeoutMs),
-              renderError === undefined ? undefined : { cause: renderError },
-            );
-          }
-          // A 5xx is never a routing decision. Skipping it ships a build whose
-          // pages fall back to a live render that fails the same way for every
-          // visitor — a broken middleware module turns the whole app into 500s
-          // behind a green build.
-          if (response.status >= 500) {
-            throw new Error(
-              `Failed to prerender ${item.render.toUpperCase()} route "${item.pathname}": ` +
-                `document request returned status ${response.status}. ` +
-                "Fix the loader, shell, or middleware that failed — the route would otherwise " +
-                "fall back to a live render and return the same error to every visitor." +
-                describeRenderError(renderError, options.app.loaderTimeoutMs),
-              renderError === undefined ? undefined : { cause: renderError },
-            );
-          }
-          console.warn(
-            `  Warning: ${item.render.toUpperCase()} route "${item.pathname}" returned status ${response.status}, skipping.`,
-          );
-          failedPrerenders++;
-          if (firstPrerenderError === undefined && renderError !== undefined) {
-            firstPrerenderError = renderError;
-            firstPrerenderPath = item.pathname;
-          }
-          return null;
-        }
+  const renderPage = async (item: (typeof work)[number]) => {
+    // Work items are route paths; the request is the URL a visitor would
+    // ask for, base included. `handlePrachtRequest` strips the base back
+    // off for matching, and the serialized hydration state then carries
+    // the same URL shape a client-side navigation produces — including
+    // the `pracht({ trailingSlash })` spelling, which a non-canonical
+    // request would answer with a redirect instead of the page.
+    const url = new URL(withBase(applyTrailingSlash(item.pathname)), "http://localhost");
+    const request = new Request(url, { method: "GET" });
 
-        if (options.staticExport === true) {
-          const contentType = response.headers.get("content-type") ?? "";
-          if (!contentType.toLowerCase().includes("text/html")) {
-            throw new Error(
-              `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}" as HTML ` +
-                `(content-type: ${contentType || "missing"}). Page loaders must return serializable data instead of a successful non-HTML Response.`,
-            );
-          }
-        }
-
-        assertSafePrerenderHeaders(response.headers, item);
-
-        const html = await response.text();
-
-        // Static exports serialize SSG loader payloads to static JSON files so
-        // client-side navigation can fetch it without a server. Rendering the
-        // same request with the route-state header keeps the payload
-        // byte-identical to what the live endpoint would answer. Islands and
-        // no-hydration routes are skipped: they never load the client router,
-        // so nothing ever fetches their state.
-        let routeState: string | undefined;
-        if (
-          options.staticExport === true &&
-          item.route.hydration !== "islands" &&
-          item.route.hydration !== "none" &&
-          (routeNeedsServerFetch(item.route) || routeNeedsShellData(item.route, false))
-        ) {
-          let stateError: unknown;
-          const stateResponse = await handlePrachtRequest({
-            app: options.app,
-            request: new Request(url, {
-              method: "GET",
-              headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
-            }),
-            registry: options.registry,
-            waitUntil,
-            onRouteError: (error, requestPath, context) => {
-              if (reportBackgroundFailure(error, requestPath, context)) return;
-              stateError = error;
-            },
-          });
-          if (stateResponse.status === 200) {
-            routeState = await stateResponse.text();
-            try {
-              const parsed = JSON.parse(routeState) as unknown;
-              if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-                throw new Error("expected a JSON object");
-              }
-            } catch {
-              throw new Error(
-                `Static export failed to serialize route state for "${item.pathname}": ` +
-                  "route-state request returned invalid JSON. " +
-                  "Page loaders must return serializable data instead of a custom route-state Response.",
-              );
-            }
-          } else {
-            if (options.staticExport === true) {
-              const location = stateResponse.headers.get("location");
-              const redirectDetail = location ? ` (redirect: ${location})` : "";
-              throw new Error(
-                `Static export failed to serialize route state for "${item.pathname}": ` +
-                  `route-state request returned status ${stateResponse.status}${redirectDetail}. ` +
-                  "Make the loader succeed at build time or use a serverful adapter." +
-                  describeRenderError(stateError, options.app.loaderTimeoutMs),
-                stateError === undefined ? undefined : { cause: stateError },
-              );
-            }
-            console.warn(
-              `  Warning: route-state render for "${item.pathname}" returned status ${stateResponse.status}; no static state file will be written.`,
-            );
-          }
-        }
-
-        return {
-          headers: Object.fromEntries(response.headers),
-          html,
-          item,
-          markdown: hasMarkdownRepresentation(item.route, routeModule),
-          routeState,
-        };
+    // The rendered response hides server error details (that is the right
+    // default for a served page), so capture the raw throw for the build
+    // error below.
+    let renderError: unknown;
+    const [response, routeModule] = await Promise.all([
+      handlePrachtRequest({
+        app: options.app,
+        request,
+        registry: options.registry,
+        clientEntryUrl: options.clientEntryUrl,
+        islandsEntryUrl: options.islandsEntryUrl,
+        islandsBootstrapRequired: options.islandsBootstrapRequired,
+        apiRoutes: options.apiRoutes,
+        cssManifest: options.cssManifest,
+        cssContentManifest: options.cssContentManifest,
+        jsManifest: options.jsManifest,
+        waitUntil,
+        onRouteError: (error, requestPath, context) => {
+          if (reportBackgroundFailure(error, requestPath, context)) return;
+          renderError = error;
+        },
       }),
-    );
+      resolveRegistryModule<RouteModule>(options.registry?.routeModules, item.route.file),
+    ]);
 
-    for (const result of batchResults) {
-      if (!result) continue;
-      results.push({
-        path: result.item.pathname,
-        html: result.html,
-        headers: result.headers,
-        markdown: result.markdown,
-        ...(result.routeState !== undefined ? { routeState: result.routeState } : {}),
-        ...(result.item.render === "spa" ? { spa: true } : {}),
-      });
-      if (result.item.render === "isg" && result.item.revalidate) {
-        isgManifest[result.item.pathname] = {
-          generatedAt,
-          revalidate: result.item.revalidate,
-        };
+    if (response.status !== 200) {
+      if (options.staticExport === true) {
+        const location = response.headers.get("location");
+        const redirectDetail = location ? ` (redirect: ${location})` : "";
+        throw new Error(
+          `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}": ` +
+            `document request returned status ${response.status}${redirectDetail}. ` +
+            "A static build cannot preserve request-time redirects or failures; make the loader succeed at build time or use a serverful adapter." +
+            describeRenderError(renderError, options.app.loaderTimeoutMs),
+          renderError === undefined ? undefined : { cause: renderError },
+        );
+      }
+      // A 5xx is never a routing decision. Skipping it ships a build whose
+      // pages fall back to a live render that fails the same way for every
+      // visitor — a broken middleware module turns the whole app into 500s
+      // behind a green build.
+      if (response.status >= 500) {
+        throw new Error(
+          `Failed to prerender ${item.render.toUpperCase()} route "${item.pathname}": ` +
+            `document request returned status ${response.status}. ` +
+            "Fix the loader, shell, or middleware that failed — the route would otherwise " +
+            "fall back to a live render and return the same error to every visitor." +
+            describeRenderError(renderError, options.app.loaderTimeoutMs),
+          renderError === undefined ? undefined : { cause: renderError },
+        );
+      }
+      console.warn(
+        `  Warning: ${item.render.toUpperCase()} route "${item.pathname}" returned status ${response.status}, skipping.`,
+      );
+      failedPrerenders++;
+      if (firstPrerenderError === undefined && renderError !== undefined) {
+        firstPrerenderError = renderError;
+        firstPrerenderPath = item.pathname;
+      }
+      return null;
+    }
+
+    if (options.staticExport === true) {
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.toLowerCase().includes("text/html")) {
+        throw new Error(
+          `Static export failed to render ${item.render.toUpperCase()} route "${item.pathname}" as HTML ` +
+            `(content-type: ${contentType || "missing"}). Page loaders must return serializable data instead of a successful non-HTML Response.`,
+        );
       }
     }
+
+    assertSafePrerenderHeaders(response.headers, item);
+
+    const html = await response.text();
+
+    // Static exports serialize SSG loader payloads to static JSON files so
+    // client-side navigation can fetch it without a server. Rendering the
+    // same request with the route-state header keeps the payload
+    // byte-identical to what the live endpoint would answer. Islands and
+    // no-hydration routes are skipped: they never load the client router,
+    // so nothing ever fetches their state.
+    let routeState: string | undefined;
+    if (
+      options.staticExport === true &&
+      item.route.hydration !== "islands" &&
+      item.route.hydration !== "none" &&
+      (routeNeedsServerFetch(item.route) || routeNeedsShellData(item.route, false))
+    ) {
+      let stateError: unknown;
+      const stateResponse = await handlePrachtRequest({
+        app: options.app,
+        request: new Request(url, {
+          method: "GET",
+          headers: { [ROUTE_STATE_REQUEST_HEADER]: "1" },
+        }),
+        registry: options.registry,
+        waitUntil,
+        onRouteError: (error, requestPath, context) => {
+          if (reportBackgroundFailure(error, requestPath, context)) return;
+          stateError = error;
+        },
+      });
+      if (stateResponse.status === 200) {
+        routeState = await stateResponse.text();
+        try {
+          const parsed = JSON.parse(routeState) as unknown;
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("expected a JSON object");
+          }
+        } catch {
+          throw new Error(
+            `Static export failed to serialize route state for "${item.pathname}": ` +
+              "route-state request returned invalid JSON. " +
+              "Page loaders must return serializable data instead of a custom route-state Response.",
+          );
+        }
+      } else {
+        if (options.staticExport === true) {
+          const location = stateResponse.headers.get("location");
+          const redirectDetail = location ? ` (redirect: ${location})` : "";
+          throw new Error(
+            `Static export failed to serialize route state for "${item.pathname}": ` +
+              `route-state request returned status ${stateResponse.status}${redirectDetail}. ` +
+              "Make the loader succeed at build time or use a serverful adapter." +
+              describeRenderError(stateError, options.app.loaderTimeoutMs),
+            stateError === undefined ? undefined : { cause: stateError },
+          );
+        }
+        console.warn(
+          `  Warning: route-state render for "${item.pathname}" returned status ${stateResponse.status}; no static state file will be written.`,
+        );
+      }
+    }
+
+    return {
+      headers: Object.fromEntries(response.headers),
+      html,
+      item,
+      markdown: hasMarkdownRepresentation(item.route, routeModule),
+      routeState,
+    };
+  };
+
+  await runPool(work.length, concurrency, async (index) => {
+    const result = await renderPage(work[index]!);
+    if (!result) return;
+    const page: PrerenderResult = {
+      path: result.item.pathname,
+      html: result.html,
+      headers: result.headers,
+      markdown: result.markdown,
+      ...(result.routeState !== undefined ? { routeState: result.routeState } : {}),
+      ...(result.item.render === "spa" ? { spa: true } : {}),
+    };
+    const isg =
+      result.item.render === "isg" && result.item.revalidate
+        ? { generatedAt, revalidate: result.item.revalidate }
+        : undefined;
+    isgEntries[index] = isg;
+    if (options.onPage) {
+      await options.onPage(page, { index, ...(isg ? { isg } : {}) });
+    } else {
+      pages[index] = page;
+    }
+  });
+
+  for (const [index, entry] of isgEntries.entries()) {
+    if (entry) isgManifest[work[index]!.pathname] = entry;
   }
+  const results = pages.filter((page): page is PrerenderResult => page !== undefined);
 
   if (work.length > 0 && failedPrerenders === work.length) {
     const noun = failedPrerenders === 1 ? "render" : "renders";
@@ -431,6 +464,32 @@ async function prerenderAppPages(
   }
 
   return results;
+}
+
+/**
+ * Run `task(0)` … `task(count - 1)` with at most `concurrency` in flight,
+ * starting the next as soon as any finishes. After the first failure no new
+ * task starts; the error is rethrown once the ones already running settle, so
+ * nothing they do outlives the call.
+ */
+async function runPool(
+  count: number,
+  concurrency: number,
+  task: (index: number) => Promise<void>,
+): Promise<void> {
+  const state: { next: number; failure?: { error: unknown } } = { next: 0 };
+  const worker = async () => {
+    while (state.failure === undefined && state.next < count) {
+      const index = state.next++;
+      try {
+        await task(index);
+      } catch (error) {
+        state.failure ??= { error };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, count) }, worker));
+  if (state.failure) throw state.failure.error;
 }
 
 /**
