@@ -201,10 +201,9 @@ const FEATURES: { Icon: Icon; title: string; desc: string }[] = [
 /**
  * Gzipped client JavaScript a cold page load fetches, per hydration mode.
  *
- * These are the `coldGzipBytes` figures recorded in `bench/baseline.json` and
- * re-measured by `pnpm bench`. Update both together — CI fails the bundle-size
- * job when the harness and its baseline disagree, but nothing checks that this
- * page agrees with either.
+ * These are the `coldGzipBytes` figures recorded in `bench/baseline.json`.
+ * `pnpm bench:update` rewrites them (see `bench/published-numbers.mjs`), and a
+ * unit test fails when they disagree with the baseline — do not edit by hand.
  */
 const LADDER: { mode: string; kb: string; bytes: number; desc: string }[] = [
   {
