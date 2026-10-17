@@ -213,7 +213,8 @@ that manifest.
   identities are per process and host, so ISG is supported on one instance.
   Static and ISG files are
   streamed, and static responses support `ETag` / `Last-Modified` conditional
-  revalidation.
+  revalidation and single byte ranges (`206`, `416`, `If-Range` by date;
+  multi-range requests get the whole file).
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
   `<link>` tags into server-rendered HTML.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
