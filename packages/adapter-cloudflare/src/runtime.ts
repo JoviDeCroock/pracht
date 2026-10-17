@@ -52,6 +52,9 @@ const ISG_CACHE_ENTRY_CACHE_CONTROL = "public, max-age=31536000";
 // the same policy the build-time asset and the Node adapter send.
 const ISG_BROWSER_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 
+// Cache API key parameter naming the build an ISG entry belongs to.
+const ISG_CACHE_KEY_BUILD_PARAM = "__pracht_build";
+
 // Module-level so it survives across requests within an isolate even though
 // the generated worker entry creates a fresh fetch handler per request.
 // Collapses concurrent regenerations of the same path into one render.
@@ -388,7 +391,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   if (!entry) return null;
 
   const cache = getDefaultCache();
-  const cacheKey = createISGCacheKey(request, pathname);
+  const cacheKey = createISGCacheKey(request, pathname, entry);
   const cached = cache ? await cache.match(cacheKey) : undefined;
   if (cached) {
     // The assets binding's `html_handling` canonicalizes the spelling of every
@@ -477,7 +480,7 @@ async function handleCloudflareRevalidationEndpoint(
         continue;
       }
 
-      const cacheKey = createISGCacheKey(request, pathname);
+      const cacheKey = createISGCacheKey(request, pathname, entry);
       // A failed regeneration keeps the existing cached copy and is reported
       // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
@@ -574,10 +577,19 @@ function isDocumentAssetRequest(
   return !wantsRouteMarkdown(request, markdownManifest, url.pathname);
 }
 
-function createISGCacheKey(request: Request, pathname: string): Request {
+/**
+ * The Cache API entry for an ISG page of this build. `caches.default` outlives
+ * a deploy, so the key carries the build's prerender timestamp: a new version
+ * never reads a page the previous one rendered against its own asset hashes.
+ * A rollback reads the entries its version wrote.
+ */
+function createISGCacheKey(request: Request, pathname: string, entry: ISGManifestEntry): Request {
   const url = new URL(pathname, request.url);
   url.search = "";
   url.hash = "";
+  if (typeof entry.generatedAt === "number" && Number.isFinite(entry.generatedAt)) {
+    url.searchParams.set(ISG_CACHE_KEY_BUILD_PARAM, String(entry.generatedAt));
+  }
   return new Request(url, {
     method: "GET",
     headers: { accept: "text/html" },
