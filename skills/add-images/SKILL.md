@@ -179,6 +179,10 @@ no further configuration. The endpoint negotiates WebP via `Accept` (pass
 `formats: ["image/avif", "image/webp"]` for AVIF), never enlarges beyond the
 source, passes SVG/GIF through, and answers
 `Cache-Control: public, max-age=14400, must-revalidate` with `Vary: Accept`.
+It drops the query string from relative image files (`/hero.png?v=2` →
+`/hero.png`), so if the app cache-busts with a query parameter, keep it with
+`sourceQueryParams: ["v"]`. It also caches results in memory and encodes at
+most four at once (`cache`, `maxConcurrency`).
 
 ## Step 7: Verify
 

@@ -289,10 +289,23 @@ configuration is needed.
   Redirects use manual handling and every destination is validated before the
   next request is sent.
 - **Width allowlist.** Only widths from the default breakpoint lists are
-  served (reject otherwise), so callers cannot fill your cache with arbitrary
-  variants. Pass `allowedWidths` when you customize `deviceSizes`/
-  `imageSizes` via `configureImage()`, and `maxWidth` (default 3840) caps
-  everything.
+  served (reject otherwise). Pass `allowedWidths` when you customize
+  `deviceSizes`/`imageSizes` via `configureImage()`, and `maxWidth` (default
+  3840) caps everything.
+- **Source query normalization.** A relative source whose path ends in an
+  image extension (`/hero.png?bust=1`) loses every query parameter not listed
+  in `sourceQueryParams` (default none) before it is fetched or used as a
+  cache key — a static file ignores its query, so the bytes are the same.
+  Extensionless relative sources (an API route drawing an image) and remote
+  sources keep their query. Together with the width allowlist and the 1–100
+  quality range, this bounds the variants a caller can mint per local file.
+- **Work bounds.** At most `maxConcurrency` (default 4) requests fetch and
+  encode at once; up to 64 more wait, and the rest get `503` with
+  `Retry-After: 1`. Successful results are kept in an in-process LRU (`cache`,
+  default 50 MiB for 3600 s, keyed on source URL + width + quality +
+  negotiated format), so repeated URLs skip the fetch and the encode. The
+  cache is off when `cacheControl` contains `private`, `no-store`, or
+  `no-cache`, because it is shared by every caller.
 - Source responses must be `image/*` and are capped at 25 MiB
   (`maxSourceBytes`).
 
@@ -308,6 +321,9 @@ createImageHandler({
   cacheControl: "public, max-age=14400, must-revalidate",
   maxSourceBytes: 25 * 1024 * 1024,
   maxRedirects: 3,
+  sourceQueryParams: ["v"],
+  cache: { maxBytes: 50 * 1024 * 1024, maxAge: 3600 },
+  maxConcurrency: 4,
 });
 ```
 
