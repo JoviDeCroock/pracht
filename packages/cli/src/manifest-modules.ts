@@ -11,7 +11,12 @@ interface ManifestRouteRecord {
 }
 
 interface ServerModuleShape {
-  resolvedApp?: { routes?: ManifestRouteRecord[]; notFound?: ManifestRouteRecord };
+  resolvedApp?: {
+    routes?: ManifestRouteRecord[];
+    notFound?: ManifestRouteRecord;
+    middleware?: Record<string, string>;
+    api?: { middleware?: string[] };
+  };
   registry?: {
     routeModules?: ModuleMap;
     shellModules?: ModuleMap;
@@ -63,6 +68,18 @@ export async function findUnresolvedManifestModules(
     await check(label, registry.shellModules, "shell", record.shellFile);
     for (const file of new Set(record.middlewareFiles ?? [])) {
       await check(label, registry.middlewareModules, "middleware", file);
+    }
+  }
+  // API routes run `api.middleware` by name, skipping names nothing declares.
+  for (const name of new Set(app.api?.middleware ?? [])) {
+    const file = app.middleware?.[name];
+    if (typeof file === "string") {
+      await check(
+        `api middleware ${JSON.stringify(name)}`,
+        registry.middlewareModules,
+        "module",
+        file,
+      );
     }
   }
   return [...new Set(problems)];

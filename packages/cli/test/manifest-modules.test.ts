@@ -73,6 +73,21 @@ describe("findUnresolvedManifestModules", () => {
     );
   });
 
+  it("checks the middleware API routes run, which no page route names", async () => {
+    const problems = await findUnresolvedManifestModules({
+      resolvedApp: {
+        routes: [{ id: "home", path: "/", file: "./routes/home.tsx" }],
+        middleware: { gate: "./guards/gone.ts", fine: "./middleware/fine.ts" },
+        api: { middleware: ["gate", "fine", "undeclared"] },
+      },
+      registry: {
+        routeModules: modules("/src/routes/home.tsx"),
+        middlewareModules: modules("/src/middleware/fine.ts"),
+      },
+    });
+    expect(problems).toEqual(['api middleware "gate": module "./guards/gone.ts"']);
+  });
+
   it("checks nothing when the server module carries no registry", async () => {
     expect(await findUnresolvedManifestModules({})).toEqual([]);
   });

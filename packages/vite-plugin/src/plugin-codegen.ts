@@ -356,22 +356,48 @@ function calleeName(value: unknown): string | null {
   return null;
 }
 
+/** Whether an object literal hides properties behind a spread or computed key. */
+function hasOpaqueProperties(value: unknown): boolean {
+  const node = unwrapStaticExpression(value);
+  if (node?.type !== "ObjectExpression") return true;
+  const properties = Array.isArray(node.properties) ? node.properties : [];
+  return properties.some((property) => staticPropertyName(property) === null);
+}
+
 /**
  * The refs a manifest module writes in a position the runtime reads a module
  * from. A ref held in a variable is not seen here; the build's registry check
  * reports it if the registry cannot serve it.
+ *
+ * Returns false when a route or shell ref position holds something other than
+ * a literal (`"./routes/" + name + ".tsx"`, a variable, a spread): the module
+ * it names cannot be known, so the scan must not be trusted to list them all.
  */
-function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManifestRefs): void {
-  const push = (list: string[], value: unknown): void => {
+function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManifestRefs): boolean {
+  let literal = true;
+  const push = (list: string[], value: unknown, required: boolean): void => {
     const ref = staticRefValue(value);
     if (ref !== null) list.push(ref);
+    else if (required) literal = false;
   };
   const readComponentConfig = (value: unknown): void => {
-    push(refs.routes, value);
-    for (const property of staticObjectProperties(value)) {
-      if (property.name === "component") push(refs.routes, property.value);
-      if (property.name === "loader") push(refs.loaders, property.value);
+    if (staticRefValue(value) !== null) {
+      push(refs.routes, value, true);
+      return;
     }
+    if (hasOpaqueProperties(value)) {
+      literal = false;
+      return;
+    }
+    let component = false;
+    for (const property of staticObjectProperties(value)) {
+      if (property.name === "component") {
+        component = true;
+        push(refs.routes, property.value, true);
+      }
+      if (property.name === "loader") push(refs.loaders, property.value, false);
+    }
+    if (!component) literal = false;
   };
 
   const walk = (value: unknown): void => {
@@ -384,15 +410,17 @@ function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManif
 
     if (node.type === "CallExpression" && calleeName(node.callee) === "route") {
       const args = Array.isArray(node.arguments) ? node.arguments : [];
-      readComponentConfig(args[1]);
+      if (args.some((arg) => asStaticProgramNode(arg)?.type === "SpreadElement")) literal = false;
+      else readComponentConfig(args[1]);
     } else if (node.type === "ObjectExpression") {
       for (const property of staticObjectProperties(node)) {
         if (property.name === "shells") {
+          if (hasOpaqueProperties(property.value)) literal = false;
           for (const shell of staticObjectProperties(property.value))
-            push(refs.shells, shell.value);
+            push(refs.shells, shell.value, true);
         } else if (property.name === "middleware") {
           for (const entry of staticObjectProperties(property.value))
-            push(refs.middleware, entry.value);
+            push(refs.middleware, entry.value, false);
         } else if (property.name === "notFound") {
           readComponentConfig(property.value);
         }
@@ -406,6 +434,7 @@ function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManif
   };
 
   walk(program.body);
+  return literal;
 }
 
 /** At most this many modules are read while following a manifest's imports. */
@@ -442,13 +471,16 @@ function resolveManifestImport(specifier: string, importer: string, root: string
  * wherever they are written — that is how the runtime reads them.
  *
  * `complete` is false as soon as a ref could live somewhere this scan cannot
- * see: an import specifier assembled at runtime, a local import that does not
- * resolve to a parseable module, or more imports than the scan follows.
+ * see: a route or shell ref that is not a literal, an import specifier
+ * assembled at runtime, a local import that does not resolve to a parseable
+ * module, or more imports than the scan follows.
  */
 interface ManifestScan {
   complete: boolean;
   strings: string[];
   refs: PositionalManifestRefs;
+  /** Absolute paths of the manifest and every local module the scan read. */
+  files: string[];
 }
 
 function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string): ManifestScan {
@@ -475,10 +507,10 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
     } catch {
       // An unreadable or unparseable manifest is the dev server's error to
       // report, not a reason to reorganize the bundle.
-      return { complete: false, strings, refs };
+      return { complete: false, strings, refs, files: [...seen] };
     }
     strings.push(...collected.strings);
-    collectPositionalRefs(program, refs);
+    if (!collectPositionalRefs(program, refs)) complete = false;
 
     for (const specifier of collected.localImports) {
       if (specifier === "") {
@@ -502,7 +534,20 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
     }
   }
 
-  return { complete, strings, refs };
+  return { complete, strings, refs, files: [...seen] };
+}
+
+/**
+ * The manifest and the local modules it imports, as absolute POSIX paths. An
+ * edit to any of them can change what the registries hold, so the dev server
+ * treats each like the manifest itself.
+ */
+export function collectManifestModuleFiles(
+  resolved: ResolvedPrachtPluginOptions,
+  root: string = process.cwd(),
+): string[] {
+  if (resolved.pagesDir) return [];
+  return scanManifestModules(resolved, root).files.map(toPosixPath);
 }
 
 /**
@@ -566,6 +611,20 @@ export interface ExternalManifestModules {
   shells: string[];
   middleware: string[];
   loaders: string[];
+}
+
+/**
+ * Registry entries for named files, keyed like `import.meta.glob` keys them.
+ * Explicit imports rather than a glob, so a file name holding glob syntax
+ * (`[id].tsx`) is taken literally.
+ */
+function externalRegistryEntries(
+  files: readonly string[],
+  specifierOf: (file: string) => string,
+): string[] {
+  return files.map(
+    (file) => `  ${JSON.stringify(file)}: () => import(${JSON.stringify(specifierOf(file))}),`,
+  );
 }
 
 export function collectExternalManifestModules(
@@ -715,20 +774,12 @@ export function createPrachtClientModuleSource(
   const external = isPagesMode
     ? { routes: [], shells: [] }
     : collectExternalManifestModules(resolved, buildOptions.root);
-  const externalGlobs = (files: string[], excludes: string[]): string[] => {
-    const bare = files.filter((file) => bareRouteExtensions.includes(extname(file)));
-    const queried = files.filter((file) => !bare.includes(file));
-    return [
-      ...(queried.length > 0
-        ? [
-            `  ...import.meta.glob(${JSON.stringify([...queried, ...excludes])}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
-          ]
-        : []),
-      ...(bare.length > 0
-        ? [`  ...import.meta.glob(${JSON.stringify([...bare, ...excludes])}),`]
-        : []),
-    ];
-  };
+  const externalGlobs = (files: string[], excludes: string[]): string[] =>
+    externalRegistryEntries(
+      files.filter((file) => !excludes.includes(`!${file}`)),
+      (file) =>
+        bareRouteExtensions.includes(extname(file)) ? file : `${file}${PRACHT_CLIENT_MODULE_QUERY}`,
+    );
 
   // Directory-scoped shells: every `_app` in the pages tree is registered, so
   // the glob walks subdirectories. `_reserved/**` helper trees stay excluded —
@@ -1498,25 +1549,50 @@ export function createRouteHintsForVirtualModules(
     staticPaths: {},
   };
 
-  for (const [prefix, directory] of directories) {
-    const scanned = createRouteHints(directory, {
-      additionalExtensions: options.additionalExtensions,
-      appFileDir,
-      rootRelativePrefix: prefix,
-    });
+  const merge = (scanned: RouteHints, isRoute: boolean, isShell: boolean): void => {
     hints.incomplete ||= scanned.incomplete;
     Object.assign(hints.head, scanned.head);
     Object.assign(hints.headers, scanned.headers);
     // Shells can own a loader too; only routes own `getStaticPaths()` and a
     // search schema.
     Object.assign(hints.loader, scanned.loader);
-    if (prefix === routesPrefix) {
+    if (isRoute) {
       Object.assign(hints.routeLoader, scanned.loader);
       Object.assign(hints.search, scanned.search);
       Object.assign(hints.staticPaths, scanned.staticPaths);
     }
-    if (prefix !== routesPrefix || prefix === options.shellsDir) {
-      hints.shellLoaders ||= Object.values(scanned.loader).includes(true);
+    if (isShell) hints.shellLoaders ||= Object.values(scanned.loader).includes(true);
+  };
+
+  for (const [prefix, directory] of directories) {
+    const scanned = createRouteHints(directory, {
+      additionalExtensions: options.additionalExtensions,
+      appFileDir,
+      rootRelativePrefix: prefix,
+    });
+    merge(
+      scanned,
+      prefix === routesPrefix,
+      prefix !== routesPrefix || prefix === options.shellsDir,
+    );
+  }
+
+  // Route and shell modules the manifest names outside those directories.
+  if (!options.pagesDir) {
+    const external = collectExternalManifestModules(options, root);
+    for (const [files, isRoute] of [
+      [external.routes, true],
+      [external.shells, false],
+    ] as const) {
+      for (const file of files) {
+        const scanned = createRouteHints(dirname(resolve(root, file.slice(1))), {
+          additionalExtensions: options.additionalExtensions,
+          appFileDir,
+          files: [resolve(root, file.slice(1))],
+          rootRelativePrefix: dirname(file),
+        });
+        merge(scanned, isRoute, !isRoute);
+      }
     }
   }
 
@@ -1636,7 +1712,7 @@ export function createPrachtRegistryModuleSource(
   // Modules the manifest names outside the globbed directories.
   const external = collectExternalManifestModules(resolved, buildOptions.root);
   const externalGlob = (files: string[]): string[] =>
-    files.length > 0 ? [`  ...import.meta.glob(${JSON.stringify(files)}),`] : [];
+    externalRegistryEntries(files, (file) => file);
 
   return [
     `export const routeModules = {`,

@@ -703,21 +703,27 @@ of its own.
 Refs are read out of the manifest file and the local modules it imports
 (followed up to 64 modules; every ref resolves against the manifest's
 directory, wherever it is written). When one could live somewhere the scan does
-not show — an import that does not resolve to a parseable module, or a
+not show — a route or shell ref that is not a literal (`"./routes/" + name`, a
+variable, a spread), an import that does not resolve to a parseable module, or a
 specifier built at runtime — the registry falls back to covering both
 directories whole, because dropping a module a route needs would break
-navigation to it. The pages router is unaffected either way: there the
-directory *is* the route list.
+navigation to it. In dev, an edit to any of those manifest modules regenerates
+the registries like an edit to `src/routes.ts`. The pages router is unaffected
+either way: there the directory *is* the route list.
 
 The registries are directory globs, so a module outside them is added
 explicitly when the manifest names it as a string literal (or
 `() => import("…")`) in a ref position: a `route()` component or `component:`,
 `notFound`, a `shells` entry, a `defineApp({ middleware })` entry, or a route
-`loader:`. Route and shell modules enter both the client and server registries
-(the client copy with `?pracht-client`, minus non-full-hydration routes);
-middleware and loader modules only the server's. After the server build,
-`pracht build` looks every resolved route, shell, `notFound`, and middleware
-file up in the built server registry with the runtime's own lookup and fails,
+`loader:`. Each gets a keyed `() => import()` entry, not a glob, so a name like
+`[id].tsx` is taken literally. Route and shell modules enter both the client and
+server registries (the client copy with `?pracht-client`, minus
+non-full-hydration routes), are stripped for the client wherever they are
+imported from, and are scanned for the build's route hints and feature switches
+like modules under `src/routes/`; middleware and loader modules enter only the
+server's. After the server build, `pracht build` looks every resolved route,
+shell, `notFound`, page and `api.middleware` file up in the built server
+registry with the runtime's own lookup and fails,
 naming each ref, when one matches nothing — those requests would 500.
 (`packages/vite-plugin/src/plugin-codegen.ts` `collectExternalManifestModules`,
 `packages/cli/src/manifest-modules.ts`.)

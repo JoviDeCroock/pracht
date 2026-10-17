@@ -10,6 +10,7 @@ import {
   collectManifestModuleRefs,
   createPrachtClientModuleSource,
   createPrachtRegistryModuleSource,
+  createRouteHintsForVirtualModules,
 } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
 
@@ -183,6 +184,42 @@ export const app = defineApp({
     expect(routeGlobPatterns(root)).not.toContain("!/src/routes/draft.tsx");
   });
 
+  it("leaves the registry alone when a route ref is not a literal", () => {
+    for (const ref of ['"./routes/" + name + ".tsx"', "`./routes/${name}.tsx`", "file"]) {
+      const root = project({
+        "src/routes.ts": `import { defineApp } from "@pracht/core";
+import { pages } from "./manifest/pages.ts";
+export const app = defineApp({ routes: pages });
+`,
+        "src/manifest/pages.ts": `import { route } from "@pracht/core";
+const file = "./routes/counter.tsx";
+export const pages = ["counter"].map((name) => route("/" + name, ${ref}));
+`,
+        "src/routes/counter.tsx": COMPONENT,
+      });
+
+      expect(collectManifestModuleRefs(resolveOptions({}), root).complete, ref).toBe(false);
+      expect(routeGlobPatterns(root)).not.toContain("!/src/routes/counter.tsx");
+    }
+  });
+
+  it("leaves the registry alone when a component or shell ref is not a literal", () => {
+    for (const manifest of [
+      'routes: [route("/", { component: COMPONENT_FILE })]',
+      'routes: [route("/", { ...config })]',
+      'shells: { ...SHELLS }, routes: [route("/", "./routes/home.tsx")]',
+      'shells: { side: SHELL_FILE }, routes: [route("/", "./routes/home.tsx")]',
+    ]) {
+      const root = project({
+        "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({ ${manifest} });
+`,
+        "src/routes/home.tsx": COMPONENT,
+      });
+      expect(collectManifestModuleRefs(resolveOptions({}), root).complete, manifest).toBe(false);
+    }
+  });
+
   it("reads a bare package import as no threat to the scan", () => {
     const root = project({
       "src/routes.ts": `import { defineApp, route } from "@pracht/core";
@@ -280,11 +317,16 @@ export const more = [route("/more", "./features/more.tsx", { id: "more", middlew
   it("registers route and shell modules in the client entry, minus non-hydrating routes", () => {
     const root = project(files);
     const source = createPrachtClientModuleSource({}, { root });
-    const patterns = routeGlobPatterns(root);
-    expect(patterns).toContain("/src/features/feature.tsx");
-    expect(patterns).toContain("/src/features/more.tsx");
-    expect(patterns).toContain("/src/layouts/side.tsx");
-    expect(patterns).toContain("!/src/features/static.tsx");
+    for (const file of [
+      "/src/features/feature.tsx",
+      "/src/features/more.tsx",
+      "/src/layouts/side.tsx",
+    ]) {
+      expect(source).toContain(
+        `${JSON.stringify(file)}: () => import(${JSON.stringify(`${file}?pracht-client`)}),`,
+      );
+    }
+    expect(source).not.toContain('import("/src/features/static.tsx');
     // Server-only modules never reach the browser registry.
     expect(source).not.toContain("/src/guards/gate.ts");
     expect(source).not.toContain("/src/data/load.ts");
@@ -302,6 +344,70 @@ export const more = [route("/more", "./features/more.tsx", { id: "more", middlew
     ]) {
       expect(source).toContain(JSON.stringify(file));
     }
+  });
+
+  it("takes a file name holding glob syntax literally", () => {
+    const root = project({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({ routes: [route("/:id", "./features/[id].tsx", { id: "item" })] });
+`,
+      "src/features/[id].tsx": COMPONENT,
+    });
+    const entry = '"/src/features/[id].tsx": () => import("/src/features/[id].tsx';
+    expect(createPrachtRegistryModuleSource({}, { root })).toContain(entry);
+    expect(createPrachtClientModuleSource({}, { root })).toContain(entry);
+  });
+
+  it("scans their exports for the build's feature switches", () => {
+    const root = project({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({
+  shells: { side: "./layouts/side.tsx" },
+  routes: [route("/", "./features/home.tsx", { id: "home", shell: "side" })],
+});
+`,
+      "src/features/home.tsx": `export const search = schema;\n${COMPONENT}`,
+      "src/layouts/side.tsx": `export async function loader() { return {}; }\n${SHELL}`,
+    });
+    const hints = createRouteHintsForVirtualModules(resolveOptions({}), root);
+    expect(hints.shellLoaders).toBe(true);
+    expect(hints.loader["./layouts/side.tsx"]).toBe(true);
+    expect(hints.search["./features/home.tsx"]).toBe(true);
+    expect(hints.search["/src/features/home.tsx"]).toBe(true);
+  });
+
+  it("regenerates the dev registries when a module the manifest imports changes", () => {
+    const root = project(files);
+    const plugin = pracht().find((candidate) => candidate.name === "pracht")!;
+    (plugin.configResolved as (config: unknown) => void).call(plugin, {
+      root,
+      command: "serve",
+      base: "/",
+      build: {},
+      plugins: [],
+    });
+    let restarts = 0;
+    const server = {
+      config: { root },
+      moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} },
+      restart: () => {
+        restarts += 1;
+      },
+      ws: { send: () => {} },
+    };
+    const hotUpdate = (file: string) =>
+      (plugin.handleHotUpdate as (context: unknown) => unknown).call(plugin, {
+        file,
+        modules: [],
+        server,
+      });
+
+    // A new route in this fragment can name a module the client registry left
+    // out, so the entry has to be rebuilt just as for `src/routes.ts`.
+    hotUpdate(join(root, "src/manifest/more.ts"));
+    expect(restarts).toBe(1);
+    hotUpdate(join(root, "src/features/feature.tsx"));
+    expect(restarts).toBe(1);
   });
 
   it("ignores a ref that names no file", () => {
