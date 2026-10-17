@@ -115,6 +115,40 @@ describe("islandsNavigationRoutes", () => {
     expect(patternsOverlap("-/a/b/c", "+/a/:rest*")).toBe(true);
     expect(patternsOverlap("-/", "+/")).toBe(true);
   });
+
+  it("keeps exactly the `-` entries some later `+` entry overlaps", () => {
+    const pool = ["a", "b", ":x", ":y", "*", ":rest*", "c"];
+    let seed = 1;
+    const random = (n: number) => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed % n;
+    };
+    for (let table = 0; table < 500; table += 1) {
+      const routes = [];
+      for (let index = 0, count = 1 + random(8); index < count; index += 1) {
+        const segments: string[] = [];
+        for (let depth = 0, length = random(4); depth < length; depth += 1) {
+          segments.push(pool[random(pool.length)]!);
+        }
+        routes.push(
+          route(`/${segments.join("/")}`, `./r${index}.tsx`, {
+            id: `r${index}`,
+            hydration: random(2) ? "islands" : "full",
+          }),
+        );
+      }
+      const app = resolveApp(defineApp({ routes }));
+      const all = app.routes.map(
+        (resolved) => `${resolved.hydration === "islands" ? "+" : "-"}${resolved.path}`,
+      );
+      const pairwise = all.filter(
+        (entry, index) =>
+          entry.startsWith("+") ||
+          all.slice(index + 1).some((later) => later[0] === "+" && patternsOverlap(entry, later)),
+      );
+      expect(islandsNavigationRoutes(app), all.join(" ")).toEqual(pairwise);
+    }
+  });
 });
 
 describe("policyFingerprint", () => {
