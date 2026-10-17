@@ -4,7 +4,7 @@ import {
   ISLANDS_NAVIGATION_OWNED_ATTRIBUTE,
 } from "./islands-shared.ts";
 import { HYDRATION_STATE_ELEMENT_ID } from "./runtime-constants.ts";
-import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
+import { applyHeaders, applySecurityAndRouteHeaders, ownResponse } from "./runtime-headers.ts";
 import type { PrachtHydrationState } from "./runtime-hooks.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
 import type { SpeculationRulesDocument } from "./runtime-speculation.ts";
@@ -391,7 +391,7 @@ function joinDocumentLines(parts: string[], indent: string): string {
 }
 
 export function htmlResponse(html: string, status = 200, initHeaders?: HeadersInit): Response {
-  return new Response(html, { status, headers: htmlResponseHeaders(initHeaders) });
+  return ownResponse(new Response(html, { status, headers: htmlResponseHeaders(initHeaders) }));
 }
 
 /** The headers `htmlResponse()` sends, for a document that has to describe them. */

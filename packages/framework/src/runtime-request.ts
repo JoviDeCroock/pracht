@@ -41,6 +41,7 @@ import {
   type RouteErrorContext,
 } from "./runtime-errors.ts";
 import {
+  isOwnResponse,
   withDefaultSecurityHeaders,
   withEnhancedCapabilityFormRedirect,
 } from "./runtime-headers.ts";
@@ -382,10 +383,10 @@ export function createRequestBudget(
  * - A failed request (status 400 and up) keeps it until it fires. Its loader
  *   may have left sibling work running, such as a deferred field next to the
  *   one that threw.
- * - A body the framework did not finish holds it until that body is read,
- *   errors, or is cancelled, so a stalled proxied stream still times out.
- *   Framework-streamed documents take their own hold instead, and keep the
- *   body adapters recognise them by.
+ * - A body the app built holds it until that body is read, errors, or is
+ *   cancelled, so a stalled proxied stream still times out. A body the
+ *   framework built is left alone: it is buffered, or it is a streamed document
+ *   that took its own hold and keeps the body adapters recognise it by.
  *
  * Nothing is wrapped when no signal was handed out: there is no timer then.
  */
@@ -398,6 +399,9 @@ export function releaseBudgetWith(budget: RequestBudget, response: Response): Re
   const body = response.body;
   if (
     !body ||
+    isOwnResponse(response) ||
+    // Middleware may re-wrap a streamed document; its body keeps the marker
+    // adapters stream by, and its own hold on the budget.
     isStreamingHtmlResponse(response) ||
     response.status === 101 ||
     (response as { webSocket?: unknown }).webSocket
