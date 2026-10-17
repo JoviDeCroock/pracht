@@ -58,6 +58,9 @@ export default defineCommand({
     );
 
     const routeTypes = createGeneratedRouteTypesSync(root);
+    // Set once the first banner prints. Vite keeps the URLs on a restart (and
+    // prints them itself when they change), so later banners reuse them.
+    let bannerUrls: { local: string[]; network: string[] } | null = null;
     const server = await createServer({
       cacheDir: args.cacheDir,
       // Vite re-creates the dev server (and its file watcher) on every
@@ -78,6 +81,19 @@ export default defineCommand({
                 if (dotEnvFiles.has(resolve(file))) dotEnv.load();
               });
             }
+            // A restart (a `routes.ts` edit, above all) can change every table
+            // in the banner, so print it again once the new server listens.
+            const restartedUrls = bannerUrls;
+            if (restartedUrls) {
+              devServer.httpServer?.once("listening", () => {
+                setTimeout(() => {
+                  void printDevBanner(devServer, root, restartedUrls).catch(() => {
+                    // A manifest that no longer loads is reported by the
+                    // error overlay; keep the restart log quiet.
+                  });
+                }, 0);
+              });
+            }
           },
         },
       ],
@@ -96,26 +112,9 @@ export default defineCommand({
     routeTypes.start();
 
     try {
-      const graph = await collectAppGraph(server, root, {
-        appFile: readProjectConfig(root).appFile,
-      });
       const urls = server.resolvedUrls ?? { local: [], network: [] };
-      console.log(
-        formatDevBanner({
-          apiRoutes: graph.api,
-          capabilities: graph.capabilities,
-          color: supportsColor(),
-          localUrls: urls.local,
-          mcpAuthenticated: graph.mcpAuthenticated,
-          mcpEndpoint: graph.mcpEndpoint ?? null,
-          mcpDestructive: graph.mcpDestructive === true,
-          mcpRuntimeStatus: graph.mcpRuntimeStatus,
-          mcpUnavailableReasons: graph.mcpUnavailableReasons,
-          networkUrls: urls.network,
-          notFound: graph.notFound,
-          routes: graph.routes,
-        }),
-      );
+      await printDevBanner(server, root, urls);
+      bannerUrls = urls;
       if (!watchesGeneratedRouteTypes) {
         console.log(
           "\n  Tip: run `pracht typegen` once to enable typed routes and `apiFetch()`; `pracht dev` will keep them in sync.\n",
@@ -128,6 +127,32 @@ export default defineCommand({
     }
   },
 });
+
+async function printDevBanner(
+  server: ViteDevServer,
+  root: string,
+  urls: { local: string[]; network: string[] },
+): Promise<void> {
+  const graph = await collectAppGraph(server, root, {
+    appFile: readProjectConfig(root).appFile,
+  });
+  console.log(
+    formatDevBanner({
+      apiRoutes: graph.api,
+      capabilities: graph.capabilities,
+      color: supportsColor(),
+      localUrls: urls.local,
+      mcpAuthenticated: graph.mcpAuthenticated,
+      mcpEndpoint: graph.mcpEndpoint ?? null,
+      mcpDestructive: graph.mcpDestructive === true,
+      mcpRuntimeStatus: graph.mcpRuntimeStatus,
+      mcpUnavailableReasons: graph.mcpUnavailableReasons,
+      networkUrls: urls.network,
+      notFound: graph.notFound,
+      routes: graph.routes,
+    }),
+  );
+}
 
 /**
  * Keep generated route types in sync while the dev server runs. Opt-in by

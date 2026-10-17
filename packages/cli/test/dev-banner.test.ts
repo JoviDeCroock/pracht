@@ -71,6 +71,47 @@ describe("formatDevBanner", () => {
     expect(home!.indexOf("public")).toBe(settings!.indexOf("app"));
   });
 
+  it("caps long route and API tables and says how many rows it left out", () => {
+    const manyRoutes = Array.from({ length: 1000 }, (_, index) => ({
+      middleware: [],
+      path: `/page-${index}`,
+      render: "ssr",
+      shell: "public",
+    }));
+    const manyApiRoutes = Array.from({ length: 40 }, (_, index) => ({
+      methods: ["GET"],
+      path: `/api/item-${index}`,
+    }));
+    const banner = formatDevBanner({
+      apiRoutes: manyApiRoutes,
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      notFound: { middleware: [], path: "(not found)", render: "ssr", shell: "public" },
+      routes: manyRoutes,
+    });
+
+    expect(banner).toContain("Routes (1000)");
+    expect(banner).toContain("/page-24");
+    expect(banner).not.toContain("/page-25");
+    expect(banner).toContain("(not found)");
+    expect(banner).toContain("… and 975 more (pracht inspect routes lists them all)");
+    expect(banner).toContain("API (40)");
+    expect(banner).not.toContain("/api/item-25");
+    expect(banner).toContain("… and 15 more (pracht inspect api lists them all)");
+    expect(banner.split("\n").length).toBeLessThan(80);
+  });
+
+  it("prints every row when the table fits under the cap", () => {
+    const banner = formatDevBanner({
+      apiRoutes,
+      color: false,
+      localUrls: ["http://localhost:3000/"],
+      routes,
+    });
+
+    expect(banner).not.toContain("more (pracht inspect");
+  });
+
   it("shows ssr as the effective mode when a route declares none", () => {
     const banner = formatDevBanner({
       apiRoutes: [],
