@@ -380,7 +380,7 @@ export const app = defineApp({
           <p class="ladder-note">
             Gzipped client JavaScript a cold load fetches, including the chunks the router imports
             after hydration. Your application code sits on top of this. Switching prefetching off
-            with <code>client: {"{ prefetch: false }"}</code> takes full hydration to 15.9 KB.
+            with <code>client: {"{ prefetch: false }"}</code> takes full hydration to 16.0 KB.
             Re-measure any of it with <code>pnpm bench</code> —{" "}
             <a href="/docs/performance">how these numbers are produced</a>.
           </p>

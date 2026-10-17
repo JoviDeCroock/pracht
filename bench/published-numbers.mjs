@@ -11,7 +11,9 @@
  * conflict in `baseline.json` alone. Each entry below names a file, a pattern
  * whose capture groups are the quoted numbers, and the baseline values they
  * must equal. A pattern that stops matching — a reworded sentence, a renamed
- * row — is reported rather than skipped.
+ * row — is reported rather than skipped, and so is one that matches twice or a
+ * file left with merge-conflict markers, since either would let a stale copy
+ * of a number survive the rewrite.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -35,6 +37,9 @@ const cold = (name) => (baseline) => kb(rung(baseline, name).coldGzipBytes);
 const raw = (name) => (baseline) => kb(rung(baseline, name).bytes);
 const coldBytes = (name) => (baseline) => String(rung(baseline, name).coldGzipBytes);
 const preactPin = (_baseline, rootPackage) => rootPackage.devDependencies.preact;
+
+/** A line git writes into a file it could not merge. */
+const CONFLICT_MARKER = /^(?:<{7}|>{7}) |^={7}$/m;
 
 /** Escapes a literal for use inside a pattern. */
 const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -103,6 +108,11 @@ export const PUBLISHED = [
     pattern: /0 KB on a static route, ([\d.]+) KB gzip fully hydrated/,
     values: [cold("hydration: full")],
   },
+  {
+    file: "examples/docs/src/routes/home.tsx",
+    pattern: /takes full hydration to ([\d.]+) KB/,
+    values: [cold("hydration: full, prefetch off")],
+  },
   homeLadder(`'hydration: "none"'`, "hydration: none"),
   homeLadder(`'hydration: "islands"'`, "hydration: islands"),
   homeLadder(`'hydration: "full"'`, "hydration: full"),
@@ -121,15 +131,28 @@ export function syncPublishedNumbers({ write = false, root = rootDir } = {}) {
 
   for (const entry of PUBLISHED) {
     if (!sources.has(entry.file)) {
-      sources.set(entry.file, readFileSync(join(root, entry.file), "utf8"));
+      const source = readFileSync(join(root, entry.file), "utf8");
+      if (CONFLICT_MARKER.test(source)) {
+        problems.push(`${entry.file}: has merge-conflict markers; resolve them first`);
+      }
+      sources.set(entry.file, source);
     }
     const source = sources.get(entry.file);
     // `d` records where each capture sits, so a rewrite touches only those.
-    const match = new RegExp(entry.pattern.source, `${entry.pattern.flags}d`).exec(source);
-    if (!match) {
+    const matches = [
+      ...source.matchAll(new RegExp(entry.pattern.source, `${entry.pattern.flags}dg`)),
+    ];
+    if (matches.length === 0) {
       problems.push(`${entry.file}: nothing matches ${entry.pattern}`);
       continue;
     }
+    if (matches.length > 1) {
+      problems.push(
+        `${entry.file}: ${entry.pattern} matches ${matches.length} times; quote it once`,
+      );
+      continue;
+    }
+    const [match] = matches;
 
     const expected = entry.values.map((value) => value(baseline, rootPackage));
     const quoted = match.slice(1);
@@ -152,7 +175,8 @@ export function syncPublishedNumbers({ write = false, root = rootDir } = {}) {
     sources.set(entry.file, rewritten + source.slice(cursor));
   }
 
-  if (write) {
+  // A problem means some quote could not be placed; write nothing until it is fixed.
+  if (write && problems.length === 0) {
     for (const [file, source] of sources) {
       if (source !== readFileSync(join(root, file), "utf8")) {
         writeFileSync(join(root, file), source);
@@ -170,7 +194,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     for (const problem of problems) console.error(`  ${problem}`);
     console.error(
       write
-        ? "\nThese patterns no longer match; update PUBLISHED in bench/published-numbers.mjs."
+        ? "\nFix these by hand (a reworded quote needs its pattern updated in PUBLISHED), then re-run."
         : "\nRun `node bench/published-numbers.mjs --write` to rewrite them from the baseline.",
     );
     process.exitCode = 1;

@@ -58,6 +58,45 @@ describe("published bundle sizes", () => {
     expect(after.length).toBe(before.length);
   });
 
+  it("are rewritten on every page that quotes a moved rung", () => {
+    const root = copyPublishedFiles();
+    const baselinePath = join(root, "bench/baseline.json");
+    const baseline = JSON.parse(readFileSync(baselinePath, "utf8"));
+    const prefetchOff = baseline.rungs.find((row) => row.rung === "hydration: full, prefetch off");
+    prefetchOff.coldGzipBytes += 2048;
+    writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
+
+    expect(syncPublishedNumbers({ root, write: true })).toEqual([]);
+    const expected = `${kb(prefetchOff.coldGzipBytes)} KB`;
+    expect(readFileSync(join(root, "examples/docs/src/routes/home.tsx"), "utf8")).toContain(
+      `takes full hydration to ${expected}`,
+    );
+    expect(
+      readFileSync(join(root, "examples/docs/src/routes/docs/performance.md"), "utf8"),
+    ).toContain(`prefetching off | **${expected}**`);
+  });
+
+  it("are left alone when a quote appears twice, as after a bad merge", () => {
+    // Two PRs each re-recorded the baseline; the merge kept both table rows
+    // and its conflict markers. Rewriting the first copy must not pass.
+    const root = copyPublishedFiles();
+    const page = join(root, "examples/docs/src/routes/docs/performance.md");
+    const source = readFileSync(page, "utf8");
+    const row = source.match(/^\| `hydration: "full"`, prefetching off \|.*$/m)[0];
+    const merged = source.replace(
+      row,
+      `<<<<<<< HEAD\n${row}\n=======\n${row.replace(/\*\*[\d.]+ KB\*\*/, "**18.0 KB**")}\n>>>>>>> other`,
+    );
+    writeFileSync(page, merged);
+
+    const problems = syncPublishedNumbers({ root, write: true });
+    expect(problems).toEqual([
+      expect.stringMatching(/performance\.md: has merge-conflict markers/),
+      expect.stringMatching(/performance\.md: .* matches 2 times/),
+    ]);
+    expect(readFileSync(page, "utf8")).toBe(merged);
+  });
+
   it("reports a quote it can no longer find", () => {
     const root = copyPublishedFiles();
     const readme = join(root, "README.md");
