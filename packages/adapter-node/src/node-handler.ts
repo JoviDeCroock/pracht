@@ -289,6 +289,7 @@ export function createNodeRequestHandler<TContext = unknown>(
           res,
           staticResult,
           headersManifest,
+          isgManifest,
           routePathname,
           compression,
         );
@@ -482,6 +483,7 @@ async function serveStaticFile(
   res: ServerResponse,
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest,
+  isgManifest: Record<string, ISGManifestEntry>,
   pathname: string,
   compression: CompressionState | undefined,
 ): Promise<void> {
@@ -498,7 +500,12 @@ async function serveStaticFile(
         "last-modified": fileStat.mtime.toUTCString(),
       }),
     );
-    applyHeadersManifest(headers, headersManifest, pathname);
+    // `/page/index.html` names an ISG snapshot's file directly.
+    const snapshotHeaders =
+      (pathname.replace(/\/index\.html$/, "") || "/") in isgManifest
+        ? await readISGSnapshotHeaders(staticResult.filePath, fileStat)
+        : null;
+    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
     if (isNotModified(request, headers, compressionGeneration === 0)) {
@@ -718,14 +725,8 @@ async function serveISGEntry<TContext>(
         vary: ROUTE_STATE_REQUEST_HEADER,
       }),
     );
-    // A regenerated snapshot is served with the headers it was rendered with;
-    // the build's headers belong to the build's HTML.
     const snapshotHeaders = await readISGSnapshotHeaders(htmlPath, fileStat);
-    if (snapshotHeaders) {
-      for (const [name, value] of Object.entries(snapshotHeaders)) headers.set(name, value);
-    } else {
-      applyHeadersManifest(headers, headersManifest, pathname);
-    }
+    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
     await applyCompressionContentValidator(
       headers,
       htmlPath,
@@ -891,6 +892,23 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
+}
+
+/**
+ * A regenerated ISG snapshot is served with the headers it was rendered with;
+ * the build's headers belong to the build's HTML.
+ */
+function applySnapshotOrManifestHeaders(
+  headers: Headers,
+  snapshotHeaders: Record<string, string> | null,
+  headersManifest: HeadersManifest,
+  pathname: string,
+): void {
+  if (!snapshotHeaders) {
+    applyHeadersManifest(headers, headersManifest, pathname);
+    return;
+  }
+  for (const [name, value] of Object.entries(snapshotHeaders)) headers.set(name, value);
 }
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {

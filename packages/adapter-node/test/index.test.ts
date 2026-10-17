@@ -719,11 +719,15 @@ describe("createNodeRequestHandler", () => {
       else process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
     });
 
-    async function startWithdrawableIsgServer(staticDir: string, state: { withdrawn: boolean }) {
+    async function startWithdrawableIsgServer(
+      staticDir: string,
+      state: { withdrawn: boolean },
+      createHandler: typeof createNodeRequestHandler = createNodeRequestHandler,
+    ) {
       const app = defineApp({
         routes: [route("/w", "./routes/w.tsx", { render: "isg", revalidate: webhookRevalidate() })],
       });
-      const handler = createNodeRequestHandler({
+      const handler = createHandler({
         app,
         canonicalOrigin: "http://localhost",
         isgManifest: { "/w": { revalidate: webhookRevalidate() } },
@@ -802,8 +806,17 @@ describe("createNodeRequestHandler", () => {
       });
       await expect(revalidated.json()).resolves.toMatchObject({ revalidated: ["/w"] });
 
-      for (const origin of [base, await startWithdrawableIsgServer(staticDir, state)]) {
-        const served = await fetch(`${origin}/w`);
+      // A restarted process (a fresh module, so nothing cached) reads the
+      // recorded headers from disk.
+      vi.resetModules();
+      const fresh = await import("../src/index.ts");
+      const restarted = await startWithdrawableIsgServer(
+        staticDir,
+        state,
+        fresh.createNodeRequestHandler,
+      );
+      for (const url of [`${base}/w`, `${restarted}/w`, `${base}/w/index.html`]) {
+        const served = await fetch(url);
         await expect(served.text()).resolves.toContain("withdrawn=true");
         expect(served.headers.get("x-robots-tag")).toBe("noindex");
         // The snapshot replaces the build's header set rather than merging.

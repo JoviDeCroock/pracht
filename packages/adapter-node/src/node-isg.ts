@@ -25,9 +25,14 @@ const regenerationSingleFlight = createRevalidationSingleFlight();
  * readers from observing a partially-written document, the replacement gives
  * the file a new durable identity so validators and compression caches in
  * restarted or sibling Node workers cannot alias a same-size rewrite whose
- * mtime is unchanged on a coarse-timestamp filesystem.
+ * mtime is unchanged on a coarse-timestamp filesystem. `beforePublish` runs
+ * with the fully written temporary file just before it replaces `htmlPath`.
  */
-export async function writeISGFile(htmlPath: string, html: string): Promise<void> {
+export async function writeISGFile(
+  htmlPath: string,
+  html: string,
+  beforePublish?: (temporaryPath: string) => Promise<void>,
+): Promise<void> {
   const directory = dirname(htmlPath);
   await mkdir(directory, { recursive: true });
   const existing = await stat(htmlPath).catch(() => null);
@@ -42,6 +47,7 @@ export async function writeISGFile(htmlPath: string, html: string): Promise<void
       flush: true,
       ...(existing ? { mode: existing.mode & 0o777 } : {}),
     });
+    await beforePublish?.(temporaryPath);
     await rename(temporaryPath, htmlPath);
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
@@ -111,22 +117,27 @@ function getSnapshotHeadersPath(htmlPath: string): string {
 }
 
 /**
- * Publish an ISG snapshot: its HTML, then the document headers it was
- * rendered with. Until the headers are recorded (or if recording them fails)
- * the HTML is served with the build's headers, as before.
+ * Publish an ISG snapshot with the document headers it was rendered with.
+ * The headers are recorded first, for the identity the HTML file will have
+ * once renamed into place, so no reader (in this or another process) sees
+ * the new HTML before its headers. If recording fails, the HTML is served
+ * with the build's headers, as before.
  */
 export async function writeISGSnapshot(
   htmlPath: string,
   html: string,
   headers: Record<string, string>,
 ): Promise<void> {
-  await writeISGFile(htmlPath, html);
-  const fileStat = await stat(htmlPath).catch(() => null);
-  if (!fileStat) return;
-  const record: ISGSnapshotHeadersRecord = { file: getSnapshotFileIdentity(fileStat), headers };
-  snapshotHeadersCache.set(htmlPath, record);
-  await writeISGFile(getSnapshotHeadersPath(htmlPath), JSON.stringify(record)).catch((error) => {
-    console.error(`[pracht] Could not record the ISG snapshot headers for ${htmlPath}:`, error);
+  await writeISGFile(htmlPath, html, async (temporaryPath) => {
+    // A rename keeps the device, inode, size, and mtime.
+    const record: ISGSnapshotHeadersRecord = {
+      file: getSnapshotFileIdentity(await stat(temporaryPath)),
+      headers,
+    };
+    snapshotHeadersCache.set(htmlPath, record);
+    await writeISGFile(getSnapshotHeadersPath(htmlPath), JSON.stringify(record)).catch((error) => {
+      console.error(`[pracht] Could not record the ISG snapshot headers for ${htmlPath}:`, error);
+    });
   });
 }
 
