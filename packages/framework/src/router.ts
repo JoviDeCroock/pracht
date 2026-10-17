@@ -164,6 +164,17 @@ declare const __PRACHT_APP_ROOT__: boolean | undefined;
 const APP_ROOT_ENABLED =
   typeof __PRACHT_APP_ROOT__ === "undefined" || __PRACHT_APP_ROOT__ !== false;
 
+/**
+ * Focus reset and route announcement after a client navigation to another
+ * page, compiled out by `client: { accessibleNavigation: false }` for an app
+ * that manages both itself.
+ */
+declare const __PRACHT_ACCESSIBLE_NAVIGATION__: boolean | undefined;
+
+const ACCESSIBLE_NAVIGATION_ENABLED =
+  typeof __PRACHT_ACCESSIBLE_NAVIGATION__ === "undefined" ||
+  __PRACHT_ACCESSIBLE_NAVIGATION__ !== false;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -565,6 +576,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
+  // The page last announced; a navigation that keeps the pathname (a query or
+  // filter change) neither moves focus nor announces.
+  let announcedPathname = window.location.pathname;
+
   // Runs after the DOM for a newly committed route state is in place —
   // scroll restoration must not race Preact's asynchronous re-render (the
   // outgoing page's height would clamp the restored position).
@@ -808,6 +823,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       return;
     }
 
+    // What had focus, and the title, when the navigation started: focus the
+    // app moves on its own is left alone, and a title it sets is announced.
+    const focused = ACCESSIBLE_NAVIGATION_ENABLED ? document.activeElement : null;
+    const title = ACCESSIBLE_NAVIGATION_ENABLED ? document.title : "";
     const navigationId = ++latestNavigationId;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
@@ -1060,7 +1079,14 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
 
       const commit = () => {
-        afterCommitCallback = () => restoreOrResetScroll(opts, target.browserUrl);
+        afterCommitCallback = () => {
+          restoreOrResetScroll(opts, target.browserUrl);
+          // Another page, not a query or fragment change on this one.
+          if (ACCESSIBLE_NAVIGATION_ENABLED && target.urlPathname !== announcedPathname) {
+            announcedPathname = target.urlPathname;
+            settlePageFocus(root, focused, title, !opts?.preserveScroll);
+          }
+        };
         if (fontHead) applyFontHeadFragments(fontHead);
         applyRouteState(routeState);
       };
@@ -1499,6 +1525,58 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // etc.) should wait for `html[data-pracht-hydrated]` before driving forms —
   // interacting earlier triggers native form submits instead of JS handlers.
   document.documentElement.setAttribute("data-pracht-hydrated", "true");
+}
+
+let announcer: HTMLElement | undefined;
+const NO_SCROLL: FocusOptions = { preventScroll: true };
+
+/**
+ * Do what a document load does for assistive technology after a client
+ * navigation to another page. Focus starts over on the page's `autofocus`
+ * element, else on the body so the next Tab starts at the top, unless the app
+ * already moved focus somewhere else. A visually hidden live region then reads
+ * out the page: a title the app set, else its first heading, else its path
+ * (the title still names the page being left).
+ */
+function settlePageFocus(
+  root: HTMLElement,
+  focused: Element | null,
+  title: string,
+  resetFocus: boolean,
+): void {
+  const body = document.body;
+  const active = document.activeElement;
+  if (resetFocus && (!active || active === body || active === focused)) {
+    // Scrolled into view, as a document load would; the body reset is not.
+    const autofocus = root.querySelector<HTMLElement>("[autofocus]");
+    autofocus?.focus();
+    if (document.activeElement !== autofocus) {
+      // The body takes focus only while it has a tabindex; focusing it for
+      // that instant moves the sequential focus starting point to the top.
+      const tabindex = body.getAttribute("tabindex");
+      body.tabIndex = -1;
+      body.focus(NO_SCROLL);
+      if (tabindex === null) body.removeAttribute("tabindex");
+      else body.setAttribute("tabindex", tabindex);
+    }
+  }
+  if (!announcer?.isConnected) {
+    announcer = body.appendChild(document.createElement("div"));
+    announcer.setAttribute("aria-live", "assertive");
+    announcer.setAttribute("data-pracht-announcer", "");
+    announcer.style.cssText = "position:fixed;clip-path:inset(50%)";
+  }
+  // After the route's effects, which may set the title. Emptied first so a
+  // page with the same heading as the last one is still read out.
+  announcer.textContent = "";
+  const region = announcer;
+  const doc = document;
+  setTimeout(() => {
+    region.textContent =
+      (doc.title !== title && doc.title) ||
+      root.querySelector("h1")?.textContent ||
+      doc.location.pathname;
+  }, 50);
 }
 
 /**

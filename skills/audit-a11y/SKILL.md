@@ -165,5 +165,10 @@ For the top 3 issues, propose concrete patches:
    for a setup hook (e.g., a script that logs in and lands on the dashboard).
 6. Always clean up background servers you started, even when the audit fails
    partway.
+7. axe sees one page at a time, not what happens between pages. The client
+   router moves focus to the new page and announces its title or first `<h1>`
+   after each navigation. If `vite.config.ts` sets
+   `client: { accessibleNavigation: false }`, report that the app must do both
+   itself, and check that it does.
 
 $ARGUMENTS

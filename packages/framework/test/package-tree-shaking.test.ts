@@ -251,12 +251,13 @@ describe("published package tree shaking", () => {
     // can be folded.
     //
     // Streaming adds route error boundaries and waits for renderer DOM swaps.
-    // Recovering from a route chunk that failed to load adds 40 bytes.
+    // Recovering from a route chunk that failed to load adds 40 bytes; the focus
+    // reset and route announcer (`client: { accessibleNavigation }`) about 330.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,300 gzip bytes", async () => {
+    it("keeps the router runtime below 10,660 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_300);
+      expect(gzipBytes).toBeLessThanOrEqual(10_660);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -430,6 +431,14 @@ describe("published package tree shaking", () => {
         entry: clientEntry,
       });
 
+    it("drops the focus reset and route announcer with accessibleNavigation off", async () => {
+      const off = await routerBundle({ __PRACHT_ACCESSIBLE_NAVIGATION__: "false" });
+      const on = await routerBundle({ __PRACHT_ACCESSIBLE_NAVIGATION__: "true" });
+
+      expect(off.code).not.toContain("data-pracht-announcer");
+      expect(on.code).toContain("data-pracht-announcer");
+    });
+
     it("drops the guard checks and the history-entry index when disabled", async () => {
       const { code } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
@@ -442,7 +451,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_010);
+      expect(gzipBytes).toBeLessThanOrEqual(10_360);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -535,7 +544,7 @@ describe("published package tree shaking", () => {
       const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
 
       expect(code).toContain("x-pracht-shell-data");
-      expect(gzipBytes).toBeLessThanOrEqual(10_720);
+      expect(gzipBytes).toBeLessThanOrEqual(11_080);
     });
 
     // Both opt-in router features at once: a route with a `search` schema
@@ -546,7 +555,7 @@ describe("published package tree shaking", () => {
         __PRACHT_SHELL_LOADERS__: "true",
       });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_810);
+      expect(gzipBytes).toBeLessThanOrEqual(11_160);
     });
   });
 

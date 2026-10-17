@@ -285,7 +285,7 @@ A route with a [`search` schema](#search-params) gets its `search` option typed 
 | `hash`           | string                                          | Fragment to append                                                                       |
 | `prefetch`       | `"intent" \| "viewport" \| "render" \| "none"`  | Override the route's [prefetch strategy](/docs/prefetching) for this link                 |
 | `speculate`      | boolean                                         | Opt this link out of / back into [speculation rules](/docs/prefetching#excluding-individual-links) |
-| `preserveScroll` | boolean                                         | Keep the current scroll position instead of scrolling to the top                         |
+| `preserveScroll` | boolean                                         | Keep the current scroll position and focus instead of starting over at the top           |
 | `viewTransition` | boolean                                         | Wrap this navigation in `document.startViewTransition()` where supported                 |
 
 ### `href` is not a `<Link>` prop
