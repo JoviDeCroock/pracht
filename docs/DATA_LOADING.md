@@ -295,8 +295,17 @@ same error path as a loader that rethrows the abort (a reported `TimeoutError`
 and the error document), a disconnect answers 499, and a late result is
 discarded with its body cancelled. It is opt-in because it changes what an app
 whose loaders outlive the budget sends: without it the response waits for them,
-as it always has. Server islands and a streamed body after its first flush are
-outside the race; the stream already stops on the signal.
+as it always has. The error path and response finalization still await module
+imports and app hooks such as `head()`, so `withDeadlineBackstop` in
+`runtime.ts` races the whole dispatch too: if nothing has answered within
+`min(loaderTimeoutMs, 1s)` of expiry it sends a plain 500 (499 for a client that
+left) and discards the late result, cancelling its body whether it was returned
+or thrown. An enforced API request whose client left answers 499 without an
+`onApiError` report, matching pages. A decisive shell loader still waits for the
+route loader to start, which includes `search` validation and module
+resolution; the backstop bounds that wait. Server islands and a streamed body
+after its first flush are outside the race; the stream already stops on the
+signal.
 
 The two abort reasons are distinguished when the request fails. A client
 disconnect skips `onRouteError` and returns an empty 499 — reporting an

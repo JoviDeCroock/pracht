@@ -88,6 +88,142 @@ describe("defineApp({ enforceLoaderTimeout })", () => {
     expect((response as Response).status).toBe(500);
   });
 
+  it("still answers when the error path itself hangs", async () => {
+    const stuck = gate();
+
+    const response = await within(
+      handlePrachtRequest({
+        app: pageApp({ enforceLoaderTimeout: true }),
+        registry: {
+          routeModules: {
+            "./routes/home.tsx": async () => ({
+              Component: () => h("p", null, "home"),
+              loader: async () => {
+                await stuck.opened;
+                return {};
+              },
+              head: async () => {
+                await stuck.opened;
+                return { title: "late" };
+              },
+            }),
+          },
+        },
+        request: new Request("http://localhost/", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      }),
+      1_000,
+    );
+    stuck.open();
+
+    expect(response).not.toBe("pending");
+    expect((response as Response).status).toBe(500);
+  });
+
+  it("bounds response finalization after middleware answered", async () => {
+    const stuck = gate();
+
+    const response = await within(
+      handlePrachtRequest({
+        app: defineApp({
+          loaderTimeoutMs: 10,
+          enforceLoaderTimeout: true,
+          middleware: { answer: "./middleware/answer.ts" },
+          routes: [route("/", "./routes/home.tsx", { middleware: ["answer"] })],
+        }),
+        registry: {
+          middlewareModules: {
+            "./middleware/answer.ts": async () => ({
+              middleware: async () => Response.json({ data: { ok: true } }),
+            }),
+          },
+          routeModules: {
+            "./routes/home.tsx": async () => ({
+              Component: () => h("p", null, "home"),
+              head: async () => {
+                await stuck.opened;
+                return { title: "late" };
+              },
+            }),
+          },
+        },
+        request: new Request("http://localhost/", {
+          headers: { "x-pracht-route-state-request": "1" },
+        }),
+      }),
+      1_000,
+    );
+    stuck.open();
+
+    expect(response).not.toBe("pending");
+  });
+
+  it("cancels the body of a response a handler throws after the deadline", async () => {
+    const handler = gate();
+    let cancelled = false;
+
+    const response = await within(
+      handlePrachtRequest({
+        app: defineApp({ loaderTimeoutMs: 10, enforceLoaderTimeout: true, routes: [] }),
+        apiRoutes: resolveApiRoutes(["/src/api/slow.ts"]),
+        registry: {
+          apiModules: {
+            "/src/api/slow.ts": async () => ({
+              GET: async () => {
+                await handler.opened;
+                throw new Response(
+                  new ReadableStream({
+                    cancel() {
+                      cancelled = true;
+                    },
+                  }),
+                );
+              },
+            }),
+          },
+        },
+        request: new Request("http://localhost/api/slow"),
+      }),
+      1_000,
+    );
+    handler.open();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect((response as Response).status).toBe(500);
+    expect(cancelled).toBe(true);
+  });
+
+  it("answers 499 without an error report when an API client leaves", async () => {
+    const handler = gate();
+    const client = new AbortController();
+    const errors: unknown[] = [];
+
+    const pending = handlePrachtRequest({
+      app: defineApp({ loaderTimeoutMs: 5_000, enforceLoaderTimeout: true, routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/slow.ts"]),
+      registry: {
+        apiModules: {
+          "/src/api/slow.ts": async () => ({
+            GET: async () => {
+              await handler.opened;
+              return new Response("late");
+            },
+          }),
+        },
+      },
+      onApiError: (error) => errors.push(error),
+      request: new Request("http://localhost/api/slow", { signal: client.signal }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    client.abort();
+    const response = await within(pending, 1_000);
+    handler.open();
+
+    expect((response as Response).status).toBe(499);
+    expect(errors).toEqual([]);
+  });
+
   it("is off by default: the response waits for the loader, as it always has", async () => {
     const loader = gate();
     const pending = handlePrachtRequest({

@@ -452,14 +452,7 @@ function holdUntilRead(
  * produces afterwards is discarded.
  */
 export function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
-  const discard = () => {
-    void work.then(
-      (late) => {
-        if (late instanceof Response) void late.body?.cancel().catch(() => {});
-      },
-      () => {},
-    );
-  };
+  const discard = () => discardLate(work);
   if (signal.aborted) {
     discard();
     return Promise.reject(signal.reason);
@@ -481,6 +474,18 @@ export function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<
       },
     );
   });
+}
+
+/**
+ * Drop a result nobody will send: cancel its body whether it was returned or
+ * thrown (`throw new Response(...)`), so an unread upstream body does not hold
+ * its connection.
+ */
+export function discardLate(work: Promise<unknown>): void {
+  const cancel = (late: unknown) => {
+    if (late instanceof Response) void late.body?.cancel().catch(() => {});
+  };
+  void work.then(cancel, cancel);
 }
 
 /** Distinguish a client disconnect from a request-budget expiry. */
@@ -984,6 +989,11 @@ export async function dispatchApi<TContext>(
       : await chain;
     return withDefaultSecurityHeaders(withEnhancedCapabilityFormRedirect(response, request));
   } catch (error: unknown) {
+    // With a deadline the signal decides the answer: a client that went away
+    // gets 499 and no error report, as the page pipeline does.
+    if (ctx.resolvedApp.enforceLoaderTimeout && isClientDisconnect(request, requestSignal)) {
+      return new Response(null, { status: 499 });
+    }
     // Same short-circuit contract as page loaders: a thrown `Response` is
     // the handler answering, not failing. Guarded because this runs inside
     // the catch, where a further throw would reject out of
