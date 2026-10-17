@@ -506,7 +506,7 @@ describe("createCloudflareFetchHandler ISG", () => {
       app,
       registry,
       isgManifest: {
-        "/pricing": { generatedAt: Date.now(), revalidate: isgRevalidate },
+        "/pricing": { generatedAt: Date.now(), revalidate: timeRevalidate(1) },
       },
     });
 
@@ -796,12 +796,14 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       details: [
-        { outcome: "revalidated", path: "/pricing" },
+        // The Cache API copy is current in this data center only.
+        { outcome: "revalidated", path: "/pricing", scope: "colo" },
         // Not in the ISG manifest: nothing cached for the webhook to refresh.
         { outcome: "skipped", path: "/not-isg", reason: "not_a_route" },
       ],
       failed: [],
       revalidated: ["/pricing"],
+      scope: "colo",
       skipped: ["/not-isg"],
     });
     await expect(cachedText(cache, keyUrl)).resolves.toContain("fresh-content");
@@ -1056,6 +1058,11 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
 
       expect(response.status).toBe(200);
       expect(purge).toHaveBeenCalledWith({ pathPrefixes: ["/app/pricing"] });
+      // A Workers Caching purge reaches every data center.
+      await expect(response.json()).resolves.toMatchObject({
+        details: [{ outcome: "revalidated", path: "/pricing", scope: "global" }],
+        scope: "global",
+      });
     } finally {
       vi.doUnmock("../src/cache.ts");
     }
@@ -1405,5 +1412,117 @@ describe("createCloudflareFetchHandler ISG across deploys", () => {
     const afterDeploy = await v2(new Request(`https://${host}/pricing`));
     expect(afterDeploy.headers.get("x-pracht-isg")).toBe("fresh");
     await expect(afterDeploy.text()).resolves.toContain("asset:v2");
+  });
+});
+
+describe("createCloudflareFetchHandler webhook ISG across data centers", () => {
+  // Each data center has its own `caches.default`; a webhook reaches one.
+  function createCmsSite(cms: { price: string; renders?: number }) {
+    const app = defineApp({
+      routes: [
+        route("/pricing", "./routes/pricing.tsx", {
+          render: "isg",
+          revalidate: webhookRevalidate(),
+        }),
+      ],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: {
+        "./routes/pricing.tsx": async () => ({
+          loader: async () => {
+            cms.renders = (cms.renders ?? 0) + 1;
+            return { price: cms.price };
+          },
+          Component: ({ data }) => `render:${(data as { price: string }).price}`,
+        }),
+      },
+    };
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      isgManifest: { "/pricing": { generatedAt: Date.now(), revalidate: webhookRevalidate() } },
+    });
+    const env = {
+      ASSETS: {
+        fetch: async () =>
+          new Response("<html>asset:price-v1</html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+      PRACHT_REVALIDATE_TOKEN: "secret",
+    };
+    return async (dataCenter: MockCache, request: Request) => {
+      vi.stubGlobal("caches", { default: dataCenter });
+      const { executionContext, waitUntils } = createExecutionContext();
+      const response = await handler(request, env, executionContext);
+      await Promise.all(waitUntils);
+      return { response, waitUntils };
+    };
+  }
+
+  // Hosts differ per test: miss-triggered renders are tracked per isolate.
+  const page = (host: string) => new Request(`https://${host}/pricing`);
+  const webhook = (host: string) =>
+    new Request(`https://${host}/__pracht/revalidate`, {
+      body: JSON.stringify({ paths: ["/pricing"] }),
+      headers: { authorization: "Bearer secret", "content-type": "application/json" },
+      method: "POST",
+    });
+
+  it("renders current content in a data center the webhook did not reach", async () => {
+    const cms = { price: "price-v1" };
+    const site = createCmsSite(cms);
+    const receiving = createMockCaches();
+    const elsewhere = createMockCaches();
+
+    const host = "cms-elsewhere.example";
+
+    cms.price = "price-v2";
+    const hook = await site(receiving.cache, webhook(host));
+    await expect(hook.response.json()).resolves.toMatchObject({
+      revalidated: ["/pricing"],
+      scope: "colo",
+    });
+
+    // The first visitor elsewhere gets the build-time page, not labelled
+    // fresh, while that data center renders its own copy.
+    const first = await site(elsewhere.cache, page(host));
+    expect(first.response.headers.get("x-pracht-isg")).toBe("stale");
+    await expect(first.response.text()).resolves.toContain("asset:price-v1");
+    expect(first.waitUntils).toHaveLength(1);
+
+    const second = await site(elsewhere.cache, page(host));
+    expect(second.response.headers.get("x-pracht-isg")).toBe("fresh");
+    await expect(second.response.text()).resolves.toContain("render:price-v2");
+  });
+
+  it("re-renders after the receiving data center evicts the webhook's copy", async () => {
+    const cms = { price: "price-v1" };
+    const site = createCmsSite(cms);
+    const receiving = createMockCaches();
+    const host = "cms-evicted.example";
+
+    cms.price = "price-v2";
+    await site(receiving.cache, webhook(host));
+    receiving.store.clear();
+
+    const evicted = await site(receiving.cache, page(host));
+    expect(evicted.response.headers.get("x-pracht-isg")).toBe("stale");
+    const next = await site(receiving.cache, page(host));
+    await expect(next.response.text()).resolves.toContain("render:price-v2");
+  });
+
+  it("does not render on every request when the Cache API keeps nothing", async () => {
+    const cms = { price: "price-v1", renders: 0 };
+    const site = createCmsSite(cms);
+    const keepsNothing: MockCache = { match: async () => undefined, put: async () => {} };
+    const host = "cms-no-cache.example";
+
+    for (let i = 0; i < 5; i += 1) {
+      const { response } = await site(keepsNothing, page(host));
+      expect(response.headers.get("x-pracht-isg")).toBe("stale");
+    }
+    expect(cms.renders).toBe(1);
   });
 });

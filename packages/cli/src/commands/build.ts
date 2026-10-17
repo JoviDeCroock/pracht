@@ -145,6 +145,43 @@ function hasTimeRevalidate(revalidate: unknown): boolean {
   );
 }
 
+function hasWebhookRevalidatePolicy(revalidate: unknown): boolean {
+  const policies = Array.isArray(revalidate) ? revalidate : [revalidate];
+  return policies.some(
+    (policy) =>
+      typeof policy === "object" &&
+      policy !== null &&
+      (policy as { kind?: unknown }).kind === "webhook",
+  );
+}
+
+/**
+ * The build warning for Cloudflare ISG routes a webhook refreshes in one data
+ * center only: those served from the per-data-center Cache API. With Workers
+ * Caching on, routes that also have a time policy are purged everywhere.
+ */
+export function describeCloudflareWebhookScope(
+  isgManifest: Record<string, { revalidate?: unknown }>,
+  workersCacheEnabled: boolean,
+): string | null {
+  const paths = Object.keys(isgManifest).filter((path) => {
+    const revalidate = isgManifest[path]?.revalidate;
+    if (!hasWebhookRevalidatePolicy(revalidate)) return false;
+    return !(workersCacheEnabled && hasTimeRevalidate(revalidate));
+  });
+  if (paths.length === 0) return null;
+
+  const listed = paths.slice(0, 5).join(", ") + (paths.length > 5 ? `, +${paths.length - 5}` : "");
+  return (
+    `\n  Warning: ${paths.length} Cloudflare ISG page(s) use webhookRevalidate() with the per-data-center Cache API (${listed}). ` +
+    "POST /__pracht/revalidate re-renders a page only in the data center that receives it, and its response reports " +
+    '"scope": "colo". Other data centers render current content on their first uncached request and keep a copy they already hold. ' +
+    (workersCacheEnabled
+      ? "Add timeRevalidate() to these routes so the webhook purges their Workers Caching entries everywhere.\n"
+      : "Add timeRevalidate() to bound how long a data center can lag, or with cloudflareAdapter({ cache: true }) the webhook purges those routes everywhere.\n")
+  );
+}
+
 function indentBlock(block: string): string {
   return block
     .split("\n")
@@ -850,6 +887,13 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const edgeCachedIsgPaths = cloudflareWorkersCacheEnabled
       ? Object.keys(isgManifest).filter((path) => hasTimeRevalidate(isgManifest[path]?.revalidate))
       : [];
+    const cloudflareWebhookScopeWarning =
+      serverMod.buildTarget === "cloudflare"
+        ? describeCloudflareWebhookScope(isgManifest, cloudflareWorkersCacheEnabled)
+        : null;
+    if (cloudflareWebhookScopeWarning) {
+      reportBuildWarning(cloudflareWebhookScopeWarning, analyzeJson);
+    }
     // Netlify serves every ISG path through the function and the durable CDN
     // cache — the handler checks the ISG manifest before the bundled static
     // output, so a snapshot would only ever be reachable at its literal

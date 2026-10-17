@@ -642,6 +642,8 @@ describe("createNodeRequestHandler", () => {
       await expect(valid.json()).resolves.toMatchObject({
         failed: [],
         revalidated: ["/pricing"],
+        // The regenerated file lives on this server instance only.
+        scope: "instance",
         skipped: [],
       });
       expect(readFileSync(htmlPath, "utf-8")).toContain("missing");

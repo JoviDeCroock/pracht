@@ -7,6 +7,7 @@ import {
   createRevalidationSingleFlight,
   getTimeRevalidateSeconds,
   handlePrachtRequest,
+  hasWebhookRevalidate,
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   isCacheableISGResponse,
@@ -22,6 +23,7 @@ import {
   classifyRevalidationSkip,
   readRevalidationRequest,
   RevalidationReport,
+  type RevalidationScope,
   restoreBasePathInRequest,
   routeSupportsMarkdown,
   setServerEnv,
@@ -62,6 +64,22 @@ const ISG_CACHE_KEY_BUILD_PREFIX = "/__pracht/isg-build";
 // the generated worker entry creates a fresh fetch handler per request.
 // Collapses concurrent regenerations of the same path into one render.
 const regenerationSingleFlight = createRevalidationSingleFlight();
+
+// A Cache API that keeps nothing (a preview, or a host where its writes have
+// no effect) would turn every miss on a webhook route into another render.
+// One miss-triggered render per page per isolate per minute bounds that.
+const MISS_REGENERATION_INTERVAL_MS = 60_000;
+const MAX_TRACKED_MISS_REGENERATIONS = 1_000;
+const missRegenerations = new Map<string, number>();
+
+function claimMissRegeneration(key: string): boolean {
+  const now = Date.now();
+  const last = missRegenerations.get(key);
+  if (last !== undefined && now - last < MISS_REGENERATION_INTERVAL_MS) return false;
+  if (missRegenerations.size >= MAX_TRACKED_MISS_REGENERATIONS) missRegenerations.clear();
+  missRegenerations.set(key, now);
+  return true;
+}
 
 export interface CloudflareFetcher {
   fetch(input: Request | URL | string): Promise<Response>;
@@ -124,8 +142,8 @@ export interface CloudflareAdapterOptions<
    * API path, ISG pages are rendered on demand and cached at the edge for
    * their `revalidate` window (via `cloudflare-cdn-cache-control`), with
    * stale pages served instantly while the Worker re-renders in the
-   * background. Webhook-only ISG routes keep the worker-managed path so
-   * revalidation takes effect immediately. Requires
+   * background. Webhook-only ISG routes keep the worker-managed path, where a
+   * webhook refreshes the data center that receives it. Requires
    * `"cache": { "enabled": true }` in wrangler config.
    */
   cache?: CloudflareWorkersCacheOption;
@@ -423,8 +441,14 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   );
   if (!assetResponse) return null;
 
-  const stale = isCloudflareISGStale(entry, assetResponse);
-  if (stale && cache) {
+  // A route a webhook can refresh may have been refreshed in another data
+  // center, or here before the Cache API evicted the copy: nothing local says
+  // the build-time snapshot is still current, so it is served as stale and
+  // this data center renders its own copy.
+  const timeStale = isCloudflareISGStale(entry, assetResponse);
+  const webhookMiss = !timeStale && hasWebhookRevalidate(entry.revalidate);
+  const stale = timeStale || webhookMiss;
+  if (cache && (timeStale || (webhookMiss && claimMissRegeneration(cacheKey.url)))) {
     executionContext.waitUntil(
       regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage),
     );
@@ -468,7 +492,7 @@ async function handleCloudflareRevalidationEndpoint(
     );
   }
 
-  const report = new RevalidationReport();
+  const report = new RevalidationReport("colo");
 
   for (const pathname of parsed.paths) {
     try {
@@ -487,19 +511,24 @@ async function handleCloudflareRevalidationEndpoint(
       // A failed regeneration keeps the existing cached copy and is reported
       // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
-        report.revalidated(pathname);
+        // The Cache API copy is current only in the data center that ran
+        // this request.
+        let scope: RevalidationScope = "colo";
         // Routes with both a time and a webhook policy are served through
         // Workers Caching when the `cache` option is on — the edge copy must
-        // be purged too, or it keeps serving the old page until its TTL. A
-        // purge failure keeps the path in `revalidated` (the worker-managed
-        // copy is fresh); the edge falls back to its time window.
+        // be purged too, or it keeps serving the old page until its TTL. That
+        // purge reaches every data center. A purge failure keeps the path in
+        // `revalidated` (the worker-managed copy is fresh); the edge falls
+        // back to its time window.
         if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
           try {
             await purgeCache({ pathPrefixes: [withBase(pathname)] });
+            scope = "global";
           } catch (err) {
             console.error(`ISG edge cache purge failed for ${pathname}:`, err);
           }
         }
+        report.revalidated(pathname, scope);
       } else {
         report.failed(pathname, "regeneration_failed");
       }
