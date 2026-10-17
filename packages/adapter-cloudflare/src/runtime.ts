@@ -52,6 +52,10 @@ const ISG_CACHE_ENTRY_CACHE_CONTROL = "public, max-age=31536000";
 // the same policy the build-time asset and the Node adapter send.
 const ISG_BROWSER_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 
+// Cache API key path prefix naming the build an ISG entry belongs to. Only
+// ever a synthetic key: no request is routed to it.
+const ISG_CACHE_KEY_BUILD_PREFIX = "/__pracht/isg-build";
+
 // Module-level so it survives across requests within an isolate even though
 // the generated worker entry creates a fresh fetch handler per request.
 // Collapses concurrent regenerations of the same path into one render.
@@ -388,7 +392,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   if (!entry) return null;
 
   const cache = getDefaultCache();
-  const cacheKey = createISGCacheKey(request, pathname);
+  const cacheKey = createISGCacheKey(request, pathname, entry);
   const cached = cache ? await cache.match(cacheKey) : undefined;
   if (cached) {
     // The assets binding's `html_handling` canonicalizes the spelling of every
@@ -477,7 +481,7 @@ async function handleCloudflareRevalidationEndpoint(
         continue;
       }
 
-      const cacheKey = createISGCacheKey(request, pathname);
+      const cacheKey = createISGCacheKey(request, pathname, entry);
       // A failed regeneration keeps the existing cached copy and is reported
       // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
@@ -574,8 +578,19 @@ function isDocumentAssetRequest(
   return !wantsRouteMarkdown(request, markdownManifest, url.pathname);
 }
 
-function createISGCacheKey(request: Request, pathname: string): Request {
-  const url = new URL(pathname, request.url);
+/**
+ * The Cache API entry for an ISG page of this build. `caches.default` outlives
+ * a deploy, so the key carries the build's prerender timestamp: a new version
+ * never reads a page the previous one rendered against its own asset hashes.
+ * A rollback reads the entries its version wrote. The timestamp sits in the
+ * path, not the query, because a zone cache key can ignore query strings.
+ */
+function createISGCacheKey(request: Request, pathname: string, entry: ISGManifestEntry): Request {
+  const generation =
+    typeof entry.generatedAt === "number" && Number.isFinite(entry.generatedAt)
+      ? `${ISG_CACHE_KEY_BUILD_PREFIX}/${entry.generatedAt}`
+      : "";
+  const url = new URL(`${generation}${pathname}`, request.url);
   url.search = "";
   url.hash = "";
   return new Request(url, {
