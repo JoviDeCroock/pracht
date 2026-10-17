@@ -421,8 +421,9 @@ directions by tests:
 
 The one exception is `expose.webmcp`: an in-page agent cannot call a tool
 without its schema, so webmcp-exposed capabilities ship their description and
-input schema in the separate `virtual:pracht/webmcp` chunk, which only loads
-when the browser exposes the WebMCP API. Nothing else does. Titles and
+input schema in a per-tool `virtual:pracht/webmcp-tool/<name>` chunk, which a
+page imports only when the browser exposes the WebMCP API and its route
+activates that tool. Nothing else does. Titles and
 descriptions of other capabilities appear only as JSDoc in the generated
 `.d.ts`, which is types-only and never emitted.
 
@@ -642,7 +643,8 @@ enhancement and retain HTTP or remote MCP for production agent access:
   `expose.webmcp: { untrustedContent: true }`. The draft also defines
   `consequentialHint`; pracht never infers it because consequential operations
   belong to the rejected `destructive` page-tool class. Standalone tools may
-  set it explicitly. Remote MCP derives its additional MCP-only annotations
+  set it, and the draft's `debugging` hint, explicitly; the dev page tools
+  set `debugging: true`. Remote MCP derives its additional MCP-only annotations
   separately;
 - `execute()` calls the HTTP projection via `callCapability`, so the user's
   session authenticates the call and validation, middleware, and policy all
@@ -661,7 +663,12 @@ enhancement and retain HTTP or remote MCP for production agent access:
   results, so applications must bound them through inputs and schemas;
 - the shim lives in its own chunk (`virtual:pracht/webmcp`) behind feature
   detection: browsers without the API never download it, and routes with no
-  active page tools do not load it;
+  active page tools do not load it. The shim carries only tool names and a
+  loader per tool; each tool's metadata and schema is its own
+  `virtual:pracht/webmcp-tool/<name>` chunk, imported when a route activates
+  it and cached across navigations. A chunk that fails to load skips that
+  tool, and a newer navigation's registration supersedes one still loading.
+  The build still resolves every schema, so a broken one fails the build;
 - initial hydration registers only the matched route's tools. After an SPA
   navigation commits, the generated shim aborts every old registration and
   registers the destination route's set; a route with no tools clears the set;
@@ -850,7 +857,9 @@ The capability graph feeds every existing inspection surface:
   `document.modelContext` before importing the runtime. Live state comes from
   the mounted route runtime (falling back to the hydration state script), the
   static shape from `/_pracht.json`, and the error overlay embeds its failure
-  as JSON (`#pracht-dev-error`) so `pracht_last_error` can read it. No build
+  as JSON (`#pracht-dev-error`) so `pracht_last_error` can read it. Each tool
+  carries `readOnlyHint` and the WebMCP draft's `debugging: true` annotation,
+  so hosts can keep them out of end-user tool pickers. No build
   emits the tag or the module; `pracht({ devPageTools: false })` skips both;
 - `pracht verify` runs the static contract checks described above.
 

@@ -40,6 +40,8 @@ import {
   isServerIslandsClientModule,
   isServerModule,
   isWebmcpModule,
+  PRACHT_WEBMCP_TOOL_MODULE_PREFIX,
+  webmcpToolModuleName,
 } from "./plugin-assets.ts";
 import {
   appCoreHasDevPageTools,
@@ -52,6 +54,7 @@ import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
   createPrachtWebmcpModuleSourceAsync,
+  createPrachtWebmcpToolModuleSourceAsync,
   hasAgentSurface,
   hasWebmcpCapabilities,
   resolveCapabilityModulePaths,
@@ -499,6 +502,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
       if (isCapabilitiesModule(id)) return PRACHT_CAPABILITIES_MODULE_ID;
       if (isWebmcpModule(id)) return PRACHT_WEBMCP_MODULE_ID;
+      const webmcpToolName = webmcpToolModuleName(id);
+      if (webmcpToolName !== null) return PRACHT_WEBMCP_TOOL_MODULE_PREFIX + webmcpToolName;
       if (isDevPageToolsModule(id)) return PRACHT_DEV_PAGE_TOOLS_MODULE_ID;
 
       // Fail loudly when client code imports the server-only env entry.
@@ -562,6 +567,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       if (isWebmcpModule(id)) {
         return createPrachtWebmcpModuleSourceAsync(resolved, {
+          root,
+          runnerConfig: capabilityRunnerConfig,
+        });
+      }
+      const webmcpToolName = webmcpToolModuleName(id);
+      if (webmcpToolName !== null) {
+        return createPrachtWebmcpToolModuleSourceAsync(resolved, webmcpToolName, {
           root,
           runnerConfig: capabilityRunnerConfig,
         });
@@ -856,6 +868,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           ]) {
             const capabilityMod = server.moduleGraph.getModuleById(moduleId);
             if (capabilityMod) server.moduleGraph.invalidateModule(capabilityMod);
+          }
+          for (const [moduleId, toolMod] of server.moduleGraph.idToModuleMap) {
+            if (webmcpToolModuleName(moduleId) !== null) {
+              server.moduleGraph.invalidateModule(toolMod);
+            }
           }
         }
       }

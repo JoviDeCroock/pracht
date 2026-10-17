@@ -129,6 +129,7 @@ interface ClientErrorRecord {
 }
 
 const EMPTY_INPUT_SCHEMA = { type: "object", properties: {}, additionalProperties: false };
+const DEV_TOOL_ANNOTATIONS = { debugging: true };
 
 export function createDevPageTools(options: DevPageToolsOptions): DevPageTools {
   const fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
@@ -315,6 +316,8 @@ export function createDevPageTools(options: DevPageToolsOptions): DevPageTools {
     },
   };
 
+  // The draft's `debugging` annotation tells a host these are developer
+  // tooling, not part of the app's end-user agent surface.
   const tools: WebmcpTool[] = [
     {
       name: `${DEV_PAGE_TOOL_PREFIX}route`,
@@ -323,6 +326,7 @@ export function createDevPageTools(options: DevPageToolsOptions): DevPageTools {
         "Dev-only. Which pracht route this tab is showing: route id, URL, params, render and hydration mode, shell chain, files, and middleware. Read this first when a page looks wrong.",
       inputSchema: EMPTY_INPUT_SCHEMA,
       effect: "read",
+      annotations: DEV_TOOL_ANNOTATIONS,
     },
     {
       name: `${DEV_PAGE_TOOL_PREFIX}loader_data`,
@@ -340,6 +344,7 @@ export function createDevPageTools(options: DevPageToolsOptions): DevPageTools {
         additionalProperties: false,
       },
       effect: "read",
+      annotations: DEV_TOOL_ANNOTATIONS,
     },
     {
       name: `${DEV_PAGE_TOOL_PREFIX}islands`,
@@ -348,6 +353,7 @@ export function createDevPageTools(options: DevPageToolsOptions): DevPageTools {
         "Dev-only. The route's hydration mode and every island on the page with its source file, client strategy, serialized props, and whether it has hydrated.",
       inputSchema: EMPTY_INPUT_SCHEMA,
       effect: "read",
+      annotations: DEV_TOOL_ANNOTATIONS,
     },
     {
       name: `${DEV_PAGE_TOOL_PREFIX}last_error`,
@@ -356,6 +362,7 @@ export function createDevPageTools(options: DevPageToolsOptions): DevPageTools {
         "Dev-only. The server-side error this document rendered (error overlay or ErrorBoundary state) plus the most recent uncaught client errors, with stack traces.",
       inputSchema: EMPTY_INPUT_SCHEMA,
       effect: "read",
+      annotations: DEV_TOOL_ANNOTATIONS,
     },
     {
       name: `${DEV_PAGE_TOOL_PREFIX}page_tools`,
@@ -364,6 +371,7 @@ export function createDevPageTools(options: DevPageToolsOptions): DevPageTools {
         "Dev-only. The app's own WebMCP tools active on this route (the production agent surface), plus declared capabilities that are not exposed as page tools and why.",
       inputSchema: EMPTY_INPUT_SCHEMA,
       effect: "read",
+      annotations: DEV_TOOL_ANNOTATIONS,
     },
   ];
 

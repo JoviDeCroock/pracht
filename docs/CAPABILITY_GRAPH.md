@@ -722,7 +722,8 @@ and [AGENT_TRUST.md](AGENT_TRUST.md).
 8. **The WebMCP shim shares `callCapability` and ships zero dead code.** It
    lives in its own chunk (`virtual:pracht/webmcp`) behind feature detection:
    browsers without the API never download it, routes without active page tools
-   do not load it, and it targets `document.modelContext` (Chrome 150+) without
+   do not load it, each tool's schema is a separate chunk that only routes
+   activating the tool import, and it targets `document.modelContext` (Chrome 150+) without
    the deprecated `navigator.modelContext` fallback. Initial hydration uses the
    matched route's tool set; each committed SPA navigation aborts the old
    registrations and replaces them with the destination route's set.

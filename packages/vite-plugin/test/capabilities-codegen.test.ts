@@ -8,6 +8,7 @@ import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
   createPrachtWebmcpModuleSourceAsync,
+  createPrachtWebmcpToolModuleSourceAsync,
   extractCapabilities,
 } from "../src/plugin-capabilities.ts";
 import {
@@ -577,13 +578,17 @@ describe("createPrachtWebmcpModuleSource", () => {
     });
 
     const source = createPrachtWebmcpModuleSource({}, { root });
-    expect(source).toContain('"name":"notes.search"');
-    expect(source).toContain('"title":"Search notes"');
-    expect(source).toContain('"description":"Find notes whose title matches the query."');
-    expect(source).toContain('"inputSchema":{"type":"object"');
+    const tool = await createPrachtWebmcpToolModuleSourceAsync({}, "notes.search", { root });
+    expect(tool).toContain('"name":"notes.search"');
+    expect(tool).toContain('"title":"Search notes"');
+    expect(tool).toContain('"description":"Find notes whose title matches the query."');
+    expect(tool).toContain('"inputSchema":{"type":"object"');
     // The registrar derives WebMCP's supported annotation hints from the
     // effect class (covered by the @pracht/capabilities/webmcp unit tests).
-    expect(source).toContain('"effect":"read"');
+    expect(tool).toContain('"effect":"read"');
+    // The shim names each tool and imports its schema on demand.
+    expect(source).toContain('import("virtual:pracht/webmcp-tool/notes.search")');
+    expect(source).not.toContain('"inputSchema"');
     // Resolved from the plugin's own copy of @pracht/capabilities so version
     // skew in the app root cannot break the generated import. A bare specifier
     // here would resolve against the app root again — the exact regression.
@@ -592,16 +597,19 @@ describe("createPrachtWebmcpModuleSource", () => {
       /import \{ registerWebmcpTools \} from "(?:[A-Za-z]:)?\/[^"]*capabilities\/dist\/webmcp\.mjs"/,
     );
     // notes.create is http-only — it must not become a page tool.
-    expect(source).not.toContain('"name":"notes.create"');
+    expect(source).not.toContain("notes.create");
+    await expect(
+      createPrachtWebmcpToolModuleSourceAsync({}, "notes.create", { root }),
+    ).rejects.toThrow(/No WebMCP-exposed capability/);
     // The dispatch forwards the abort signal and the transport marker header.
     expect(source).toContain("callCapability(name, input, { headers: transportHeaders, signal })");
     // Re-registration and HMR tear down stale tools through WebMCP's signal
     // lifetime option.
     expect(source).toContain("registrationController?.abort()");
-    expect(source).toContain("{ signal: registrationController.signal }");
+    expect(source).toContain("{ signal: controller.signal }");
     expect(source).toContain("import.meta.hot.dispose");
     expect(source).toContain("export function registerPrachtWebmcpTools(names)");
-    expect(source).toContain("activeNames.flatMap");
+    expect(source).toContain("toolLoaders.has(name)");
     expect(source).not.toContain("registerPrachtWebmcpTools();");
     // The host serializes the returned value itself; MCP-style content blocks
     // would reach the agent double-encoded.
@@ -619,25 +627,22 @@ describe("createPrachtWebmcpModuleSource", () => {
     });
 
     const loadedFiles: string[] = [];
-    const source = await createPrachtWebmcpModuleSourceAsync(
-      {},
-      {
-        root,
-        loadCapability: async (file) => {
-          loadedFiles.push(file);
-          return {
-            kind: "capability",
-            title: "Search notes",
-            description: "Find notes from a shared validator.",
-            input: {
-              type: "object",
-              properties: { query: { type: "string", minLength: 1 } },
-              required: ["query"],
-            },
-          };
-        },
+    const source = await createPrachtWebmcpToolModuleSourceAsync({}, "notes.search", {
+      root,
+      loadCapability: async (file) => {
+        loadedFiles.push(file);
+        return {
+          kind: "capability",
+          title: "Search notes",
+          description: "Find notes from a shared validator.",
+          input: {
+            type: "object",
+            properties: { query: { type: "string", minLength: 1 } },
+            required: ["query"],
+          },
+        };
       },
-    );
+    });
 
     expect(loadedFiles).toEqual([join(root, "src/capabilities/notes-search.ts")]);
     expect(source).toContain('"description":"Find notes from a shared validator."');
@@ -669,7 +674,11 @@ describe("createPrachtWebmcpModuleSource", () => {
       },
     });
 
-    const source = await createPrachtWebmcpModuleSourceAsync({}, { root });
+    // The shim still resolves every schema so a broken one fails the build.
+    await expect(createPrachtWebmcpModuleSourceAsync({}, { root })).resolves.toContain(
+      "webmcp-tool/notes.search",
+    );
+    const source = await createPrachtWebmcpToolModuleSourceAsync({}, "notes.search", { root });
 
     expect(source).toContain('"description":"Loaded from the server module."');
     expect(source).toContain(
@@ -687,8 +696,64 @@ describe("createPrachtWebmcpModuleSource", () => {
       },
     });
 
-    const source = createPrachtWebmcpModuleSource({}, { root });
+    const source = await createPrachtWebmcpToolModuleSourceAsync({}, "notes.search", { root });
     expect(source).toContain('"untrustedContent":true');
+  });
+
+  it("downloads only the schemas of the tools the active route registers", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY,
+        "notes-find.ts": SEARCH_CAPABILITY.replace("Search notes", "Find notes"),
+      },
+    });
+    const shim = createPrachtWebmcpModuleSource({}, { root });
+    const imported: string[] = [];
+    const registered: string[][] = [];
+    let failNext = false;
+    const body = shim
+      .replace(/^import .*$/gm, "")
+      .replace("export function", "function")
+      .replaceAll("import.meta.hot", "undefined")
+      .replace(/import\(("[^"]+")\)/g, "__load($1)");
+    const register = new Function(
+      "registerWebmcpTools",
+      "callCapability",
+      "__load",
+      `${body}\nreturn registerPrachtWebmcpTools;`,
+    )(
+      (tools: Array<{ name: string }>) => {
+        registered.push(tools.map((tool) => tool.name));
+        return true;
+      },
+      () => undefined,
+      async (id: string) => {
+        imported.push(id);
+        if (failNext) {
+          failNext = false;
+          throw new Error("chunk failed");
+        }
+        return { default: { name: id.slice(id.lastIndexOf("/") + 1) } };
+      },
+    ) as (names: string[]) => Promise<unknown>;
+
+    await register(["notes.search"]);
+    expect(imported).toEqual(["virtual:pracht/webmcp-tool/notes.search"]);
+    expect(registered).toEqual([["notes.search"]]);
+
+    // A later route reuses the loaded tool and loads only the new one.
+    await register(["notes.search", "notes.find", "not.webmcp"]);
+    expect(imported).toEqual([
+      "virtual:pracht/webmcp-tool/notes.search",
+      "virtual:pracht/webmcp-tool/notes.find",
+    ]);
+    expect(registered.at(-1)).toEqual(["notes.search", "notes.find"]);
+
+    // A superseded registration never registers once its tools arrive.
+    const stale = register(["notes.find"]);
+    await register([]);
+    await stale;
+    expect(registered.at(-1)).toEqual([]);
   });
 });
 
