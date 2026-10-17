@@ -162,8 +162,12 @@ function isInternalStackPath(path: string): boolean {
  */
 export function normalizeStackFile(rawPath: string, root?: string): string | undefined {
   let path = rawPath;
+  // `file://` and `/@fs/` spell a filesystem path; an http(s) URL is always a
+  // dev-server URL. Only a bare `/…` path is ambiguous.
+  let filesystemPath = path.startsWith("file://");
+  const devServerUrl = path.startsWith("http://") || path.startsWith("https://");
 
-  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("file://")) {
+  if (devServerUrl || filesystemPath) {
     try {
       const url = new URL(path);
       path = decodeURIComponent(url.pathname);
@@ -177,6 +181,7 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
 
   if (path.startsWith("/@fs/")) {
     path = path.slice("/@fs".length);
+    filesystemPath = true;
   }
 
   // `file://C:/...` and `/@fs/C:/...` leave a spurious leading slash on Windows.
@@ -189,15 +194,14 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
   // Root-relative dev-server URL (e.g. `/src/routes/home.tsx`): join onto
   // the project root so launch-editor resolves the real file. Paths already
   // under the root (or Windows drive paths) are absolute filesystem paths, and
-  // so is a path that shares the root's top-level directory: a linked
-  // workspace package at `/Users/dev/repo/packages/core/dist/app.mjs` sits
-  // beside an app at `/Users/dev/repo/apps/web`, not inside it.
-  if (root && path.startsWith("/") && !WINDOWS_DRIVE_PATH.test(path)) {
+  // so is a bare path that exists on disk: a linked workspace package's
+  // `dist/app.mjs` sits beside the app, not inside it.
+  if (root && !filesystemPath && path.startsWith("/") && !WINDOWS_DRIVE_PATH.test(path)) {
     const normalizedRoot = root.endsWith("/") ? root.slice(0, -1) : root;
     if (
       path !== normalizedRoot &&
       !path.startsWith(`${normalizedRoot}/`) &&
-      !sharesTopLevelDirectory(path, normalizedRoot)
+      (devServerUrl || !fileExists(path))
     ) {
       return `${normalizedRoot}${path}`;
     }
@@ -206,9 +210,23 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
   return path;
 }
 
-function sharesTopLevelDirectory(path: string, root: string): boolean {
-  const rootTop = root.split("/")[1];
-  return Boolean(rootTop) && path.split("/")[1] === rootTop;
+/**
+ * The overlay is built in the dev server's Node process. Read `node:fs`
+ * through `process.getBuiltinModule` so this module still loads anywhere
+ * else, where every bare path is treated as root-relative.
+ */
+function fileExists(path: string): boolean {
+  const runtime = globalThis as {
+    process?: { getBuiltinModule?: (id: string) => unknown };
+  };
+  try {
+    const fs = runtime.process?.getBuiltinModule?.("node:fs") as
+      | { existsSync?: (path: string) => boolean }
+      | undefined;
+    return fs?.existsSync?.(path) === true;
+  } catch {
+    return false;
+  }
 }
 
 export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
