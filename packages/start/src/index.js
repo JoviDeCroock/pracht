@@ -1,3 +1,4 @@
+// @ts-check
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
@@ -44,7 +45,7 @@ async function fetchLatestVersion(packageName) {
   if (!res.ok) {
     throw new Error(`Failed to fetch version for ${packageName}: ${res.statusText}`);
   }
-  const data = await res.json();
+  const data = /** @type {{ version: string }} */ (await res.json());
   return data.version;
 }
 
@@ -188,7 +189,8 @@ export async function run(argv = process.argv.slice(2)) {
     }
   }
 
-  const targetDir = resolve(process.cwd(), resolvedDir);
+  // Every value is set by now: from a flag, from `--yes`, or from a prompt.
+  const targetDir = resolve(process.cwd(), /** @type {string} */ (resolvedDir));
 
   await ensureTargetDirectory(targetDir);
 
@@ -328,7 +330,7 @@ export async function scaffoldProject({
   agentSkills = "core",
   agentTools = true,
   packageManager,
-  pnpmMajor = 11,
+  pnpmMajor = /** @type {number | null} */ (11),
   resolveRemoteVersions = true,
   router = "manifest",
   tailwind = false,
@@ -368,7 +370,11 @@ export async function scaffoldProject({
   try {
     await symlink("AGENTS.md", resolve(targetDir, "CLAUDE.md"));
   } catch (error) {
-    if (error && typeof error === "object" && ["EPERM", "EINVAL"].includes(error.code)) {
+    if (
+      error &&
+      typeof error === "object" &&
+      ["EPERM", "EINVAL"].includes(/** @type {{ code?: string }} */ (error).code ?? "")
+    ) {
       await copyFile(resolve(targetDir, "AGENTS.md"), resolve(targetDir, "CLAUDE.md"));
     } else {
       throw error;
@@ -390,7 +396,27 @@ export function getPnpmMajor(userAgent = process.env.npm_config_user_agent ?? ""
   return match ? Number(match[1]) : 11;
 }
 
+/**
+ * @typedef {object} CliOptions
+ * @property {string | undefined} adapter
+ * @property {string | undefined} agentSkills
+ * @property {boolean | undefined} agentTools
+ * @property {string | undefined} dir
+ * @property {boolean} dryRun
+ * @property {boolean} git
+ * @property {boolean} json
+ * @property {string | undefined} router
+ * @property {boolean} skipInstall
+ * @property {boolean | undefined} tailwind
+ * @property {boolean} yes
+ */
+
+/**
+ * @param {string[]} argv
+ * @returns {CliOptions}
+ */
 export function parseArgs(argv) {
+  /** @type {CliOptions} */
   const options = {
     adapter: undefined,
     agentSkills: undefined,
@@ -720,7 +746,7 @@ async function buildProjectFiles({
   agentSkills = "core",
   agentTools = true,
   packageManager,
-  pnpmMajor = 11,
+  pnpmMajor = /** @type {number | null} */ (11),
   projectName,
   resolveRemoteVersions = true,
   router,
@@ -2045,7 +2071,7 @@ function printNextSteps({
   router,
   skipInstall,
   tailwind,
-  versionFallbacks = [],
+  versionFallbacks = /** @type {string[]} */ ([]),
 }) {
   const installCommand = packageManager === "npm" ? "npm install" : `${packageManager} install`;
   const devCommand = packageManager === "npm" ? "npm run dev" : `${packageManager} dev`;
