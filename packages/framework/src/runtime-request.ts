@@ -64,6 +64,7 @@ import type {
   ResolvedPrachtApp,
   WaitUntil,
 } from "./types.ts";
+import { isStreamingHtmlResponse } from "./runtime-stream.ts";
 
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
 
@@ -289,6 +290,8 @@ export interface RequestBudget {
   abort(reason: unknown): void;
   /** Release the pipeline's own hold, once its response is produced. */
   release(): void;
+  /** Whether a signal was handed out and its timer is still pending. */
+  readonly timing: boolean;
 }
 
 const noop = () => {};
@@ -364,8 +367,78 @@ export function createRequestBudget(
         drop();
       };
     })(),
+    get timing() {
+      return timer !== undefined;
+    },
   };
   return budget;
+}
+
+/**
+ * Release the pipeline's hold on the budget once `response` is out, and
+ * return the response to send. Work the app still runs against the signal
+ * keeps the budget, so its timeout still applies:
+ *
+ * - A failed request (status 400 and up) keeps it until it fires. Its loader
+ *   may have left sibling work running, such as a deferred field next to the
+ *   one that threw.
+ * - A body the framework did not finish holds it until that body is read,
+ *   errors, or is cancelled, so a stalled proxied stream still times out.
+ *   Framework-streamed documents take their own hold instead, and keep the
+ *   body adapters recognise them by.
+ *
+ * Nothing is wrapped when no signal was handed out: there is no timer then.
+ */
+export function releaseBudgetWith(budget: RequestBudget, response: Response): Response {
+  if (!budget.timing) {
+    budget.release();
+    return response;
+  }
+  if (response.status >= 400) return response;
+  const body = response.body;
+  if (
+    !body ||
+    isStreamingHtmlResponse(response) ||
+    response.status === 101 ||
+    (response as { webSocket?: unknown }).webSocket
+  ) {
+    budget.release();
+    return response;
+  }
+  const releaseBody = budget.hold();
+  budget.release();
+  return new Response(holdUntilRead(body, releaseBody), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+function holdUntilRead(
+  body: ReadableStream<Uint8Array>,
+  release: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          release();
+          controller.close();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        release();
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      release();
+      return reader.cancel(reason);
+    },
+  });
 }
 
 /** Distinguish a client disconnect from a request-budget expiry. */

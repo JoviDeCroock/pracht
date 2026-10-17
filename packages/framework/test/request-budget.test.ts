@@ -195,6 +195,65 @@ describe("the request budget ends with the request's work", () => {
     expect((loaderSignal!.reason as Error).name).toBe("TimeoutError");
   });
 
+  it("keeps the budget running while a handler's own streamed body is open", async () => {
+    let handlerSignal: AbortSignal | undefined;
+
+    const response = await handlePrachtRequest({
+      app: defineApp({ loaderTimeoutMs: 20, routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/proxy.ts"]),
+      registry: {
+        apiModules: {
+          "/src/api/proxy.ts": async () => ({
+            GET: ({ signal }: { signal: AbortSignal }) => {
+              handlerSignal = signal;
+              // A proxied upstream that stalls after its first chunk.
+              const body = new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode("first"));
+                  signal.addEventListener("abort", () => controller.error(signal.reason));
+                },
+              });
+              return new Response(body);
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/api/proxy"),
+    });
+    await Promise.race([response.text().catch(() => undefined), sleep(300)]);
+
+    expect(handlerSignal!.aborted).toBe(true);
+    expect((handlerSignal!.reason as Error).name).toBe("TimeoutError");
+  });
+
+  it("keeps the budget running for work a failed render left behind", async () => {
+    let loaderSignal: AbortSignal | undefined;
+
+    const response = await handlePrachtRequest({
+      app: defineApp({ loaderTimeoutMs: 20, routes: [route("/", "./routes/home.tsx")] }),
+      registry: {
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("p", null, "home"),
+            loader: ({ signal }: { signal: AbortSignal }) => {
+              loaderSignal = signal;
+              return {
+                broken: defer(sleep(2).then(() => Promise.reject(new Error("upstream down")))),
+                sibling: defer(new Promise((resolve) => signal.addEventListener("abort", resolve))),
+              };
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+    await response.text();
+    await sleep(60);
+
+    expect(response.status).toBe(500);
+    expect(loaderSignal!.aborted).toBe(true);
+  });
+
   it("ends the budget once a streamed document has been read", async () => {
     let loaderSignal: AbortSignal | undefined;
 
