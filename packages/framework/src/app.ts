@@ -26,7 +26,7 @@ import { validateAgentsConfig as validateAgentsConfigShared } from "@pracht/capa
 import { formatUnknownNameError } from "./name-suggestions.ts";
 import { NOT_FOUND_ROUTE_ID, NOT_FOUND_ROUTE_PATH } from "./runtime-constants.ts";
 import {
-  matchIndexedResolvedRoute,
+  matchResolvedRoute,
   matchRouteSegments,
   normalizeRoutePath,
   parseRouteSegments,
@@ -446,7 +446,7 @@ export function matchAppRoute(
   pathname: string,
 ): RouteMatch | undefined {
   const resolved = isResolvedApp(app) ? app : resolveApp(app);
-  return matchIndexedResolvedRoute(resolved, pathname);
+  return matchResolvedRoute(resolved, pathname);
 }
 
 function flattenRouteNode(

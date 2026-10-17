@@ -173,11 +173,12 @@ export function matchResolvedRoute(
 /**
  * `matchResolvedRoute` without the scan, for the server. Every request matches
  * against the whole table, where a linear scan costs microseconds per route at
- * a thousand routes, so the table is indexed once and reused. The client
- * router keeps calling `matchResolvedRoute`: it matches once per navigation,
- * and the index would cost shipped bytes. Keep this a separate export rather
- * than a flag inside `matchResolvedRoute`; client builds only replace
- * `import.meta.env?.SSR` after tree-shaking, so a flag would ship the index.
+ * a thousand routes, so the table is indexed once and reused. Only the
+ * request pipeline calls it. The client router and the public `matchAppRoute`
+ * (also exported to the browser) keep `matchResolvedRoute`: they match once
+ * per navigation, and the index would cost shipped bytes. Keep this a separate
+ * export rather than a flag inside `matchResolvedRoute`; client builds only
+ * replace `import.meta.env?.SSR` after tree-shaking, so a flag would ship it.
  */
 export function matchIndexedResolvedRoute(
   app: ResolvedPrachtApp,
