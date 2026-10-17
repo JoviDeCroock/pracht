@@ -917,6 +917,83 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
     await expect(cachedText(cache, keyUrl)).resolves.toContain("old-but-live");
   });
 
+  describe("document headers of a regenerated page", () => {
+    function createWithdrawablePage(state: { withdrawn: boolean }) {
+      const app = defineApp({
+        routes: [
+          route("/notice", "./routes/notice.tsx", {
+            render: "isg",
+            revalidate: webhookRevalidate(),
+          }),
+        ],
+      });
+      const registry: ModuleRegistry = {
+        routeModules: {
+          "./routes/notice.tsx": async () => ({
+            loader: async () => ({ withdrawn: state.withdrawn }),
+            headers: ({ data }: { data: { withdrawn: boolean } }) => ({
+              "cache-control": "public, max-age=60",
+              "x-robots-tag": data.withdrawn ? "noindex" : "all",
+            }),
+            Component: ({ data }) => `withdrawn=${(data as { withdrawn: boolean }).withdrawn}`,
+          }),
+        },
+      };
+      return createCloudflareFetchHandler({
+        app,
+        registry,
+        // What `pracht build` recorded from the build-time render.
+        headersManifest: {
+          "/notice": { "cache-control": "public, max-age=60", "x-robots-tag": "all" },
+        },
+        isgManifest: { "/notice": { revalidate: webhookRevalidate() } },
+      });
+    }
+
+    it("serves the headers the regenerated render produced, not the build's", async () => {
+      const { cache } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const host = "hook-headers.example";
+      const state = { withdrawn: false };
+      const handler = createWithdrawablePage(state);
+      const env = { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" };
+
+      state.withdrawn = true;
+      const webhook = await handler(
+        createWebhookRequest(host, ["/notice"], "secret"),
+        env,
+        executionContext,
+      );
+      await expect(webhook.json()).resolves.toMatchObject({ revalidated: ["/notice"] });
+
+      const served = await handler(new Request(`https://${host}/notice`), env, executionContext);
+      await expect(served.text()).resolves.toContain("withdrawn=true");
+      expect(served.headers.get("x-robots-tag")).toBe("noindex");
+      // The route's own Cache-Control still reaches the browser, and the
+      // entry's storage bookkeeping does not.
+      expect(served.headers.get("cache-control")).toBe("public, max-age=60");
+      expect(served.headers.has("x-pracht-isg-cache-control")).toBe(false);
+    });
+
+    it("keeps applying build headers to entries stored by an earlier version", async () => {
+      const { cache, store } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const host = "legacy-entry.example";
+      putCachedISGPage(store, cacheKeyUrl("/notice", host), "<html>legacy</html>", Date.now());
+      const handler = createWithdrawablePage({ withdrawn: false });
+
+      const served = await handler(
+        new Request(`https://${host}/notice`),
+        { ASSETS: create404Assets() },
+        executionContext,
+      );
+      expect(served.headers.get("cache-control")).toBe("public, max-age=60");
+      expect(served.headers.get("x-robots-tag")).toBe("all");
+    });
+  });
+
   it("returns 503 when the Cache API is unavailable", async () => {
     vi.stubGlobal("caches", undefined);
     const { executionContext } = createExecutionContext();
