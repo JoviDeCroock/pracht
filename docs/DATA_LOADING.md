@@ -568,6 +568,12 @@ mode must be `ssr` and hydration must be `full`.
 
 `streaming` is also a group option, so a whole section can opt in at once.
 
+The browser revives streamed `defer()` values during hydration only in builds
+that may stream: the plugin sets the build-only `__PRACHT_STREAMING__` define
+to `false` when no manifest module mentions `streaming` (and the manifest
+imports nothing but local modules and `@pracht/*`), or when no pages route
+exports `STREAMING`, and the hydration path drops that code. Dev keeps it on.
+
 With it on, the response is written in this order:
 
 1. The document head and the opening `<div id="pracht-root">`, followed by the

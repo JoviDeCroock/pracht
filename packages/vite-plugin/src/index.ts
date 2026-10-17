@@ -57,6 +57,7 @@ import {
   resolveCapabilityModulePaths,
 } from "./plugin-capabilities.ts";
 import {
+  appMayStream,
   clearPagesAppSourceCache,
   collectExternalManifestModules,
   collectManifestModuleFiles,
@@ -284,6 +285,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const appRootDefine =
         env.command === "build" ? String(findAppRootModule(resolved, configRoot) !== null) : "true";
 
+      // Only a streamed document hands the browser `defer()` values to revive
+      // during hydration, so a build with no streaming route drops that code.
+      // Dev keeps it on: `streaming: true` can be added while the server runs.
+      const streamingDefine =
+        env.command === "build" ? String(appMayStream(resolved, configRoot)) : "true";
+
       // Static-export builds bake the flag into both bundles: the client
       // router switches to `/_pracht/state/…` files and the server bundle's
       // prerender pass emits matching preload URLs. Dev always serves the
@@ -384,6 +391,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           __PRACHT_ROUTE_SEARCH__: routeSearchDefine,
           __PRACHT_SHELL_LOADERS__: shellLoadersDefine,
           __PRACHT_APP_ROOT__: appRootDefine,
+          __PRACHT_STREAMING__: streamingDefine,
           __PRACHT_STATIC_TARGET__: staticTargetDefine,
           __PRACHT_SERVER_ISLANDS__: serverIslandsDefine,
           // One URL policy for the server runtime, the client router, and the

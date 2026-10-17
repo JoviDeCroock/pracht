@@ -473,3 +473,64 @@ export const app = defineApp({
     expect(define(plain, "serve")).toBe("true");
   });
 });
+
+describe("deferred-data hydration", () => {
+  const define = (root: string, command = "build", options = {}) => {
+    const plugin = pracht(options).find((candidate) => candidate.name === "pracht")!;
+    const hook = plugin.config as (
+      config: Record<string, unknown>,
+      env: { command: string; mode: string; isSsrBuild: boolean },
+    ) => { define?: Record<string, string> };
+    return hook.call(plugin as never, { root }, { command, mode: "production", isSsrBuild: false })
+      .define?.__PRACHT_STREAMING__;
+  };
+  const manifest = (routes: string, imports = "") =>
+    `import { defineApp, group, route } from "@pracht/core";
+${imports}
+export const app = defineApp({ routes: [${routes}] });
+`;
+
+  it("compiles out of a build where no route streams", () => {
+    const root = project({
+      "src/routes.ts": manifest('route("/", "./routes/home.tsx")'),
+      "src/routes/home.tsx": COMPONENT,
+    });
+    expect(define(root)).toBe("false");
+    // Dev keeps it on, so `streaming: true` works without a restart.
+    expect(define(root, "serve")).toBe("true");
+  });
+
+  it("stays in a build that may stream", () => {
+    const cases: Array<Record<string, string>> = [
+      { "src/routes.ts": manifest('route("/", "./routes/home.tsx", { streaming: true })') },
+      { "src/routes.ts": manifest('group({ streaming: true }, [route("/", "./routes/home.tsx")])') },
+      {
+        "src/routes.ts": manifest("...more", 'import { more } from "./more.ts";'),
+        "src/more.ts":
+          'import { route } from "@pracht/core";\nexport const more = [route("/", "./routes/home.tsx", { streaming: true })];\n',
+      },
+      // Options a package hands the manifest are not read.
+      {
+        "src/routes.ts": manifest(
+          'route("/", "./routes/home.tsx", options)',
+          'import { options } from "shared-route-options";',
+        ),
+      },
+    ];
+    for (const files of cases) {
+      const root = project({ ...files, "src/routes/home.tsx": COMPONENT });
+      expect(define(root), files["src/routes.ts"]).toBe("true");
+    }
+  });
+
+  it("follows `STREAMING` exports in the pages router", () => {
+    const pages = { pagesDir: "/src/pages" };
+    const plain = project({ "src/pages/index.tsx": COMPONENT });
+    const streaming = project({
+      "src/pages/index.tsx": COMPONENT,
+      "src/pages/live.tsx": `export const STREAMING = true;\n${COMPONENT}`,
+    });
+    expect(define(plain, "build", pages)).toBe("false");
+    expect(define(streaming, "build", pages)).toBe("true");
+  });
+});

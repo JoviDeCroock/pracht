@@ -478,6 +478,11 @@ interface ManifestScan {
   files: string[];
   /** Component refs of routes whose hydration is provably not `"full"`. */
   nonFullRefs: string[];
+  /**
+   * Whether a route may set `streaming`: some scanned module names it, the
+   * manifest imports a package other than pracht's, or the scan is incomplete.
+   */
+  mayStream: boolean;
 }
 
 /** What one manifest module says, independent of where the scan started. */
@@ -488,6 +493,7 @@ interface ManifestModuleFacts {
   nonFullRefs: string[];
   /** Every route and shell ref position holds a literal. */
   literalRefs: boolean;
+  mentionsStreaming: boolean;
 }
 
 /**
@@ -534,6 +540,7 @@ function readManifestModuleFacts(file: string): ManifestModuleFacts | null {
       refs: { routes: [], shells: [], middleware: [], loaders: [] },
       nonFullRefs: [],
       literalRefs: true,
+      mentionsStreaming: /\bstreaming\b/.test(source),
     };
     facts.literalRefs = collectPositionalRefs(program, facts.refs);
     collectNonFullRouteRefs(program, facts.nonFullRefs);
@@ -559,12 +566,16 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
   const queue = [appFile];
   const seen = new Set(queue);
   let complete = true;
+  let mayStream = false;
   while (queue.length > 0) {
     const file = queue.shift()!;
     const facts = readManifestModuleFacts(file);
     // An unreadable or unparseable manifest is the dev server's error to
     // report, not a reason to reorganize the bundle.
-    if (!facts) return { complete: false, strings, refs, files: [...seen], nonFullRefs };
+    if (!facts) {
+      return { complete: false, strings, refs, files: [...seen], nonFullRefs, mayStream: true };
+    }
+    mayStream ||= facts.mentionsStreaming;
     strings.push(...facts.strings);
     for (const kind of ["routes", "shells", "middleware", "loaders"] as const) {
       refs[kind].push(...facts.refs[kind]);
@@ -577,7 +588,11 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
         complete = false;
         continue;
       }
-      if (!specifier.startsWith(".") && !specifier.startsWith("/")) continue;
+      if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+        // A package can hand the manifest route options this scan never reads.
+        if (!specifier.startsWith("@pracht/")) mayStream = true;
+        continue;
+      }
       const target = resolveManifestImport(specifier, file, root);
       if (target === null) {
         complete = false;
@@ -594,7 +609,14 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
     }
   }
 
-  return { complete, strings, refs, files: [...seen], nonFullRefs };
+  return {
+    complete,
+    strings,
+    refs,
+    files: [...seen],
+    nonFullRefs,
+    mayStream: mayStream || !complete,
+  };
 }
 
 /**
@@ -608,6 +630,23 @@ export function collectManifestModuleFiles(
 ): string[] {
   if (resolved.pagesDir) return [];
   return scanManifestModules(resolved, root).files.map(toPosixPath);
+}
+
+/**
+ * Whether any route may stream its document (`streaming: true`), which is the
+ * only way a page's hydration state carries `defer()` values out of band.
+ * Answers `true` whenever it cannot tell.
+ */
+export function appMayStream(resolved: ResolvedPrachtPluginOptions, root: string): boolean {
+  if (!resolved.pagesDir) return scanManifestModules(resolved, root).mayStream;
+  try {
+    return scanPagesDirectory(
+      resolve(root, resolved.pagesDir.replace(/^\//, "")),
+      resolved.additionalExtensions,
+    ).some((page) => page.streaming !== false && page.streaming !== undefined);
+  } catch {
+    return true;
+  }
 }
 
 /**
