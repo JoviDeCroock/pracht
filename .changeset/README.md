@@ -31,3 +31,23 @@ those packages are never published. Only the publishable `packages/*` show up in
 
 If you ever need an example's version bumped, do it by hand; do not flip this flag
 back on.
+
+## Packages that release together
+
+`@pracht/core`, `@pracht/capabilities` and `@pracht/vite-plugin` form a `fixed`
+group in `config.json`: whenever one of them is released, all three are released
+at the same version. They are not independent at runtime. Core imports
+`@pracht/capabilities/server/internal`, an unversioned internal surface, and the
+modules `@pracht/vite-plugin` generates import `@pracht/core` subpaths. Released
+separately, an older core could resolve a newer capabilities whose internals had
+moved on, and nothing in the release plan would notice.
+
+The group keeps each release's three versions matched; it cannot stop an
+older core from resolving a newer capabilities within its caret range. So a
+change that removes or reshapes an export of `@pracht/capabilities/server/internal`
+takes a `minor` changeset, never a `patch`: on 0.x a minor bump moves the whole
+group out of every published caret range.
+
+`@pracht/cli` is coupled the same way but stays out of the group. It is on 1.x
+while the other three are on 0.x, and a fixed group takes the highest version
+in the group, so including it would move core to 1.x.
