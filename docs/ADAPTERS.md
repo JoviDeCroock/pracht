@@ -403,6 +403,11 @@ runs with the `node:http` server before `listen()` when the generated entry is
 the process entrypoint, and with the dev server under `pracht dev` — see
 [WebSockets](#websockets) above.
 
+`keepAliveTimeoutMs` and `headersTimeoutMs` set `server.keepAliveTimeout` and
+`server.headersTimeout` on the generated server; left unset, Node's defaults
+(5s / 60s) apply. Behind a load balancer, keep-alive must outlast the balancer's
+idle timeout or it reuses sockets Node just closed (intermittent 502s).
+
 `shutdownTimeoutMs` (default `10000`) bounds the generated entry's graceful
 shutdown: on `SIGTERM` or `SIGINT` it closes the server, waits for in-flight
 requests and `waitUntil()` work up to that deadline, then re-raises the signal
@@ -410,10 +415,14 @@ so the exit status is the default one. Edges of that shape:
 
 - `server.close()` resolves only when every socket is gone. Idle keep-alive
   sockets are closed up front, but a socket whose request finishes during the
-  drain stays open for Node's `keepAliveTimeout` (5s), and longer while a
-  client keeps sending on it; SSE streams and upgraded WebSockets hold it until
-  the deadline. The `waitUntil()` drain shares that deadline, so work still
-  pending when it expires is cut off.
+  drain stays open for Node's `keepAliveTimeout` (5s, or `keepAliveTimeoutMs`),
+  and longer while a client keeps sending on it. Open `text/event-stream`
+  responses are destroyed right after `server.close()` via
+  `handler.closeEventStreams()` (request `signal` aborts, body stream is
+  cancelled; `EventSource` clients reconnect elsewhere). Upgraded WebSockets and
+  other long streaming responses still hold it until the deadline. The
+  `waitUntil()` drain shares that deadline, so work still pending when it
+  expires is cut off.
 - The handlers are removed before the drain starts, so a second signal takes the
   default action and exits at once.
 - `configureServer()` runs first, so its own `SIGTERM`/`SIGINT` listeners run

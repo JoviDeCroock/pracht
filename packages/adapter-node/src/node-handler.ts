@@ -160,6 +160,14 @@ export interface NodeRequestHandler {
    * after `server.close()` when shutting down.
    */
   drain(timeoutMs?: number): Promise<boolean>;
+  /**
+   * Close every `text/event-stream` response still open, as if its client
+   * had disconnected (the request's `signal` aborts and the body stream is
+   * cancelled). Event streams never end on their own, so a graceful shutdown
+   * calls this after `server.close()` instead of waiting out its timeout;
+   * `EventSource` clients reconnect. Other responses are left to finish.
+   */
+  closeEventStreams(): void;
   /** Registered background work that has not settled yet. */
   readonly pending: number;
 }
@@ -429,7 +437,10 @@ export function createNodeRequestHandler<TContext = unknown>(
   // `http.createServer(handler)` ignores the returned promise, so a rejection
   // here would become an unhandled rejection and terminate the process. Every
   // failure has to be absorbed at this boundary.
+  const openResponses = new Set<ServerResponse>();
   const listener = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    openResponses.add(res);
+    res.once("close", () => openResponses.delete(res));
     try {
       await handle(req, res);
     } catch (error) {
@@ -480,6 +491,20 @@ export function createNodeRequestHandler<TContext = unknown>(
 
   return Object.defineProperties(listener, {
     drain: { value: (timeoutMs?: number) => backgroundWork.drain(timeoutMs) },
+    closeEventStreams: {
+      value: () => {
+        for (const res of openResponses) {
+          const contentType = String(res.getHeader("content-type") ?? "").toLowerCase();
+          if (
+            res.headersSent &&
+            !res.writableEnded &&
+            contentType.startsWith("text/event-stream")
+          ) {
+            res.destroy();
+          }
+        }
+      },
+    },
     pending: { get: () => backgroundWork.pending },
   }) as NodeRequestHandler;
 }

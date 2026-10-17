@@ -118,6 +118,79 @@ describe("waitUntil on the Node adapter", () => {
   });
 });
 
+describe("closeEventStreams", () => {
+  it("closes open event streams and leaves other streaming responses alone", async () => {
+    const cancelled: string[] = [];
+    const streamFor = (name: string) =>
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`${name}\n`));
+        },
+        cancel() {
+          cancelled.push(name);
+        },
+      });
+    const handler = createNodeRequestHandler({
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/events.ts", "/src/api/export.ts"]),
+      canonicalOrigin: "http://localhost",
+      compression: false,
+      registry: {
+        apiModules: {
+          "/src/api/events.ts": async () => ({
+            GET: () =>
+              new Response(streamFor("events"), {
+                headers: { "content-type": "text/event-stream" },
+              }),
+          }),
+          "/src/api/export.ts": async () => ({
+            GET: () =>
+              new Response(streamFor("export"), { headers: { "content-type": "text/csv" } }),
+          }),
+        },
+      },
+    });
+    const port = await listen(handler);
+    const open = (path: string) =>
+      new Promise<IncomingMessage>((resolveStream, reject) => {
+        const req = httpRequest({ hostname: "127.0.0.1", port, path }, resolveStream);
+        req.on("error", reject);
+        req.end();
+      });
+
+    const events = await open("/api/events");
+    const csv = await open("/api/export");
+    await Promise.all([once(events, "data"), once(csv, "data")]);
+    events.on("error", () => {});
+    const eventsClosed = new Promise((resolveClose) => events.on("close", resolveClose));
+
+    try {
+      handler.closeEventStreams();
+
+      await eventsClosed;
+      await vi.waitFor(() => expect(cancelled).toEqual(["events"]));
+      expect(csv.destroyed).toBe(false);
+    } finally {
+      csv.destroy();
+    }
+  });
+});
+
+describe("server timeouts of the generated Node entry", () => {
+  it("sets keep-alive and header timeouts only when configured", () => {
+    expect(createNodeServerEntryModule()).not.toContain("keepAliveTimeout");
+    const source = createNodeServerEntryModule({
+      keepAliveTimeoutMs: 65_000,
+      headersTimeoutMs: 66_000,
+    });
+    expect(source).toContain("server.keepAliveTimeout = 65000;");
+    expect(source).toContain("server.headersTimeout = 66000;");
+    expect(() => createNodeServerEntryModule({ keepAliveTimeoutMs: -1 })).toThrow(
+      "nodeAdapter({ keepAliveTimeoutMs }) expects a non-negative number of milliseconds.",
+    );
+  });
+});
+
 describe("graceful shutdown of the generated Node entry", () => {
   /**
    * Run the real generated entry as its own process: an API route registers
@@ -135,13 +208,17 @@ describe("graceful shutdown of the generated Node entry", () => {
       'import { writeFileSync } from "node:fs";',
       'import { defineApp, resolveApiRoutes, resolveApp } from "@pracht/core/server";',
       "const resolvedApp = resolveApp(defineApp({ routes: [] }));",
-      'const apiRoutes = resolveApiRoutes(["/src/api/work.ts"]);',
+      'const apiRoutes = resolveApiRoutes(["/src/api/work.ts", "/src/api/events.ts"]);',
       "const registry = { apiModules: { '/src/api/work.ts': async () => ({",
       "  GET: ({ waitUntil }) => {",
       `    waitUntil(new Promise((r) => setTimeout(r, ${options.workMs})).then(() =>`,
       `      writeFileSync(${JSON.stringify(marker)}, "done")));`,
       '    return new Response("sent");',
       "  },",
+      "}), '/src/api/events.ts': async () => ({",
+      "  GET: () => new Response(new ReadableStream({",
+      "    start(controller) { controller.enqueue(new TextEncoder().encode('data: hi\\n\\n')); },",
+      "  }), { headers: { 'content-type': 'text/event-stream' } }),",
       "}) } };",
       "const clientEntryUrl = null;",
       "const islandsEntryUrl = null;",
@@ -184,6 +261,27 @@ describe("graceful shutdown of the generated Node entry", () => {
     // The signal is re-raised once drained, so the exit looks like any SIGTERM.
     expect({ code, signal }).toEqual({ code: null, signal: "SIGTERM" });
   }, 15_000);
+
+  it("closes open event streams instead of waiting out the shutdown timeout", async () => {
+    const { child, exited, port } = await startEntry({ workMs: 0 });
+
+    const stream = await new Promise<IncomingMessage>((resolveStream, reject) => {
+      const req = httpRequest({ hostname: "127.0.0.1", port, path: "/api/events" }, resolveStream);
+      req.on("error", reject);
+      req.end();
+    });
+    expect(stream.headers["content-type"]).toBe("text/event-stream");
+    await once(stream, "data");
+    stream.on("error", () => {});
+    stream.resume();
+
+    const startedAt = Date.now();
+    child.kill("SIGTERM");
+    const [, signal] = await exited;
+    expect(signal).toBe("SIGTERM");
+    // The default 10s budget would otherwise be spent waiting on the stream.
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+  }, 20_000);
 
   it("stops waiting at shutdownTimeoutMs", async () => {
     const { child, exited, marker, port } = await startEntry({
