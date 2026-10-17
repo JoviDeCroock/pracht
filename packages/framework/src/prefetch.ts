@@ -47,7 +47,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   const renderPrefetchedAnchors = new WeakSet<HTMLAnchorElement>();
   const observedAnchors = new WeakSet<HTMLAnchorElement>();
   const matchCache = new Map<string, MatchCacheEntry>();
-  const passiveQueue: string[] = [];
+  const passiveQueue: HTMLAnchorElement[] = [];
   let passiveInFlight = 0;
   const browserSupportsSpeculationRules = supportsSpeculationRules();
 
@@ -135,27 +135,35 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
   }
 
   /**
-   * A prefetch the visitor did not ask for (`viewport`, `render`): skipped
-   * when they save data, and run at most `MAX_PASSIVE_PREFETCHES` at a time.
+   * A prefetch the visitor did not ask for (`viewport`, `render`): run at most
+   * `MAX_PASSIVE_PREFETCHES` at a time, and skipped when they save data.
    */
-  function prefetchPassively(href: string): void {
-    // Save-Data, or a 2G-class `effectiveType` (`2g`, `slow-2g`).
-    const connection = (
-      navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }
-    ).connection;
-    if (connection?.saveData || /2g/.test(connection?.effectiveType as string)) return;
-    passiveQueue.push(href);
+  function prefetchPassively(anchor: HTMLAnchorElement): void {
+    passiveQueue.push(anchor);
     drainPassiveQueue();
   }
 
   function drainPassiveQueue(): void {
     while (passiveInFlight < MAX_PASSIVE_PREFETCHES && passiveQueue.length) {
+      // Checked as each link's turn comes: the connection can change, and a
+      // client navigation can remove the link, while it waits.
+      // Save-Data, or a 2G-class `effectiveType` (`2g`, `slow-2g`).
+      const connection = (
+        navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }
+      ).connection;
+      if (connection?.saveData || /2g/.test(connection?.effectiveType as string)) {
+        passiveQueue.length = 0;
+        return;
+      }
+      const anchor = passiveQueue.shift()!;
+      const href = anchor.isConnected && getInternalHref(anchor);
+      if (!href) continue;
       passiveInFlight++;
       const next = () => {
         passiveInFlight--;
         drainPassiveQueue();
       };
-      Promise.resolve(prefetchHref(passiveQueue.shift()!)).then(next, next);
+      Promise.resolve(prefetchHref(href)).then(next, next);
     }
   }
 
@@ -232,7 +240,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
                 observedAnchors.delete(anchor);
                 continue;
               }
-              prefetchPassively(href);
+              prefetchPassively(anchor);
               observer?.unobserve(anchor);
               observedAnchors.delete(anchor);
             }
@@ -251,7 +259,7 @@ export function setupPrefetching(app: ResolvedPrachtApp, warmModules?: ModuleWar
       if (observedAnchors.delete(anchor)) observer?.unobserve(anchor);
       if (!renderPrefetchedAnchors.has(anchor)) {
         renderPrefetchedAnchors.add(anchor);
-        prefetchPassively(href);
+        prefetchPassively(anchor);
       }
       return;
     }
