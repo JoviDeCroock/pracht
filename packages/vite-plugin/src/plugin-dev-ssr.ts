@@ -286,7 +286,12 @@ export function createDevSSRMiddleware(
 
       let webRequest: Request;
       try {
-        webRequest = await nodeToWebRequest(req, maxBodySize, devBase);
+        webRequest = await nodeToWebRequest(
+          req,
+          maxBodySize,
+          devBase,
+          devDisconnectSignal(req, res),
+        );
       } catch (err) {
         if (err instanceof Error && err.message === "Request body too large") {
           res.statusCode = 413;
@@ -2016,10 +2021,35 @@ const DEV_ASSET_EXTENSIONS = new Set([
   ".xml",
 ]);
 
+/**
+ * Aborts when the client hangs up before the dev response finished, so
+ * `request.signal` (and a capability's `signal`) behave as on the Node adapter.
+ * The request's `close` counts only while its body is incomplete: Node also
+ * emits it once a fully read upload is consumed.
+ */
+export function devDisconnectSignal(
+  req: IncomingMessage,
+  res: { writableFinished: boolean; on(event: "close", listener: () => void): unknown },
+): AbortSignal | undefined {
+  // Connect-style middleware stacks can hand over non-stream stand-ins.
+  if (typeof req.on !== "function" || typeof res.on !== "function") return undefined;
+  const controller = new AbortController();
+  const abortIfUnfinished = (): void => {
+    if (res.writableFinished || controller.signal.aborted) return;
+    controller.abort(new DOMException("The client closed the request.", "AbortError"));
+  };
+  req.on("close", () => {
+    if (!req.complete) abortIfUnfinished();
+  });
+  res.on("close", abortIfUnfinished);
+  return controller.signal;
+}
+
 async function nodeToWebRequest(
   req: IncomingMessage,
   maxBodySize: number,
   base = "/",
+  signal?: AbortSignal,
 ): Promise<Request> {
   // Dev server is always a direct connection — never trust forwarded headers.
   // Protocol is always plain HTTP (Vite's dev server does not use TLS), and
@@ -2046,7 +2076,7 @@ async function nodeToWebRequest(
     }
   }
 
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = { method, headers, signal };
 
   if (!BODYLESS_METHODS.has(method.toUpperCase())) {
     const chunks: Uint8Array[] = [];
