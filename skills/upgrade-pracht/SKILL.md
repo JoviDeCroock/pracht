@@ -47,11 +47,14 @@ has empty `fixed`/`linked` groups) — `@pracht/core` can be at 0.9.x while
 `@pracht/cli` is at 1.6.x. There is no "one framework version". Two
 consequences:
 
-1. **Internal dependencies are pinned exact.** Published packages depend on
-   their siblings at exact versions (e.g. `@pracht/vite-plugin@0.5.0` depends
-   on `@pracht/core@0.9.0`, not a range). Upgrade the whole family in one
-   move; upgrading only one package can drag in a second copy of
-   `@pracht/core` and split the runtime.
+1. **Internal ranges stop at the minor.** Published packages depend on their
+   siblings with caret ranges on 0.x (e.g. `@pracht/core: ^0.20.0`), and a 0.x
+   caret never crosses a minor. The adapters, `@pracht/session`,
+   `@pracht/i18n`, `@pracht/query`, and `@pracht/test` take `@pracht/core` as a
+   peer, so a newer core shows up as a peer warning until they are upgraded
+   too; `@pracht/vite-plugin` and `@pracht/cli` depend on it directly and can
+   drag in a second copy that splits the runtime. Upgrade the whole family in
+   one move.
 2. **Most packages are 0.x**, so under semver a *minor* bump may be breaking —
    treat `### Minor Changes` entries on 0.x packages with the same care as
    majors.
