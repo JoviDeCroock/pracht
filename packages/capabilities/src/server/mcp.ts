@@ -34,6 +34,7 @@ import {
 } from "../protocol.ts";
 import {
   clearDestructiveConfirmed,
+  getCapabilityLoadFailures,
   handleCapabilityRequest,
   setActiveCapabilityHost,
   type CapabilityHostApp,
@@ -663,6 +664,19 @@ async function handleToolsCall<TContext>(
   const exposed = mcpExposedCapabilities(options.capabilities, options.mcp);
   const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
   if (!match) {
+    const failed = getCapabilityLoadFailures(options.capabilities).find(
+      (failure) => mcpToolName(failure.name) === params.name,
+    );
+    if (failed) {
+      return jsonRpcResponse(200, protocolVersion, {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: JSONRPC_INTERNAL_ERROR,
+          message: `Tool ${JSON.stringify(params.name)} is unavailable: its capability failed to load.`,
+        },
+      });
+    }
     // An unknown tool is a protocol-level error, not a tool execution failure.
     return jsonRpcResponse(200, protocolVersion, {
       jsonrpc: "2.0",

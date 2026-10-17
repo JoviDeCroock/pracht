@@ -792,9 +792,20 @@ edge-only import inside `run()`.
   envelope. The cap is fixed: capability inputs are JSON, and file uploads
   belong in API routes. Edge adapters do not cap bodies themselves, so this is
   the only bound on Workers, Netlify, and Vercel.
-- **Fail closed** — a capability registry that cannot resolve (bad module,
-  duplicate paths, unknown middleware) answers capability requests with 500
-  and never partially serves.
+- **Fail closed, per capability** — resolution loads each registered module
+  separately (at most eight imports at once) on the first request that can
+  dispatch a capability: a POST, anything under `/api/capabilities/`, or the
+  MCP endpoint. A page `GET`/`HEAD` outside that prefix never imports capability
+  modules. A module that throws on import, or exports an invalid contract
+  (unknown middleware, bad path, missing schemas), makes only that capability
+  unavailable: requests under the capability prefix — or at a path a capability
+  still claims — answer `500`, `invokeCapability()` returns `internal_error`,
+  and its MCP tool is left out of `tools/list` (a `tools/call` answers
+  `-32603`). The failure is logged once per message and is not cached; the next
+  resolution retries it, so a transient import error does not last until
+  restart. `getCapabilityLoadFailures(resolved)` lists them. Graph-wide
+  invariants — two capabilities on one HTTP path, or a capability on the MCP
+  endpoint — still fail every capability request with `500`.
 
 ## Cost when unused
 
@@ -826,7 +837,13 @@ agent surface at all:
 The capability graph feeds every existing inspection surface:
 
 - the `pracht dev` startup banner prints a Capabilities table (name, effect,
-  exposure, dispatch path) whenever the app registers any;
+  exposure, dispatch path) whenever the app registers any. It reads each
+  capability from source, like API routes, and imports a module only when the
+  static extractor cannot read it, so startup runs no capability's top-level
+  code; with `agents.mcp.destructive` it also imports the destructive MCP
+  capabilities, whose approval registrations the precondition check needs.
+  A capability that fails to load is reported on its own row and does not
+  mark the MCP endpoint unavailable — the endpoint keeps serving the rest;
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
   path, WebMCP route patterns, middleware, source, plus the input/output JSON Schemas in `--json`
   output. It also reports `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`,

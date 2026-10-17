@@ -10,7 +10,7 @@ next:
   title: Standalone Capabilities
 ---
 
-> **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover every module in `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`; everything on this page — HTTP endpoints, WebMCP, remote MCP, typed clients, `pracht eval` — works the same in both.
+> **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`. Everything on this page works the same in both.
 
 ## One Contract, Many Surfaces
 
@@ -73,6 +73,8 @@ export default defineCapability({
 ```
 
 A `hydration: "islands"` route that activates a page tool keeps the page bootstrap even when it renders no islands.
+
+Capability modules load on the first capability or MCP request, never for a page view. A module that throws makes only that capability unavailable (`500` at its path, absent from `tools/list`); the rest keep serving, and the load is retried on the next request.
 
 ---
 
@@ -357,7 +359,7 @@ POST /mcp
   → tools/call  = the capability HTTP dispatch, verbatim
 ```
 
-Validation, middleware, `agentPolicy`, and auditing are identical across HTTP, WebMCP, and MCP. Nested `invokeCapability()` calls under MCP re-apply the callee's `agentPolicy` and refuse destructive callees unless the served tool already cleared prepare/commit. See [Remote MCP Composition Is Guarded](/docs/agent-trust#remote-mcp-composition-is-guarded).
+Validation, middleware, `agentPolicy`, and auditing are identical across HTTP, WebMCP, and MCP. Nested `invokeCapability()` calls under MCP are [guarded](/docs/agent-trust#remote-mcp-composition-is-guarded): they re-apply the callee's `agentPolicy` and refuse unconfirmed destructive callees.
 
 The endpoint is stateless (no sessions or server→client streams), so it runs unchanged on the Node, Cloudflare, Netlify, and Vercel adapters.
 
@@ -570,7 +572,7 @@ export default verify;
 
 `jose` runs on Workers and Vercel Edge, but any library or an introspection call works too.
 
-The hook **fails closed**: returning `null`, throwing, or returning no non-empty `subject` answers `401 invalid_token`. Thrown messages are logged, never sent to the caller. A `verify` module that fails to load answers 401 to every request, and inspection reports the endpoint `blocked`. The second argument holds a readable `request` clone.
+The hook fails closed with `401 invalid_token`, and a `verify` module that fails to load makes inspection report the endpoint `blocked`. The second argument holds a readable `request` clone.
 
 #### The Verified Principal
 

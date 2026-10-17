@@ -550,32 +550,44 @@ describe("serving is opt-in", () => {
     expect(await response.json()).toMatchObject({ result: { tools: [] } });
   });
 
-  it("keeps registry failures on the MCP protocol surface", async () => {
+  it("leaves a capability that fails to load off the tool list and fails its calls", async () => {
     const app = defineApp({
       agents: { mcp: {} },
       capabilities: { broken: "./capabilities/broken.ts" },
       routes: [],
     });
-    const response = await handlePrachtRequest({
-      app,
-      registry: {
-        routeModules: {},
-        capabilityModules: {
-          "./capabilities/broken.ts": async () => ({ default: {} }) as never,
-        },
+    const registry = {
+      routeModules: {},
+      capabilityModules: {
+        "./capabilities/broken.ts": async () => ({ default: {} }) as never,
       },
-      request: new Request(`${ORIGIN}/mcp`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      }),
-    });
+    };
+    const rpc = async (body: unknown) => {
+      const response = await handlePrachtRequest({
+        app,
+        registry,
+        request: new Request(`${ORIGIN}/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      jsonrpc: "2.0",
-      id: 1,
-      error: { code: -32603 },
+    expect(await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })).toMatchObject({
+      result: { tools: [] },
+    });
+    expect(
+      await rpc({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "broken", arguments: {} },
+      }),
+    ).toMatchObject({
+      error: { code: -32603, message: expect.stringContaining("failed to load") },
     });
   });
 });
