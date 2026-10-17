@@ -28,42 +28,42 @@
     {
       "rung": "hydration: full",
       "hydration": "full",
-      "bytes": 43657,
-      "gzipBytes": 16692,
-      "lazyGzipBytes": 1130,
-      "coldGzipBytes": 17822
+      "bytes": 43732,
+      "gzipBytes": 16702,
+      "lazyGzipBytes": 1127,
+      "coldGzipBytes": 17829
     },
     {
       "rung": "hydration: full, prefetch off",
       "hydration": "full",
-      "bytes": 42662,
-      "gzipBytes": 16302,
+      "bytes": 42737,
+      "gzipBytes": 16314,
       "lazyGzipBytes": 0,
-      "coldGzipBytes": 16302
+      "coldGzipBytes": 16314
     },
     {
       "rung": "hydration: full, navigation guards off",
       "hydration": "full",
-      "bytes": 42756,
-      "gzipBytes": 16440,
+      "bytes": 42831,
+      "gzipBytes": 16453,
       "lazyGzipBytes": 1129,
-      "coldGzipBytes": 17569
+      "coldGzipBytes": 17582
     },
     {
       "rung": "hydration: full, rich data on",
       "hydration": "full",
-      "bytes": 44342,
-      "gzipBytes": 16963,
-      "lazyGzipBytes": 1131,
-      "coldGzipBytes": 18094
+      "bytes": 44417,
+      "gzipBytes": 16972,
+      "lazyGzipBytes": 1128,
+      "coldGzipBytes": 18100
     },
     {
       "rung": "hydration: full + preact/compat",
       "hydration": "full",
-      "bytes": 46024,
-      "gzipBytes": 17478,
-      "lazyGzipBytes": 1129,
-      "coldGzipBytes": 18607
+      "bytes": 46099,
+      "gzipBytes": 17490,
+      "lazyGzipBytes": 1128,
+      "coldGzipBytes": 18618
     }
   ]
 }

@@ -38,7 +38,10 @@ describe("client router: route chunk failures", () => {
   let root: HTMLDivElement;
   const listeners: Array<[EventTarget, string, EventListenerOrEventListenerObject]> = [];
 
-  async function initRouter(routeModules: Record<string, () => Promise<unknown>>) {
+  async function initRouter(
+    routeModules: Record<string, () => Promise<unknown>>,
+    routerApp: typeof app = app,
+  ) {
     const targets: EventTarget[] = [window, document];
     const originals = targets.map((target) => target.addEventListener.bind(target));
     targets.forEach((target, i) => {
@@ -49,7 +52,7 @@ describe("client router: route chunk failures", () => {
     });
     try {
       await initClientRouter({
-        app,
+        app: routerApp,
         routeModules: {
           "./routes/home.tsx": async () => ({ default: () => h("main", null, "home") }),
           ...routeModules,
@@ -138,6 +141,108 @@ describe("client router: route chunk failures", () => {
     expect(attempts).toBe(2);
     expect(window.location.pathname).toBe("/a");
     expect(root.textContent).toBe("page a");
+  });
+
+  it("replaces the entry when a replace navigation falls back to a document load", async () => {
+    await initRouter({
+      "./routes/a.tsx": async () => {
+        throw new TypeError("Failed to fetch dynamically imported module");
+      },
+    });
+    const originalLocation = window.location;
+    const replaced: string[] = [];
+    const assigned: string[] = [];
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        get href() {
+          return "http://localhost/";
+        },
+        set href(value: string) {
+          assigned.push(value);
+        },
+        replace: (value: string) => replaced.push(value),
+        hash: "",
+        origin: "http://localhost",
+        pathname: "/",
+        search: "",
+      },
+    });
+    try {
+      await window.__PRACHT_NAVIGATE__!("/a", { replace: true });
+      expect(replaced).toEqual(["/a"]);
+      expect(assigned).toEqual([]);
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
+  it("does not leave a newer page when a superseded not-found navigation's chunk fails", async () => {
+    const chunkA = createDeferred<unknown>();
+    const notFoundApp = resolveApp(
+      defineApp({
+        routes: [
+          route("/", "./routes/home.tsx", { id: "home", render: "ssr" }),
+          route("/a", "./routes/a.tsx", { id: "a", render: "ssr" }),
+          route("/b", "./routes/b.tsx", { id: "b", render: "ssr" }),
+        ],
+        notFound: "./routes/not-found.tsx",
+      }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).startsWith("/a")
+          ? new Response(
+              JSON.stringify({
+                error: { message: "Not found", name: "PrachtHttpError", status: 404 },
+              }),
+              { status: 404, headers: { "content-type": "application/json" } },
+            )
+          : createJsonResponse({ data: null }),
+      ),
+    );
+    await initRouter(
+      {
+        "./routes/a.tsx": () => chunkA.promise,
+        "./routes/b.tsx": async () => ({ default: () => h("main", null, "page b") }),
+        "./routes/not-found.tsx": async () => ({ default: () => h("main", null, "404") }),
+      },
+      notFoundApp,
+    );
+
+    const first = window.__PRACHT_NAVIGATE__!("/a");
+    await flush();
+    await window.__PRACHT_NAVIGATE__!("/b");
+    await flush();
+
+    const originalLocation = window.location;
+    const documentNavigations: string[] = [];
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        get href() {
+          return "http://localhost/b";
+        },
+        set href(value: string) {
+          documentNavigations.push(value);
+        },
+        hash: "",
+        origin: "http://localhost",
+        pathname: "/b",
+        search: "",
+      },
+    });
+    try {
+      chunkA.resolve(Promise.reject(new TypeError("Failed to fetch dynamically imported module")));
+      await first;
+      expect(documentNavigations).toEqual([]);
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+    expect(root.textContent).toBe("page b");
   });
 
   it("keeps the URL on the current page until the route module resolves", async () => {

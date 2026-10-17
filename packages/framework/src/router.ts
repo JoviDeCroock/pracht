@@ -963,6 +963,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
             const routeModule = (await routeModPromise?.catch(() => null)) as {
               ErrorBoundary?: unknown;
             } | null;
+            if (navigationId !== latestNavigationId) return;
             if (!routeModule?.ErrorBoundary) {
               window.location.href = target.browserUrl;
               return;
@@ -1030,6 +1031,8 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         // would answer with that same document, which would try again.
         if (IS_STATIC_TARGET && opts?._staticFallback) {
           console.error(`[pracht] could not load the route module for ${target.browserUrl}`);
+        } else if (opts?.replace) {
+          window.location.replace(target.browserUrl);
         } else {
           window.location.href = target.browserUrl;
         }
