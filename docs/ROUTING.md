@@ -687,8 +687,24 @@ Resolves to:
 }
 ```
 
-Runtime matching is a linear scan over this flat array. For typical app sizes
-(tens to low hundreds of routes) this is effectively instant.
+Runtime matching is a linear scan over this flat array, and the first route
+whose pattern matches wins: declaration order is the precedence rule for the
+manifest (the pages router sorts by specificity before it emits one). For
+typical app sizes (tens to low hundreds of routes) this is effectively instant.
+
+Because order is the rule, `resolveApp` warns (dev server and Node/CLI only,
+never in the browser or a production bundle) about what order makes silent:
+
+- a route no URL can reach because an earlier route matches every URL it does
+  (`/blog/:slug` above `/blog/new`, a repeated path, a catch-all or a
+  `/:locale` group declared first). Partial overlaps are legitimate and stay
+  quiet;
+- two routes sharing an id, where `href()` and `<Link route>` take the first.
+
+Both are warnings, not errors: neither fails at runtime today, and turning them
+into build failures would break apps that work. Each message prints once per
+process. The check buckets earlier routes by first segment, so it stays close
+to linear for real manifests.
 
 ### What reaches the client bundle
 

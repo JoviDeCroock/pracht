@@ -255,6 +255,10 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     flattenRouteNode(app, node, inherited, routes);
   }
 
+  // Dev server and build only, and never in the browser: the server already
+  // says it once.
+  if (VALIDATE_MANIFEST && VALIDATE_META_KEYS) warnRouteConflicts(routes);
+
   return {
     shells: app.shells,
     middleware: app.middleware,
@@ -268,6 +272,91 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     viewTransitions: app.viewTransitions,
     loaderTimeoutMs: app.loaderTimeoutMs,
   };
+}
+
+let routeConflictsWarned: Set<string> | undefined;
+
+/**
+ * Routes match in declaration order, first match wins. Warn about the two
+ * mistakes that order makes silent: a route no URL can reach because an
+ * earlier route matches everything it does (`/blog/:slug` above `/blog/new`,
+ * or the same path twice), and two routes sharing an id, where `href()` and
+ * `<Link route>` resolve only the first.
+ */
+function warnRouteConflicts(routes: readonly ResolvedRoute[]): void {
+  const warned = (routeConflictsWarned ??= new Set());
+  const warn = (message: string) => {
+    if (warned.has(message)) return;
+    warned.add(message);
+    console.warn(`[pracht] ${message}`);
+  };
+
+  const byId = new Map<string, ResolvedRoute>();
+  // Indexes of earlier routes, bucketed by first segment so a route is only
+  // compared with routes that could match its first segment ("" is the root).
+  const byFirstStatic = new Map<string, number[]>();
+  const firstDynamic: number[] = [];
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const route = routes[index]!;
+    if (route.id) {
+      const first = byId.get(route.id);
+      if (first) {
+        warn(
+          `Routes "${first.path}" (${first.file}) and "${route.path}" (${route.file}) share the id ` +
+            `"${route.id}". href() and <Link route> resolve the first one; give the other a unique \`id\`.`,
+        );
+      } else {
+        byId.set(route.id, route);
+      }
+    }
+
+    const head = route.segments[0];
+    const key = head === undefined ? "" : head.type === "static" ? head.value : undefined;
+    let shadow: number | undefined;
+    for (const candidates of [firstDynamic, key === undefined ? [] : byFirstStatic.get(key)]) {
+      for (const earlier of candidates ?? []) {
+        if (shadow !== undefined && earlier > shadow) break;
+        if (routeCoversRoute(routes[earlier]!.segments, route.segments)) {
+          shadow = earlier;
+          break;
+        }
+      }
+    }
+    if (shadow !== undefined) {
+      const earlier = routes[shadow]!;
+      warn(
+        `Route "${route.path}" (${route.file}) can never match: the earlier route ` +
+          `"${earlier.path}" (${earlier.file}) matches every URL it does. Routes match in ` +
+          `declaration order, so declare "${route.path}" before "${earlier.path}".`,
+      );
+    }
+
+    if (key === undefined) {
+      firstDynamic.push(index);
+    } else {
+      const bucket = byFirstStatic.get(key);
+      if (bucket) bucket.push(index);
+      else byFirstStatic.set(key, [index]);
+    }
+  }
+}
+
+/** Whether every pathname `later` matches is also matched by `earlier`. */
+function routeCoversRoute(
+  earlier: readonly RouteSegment[],
+  later: readonly RouteSegment[],
+): boolean {
+  for (let index = 0; index < earlier.length; index += 1) {
+    const segment = earlier[index]!;
+    if (segment.type === "catchall") return true;
+    const other = later[index];
+    if (other === undefined || other.type === "catchall") return false;
+    if (segment.type === "static" && (other.type !== "static" || other.value !== segment.value)) {
+      return false;
+    }
+  }
+  return later.length === earlier.length;
 }
 
 /**
