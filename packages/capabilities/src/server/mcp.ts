@@ -140,6 +140,8 @@ export interface HandleMcpRequestOptions<TContext> {
   tokenPrincipal?: McpTokenPrincipal;
   apiMiddlewareFiles?: string[];
   onAudit?: CapabilityAuditHook;
+  /** Budget for each `tools/call` dispatch, in milliseconds (default 30000). */
+  timeoutMs?: number;
   /** Registry resolution failure captured by the outer application runtime. */
   resolutionError?: unknown;
 }
@@ -714,6 +716,7 @@ async function handleToolsCall<TContext>(
       transport: "mcp",
       tokenPrincipal: options.tokenPrincipal,
       onAudit: options.onAudit,
+      timeoutMs: options.timeoutMs,
     });
   } finally {
     // The synthesized and incoming transport requests share one host object.
@@ -786,6 +789,8 @@ function synthesizeCapabilityRequest<TContext>(
     method: "POST",
     headers,
     body: JSON.stringify(args ?? {}),
+    // The MCP client going away aborts the tool's work like an HTTP caller's.
+    signal: options.request.signal,
   });
 }
 

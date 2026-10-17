@@ -185,6 +185,13 @@ partially infer defaulted generics, that form leaves the output as `unknown`.
 When you want to state it explicitly, pass both
 `defineCapability<Input, Output>`.
 
+`signal` aborts when the caller disconnects — HTTP or the remote MCP
+transport request — or when the request budget (`defineApp({ loaderTimeoutMs })`,
+30 s by default; 30 s on a standalone host) runs out. The `api.middleware`
+chain and capability middleware receive the same signal. `invokeCapability()`
+uses the `signal` you pass, or else the incoming request's, under the default
+budget.
+
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the
 verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
 `agents` is not configured — see [AGENT_TRUST.md](AGENT_TRUST.md)), and

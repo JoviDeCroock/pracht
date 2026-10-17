@@ -71,6 +71,52 @@ export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
 /** Longest a capability may run before its signal aborts, matching API routes. */
 const CAPABILITY_TIMEOUT_MS = 30_000;
 
+/**
+ * The signal capability middleware and `run()` receive: the request budget
+ * folded together with the caller going away, so work an agent abandoned stops
+ * holding connections instead of running to the timeout.
+ */
+export function capabilityRequestSignal(
+  request: Request,
+  timeoutMs: number = CAPABILITY_TIMEOUT_MS,
+): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const clientSignal = request.signal as AbortSignal | undefined;
+  if (!clientSignal) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([clientSignal, timeout]);
+
+  // Runtimes without AbortSignal.any: wire both halves by hand.
+  const controller = new AbortController();
+  if (clientSignal.aborted) {
+    controller.abort(clientSignal.reason);
+    return controller.signal;
+  }
+  const onClientAbort = () => {
+    timeout.removeEventListener("abort", onTimeoutAbort);
+    controller.abort(clientSignal.reason);
+  };
+  const onTimeoutAbort = () => {
+    clientSignal.removeEventListener("abort", onClientAbort);
+    controller.abort(timeout.reason);
+  };
+  clientSignal.addEventListener("abort", onClientAbort, { once: true });
+  timeout.addEventListener("abort", onTimeoutAbort, { once: true });
+  return controller.signal;
+}
+
+// One signal per dispatch, shared by the `api.middleware` chain and the
+// capability pipeline it wraps, so both see the same budget.
+const dispatchSignals = new WeakMap<object, AbortSignal>();
+
+function requestSignalFor(options: HandleCapabilityRequestOptions<unknown>): AbortSignal {
+  let signal = dispatchSignals.get(options);
+  if (!signal) {
+    signal = capabilityRequestSignal(options.request, options.timeoutMs);
+    dispatchSignals.set(options, signal);
+  }
+  return signal;
+}
+
 /** Names must be URL-safe: dot-separated segments of [a-z0-9_-]. */
 const CAPABILITY_NAME_RE = /^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/i;
 
@@ -612,6 +658,11 @@ export interface HandleCapabilityRequestOptions<TContext> {
   /** Principal supplied by the authenticated MCP transport, never inferred from app context. */
   tokenPrincipal?: McpTokenPrincipal;
   onAudit?: CapabilityAuditHook;
+  /**
+   * Budget for middleware and `run()`, in milliseconds (default 30000). The
+   * signal they receive also aborts when `request.signal` does.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -743,7 +794,7 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
       registry: options.registry,
       request: options.request,
       route: capabilityMiddlewareRoute(options.match),
-      signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+      signal: requestSignalFor(options),
       url: options.url,
       waitUntil: requestWaitUntil(options.request),
       terminal: async () => {
@@ -914,7 +965,7 @@ async function dispatchCapabilityHttp<TContext>(
       context: options.context,
       registry: options.registry,
       request: options.request,
-      signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+      signal: requestSignalFor(options),
       url: options.url,
       pathname: options.pathname,
       exposeErrors: options.exposeErrors,
@@ -1566,7 +1617,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
         context,
         registry: host.registry,
         request: ctx.request,
-        signal: ctx.signal ?? AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+        signal: ctx.signal ?? capabilityRequestSignal(ctx.request),
         url: new URL(ctx.request.url),
         // Direct invocation stays server-side, so real error messages are safe.
         exposeErrors: true,
