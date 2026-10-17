@@ -326,14 +326,17 @@ export function createNodeRequestHandler<TContext = unknown>(
 
     let applicationRequest: Request;
     let context: TContext | undefined;
+    let finishIsgRender: (() => void) | undefined;
     if (isgDocumentKey !== null) {
+      // The transport still answers the visitor's own preconditions.
+      createApplicationRequest(request, compression);
       // Cold miss: no snapshot on disk yet. Render the page everyone will be
       // served, not this visitor's version of it.
-      ({ request: applicationRequest, context } = await createISGRenderInput(
-        options,
-        isgDocumentKey,
-        request,
-      ));
+      ({
+        request: applicationRequest,
+        context,
+        finish: finishIsgRender,
+      } = await createISGRenderInput(options, isgDocumentKey, request));
     } else {
       applicationRequest = createApplicationRequest(request, compression);
       if (options.basePathStripped) {
@@ -344,56 +347,60 @@ export function createNodeRequestHandler<TContext = unknown>(
         : undefined;
     }
 
-    const response = await handlePrachtRequest({
-      app: options.app,
-      // The adapter restored the public pathname before exposing this Request
-      // to createContext or the framework runtime.
-      basePathStripped: false,
-      context,
-      registry: options.registry,
-      request: applicationRequest,
-      apiRoutes: options.apiRoutes,
-      clientEntryUrl: options.clientEntryUrl,
-      islandsEntryUrl: options.islandsEntryUrl,
-      islandsBootstrapRequired: options.islandsBootstrapRequired,
-      cssManifest: options.cssManifest,
-      cssContentManifest: options.cssContentManifest,
-      jsManifest: options.jsManifest,
-      waitUntil,
-    } satisfies HandlePrachtRequestOptions<TContext>);
+    try {
+      const response = await handlePrachtRequest({
+        app: options.app,
+        // The adapter restored the public pathname before exposing this Request
+        // to createContext or the framework runtime.
+        basePathStripped: false,
+        context,
+        registry: options.registry,
+        request: applicationRequest,
+        apiRoutes: options.apiRoutes,
+        clientEntryUrl: options.clientEntryUrl,
+        islandsEntryUrl: options.islandsEntryUrl,
+        islandsBootstrapRequired: options.islandsBootstrapRequired,
+        cssManifest: options.cssManifest,
+        cssContentManifest: options.cssContentManifest,
+        jsManifest: options.jsManifest,
+        waitUntil,
+      } satisfies HandlePrachtRequestOptions<TContext>);
 
-    const isIsgDocument =
-      staticDir !== undefined &&
-      request.method === "GET" &&
-      isgDocumentKey !== null &&
-      response.status === 200 &&
-      (response.headers.get("content-type")?.includes("text/html") ?? false) &&
-      isCacheableISGResponse(response);
+      const isIsgDocument =
+        staticDir !== undefined &&
+        request.method === "GET" &&
+        isgDocumentKey !== null &&
+        response.status === 200 &&
+        (response.headers.get("content-type")?.includes("text/html") ?? false) &&
+        isCacheableISGResponse(response);
 
-    if (isIsgDocument) {
-      const html = await response.clone().text();
-      const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
-      if (htmlPath) {
-        await writeISGFile(htmlPath, html);
-        compressedAssetCache.invalidatePath(htmlPath);
+      if (isIsgDocument) {
+        const html = await response.clone().text();
+        const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
+        if (htmlPath) {
+          await writeISGFile(htmlPath, html);
+          compressedAssetCache.invalidatePath(htmlPath);
+        }
       }
-    }
 
-    // Evaluated after the ISG snapshot decision above: stamping a
-    // `Cache-Control` first would make `isCacheableISGResponse()` reject the
-    // very response it was about to persist. A reverse proxy or CDN in front of
-    // a Node deployment can otherwise apply heuristic freshness to an
-    // authenticated SSR page — the same hazard the Cloudflare adapter guards.
-    //
-    // ISG documents are exempt. This response is the cold render of a page that
-    // every later request answers from disk with
-    // `public, max-age=0, must-revalidate`; stamping only the cold one would
-    // make a route's caching headers depend on whether its snapshot exists yet.
-    await writeWebResponse(
-      res,
-      isIsgDocument ? response : preventHeuristicCaching(request, response),
-      compression,
-    );
+      // Evaluated after the ISG snapshot decision above: stamping a
+      // `Cache-Control` first would make `isCacheableISGResponse()` reject the
+      // very response it was about to persist. A reverse proxy or CDN in front of
+      // a Node deployment can otherwise apply heuristic freshness to an
+      // authenticated SSR page — the same hazard the Cloudflare adapter guards.
+      //
+      // ISG documents are exempt. This response is the cold render of a page that
+      // every later request answers from disk with
+      // `public, max-age=0, must-revalidate`; stamping only the cold one would
+      // make a route's caching headers depend on whether its snapshot exists yet.
+      await writeWebResponse(
+        res,
+        isIsgDocument ? response : preventHeuristicCaching(request, response),
+        compression,
+      );
+    } finally {
+      finishIsgRender?.();
+    }
   };
 
   // `http.createServer(handler)` ignores the returned promise, so a rejection

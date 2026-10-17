@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
+import { Duplex } from "node:stream";
 import { basename, dirname, join } from "node:path";
 import {
   createISGRegenerationRequest,
@@ -52,32 +53,41 @@ export async function writeISGFile(htmlPath: string, html: string): Promise<void
  * detached `req`/`res` pair built from that `Request` instead of the
  * visitor's, whose headers would still hold cookies and credentials.
  * `pathname` is a base-free manifest key; `origin` only supplies the origin.
+ * Call `finish()` once the render's body has been consumed (or failed) so the
+ * detached response emits `finish`/`close` like a real one.
  */
 export async function createISGRenderInput<TContext>(
   options: NodeAdapterOptions<TContext>,
   pathname: string,
   origin: Request | undefined,
-): Promise<{ request: Request; context: TContext | undefined }> {
+): Promise<{ request: Request; context: TContext | undefined; finish: () => void }> {
   // Manifest keys are always base-free, regardless of whether the incoming
   // proxy request retained the public base. Restore it on the synthetic
   // regeneration Request before application code observes the URL.
   const request = restoreBasePathInRequest(createISGRegenerationRequest(pathname, origin));
-  const context = options.createContext
-    ? await options.createContext({ request, ...createDetachedNodeExchange(request) })
-    : undefined;
-  return { request, context };
+  if (!options.createContext) return { request, context: undefined, finish: () => {} };
+
+  const { finish, ...exchange } = createDetachedNodeExchange(request);
+  try {
+    const context = await options.createContext({ request, ...exchange });
+    return { request, context, finish };
+  } catch (error) {
+    finish();
+    throw error;
+  }
 }
 
 /**
  * A `node:http` request/response pair that mirrors a sanitized `Request` and
- * is connected to nothing: the request carries only that `Request`'s headers
- * and an empty, already-ended body, and anything written to the response is
- * discarded. Context factories that read `req.headers` keep working; they
- * simply see no visitor.
+ * reaches no client: the request carries only that `Request`'s headers and an
+ * empty, already-ended body, and the response writes into a discarding
+ * socket. Context factories that read `req.headers` or hook `res` events keep
+ * working; they simply see no visitor.
  */
 function createDetachedNodeExchange(request: Request): {
   req: IncomingMessage;
   res: ServerResponse;
+  finish: () => void;
 } {
   const url = new URL(request.url);
   const req = new IncomingMessage(new Socket());
@@ -92,7 +102,25 @@ function createDetachedNodeExchange(request: Request): {
   req.rawHeaders = Object.entries(headers).flat();
   req.complete = true;
   req.push(null);
-  return { req, res: new ServerResponse(req) };
+
+  const sink = new Duplex({
+    read() {},
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+  const res = new ServerResponse(req);
+  res.assignSocket(sink as Socket);
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    // Closing the sink after the response flushes emits `close` on both.
+    res.once("finish", () => sink.destroy());
+    if (!res.writableEnded) res.end();
+    else if (res.writableFinished) sink.destroy();
+  };
+  return { req, res, finish };
 }
 
 /**
@@ -108,31 +136,44 @@ export async function regenerateISGPage<TContext>(
   waitUntil?: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
   return regenerationSingleFlight(htmlPath, async () => {
-    const { request, context } = await createISGRenderInput(options, pathname, origin);
-
-    const response = await handlePrachtRequest({
-      app: options.app,
-      basePathStripped: false,
-      context,
-      registry: options.registry,
-      request,
-      clientEntryUrl: options.clientEntryUrl,
-      islandsEntryUrl: options.islandsEntryUrl,
-      islandsBootstrapRequired: options.islandsBootstrapRequired,
-      cssManifest: options.cssManifest,
-      cssContentManifest: options.cssContentManifest,
-      jsManifest: options.jsManifest,
-      waitUntil,
-    });
-
-    if (response.status !== 200 || !isCacheableISGResponse(response)) {
-      return false;
+    const { request, context, finish } = await createISGRenderInput(options, pathname, origin);
+    try {
+      return await renderAndWriteISGPage(options, request, context, htmlPath, waitUntil);
+    } finally {
+      finish();
     }
-
-    const html = await response.text();
-    await writeISGFile(htmlPath, html);
-    return true;
   });
+}
+
+async function renderAndWriteISGPage<TContext>(
+  options: NodeAdapterOptions<TContext>,
+  request: Request,
+  context: TContext | undefined,
+  htmlPath: string,
+  waitUntil: ((promise: Promise<unknown>) => void) | undefined,
+): Promise<boolean> {
+  const response = await handlePrachtRequest({
+    app: options.app,
+    basePathStripped: false,
+    context,
+    registry: options.registry,
+    request,
+    clientEntryUrl: options.clientEntryUrl,
+    islandsEntryUrl: options.islandsEntryUrl,
+    islandsBootstrapRequired: options.islandsBootstrapRequired,
+    cssManifest: options.cssManifest,
+    cssContentManifest: options.cssContentManifest,
+    jsManifest: options.jsManifest,
+    waitUntil,
+  });
+
+  if (response.status !== 200 || !isCacheableISGResponse(response)) {
+    return false;
+  }
+
+  const html = await response.text();
+  await writeISGFile(htmlPath, html);
+  return true;
 }
 
 export { createISGRegenerationRequest };

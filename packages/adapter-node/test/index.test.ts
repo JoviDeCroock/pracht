@@ -585,6 +585,7 @@ describe("createNodeRequestHandler", () => {
         reqUrl: string | undefined;
         auth: string | null;
       }> = [];
+      const responses = { closed: 0 };
       const app = defineApp({
         routes: [route("/p", "./routes/p.tsx", { render: "isg", revalidate: options.revalidate })],
       });
@@ -598,8 +599,10 @@ describe("createNodeRequestHandler", () => {
             reqUrl: req.url,
             auth: request.headers.get("authorization"),
           });
-          // Writing to the response must not reach the visitor.
+          // Writing to the response must not reach the visitor, and its
+          // lifecycle events still fire once the render is done.
           res.setHeader("x-context", "touched");
+          res.once("close", () => responses.closed++);
           return { user: /session=(\w+)/.exec(req.headers.cookie ?? "")?.[1] };
         },
         isgManifest: { "/p": { revalidate: options.revalidate } },
@@ -624,11 +627,11 @@ describe("createNodeRequestHandler", () => {
       await once(server, "listening");
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("Expected TCP address");
-      return { base: `http://127.0.0.1:${address.port}`, handler, htmlPath, seen };
+      return { base: `http://127.0.0.1:${address.port}`, handler, htmlPath, responses, seen };
     }
 
     it("regenerates a stale page without the triggering visitor's req or res", async () => {
-      const { base, handler, htmlPath, seen } = await startPersonalizedIsgServer({
+      const { base, handler, htmlPath, responses, seen } = await startPersonalizedIsgServer({
         staleSnapshot: true,
         revalidate: timeRevalidate(1),
       });
@@ -640,12 +643,13 @@ describe("createNodeRequestHandler", () => {
 
       expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
       expect(seen).toEqual([sanitizedContextArgs]);
+      await waitFor(() => responses.closed === 1);
       const anonymous = await fetch(`${base}/p`);
       await expect(anonymous.text()).resolves.not.toContain("alice");
     });
 
     it("renders and persists a cold page from a sanitized request", async () => {
-      const { base, handler, htmlPath, seen } = await startPersonalizedIsgServer({
+      const { base, handler, htmlPath, responses, seen } = await startPersonalizedIsgServer({
         staleSnapshot: false,
         revalidate: timeRevalidate(3600),
       });
@@ -660,11 +664,25 @@ describe("createNodeRequestHandler", () => {
 
       expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
       expect(seen).toEqual([sanitizedContextArgs]);
+      await waitFor(() => responses.closed === 1);
+    });
+
+    it("still answers the visitor's If-Match on a cold render", async () => {
+      const { base } = await startPersonalizedIsgServer({
+        staleSnapshot: false,
+        revalidate: timeRevalidate(3600),
+      });
+
+      const response = await fetch(`${base}/p`, {
+        headers: { "accept-encoding": "gzip", "if-match": '"not-this-page"' },
+      });
+      expect(response.status).toBe(412);
+      await response.arrayBuffer();
     });
 
     it("regenerates from the webhook without the webhook caller's req or credentials", async () => {
       process.env.PRACHT_REVALIDATE_TOKEN = "secret";
-      const { base, htmlPath, seen } = await startPersonalizedIsgServer({
+      const { base, htmlPath, responses, seen } = await startPersonalizedIsgServer({
         staleSnapshot: true,
         revalidate: webhookRevalidate(),
       });
@@ -682,6 +700,7 @@ describe("createNodeRequestHandler", () => {
 
       expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
       expect(seen).toEqual([sanitizedContextArgs]);
+      await waitFor(() => responses.closed === 1);
     });
   });
 
