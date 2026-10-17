@@ -165,7 +165,7 @@ compliant agents send today. When the identity authorizes anything — `policy:
 made for, and lower `maxLifetimeSeconds` to the freshness window your agents
 actually use. A signature that does not cover every required component is
 treated as unsigned. Agents signing with `signAgentRequest()` add them with
-`components: ["@method", "@path"]`.
+`additionalComponents: ["@method", "@path"]`.
 
 ### Policy modes
 

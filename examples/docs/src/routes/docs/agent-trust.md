@@ -48,7 +48,7 @@ async run({ context }) {
 
 Verification fails closed: an expired, incomplete, or untrusted signature gives `context.agent = null`, never a partial identity. `context.agent` is read-only, so middleware cannot rewrite it before policy and audit checks.
 
-By default a signature covers only the host, so it verifies for any path there until it expires (up to 24 hours). When the identity gates access, set `requireComponents: ["@method", "@path"]` and a lower `maxLifetimeSeconds`; signatures without them count as unsigned.
+A default signature covers only the host and verifies on any path for up to 24 hours. When the identity gates access, set `requireComponents: ["@method", "@path"]` and a lower `maxLifetimeSeconds`; uncovered signatures count as unsigned. Agents using `signAgentRequest()` pass `additionalComponents` to cover them.
 
 If you build the request context yourself, create a fresh, mutable, plain object per request. Other shapes fail closed: `handlePrachtRequest()` answers `500` and `invokeCapability()` returns `internal_error`.
 

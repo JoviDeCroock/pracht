@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { defineCapability, type CapabilityRunArgs } from "../../capabilities/src/index.ts";
+import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
+import type { ModuleRegistry } from "../src/types.ts";
+
 import {
   clearAgentDirectoryCache,
   ed25519JwkThumbprint,
@@ -259,6 +263,47 @@ describe("requireComponents", () => {
     expect(await verifyAgentSignature(request, bound)).toMatchObject({ verified: true });
     expect(await verifyAgentSignature(replay(request, OTHER_PATH), bound)).toBeNull();
     expect(await verifyAgentSignature(replay(request, request.url, "DELETE"), bound)).toBeNull();
+  });
+
+  it("verifies against the URL the client signed, including the _data marker", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const app = defineApp({
+      capabilities: { "agent.whoami": "./whoami.ts" },
+      agents: {
+        webBotAuth: { keys: staticOptions.keys, requireComponents: ["@target-uri"] },
+      },
+      routes: [route("/", "./home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: { "./home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./whoami.ts": (async () => ({
+          default: defineCapability({
+            title: "Whoami",
+            description: "Report the verified agent.",
+            input: { type: "object", properties: {}, additionalProperties: false },
+            output: { type: "object", properties: { verified: { type: "boolean" } } },
+            effect: "read",
+            expose: { http: true },
+            async run({ context }: CapabilityRunArgs<Record<string, never>>) {
+              return { verified: !!context.agent };
+            },
+          }),
+        })) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+    const signed = await signedRequest({
+      url: "https://app.example/api/capabilities/agent/whoami?_data=1",
+      components: ["@authority", "@method", "@target-uri", "signature-agent"],
+      created: now - 10,
+      expires: now + 300,
+    });
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request(signed.url, { method: "POST", headers: signed.headers, body: "{}" }),
+    });
+    expect(await response.json()).toMatchObject({ data: { verified: true } });
   });
 
   it("lets @target-uri satisfy a required @path", async () => {
