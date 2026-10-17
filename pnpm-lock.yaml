@@ -462,6 +462,9 @@ importers:
       playwright-core:
         specifier: ^1.59.1
         version: 1.59.1
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
       zod:
         specifier: ^4.4.3
         version: 4.4.3

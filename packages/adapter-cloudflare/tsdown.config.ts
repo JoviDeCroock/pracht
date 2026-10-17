@@ -5,5 +5,5 @@ export default defineConfig({
   entry: ["src/index.ts", "src/runtime.ts", "src/cache.ts", "src/worker.ts"],
   format: "esm",
   dts: true,
-  external: [/^@pracht\/core(\/.*)?$/, "@pracht/vite-plugin", /^node:/, /^cloudflare:/],
+  external: [/^@pracht\/core(\/.*)?$/, /^node:/, /^cloudflare:/, "vite"],
 });
