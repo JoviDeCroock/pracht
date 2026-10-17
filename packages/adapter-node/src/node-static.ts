@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
 import type { ISGManifestEntry } from "@pracht/core/server";
 
 import { getManifestHeaders } from "@pracht/core/server";
@@ -37,6 +37,13 @@ const MIME_TYPES: Record<string, string> = {
  */
 const HASHED_ASSET_RE = /\/assets\//;
 
+/**
+ * Suffix of the file that records a regenerated ISG snapshot's document
+ * headers next to its HTML. It lives in the static directory but is never
+ * served as a static file.
+ */
+export const ISG_SNAPSHOT_HEADERS_SUFFIX = ".pracht-headers.json";
+
 export function getCacheControl(urlPath: string): string {
   if (HASHED_ASSET_RE.test(urlPath)) {
     return "public, max-age=31536000, immutable";
@@ -72,7 +79,9 @@ export async function resolveStaticFile(
   const exactPath = resolveUrlPath(staticRoot, pathname);
   if (!exactPath) return null;
 
-  const exactStat = await lstat(exactPath).catch(() => null);
+  const exactStat = basename(exactPath).endsWith(ISG_SNAPSHOT_HEADERS_SUFFIX)
+    ? null
+    : await lstat(exactPath).catch(() => null);
   if (exactStat?.isFile() && !exactStat.isSymbolicLink()) {
     if (!(await realPathIsInside(staticRoot, exactPath))) return null;
     const ext = extname(exactPath);
