@@ -6,10 +6,11 @@
  * measured growth is what each extra route adds to every page — the client
  * entry carries the manifest, the route-module map and the route hint tables.
  *
- * The app is written outside the repository (generated sources would otherwise
- * be picked up by the typecheck, formatter and linter) and borrows the ladder
- * fixture's installed dependencies through a `node_modules` symlink. Its shape
- * is fixed: the same `routeCount` always produces the same files.
+ * `bench/run.mjs` writes the app into the gitignored `bench/.scale/` (which the
+ * typecheck, formatter and linter skip) and it borrows the ladder fixture's
+ * installed dependencies through a `node_modules` symlink. Its shape is fixed:
+ * the same `routeCount` always produces the same files, and the same bytes in
+ * any checkout because its path relative to `packages/` never changes.
  */
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

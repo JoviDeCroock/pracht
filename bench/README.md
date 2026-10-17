@@ -57,8 +57,11 @@ other rung.
 The ladder has three routes, so nothing that grows with the manifest shows up
 in it. `scale-app.mjs` generates one app at a given route count: every route
 server-rendered with full hydration, half with a loader, one in three with a
-dynamic segment. The harness builds it at 50 and 500 routes in a temporary
-directory (borrowing `fixtures/ladder/node_modules`) and measures `/` in each.
+dynamic segment. The harness builds it at 50 and 500 routes in the gitignored
+`bench/.scale/` (borrowing `fixtures/ladder/node_modules`), measures `/` in
+each, and deletes it. It stays inside the checkout because module order
+follows absolute paths, so the same app built in a temp directory gives
+different bytes depending on where the checkout lives.
 
 | Row                          | What it shows                                   |
 | ---------------------------- | ----------------------------------------------- |

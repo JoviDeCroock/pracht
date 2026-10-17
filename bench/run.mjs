@@ -410,9 +410,14 @@ async function main() {
     ...measureRoute(reports[entry.build], entry.route, unattributed[entry.build], entry.build),
   }));
 
-  // The route-scale apps are generated outside the repository and removed at
-  // the end; they borrow the ladder fixture's installed dependencies.
-  const scaleRoot = mkdtempSync(join(tmpdir(), "pracht-bench-scale-"));
+  // The route-scale apps are generated in the gitignored `bench/.scale/` and
+  // removed at the end; they borrow the ladder fixture's installed
+  // dependencies. They must sit inside the checkout: the bundler orders
+  // modules by absolute path, so an app outside it (a temp directory) sorts
+  // differently against `packages/` depending on where the checkout lives,
+  // and the gated gzip bytes move with it.
+  const scaleRoot = join(benchDir, ".scale");
+  rmSync(scaleRoot, { force: true, recursive: true });
   try {
     const routeScale = [];
     const scaleApps = [];

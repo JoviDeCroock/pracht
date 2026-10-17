@@ -35,25 +35,61 @@ const middle = resolvedApp.routes[Math.floor(resolvedApp.routes.length / 2)].pat
   "1",
 );
 
+// Each kind names the response it must get. A request that takes another path
+// (an HTML document where route state was asked for, a 404 for a real route)
+// counts as a failure, so a routing regression cannot pass as a speed-up.
 const KINDS = [
-  { kind: "ssr document", path: middle, headers: {} },
-  { kind: "route-state json", path: middle, headers: { "x-pracht-route-state-request": "1" } },
-  { kind: "not found", path: "/no/such/route", headers: {} },
+  {
+    kind: "ssr document",
+    path: middle,
+    headers: {},
+    status: 200,
+    contentType: "text/html",
+    body: "<!DOCTYPE html>",
+  },
+  {
+    kind: "route-state json",
+    path: middle,
+    headers: { "x-pracht-route-state-request": "1" },
+    status: 200,
+    contentType: "application/json",
+    body: "{",
+  },
+  {
+    kind: "not found",
+    path: "/no/such/route",
+    headers: {},
+    status: 404,
+    contentType: "",
+    body: "",
+  },
 ];
 
-async function serve(path, headers, count) {
+function invalid(expected, response, body) {
+  if (response.status !== expected.status) return `status ${response.status}`;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.startsWith(expected.contentType)) return `content-type ${contentType}`;
+  if (!body.includes(expected.body)) return `body without ${expected.body}`;
+  return null;
+}
+
+async function serve(expected, count) {
   let next = 0;
   let failures = 0;
+  let firstFailure = null;
   async function worker() {
     while (next < count) {
       next += 1;
-      const response = await fetch(origin + path, { headers });
-      await response.arrayBuffer();
-      if (response.status >= 500) failures += 1;
+      const response = await fetch(origin + expected.path, { headers: expected.headers });
+      const problem = invalid(expected, response, await response.text());
+      if (problem) {
+        failures += 1;
+        firstFailure ??= problem;
+      }
     }
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
-  return failures;
+  return { failures, firstFailure };
 }
 
 function settledHeap() {
@@ -63,11 +99,15 @@ function settledHeap() {
 }
 
 const results = [];
-for (const { kind, path, headers } of KINDS) {
-  await serve(path, headers, WARMUP);
+for (const expected of KINDS) {
+  const { kind, path } = expected;
+  const warmup = await serve(expected, WARMUP);
+  if (warmup.failures > 0) {
+    throw new Error(`${kind} ${path}: wrong response (${warmup.firstFailure})`);
+  }
   const heapBefore = settledHeap();
   const started = performance.now();
-  const failures = await serve(path, headers, requests);
+  const { failures } = await serve(expected, requests);
   const seconds = (performance.now() - started) / 1000;
   const heapAfter = settledHeap();
   results.push({
