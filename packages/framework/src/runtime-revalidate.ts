@@ -4,6 +4,7 @@ import { fetchPrachtRouteState, navigateToClientLocation } from "./runtime-clien
 import type { PrachtRuntimeValue } from "./runtime-context.ts";
 import { applyFontHeadFragments } from "./runtime-fonts.ts";
 import { commitShellData } from "./runtime-shell-data.ts";
+import { clearPrefetchCache } from "./prefetch-cache.ts";
 
 /** Shell loader support; see `runtime-client-fetch.ts`. */
 declare const __PRACHT_SHELL_LOADERS__: boolean | undefined;
@@ -39,6 +40,9 @@ export async function revalidateRouteData(
     return undefined;
   }
 
+  // Whatever made this route's data stale may have changed the data of the
+  // routes prefetched meanwhile too.
+  clearPrefetchCache();
   const path = runtime?.url || window.location.pathname + window.location.search;
   const key = runtime?.revalidation ?? runtime ?? latestRevalidations;
   const revalidation = ++revalidationCount;

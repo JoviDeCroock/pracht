@@ -511,7 +511,8 @@ and `<Link prefetch>` overrides it per link:
 Prefetching warms the route's JS chunks and caches the route-state JSON in a
 bounded LRU cache (30s TTL); a subsequent navigation consumes the cached
 result instead of fetching again. Failed prefetches are evicted so they never
-poison a later navigation. This short-lived in-memory cache is independent of
+poison a later navigation, and every mutation path empties the cache (see the
+shell-data notes below). This short-lived in-memory cache is independent of
 the route's HTTP `loaderCache` policy.
 
 There is also an imperative API for warming a route from code (e.g. before
@@ -982,10 +983,12 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   so later same-shell navigations reuse the fresh value.
 - Prefetches claim the held shell for routes in it; the claim is part of the
   prefetch cache key (`routeStateCacheKey`), so a response fetched without the
-  shell's data is never consumed by a navigation that needs it. A revalidation
-  does not evict prefetched entries (route data has the same 30 s window), so
-  re-entering a shell soon after a revalidation can show the prefetched shell
-  data; a `<Form>` submission clears the prefetch cache.
+  shell's data is never consumed by a navigation that needs it. Every mutation
+  path empties the prefetch cache, so a prefetched entry never outlives the
+  data it was fetched against: `revalidateRouteData()` (so `useRevalidate()`
+  and capability revalidation), a non-`GET`/`HEAD` `apiFetch()`, a successful
+  non-read `CAPABILITY_SETTLED_EVENT` (even with `revalidate: false`), and a
+  `<Form>` submission.
 - `hasShellLoader` is a build-time route hint (shell loader presence from the
   loader hint table, which scans shells and pages `_app` files too). A
   loaderless, headless, middleware-free route skips the route-state request
