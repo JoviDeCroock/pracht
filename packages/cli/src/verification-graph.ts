@@ -16,6 +16,7 @@ import {
   resolveLiveGraphMetadata,
   serializeGraphSnapshot,
   type GraphSnapshot,
+  type LiveGraphMetadata,
 } from "./graph-snapshot.js";
 import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
 import { detectAdapterTarget } from "./commands/preview.js";
@@ -25,14 +26,34 @@ import { collectStaticExportChecks } from "./verification-static.js";
 const HEAD_EXPORT_RE =
   /export\s+(?:async\s+)?(?:function|const|let|var)\s+head\b|export\s*\{[^}]*\bhead\b[^}]*\}/;
 
+/** A live graph resolution attempt that callers can share across checks. */
+export type LiveGraphResult = { metadata: LiveGraphMetadata } | { error: string };
+
+export async function tryResolveLiveGraph(root: string): Promise<LiveGraphResult> {
+  try {
+    return { metadata: await resolveLiveGraphMetadata(root) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /**
  * Graph-aware verification: prove registered API and capability modules load,
  * enforce `defineApp({ constraints })`, and check `.pracht/app-graph.json`
- * freshness. These need the resolved app graph, so the comparatively expensive
- * Vite boot only happens when an app has a live surface to inspect.
+ * freshness. These need the resolved app graph. Manifest apps resolve it up
+ * front (`resolved`); otherwise the comparatively expensive Vite boot only
+ * happens when an app has a live surface to inspect.
  */
-export async function collectGraphChecks(project: ProjectConfig, checks: Check[]): Promise<void> {
-  const wantsConstraints = manifestDeclaresConstraints(project);
+export async function collectGraphChecks(
+  project: ProjectConfig,
+  checks: Check[],
+  resolved?: LiveGraphResult,
+): Promise<void> {
+  const wantsConstraints =
+    manifestDeclaresConstraints(project) ||
+    (resolved !== undefined &&
+      "metadata" in resolved &&
+      resolved.metadata.graph.constraints.length > 0);
   const wantsCapabilityLoad = manifestDeclaresCapabilities(project);
   const wantsAgentValidation = manifestDeclaresAgents(project);
   const wantsApiLoad = projectDeclaresApiRoutes(project);
@@ -55,21 +76,19 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
   let live: GraphSnapshot;
   let staticTarget = false;
   let loaderRoutePaths: ReadonlySet<string> = new Set();
-  try {
-    const metadata = await resolveLiveGraphMetadata(project.root);
-    live = metadata.graph;
-    staticTarget = metadata.staticTarget;
-    loaderRoutePaths = metadata.loaderRoutePaths;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+  const result = resolved ?? (await tryResolveLiveGraph(project.root));
+  if ("error" in result) {
     checks.push(
       createCheck(
         "error",
-        `Could not resolve the app graph for live verification checks: ${message}`,
+        `Could not resolve the app graph for live verification checks: ${result.error}`,
       ),
     );
     return;
   }
+  live = result.metadata.graph;
+  staticTarget = result.metadata.staticTarget;
+  loaderRoutePaths = result.metadata.loaderRoutePaths;
 
   // A source-level candidate can resolve to a serverful adapter (for example
   // an environment-conditional config that merely imports staticAdapter).
