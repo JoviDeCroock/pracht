@@ -56,6 +56,24 @@ describe("requireSession under a deploy base", () => {
     expect(afterLogin.headers.get("location")).toBe("/my-project/dashboard?tab=1");
   });
 
+  it("never writes a protocol-relative return path", async () => {
+    const { session, middlewareArgs } = await loadUnderBase("/my-project/");
+    const storage = session.createSessionStorage({
+      cookie: { name: "session", secrets: [SECRET] },
+    });
+    const middleware = session.requireSession(storage);
+
+    const gated = await middleware(
+      middlewareArgs({
+        request: new Request("https://example.com/my-project//evil.example/path"),
+      }),
+      () => Promise.resolve(new Response("should not run")),
+    );
+
+    const loginUrl = new URL(gated.headers.get("location")!, "https://example.com");
+    expect(loginUrl.searchParams.get("redirect")).toBe("/evil.example/path");
+  });
+
   it("keeps the full path when the request is outside the base", async () => {
     const { session, middlewareArgs } = await loadUnderBase("/my-project/");
     const storage = session.createSessionStorage({

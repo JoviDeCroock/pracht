@@ -197,7 +197,10 @@ function attachSession(context: unknown, key: string, session: unknown): void {
  * outside the base keeps its full path.
  */
 function returnPath(url: URL): string {
-  return (stripBase(url.pathname) ?? url.pathname) + url.search;
+  // Removing the base can leave a leading `//` (`/my-project//evil.example`),
+  // which a login handler would read as a protocol-relative URL.
+  const pathname = (stripBase(url.pathname) ?? url.pathname).replace(/^\/{2,}/, "/");
+  return pathname + url.search;
 }
 
 function defaultUnauthorized(): Response {
