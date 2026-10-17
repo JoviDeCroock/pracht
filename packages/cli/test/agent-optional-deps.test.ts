@@ -12,6 +12,7 @@ import {
   isMissingPackage,
   missingOptionalDependencyError,
 } from "../src/optional-dependency.ts";
+import { McpToolServer } from "../src/mcp-tool-server.ts";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = resolve(testDir, "..");
@@ -148,4 +149,40 @@ describe("pracht dev-mcp over stdio", () => {
       child.kill();
     }
   }, 30_000);
+});
+
+describe("McpToolServer cancellation", () => {
+  it("does not answer a request the client cancelled", async () => {
+    const sent: Record<string, any>[] = [];
+    const transport = {
+      onmessage: undefined as ((message: any) => void) | undefined,
+      async start() {},
+      async send(message: Record<string, any>) {
+        sent.push(message);
+      },
+      async close() {},
+    };
+    let finish!: () => void;
+    const server = new McpToolServer({ name: "test", version: "0" });
+    server.registerTool("slow", { description: "slow", inputSchema: {} }, async () => {
+      await new Promise<void>((resolveSlow) => {
+        finish = resolveSlow;
+      });
+      return { content: [{ type: "text", text: "done" }] };
+    });
+    await server.connect(transport);
+
+    transport.onmessage!({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "slow" } });
+    await new Promise((resolveTick) => setTimeout(resolveTick, 0));
+    transport.onmessage!({
+      jsonrpc: "2.0",
+      method: "notifications/cancelled",
+      params: { requestId: 7 },
+    });
+    finish();
+    transport.onmessage!({ jsonrpc: "2.0", id: 8, method: "ping" });
+    await new Promise((resolveTick) => setTimeout(resolveTick, 10));
+
+    expect(sent.map((message) => message.id)).toEqual([8]);
+  });
 });

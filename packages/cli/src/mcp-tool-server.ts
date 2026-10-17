@@ -67,6 +67,8 @@ export class McpToolServer {
   readonly #info: { name: string; version: string };
   readonly #tools = new Map<string, RegisteredTool>();
   #transport: McpMessageTransport | undefined;
+  readonly #pending = new Set<JsonRpcId>();
+  readonly #cancelled = new Set<JsonRpcId>();
 
   constructor(info: { name: string; version: string }) {
     this.#info = info;
@@ -103,20 +105,31 @@ export class McpToolServer {
   }
 
   async #receive(message: JsonRpcMessage): Promise<void> {
-    // Responses and notifications (`notifications/initialized`,
-    // `notifications/cancelled`) need no answer from a tools-only server.
+    // A cancelled request must not be answered: the client has already
+    // forgotten its id and treats a late response as a protocol error.
+    if (message.method === "notifications/cancelled") {
+      const requestId = (message.params as { requestId?: unknown } | undefined)?.requestId;
+      if (this.#pending.has(requestId as JsonRpcId)) this.#cancelled.add(requestId as JsonRpcId);
+      return;
+    }
+    // Responses and other notifications (`notifications/initialized`) need no
+    // answer from a tools-only server.
     if (message.id === undefined || message.id === null || typeof message.method !== "string") {
       return;
     }
     const id = message.id;
+    this.#pending.add(id);
+    let reply: JsonRpcMessage;
     try {
-      const result = await this.#dispatch(message.method, message.params);
-      await this.#send({ jsonrpc: "2.0", id, result });
+      reply = { jsonrpc: "2.0", id, result: await this.#dispatch(message.method, message.params) };
     } catch (error) {
       const code = error instanceof JsonRpcError ? error.code : INTERNAL_ERROR;
       const text = error instanceof Error ? error.message : String(error);
-      await this.#send({ jsonrpc: "2.0", id, error: { code, message: text } });
+      reply = { jsonrpc: "2.0", id, error: { code, message: text } };
     }
+    this.#pending.delete(id);
+    if (this.#cancelled.delete(id)) return;
+    await this.#send(reply);
   }
 
   async #dispatch(method: string, params: unknown): Promise<unknown> {
