@@ -64,6 +64,7 @@ import type {
   ResolvedPrachtApp,
   WaitUntil,
 } from "./types.ts";
+import { isStreamingHtmlResponse } from "./runtime-stream.ts";
 
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
 
@@ -171,10 +172,19 @@ export function createRequestWaitUntil<TContext>(
   requestPath: string,
   hook: HandlePrachtRequestOptions<TContext>["onRouteError"],
   context: Omit<RouteErrorContext, "phase">,
+  budget?: RequestBudget,
 ): WaitUntil {
-  return createWaitUntil(options.waitUntil, (error) => {
+  const waitUntil = createWaitUntil(options.waitUntil, (error) => {
     reportRequestError(hook, error, requestPath, { ...context, phase: "waitUntil" });
   });
+  if (!budget) return waitUntil;
+  // Work kept alive past the response may still read `signal`, so the budget
+  // keeps running until it settles.
+  return (promise) => {
+    const release = budget.hold();
+    waitUntil(promise);
+    void Promise.resolve(promise).then(release, release);
+  };
 }
 
 /**
@@ -214,6 +224,8 @@ export interface PrachtRequestContext<TContext = unknown> {
    */
   hrefRoutes: readonly HrefRouteDefinition[];
   loaderTimeoutMs: number;
+  /** The request's `signal` and the holds that keep its budget running. */
+  budget: RequestBudget;
   isRouteStateRequest: boolean;
   exposeDiagnostics: boolean;
   requireSameOrigin: boolean;
@@ -249,7 +261,8 @@ function resolveLoaderTimeoutMs(value: number | undefined): number {
 }
 
 /**
- * The `AbortSignal` handed to middleware, loaders, and API route handlers.
+ * One request's budget: the `AbortSignal` handed to middleware, loaders, and
+ * API route handlers, and the work that keeps its timer running.
  *
  * Two independent reasons to stop the work are folded into one signal: the
  * server-side budget (`defineApp({ loaderTimeoutMs })`, 30s by default) and
@@ -257,44 +270,175 @@ function resolveLoaderTimeoutMs(value: number | undefined): number {
  * to `fetch()` or a database driver — a timeout alone keeps a request the
  * caller has already abandoned running to completion.
  *
- * `AbortSignal.any` is not available everywhere, so runtimes without it get
- * the same signal wired by hand. Dropping either half there would keep work
- * running after its client has gone away.
+ * The timer runs only while something can still use it: the pipeline until it
+ * has produced a response, a streamed document until its body ends, and every
+ * `waitUntil` promise until it settles. Each of those takes a `hold()`; when
+ * the last one is released the timer is cleared. A pending timer keeps the
+ * signal and everything its listeners close over reachable, so a timer left
+ * to run out would retain every finished request for the whole budget.
+ *
+ * The signal is wired by hand rather than with `AbortSignal.timeout`/`.any`:
+ * neither can be cancelled, and a composite signal with an abort listener is
+ * kept alive until one of its sources aborts.
  */
-export function composeRequestSignal(request: Request, timeoutMs: number): AbortSignal {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  return combineRequestSignals(request.signal, timeout);
+export interface RequestBudget {
+  /** The composed signal. Created, and its timer started, on first read. */
+  readonly signal: AbortSignal;
+  /** Keep the budget running until the returned function is called. */
+  hold(): () => void;
+  /** Abort the signal now, with `reason`. */
+  abort(reason: unknown): void;
+  /** Release the pipeline's own hold, once its response is produced. */
+  release(): void;
+  /** Whether a signal was handed out and its timer is still pending. */
+  readonly timing: boolean;
 }
 
-/** Compose transport and consumer signals, including runtimes without AbortSignal.any. */
-export function combineRequestSignals(
+const noop = () => {};
+
+export function createRequestBudget(
   clientSignal: AbortSignal | undefined,
-  timeout: AbortSignal,
-): AbortSignal {
-  if (!clientSignal) return timeout;
-  if (typeof AbortSignal.any === "function") return AbortSignal.any([clientSignal, timeout]);
-
-  const controller = new AbortController();
-  if (clientSignal.aborted) {
-    controller.abort(clientSignal.reason);
-    return controller.signal;
-  }
-  if (timeout.aborted) {
-    controller.abort(timeout.reason);
-    return controller.signal;
-  }
-
-  const onClientAbort = () => {
-    timeout.removeEventListener("abort", onTimeoutAbort);
-    controller.abort(clientSignal.reason);
+  timeoutMs: number,
+): RequestBudget {
+  let controller: AbortController | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The pipeline holds the budget from the start; it releases that hold
+  // through `release()`.
+  let holds = 1;
+  const clear = () => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
   };
-  const onTimeoutAbort = () => {
-    clientSignal.removeEventListener("abort", onClientAbort);
-    controller.abort(timeout.reason);
+  const drop = () => {
+    if (holds > 0 && --holds === 0) clear();
   };
-  clientSignal.addEventListener("abort", onClientAbort, { once: true });
-  timeout.addEventListener("abort", onTimeoutAbort, { once: true });
-  return controller.signal;
+
+  const budget: RequestBudget = {
+    get signal() {
+      if (controller) return controller.signal;
+      const own = (controller = new AbortController());
+      if (clientSignal?.aborted) {
+        own.abort(clientSignal.reason);
+        return own.signal;
+      }
+      if (holds > 0) {
+        timer = setTimeout(() => {
+          timer = undefined;
+          own.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+        }, timeoutMs);
+        // A budget must not keep a process alive on its own.
+        (timer as { unref?: () => void }).unref?.();
+      }
+      if (clientSignal) {
+        const onClientAbort = () => own.abort(clientSignal.reason);
+        clientSignal.addEventListener("abort", onClientAbort, { once: true });
+        own.signal.addEventListener(
+          "abort",
+          () => {
+            clear();
+            clientSignal.removeEventListener("abort", onClientAbort);
+          },
+          { once: true },
+        );
+      }
+      return own.signal;
+    },
+    hold() {
+      if (holds === 0) return noop;
+      holds++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        drop();
+      };
+    },
+    abort(reason) {
+      const signal = budget.signal;
+      clear();
+      if (!signal.aborted) controller!.abort(reason);
+    },
+    release: (() => {
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        drop();
+      };
+    })(),
+    get timing() {
+      return timer !== undefined;
+    },
+  };
+  return budget;
+}
+
+/**
+ * Release the pipeline's hold on the budget once `response` is out, and
+ * return the response to send. Work the app still runs against the signal
+ * keeps the budget, so its timeout still applies:
+ *
+ * - A failed request (status 400 and up) keeps it until it fires. Its loader
+ *   may have left sibling work running, such as a deferred field next to the
+ *   one that threw.
+ * - A body the framework did not finish holds it until that body is read,
+ *   errors, or is cancelled, so a stalled proxied stream still times out.
+ *   Framework-streamed documents take their own hold instead, and keep the
+ *   body adapters recognise them by.
+ *
+ * Nothing is wrapped when no signal was handed out: there is no timer then.
+ */
+export function releaseBudgetWith(budget: RequestBudget, response: Response): Response {
+  if (!budget.timing) {
+    budget.release();
+    return response;
+  }
+  if (response.status >= 400) return response;
+  const body = response.body;
+  if (
+    !body ||
+    isStreamingHtmlResponse(response) ||
+    response.status === 101 ||
+    (response as { webSocket?: unknown }).webSocket
+  ) {
+    budget.release();
+    return response;
+  }
+  const releaseBody = budget.hold();
+  budget.release();
+  return new Response(holdUntilRead(body, releaseBody), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+function holdUntilRead(
+  body: ReadableStream<Uint8Array>,
+  release: () => void,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          release();
+          controller.close();
+        } else {
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        release();
+        controller.error(error);
+      }
+    },
+    cancel(reason) {
+      release();
+      return reader.cancel(reason);
+    },
+  });
 }
 
 /** Distinguish a client disconnect from a request-budget expiry. */
@@ -486,6 +630,7 @@ async function prepareAgentSurface<TContext>(
   mcpConfig: NonNullable<PrachtApp["agents"]>["mcp"] | undefined,
   exposeDiagnostics: boolean,
   requestPath: string,
+  budget: RequestBudget,
 ): Promise<AgentSurfacePreparation<TContext>> {
   let requestContext = initialContext;
   let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
@@ -553,7 +698,7 @@ async function prepareAgentSurface<TContext>(
         undefined,
         // Capability work — including capabilities composed from a loader —
         // reports through the API hook: capabilities are API surface.
-        createRequestWaitUntil(options, requestPath, options.onApiError, {}),
+        createRequestWaitUntil(options, requestPath, options.onApiError, {}, budget),
       );
     }
   } else if (hasCapabilities || options.app.agents) {
@@ -612,6 +757,7 @@ export async function createRequestContext<TContext>(
   const resolvedApp = getResolvedApp(options.app as PrachtApp);
   const hrefRoutes = resolvedApp.hrefRoutes ?? resolvedApp.routes;
   const loaderTimeoutMs = resolveLoaderTimeoutMs(resolvedApp.loaderTimeoutMs);
+  const budget = createRequestBudget(options.request.signal, loaderTimeoutMs);
   // The route-state endpoint returns loader output as JSON. Two entry
   // points into it: the explicit header (only settable via fetch, so the
   // browser forces CORS preflight cross-origin) and the `_data=1` query
@@ -645,8 +791,12 @@ export async function createRequestContext<TContext>(
     mcpConfig,
     exposeDiagnostics,
     requestPath,
+    budget,
   );
-  if (surface.response) return { response: surface.response };
+  if (surface.response) {
+    budget.release();
+    return { response: surface.response };
+  }
 
   const configuredMcpEndpoint = mcpConfig?.path ?? "/mcp";
   const normalizedRoutePath =
@@ -670,6 +820,7 @@ export async function createRequestContext<TContext>(
       resolvedApp,
       hrefRoutes,
       loaderTimeoutMs,
+      budget,
       isRouteStateRequest,
       exposeDiagnostics,
       requireSameOrigin,
@@ -720,13 +871,19 @@ export async function dispatchApi<TContext>(
     return plainTextResponse("Cross-origin request blocked", 403);
   }
 
-  const requestSignal = composeRequestSignal(request, ctx.loaderTimeoutMs);
+  const requestSignal = ctx.budget.signal;
   const apiContext = ctx.context;
-  const waitUntil = createRequestWaitUntil(options, ctx.requestPath, options.onApiError, {
-    middlewareFiles: [...apiMiddlewareFiles],
-    routeFile: apiMatch.route.file,
-    routePath: apiMatch.route.path,
-  });
+  const waitUntil = createRequestWaitUntil(
+    options,
+    ctx.requestPath,
+    options.onApiError,
+    {
+      middlewareFiles: [...apiMiddlewareFiles],
+      routeFile: apiMatch.route.file,
+      routePath: apiMatch.route.path,
+    },
+    ctx.budget,
+  );
 
   const apiTerminal = async (): Promise<Response> => {
     currentPhase = "api";
