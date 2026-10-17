@@ -687,10 +687,20 @@ Resolves to:
 }
 ```
 
-Runtime matching is a linear scan over this flat array, and the first route
-whose pattern matches wins: declaration order is the precedence rule for the
-manifest (the pages router sorts by specificity before it emits one). For
-typical app sizes (tens to low hundreds of routes) this is effectively instant.
+The first route in this flat array whose pattern matches wins: declaration
+order is the precedence rule for the manifest (the pages router sorts by
+specificity before it emits one). The client router finds it with a linear
+scan (`matchResolvedRoute`), and so does the public `matchAppRoute`, which is
+also exported to the browser. The request pipeline (`runtime.ts`, the server
+island endpoint) calls `matchIndexedResolvedRoute` in `route-matching.ts`; it is
+a separate export, not a flag, so client bundles never contain it
+(`package-tree-shaking.test.ts` checks a browser `matchAppRoute` import). That
+builds an index per
+route table on first use: a map of fully static paths, plus the dynamic routes
+bucketed by static first segment and a list of those starting with a parameter
+or catch-all. It tries the dynamic candidates in declaration order and stops at
+the static hit's position, so the result is the scan's. At 1,000 routes a late
+match or a miss drops from tens of microseconds to about one.
 
 Because order is the rule, `resolveApp` warns (dev server and plain Node only,
 never in the browser or a production bundle, so `pracht build` does not print
