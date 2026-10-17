@@ -12,6 +12,7 @@ import type {
 import { defineCommand } from "citty";
 
 import { collectCapabilityAppGraph } from "../app-graph.js";
+import { formatCapabilityTransports } from "../capability-exposure.js";
 import { resolveBuildLlmsTxtEnabled, withAppServer } from "../app-server.js";
 import { serializeMcpAuth, type McpAuthSnapshot } from "../graph-snapshot.js";
 import { handleCliError } from "../utils.js";
@@ -136,6 +137,8 @@ export interface InspectReport {
   mode: string;
   mcpDestructive?: boolean;
   mcpEndpoint?: string | null;
+  /** Present (and `true`) only when the endpoint requires OAuth (`agents.mcp.auth`). */
+  mcpAuthenticated?: true;
   mcpRuntimeStatus?: "blocked" | "not-configured" | "ready" | "unverified";
   mcpUnavailableReasons?: string[];
   notFound?: InspectRoute | null;
@@ -214,6 +217,7 @@ export async function runInspect(
     if (capabilityGraph) {
       report.mcpDestructive = capabilityGraph.mcpDestructive;
       report.mcpEndpoint = capabilityGraph.mcpEndpoint;
+      if (capabilityGraph.mcpAuthenticated) report.mcpAuthenticated = true;
       report.mcpRuntimeStatus = capabilityGraph.mcpRuntimeStatus;
       report.mcpUnavailableReasons = capabilityGraph.mcpUnavailableReasons;
     }
@@ -302,27 +306,6 @@ export function summarizeAgentSurface(
     })),
     exposure,
   };
-}
-
-function formatCapabilityTransports(
-  capability: Pick<AppGraphCapability, "effect" | "transports">,
-  report: InspectReport,
-): string {
-  return capability.transports.length > 0
-    ? capability.transports
-        .map((transport) =>
-          transport !== "mcp"
-            ? transport
-            : report.mcpEndpoint === null ||
-                (capability.effect === "destructive" && report.mcpDestructive !== true) ||
-                report.mcpRuntimeStatus === "blocked"
-              ? "mcp(unserved)"
-              : report.mcpRuntimeStatus === "unverified"
-                ? "mcp(unverified)"
-                : transport,
-        )
-        .join(",")
-    : "private";
 }
 
 function printMcpInspectionStatus(report: InspectReport): void {

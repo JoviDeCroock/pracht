@@ -866,7 +866,11 @@ The capability graph feeds every existing inspection surface:
   and its capability table shows the inverse route mapping. Retained traffic keeps the Agents panel visible after
   HMR removes the final capability, until the dev server restarts; MCP
   declarations are labeled `mcp(unserved)` until the endpoint serves them,
-  including destructive declarations without `agents.mcp.destructive`;
+  including destructive declarations without `agents.mcp.destructive` and
+  scoped ones without `agents.mcp.auth`. The runtime endpoint, this page, the
+  dev banner, `pracht inspect`, the app graph, and `pracht verify` all decide
+  "served" with one function, `mcpToolServing` from `@pracht/capabilities`, so
+  a new exposure rule lands everywhere at once;
 - the `pracht dev-mcp` server exposes `inspect_capabilities` and `inspect_agents`
   tools;
 - every dev document registers dev-only `pracht_*` WebMCP page tools

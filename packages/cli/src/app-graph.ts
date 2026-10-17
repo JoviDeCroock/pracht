@@ -7,6 +7,7 @@ import {
   resolveRegistryModule,
   serializeApiRoutesStatic,
   serializeCapabilities,
+  isMcpToolServed,
   servesDestructiveMcpTools,
   withWebmcpRoutes,
 } from "@pracht/core";
@@ -149,7 +150,8 @@ export async function collectCapabilityAppGraph(
           capabilities
             .filter(
               (capability) =>
-                capability.effect === "destructive" && capability.transports.includes("mcp"),
+                capability.effect === "destructive" &&
+                isMcpToolServed(serverModule.resolvedApp.agents, capability),
             )
             .map((capability) => loadModule(capability.source)),
         );

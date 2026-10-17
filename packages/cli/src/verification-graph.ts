@@ -19,6 +19,7 @@ import {
 } from "./graph-snapshot.js";
 import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
 import { detectAdapterTarget } from "./commands/preview.js";
+import { collectMcpServingChecks } from "./verification-capabilities.js";
 import { createCheck, isModuleSource, type Check } from "./verification-helpers.js";
 import { collectStaticExportChecks } from "./verification-static.js";
 
@@ -100,6 +101,7 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
       ),
     );
   }
+  if (wantsCapabilityLoad) collectMcpServingChecks(live, checks);
   collectMcpRouteCollisionChecks(live, checks);
   collectWebmcpRouteChecks(live, checks);
   collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });

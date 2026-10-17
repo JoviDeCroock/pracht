@@ -7,7 +7,7 @@
  * module platform-neutral.
  */
 
-import { capabilityHttpPath } from "@pracht/capabilities";
+import { capabilityHttpPath, mcpToolServing } from "@pracht/capabilities";
 import {
   extractCapabilityProjection,
   type CapabilityProjection,
@@ -103,6 +103,8 @@ export interface AppGraphCapability {
   title: string | null;
   /** Exposure transports from the capability's `expose` config. */
   transports: string[];
+  /** OAuth scopes from `expose: { mcp: { scopes } }`; absent when unscoped. */
+  mcpScopes?: string[];
   /** Route patterns that activate this WebMCP page tool (inspection only). */
   webmcpRoutes?: string[];
 }
@@ -333,6 +335,9 @@ export function serializeCapabilities(
           source: file,
           title: capability.title,
           transports,
+          ...(capability.expose?.mcpScopes?.length
+            ? { mcpScopes: [...capability.expose.mcpScopes] }
+            : {}),
         };
       } catch (cause) {
         if (options.strict) {
@@ -389,11 +394,32 @@ export function servesDestructiveMcpTools(
   app: Pick<ResolvedPrachtApp, "agents">,
   capabilities: readonly AppGraphCapability[],
 ): boolean {
+  return capabilities.some(
+    (capability) => capability.effect === "destructive" && isMcpToolServed(app.agents, capability),
+  );
+}
+
+/**
+ * Whether the remote MCP endpoint serves this graph capability as a tool —
+ * the same rule the runtime applies, for every inspection surface.
+ */
+export function isMcpToolServed(
+  agents: ResolvedPrachtApp["agents"],
+  capability: Pick<AppGraphCapability, "effect" | "mcpScopes" | "transports">,
+): boolean {
   return (
-    app.agents?.mcp?.destructive === true &&
-    capabilities.some(
-      (capability) => capability.effect === "destructive" && capability.transports.includes("mcp"),
-    )
+    mcpToolServing(
+      {
+        effect: capability.effect,
+        mcp: capability.transports.includes("mcp"),
+        mcpScopes: capability.mcpScopes,
+      },
+      {
+        endpoint: agents?.mcp !== undefined,
+        destructive: agents?.mcp?.destructive === true,
+        auth: !!agents?.mcp?.auth,
+      },
+    ) === "served"
   );
 }
 
@@ -411,7 +437,7 @@ export function destructiveMcpSetupMiddlewareFiles(
 
   const names = new Set(app.api?.middleware ?? []);
   for (const capability of capabilities) {
-    if (capability.effect !== "destructive" || !capability.transports.includes("mcp")) continue;
+    if (capability.effect !== "destructive" || !isMcpToolServed(app.agents, capability)) continue;
     for (const name of capability.middleware) names.add(name);
   }
   return [...names].flatMap((name) => {

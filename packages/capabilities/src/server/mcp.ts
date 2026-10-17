@@ -31,6 +31,7 @@ import {
   MCP_STATUS_META_KEY,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
+  mcpToolServing,
 } from "../protocol.ts";
 import {
   clearDestructiveConfirmed,
@@ -116,11 +117,17 @@ export function mcpExposedCapabilities(
   // Compared with `=== true` so an absent, undefined, or non-boolean config
   // reads as "off". Manifest validation rejects non-booleans; this is the
   // second line of defense for a hand-rolled app object.
-  const allowDestructive = mcp?.destructive === true;
+  const config = { endpoint: true, destructive: mcp?.destructive === true, auth: !!mcp?.auth };
   return capabilities.filter(
     (entry) =>
-      entry.capability.expose?.mcp === true &&
-      (allowDestructive || entry.capability.effect !== "destructive"),
+      mcpToolServing(
+        {
+          effect: entry.capability.effect,
+          mcp: entry.capability.expose?.mcp === true,
+          mcpScopes: entry.capability.expose?.mcpScopes,
+        },
+        config,
+      ) === "served",
   );
 }
 
@@ -517,18 +524,14 @@ function servableDestructiveMiddlewareFiles<TContext>(
   projection: McpToolProjection,
   options: HandleMcpRequestOptions<TContext>,
 ): readonly string[] | null {
-  const hasAuth = !!options.mcp.auth;
   const apiFiles = options.apiMiddlewareFiles ?? [];
-  const key = `${hasAuth ? 1 : 0}\0${apiFiles.join("\0")}`;
+  const key = apiFiles.join("\0");
   const cached = projection.destructiveFiles.get(key);
   if (cached !== undefined) return cached;
-  const servable = projection.destructive.filter(
-    (entry) => hasAuth || requiredToolScopes(entry).length === 0,
-  );
   let files: readonly string[] | null = null;
-  if (servable.length > 0) {
+  if (projection.destructive.length > 0) {
     const set = new Set(apiFiles);
-    for (const capability of servable) {
+    for (const capability of projection.destructive) {
       for (const file of capability.middlewareFiles) set.add(file);
     }
     files = [...set];
@@ -672,16 +675,16 @@ interface McpToolProjection {
 
 const toolProjectionCache = new WeakMap<
   readonly ResolvedCapability[],
-  Map<boolean, McpToolProjection>
+  Map<string, McpToolProjection>
 >();
 
 function projectMcpTools(
   capabilities: readonly ResolvedCapability[],
   mcp: McpProjectionConfig | undefined,
 ): McpToolProjection {
-  const allowDestructive = mcp?.destructive === true;
+  const configKey = `${mcp?.destructive === true ? 1 : 0}${mcp?.auth ? 1 : 0}`;
   let byConfig = toolProjectionCache.get(capabilities);
-  const cached = byConfig?.get(allowDestructive);
+  const cached = byConfig?.get(configKey);
   if (cached) return cached;
 
   const exposed = mcpExposedCapabilities(capabilities, mcp);
@@ -716,7 +719,7 @@ function projectMcpTools(
     byConfig = new Map();
     toolProjectionCache.set(capabilities, byConfig);
   }
-  byConfig.set(allowDestructive, projection);
+  byConfig.set(configKey, projection);
   return projection;
 }
 

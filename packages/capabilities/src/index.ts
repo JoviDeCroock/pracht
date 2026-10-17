@@ -46,11 +46,19 @@ export {
   MCP_STATUS_META_KEY,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
+  mcpToolServing,
   normalizeCapabilityHttpPath,
   isValidWebmcpToolName,
   WEBMCP_TOOL_NAME_ERROR,
 } from "./protocol.ts";
-export type { CapabilityErrorCode, McpToolNameCollision, PrachtAgentIdentity } from "./protocol.ts";
+export type {
+  CapabilityErrorCode,
+  McpServingCapability,
+  McpServingConfig,
+  McpToolNameCollision,
+  McpToolServing,
+  PrachtAgentIdentity,
+} from "./protocol.ts";
 export {
   applySchemaDefaults,
   collectInvalidSchemaKeywordValues,
