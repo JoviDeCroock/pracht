@@ -105,6 +105,7 @@ function emptyRouteHints(): RouteHints {
 export type { RenderMode };
 export type {
   PrachtAdapter,
+  PrachtAdapterBuildContext,
   PrachtAdapterDevOptions,
   PrachtAdapterDevRequest,
 } from "./plugin-adapter.ts";
@@ -209,6 +210,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       llmsTxtEnabled: Boolean(resolved.llmsTxt),
       pracht: {
         staticTarget: resolved.adapter.staticTarget === true,
+        // `pracht build` calls the adapter's `finalizeBuild` once dist/ is complete.
+        adapter: resolved.adapter,
       },
     },
 
@@ -489,6 +492,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           alias: config.resolve?.alias,
         },
       };
+    },
+
+    options(inputOptions) {
+      if (isBuild) assertPrachtBuildEntry(root, inputOptions.input);
+      return null;
     },
 
     resolveId(id, importer, resolveIdOptions) {
@@ -1013,6 +1021,23 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
  * single stylesheet, which is the kind of failure nobody reads a build log to
  * find.
  */
+/**
+ * A pracht app has no `index.html`: `pracht build` hands Vite the client and
+ * server entries, then prerenders and writes the deploy output. A bare
+ * `vite build` falls back to `<root>/index.html` as its input, and would
+ * otherwise stop at "Cannot resolve entry module index.html".
+ */
+function assertPrachtBuildEntry(root: string, input: unknown): void {
+  if (typeof input !== "string" || resolve(input) !== resolve(root, "index.html")) return;
+  if (existsSync(input)) return;
+
+  throw new Error(
+    "[pracht] `vite build` has no entry to build: a pracht app has no index.html. Run " +
+      "`pracht build` instead, which builds the client and server bundles, prerenders the " +
+      "SSG and ISG pages, and writes the adapter's deploy output.",
+  );
+}
+
 function assertCssCodeSplitEnabled(config: {
   build?: { cssCodeSplit?: boolean; ssr?: boolean | string };
   command?: string;

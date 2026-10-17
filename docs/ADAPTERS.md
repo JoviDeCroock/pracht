@@ -716,7 +716,7 @@ build output, as it already is for Netlify's default `excludedPath`.
 
 Because those responses skip `maybeServeAsset()`, `pracht build` writes
 `dist/client/_headers` for the `cloudflare` target
-(`packages/cli/src/cloudflare-asset-headers.ts`): one `/assets/*` rule with
+(the adapter's `finalizeBuild`, `packages/adapter-cloudflare/src/build.ts`): one `/assets/*` rule with
 `Cache-Control: public, max-age=31536000, immutable` and the output of
 `applyDefaultSecurityHeaders()`, followed by an exact rule for each
 headers-manifest entry under `/assets/` (a content artifact's
@@ -1350,7 +1350,7 @@ cache.
   trailing-slash, and header routes are merged across pages, so they add a few
   routes in total rather than one per page. `pracht build` warns once
   `config.json` reaches 80% of the limit (`describeVercelRouteBudget` in
-  `cli/src/build-shared.ts`).
+  `adapter-vercel/src/build-output.ts`).
 - **Function-name safety**: the build fails with a descriptive error when an ISG
   route would use the same `.func` directory as the main edge function (for
   example, `/render` with the default `functionName: "render"`). Rename the
@@ -2095,9 +2095,57 @@ export default async function handle(request) {
     // present. The adapter id can remain platform-specific (see the Static
     // Adapter section).
     staticTarget: true,
+    // Optional: the deploy step. `pracht build` calls it once, after
+    // prerendering and after writing dist/server's manifests, with a
+    // PrachtAdapterBuildContext (see below).
+    async finalizeBuild(context) {
+      await writeMyPlatformOutput(context);
+    },
   };
 }
 ```
+
+### The build hook
+
+`pracht build` finds the adapter through the `pracht` plugin's
+`api.pracht.adapter` and, when its `id` matches the server bundle's
+`buildTarget`, awaits `finalizeBuild(context)` after the headers, Markdown,
+routing, CSS and ISG manifests are written and before Netlify's
+`finalizePrachtBuild` export and the bundle report. `PrachtAdapterBuildContext`
+(exported by `@pracht/vite-plugin`) carries:
+
+- `root`, `clientDir`, `publicDir`, `publicDirLabel`, `base`, `trailingSlash`
+- `frameworkVersion`: the `@pracht/cli` version (Vercel stamps it into
+  `config.json`)
+- `serverEntry`: the `dist/server/server.js` exports
+- `pages` (every prerendered path, SSG and ISG) and `onDemandPages` (those the
+  CLI rendered but did not write, e.g. Cloudflare workers-cache ISG)
+- `isgManifest`, and `headersManifest` in its flat per-path form regardless of
+  the on-disk format
+- `markdownRoutes`, `markdownFiles` (`{ path, outputPath }`),
+  `contentArtifacts`, and `staticRoutes` (OpenAPI UI pages and content clean
+  routes)
+- `log` (stdout) and `warn` (stderr), both silent under `--analyze-json`
+
+The Vercel adapter's hook writes `.vercel/output` (`src/build-output.ts`,
+loaded through a URL import the edge server bundle cannot follow, so `node:fs`
+never reaches it). The Cloudflare adapter's hook (`src/build.ts`) copies the
+ISG manifest to `dist/client/_pracht/isg.json`, writes `dist/client/_headers`,
+rewrites `dist/server/worker.js` when it exports values workerd rejects, and
+prints the deploy hint.
+
+Adapter releases that predate the hook still deploy: for a `vercel` or
+`cloudflare` build target without `finalizeBuild`, the CLI runs its own copy
+of those steps (`packages/cli/src/legacy-adapter-build.ts`). A unit test keeps
+the two copies byte-identical; the CLI copy can go once the CLI requires
+adapter releases with the hook.
+
+`pracht build` also checks the server bundle it imports
+(`packages/cli/src/server-entry.ts`, `PrachtServerEntry`): a bundle without
+`resolvedApp` or `prerenderApp()` fails with a pointer to `pracht build` and
+matching plugin/core releases. A plain `vite build` fails in the plugin's
+Rollup `options` hook when Vite falls back to a root `index.html` that does not
+exist, with the same pointer.
 
 The generated server entry module has access to `resolvedApp`, `registry`,
 `apiRoutes`, `clientEntryUrl`, `cssManifest`, and `jsManifest` -- your

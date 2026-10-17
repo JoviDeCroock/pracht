@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { describeCloudflareDeploy, splitCloudflareWorkerExports } from "../src/commands/build.ts";
+import { describeCloudflareDeploy, splitCloudflareWorkerExports } from "../src/build.ts";
 
 describe("describeCloudflareDeploy", () => {
   const roots: string[] = [];

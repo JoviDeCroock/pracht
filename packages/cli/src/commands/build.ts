@@ -11,7 +11,6 @@ import {
 } from "node:fs";
 import { register } from "node:module";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { defineCommand } from "citty";
 import { build as viteBuild, type Plugin } from "vite";
@@ -19,18 +18,20 @@ import { matchRoutePath, planMarkdownFiles, routePathIsDynamic } from "@pracht/c
 import type {
   ISGManifestEntry,
   MarkdownFile,
+  PrachtApp,
   PrerenderedMarkdown,
   PrerenderResult,
 } from "@pracht/core";
 import { shareHeadersManifest } from "@pracht/core/server";
 
 import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
-import { writeCloudflareAssetHeaders } from "../cloudflare-asset-headers.js";
+import { VERSION } from "../constants.js";
 import {
-  describeVercelRouteBudget,
-  resolveVercelRuntimeRoutes,
-  writeVercelBuildOutput,
-} from "../build-shared.js";
+  finalizeLegacyAdapterBuild,
+  type AdapterBuildContext,
+  type BuildAdapter,
+} from "../legacy-adapter-build.js";
+import { loadPrachtServerEntry } from "../server-entry.js";
 import {
   decodeStaticOutputPath,
   describeInlineCssOpportunity,
@@ -524,65 +525,13 @@ export function reportBuildWarning(message: string, json: boolean): void {
   else console.log(message);
 }
 
-/**
- * Splits a Worker module's exports into what workerd accepts beside `default`
- * (handlers and entrypoint classes: functions and non-null objects) and what
- * it rejects at startup (every other value).
- */
-export function splitCloudflareWorkerExports(exports: Iterable<[string, unknown]>): {
-  entrypointNames: string[];
-  droppedNames: string[];
-} {
-  const entrypointNames: string[] = [];
-  const droppedNames: string[] = [];
-  for (const [name, value] of exports) {
-    if (name === "default") continue;
-    if (typeof value === "function" || (typeof value === "object" && value !== null)) {
-      entrypointNames.push(name);
-    } else {
-      droppedNames.push(name);
-    }
-  }
-  return { entrypointNames, droppedNames };
-}
-
-/**
- * How to deploy a Cloudflare build. The Cloudflare Vite plugin writes
- * dist/server/wrangler.json plus a `.wrangler/deploy/config.json` redirect
- * that plain `wrangler deploy` follows. The adapter removes the redirect when
- * the user's config defines named environments and the build selected none,
- * so `wrangler deploy --env <name>` keeps reading the user's own config.
- */
-export function describeCloudflareDeploy(root: string): string {
-  const generated = readGeneratedWranglerEnvironments(resolve(root, "dist/server/wrangler.json"));
-  if (generated && existsSync(resolve(root, ".wrangler/deploy/config.json"))) {
-    return "  Deploy with: wrangler deploy (uses the generated dist/server/wrangler.json)\n";
-  }
-  if (generated && generated.defined.length > 0 && !generated.target) {
-    return (
-      "  Deploy with: wrangler deploy --env <name> (reads your wrangler config, whose main must be dist/server/worker.js),\n" +
-      "  or rebuild with CLOUDFLARE_ENV=<name> to deploy the generated dist/server/wrangler.json.\n"
-    );
-  }
-  return "  Deploy with: wrangler deploy\n";
-}
-
-function readGeneratedWranglerEnvironments(
-  file: string,
-): { defined: unknown[]; target: unknown } | undefined {
-  if (!existsSync(file)) return undefined;
-  try {
-    const config = JSON.parse(readFileSync(file, "utf-8")) as {
-      definedEnvironments?: unknown;
-      targetEnvironment?: unknown;
-    };
-    return {
-      defined: Array.isArray(config.definedEnvironments) ? config.definedEnvironments : [],
-      target: config.targetEnvironment,
-    };
-  } catch {
-    return undefined;
-  }
+/** The adapter `pracht()` was configured with, from its plugin metadata. */
+function findBuildAdapter(plugins: readonly Plugin[]): BuildAdapter | undefined {
+  const prachtPlugin = plugins.find((plugin) => plugin.name === "pracht");
+  const adapter = (prachtPlugin?.api as { pracht?: { adapter?: unknown } } | undefined)?.pracht
+    ?.adapter;
+  if (typeof adapter !== "object" || adapter === null) return undefined;
+  return adapter as BuildAdapter;
 }
 
 interface BuildOptions {
@@ -601,10 +550,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
   };
 
   let publicDir = resolve(root, "public");
+  let buildAdapter: BuildAdapter | undefined;
   const capturePublicDir: Plugin = {
     name: "pracht:capture-public-dir",
     configResolved(config) {
       publicDir = config.publicDir;
+      buildAdapter = findBuildAdapter(config.plugins);
     },
   };
 
@@ -678,7 +629,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // Edge server bundles keep `cloudflare:*` imports external; stub them so
     // the bundle can be imported in Node for the prerender pass below.
     registerPrerenderModuleHooks();
-    const serverMod = await import(pathToFileURL(serverEntry).href);
+    const serverMod = await loadPrachtServerEntry(serverEntry);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
     const buildBase = typeof serverMod.buildBase === "string" ? serverMod.buildBase : "/";
     const buildTrailingSlash = readBuildTrailingSlash(serverMod);
@@ -698,6 +649,9 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       );
     }
     const { prerenderApp } = serverMod;
+    // Typed as the manifest `defineApp()` returns, but both prerenderers
+    // resolve what they are given, and `resolveApp()` accepts its own output.
+    const prerenderTargetApp = serverMod.resolvedApp as unknown as PrachtApp;
     // Asset URLs in prerendered documents must carry the deploy base; the
     // server bundle reports the one Vite resolved.
     const { clientEntryUrl, clientEntryJs, islandsEntryJs, cssManifest, jsManifest } =
@@ -818,7 +772,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
 
     const prerendered = await prerenderApp({
       staticExport: isStaticExport,
-      app: serverMod.resolvedApp,
+      app: prerenderTargetApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
       islandsEntryUrl: serverMod.islandsEntryUrl ?? undefined,
       islandsBootstrapRequired: serverMod.islandsBootstrapRequired === true,
@@ -935,7 +889,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           typeof serverMod.prerenderMarkdown === "function"
             ? await serverMod
                 .prerenderMarkdown({
-                  app: serverMod.resolvedApp,
+                  app: prerenderTargetApp,
                   apiRoutes: serverMod.apiRoutes,
                   registry: serverMod.registry,
                   paths: chunk.map((file) => file.pagePath),
@@ -1148,36 +1102,9 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       const isgManifestPath = resolve(root, "dist/server/isg-manifest.json");
       const isgManifestJson = `${JSON.stringify(isgManifest, null, 2)}\n`;
       writeFileSync(isgManifestPath, isgManifestJson, "utf-8");
-      if (buildTarget === "cloudflare") {
-        // Only the Cloudflare worker runtime reads the manifest from the
-        // static assets (via readPrachtISGManifest). On other targets the
-        // client dir is served publicly, so writing it there would leak the
-        // ISG route list and revalidation policies.
-        mkdirSync(resolve(clientDir, "_pracht"), { recursive: true });
-        writeFileSync(resolve(clientDir, "_pracht/isg.json"), isgManifestJson, "utf-8");
-      }
       log(
         `\n  ISG manifest → dist/server/isg-manifest.json (${Object.keys(isgManifest).length} route(s))\n`,
       );
-    }
-
-    if (buildTarget === "cloudflare") {
-      const assetHeaders = writeCloudflareAssetHeaders(
-        clientDir,
-        publicDir,
-        headersManifest,
-        publicDirLabel,
-      );
-      if (assetHeaders.warning && !analyzeJson) {
-        console.warn(`\n  Warning: ${assetHeaders.warning}\n`);
-      }
-      if (assetHeaders.skipped.length > 0 && !analyzeJson) {
-        console.warn(
-          `\n  Warning: dist/client/_headers cannot match ${assetHeaders.skipped.join(", ")} ` +
-            "exactly, so Cloudflare serves them with the /assets/* immutable policy instead of " +
-            "their build headers. Rename them or keep them out of /assets/.\n",
-        );
-      }
     }
 
     if (isStaticExport) {
@@ -1198,91 +1125,37 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       );
     }
 
-    if (serverMod.buildTarget === "cloudflare") {
-      const edgeCachedIsgCount = pages.filter((page) => !page.written).length;
-      if (cloudflareWorkersCacheEnabled && edgeCachedIsgCount > 0) {
-        log(
-          `\n  ISG via Workers Caching: ${edgeCachedIsgCount} route(s) render on demand and revalidate at the edge. Requires "cache": { "enabled": true } in wrangler config.\n`,
-        );
-      }
-
-      // The adapter builds the Worker entry to dist/server/worker.js, next to
-      // the Cloudflare plugin's generated wrangler.json. workerd accepts only
-      // handlers and entrypoint classes as that module's exports, so when it
-      // re-exports anything else from the app's Worker module (or an older
-      // adapter emitted only server.js, whose build metadata workerd rejects),
-      // write a thin entry re-exporting just those from server.js instead.
-      const workerEntryPath = resolve(root, "dist/server/worker.js");
-      const builtWorkerEntry = existsSync(workerEntryPath);
-      const legacyEntrypointNames: unknown[] = Array.isArray(
-        serverMod.cloudflareWorkerEntrypointNames,
-      )
-        ? serverMod.cloudflareWorkerEntrypointNames
-        : [];
-      const deployExports: Array<[string, unknown]> = builtWorkerEntry
-        ? Object.entries(await import(pathToFileURL(workerEntryPath).href))
-        : Object.entries(serverMod).filter(([name]) => legacyEntrypointNames.includes(name));
-      const { entrypointNames, droppedNames } = splitCloudflareWorkerExports(deployExports);
-      if (!builtWorkerEntry || droppedNames.length > 0) {
-        const deployEntryLines = [
-          ...(entrypointNames.length > 0
-            ? [`export { ${entrypointNames.join(", ")} } from "./server.js";`]
-            : []),
-          'export { default } from "./server.js";',
-          "",
-        ];
-        writeFileSync(workerEntryPath, deployEntryLines.join("\n"), "utf-8");
-      }
-      if (droppedNames.length > 0) {
-        log(
-          `\n  Left ${droppedNames.join(", ")} out of dist/server/worker.js: a Worker module may only export handlers and entrypoint classes.`,
-        );
-      }
-
-      log("\n  Cloudflare worker → dist/server/worker.js\n");
-      log(describeCloudflareDeploy(root));
-    }
-
-    if (serverMod.buildTarget === "vercel") {
-      // ISG routes deploy as Node serverless functions that re-export
-      // `nodeListener` from the bundle; catch a custom server entry that
-      // doesn't provide it here instead of at request time in production.
-      if (Object.keys(isgManifest).length > 0 && typeof serverMod.nodeListener !== "function") {
-        throw new Error(
-          "The Vercel server entry does not export `nodeListener`, which the ISG routes' " +
-            "serverless functions import. Generate the entry with `vercelAdapter()` or export " +
-            "`createVercelNodeListener(handle)` from your custom entry module.",
-        );
-      }
-
-      const { outputPath, routeCount } = writeVercelBuildOutput({
-        base: buildBase,
-        functionName: serverMod.vercelFunctionName,
-        isgManifest,
-        headersManifest,
-        markdownFiles: markdownFileOutputs,
-        markdownRoutes: Object.keys(markdownManifest),
-        regions: serverMod.vercelRegions,
-        root,
-        runtimeRoutes: resolveVercelRuntimeRoutes(serverMod.resolvedApp?.agents),
-        // Markdown files are exact-path static files like content artifacts;
-        // listing them applies their headers-manifest entry on Vercel.
-        staticAssetRoutes: [
-          ...Object.keys(contentArtifactHeaders),
-          ...markdownFiles.map((file) => file.markdownPath),
-        ],
-        staticRoutes: [
-          ...pages.map((page) => page.path).filter((path: string) => !(path in isgManifest)),
-          ...generatedStaticRoutes,
-          ...contentArtifactCleanRoutes,
-        ],
-        trailingSlash: buildTrailingSlash,
-        pageRoutes: pages.map((page) => page.path),
-      });
-
-      log(`\n  Vercel build output → ${outputPath}\n`);
-      const routeBudget = describeVercelRouteBudget(routeCount);
-      if (routeBudget) reportBuildWarning(`\n  Warning: ${routeBudget}\n`, analyzeJson);
+    // The adapter turns dist/ into its platform's deploy layout. Adapter
+    // releases without `finalizeBuild` get the CLI's own copy of that step.
+    const adapterBuildContext: AdapterBuildContext = {
+      root,
+      clientDir,
+      publicDir,
+      publicDirLabel,
+      base: buildBase,
+      trailingSlash: buildTrailingSlash,
+      frameworkVersion: VERSION,
+      serverEntry: serverMod,
+      pages: pages.map((page) => page.path),
+      onDemandPages: pages.filter((page) => !page.written).map((page) => page.path),
+      isgManifest,
+      headersManifest,
+      markdownRoutes: Object.keys(markdownManifest),
+      markdownFiles: markdownFiles.map((file, index) => ({
+        path: file.markdownPath,
+        outputPath: markdownFileOutputs[index]!,
+      })),
+      contentArtifacts: Object.keys(contentArtifactHeaders),
+      staticRoutes: [...generatedStaticRoutes, ...contentArtifactCleanRoutes],
+      log,
+      warn: (message) => {
+        if (!analyzeJson) console.warn(message);
+      },
+    };
+    if (buildAdapter?.id === buildTarget && typeof buildAdapter.finalizeBuild === "function") {
+      await buildAdapter.finalizeBuild(adapterBuildContext);
+    } else if (buildTarget === "cloudflare" || buildTarget === "vercel") {
+      await finalizeLegacyAdapterBuild(buildTarget, adapterBuildContext);
     }
 
     if (typeof serverMod.finalizePrachtBuild === "function") {

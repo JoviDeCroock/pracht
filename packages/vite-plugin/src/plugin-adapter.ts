@@ -1,7 +1,52 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { createNodeServerEntryModule } from "@pracht/adapter-node";
+import type { ISGManifestEntry } from "@pracht/core";
 import type { Plugin } from "vite";
+
+/**
+ * What `pracht build` hands an adapter's `finalizeBuild` once `dist/` holds
+ * the client bundle, the server bundle, every prerendered page, and the
+ * build manifests.
+ */
+export interface PrachtAdapterBuildContext {
+  /** The Vite root. */
+  root: string;
+  /** Absolute path of `dist/client`, the static output. */
+  clientDir: string;
+  /** Absolute path of the public directory Vite resolved. */
+  publicDir: string;
+  /** The public directory relative to the root, for messages. */
+  publicDirLabel: string;
+  /** The deploy base the build was made for (`/` or `/docs/`). */
+  base: string;
+  /** `pracht({ trailingSlash })`. */
+  trailingSlash: "ignore" | "never" | "always";
+  /** The `@pracht/cli` version running the build. */
+  frameworkVersion: string;
+  /** The exports of `dist/server/server.js`. */
+  serverEntry: Readonly<Record<string, unknown>>;
+  /** Every prerendered page path (SSG and ISG), in build order. */
+  pages: readonly string[];
+  /** Prerendered page paths whose HTML was not written because the runtime renders them on demand. */
+  onDemandPages: readonly string[];
+  /** ISG routes and their revalidation policy, as in `dist/server/isg-manifest.json`. */
+  isgManifest: Readonly<Record<string, ISGManifestEntry>>;
+  /** Response headers per static path, flat (one header set per path). */
+  headersManifest: Readonly<Record<string, Record<string, string>>>;
+  /** Prerendered routes whose module exports `markdown`. */
+  markdownRoutes: readonly string[];
+  /** Markdown companions the build wrote: their URL path and their file relative to `clientDir`. */
+  markdownFiles: readonly { path: string; outputPath: string }[];
+  /** URL paths of the content-collection artifacts in `clientDir`. */
+  contentArtifacts: readonly string[];
+  /** Other HTML pages in `clientDir` served at their clean URL (OpenAPI UI, content routes). */
+  staticRoutes: readonly string[];
+  /** Prints a progress line (silent under `--analyze-json`). */
+  log(message: string): void;
+  /** Prints a warning to stderr (silent under `--analyze-json`). */
+  warn(message: string): void;
+}
 
 /** What `pracht dev` knows about a request when it builds the app context. */
 export interface PrachtAdapterDevRequest {
@@ -118,6 +163,14 @@ export interface PrachtAdapter {
    * not-found or fallback artifact cannot be rendered.
    */
   staticTarget?: boolean;
+  /**
+   * Turns the finished `dist/` into the platform's deploy layout (Vercel's
+   * `.vercel/output`, Cloudflare's `_headers` and Worker entry). `pracht
+   * build` calls it after prerendering, once, with the build's manifests.
+   * Runs in Node, so it may use `node:fs`; keep that code behind a dynamic
+   * import when the adapter's module is also bundled into the server.
+   */
+  finalizeBuild?(context: PrachtAdapterBuildContext): void | Promise<void>;
 }
 
 export function createDefaultNodeAdapter(): PrachtAdapter {

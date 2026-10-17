@@ -446,6 +446,20 @@ function getRuntimeRevalidationToken(): string | undefined {
 }
 
 /**
+ * The Build Output API writer, next to this module in `dist/`. The edge
+ * server bundle imports this module too, and the writer needs `node:fs`, so
+ * it is loaded through {@link importBuildModule}, an import no bundler
+ * follows, rather than a literal `import()` the app's build would pull in.
+ */
+const VERCEL_BUILD_OUTPUT_MODULE = "./build-output.mjs";
+
+function importBuildModule(specifier: string): Promise<unknown> {
+  // Resolved against this file's URL, which Vite keeps pointing at the
+  // original file when it bundles vite.config's imports.
+  return import(/* @vite-ignore */ new URL(specifier, import.meta.url).href);
+}
+
+/**
  * Create a pracht adapter for Vercel Edge Functions.
  *
  * ```ts
@@ -467,6 +481,15 @@ export function vercelAdapter(options: VercelServerEntryModuleOptions = {}): Pra
       // `pracht dev` has no Vercel runtime; `waitUntil` is the one field of
       // its execution context the dev server can honour.
       createContextArgs: ({ request, waitUntil }) => ({ request, context: { waitUntil } }),
+    },
+    async finalizeBuild(context) {
+      const { finalizeVercelBuild } = (await importBuildModule(
+        VERCEL_BUILD_OUTPUT_MODULE,
+      )) as typeof import("./build-output.ts");
+      finalizeVercelBuild(context, {
+        functionName: options.functionName ?? "render",
+        regions: options.regions,
+      });
     },
   };
 }
