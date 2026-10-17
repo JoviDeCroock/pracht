@@ -1,5 +1,21 @@
 # @pracht/vite-plugin
 
+## 0.16.0
+
+### Minor Changes
+
+- [#442](https://github.com/JoviDeCroock/pracht/pull/442) [`fdb0db2`](https://github.com/JoviDeCroock/pracht/commit/fdb0db2e7e15b213144c10e7038349b6e260f964) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` on Cloudflare now writes a deployable `dist/server/wrangler.json` that `wrangler deploy` and `wrangler dev` pick up, so `wrangler.jsonc` no longer needs `main`, `no_bundle`, module `rules`, or `assets.directory`. Existing configs that point `main` at `dist/server/worker.js` keep working, and apps with named Wrangler environments select one at build time with `CLOUDFLARE_ENV=<name>`.
+
+- [#436](https://github.com/JoviDeCroock/pracht/pull/436) [`ad452ce`](https://github.com/JoviDeCroock/pracht/commit/ad452ce8ff7799b664a765a6d833a01e3eb619f1) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Cloudflare builds may import any Node.js builtin when the Wrangler config enables `nodejs_compat`, and `node:async_hooks` under `nodejs_als`, instead of failing the edge runtime check.
+
+- [#441](https://github.com/JoviDeCroock/pracht/pull/441) [`25be9ab`](https://github.com/JoviDeCroock/pracht/commit/25be9ab4da435992d063fcb85c3df72ea9a36c88) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ trailingSlash: "always" | "never" })` makes `/about/` or `/about` the one canonical page URL: links, redirects, and `llms.txt` use it on every adapter, and the other spelling answers with a 308.
+
+### Patch Changes
+
+- Updated dependencies [[`25be9ab`](https://github.com/JoviDeCroock/pracht/commit/25be9ab4da435992d063fcb85c3df72ea9a36c88)]:
+  - @pracht/core@0.21.0
+  - @pracht/adapter-node@0.6.0
+
 ## 0.15.1
 
 ### Patch Changes

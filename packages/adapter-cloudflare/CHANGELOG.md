@@ -1,5 +1,27 @@
 # @pracht/adapter-cloudflare
 
+## 0.9.0
+
+### Minor Changes
+
+- [#436](https://github.com/JoviDeCroock/pracht/pull/436) [`ad452ce`](https://github.com/JoviDeCroock/pracht/commit/ad452ce8ff7799b664a765a6d833a01e3eb619f1) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `cloudflareAdapter({ configPath })` points the local Cloudflare runtime at a Wrangler config other than the default lookup, such as Void's generated `./.void-wrangler.jsonc`.
+
+- [#442](https://github.com/JoviDeCroock/pracht/pull/442) [`fdb0db2`](https://github.com/JoviDeCroock/pracht/commit/fdb0db2e7e15b213144c10e7038349b6e260f964) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` on Cloudflare now writes a deployable `dist/server/wrangler.json` that `wrangler deploy` and `wrangler dev` pick up, so `wrangler.jsonc` no longer needs `main`, `no_bundle`, module `rules`, or `assets.directory`. Existing configs that point `main` at `dist/server/worker.js` keep working, and apps with named Wrangler environments select one at build time with `CLOUDFLARE_ENV=<name>`.
+
+- [#439](https://github.com/JoviDeCroock/pracht/pull/439) [`53155cd`](https://github.com/JoviDeCroock/pracht/commit/53155cdd699e71d02b44350a659bf19b0396ea96) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Cloudflare apps can own their Worker module with `cloudflareAdapter({ workerEntry: "/src/worker.ts" })`, serving pracht from its `fetch` through `createPrachtHandler()` from `@pracht/adapter-cloudflare/worker` beside their own Durable Objects, event handlers, and request wrapping.
+
+- [#436](https://github.com/JoviDeCroock/pracht/pull/436) [`ad452ce`](https://github.com/JoviDeCroock/pracht/commit/ad452ce8ff7799b664a765a6d833a01e3eb619f1) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - Cloudflare builds may import any Node.js builtin when the Wrangler config enables `nodejs_compat`, and `node:async_hooks` under `nodejs_als`, instead of failing the edge runtime check.
+
+- [#441](https://github.com/JoviDeCroock/pracht/pull/441) [`25be9ab`](https://github.com/JoviDeCroock/pracht/commit/25be9ab4da435992d063fcb85c3df72ea9a36c88) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ trailingSlash: "always" | "never" })` makes `/about/` or `/about` the one canonical page URL: links, redirects, and `llms.txt` use it on every adapter, and the other spelling answers with a 308.
+
+### Patch Changes
+
+- [#440](https://github.com/JoviDeCroock/pracht/pull/440) [`c9e8b7a`](https://github.com/JoviDeCroock/pracht/commit/c9e8b7ad3f2ec4e62f1cbeab4d251596dd4e98fc) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `CloudflareContextArgs` and `createPrachtHandler()` type `env` with the bindings `wrangler types` generated into `Cloudflare.Env`, and keep their previous untyped `env` when an app has not generated them.
+
+- [#438](https://github.com/JoviDeCroock/pracht/pull/438) [`6b3aeb8`](https://github.com/JoviDeCroock/pracht/commit/6b3aeb824f14b3889aa2d487604916a9a8a3fd20) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` and graph commands now load apps that import any current `cloudflare:workers`, `cloudflare:workflows`, `cloudflare:pipelines`, or `cloudflare:node` export, such as `waitUntil` or `NonRetryableError`. Bindings read from `cloudflare:workers` while prerendering are named in a build warning instead of silently resolving to `undefined`.
+- Updated dependencies [[`25be9ab`](https://github.com/JoviDeCroock/pracht/commit/25be9ab4da435992d063fcb85c3df72ea9a36c88)]:
+  - @pracht/core@0.21.0
+
 ## 0.8.1
 
 ### Patch Changes
