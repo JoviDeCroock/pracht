@@ -37,6 +37,29 @@ export interface GenerateOpenApiOptions {
   /** Optional converter for schema libraries that do not implement Standard JSON Schema directly. */
   resolveSchema?: OpenApiSchemaResolver;
   onWarning?: (warning: OpenApiWarning) => void;
+  /**
+   * Capabilities to document as `POST` operations at their HTTP paths, or a
+   * loader for them. Capabilities without an HTTP path are skipped. Omitted,
+   * the document covers API routes only.
+   */
+  capabilities?:
+    | readonly OpenApiCapabilitySource[]
+    | (() => Promise<readonly OpenApiCapabilitySource[]>);
+}
+
+/** A resolved capability, as `resolveAppCapabilities()` returns it. */
+export interface OpenApiCapabilitySource {
+  name: string;
+  file?: string;
+  /** Dispatch path when the capability sets `expose.http`, `null` otherwise. */
+  httpPath: string | null;
+  capability: {
+    title: string;
+    description: string;
+    effect: string;
+    input: unknown;
+    output: unknown;
+  };
 }
 
 export interface OpenApiRouteSource {
@@ -50,6 +73,37 @@ export interface GenerateOpenApiResult {
   document: OpenApiDocument;
   warnings: OpenApiWarning[];
 }
+
+/** Header carrying a destructive capability's confirmation token. */
+const CAPABILITY_CONFIRMATION_HEADER = "x-pracht-confirm";
+
+const CAPABILITY_ERROR_ENVELOPE_SCHEMA: OpenApiSchema = {
+  type: "object",
+  required: ["ok", "error"],
+  properties: {
+    ok: { const: false },
+    error: {
+      type: "object",
+      required: ["code", "message"],
+      properties: {
+        code: { type: "string" },
+        message: { type: "string" },
+        issues: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["path", "message"],
+            properties: { path: { type: "string" }, message: { type: "string" } },
+          },
+        },
+        confirmationToken: { type: "string" },
+        expiresAt: { type: "integer" },
+        approvalId: { type: "string" },
+        retryAfterSeconds: { type: "integer" },
+      },
+    },
+  },
+};
 
 const VALIDATION_ERROR_SCHEMA: OpenApiSchema = {
   type: "object",
@@ -147,7 +201,125 @@ export async function generateOpenApiDocument(
     }
   }
 
+  if (options.capabilities) {
+    await addCapabilityOperations(document, options, warnings);
+  }
+
   return { document, warnings };
+}
+
+async function addCapabilityOperations(
+  document: OpenApiDocument,
+  options: GenerateOpenApiOptions,
+  warnings: OpenApiWarning[],
+): Promise<void> {
+  const report = (
+    source: { file?: string; path: string },
+    code: OpenApiWarningCode,
+    message: string,
+  ) => {
+    const warning: OpenApiWarning = {
+      code,
+      file: source.file ?? "",
+      message,
+      method: "POST",
+      path: source.path,
+    };
+    warnings.push(warning);
+    options.onWarning?.(warning);
+  };
+
+  let sources: readonly OpenApiCapabilitySource[];
+  try {
+    sources =
+      typeof options.capabilities === "function"
+        ? await options.capabilities()
+        : (options.capabilities ?? []);
+  } catch (error) {
+    report(
+      { path: "" },
+      "capability_load_failed",
+      `Could not resolve capabilities: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return;
+  }
+
+  for (const source of sources) {
+    if (!source.httpPath) continue;
+    const location = { file: source.file, path: source.httpPath };
+    const { capability } = source;
+    if (!isPlainObject(capability.input) || !isPlainObject(capability.output)) {
+      report(
+        location,
+        "invalid_schema_shape",
+        `Capability ${JSON.stringify(source.name)} has no JSON Schema input and output, so it was omitted.`,
+      );
+      continue;
+    }
+    const pathItem = (document.paths[source.httpPath] ??= {});
+    if (pathItem.post) {
+      report(
+        location,
+        "capability_path_conflict",
+        `Capability ${JSON.stringify(source.name)} shares POST ${source.httpPath} with an API route, so it was omitted.`,
+      );
+      continue;
+    }
+    pathItem.post = capabilityOperation(source, capability.input, capability.output);
+  }
+}
+
+function capabilityOperation(
+  source: OpenApiCapabilitySource,
+  input: OpenApiSchema,
+  output: OpenApiSchema,
+): OpenApiOperationObject {
+  const { capability } = source;
+  const destructive = capability.effect === "destructive";
+  return {
+    operationId: source.name,
+    ...(capability.title ? { summary: capability.title } : {}),
+    ...(capability.description ? { description: capability.description } : {}),
+    ...(destructive
+      ? {
+          parameters: [
+            {
+              name: CAPABILITY_CONFIRMATION_HEADER,
+              in: "header",
+              required: false,
+              description:
+                "Confirmation token from a prior `confirmation_required` answer. Without it the call " +
+                "prepares and changes nothing.",
+              schema: { type: "string" },
+            },
+          ],
+        }
+      : {}),
+    requestBody: {
+      required: true,
+      content: { "application/json": { schema: input } },
+    },
+    responses: {
+      "200": {
+        description: "The capability ran.",
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              required: ["ok", "data"],
+              properties: { ok: { const: true }, data: output },
+            },
+          },
+        },
+      },
+      default: {
+        description: "The capability did not run, or failed.",
+        content: { "application/json": { schema: CAPABILITY_ERROR_ENVELOPE_SCHEMA } },
+      },
+    },
+    "x-pracht-capability": source.name,
+    "x-pracht-effect": capability.effect,
+  };
 }
 
 function documentFields(

@@ -16,6 +16,7 @@ function hookHandler<T extends (...args: any[]) => any>(hook: T | { handler: T }
 describe("prachtOpenApi options", () => {
   it("defaults to JSON-only endpoints", () => {
     expect(resolvePrachtOpenApiOptions({ info: { title: "Example", version: "1.0.0" } })).toEqual({
+      capabilities: false,
       document: {},
       documentPath: "/openapi.json",
       failOnWarnings: false,
@@ -118,6 +119,30 @@ describe("prachtOpenApi Vite integration", () => {
     const devCode = typeof devResult === "string" ? devResult : devResult?.code;
     expect(devCode).toContain("generatePrachtOpenApiArtifacts");
     expect(await transform.call(context, source, "/src/app.ts")).toBeNull();
+  });
+
+  it("resolves capabilities into the document only when asked", async () => {
+    const source = "const apiModules = {}; const apiRoutes = [];";
+    const codeFor = async (options: Partial<Parameters<typeof prachtOpenApi>[0]>) => {
+      const plugin = prachtOpenApi({ info: { title: "Example", version: "1.0.0" }, ...options });
+      const result = await hookHandler(plugin.transform).call(
+        {} as never,
+        source,
+        "\0virtual:pracht/server",
+      );
+      return typeof result === "string" ? result : result?.code;
+    };
+    expect(await codeFor({})).not.toContain("resolveAppCapabilities");
+    const code = await codeFor({ capabilities: true });
+    expect(code).toContain(
+      'import { resolveAppCapabilities as __prachtResolveAppCapabilities } from "@pracht/core";',
+    );
+    expect(code).toContain(
+      "capabilities: () => __prachtResolveAppCapabilities(resolvedApp, registry)",
+    );
+    expect(() =>
+      prachtOpenApi({ info: { title: "Example", version: "1.0.0" }, capabilities: "yes" as never }),
+    ).toThrow(/capabilities must be a boolean/);
   });
 
   it("serves the document and default API server under the Vite deploy base", async () => {
