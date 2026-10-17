@@ -52,8 +52,9 @@ const ISG_CACHE_ENTRY_CACHE_CONTROL = "public, max-age=31536000";
 // the same policy the build-time asset and the Node adapter send.
 const ISG_BROWSER_CACHE_CONTROL = "public, max-age=0, must-revalidate";
 
-// Cache API key parameter naming the build an ISG entry belongs to.
-const ISG_CACHE_KEY_BUILD_PARAM = "__pracht_build";
+// Cache API key path prefix naming the build an ISG entry belongs to. Only
+// ever a synthetic key: no request is routed to it.
+const ISG_CACHE_KEY_BUILD_PREFIX = "/__pracht/isg-build";
 
 // Module-level so it survives across requests within an isolate even though
 // the generated worker entry creates a fresh fetch handler per request.
@@ -581,15 +582,17 @@ function isDocumentAssetRequest(
  * The Cache API entry for an ISG page of this build. `caches.default` outlives
  * a deploy, so the key carries the build's prerender timestamp: a new version
  * never reads a page the previous one rendered against its own asset hashes.
- * A rollback reads the entries its version wrote.
+ * A rollback reads the entries its version wrote. The timestamp sits in the
+ * path, not the query, because a zone cache key can ignore query strings.
  */
 function createISGCacheKey(request: Request, pathname: string, entry: ISGManifestEntry): Request {
-  const url = new URL(pathname, request.url);
+  const generation =
+    typeof entry.generatedAt === "number" && Number.isFinite(entry.generatedAt)
+      ? `${ISG_CACHE_KEY_BUILD_PREFIX}/${entry.generatedAt}`
+      : "";
+  const url = new URL(`${generation}${pathname}`, request.url);
   url.search = "";
   url.hash = "";
-  if (typeof entry.generatedAt === "number" && Number.isFinite(entry.generatedAt)) {
-    url.searchParams.set(ISG_CACHE_KEY_BUILD_PARAM, String(entry.generatedAt));
-  }
   return new Request(url, {
     method: "GET",
     headers: { accept: "text/html" },

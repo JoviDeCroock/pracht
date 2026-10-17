@@ -1289,6 +1289,29 @@ describe("createCloudflareFetchHandler ISG across deploys", () => {
     await expect(afterDeploy.text()).resolves.not.toContain("v1");
   });
 
+  it("keeps deploys apart when the zone's cache key ignores query strings", async () => {
+    const { cache } = createMockCaches();
+    const withoutQuery = (key: Request) => {
+      const url = new URL(key.url);
+      url.search = "";
+      return new Request(url, key);
+    };
+    vi.stubGlobal("caches", {
+      default: {
+        match: (key: Request) => cache.match(withoutQuery(key)),
+        put: (key: Request, response: Response) => cache.put(withoutQuery(key), response),
+      },
+    });
+    const host = "deploy-query-blind.example";
+
+    const v1 = deployVersion("v1", Date.now() - 60_000, webhookRevalidate());
+    await v1(webhook(host));
+
+    const v2 = deployVersion("v2", Date.now(), webhookRevalidate());
+    const afterDeploy = await v2(new Request(`https://${host}/pricing`));
+    await expect(afterDeploy.text()).resolves.not.toContain("v1");
+  });
+
   it("does not serve a time-based render from the previous deploy as fresh", async () => {
     const { cache } = createMockCaches();
     vi.stubGlobal("caches", { default: cache });
