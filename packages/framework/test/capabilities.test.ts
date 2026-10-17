@@ -804,6 +804,43 @@ describe("capability HTTP projection", () => {
     expect(brokenImports).toBeGreaterThanOrEqual(2);
   });
 
+  it("shares one bounded resolution between overlapping requests", async () => {
+    const capabilities: Record<string, string> = {};
+    const capabilityModules: NonNullable<ModuleRegistry["capabilityModules"]> = {};
+    let pending = 0;
+    let peak = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    for (let index = 0; index < 20; index += 1) {
+      const file = `./capabilities/c${index}.ts`;
+      capabilities[`notes.c${index}`] = file;
+      capabilityModules[file] = (async () => {
+        pending += 1;
+        peak = Math.max(peak, pending);
+        await gate;
+        pending -= 1;
+        return {
+          default: createSearchCapability({
+            expose: { http: { path: `/api/c${index}` } },
+          }),
+        };
+      }) as NonNullable<ModuleRegistry["capabilityModules"]>[string];
+    }
+    const app = defineApp({ capabilities, routes: [route("/", "./routes/home.tsx")] });
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules,
+    };
+
+    const first = resolveAppCapabilities(app, registry);
+    const second = resolveAppCapabilities(app, registry);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(peak).toBeLessThanOrEqual(8);
+    release();
+    expect((await first).length).toBe(20);
+    expect(await second).toBe(await first);
+  });
+
   it("does not import capability modules for a page view", async () => {
     let imports = 0;
     const app = defineApp({

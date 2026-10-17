@@ -74,7 +74,7 @@ export default defineCapability({
 
 A `hydration: "islands"` route that activates a page tool keeps the page bootstrap even when it renders no islands.
 
-Capability modules load on the first capability or MCP request, never for a page view. A module that throws makes only that capability unavailable (`500` at its path, absent from `tools/list`); the rest keep serving, and the load is retried on the next request.
+Capability modules load on the first capability or MCP request, never for a page view. A throwing module disables only that capability (`500` at its path, absent from `tools/list`); the rest keep serving. Failed imports retry; top-level throws persist until edit or restart.
 
 ---
 

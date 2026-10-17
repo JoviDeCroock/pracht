@@ -802,8 +802,12 @@ edge-only import inside `run()`.
   still claims — answer `500`, `invokeCapability()` returns `internal_error`,
   and its MCP tool is left out of `tools/list` (a `tools/call` answers
   `-32603`). The failure is logged once per message and is not cached; the next
-  resolution retries it, so a transient import error does not last until
-  restart. `getCapabilityLoadFailures(resolved)` lists them. Graph-wide
+  resolution calls the loader again, so a transient import error (a missing
+  chunk, a flaky custom loader) does not last until restart. An ES module whose
+  top-level code threw stays failed: the runtime caches that evaluation error
+  until the module is replaced (an edit in dev, a restart in production).
+  Overlapping resolutions share one in-flight pass, so at most eight imports
+  run at once. `getCapabilityLoadFailures(resolved)` lists them. Graph-wide
   invariants — two capabilities on one HTTP path, or a capability on the MCP
   endpoint — still fail every capability request with `500`.
 

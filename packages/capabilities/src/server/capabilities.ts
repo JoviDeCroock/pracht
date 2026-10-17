@@ -156,13 +156,19 @@ export interface CapabilityLoadFailure {
 // object while replacing the generated registry after a capability edit, so
 // both identities participate in the key). Failures are never cached: the next
 // resolution retries them, so a transient import error does not last until
-// restart. Only graph-wide invariants — two capabilities on one HTTP path, or
+// restart. (An ES module whose top-level code threw stays failed: the runtime
+// caches its evaluation error until the module itself is replaced.) Only graph-wide invariants — two capabilities on one HTTP path, or
 // a capability on the MCP endpoint — still fail the whole graph.
 interface CapabilityResolutionState {
   /** Settled successes and in-flight loads; failed loads are evicted. */
   loads: Map<string, Promise<ResolvedCapability>>;
   /** The full graph once every capability loaded, reused from then on. */
   complete: Promise<ResolvedCapability[]> | null;
+  /**
+   * The resolution in progress, shared by concurrent callers so overlapping
+   * requests never run more than one bounded worker pool.
+   */
+  inflight: Promise<ResolvedCapability[]> | null;
 }
 
 const resolvedCapabilitiesCache = new WeakMap<object, WeakMap<object, CapabilityResolutionState>>();
@@ -189,10 +195,17 @@ export function resolveAppCapabilities(
   }
   let state = registryCache.get(capabilityModules);
   if (!state) {
-    state = { loads: new Map(), complete: null };
+    state = { loads: new Map(), complete: null, inflight: null };
     registryCache.set(capabilityModules, state);
   }
-  return state.complete ?? resolveCapabilityGraph(app, registry, state);
+  if (state.complete) return state.complete;
+  if (state.inflight) return state.inflight;
+  const current = state;
+  const inflight = resolveCapabilityGraph(app, registry, current).finally(() => {
+    if (current.inflight === inflight) current.inflight = null;
+  });
+  current.inflight = inflight;
+  return inflight;
 }
 
 /** Capabilities left out of a resolved graph because they failed to load. */
