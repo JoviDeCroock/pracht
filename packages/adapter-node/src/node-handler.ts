@@ -50,7 +50,13 @@ import {
   negotiateEncoding,
   protectIdentityEtag,
 } from "./node-compress.ts";
-import { createISGRenderInput, regenerateISGPage, writeISGFile } from "./node-isg.ts";
+import {
+  createISGRenderInput,
+  getISGSnapshotHeaders,
+  readISGSnapshotHeaders,
+  regenerateISGPage,
+  writeISGSnapshot,
+} from "./node-isg.ts";
 import {
   createClientDisconnectSignal,
   createWebRequest,
@@ -378,7 +384,11 @@ export function createNodeRequestHandler<TContext = unknown>(
         const html = await response.clone().text();
         const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
         if (htmlPath) {
-          await writeISGFile(htmlPath, html);
+          await writeISGSnapshot(
+            htmlPath,
+            html,
+            getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
+          );
           compressedAssetCache.invalidatePath(htmlPath);
         }
       }
@@ -708,7 +718,14 @@ async function serveISGEntry<TContext>(
         vary: ROUTE_STATE_REQUEST_HEADER,
       }),
     );
-    applyHeadersManifest(headers, headersManifest, pathname);
+    // A regenerated snapshot is served with the headers it was rendered with;
+    // the build's headers belong to the build's HTML.
+    const snapshotHeaders = await readISGSnapshotHeaders(htmlPath, fileStat);
+    if (snapshotHeaders) {
+      for (const [name, value] of Object.entries(snapshotHeaders)) headers.set(name, value);
+    } else {
+      applyHeadersManifest(headers, headersManifest, pathname);
+    }
     await applyCompressionContentValidator(
       headers,
       htmlPath,

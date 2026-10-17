@@ -1,4 +1,12 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import {
   createServer,
   request as httpRequest,
@@ -701,6 +709,125 @@ describe("createNodeRequestHandler", () => {
       expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
       expect(seen).toEqual([sanitizedContextArgs]);
       await waitFor(() => responses.closed === 1);
+    });
+  });
+
+  describe("regenerated ISG pages keep the document headers they were rendered with", () => {
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    afterEach(() => {
+      if (previousToken === undefined) delete process.env.PRACHT_REVALIDATE_TOKEN;
+      else process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+    });
+
+    async function startWithdrawableIsgServer(staticDir: string, state: { withdrawn: boolean }) {
+      const app = defineApp({
+        routes: [route("/w", "./routes/w.tsx", { render: "isg", revalidate: webhookRevalidate() })],
+      });
+      const handler = createNodeRequestHandler({
+        app,
+        canonicalOrigin: "http://localhost",
+        isgManifest: { "/w": { revalidate: webhookRevalidate() } },
+        // What the build recorded from the prerender, while the page was live.
+        headersManifest: {
+          "/w": {
+            "content-type": "text/html; charset=utf-8",
+            "x-robots-tag": "all",
+            "x-build-only": "1",
+          },
+        },
+        registry: {
+          routeModules: {
+            "./routes/w.tsx": async () => ({
+              Component: ({ data }) =>
+                `<main>withdrawn=${(data as { withdrawn: boolean }).withdrawn}</main>`,
+              loader: async () => ({ withdrawn: state.withdrawn }),
+              headers: ({ data }: { data: { withdrawn: boolean } }) => ({
+                "x-robots-tag": data.withdrawn ? "noindex" : "all",
+                "x-secret-token": "never-persisted",
+              }),
+            }),
+          },
+        },
+        staticDir,
+      });
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Expected TCP address");
+      return `http://127.0.0.1:${address.port}`;
+    }
+
+    it("records the headers of a cold render with its snapshot", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const staticDir = makeTempDir();
+      const state = { withdrawn: true };
+      const base = await startWithdrawableIsgServer(staticDir, state);
+
+      const cold = await fetch(`${base}/w`);
+      expect(cold.headers.get("x-pracht-isg")).toBeNull();
+      expect(cold.headers.get("x-robots-tag")).toBe("noindex");
+      await cold.text();
+
+      const fromDisk = await fetch(`${base}/w`);
+      expect(fromDisk.headers.get("x-pracht-isg")).toBe("fresh");
+      expect(fromDisk.headers.get("x-robots-tag")).toBe("noindex");
+      expect(fromDisk.headers.get("x-build-only")).toBeNull();
+      await expect(fromDisk.text()).resolves.toContain("withdrawn=true");
+    });
+
+    it("serves a webhook-regenerated page with its own headers, across restarts", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+      const staticDir = makeTempDir();
+      const htmlPath = join(staticDir, "w", "index.html");
+      mkdirSync(join(staticDir, "w"), { recursive: true });
+      writeFileSync(htmlPath, "<html><body>withdrawn=false</body></html>", "utf-8");
+      const state = { withdrawn: false };
+      const base = await startWithdrawableIsgServer(staticDir, state);
+
+      const built = await fetch(`${base}/w`);
+      expect(built.headers.get("x-robots-tag")).toBe("all");
+      expect(built.headers.get("x-build-only")).toBe("1");
+      await built.text();
+
+      state.withdrawn = true;
+      const revalidated = await fetch(`${base}/__pracht/revalidate`, {
+        body: JSON.stringify({ paths: ["/w"] }),
+        headers: { authorization: "Bearer secret", "content-type": "application/json" },
+        method: "POST",
+      });
+      await expect(revalidated.json()).resolves.toMatchObject({ revalidated: ["/w"] });
+
+      for (const origin of [base, await startWithdrawableIsgServer(staticDir, state)]) {
+        const served = await fetch(`${origin}/w`);
+        await expect(served.text()).resolves.toContain("withdrawn=true");
+        expect(served.headers.get("x-robots-tag")).toBe("noindex");
+        // The snapshot replaces the build's header set rather than merging.
+        expect(served.headers.get("x-build-only")).toBeNull();
+        // Credential-shaped headers never ride along with a shared snapshot.
+        expect(served.headers.get("x-secret-token")).toBeNull();
+        expect(served.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(served.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+      }
+
+      // A redeploy that replaces the HTML brings back the build's headers.
+      writeFileSync(htmlPath, "<html><body>withdrawn=false (redeployed)</body></html>", "utf-8");
+      const redeployed = await fetch(`${base}/w`);
+      await expect(redeployed.text()).resolves.toContain("redeployed");
+      expect(redeployed.headers.get("x-robots-tag")).toBe("all");
+
+      // The recorded headers are not a public file.
+      const listing = readdirSync(join(staticDir, "w")).filter((name) => name !== "index.html");
+      expect(listing.length).toBeGreaterThan(0);
+      for (const name of listing) {
+        const direct = await fetch(`${base}/w/${name}`);
+        expect(direct.status).toBe(404);
+        await direct.arrayBuffer();
+      }
     });
   });
 
