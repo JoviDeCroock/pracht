@@ -9,6 +9,7 @@
  * endpoint (launch-editor middleware) to make stack frames clickable.
  */
 
+import { escapeHtml } from "./html-escape.ts";
 import { DEV_ERROR_OVERLAY_DATA_ID } from "./runtime-constants.ts";
 import { escapeScriptChildren } from "./script-escape.ts";
 
@@ -467,12 +468,4 @@ function resolveEditorFilePath(file: string, root: string | undefined): string |
   }
 
   return normalizeStackFile(file, root);
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
