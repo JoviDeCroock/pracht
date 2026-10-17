@@ -179,13 +179,15 @@ export function matchAcceptLanguage(
    * right until a registered locale matches (`zh-hant-tw` → `zh-hant` →
    * `zh`). A range also matches a longer registered tag, so `en-gb` prefers
    * `en-gb-oxendict` over an unrelated same-language best fit. A locale whose
-   * script differs from `requestedScript` is skipped; `inferScripts` also
-   * reads the script of a region-only registered locale (`zh-TW` → Hant).
+   * script differs from `requestedScript` is skipped. `strict` accepts only a
+   * locale known to use that script, reading the script of a region-only
+   * locale too (`zh-TW` → Hant), so a generic `zh` cannot win the first pass.
    */
-  function lookup(tag: string, requestedScript: string | null, inferScripts: boolean): number {
+  function lookup(tag: string, requestedScript: string | null, strict: boolean): number {
     function scriptAllowed(locale: string): boolean {
       if (requestedScript === null) return true;
-      const candidateScript = scriptSubtag(locale) ?? (inferScripts ? likelyScript(locale) : null);
+      if (strict) return (scriptSubtag(locale) ?? likelyScript(locale)) === requestedScript;
+      const candidateScript = scriptSubtag(locale);
       return candidateScript === null || candidateScript === requestedScript;
     }
 
@@ -197,7 +199,9 @@ export function matchAcceptLanguage(
       // that explicitly rejected `en` must not receive it.
       const exact = lowered.indexOf(candidate);
       index =
-        exact !== -1 && !isRejected(lowered[exact] as string, candidate)
+        exact !== -1 &&
+        !isRejected(lowered[exact] as string, candidate) &&
+        (!strict || scriptAllowed(lowered[exact] as string))
           ? exact
           : lowered.findIndex(
               (locale) =>
