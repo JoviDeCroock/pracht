@@ -699,6 +699,7 @@ export function createContext({ request }: { request: Request }) {
   };
 }
 
+// Node also receives { req, res }; on ISG pages they carry no visitor headers.
 // Cloudflare receives { request, env, executionContext }.
 // Vercel Edge receives { request, context }. Node ISG provides a
 // waitUntil-compatible context, without other Edge-only fields.

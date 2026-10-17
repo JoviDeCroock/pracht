@@ -198,9 +198,12 @@ that manifest.
   `POST /__pracht/revalidate` and regenerates named paths synchronously after
   authenticating `PRACHT_REVALIDATE_TOKEN`. Route-state requests
   (`x-pracht-route-state-request` and `?_data=1`) bypass the cached HTML path
-  so client navigation still reaches `handlePrachtRequest()`. All regeneration
-  uses a clean HTML request instead of replaying the triggering user's cookies,
-  authorization headers, locale, or experiment headers. Static and ISG files are
+  so client navigation still reaches `handlePrachtRequest()`. Every ISG render
+  (stale regeneration, webhook, and the cold render that writes a missing
+  snapshot) uses a clean HTML request, and `createContext` receives a detached
+  `req`/`res` pair mirroring it instead of the triggering request's, so no
+  cookies, authorization, locale, or experiment headers reach the shared HTML.
+  Static and ISG files are
   streamed, and static responses support `ETag` / `Last-Modified` conditional
   revalidation.
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
@@ -384,7 +387,8 @@ nodeAdapter({
 ```
 
 The context module must export `createContext(args)`. Node passes `{ request, req, res }`,
-in `pracht dev` as well as from the generated entry.
+in `pracht dev` as well as from the generated entry; ISG renders get a detached
+`req`/`res` that carries only the sanitized request's headers.
 The configure module must export `configureServer(server)` (sync or async); it
 runs with the `node:http` server before `listen()` when the generated entry is
 the process entrypoint, and with the dev server under `pracht dev` — see
