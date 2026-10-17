@@ -208,6 +208,9 @@ that manifest.
   that file's identity, and replace the build's `headers-manifest.json` entry
   when the snapshot is served; the record is never served as a static file,
   and a redeploy that replaces the HTML falls back to the manifest.
+  ISG state is the local `staticDir` of one process: the webhook regenerates
+  only on the replica that receives it, and single-flighting and snapshot
+  identities are per process and host, so ISG is supported on one instance.
   Static and ISG files are
   streamed, and static responses support `ETag` / `Last-Modified` conditional
   revalidation.
