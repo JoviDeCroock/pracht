@@ -56,6 +56,16 @@ export interface WebBotAuthConfig {
   clockSkewSeconds?: number;
   /** Maximum accepted signature lifetime (`expires - created`), seconds. Default 86400 (24h, per draft guidance). */
   maxLifetimeSeconds?: number;
+  /**
+   * Extra components a signature must cover to verify, beyond `@authority`
+   * and `signature-agent`, e.g. `["@method", "@path"]`. The draft only
+   * requires the authority, so such a signature verifies for any method and
+   * path on this host until it expires; requiring the request target binds it
+   * to the call it was made for. A signature covering `@target-uri` satisfies
+   * `@authority`, `@scheme`, `@path`, and `@query`. Signatures that do not
+   * cover every listed component are treated as unsigned. Default: none.
+   */
+  requireComponents?: readonly string[];
   /** In-memory TTL for fetched key directories, seconds. Default 300. */
   directoryCacheTtlSeconds?: number;
 }

@@ -68,6 +68,8 @@ export const app = defineApp({
       clockSkewSeconds: 60,       // default
       maxLifetimeSeconds: 86_400, // default, per draft guidance
       directoryCacheTtlSeconds: 300,
+      // Opt-in: bind signatures to the request target (default: none).
+      requireComponents: ["@method", "@path"],
     },
   },
   // capabilities, routes, ...
@@ -123,7 +125,8 @@ yields `context.agent = null`, never a partial identity:
 - `Signature-Input`/`Signature` parse as RFC 8941 structured fields and the
   member's `tag` is `web-bot-auth`;
 - covered components include `@authority` (and `signature-agent` whenever the
-  header is present, per the draft);
+  header is present, per the draft), plus every entry of `requireComponents`
+  (`@target-uri` satisfies `@authority`, `@scheme`, `@path`, and `@query`);
 - `created`/`expires` are present, `created ≤ now ≤ expires` within the
   configured clock skew, and the lifetime is within `maxLifetimeSeconds`;
 - `alg`, when present, is `ed25519`;
@@ -152,9 +155,17 @@ For statically pinned keys, `context.agent.agentDomain` is the configured
 allowlisted directory.
 
 Replay note: the drafts allow enforcing `nonce` uniqueness with a store;
-Pracht's stateless verifier does not (a signature can be replayed against
-the same authority until it expires). Bind short `expires` windows and treat
-the identity as *authentication*, not as a per-request authorization grant.
+Pracht's stateless verifier does not. The draft only requires `@authority`,
+so by default a captured signature verifies for any method and path on the
+same authority until it expires (up to `maxLifetimeSeconds`, 24 h by default).
+Requiring more is not the default because it would refuse signatures that
+compliant agents send today. When the identity authorizes anything — `policy:
+"require"`, `agentPolicy`, or an approval principal — set `requireComponents:
+["@method", "@path"]` so a signature only verifies for the request it was
+made for, and lower `maxLifetimeSeconds` to the freshness window your agents
+actually use. A signature that does not cover every required component is
+treated as unsigned. Agents signing with `signAgentRequest()` add them with
+`additionalComponents: ["@method", "@path"]`.
 
 ### Policy modes
 
