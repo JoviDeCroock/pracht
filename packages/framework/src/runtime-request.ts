@@ -65,6 +65,7 @@ import type {
   ResolvedPrachtApp,
   WaitUntil,
 } from "./types.ts";
+import { isStreamingHtmlResponse } from "./runtime-stream.ts";
 
 const SAME_ORIGIN_FETCH_SITE = "same-origin";
 
@@ -399,6 +400,9 @@ export function releaseBudgetWith(budget: RequestBudget, response: Response): Re
   if (
     !body ||
     isOwnResponse(response) ||
+    // Middleware may re-wrap a streamed document; its body keeps the marker
+    // adapters stream by, and its own hold on the budget.
+    isStreamingHtmlResponse(response) ||
     response.status === 101 ||
     (response as { webSocket?: unknown }).webSocket
   ) {
