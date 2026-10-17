@@ -119,7 +119,7 @@
     "preact-render-to-string": "^6.7.0"
   },
   "devDependencies": {
-    "preact": "11.0.0-rc.1",
+    "preact": "11.0.1",
     "preact-render-to-string": "^6.7.0"
   }
 }
