@@ -42,7 +42,14 @@ import { createCheck, isModuleSource, type Check } from "./verification-helpers.
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
 const AGENT_POLICIES = new Set(["observe", "require"]);
-const MCP_CONFIG_KEYS = new Set(["path", "serverInfo", "instructions", "destructive", "auth"]);
+const MCP_CONFIG_KEYS = new Set([
+  "path",
+  "serverInfo",
+  "instructions",
+  "destructive",
+  "auth",
+  "pageSize",
+]);
 const MCP_AUTH_CONFIG_KEYS = new Set([
   "resource",
   "authorizationServers",
@@ -1530,9 +1537,23 @@ function readExposeFlags(text: string | undefined): {
     problems.push('"expose.webmcp" must be true or an options object');
   }
 
+  let hasMcp = false;
+  if (expose.mcp === true) {
+    hasMcp = true;
+  } else if (expose.mcp && typeof expose.mcp === "object" && !Array.isArray(expose.mcp)) {
+    hasMcp = true;
+    const { scopes } = expose.mcp as Record<string, unknown>;
+    if (
+      scopes !== undefined &&
+      (!Array.isArray(scopes) || scopes.some((scope) => !isValidOAuthScopeToken(scope)))
+    ) {
+      problems.push('MCP exposure "scopes" must be an array of OAuth scope tokens');
+    }
+  }
+
   return {
     hasHttp,
-    hasMcp: expose.mcp === true,
+    hasMcp,
     hasWebmcp,
     unknown: false,
     problems,

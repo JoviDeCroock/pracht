@@ -225,6 +225,11 @@ export interface McpProjectionConfig {
    * `WWW-Authenticate` header, and authentication stays your middleware's job.
    */
   auth?: McpAuthConfig;
+  /**
+   * Most tools one `tools/list` page returns before it hands back a
+   * `nextCursor`. Default 100.
+   */
+  pageSize?: number;
 }
 
 /**

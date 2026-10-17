@@ -42,7 +42,7 @@ Settle these with `AskUserQuestion` when the request is vague:
 - **Effect** — `read`, `write`, or `destructive`. This drives confirmation
   gating, client revalidation, and MCP annotations. Classify honestly.
 - **Exposure** — private (omit `expose`), `http`, `webmcp` (requires `http`),
-  `mcp`.
+  `mcp` (`mcp: { scopes }` limits the tool to OAuth tokens with those scopes).
 - **Router** — manifest apps use a `defineApp({ capabilities })` key; pages apps
   auto-discover `src/capabilities/`, where each module declares
   `name: "notes.search"` (or takes its file stem) and the name must map back to
@@ -240,10 +240,8 @@ Rules to hold the user to:
   token minted for another service on the same issuer is accepted.
 - **It fails closed.** `null`, a throw, or a malformed principal all give
   `401 invalid_token`; a missing required scope gives `403 insufficient_scope`.
-  When `requiredScopes` is set, every challenge advertises it so hosts request
-  the right grant on the first authorization attempt. The verifier receives an
-  independent request clone, so reading its JSON-RPC body does not consume the
-  body that MCP dispatch reads next.
+  Challenges advertise `requiredScopes`. The verifier gets a request clone; reading
+  its body is safe.
 - **The principal is `context.tokenAuth`** — a frozen `{ subject, scopes?,
   clientId?, claims? }`, alongside `context.agent`. Use it in named middleware
   and `run()` for authorization; the framework only authenticates. Nested calls

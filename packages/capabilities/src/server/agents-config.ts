@@ -21,7 +21,7 @@ import type { PrachtAgentsConfig } from "./types.ts";
 
 const AGENT_POLICY_MODES = ["observe", "require"];
 const CONFIRMATION_MODES = ["token", "human"];
-const MCP_CONFIG_KEYS = ["path", "serverInfo", "instructions", "destructive", "auth"];
+const MCP_CONFIG_KEYS = ["path", "serverInfo", "instructions", "destructive", "auth", "pageSize"];
 const MCP_AUTH_CONFIG_KEYS = [
   "resource",
   "authorizationServers",
@@ -95,6 +95,14 @@ export function validateAgentsConfig(
   if (mcp?.destructive !== undefined && typeof mcp.destructive !== "boolean") {
     throw new Error(
       `${label("agents.mcp.destructive")} must be a boolean, got ${JSON.stringify(mcp.destructive)}.`,
+    );
+  }
+  if (
+    mcp?.pageSize !== undefined &&
+    (typeof mcp.pageSize !== "number" || !Number.isInteger(mcp.pageSize) || mcp.pageSize < 1)
+  ) {
+    throw new Error(
+      `${label("agents.mcp.pageSize")} must be a positive integer, got ${JSON.stringify(mcp.pageSize)}.`,
     );
   }
   if (mcp?.auth) validateMcpAuthConfig(mcp, options);

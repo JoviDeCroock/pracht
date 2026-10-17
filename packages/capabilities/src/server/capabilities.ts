@@ -48,6 +48,7 @@ import {
   sha256Base64Url,
   verifyConfirmationToken,
 } from "./confirmation.ts";
+import { isValidOAuthScopeToken } from "./mcp-config.ts";
 import { resolveRegistryModule } from "./registry.ts";
 import { runMiddlewareChain } from "./middleware.ts";
 import { detachedWaitUntil, type WaitUntil } from "./wait-until.ts";
@@ -344,6 +345,13 @@ async function loadCapability(
   }
   if (capability.expose?.mcp && !isValidMcpToolName(mcpToolName(name))) {
     throw new Error(`Capability "${name}": ${MCP_TOOL_NAME_ERROR}.`);
+  }
+  const mcpScopes: unknown = capability.expose?.mcpScopes;
+  if (
+    mcpScopes !== undefined &&
+    (!Array.isArray(mcpScopes) || mcpScopes.some((scope) => !isValidOAuthScopeToken(scope)))
+  ) {
+    throw new Error(`Capability "${name}": expose.mcp scopes must be OAuth scope tokens.`);
   }
   if (
     capability.expose &&
