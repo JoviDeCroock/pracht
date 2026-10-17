@@ -19,7 +19,14 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
-import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
+import {
+  createRouteHints,
+  createRouteLoaderHints,
+  fileStamp,
+  sameFileStamp,
+  type FileStamp,
+  type RouteHints,
+} from "./route-loader-hints.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
@@ -461,6 +468,66 @@ interface ManifestScan {
   nonFullRefs: string[];
 }
 
+/** What one manifest module says, independent of where the scan started. */
+interface ManifestModuleFacts {
+  localImports: string[];
+  strings: string[];
+  refs: PositionalManifestRefs;
+  nonFullRefs: string[];
+  /** Every route and shell ref position holds a literal. */
+  literalRefs: boolean;
+}
+
+/**
+ * Parsed facts per manifest module, checked against the file's stamp. The
+ * client, server, and dev modules each scan the manifest several times per
+ * regeneration; a file that has not changed is parsed once.
+ */
+const manifestModuleFactsCache = new Map<
+  string,
+  { stamp: FileStamp; facts: ManifestModuleFacts }
+>();
+
+/** Forget cached manifest facts for `file`, or for every file. */
+export function invalidateManifestModuleFacts(file?: string): void {
+  if (file === undefined) manifestModuleFactsCache.clear();
+  else manifestModuleFactsCache.delete(file);
+}
+
+function readManifestModuleFacts(file: string): ManifestModuleFacts | null {
+  let stamp: FileStamp;
+  try {
+    stamp = fileStamp(statSync(file));
+  } catch {
+    manifestModuleFactsCache.delete(file);
+    return null;
+  }
+  const cached = manifestModuleFactsCache.get(file);
+  if (cached && sameFileStamp(cached.stamp, stamp)) return cached.facts;
+
+  try {
+    const source = readFileSync(file, "utf-8");
+    const program = parseAst(source, {
+      lang: getRolldownLang(file),
+    }) as unknown as StaticProgramNode;
+    const collected = collectManifestStrings(program);
+    const facts: ManifestModuleFacts = {
+      localImports: collected.localImports,
+      strings: collected.strings,
+      refs: { routes: [], shells: [], middleware: [], loaders: [] },
+      nonFullRefs: [],
+      literalRefs: true,
+    };
+    facts.literalRefs = collectPositionalRefs(program, facts.refs);
+    collectNonFullRouteRefs(program, facts.nonFullRefs);
+    manifestModuleFactsCache.set(file, { stamp, facts });
+    return facts;
+  } catch {
+    manifestModuleFactsCache.delete(file);
+    return null;
+  }
+}
+
 function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string): ManifestScan {
   const refs: PositionalManifestRefs = { routes: [], shells: [], middleware: [], loaders: [] };
   const strings: string[] = [];
@@ -477,22 +544,18 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
   let complete = true;
   while (queue.length > 0) {
     const file = queue.shift()!;
-    let program: StaticProgramNode;
-    let collected: { localImports: string[]; strings: string[] };
-    try {
-      const source = readFileSync(file, "utf-8");
-      program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
-      collected = collectManifestStrings(program);
-    } catch {
-      // An unreadable or unparseable manifest is the dev server's error to
-      // report, not a reason to reorganize the bundle.
-      return { complete: false, strings, refs, files: [...seen], nonFullRefs };
+    const facts = readManifestModuleFacts(file);
+    // An unreadable or unparseable manifest is the dev server's error to
+    // report, not a reason to reorganize the bundle.
+    if (!facts) return { complete: false, strings, refs, files: [...seen], nonFullRefs };
+    strings.push(...facts.strings);
+    for (const kind of ["routes", "shells", "middleware", "loaders"] as const) {
+      refs[kind].push(...facts.refs[kind]);
     }
-    strings.push(...collected.strings);
-    if (!collectPositionalRefs(program, refs)) complete = false;
-    collectNonFullRouteRefs(program, nonFullRefs);
+    nonFullRefs.push(...facts.nonFullRefs);
+    if (!facts.literalRefs) complete = false;
 
-    for (const specifier of collected.localImports) {
+    for (const specifier of facts.localImports) {
       if (specifier === "") {
         complete = false;
         continue;
@@ -690,11 +753,14 @@ function createUnreferencedModuleExcludes(
 
 export function createPrachtClientModuleSource(
   options: PrachtPluginOptions = {},
-  buildOptions: { root?: string } = {},
+  buildOptions: { root?: string; routeHints?: VirtualModuleRouteHints } = {},
 ): string {
   const resolved = resolveOptions(options);
   const isPagesMode = !!resolved.pagesDir;
-  const routeHints = createRouteHintsForVirtualModules(resolved, buildOptions.root);
+  // `load()` scans once to record what this entry bakes in; reusing that
+  // scan keeps the two from disagreeing and skips a second directory walk.
+  const routeHints =
+    buildOptions.routeHints ?? createRouteHintsForVirtualModules(resolved, buildOptions.root);
   // An app whose shells export no loader ships no shell hints to the browser.
   const routeLoaderHints = routeHints.shellLoaders ? routeHints.loader : routeHints.routeLoader;
   const routeHeadHints = routeHints.head;

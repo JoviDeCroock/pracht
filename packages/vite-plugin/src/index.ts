@@ -69,6 +69,7 @@ import {
   routeHintsHaveSearch,
   createServerLoaderHintsForHotUpdates,
   createPrachtServerModuleSource,
+  invalidateManifestModuleFacts,
   isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
 import {
@@ -89,7 +90,7 @@ import {
   withAdditionalExtensions,
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
-import type { RouteHints } from "./route-loader-hints.ts";
+import { invalidateRouteFileAnalysis, type RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
 function emptyRouteHints(): RouteHints {
@@ -556,7 +557,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         }
       }
       if (isClientModule(id)) {
-        clientRouteHints = createRouteHintsForVirtualModules(resolved, root);
+        const routeHints = createRouteHintsForVirtualModules(resolved, root);
+        clientRouteHints = routeHints;
         serverRouteLoaderHints = createServerLoaderHintsForHotUpdates(resolved, root);
         // These are the tables `createPrachtClientModuleSource()` is about to
         // bake into the module the browser receives.
@@ -565,7 +567,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // routes, so the next hint-relevant edit still has to reload.
         routeHintsNeedResync = clientRouteHints.incomplete;
         appRootFile = resolveAppRootFile(resolved, root);
-        return createPrachtClientModuleSource(resolved, { root });
+        return createPrachtClientModuleSource(resolved, { root, routeHints });
       }
       if (isDevModule(id)) {
         return createPrachtDevModuleSource(resolved, { root, base });
@@ -681,6 +683,10 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     },
 
     handleHotUpdate({ file, modules = [], server }) {
+      // The analysis caches check file stamps on every read; dropping the
+      // saved file as well covers filesystems with coarse timestamps.
+      invalidateRouteFileAnalysis(file);
+      invalidateManifestModuleFacts(file);
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)
