@@ -202,8 +202,9 @@ concrete ISG paths, the `/_pracht` namespace, or Netlify's `/_headers` and
 ## Step 8: Deployment notes
 
 - **Cloudflare** — deferred content chunks require `"no_bundle": true` and an
-  `ESModule` rule covering `"**/*.js"` in `wrangler.jsonc`; `pracht verify`
-  warns when either is missing. New `create-pracht` projects have both.
+  `ESModule` rule covering `"**/*.js"`. The `dist/server/wrangler.json` that
+  `pracht build` generates has both; a `wrangler.jsonc` that sets its own
+  `main` needs them too, and `pracht verify` warns when either is missing.
 - **Content type headers** — explicit artifact `contentType` values flow into
   the production headers manifest and are applied by the Node, Cloudflare,
   Netlify, and Vercel adapters.

@@ -215,6 +215,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     config(_config, env) {
       const isEdge = resolved.adapter.edge === true;
       const isSSRBuild = env.isSsrBuild;
+      // An adapter whose own plugins define the server environment (the
+      // Cloudflare Worker environment) supplies its conditions and externals.
+      const appliesEdgeServerDefaults = isEdge && resolved.adapter.ownsServerEnvironment !== true;
 
       // Emit the islands bootstrap as its own client entry so islands-mode
       // routes can load it without the full client runtime. WebMCP also owns
@@ -340,11 +343,11 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // One object for everything the server build sets under
       // `rollupOptions`: two spreads of `build` would replace each other.
       const serverRollupOptions =
-        isEdge || serverChunkConfig.output
+        appliesEdgeServerDefaults || serverChunkConfig.output
           ? {
               // Platform-scheme modules only exist inside the target runtime
               // and must stay runtime imports.
-              ...(isEdge ? { external: [/^cloudflare:/] } : {}),
+              ...(appliesEdgeServerDefaults ? { external: [/^cloudflare:/] } : {}),
               ...(serverChunkConfig.output ? { output: serverChunkConfig.output } : {}),
             }
           : undefined;
@@ -400,7 +403,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
                 },
               },
             }),
-        ...(isEdge && isSSRBuild
+        ...(appliesEdgeServerDefaults && isSSRBuild
           ? {
               ssr: {
                 noExternal: true,

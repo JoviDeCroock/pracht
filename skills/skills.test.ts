@@ -55,7 +55,9 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 // the build implementation:
 // - dist/server outDir + entry: packages/cli/src/commands/build.ts
 //   ("dist/server", "dist/server/server.js")
-// - Cloudflare deploy entry: build.ts writes "dist/server/worker.js"
+// - Cloudflare deploy entry and config: @pracht/adapter-cloudflare builds
+//   "dist/server/worker.js", and @cloudflare/vite-plugin writes
+//   "dist/server/wrangler.json" beside it
 // - ISG manifest: build.ts writes "dist/server/isg-manifest.json"
 // - Headers manifest: build.ts writes "dist/server/headers-manifest.json"
 // - Budget report: build.ts writes "dist/server/budget-report.json"
@@ -82,7 +84,7 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 //   default function name "render")
 const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/(?:client|server)\/?$/,
-  /^dist\/server\/(?:server\.js|worker\.js|isg-manifest\.json|headers-manifest\.json|budget-report\.json|css-manifest\.json|routing\.json)$/,
+  /^dist\/server\/(?:server\.js|worker\.js|wrangler\.json|isg-manifest\.json|headers-manifest\.json|budget-report\.json|css-manifest\.json|routing\.json)$/,
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
   /^dist\/client\/\.vite\/manifest\.json$/,

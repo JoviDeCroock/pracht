@@ -225,9 +225,10 @@ their own chunks: a chunk is an evaluation unit, so packing unrelated lazy roots
 together would run every one of their module bodies the first time any of them
 is imported. A Cloudflare deployment must preserve Pracht's
 pre-bundled output with `"no_bundle": true` and an `ESModule` rule covering
-`"**/*.js"` in `wrangler.jsonc`; otherwise Wrangler either bundles the deferred
-chunks again or omits them from the upload. New `create-pracht` projects include
-both settings, and `pracht verify` warns when either is missing.
+`"**/*.js"`; otherwise Wrangler either bundles the deferred chunks again or
+omits them from the upload. The `dist/server/wrangler.json` that `pracht build`
+generates has both. A `wrangler.jsonc` that sets its own `main` needs them too,
+and `pracht verify` warns when either is missing there.
 
 Those payload chunks still carry roughly two to three times the source content.
 An application that neither negotiates Markdown nor searches bodies can drop

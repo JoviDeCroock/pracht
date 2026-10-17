@@ -488,6 +488,67 @@ export function reportBuildWarning(message: string, json: boolean): void {
   else console.log(message);
 }
 
+/**
+ * Splits a Worker module's exports into what workerd accepts beside `default`
+ * (handlers and entrypoint classes: functions and non-null objects) and what
+ * it rejects at startup (every other value).
+ */
+export function splitCloudflareWorkerExports(exports: Iterable<[string, unknown]>): {
+  entrypointNames: string[];
+  droppedNames: string[];
+} {
+  const entrypointNames: string[] = [];
+  const droppedNames: string[] = [];
+  for (const [name, value] of exports) {
+    if (name === "default") continue;
+    if (typeof value === "function" || (typeof value === "object" && value !== null)) {
+      entrypointNames.push(name);
+    } else {
+      droppedNames.push(name);
+    }
+  }
+  return { entrypointNames, droppedNames };
+}
+
+/**
+ * How to deploy a Cloudflare build. The Cloudflare Vite plugin writes
+ * dist/server/wrangler.json plus a `.wrangler/deploy/config.json` redirect
+ * that plain `wrangler deploy` follows. The adapter removes the redirect when
+ * the user's config defines named environments and the build selected none,
+ * so `wrangler deploy --env <name>` keeps reading the user's own config.
+ */
+export function describeCloudflareDeploy(root: string): string {
+  const generated = readGeneratedWranglerEnvironments(resolve(root, "dist/server/wrangler.json"));
+  if (generated && existsSync(resolve(root, ".wrangler/deploy/config.json"))) {
+    return "  Deploy with: wrangler deploy (uses the generated dist/server/wrangler.json)\n";
+  }
+  if (generated && generated.defined.length > 0 && !generated.target) {
+    return (
+      "  Deploy with: wrangler deploy --env <name> (reads your wrangler config, whose main must be dist/server/worker.js),\n" +
+      "  or rebuild with CLOUDFLARE_ENV=<name> to deploy the generated dist/server/wrangler.json.\n"
+    );
+  }
+  return "  Deploy with: wrangler deploy\n";
+}
+
+function readGeneratedWranglerEnvironments(
+  file: string,
+): { defined: unknown[]; target: unknown } | undefined {
+  if (!existsSync(file)) return undefined;
+  try {
+    const config = JSON.parse(readFileSync(file, "utf-8")) as {
+      definedEnvironments?: unknown;
+      targetEnvironment?: unknown;
+    };
+    return {
+      defined: Array.isArray(config.definedEnvironments) ? config.definedEnvironments : [],
+      target: config.targetEnvironment,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 interface BuildOptions {
   analyze?: boolean;
   analyzeJson?: boolean;
@@ -1055,25 +1116,41 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         );
       }
 
-      // workerd validates every named export of the deployed entry module as
-      // an entrypoint and rejects the build metadata (buildTarget, manifests,
-      // resolvedApp, ...) that server.js exports for the prerender pass
-      // above. Deploy a thin wrapper that re-exports only the default
-      // handler and the Cloudflare entrypoint classes.
-      const entrypointNames: string[] = Array.isArray(serverMod.cloudflareWorkerEntrypointNames)
+      // The adapter builds the Worker entry to dist/server/worker.js, next to
+      // the Cloudflare plugin's generated wrangler.json. workerd accepts only
+      // handlers and entrypoint classes as that module's exports, so when it
+      // re-exports anything else from the app's Worker module (or an older
+      // adapter emitted only server.js, whose build metadata workerd rejects),
+      // write a thin entry re-exporting just those from server.js instead.
+      const workerEntryPath = resolve(root, "dist/server/worker.js");
+      const builtWorkerEntry = existsSync(workerEntryPath);
+      const legacyEntrypointNames: unknown[] = Array.isArray(
+        serverMod.cloudflareWorkerEntrypointNames,
+      )
         ? serverMod.cloudflareWorkerEntrypointNames
         : [];
-      const deployEntryLines = [
-        ...(entrypointNames.length > 0
-          ? [`export { ${entrypointNames.join(", ")} } from "./server.js";`]
-          : []),
-        'export { default } from "./server.js";',
-        "",
-      ];
-      writeFileSync(resolve(root, "dist/server/worker.js"), deployEntryLines.join("\n"), "utf-8");
+      const deployExports: Array<[string, unknown]> = builtWorkerEntry
+        ? Object.entries(await import(pathToFileURL(workerEntryPath).href))
+        : Object.entries(serverMod).filter(([name]) => legacyEntrypointNames.includes(name));
+      const { entrypointNames, droppedNames } = splitCloudflareWorkerExports(deployExports);
+      if (!builtWorkerEntry || droppedNames.length > 0) {
+        const deployEntryLines = [
+          ...(entrypointNames.length > 0
+            ? [`export { ${entrypointNames.join(", ")} } from "./server.js";`]
+            : []),
+          'export { default } from "./server.js";',
+          "",
+        ];
+        writeFileSync(workerEntryPath, deployEntryLines.join("\n"), "utf-8");
+      }
+      if (droppedNames.length > 0) {
+        log(
+          `\n  Left ${droppedNames.join(", ")} out of dist/server/worker.js: a Worker module may only export handlers and entrypoint classes.`,
+        );
+      }
 
       log("\n  Cloudflare worker → dist/server/worker.js\n");
-      log("  Deploy with: wrangler deploy\n");
+      log(describeCloudflareDeploy(root));
     }
 
     if (serverMod.buildTarget === "vercel") {

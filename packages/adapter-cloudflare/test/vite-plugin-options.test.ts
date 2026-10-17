@@ -15,7 +15,10 @@ describe("cloudflareAdapter Vite plugin options", () => {
     cloudflareAdapter().vitePlugins?.();
 
     expect(cloudflare).toHaveBeenCalledWith(
-      expect.objectContaining({ config: { main: "virtual:pracht/server" }, configPath: undefined }),
+      expect.objectContaining({
+        config: { main: "virtual:pracht/cloudflare-worker" },
+        configPath: undefined,
+      }),
     );
   });
 
@@ -24,7 +27,7 @@ describe("cloudflareAdapter Vite plugin options", () => {
 
     expect(cloudflare).toHaveBeenCalledWith(
       expect.objectContaining({
-        config: { main: "virtual:pracht/server" },
+        config: { main: "virtual:pracht/cloudflare-worker" },
         configPath: "./.void-wrangler.jsonc",
       }),
     );

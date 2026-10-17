@@ -52,13 +52,9 @@ Add your D1 database and any other bindings to `wrangler.jsonc`:
 ```jsonc [wrangler.jsonc]
 {
   "name": "my-app",
-  "main": "dist/server/worker.js",
-  "no_bundle": true,
-  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "compatibility_date": "2026-04-06",
   "assets": {
     "binding": "ASSETS",
-    "directory": "dist/client",
     "html_handling": "drop-trailing-slash",
     "run_worker_first": ["/*", "!/assets/*"]
   },

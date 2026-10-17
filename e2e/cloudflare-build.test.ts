@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
@@ -26,6 +34,13 @@ function createTempCloudflareExample(): { exampleDir: string; tempDir: string } 
     rmSync(tempDir, { force: true, recursive: true });
     throw error;
   }
+}
+
+function readServerBundleSource(serverDir: string): string {
+  return readdirSync(serverDir, { recursive: true, encoding: "utf-8" })
+    .filter((file) => file.endsWith(".js"))
+    .map((file) => readFileSync(resolve(serverDir, file), "utf-8"))
+    .join("\n");
 }
 
 function buildCloudflareExample(exampleDir: string): string {
@@ -62,14 +77,32 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
     expect(existsSync(deployEntryPath)).toBe(true);
 
     const wranglerConfig = parseJsonc(readFileSync(wranglerPath, "utf-8"));
+    expect(wranglerConfig.main).toBeUndefined();
     expect(wranglerConfig).toMatchObject({
-      main: "dist/server/worker.js",
+      assets: { binding: "ASSETS", run_worker_first: ["/*", "!/assets/*"] },
+    });
+
+    // The Cloudflare plugin generates the deploy config from wrangler.jsonc,
+    // and redirects `wrangler deploy` / `wrangler dev` to it.
+    const generatedConfig = JSON.parse(
+      readFileSync(resolve(distDir, "server/wrangler.json"), "utf-8"),
+    );
+    expect(generatedConfig).toMatchObject({
+      main: "worker.js",
+      no_bundle: true,
+      rules: [{ type: "ESModule", globs: expect.arrayContaining(["**/*.js"]) }],
       assets: {
-        directory: "dist/client",
         binding: "ASSETS",
+        directory: "../client",
+        html_handling: "drop-trailing-slash",
         run_worker_first: ["/*", "!/assets/*"],
       },
+      cache: { enabled: true },
+      durable_objects: wranglerConfig.durable_objects,
     });
+    expect(
+      JSON.parse(readFileSync(resolve(exampleDir, ".wrangler/deploy/config.json"), "utf-8")),
+    ).toMatchObject({ configPath: "../../dist/server/wrangler.json" });
 
     // Hashed assets skip the Worker, so Cloudflare's static-assets layer must
     // add the immutable policy and security headers the Worker would have.
@@ -79,7 +112,10 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
     );
     expect(assetHeaders).toContain("x-content-type-options: nosniff");
 
-    const workerSource = readFileSync(serverEntryPath, "utf-8");
+    // server.js is the prerender entry; the code it exports lives in shared
+    // chunks next to it.
+    const workerSource = readServerBundleSource(resolve(distDir, "server"));
+    expect(readFileSync(serverEntryPath, "utf-8")).toContain("as default");
     expect(workerSource).toContain("cloudflareAssetsBinding");
     expect(workerSource).toContain('buildTarget = "cloudflare"');
     expect(workerSource).toContain("_pracht/headers.json");
@@ -125,12 +161,21 @@ test("pracht build emits a deployable Cloudflare Worker setup", async () => {
     expect(workerSource).toContain("ChatRoom");
     expect(workerSource).toContain("acceptWebSocket");
 
-    // The deploy entry re-exports only the default handler and entrypoint
+    // The deploy entry exports only the default handler and entrypoint
     // classes: workerd rejects non-handler named exports (buildTarget,
     // manifests, ...) on the deployed entry module.
     const deploySource = readFileSync(deployEntryPath, "utf-8");
-    expect(deploySource).toContain('export { ChatRoom, Counter } from "./server.js";');
-    expect(deploySource).toContain('export { default } from "./server.js";');
+    const exportedNames = [...deploySource.matchAll(/export\s*\{([^}]*)\}/g)]
+      .flatMap((match) => match[1]!.split(","))
+      .map((specifier) =>
+        specifier
+          .trim()
+          .split(/\s+as\s+/)
+          .pop(),
+      )
+      .filter(Boolean)
+      .sort();
+    expect(exportedNames).toEqual(["ChatRoom", "Counter", "default"]);
     expect(deploySource).not.toContain("buildTarget");
     expect(deploySource).not.toContain("cssManifest");
 

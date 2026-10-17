@@ -7,8 +7,9 @@ This example is wired to Pracht's Cloudflare build target.
 - `pnpm pracht dev` starts the app with the regular Pracht/Vite development server.
 - `pnpm pracht build` creates:
   - `dist/client/` for static assets and prerendered HTML
-  - `dist/server/server.js` as the Worker bundle and `dist/server/worker.js` as
-    the deploy entry (`main` in `wrangler.jsonc`)
+  - `dist/server/worker.js` as the Worker entry and `dist/server/wrangler.json`
+    as the deploy config `wrangler deploy` and `wrangler dev` use, generated
+    from `wrangler.jsonc`
 
 ## ISG via Workers Caching
 

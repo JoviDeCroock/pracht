@@ -1554,6 +1554,27 @@ export default defineConfig({
     ).toBe(true);
   });
 
+  it("accepts a Cloudflare wrangler config that leaves the entry to the generated config", () => {
+    const appDir = createTempDir("pracht-cli-doctor-cf-generated-");
+    writeCloudflareManifestApp(appDir);
+    writeProjectFile(
+      appDir,
+      "wrangler.jsonc",
+      `{
+  "name": "fixture-app",
+  "compatibility_date": "2026-04-06",
+  "assets": { "binding": "ASSETS", "run_worker_first": true }
+}
+`,
+    );
+
+    const result = runCli(["doctor", "--json"], { cwd: appDir });
+    const report = JSON.parse(result.stdout);
+
+    expect(report.ok).toBe(true);
+    expect(report.checks.some((check) => check.message.includes("wrangler"))).toBe(false);
+  });
+
   it("warns when a Wrangler environment overrides safe bundle settings", () => {
     const appDir = createTempDir("pracht-cli-doctor-cf-env-bundle-");
     writeCloudflareManifestApp(appDir);

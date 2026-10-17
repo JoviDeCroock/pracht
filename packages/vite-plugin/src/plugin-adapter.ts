@@ -78,6 +78,14 @@ export interface PrachtAdapter {
    */
   ownsDevServer?: boolean;
   /**
+   * If true, the adapter's Vite plugins define the `ssr` environment the
+   * server build runs in (resolve conditions, externals, entries), so pracht
+   * leaves out the generic edge settings it otherwise applies to that build.
+   * Used by `@pracht/adapter-cloudflare`, whose Worker environment is the
+   * server build.
+   */
+  ownsServerEnvironment?: boolean;
+  /**
    * The parts of the generated entry `pracht dev` must reproduce: the app
    * context factory and the HTTP-server hook. Ignored when `ownsDevServer` is set, since the
    * adapter's own dev runtime then runs the generated entry.

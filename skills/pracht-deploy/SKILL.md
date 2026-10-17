@@ -111,13 +111,9 @@ pracht build && npx wrangler deploy
 // wrangler.jsonc — canonical version at examples/cloudflare/wrangler.jsonc
 {
   "name": "my-pracht-app",
-  "main": "dist/server/worker.js",
-  "no_bundle": true,
-  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "compatibility_date": "2026-04-06",
   "assets": {
     "binding": "ASSETS",
-    "directory": "dist/client",
     // "force-trailing-slash" with pracht({ trailingSlash: "always" })
     "html_handling": "drop-trailing-slash",
     "run_worker_first": ["/*", "!/assets/*"],
@@ -125,20 +121,29 @@ pracht build && npx wrangler deploy
 }
 ```
 
-`no_bundle: true`, the `ESModule` rule, `"binding": "ASSETS"`, and
-`run_worker_first` are all required. Without the first two, Wrangler
-re-bundles Pracht's already-bundled Vite output — folding lazy server chunks
-into the entry or dropping them from the upload. Without the binding,
-`env.ASSETS` silently resolves to `null`: headers and ISG manifests load empty,
-so SSG serving, ISG revalidation, and per-route headers all no-op. If you
-rename the binding via `cloudflareAdapter({ assetsBinding: "STATIC" })`, the
-wrangler `binding` value must match. Without `run_worker_first`, prerendered
+`pracht build` generates `dist/server/wrangler.json` from this file — adding
+`main: "worker.js"`, `no_bundle: true`, the `ESModule` rule, and the assets
+directory — and `wrangler deploy` / `wrangler dev` use it through the
+`.wrangler/deploy/config.json` redirect. Do not add those keys by hand; older
+configs that still set `main: "dist/server/worker.js"` keep working.
+`"binding": "ASSETS"` and `run_worker_first` are required. Without the
+binding, `env.ASSETS` silently resolves to `null`: headers and ISG manifests
+load empty, so SSG serving, ISG revalidation, and per-route headers all no-op.
+If you rename the binding via `cloudflareAdapter({ assetsBinding: "STATIC" })`,
+the wrangler `binding` value must match. Without `run_worker_first`, prerendered
 pages skip the Worker, so ISG, Markdown negotiation, and route headers stop.
 The `"!/assets/*"` pattern keeps content-hashed files off the Worker;
 `pracht build` writes `dist/client/_headers` so they still get
 `Cache-Control: public, max-age=31536000, immutable` and the security headers
 (an app-owned `public/_headers` replaces it; the build warns what it must
 cover). `"run_worker_first": true` also works but invokes the Worker per asset.
+
+**Named environments.** Select one at build time:
+`CLOUDFLARE_ENV=staging pracht build && npx wrangler deploy`. A build without
+`CLOUDFLARE_ENV` writes no redirect when the config defines environments, so
+`wrangler deploy --env staging` reads `wrangler.jsonc` itself — which then needs
+`main: "dist/server/worker.js"`, `no_bundle: true`, the `ESModule` rule for
+`"**/*.js"`, and `assets.directory: "dist/client"`.
 
 **Typed bindings.** `npx wrangler types` writes `worker-configuration.d.ts`
 (an `Env` interface for the wrangler bindings plus the Workers runtime types).
@@ -149,7 +154,7 @@ wires a `cf-typegen` script and regenerates before `typecheck`; rerun it after
 changing bindings. Without the file `context.env` is `any`.
 
 **Local preview.** `pracht preview` builds, then delegates to `wrangler dev`
-against the config's `main`. Wrangler owns the binding environment: put
+against the generated config. Wrangler owns the binding environment: put
 local-only secrets like `PRACHT_CONFIRMATION_SECRET` and
 `PRACHT_REVALIDATE_TOKEN` in a gitignored `.dev.vars` (prefixing the host
 command with them does not expose them inside the Worker) and keep production
@@ -158,9 +163,10 @@ listens on localhost while `request.url` inside the Worker uses the custom
 domain — sign that effective `@authority` for Web Bot Auth, or temporarily
 remove the route. `pracht preview` does not forward Wrangler's `--config`, so a
 separate local config means `pracht build && npx wrangler dev --config
-wrangler.local.jsonc --port 3000`, and that config must keep
-`main: "dist/server/worker.js"`, `no_bundle: true`, and the `ESModule` rule
-while omitting the production route.
+wrangler.local.jsonc --port 3000`. `--config` bypasses the generated config, so
+that file needs `main: "dist/server/worker.js"`, `no_bundle: true`, the
+`ESModule` rule, and `assets.directory: "dist/client"` while omitting the
+production route.
 
 **Bindings.** Read them inside a loader, API handler, capability `run()`, or
 another request-time function — `context.env.MY_KV.get("key")`. Workers permits
