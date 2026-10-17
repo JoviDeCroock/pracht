@@ -16,7 +16,13 @@ import { pathToFileURL } from "node:url";
 import { defineCommand } from "citty";
 import { build as viteBuild, type Plugin } from "vite";
 import { matchRoutePath, planMarkdownFiles, routePathIsDynamic } from "@pracht/core";
-import type { MarkdownFile, PrerenderedMarkdown } from "@pracht/core";
+import type {
+  ISGManifestEntry,
+  MarkdownFile,
+  PrerenderedMarkdown,
+  PrerenderResult,
+} from "@pracht/core";
+import { shareHeadersManifest } from "@pracht/core/server";
 
 import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
 import { writeCloudflareAssetHeaders } from "../cloudflare-asset-headers.js";
@@ -28,6 +34,7 @@ import {
 import {
   decodeStaticOutputPath,
   describeInlineCssOpportunity,
+  findStaticRouteStateConflicts,
   isStaticExportBuild,
   resolveMarkdownFileOutputPath,
   resolvePrerenderOutputPath,
@@ -35,6 +42,7 @@ import {
   validateStaticExport,
   validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
+  writeStaticRouteState,
 } from "../build-static.js";
 import {
   formatMarkdownSkipList,
@@ -67,6 +75,30 @@ export { resolvePrerenderOutputPath } from "../build-static.js";
  * into 5,000 lines of scrollback.
  */
 const PRERENDER_LOG_LIMIT = 20;
+
+/** Markdown pages replayed per batch, so their sources are written before the next batch runs. */
+const MARKDOWN_REPLAY_CHUNK = 200;
+
+/**
+ * A copy of `value` that shares no memory with the string it was cut from.
+ * V8 keeps a substring's parent alive, so a reason sliced out of a page's
+ * markup would otherwise pin that page's whole HTML until the build ends.
+ */
+function detachString(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : Buffer.from(value, "utf8").toString("utf8");
+}
+
+/** What the build keeps about a prerendered page once its HTML is on disk. */
+interface PrerenderedPage {
+  path: string;
+  headers: Record<string, string>;
+  markdown: boolean;
+  spa?: boolean;
+  /** False for ISG pages whose platform serves them without a static snapshot. */
+  written: boolean;
+  /** Why the page's own HTML keeps it from getting a `.md` file, if it does. */
+  htmlReason?: string;
+}
 
 /**
  * How many prerendered page lines to name, and the tail that stands in for the
@@ -698,7 +730,93 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       throw error;
     };
 
-    const { pages, isgManifest } = await prerenderApp({
+    // With Workers Caching enabled, time-revalidated ISG pages are rendered
+    // on demand and cached at the edge. A prerendered static snapshot would
+    // be served ahead of the Worker and never revalidate, so it must not be
+    // emitted. Webhook-only ISG routes are not edge-cached — they keep their
+    // snapshot and revalidate through the worker-managed Cache API path.
+    const cloudflareWorkersCacheEnabled =
+      serverMod.buildTarget === "cloudflare" && serverMod.cloudflareWorkersCacheEnabled === true;
+    // Netlify serves every ISG path through the function and the durable CDN
+    // cache — the handler checks the ISG manifest before the bundled static
+    // output, so a snapshot would only ever be reachable at its literal
+    // `/index.html` URL, where it would serve the build-time copy forever.
+    const skipsSnapshot = (isg: ISGManifestEntry | undefined): boolean =>
+      isg !== undefined &&
+      ((cloudflareWorkersCacheEnabled && hasTimeRevalidate(isg.revalidate)) ||
+        serverMod.buildTarget === "netlify");
+
+    // Pages are written as they render, so the build holds what the manifests
+    // need (path, headers, flags) rather than every page's HTML. Header sets
+    // repeat across pages and are stored once.
+    const pageSlots: PrerenderedPage[] = [];
+    const headerSets = new Map<string, Record<string, string>>();
+    const internHeaders = (headers: Record<string, string> = {}): Record<string, string> => {
+      const key = JSON.stringify(Object.entries(headers));
+      const shared = headerSets.get(key);
+      if (shared) return shared;
+      headerSets.set(key, headers);
+      return headers;
+    };
+    const pageOutputPath = (path: string): string =>
+      // Static exports write to the decoded path (the host resolves the URL
+      // itself); serverful adapters keep the encoded form their own static
+      // lookup matches against.
+      isStaticExport
+        ? resolveStaticExportOutputPath(clientDir, path)
+        : resolvePrerenderOutputPath(clientDir, path);
+    const prerenderLogLines: { index: number; line: string }[] = [];
+    let writtenPageCount = 0;
+    let streamedStateFileCount = 0;
+    let pathsChecked = false;
+    let stateConflicts = new Map<string, string>();
+
+    const checkPaths = (paths: readonly { path: string }[]): void => {
+      pathsChecked = true;
+      if (isStaticExport) {
+        // getStaticPaths() can produce paths that are absent from the manifest.
+        // Validate the concrete set before writing even the first page.
+        validateStaticExportOutputPaths(paths, serverMod);
+        stateConflicts = findStaticRouteStateConflicts(clientDir, paths);
+      }
+    };
+    const writePage = (
+      page: PrerenderResult,
+      { index, isg }: { index: number; isg?: ISGManifestEntry },
+    ): void => {
+      const written = !skipsSnapshot(isg);
+      pageSlots[index] = {
+        path: page.path,
+        headers: internHeaders(page.headers),
+        markdown: page.markdown,
+        ...(page.spa ? { spa: true } : {}),
+        written,
+        htmlReason: detachString(markdownFileHtmlReason(page.html)),
+      };
+      if (isStaticExport && typeof page.routeState === "string") {
+        writeStaticRouteState(clientDir, page.path, page.routeState, stateConflicts.get(page.path));
+        streamedStateFileCount += 1;
+      }
+      if (!written) return;
+      assertNoPrerenderedContentArtifactCollisions(contentArtifactHeaders, clientDir, [page.path]);
+      const filePath = pageOutputPath(page.path);
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, page.html, "utf-8");
+      writtenPageCount += 1;
+      // One line per page is a useful build log for a marketing site and
+      // 5,000 lines of scrollback for a content site. Keep the first pages in
+      // render order, whichever finished first.
+      prerenderLogLines.push({
+        index,
+        line: `    ${page.path} → ${filePath.replace(root + "/", "")}`,
+      });
+      if (prerenderLogLines.length > PRERENDER_LOG_LIMIT) {
+        prerenderLogLines.sort((left, right) => left.index - right.index);
+        prerenderLogLines.length = PRERENDER_LOG_LIMIT;
+      }
+    };
+
+    const prerendered = await prerenderApp({
       staticExport: isStaticExport,
       app: serverMod.resolvedApp,
       clientEntryUrl: clientEntryUrl ?? undefined,
@@ -711,17 +829,26 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       registry: serverMod.registry,
       withISGManifest: true,
       concurrency: serverMod.prerenderConcurrency,
+      onPaths: checkPaths,
+      onPage: writePage,
     }).catch(failWithBindingReads);
-    if (isStaticExport) {
-      // getStaticPaths() can produce paths that are absent from the manifest.
-      // Validate the concrete set before writing even the first page.
-      validateStaticExportOutputPaths(pages, serverMod);
+    const isgManifest: Record<string, ISGManifestEntry> = prerendered.isgManifest;
+    // A server bundle built against a core without `onPage` returns every page
+    // instead; write them the same way.
+    const returnedPages: PrerenderResult[] = prerendered.pages ?? [];
+    if (returnedPages.length > 0) {
+      if (!pathsChecked) checkPaths(returnedPages);
+      returnedPages.forEach((page, index) =>
+        writePage(page, { index, isg: isgManifest[page.path] }),
+      );
     }
+    const pages = pageSlots.filter((page): page is PrerenderedPage => page !== undefined);
+
     assertNoRequestRouteContentArtifactCollisions(
       contentArtifactHeaders,
       serverMod.resolvedApp?.routes ?? [],
       serverMod.apiRoutes ?? [],
-      pages.map((page: { path: string }) => page.path),
+      pages.map((page) => page.path),
     );
 
     // Reconcile the content registry against the app manifest. The registry
@@ -736,7 +863,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           isStaticExport,
           Boolean(serverMod.staticExportConfig?.fallback),
         ),
-        pages.map((page: { path: string }) => page.path),
+        pages.map((page) => page.path),
       );
       if (unrouted.length > 0) {
         const report = formatUnroutedContentDocuments(unrouted);
@@ -750,47 +877,47 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       (path) => !(path in contentArtifactHeaders),
     );
     const headersManifest: Record<string, Record<string, string>> = {
-      ...Object.fromEntries(
-        pages.map((page: { path: string; headers?: Record<string, string> }) => [
-          page.path,
-          page.headers ?? {},
-        ]),
-      ),
+      ...Object.fromEntries(pages.map((page) => [page.path, page.headers])),
       ...expandedContentArtifactHeaders,
     };
     const markdownManifest: Record<string, true> = Object.fromEntries(
-      pages
-        .filter((page: { markdown?: boolean }) => page.markdown)
-        .map((page: { path: string }) => [page.path, true]),
+      pages.filter((page) => page.markdown).map((page) => [page.path, true]),
     );
 
-    // `<path>.md` files. Planned before any page is written, while dist/client
-    // holds only `public/`, Vite's assets, and content artifacts — a file
-    // already there is never replaced — so each page's HTML can link its file.
+    if (writtenPageCount > 0) {
+      log(`\n  Prerendering ${writtenPageCount} SSG/ISG route(s)...\n`);
+      const prerenderLog = planPrerenderLog(writtenPageCount, PRERENDER_LOG_LIMIT);
+      prerenderLogLines.sort((left, right) => left.index - right.index);
+      for (const { line } of prerenderLogLines.slice(0, prerenderLog.named)) log(line);
+      // The count above already states the total, so say how much was elided
+      // rather than trailing off.
+      if (prerenderLog.tail) log(prerenderLog.tail);
+    }
+    reportBindingReads();
+
+    // `<path>.md` files. A file already in dist/client is never replaced, so
+    // nothing written here can shadow `public/`, Vite's assets, or content
+    // artifacts.
     const markdownFiles: MarkdownFile[] = [];
     const markdownFileSkips: { pagePath: string; reason: string }[] = [];
+    const markdownFileOutputs: string[] = [];
     if (markdownFilesEnabled) {
       const plan = await planMarkdownFiles({
         app: serverMod.resolvedApp,
         apiRoutes: serverMod.apiRoutes,
         registry: serverMod.registry,
-        pages: pages.map((page: { path: string }) => page.path),
+        pages: pages.map((page) => page.path),
         fileExists: (markdownPath) => existsSync(resolveMarkdownOutput(markdownPath)),
       });
       markdownFileSkips.push(...plan.skipped);
-      const pagesByPath = new Map<string, { headers?: Record<string, string>; html: string }>(
-        pages.map((page: { path: string; headers?: Record<string, string>; html: string }) => [
-          page.path,
-          page,
-        ]),
-      );
+      const pagesByPath = new Map(pages.map((page) => [page.path, page]));
       const candidates: MarkdownFile[] = [];
       for (const file of plan.files) {
         const page = pagesByPath.get(file.pagePath);
         if (!page) continue;
         // A page kept out of indexes or shared caches gets no public copy.
         const served = markdownFileHeaders(page.headers);
-        const reason = "reason" in served ? served.reason : markdownFileHtmlReason(page.html);
+        const reason = "reason" in served ? served.reason : page.htmlReason;
         if (reason !== undefined) {
           markdownFileSkips.push({ pagePath: file.pagePath, reason });
           continue;
@@ -800,113 +927,64 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       // The file is published only when the page's own URL answers a
       // build-time `Accept: text/markdown` request with Markdown: loaders and
       // middleware that withhold it at runtime keep it out of the build too.
-      const replayed: PrerenderedMarkdown[] =
-        typeof serverMod.prerenderMarkdown === "function"
-          ? await serverMod
-              .prerenderMarkdown({
-                app: serverMod.resolvedApp,
-                apiRoutes: serverMod.apiRoutes,
-                registry: serverMod.registry,
-                paths: candidates.map((file) => file.pagePath),
-                concurrency: serverMod.prerenderConcurrency,
-              })
-              .catch(failWithBindingReads)
-          : candidates.map((file) => ({
+      // Replayed a chunk at a time and written as each chunk returns, so the
+      // sources are not all held at once.
+      for (let start = 0; start < candidates.length; start += MARKDOWN_REPLAY_CHUNK) {
+        const chunk = candidates.slice(start, start + MARKDOWN_REPLAY_CHUNK);
+        const replayed: PrerenderedMarkdown[] =
+          typeof serverMod.prerenderMarkdown === "function"
+            ? await serverMod
+                .prerenderMarkdown({
+                  app: serverMod.resolvedApp,
+                  apiRoutes: serverMod.apiRoutes,
+                  registry: serverMod.registry,
+                  paths: chunk.map((file) => file.pagePath),
+                  concurrency: serverMod.prerenderConcurrency,
+                })
+                .catch(failWithBindingReads)
+            : chunk.map((file) => ({
+                pagePath: file.pagePath,
+                reason: "the server bundle cannot replay Markdown requests",
+              }));
+        const replayedByPath = new Map(replayed.map((result) => [result.pagePath, result]));
+        for (const file of chunk) {
+          const result = replayedByPath.get(file.pagePath);
+          if (!result || "reason" in result) {
+            markdownFileSkips.push({
               pagePath: file.pagePath,
-              reason: "the server bundle cannot replay Markdown requests",
-            }));
-      const replayedByPath = new Map(replayed.map((result) => [result.pagePath, result]));
-      for (const file of candidates) {
-        const result = replayedByPath.get(file.pagePath);
-        if (!result || "reason" in result) {
-          markdownFileSkips.push({
-            pagePath: file.pagePath,
-            reason: result?.reason ?? "no Markdown response",
-          });
-          continue;
+              reason: result?.reason ?? "no Markdown response",
+            });
+            continue;
+          }
+          const served = markdownFileHeaders(result.headers);
+          if ("reason" in served) {
+            markdownFileSkips.push({ pagePath: file.pagePath, reason: served.reason });
+            continue;
+          }
+          headersManifest[file.markdownPath] = served.headers;
+          const filePath = resolveMarkdownOutput(file.markdownPath);
+          mkdirSync(dirname(filePath), { recursive: true });
+          writeFileSync(filePath, result.source, "utf-8");
+          markdownFileOutputs.push(relative(clientDir, filePath).split(sep).join("/"));
+          markdownFiles.push(file);
+          // The page went to disk before its Markdown was known; link it now.
+          if (pagesByPath.get(file.pagePath)!.written) {
+            const pagePath = pageOutputPath(file.pagePath);
+            writeFileSync(
+              pagePath,
+              injectMarkdownAlternateLink(
+                readFileSync(pagePath, "utf-8"),
+                markdownFileHref(buildBase, file.markdownPath),
+              ),
+              "utf-8",
+            );
+          }
         }
-        const served = markdownFileHeaders(result.headers);
-        if ("reason" in served) {
-          markdownFileSkips.push({ pagePath: file.pagePath, reason: served.reason });
-          continue;
-        }
-        const page = pagesByPath.get(file.pagePath)!;
-        headersManifest[file.markdownPath] = served.headers;
-        page.html = injectMarkdownAlternateLink(
-          page.html,
-          markdownFileHref(buildBase, file.markdownPath),
-        );
-        markdownFiles.push({ ...file, source: result.source });
       }
     } else if (isStaticExport) {
       for (const pagePath of Object.keys(markdownManifest)) {
         markdownFileSkips.push({ pagePath, reason: "`markdownFiles: false`" });
       }
-    }
-
-    // With Workers Caching enabled, time-revalidated ISG pages are rendered
-    // on demand and cached at the edge. A prerendered static snapshot would
-    // be served ahead of the Worker and never revalidate, so it must not be
-    // emitted. Webhook-only ISG routes are not edge-cached — they keep their
-    // snapshot and revalidate through the worker-managed Cache API path.
-    const cloudflareWorkersCacheEnabled =
-      serverMod.buildTarget === "cloudflare" && serverMod.cloudflareWorkersCacheEnabled === true;
-    const edgeCachedIsgPaths = cloudflareWorkersCacheEnabled
-      ? Object.keys(isgManifest).filter((path) => hasTimeRevalidate(isgManifest[path]?.revalidate))
-      : [];
-    // Netlify serves every ISG path through the function and the durable CDN
-    // cache — the handler checks the ISG manifest before the bundled static
-    // output, so a snapshot would only ever be reachable at its literal
-    // `/index.html` URL, where it would serve the build-time copy forever.
-    const netlifyIsgPaths =
-      serverMod.buildTarget === "netlify" ? Object.keys(isgManifest) : ([] as string[]);
-    const skippedSnapshotPaths = new Set([...edgeCachedIsgPaths, ...netlifyIsgPaths]);
-    const staticPages =
-      skippedSnapshotPaths.size > 0
-        ? pages.filter((page: { path: string }) => !skippedSnapshotPaths.has(page.path))
-        : pages;
-
-    assertNoPrerenderedContentArtifactCollisions(
-      contentArtifactHeaders,
-      clientDir,
-      staticPages.map((page: { path: string }) => page.path),
-    );
-
-    if (staticPages.length > 0) {
-      log(`\n  Prerendering ${staticPages.length} SSG/ISG route(s)...\n`);
-      const prerenderLog = planPrerenderLog(staticPages.length, PRERENDER_LOG_LIMIT);
-      let logged = 0;
-      for (const page of staticPages) {
-        // Static exports write to the decoded path (the host resolves the URL
-        // itself); serverful adapters keep the encoded form their own static
-        // lookup matches against.
-        const filePath = isStaticExport
-          ? resolveStaticExportOutputPath(clientDir, page.path)
-          : resolvePrerenderOutputPath(clientDir, page.path);
-
-        mkdirSync(dirname(filePath), { recursive: true });
-        writeFileSync(filePath, page.html, "utf-8");
-        // One line per page is a useful build log for a marketing site and
-        // 5,000 lines of scrollback for a content site. The count above
-        // already states the total, so the tail is noise rather than
-        // information — but say how much was elided rather than trailing off.
-        if (logged < prerenderLog.named) {
-          log(`    ${page.path} → ${filePath.replace(root + "/", "")}`);
-          logged += 1;
-        }
-      }
-      if (prerenderLog.tail) {
-        log(prerenderLog.tail);
-      }
-    }
-    reportBindingReads();
-
-    const markdownFileOutputs: string[] = [];
-    for (const file of markdownFiles) {
-      const filePath = resolveMarkdownOutput(file.markdownPath);
-      mkdirSync(dirname(filePath), { recursive: true });
-      writeFileSync(filePath, file.source, "utf-8");
-      markdownFileOutputs.push(relative(clientDir, filePath).split(sep).join("/"));
     }
     if (markdownFileOutputs.length > 0) {
       log(
@@ -1005,7 +1083,13 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     }
 
     if (Object.keys(headersManifest).length > 0) {
-      const headersManifestJson = `${JSON.stringify(headersManifest, null, 2)}\n`;
+      // Entries generated by adapters that read the shared form get each
+      // distinct header set once instead of a copy per page; anything else
+      // (an older adapter, a custom entry) keeps the flat form it parses.
+      const headersManifestJson =
+        serverMod.headersManifestFormat === 2
+          ? `${JSON.stringify(shareHeadersManifest(headersManifest))}\n`
+          : `${JSON.stringify(headersManifest, null, 2)}\n`;
       writeFileSync(
         resolve(root, "dist/server/headers-manifest.json"),
         headersManifestJson,
@@ -1102,6 +1186,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         pages,
         serverMod,
         log,
+        writtenStateFileCount: streamedStateFileCount,
       });
 
       const inlineCssTip = describeInlineCssOpportunity({ clientDir, pages });
@@ -1114,9 +1199,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     }
 
     if (serverMod.buildTarget === "cloudflare") {
-      if (cloudflareWorkersCacheEnabled && edgeCachedIsgPaths.length > 0) {
+      const edgeCachedIsgCount = pages.filter((page) => !page.written).length;
+      if (cloudflareWorkersCacheEnabled && edgeCachedIsgCount > 0) {
         log(
-          `\n  ISG via Workers Caching: ${edgeCachedIsgPaths.length} route(s) render on demand and revalidate at the edge. Requires "cache": { "enabled": true } in wrangler config.\n`,
+          `\n  ISG via Workers Caching: ${edgeCachedIsgCount} route(s) render on demand and revalidate at the edge. Requires "cache": { "enabled": true } in wrangler config.\n`,
         );
       }
 
@@ -1186,14 +1272,12 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
           ...markdownFiles.map((file) => file.markdownPath),
         ],
         staticRoutes: [
-          ...pages
-            .map((page: { path: string }) => page.path)
-            .filter((path: string) => !(path in isgManifest)),
+          ...pages.map((page) => page.path).filter((path: string) => !(path in isgManifest)),
           ...generatedStaticRoutes,
           ...contentArtifactCleanRoutes,
         ],
         trailingSlash: buildTrailingSlash,
-        pageRoutes: pages.map((page: { path: string }) => page.path),
+        pageRoutes: pages.map((page) => page.path),
       });
 
       log(`\n  Vercel build output → ${outputPath}\n`);

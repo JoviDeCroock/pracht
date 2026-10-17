@@ -70,7 +70,7 @@ case-folded, and Unicode-normalization-equivalent outputs are rejected, as are
 Windows-invalid filename components and file/directory conflicts such as `/`
 with `/index.html` or `/guide` with `/guide/index.html`.
 
-Prerendering runs concurrently (default: 10 parallel renders). Tune it with `pracht({ prerenderConcurrency })` in your Vite config when CI needs more or less parallelism.
+Prerendering runs concurrently (default: 10 parallel renders). Tune it with `pracht({ prerenderConcurrency })` in your Vite config when CI needs more or less parallelism. The renders form a pool, not batches: the next path starts as soon as any render finishes. `pracht build` passes `prerenderApp({ onPaths, onPage })` and writes each page (and, for static exports, its route-state file) as it arrives, so the build keeps each page's path, headers, and flags rather than its HTML. Pages that get a `.md` file have the alternate link spliced into the written file after the Markdown replay, which runs 200 pages at a time. A server bundle whose core predates `onPage` returns every page instead, and the CLI writes them the same way.
 
 With a serverful adapter, an individual SSG/ISG path that returns a 3xx or 4xx
 is warned about and skipped because the runtime server can still answer it. A
