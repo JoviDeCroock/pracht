@@ -20,7 +20,11 @@ import type { MarkdownFile, PrerenderedMarkdown } from "@pracht/core";
 
 import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
 import { writeCloudflareAssetHeaders } from "../cloudflare-asset-headers.js";
-import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
+import {
+  describeVercelRouteBudget,
+  resolveVercelRuntimeRoutes,
+  writeVercelBuildOutput,
+} from "../build-shared.js";
 import {
   decodeStaticOutputPath,
   describeInlineCssOpportunity,
@@ -1165,7 +1169,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         );
       }
 
-      const outputPath = writeVercelBuildOutput({
+      const { outputPath, routeCount } = writeVercelBuildOutput({
         base: buildBase,
         functionName: serverMod.vercelFunctionName,
         isgManifest,
@@ -1193,6 +1197,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       });
 
       log(`\n  Vercel build output → ${outputPath}\n`);
+      const routeBudget = describeVercelRouteBudget(routeCount);
+      if (routeBudget) reportBuildWarning(`\n  Warning: ${routeBudget}\n`, analyzeJson);
     }
 
     if (typeof serverMod.finalizePrachtBuild === "function") {

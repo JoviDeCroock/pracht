@@ -352,8 +352,7 @@ pracht({ adapter: vercelAdapter() })
 ```
 
 With `vercelAdapter({ regions: "all" })`, the Edge Function stays global and ISG
-functions run in the project's default Serverless region, because Serverless
-functions need concrete region ids.
+functions use the project's default Serverless region.
 
 For webhook revalidation, `PRACHT_REVALIDATE_TOKEN` must be set **at build
 time**: Vercel embeds it in each ISG route's prerender config, so a token set
@@ -380,15 +379,16 @@ pracht build
 npx vercel deploy --prebuilt
 ```
 
+Each SSG or ISG page adds one of the 2,048 routes Vercel allows per Hobby or
+Pro deployment; `pracht build` warns near that limit.
+
 ### Preview and generated functions
 
-Vercel has no faithful local production runtime, so `pracht preview` exits with
-guidance instead. Use `vercel build` to reproduce production output and
-`vercel dev` for local development.
+`pracht preview` cannot emulate Vercel and exits with guidance: use
+`vercel build` and `vercel dev` instead.
 
-The Edge Function is named `render` by default. Use
-`vercelAdapter({ functionName: "app" })` if an ISG route would collide with
-that name. A custom Vercel server entry must export `nodeListener`, built with
+The Edge Function is named `render`; set
+`vercelAdapter({ functionName: "app" })` if an ISG route collides with it. A custom Vercel server entry must export `nodeListener`, built with
 `createVercelNodeListener(handle)`, so the ISG functions can run the same
 handler.
 
