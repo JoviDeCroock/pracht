@@ -728,6 +728,15 @@ naming each ref, when one matches nothing — those requests would 500.
 (`packages/vite-plugin/src/plugin-codegen.ts` `collectExternalManifestModules`,
 `packages/cli/src/manifest-modules.ts`.)
 
+A route module is also left out of the client registry when every ref to it
+belongs to a route whose hydration is provably `"islands"` or `"none"`: the
+route's own `hydration` string literal or, without one, the innermost enclosing
+`group()`'s. The same AST walk decides it. A mode it cannot read for certain — a
+meta object held in a variable, a spread, a computed key, a non-literal value
+such as `FLAG ? "full" : "islands"` — counts as full, and a scan that could not
+follow every manifest import excludes nothing, so a misread costs a lazy chunk
+instead of breaking client navigation to a full route.
+
 ---
 
 ## Deploy Base

@@ -36,73 +36,10 @@ import {
   nonModuleExcludes,
 } from "./source-files.ts";
 
-const NON_FULL_HYDRATION_RE = /hydration\s*:\s*["'](?:islands|none)["']/;
-const FULL_HYDRATION_RE = /hydration\s*:\s*["']full["']/;
 const PAGES_NON_FULL_HYDRATION_RE = /export\s+const\s+HYDRATION\s*=\s*["'](?:islands|none)["']/;
 
 function toPosixPath(path: string): string {
   return path.replace(/\\/g, "/");
-}
-
-function findMatching(source: string, start: number, open: string, close: string): number {
-  let depth = 0;
-  for (let i = start; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === open) depth++;
-    if (ch === close) {
-      depth--;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-/**
- * Blanks comments, and string contents too when `strings` is set, keeping every
- * other character at its offset so positions found in the masked copy still
- * address the original source.
- */
-function maskSource(source: string, strings: boolean): string {
-  let result = "";
-  let index = 0;
-  while (index < source.length) {
-    const char = source[index]!;
-    if (char === '"' || char === "'" || char === "`") {
-      result += char;
-      index += 1;
-      while (index < source.length) {
-        const inner = source[index]!;
-        if (inner === "\\" && index + 1 < source.length) {
-          result += strings ? "  " : inner + source[index + 1];
-          index += 2;
-          continue;
-        }
-        index += 1;
-        if (inner === char) {
-          result += inner;
-          break;
-        }
-        result += strings && inner !== "\n" ? " " : inner;
-      }
-      continue;
-    }
-    if (char === "/" && source[index + 1] === "/") {
-      while (index < source.length && source[index] !== "\n") {
-        result += " ";
-        index += 1;
-      }
-      continue;
-    }
-    if (char === "/" && source[index + 1] === "*") {
-      const close = source.indexOf("*/", index + 2);
-      const end = close === -1 ? source.length : close + 2;
-      for (; index < end; index++) result += source[index] === "\n" ? "\n" : " ";
-      continue;
-    }
-    result += char;
-    index += 1;
-  }
-  return result;
 }
 
 function scanFiles(dir: string, files: string[], extensions: Set<string>): void {
@@ -154,41 +91,12 @@ function createNonFullHydrationExcludes(
     return [...excludes];
   }
 
-  const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
-  let source: string;
-  try {
-    source = readFileSync(appFile, "utf-8");
-  } catch {
-    return [];
-  }
-  // Brackets are located in a copy without comments or string contents, and
-  // the hydration mode is read from a copy without comments.
-  const structure = maskSource(source, true);
-  const code = maskSource(source, false);
-  const groups: Array<{ start: number; end: number; nonFull: boolean }> = [];
-  for (const match of structure.matchAll(/\bgroup\s*\(/g)) {
-    const parenStart = match.index! + match[0].lastIndexOf("(");
-    const parenEnd = findMatching(structure, parenStart, "(", ")");
-    if (parenEnd === -1) continue;
-    // `group(meta, routes)`: the mode comes from the meta object alone, and the
-    // routes array is searched for only after it, so an array inside the meta
-    // (a `middleware` list) is never mistaken for the routes.
-    let metaEnd = parenStart;
-    let nonFull = false;
-    const metaStart = parenStart + 1 + structure.slice(parenStart + 1).search(/\S/);
-    if (structure[metaStart] === "{") {
-      metaEnd = findMatching(structure, metaStart, "{", "}");
-      if (metaEnd === -1) continue;
-      nonFull = NON_FULL_HYDRATION_RE.test(code.slice(metaStart, metaEnd + 1));
-    }
-    const arrayStart = structure.indexOf("[", metaEnd);
-    if (arrayStart === -1 || arrayStart > parenEnd) continue;
-    const arrayEnd = findMatching(structure, arrayStart, "[", "]");
-    if (arrayEnd === -1) continue;
-    groups.push({ start: arrayStart, end: arrayEnd, nonFull });
-  }
+  // A ref the scan cannot see could be a full route's, so a partial scan
+  // excludes nothing.
+  const scan = scanManifestModules(resolved, root);
+  if (!scan.complete) return [];
 
-  const appDir = dirname(appFile);
+  const appDir = dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
   const resolveRef = (ref: string): string =>
     toPosixPath(ref.startsWith("/") ? resolve(root, ref.slice(1)) : resolve(appDir, ref));
   // One module can back a full route and an islands route, and the full route
@@ -196,37 +104,14 @@ function createNonFullHydrationExcludes(
   // the manifest belongs to a non-full route; a ref this scan cannot attribute
   // (a full route, a shared constant, a `notFound` component) keeps it in.
   const nonFullRefs = new Map<string, number>();
-  const routeRe =
-    /\broute\s*\(\s*[^,]+,\s*(?:(?:\(\s*\)\s*=>\s*import\s*\(\s*)?["']([^"']+)["']\s*\)?|["']([^"']+)["'])/g;
-  for (const match of code.matchAll(routeRe)) {
-    const fileRef = match[1] ?? match[2];
-    const callStart = match.index!;
-    const parenStart = structure.indexOf("(", callStart);
-    const parenEnd = findMatching(structure, parenStart, "(", ")");
-    if (parenEnd === -1) continue;
-    const callSource = code.slice(parenStart, parenEnd);
-    const ownNonFull = NON_FULL_HYDRATION_RE.test(callSource);
-    const ownFull = FULL_HYDRATION_RE.test(callSource);
-    const inheritedNonFull = groups
-      .filter((group) => group.start < callStart && callStart < group.end)
-      .sort((a, b) => b.start - a.start)[0]?.nonFull;
-    if (ownFull || (!ownNonFull && inheritedNonFull !== true)) continue;
-    const file = resolveRef(fileRef);
+  for (const ref of scan.nonFullRefs) {
+    const file = resolveRef(ref);
     nonFullRefs.set(file, (nonFullRefs.get(file) ?? 0) + 1);
   }
   if (nonFullRefs.size === 0) return [];
 
-  let strings: string[];
-  try {
-    strings = collectManifestStrings(
-      parseAst(source, { lang: getRolldownLang(appFile) }) as unknown as StaticProgramNode,
-    ).strings;
-  } catch {
-    // An unparseable manifest is the dev server's error to report.
-    return [];
-  }
   const allRefs = new Map<string, number>();
-  for (const value of strings) {
+  for (const value of scan.strings) {
     if (!value.startsWith(".") && !value.startsWith("/")) continue;
     const file = resolveRef(value);
     if (nonFullRefs.has(file)) allRefs.set(file, (allRefs.get(file) ?? 0) + 1);
@@ -306,8 +191,8 @@ interface PositionalManifestRefs {
   loaders: string[];
 }
 
-/** The literal a ref position holds: a string, or `() => import("…")`. */
-function staticRefValue(value: unknown): string | null {
+/** The string a plain literal (or a template literal without expressions) holds. */
+function staticStringValue(value: unknown): string | null {
   const node = unwrapStaticExpression(value);
   if (!node) return null;
   if ((node.type === "Literal" || node.type === "StringLiteral") && typeof node.value === "string")
@@ -320,7 +205,15 @@ function staticRefValue(value: unknown): string | null {
       ?.cooked;
     return typeof cooked === "string" ? cooked : null;
   }
-  if (node.type === "ArrowFunctionExpression") {
+  return null;
+}
+
+/** The literal a ref position holds: a string, or `() => import("…")`. */
+function staticRefValue(value: unknown): string | null {
+  const literal = staticStringValue(value);
+  if (literal !== null) return literal;
+  const node = unwrapStaticExpression(value);
+  if (node?.type === "ArrowFunctionExpression") {
     const params = Array.isArray(node.params) ? node.params : [];
     const body = unwrapStaticExpression(node.body);
     if (params.length === 0 && body?.type === "ImportExpression")
@@ -437,6 +330,80 @@ function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManif
   return literal;
 }
 
+type HydrationMode = "full" | "nonFull" | "unknown";
+
+/**
+ * The hydration mode a `route()`/`group()` meta argument gives, or `inherited`
+ * when it sets none. Anything this cannot read for certain — a meta held in a
+ * variable, a spread, a computed key, a non-literal value — is "unknown".
+ */
+function metaHydrationMode(meta: unknown, inherited: HydrationMode): HydrationMode {
+  if (meta === undefined) return inherited;
+  const node = unwrapStaticExpression(meta);
+  if (node?.type !== "ObjectExpression") return "unknown";
+  let mode = inherited;
+  for (const property of Array.isArray(node.properties) ? node.properties : []) {
+    const name = staticPropertyName(property);
+    if (name === null) return "unknown";
+    if (name !== "hydration") continue;
+    const value = staticStringValue(asStaticProgramNode(property)!.value);
+    mode =
+      value === "full" ? "full" : value === "islands" || value === "none" ? "nonFull" : "unknown";
+  }
+  return mode;
+}
+
+/** A `route()` second argument's component ref: the module itself or `{ component }`. */
+function componentRef(value: unknown): string | null {
+  const direct = staticRefValue(value);
+  if (direct !== null) return direct;
+  for (const property of staticObjectProperties(value)) {
+    if (property.name === "component") return staticRefValue(property.value);
+  }
+  return null;
+}
+
+/**
+ * Component refs of `route()` calls whose hydration is provably `"islands"` or
+ * `"none"`: their own literal mode or, without one, the innermost enclosing
+ * `group()`'s. A route whose mode this cannot read for certain counts as full,
+ * so its module stays in the client registry — dropping a module a route needs
+ * breaks client navigation to it.
+ */
+function collectNonFullRouteRefs(program: StaticProgramNode, refs: string[]): void {
+  const walk = (value: unknown, inherited: HydrationMode): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, inherited);
+      return;
+    }
+    const node = asStaticProgramNode(value);
+    if (!node) return;
+
+    if (node.type === "CallExpression") {
+      const name = calleeName(node.callee);
+      const args = Array.isArray(node.arguments) ? node.arguments : [];
+      if (name === "group") {
+        const mode = metaHydrationMode(args[0], inherited);
+        for (const arg of args.slice(1)) walk(arg, mode);
+        return;
+      }
+      if (name === "route") {
+        if (metaHydrationMode(args[2], inherited) === "nonFull") {
+          const ref = componentRef(args[1]);
+          if (ref !== null) refs.push(ref);
+        }
+        return;
+      }
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key === "type") continue;
+      walk(node[key], inherited);
+    }
+  };
+  walk(program.body, "full");
+}
+
 /** At most this many modules are read while following a manifest's imports. */
 const MANIFEST_MODULE_LIMIT = 64;
 const MANIFEST_IMPORT_EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs"];
@@ -481,11 +448,14 @@ interface ManifestScan {
   refs: PositionalManifestRefs;
   /** Absolute paths of the manifest and every local module the scan read. */
   files: string[];
+  /** Component refs of routes whose hydration is provably not `"full"`. */
+  nonFullRefs: string[];
 }
 
 function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string): ManifestScan {
   const refs: PositionalManifestRefs = { routes: [], shells: [], middleware: [], loaders: [] };
   const strings: string[] = [];
+  const nonFullRefs: string[] = [];
   const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
   const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map((directory) =>
     toPosixPath(resolve(root, directory.replace(/^\//, ""))),
@@ -507,10 +477,11 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
     } catch {
       // An unreadable or unparseable manifest is the dev server's error to
       // report, not a reason to reorganize the bundle.
-      return { complete: false, strings, refs, files: [...seen] };
+      return { complete: false, strings, refs, files: [...seen], nonFullRefs };
     }
     strings.push(...collected.strings);
     if (!collectPositionalRefs(program, refs)) complete = false;
+    collectNonFullRouteRefs(program, nonFullRefs);
 
     for (const specifier of collected.localImports) {
       if (specifier === "") {
@@ -534,7 +505,7 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
     }
   }
 
-  return { complete, strings, refs, files: [...seen] };
+  return { complete, strings, refs, files: [...seen], nonFullRefs };
 }
 
 /**

@@ -843,6 +843,41 @@ describe("client route module build", () => {
       expect(source).toContain('"!/src/routes/static.tsx"');
     });
 
+    it("keeps a route whose own hydration is not a literal", () => {
+      // It may resolve to "full" at runtime, and client navigation to a full
+      // route needs its module in the registry.
+      const source = clientSourceFor([
+        '    group({ hydration: "islands" }, [',
+        '      route("/flag", "./routes/flag.tsx", { hydration: FLAG ? "full" : "islands" }),',
+        '      route("/shared", "./routes/shared.tsx", sharedMeta),',
+        '      route("/spread", "./routes/spread.tsx", { id: "spread", ...extraMeta }),',
+        '      route("/static", "./routes/static.tsx"),',
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/flag.tsx"');
+      expect(source).not.toContain('"!/src/routes/shared.tsx"');
+      expect(source).not.toContain('"!/src/routes/spread.tsx"');
+      expect(source).toContain('"!/src/routes/static.tsx"');
+    });
+
+    it("keeps a full route whose meta merely holds a hydration-looking value", () => {
+      const source = clientSourceFor([
+        '    route("/doc", "./routes/doc.tsx", { id: "doc", meta: { hydration: "islands" } } as never),',
+      ]);
+      expect(source).not.toContain('"!/src/routes/doc.tsx"');
+    });
+
+    it("keeps a group's routes when the group's own mode is not a literal", () => {
+      const source = clientSourceFor([
+        '    group({ hydration: "islands" }, [',
+        "      group({ hydration: MODE }, [",
+        '        route("/inner", "./routes/inner.tsx"),',
+        "      ]),",
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/inner.tsx"');
+    });
+
     it("applies the innermost group's mode to nested groups", () => {
       const source = clientSourceFor([
         '    group({ middleware: ["locale"] }, [',
