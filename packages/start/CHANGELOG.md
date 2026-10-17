@@ -1,5 +1,13 @@
 # create-pracht
 
+## 0.8.0
+
+### Minor Changes
+
+- [#442](https://github.com/JoviDeCroock/pracht/pull/442) [`fdb0db2`](https://github.com/JoviDeCroock/pracht/commit/fdb0db2e7e15b213144c10e7038349b6e260f964) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht build` on Cloudflare now writes a deployable `dist/server/wrangler.json` that `wrangler deploy` and `wrangler dev` pick up, so `wrangler.jsonc` no longer needs `main`, `no_bundle`, module `rules`, or `assets.directory`. Existing configs that point `main` at `dist/server/worker.js` keep working, and apps with named Wrangler environments select one at build time with `CLOUDFLARE_ENV=<name>`.
+
+- [#440](https://github.com/JoviDeCroock/pracht/pull/440) [`c9e8b7a`](https://github.com/JoviDeCroock/pracht/commit/c9e8b7ad3f2ec4e62f1cbeab4d251596dd4e98fc) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - New Cloudflare apps type `context.env` from their `wrangler.jsonc` bindings through a `cf-typegen` script (`wrangler types`, also run by `typecheck`) and serve content-hashed `/assets/*` files without invoking the Worker.
+
 ## 0.7.3
 
 ### Patch Changes

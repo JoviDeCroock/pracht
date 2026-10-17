@@ -1,5 +1,13 @@
 # @pracht/openapi
 
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [[`fdb0db2`](https://github.com/JoviDeCroock/pracht/commit/fdb0db2e7e15b213144c10e7038349b6e260f964), [`ad452ce`](https://github.com/JoviDeCroock/pracht/commit/ad452ce8ff7799b664a765a6d833a01e3eb619f1), [`25be9ab`](https://github.com/JoviDeCroock/pracht/commit/25be9ab4da435992d063fcb85c3df72ea9a36c88)]:
+  - @pracht/vite-plugin@0.16.0
+  - @pracht/core@0.21.0
+
 ## 0.2.7
 
 ### Patch Changes

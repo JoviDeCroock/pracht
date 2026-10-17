@@ -1,5 +1,12 @@
 # @pracht/session
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [[`25be9ab`](https://github.com/JoviDeCroock/pracht/commit/25be9ab4da435992d063fcb85c3df72ea9a36c88)]:
+  - @pracht/core@0.21.0
+
 ## 0.1.3
 
 ### Patch Changes

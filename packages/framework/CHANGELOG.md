@@ -1,5 +1,11 @@
 # @pracht/core
 
+## 0.21.0
+
+### Minor Changes
+
+- [#441](https://github.com/JoviDeCroock/pracht/pull/441) [`25be9ab`](https://github.com/JoviDeCroock/pracht/commit/25be9ab4da435992d063fcb85c3df72ea9a36c88) Thanks [@JoviDeCroock](https://github.com/JoviDeCroock)! - `pracht({ trailingSlash: "always" | "never" })` makes `/about/` or `/about` the one canonical page URL: links, redirects, and `llms.txt` use it on every adapter, and the other spelling answers with a 308.
+
 ## 0.20.1
 
 ### Patch Changes
