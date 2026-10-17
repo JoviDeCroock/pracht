@@ -4,7 +4,11 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { describeCloudflareDeploy, splitCloudflareWorkerExports } from "../src/commands/build.ts";
+import {
+  describeCloudflareDeploy,
+  describeCloudflareWebhookScope,
+  splitCloudflareWorkerExports,
+} from "../src/commands/build.ts";
 
 describe("describeCloudflareDeploy", () => {
   const roots: string[] = [];
@@ -67,5 +71,36 @@ describe("splitCloudflareWorkerExports", () => {
       entrypointNames: ["Counter", "handlers"],
       droppedNames: ["VERSION", "LIMIT", "nothing"],
     });
+  });
+});
+
+describe("describeCloudflareWebhookScope", () => {
+  const webhook = { kind: "webhook" };
+  const hourly = { kind: "time", seconds: 3600 };
+  const manifest = {
+    "/news": { revalidate: webhook },
+    "/pricing": { revalidate: [hourly, webhook] },
+    "/catalog": { revalidate: hourly },
+  };
+
+  it("warns about every webhook route on the per-data-center Cache API", () => {
+    const warning = describeCloudflareWebhookScope(manifest, false);
+    expect(warning).toContain("2 Cloudflare ISG page(s)");
+    expect(warning).toContain("/news, /pricing");
+    expect(warning).not.toContain("/catalog");
+    expect(warning).toContain("cloudflareAdapter({ cache: true })");
+  });
+
+  it("leaves out webhook routes Workers Caching purges everywhere", () => {
+    const warning = describeCloudflareWebhookScope(manifest, true);
+    expect(warning).toContain("1 Cloudflare ISG page(s)");
+    expect(warning).toContain("(/news)");
+    expect(describeCloudflareWebhookScope({ "/pricing": manifest["/pricing"] }, true)).toBeNull();
+  });
+
+  it("stays quiet without webhook routes", () => {
+    expect(
+      describeCloudflareWebhookScope({ "/catalog": { revalidate: hourly } }, false),
+    ).toBeNull();
   });
 });
