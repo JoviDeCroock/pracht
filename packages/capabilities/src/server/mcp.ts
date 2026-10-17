@@ -500,19 +500,19 @@ export function destructiveMcpPreconditionErrors(agents: PrachtAgentsConfig | un
         "setCapabilityConfirmationSecret()).",
     );
   }
-  // Human mode needs an identity to attach a decision to. Web Bot Auth does not
-  // guarantee one per request, but without it *and* without a resolver there is
-  // no way any request could ever produce one.
+  // Human mode needs an identity to attach a decision to. The end user — a
+  // verified OAuth subject or the application resolver — is what to configure;
+  // a Web Bot Auth key still counts, but only names the agent operator.
   if (
     agents?.confirmation?.mode === "human" &&
+    !agents.mcp?.auth &&
     !hasWebBotAuthIdentitySource(agents.webBotAuth) &&
     !hasCapabilityApprovalPrincipalResolver()
   ) {
     unmet.push(
       'agents.confirmation.mode is "human" but no principal can ever be resolved ' +
-        "(configure agents.webBotAuth with a valid 32-byte base64url Ed25519 static key or " +
-        "HTTPS directory, or call " +
-        "setCapabilityApprovalPrincipalResolver() from a server-only module).",
+        "(call setCapabilityApprovalPrincipalResolver() from a server-only module, or protect " +
+        "the endpoint with agents.mcp.auth, so approvals are bound to the end user).",
     );
   }
   return unmet;

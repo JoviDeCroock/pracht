@@ -13,9 +13,13 @@
  * Registering a {@link CapabilityApprovalStore} closes the replay gap. Prepare
  * records a proposal; commit verifies the HMAC first (so a forged token can
  * never burn a real proposal) and then asks the store to consume it exactly
- * once. Human mode additionally requires an authenticated principal from Web
- * Bot Auth or `setCapabilityApprovalPrincipalResolver()` before an out-of-band
- * decision can authorize the operation.
+ * once. Human mode additionally requires an authenticated principal before an
+ * out-of-band decision can authorize the operation. The end user — from
+ * `setCapabilityApprovalPrincipalResolver()` or a verified OAuth subject on
+ * remote MCP — is always bound when present. A Web Bot Auth key identifies the
+ * agent operator, which every user of that agent shares: when it is the only
+ * identity, every prepare opens its own proposal so one user's approval can
+ * never be spent by another user's call.
  *
  * The caller interaction does not change: callers still just echo the
  * confirmation token they were handed. Store-backed tokens use a distinct
@@ -56,8 +60,8 @@ export function resolveCapabilityApprovalStore(): CapabilityApprovalStore | null
 
 /**
  * Register a server-only resolver for the application-authenticated identity
- * bound to approval proposals. Human approval without either this identity or
- * a verified agent identity fails closed.
+ * bound to approval proposals. Human approval with neither this identity, a
+ * verified OAuth subject, nor a verified agent identity fails closed.
  */
 export function setCapabilityApprovalPrincipalResolver<TContext = unknown>(
   resolver: CapabilityApprovalPrincipalResolver<TContext> | null,
@@ -79,6 +83,13 @@ export interface ResolvedCapabilityApprovalPrincipal {
   record: string;
   /** Opaque identity bound into the caller-visible confirmation token. */
   tokenBinding: string;
+  /**
+   * Whether the binding names the person behind the call (an application
+   * principal or a verified OAuth subject) rather than only the agent key.
+   * Human approval requires it: one agent key is shared by every user of that
+   * agent, so an agent-only binding would let one user spend another's approval.
+   */
+  endUser: boolean;
 }
 
 export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
@@ -87,11 +98,15 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
   capability: string;
   agent: PrachtAgentIdentity | null;
   confirmationSecret: string;
+  /** Subject of the OAuth bearer token verified by the remote MCP transport. */
+  tokenSubject?: string | null;
 }): Promise<ResolvedCapabilityApprovalPrincipal | null> {
   const applicationPrincipal = approvalState.resolver
     ? await approvalState.resolver({
-        ...options,
         context: options.context as unknown,
+        request: options.request,
+        capability: options.capability,
+        agent: options.agent,
       })
     : null;
   if (
@@ -101,28 +116,36 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
     throw new Error("the approval principal resolver must return a non-empty string or null");
   }
 
+  const tokenSubject =
+    typeof options.tokenSubject === "string" && options.tokenSubject !== ""
+      ? options.tokenSubject
+      : null;
   const parts: string[] = [];
   if (options.agent) parts.push(`agent:${options.agent.keyId}`);
+  if (tokenSubject) parts.push(`oauth:${tokenSubject}`);
   if (applicationPrincipal) parts.push(`app:${applicationPrincipal}`);
   if (parts.length === 0) return null;
+  const endUser = tokenSubject !== null || !!applicationPrincipal;
 
   // Preserve the original agent-only binding so confirmation tokens remain
-  // valid across a rolling upgrade. Application identities are different:
-  // they may be internal user or tenant ids, and confirmation-token claims are
-  // only encoded, not encrypted, so bind an opaque digest instead.
-  if (options.agent && !applicationPrincipal) {
-    return { record: parts[0], tokenBinding: parts[0] };
+  // valid across a rolling upgrade. End-user identities are different: they
+  // may be internal user or tenant ids, and confirmation-token claims are only
+  // encoded, not encrypted, so bind an opaque digest instead.
+  if (options.agent && !endUser) {
+    return { record: parts[0], tokenBinding: parts[0], endUser };
   }
   const record = JSON.stringify(parts);
   return {
     record,
     tokenBinding: `approval:${await hmacSha256Base64Url(options.confirmationSecret, record)}`,
+    endUser,
   };
 }
 
 /**
  * The proposal id for one destructive operation: a secret-keyed digest over
- * the principal, capability name, input hash, and approval mode. Deriving it
+ * the principal, capability name, input hash, and approval mode (plus the
+ * per-prepare nonce when the principal is only an agent key). Deriving it
  * means two prepare calls for the same operation address the same proposal,
  * while keying it keeps caller-visible ids from revealing low-entropy
  * application principals through offline guessing.
@@ -133,11 +156,11 @@ export async function capabilityApprovalId(
   capability: string,
   inputHash: string,
   approvalMode: CapabilityConfirmationMode,
+  proposalNonce?: string | null,
 ): Promise<string> {
-  return hmacSha256Base64Url(
-    confirmationSecret,
-    `pracht-approval-id:${JSON.stringify([principal, capability, inputHash, approvalMode])}`,
-  );
+  const parts: string[] = [principal, capability, inputHash, approvalMode];
+  if (proposalNonce) parts.push(proposalNonce);
+  return hmacSha256Base64Url(confirmationSecret, `pracht-approval-id:${JSON.stringify(parts)}`);
 }
 
 export interface MemoryApprovalStoreOptions {

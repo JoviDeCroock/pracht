@@ -340,18 +340,28 @@ its destructive-tool preconditions; their middleware functions still run only
 on `tools/call`. Merely registering unrelated middleware is not a startup hook.
 The resolver executes after API and capability middleware, and must return a
 stable authenticated user or tenant id — never a display name or
-caller-controlled value. When Web Bot Auth is also present, the proposal binds
-both identities. The raw application identity stays in the server-side approval
-record; caller-visible confirmation tokens bind a secret-keyed digest instead
-of exposing that identity.
+caller-controlled value. On remote MCP behind `agents.mcp.auth`, the verified
+OAuth `tokenAuth.subject` is bound as well (`oauth:<subject>`). When Web Bot
+Auth is also present, the proposal binds every identity. The raw end-user
+identity stays in the server-side approval record; caller-visible confirmation
+tokens bind a secret-keyed digest instead of exposing that identity.
+
+A Web Bot Auth key identifies the agent operator, which every user of that
+agent shares. In human mode with no end-user identity (no resolver result and
+no OAuth subject), each prepare therefore opens its *own* proposal: the
+proposal id also covers a random nonce carried in the confirmation token's
+signed `n` claim, so only the token minted by that prepare can consume it, and
+a nonce-less token is refused. Two users of one agent sending identical input
+can no longer share — and so spend — one approval. The server warns once per
+process in this configuration, because a reviewer still sees only the agent.
 
 A proposal's id is a secret-keyed digest derived server-side from the
 principal, capability name, canonicalized input, and approval mode — never
 supplied by a caller. Keying keeps a caller-visible id from becoming an
 offline oracle for low-entropy application user or tenant ids. Repeated
-prepare calls for the same operation and mode address **one** proposal, so a
-person approves an action rather than one particular token, and re-preparing
-cannot extend a proposal's life.
+prepare calls for the same operation, mode, and end user address **one**
+proposal, so a person approves an action rather than one particular token, and
+re-preparing cannot extend a proposal's life.
 
 The confirmation HMAC keeps doing its job: the signature is verified *before*
 the store is touched, so a forged token can never consume (and thereby
@@ -398,7 +408,7 @@ endpoint or UI — a framework-default approval route would be the same mistake
 as trusting host-reported approval.
 
 `mode: "human"` without both a registered store and an authenticated principal
-(from Web Bot Auth or the resolver) fails closed with `403
+(from the resolver, a verified OAuth subject, or Web Bot Auth) fails closed with `403
 confirmation_unavailable` rather than silently degrading to self-approval or
 sharing one approval across unrelated application users.
 

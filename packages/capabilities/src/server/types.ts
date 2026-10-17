@@ -79,9 +79,10 @@ export interface CapabilityConfirmationConfig {
    *   exactly-once across replicas.
    * - `"human"` — the commit is refused with `confirmation_pending` until a
    *   person approves the proposal out of band. Requires an approval store and
-   *   an authenticated principal from Web Bot Auth or
-   *   `setCapabilityApprovalPrincipalResolver()`; without both, destructive
-   *   calls fail closed.
+   *   an end-user principal from `setCapabilityApprovalPrincipalResolver()` or
+   *   a verified OAuth subject (`agents.mcp.auth`); without both, destructive
+   *   calls fail closed. A Web Bot Auth key alone is not enough: it identifies
+   *   the agent, which all of its users share.
    */
   mode?: "token" | "human";
 }
@@ -99,7 +100,7 @@ export type CapabilityApprovalState = "pending" | "approved" | "rejected" | "con
 export interface CapabilityApprovalRecord {
   /** Secret-keyed from principal + capability + input hash + mode; never client-supplied. */
   id: string;
-  /** Verified agent and/or application identity, or `"anonymous"` in token mode. */
+  /** Verified agent, OAuth subject, and/or application identity, or `"anonymous"` in token mode. */
   principal: string;
   capability: string;
   /** Base64url SHA-256 of the canonicalized validated input. */

@@ -215,9 +215,9 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 
 Import this module from a server entry, the destructive capability's module, or middleware applied to that capability or to the app's capability API chain. Importing it from unrelated middleware is not enough.
 
-The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. With Web Bot Auth also on, a proposal binds both the user and the agent.
+The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. On remote MCP with [`agents.mcp.auth`](/docs/capabilities#oauth-letting-a-real-host-connect), the verified token subject is bound too. With Web Bot Auth also on, a proposal binds both the user and the agent.
 
-Repeated prepares of the same operation share one proposal, so a person approves *the action*, not one particular token.
+Repeated prepares of the same operation by the same user share one proposal, so a person approves *the action*. A Web Bot Auth key alone names the agent, which all its users share, so each prepare then gets its own proposal and the server logs a warning.
 
 `agents.confirmation.mode` picks who decides:
 
