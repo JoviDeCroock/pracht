@@ -1106,8 +1106,9 @@ Client-side navigations honor same-origin middleware redirects too. If a redirec
 lands on the page the user is already on, the router treats it as a no-op
 instead of forcing a reload loop. A chain longer than `MAX_REDIRECT_HOPS` (20,
 the browser's own limit) logs `[pracht] too many redirects` and becomes a
-document navigation to the last hop, so the browser ends it on its own error
-page instead of leaving the previous page on screen.
+document navigation to the last hop instead of leaving the previous page on
+screen. The browser starts a fresh redirect budget there: a finite chain lands
+on its destination, and a loop ends on the browser's own error page.
 
 ---
 
