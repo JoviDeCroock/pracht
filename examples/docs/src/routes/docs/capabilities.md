@@ -465,7 +465,7 @@ A tampered, expired, or replayed token answers `confirmation_invalid`; in `mode:
 ### Transport Security
 
 - **Cookie-bearing requests get 403**, so a browser session never authenticates remote MCP. `Authorization` is forwarded to your middleware.
-- **Browser requests get 403**: any request with an `Origin` or `Sec-Fetch-Site` header.
+- **Browser requests get 403** (any `Origin` or `Sec-Fetch-Site` header) unless `agents.mcp.allowedOrigins` lists the exact origin (`"https://inspector.example"`), which gets CORS headers and authenticates with `Authorization`.
 - **Destructive capabilities are unreachable without the opt-in**, even through composition.
 
 Every dispatch audits with `transport: "mcp"`, and composed calls with `via: "mcp"`. See [Audit Trail](/docs/agent-trust#audit-trail).
@@ -588,7 +588,7 @@ async run({ context }) {
 }
 ```
 
-It is a read-only, request-local snapshot that middleware cannot rewrite, present only on authenticated MCP requests. `claims` is frozen only at the top level. Requests answer 500 if your adapter context already has a `tokenAuth` field or is a native built-in such as `Map`; wrap one in an ordinary object.
+It is a read-only, request-local snapshot that middleware cannot rewrite, present only on authenticated MCP requests. Requests answer 500 if your adapter context already has `tokenAuth` or is a built-in such as `Map`; wrap it in an ordinary object.
 
 An adapter's `createContext` hook may run before MCP authentication. Treat its request as untrusted and avoid privileged or expensive work there.
 
@@ -609,7 +609,7 @@ curl -sX POST http://localhost:3000/mcp \
 
 Protocol versions are negotiated on `initialize`, newest first: `2025-11-25`, `2025-06-18`.
 
-For a repeatable check, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives the endpoint like a host. For a protected endpoint, add `"mcpHeaders": { "authorization": "Bearer …" }`, and keep real tokens out of committed files.
+For a repeatable check, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives the endpoint like a host. Protected endpoints take `"mcpHeaders": { "authorization": "Bearer …" }`; keep real tokens out of committed files.
 
 With `auth` configured, send the token. Point hosts at the endpoint, not the metadata URL:
 

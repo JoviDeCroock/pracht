@@ -25,11 +25,11 @@ auditing the opt-outs:
   `expose` is unreachable over the network.
 - `destructive` capabilities may be exposed over HTTP and remote MCP, never as
   WebMCP page tools, and every dispatch is confirmation-gated.
-- Remote MCP rejects cookie-bearing and browser-originated requests, and serves
-  destructive capabilities only with `agents.mcp.destructive` plus a registered
-  approval store — otherwise it filters them out at serve time. `agents.mcp.auth`
-  additionally makes it an OAuth 2.0 protected resource; without it the endpoint
-  is open and authentication is the capability middleware's job.
+- Remote MCP rejects cookie-bearing requests and browser origins not listed in
+  `agents.mcp.allowedOrigins`, and serves destructive capabilities only with
+  `agents.mcp.destructive` plus a registered approval store — otherwise it
+  filters them out. `agents.mcp.auth` makes it an OAuth 2.0 protected resource;
+  without it the endpoint is open and authentication is middleware's job.
 - An app that registers neither capabilities nor `agents` has the dispatch path
   and Web Bot Auth verifier dropped from its server bundle at build time.
 

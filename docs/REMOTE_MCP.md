@@ -185,7 +185,8 @@ The split follows what actually failed:
 | Situation | Answer |
 | --- | --- |
 | Unknown tool, malformed params, bad JSON-RPC | JSON-RPC `error` |
-| Unsupported protocol version, non-POST, browser-originated, cookie-bearing request | HTTP 400 / 405 / 403 |
+| Unsupported protocol version, non-POST, browser-originated (unlisted `Origin`), cookie-bearing request | HTTP 400 / 405 / 403 |
+| Notification, or a client JSON-RPC response (`id` plus exactly one of `result`/`error`) | HTTP 202, no body |
 | Body over 1 MiB (declared `Content-Length` or counted while streaming) | HTTP 413 with a JSON-RPC `-32600` error; nothing is parsed |
 | Missing, rejected, or under-scoped bearer token (when `agents.mcp.auth` is set) | HTTP 401 / 403 with `WWW-Authenticate` |
 | Validation failure, middleware rejection, policy denial | `isError: true` result |
@@ -307,10 +308,17 @@ The projection inherits every capability guarantee and adds three of its own:
   answers 403 whenever the transport request carries a cookie; a browser
   session can therefore never authenticate remote MCP. `authorization` *is*
   forwarded, so middleware sees the MCP credential.
-- **Browser-originated requests are rejected.** Remote MCP has no browser use
-  case, so requests carrying `Origin` or `Sec-Fetch-Site` receive 403. This
-  avoids trusting a Host-derived request URL during Origin validation, closing
-  the DNS-rebinding path. Non-browser MCP clients send neither header and are
+- **Browser-originated requests are rejected unless allowlisted.** Requests
+  carrying `Origin` or `Sec-Fetch-Site` receive 403 unless
+  `agents.mcp.allowedOrigins` lists that exact `Origin`. The check never
+  compares Origin with the Host-derived request URL, so DNS rebinding cannot
+  pass it: a rebound page keeps its own origin, which no allowlist names. A
+  listed origin gets `Access-Control-Allow-Origin` (never
+  `Allow-Credentials`), exposed `mcp-protocol-version` and `www-authenticate`
+  headers, and an `OPTIONS` preflight answer (204; an unlisted origin's
+  preflight gets 403, and `OPTIONS` without `Origin` stays 405). The cookie
+  rejection above still applies, so a listed page authenticates with
+  `Authorization`. Non-browser MCP clients send neither header and are
   unaffected.
 - **Destructive capabilities are unreachable without the opt-in.** Without
   `agents.mcp.destructive` the projection filters them out of `tools/list` and
@@ -629,7 +637,10 @@ curl -sX POST http://localhost:3000/mcp \
 
 Supported protocol versions are negotiated on `initialize`, newest first:
 `2025-11-25`, `2025-06-18`. An `MCP-Protocol-Version` header outside that set
-is a 400.
+is a 400. A request with no header is served as the newest version. This is a
+deliberate deviation: the spec says a stateless server SHOULD assume
+`2025-03-26`, which pracht does not support, so following it would turn every
+headerless call (including the `curl` examples on the site) into a 400.
 
 `examples/basic` serves this endpoint; `e2e/capabilities.test.ts` exercises
 it end to end. The public docs site (`examples/docs`) serves its documentation

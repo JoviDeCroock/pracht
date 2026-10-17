@@ -49,6 +49,7 @@ const MCP_CONFIG_KEYS = new Set([
   "destructive",
   "auth",
   "pageSize",
+  "allowedOrigins",
 ]);
 const MCP_AUTH_CONFIG_KEYS = new Set([
   "resource",

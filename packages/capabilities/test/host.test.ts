@@ -388,6 +388,30 @@ describe("createCapabilityHost remote MCP", () => {
     expect(withCookie?.status).toBe(403);
   });
 
+  it("serves agents.mcp.allowedOrigins with CORS, preflight included", async () => {
+    const inspector = "https://inspector.example";
+    const host = createCapabilityHost({
+      capabilities: {
+        "notes.search": searchCapability({ expose: { http: true, mcp: true } }),
+      },
+      agents: { mcp: { allowedOrigins: [inspector] } },
+    });
+    const preflight = await host.fetch(
+      new Request(`${ORIGIN}/mcp`, {
+        method: "OPTIONS",
+        headers: { origin: inspector, "access-control-request-method": "POST" },
+      }),
+    );
+    expect(preflight?.status).toBe(204);
+    expect(preflight?.headers.get("access-control-allow-origin")).toBe(inspector);
+
+    const list = await host.fetch(
+      post("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list" }, { origin: inspector }),
+    );
+    expect(list?.status).toBe(200);
+    expect(list?.headers.get("access-control-allow-origin")).toBe(inspector);
+  });
+
   it("keeps capabilities without expose.mcp off the tool list", async () => {
     const host = createCapabilityHost({
       capabilities: { "notes.search": searchCapability() },

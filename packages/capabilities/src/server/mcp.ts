@@ -154,6 +154,64 @@ export interface HandleMcpRequestOptions<TContext> {
   options: HandleMcpRequestOptions<TContext>,
 ): Promise<Response> {
   const { request } = options;
+  const origin = request.headers.get("origin");
+  const allowedOrigin =
+    origin !== null && options.mcp.allowedOrigins?.includes(origin) ? origin : null;
+
+  // CORS preflight from a browser page. Only a listed origin is answered;
+  // anything else is the same 403 an actual request from it would get.
+  if (origin !== null && request.method.toUpperCase() === "OPTIONS") {
+    if (allowedOrigin === null) return browserOriginRejection();
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "access-control-allow-origin": allowedOrigin,
+        "access-control-allow-methods": "POST",
+        "access-control-allow-headers": MCP_CORS_REQUEST_HEADERS,
+        "access-control-max-age": "600",
+        vary: "Origin",
+      },
+    });
+  }
+
+  const response = await handleMcpTransportRequest(options, allowedOrigin);
+  return allowedOrigin === null ? response : withMcpCorsHeaders(response, allowedOrigin);
+}
+
+// Plain literals (not templates over the header constant) so bundlers can drop
+// them from client graphs that share this module's chunk.
+const MCP_CORS_REQUEST_HEADERS = "authorization, content-type, mcp-protocol-version";
+const MCP_CORS_EXPOSED_HEADERS = "mcp-protocol-version, www-authenticate";
+
+/**
+ * Let a listed origin read the response. Credentials are never allowed: a
+ * cookie-bearing request is rejected before dispatch, so a browser page must
+ * authenticate with an `Authorization` header it attaches itself.
+ */
+function withMcpCorsHeaders(response: Response, origin: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-expose-headers", MCP_CORS_EXPOSED_HEADERS);
+  headers.append("vary", "Origin");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function browserOriginRejection(): Response {
+  return new Response("Browser-originated requests are not allowed", {
+    status: 403,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}
+
+async function handleMcpTransportRequest<TContext>(
+  options: HandleMcpRequestOptions<TContext>,
+  allowedOrigin: string | null,
+): Promise<Response> {
+  const { request } = options;
 
   // A GET would open the server→client SSE stream. A stateless server has
   // nothing to push, and the spec allows answering 405.
@@ -164,16 +222,14 @@ export interface HandleMcpRequestOptions<TContext> {
     });
   }
 
-  // DNS-rebinding protection: remote MCP has no browser use case, so reject
-  // browser provenance instead of comparing Origin to `request.url`. Adapters
-  // may derive that URL from the attacker-controlled Host header, which makes
-  // a same-origin comparison bypassable after DNS rebinding. Ordinary MCP
-  // clients send neither header and are unaffected.
-  if (!isNonBrowserRequest(request)) {
-    return new Response("Browser-originated requests are not allowed", {
-      status: 403,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+  // DNS-rebinding protection: reject browser provenance unless the Origin is
+  // on the app's explicit allowlist, instead of comparing Origin to
+  // `request.url`. Adapters may derive that URL from the attacker-controlled
+  // Host header, which makes a same-origin comparison bypassable after DNS
+  // rebinding; a rebound page keeps its own origin, which no allowlist names.
+  // Ordinary MCP clients send neither header and are unaffected.
+  if (allowedOrigin === null && !isNonBrowserRequest(request)) {
+    return browserOriginRejection();
   }
 
   // Adapters may have already derived `context` from the original request
@@ -296,6 +352,12 @@ export interface HandleMcpRequestOptions<TContext> {
     method?: unknown;
     params?: unknown;
   };
+  // A client's response to a server request is accepted with 202 and no body,
+  // like a notification. This server never sends requests, so there is
+  // nothing to correlate it with.
+  if (isJsonRpcResponseMessage(message)) {
+    return new Response(null, { status: 202 });
+  }
   if (message?.jsonrpc !== "2.0" || typeof message.method !== "string") {
     return respond(400, {
       jsonrpc: "2.0",
@@ -1086,6 +1148,12 @@ function acceptsJson(request: Request): boolean {
   const accept = request.headers.get("accept");
   if (!accept) return true;
   return accept.includes("application/json") || accept.includes("*/*");
+}
+
+function isJsonRpcResponseMessage(message: unknown): boolean {
+  if (!isObjectRecord(message) || message.jsonrpc !== "2.0" || "method" in message) return false;
+  if (typeof message.id !== "string" && typeof message.id !== "number") return false;
+  return "result" in message !== "error" in message;
 }
 
 /** Reject browser fetches/forms; remote MCP clients send neither header. */
