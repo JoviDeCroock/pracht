@@ -67,13 +67,15 @@ constraint; the CLI test is.
 | `examples/docs`               | `@pracht/example-docs`       | **The published documentation site** — every page under `src/routes/docs/*.md` is public user- and agent-facing docs. Cloudflare adapter, all routes SSG, generates `llms.txt`, sitemap, and the agent-skills index, and serves the docs MCP server at `/mcp` |
 | `examples/tsrx`               | `@pracht/example-tsrx`       | Mixed `.tsrx` (TSRX/Ripple-flavoured Preact) and `.tsx` routes via `@tsrx/vite-plugin-preact`                |
 
-Packages that run inside an app — the adapters, `session`, `i18n`, `query`,
-and `test` — take `@pracht/core` as a `peerDependency` (plus a
-`devDependency` for the workspace link), never a `dependency`. Core keeps
+Packages that run inside an app — `vite-plugin`, the adapters, `session`,
+`i18n`, `query`, and `test` — take `@pracht/core` as a `peerDependency` (plus
+a `devDependency` for the workspace link), never a `dependency`. Core keeps
 request state in module scope, so the app must see one copy; a hard dependency
-published as `^0.x` would nest a second core under the satellite as soon as the
-app upgrades core to the next minor. `vite-plugin` and `cli` still depend on
-core directly (`vite-plugin` releases in lockstep with it).
+published as `^0.x` would nest a second core under the package as soon as the
+app upgrades core to the next minor. `vite-plugin` matters most: if it kept a
+private core, npm would nest its default `adapter-node` beside that core, where
+the generated server entry cannot resolve it. Only `cli`, a 1.x dev tool that
+can run without an app install, still depends on core directly.
 
 ## Documentation
 

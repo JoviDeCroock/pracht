@@ -18,6 +18,9 @@ const SATELLITES = [
   "query",
   "session",
   "test",
+  // Its default adapter peers core too: with a private core here, npm nests
+  // adapter-node under the plugin, out of reach of the generated server entry.
+  "vite-plugin",
 ];
 
 interface Manifest {

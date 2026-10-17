@@ -49,12 +49,12 @@ consequences:
 
 1. **Internal ranges stop at the minor.** Published packages depend on their
    siblings with caret ranges on 0.x (e.g. `@pracht/core: ^0.20.0`), and a 0.x
-   caret never crosses a minor. The adapters, `@pracht/session`,
-   `@pracht/i18n`, `@pracht/query`, and `@pracht/test` take `@pracht/core` as a
-   peer, so a newer core shows up as a peer warning until they are upgraded
-   too; `@pracht/vite-plugin` and `@pracht/cli` depend on it directly and can
-   drag in a second copy that splits the runtime. Upgrade the whole family in
-   one move.
+   caret never crosses a minor. `@pracht/vite-plugin`, the adapters,
+   `@pracht/session`, `@pracht/i18n`, `@pracht/query`, and `@pracht/test` take
+   `@pracht/core` as a peer, so upgrading core past their range fails with
+   `ERESOLVE` under npm and warns under pnpm; forcing it through
+   (`--legacy-peer-deps`, `--force`) can install a second core that splits the
+   runtime. Upgrade the whole family in one move.
 2. **Most packages are 0.x**, so under semver a *minor* bump may be breaking —
    treat `### Minor Changes` entries on 0.x packages with the same care as
    majors.
@@ -158,8 +158,8 @@ git restore package.json pnpm-lock.yaml && pnpm install
 git checkout -- <migrated files>   # or revert the upgrade commit
 ```
 
-Because internal deps are exact-pinned, a *partial* rollback (one package
-back, the rest forward) recreates the duplicate-core problem from Step 2 —
+Because internal ranges stop at the minor, a *partial* rollback (one package
+back, the rest forward) hits the peer conflicts or duplicate core from Step 2 —
 roll the whole family back together.
 
 ## Rules
