@@ -450,9 +450,10 @@ export function sessions() {
       },
       async set(id, data, expiresAt) {
         await KV.put(`session:${id}`, JSON.stringify(data), {
-          // Cloudflare KV takes an absolute expiration in seconds; the store
-          // then reaps the record without a cron job.
-          expiration: Math.floor(expiresAt / 1000),
+          // Cloudflare KV takes an absolute expiration in seconds, at least 60
+          // seconds out, and then reaps the record without a cron job. The
+          // sealed cookie still ends the session at `expiresAt`.
+          expiration: Math.max(Math.floor(expiresAt / 1000), Math.ceil(Date.now() / 1000) + 60),
         });
       },
       async delete(id) {

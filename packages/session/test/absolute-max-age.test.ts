@@ -117,7 +117,7 @@ describe("absoluteMaxAge", () => {
     expect((await sessions.getSession(after)).get("userId")).toBeUndefined();
   });
 
-  it("starts the cap for a cookie sealed before it was configured", async () => {
+  it("counts a cookie sealed before it was configured from its last commit", async () => {
     vi.useFakeTimers();
     at("00:00:00");
     const before = createSessionStorage<AppSession>({
@@ -125,14 +125,44 @@ describe("absoluteMaxAge", () => {
     });
     const seed = await before.getSession(null);
     seed.set("userId", "u_1");
-    const cookie = toCookieHeader(await before.commitSession(seed));
+    const legacy = toCookieHeader(await before.commitSession(seed));
 
     const after = createSessionStorage<AppSession>({
       cookie: { name: "session", secrets: [SECRET], maxAge: 3600 },
-      absoluteMaxAge: 60,
+      rolling: true,
+      absoluteMaxAge: 120,
     });
-    at("00:30:00");
-    expect((await after.getSession(cookie)).get("userId")).toBe("u_1");
+    // Still inside the cap counted from the legacy cookie's commit.
+    await keepAlive(after, legacy, ["00:00:10"]);
+    at("00:01:59");
+    expect((await after.getSession(legacy)).get("userId")).toBe("u_1");
+    // Replaying the original cookie cannot restart the cap.
+    const refreshed = await keepAlive(after, legacy, ["00:01:59"]);
+    at("00:02:00");
+    expect((await after.getSession(legacy)).get("userId")).toBeUndefined();
+    expect((await after.getSession(refreshed)).get("userId")).toBeUndefined();
+  });
+
+  it("ends the session when the cap runs out during the request", async () => {
+    vi.useFakeTimers();
+    at("00:00:00");
+    const sessions = createSessionStorage<AppSession>({
+      cookie: { name: "session", secrets: [SECRET], maxAge: 3600 },
+      absoluteMaxAge: 60,
+      store: createMemorySessionStore(),
+    });
+    const seed = await sessions.getSession(null);
+    seed.set("userId", "u_1");
+    const cookie = toCookieHeader(await sessions.commitSession(seed));
+
+    at("00:00:59");
+    const session = await sessions.getSession(cookie);
+    expect(session.get("userId")).toBe("u_1");
+    at("00:01:00");
+    session.set("userId", "u_2");
+    const header = await sessions.commitSession(session);
+    expect(cookieAttribute(header, "Max-Age")).toBe("0");
+    expect((await sessions.getSession(cookie)).get("userId")).toBeUndefined();
   });
 
   it("rejects a non-positive or fractional cap", () => {

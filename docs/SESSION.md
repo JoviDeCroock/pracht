@@ -131,9 +131,11 @@ first commit, carried forward on every later one, and cleared by
 `regenerate()`, so the cap counts from login. `openEnvelope()` rejects a cookie
 whose `c + absoluteMaxAge` has passed. `commitSession()` clamps both the sealed
 `e` and the `Max-Age` attribute to the cap. A cookie sealed before the option
-was enabled has no `c`, and its lifetime starts on the next read instead of
-logging every user out. Without the option, `c` is never written, so cookie
-size and contents are unchanged.
+was enabled has no `c`. Its last commit (`e - cookie.maxAge`) stands in: a
+fixed point that replaying the old cookie cannot move. A commit after the cap
+has run out ends the session (`destroySession()`) instead of sealing a dead
+cookie or writing an already-expired store record. Without the option, `c`
+is never written, so cookie size and contents are unchanged.
 
 `rolling` interacts with prerendered routes. `varyOnCookie()` withholds
 `Vary: Cookie` from `ssg`/`isg` responses, but the commit itself is not

@@ -93,7 +93,9 @@ export const sessions = createSessionStorage({
     },
     async set(id, data, expiresAt) {
       await env.SESSIONS.put(`session:${id}`, JSON.stringify(data), {
-        expiration: Math.floor(expiresAt / 1000),
+        // KV needs an expiration at least 60 s out; the sealed cookie still
+        // ends the session at `expiresAt`.
+        expiration: Math.max(Math.floor(expiresAt / 1000), Math.ceil(Date.now() / 1000) + 60),
       });
     },
     async delete(id) {

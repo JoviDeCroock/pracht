@@ -362,12 +362,11 @@ export function createSessionStorage<
     if (typeof e !== "number" || !Number.isFinite(e) || e <= Date.now()) return null;
     if (absoluteMaxAge !== undefined) {
       const { c } = parsed as Envelope;
-      // A cookie sealed before `absoluteMaxAge` was configured carries no
-      // start; its lifetime starts now rather than logging everyone out.
-      if (c !== undefined) {
-        if (typeof c !== "number" || !Number.isFinite(c)) return null;
-        if (c + absoluteMaxAge * 1000 <= Date.now()) return null;
-      }
+      if (c !== undefined && (typeof c !== "number" || !Number.isFinite(c))) return null;
+      // Without `c` (sealed before the option was set), the last commit is the
+      // start; see getSession().
+      const start = c ?? e - cookie.maxAge * 1000;
+      if (start + absoluteMaxAge * 1000 <= Date.now()) return null;
     }
 
     return parsed as Envelope;
@@ -422,7 +421,11 @@ export function createSessionStorage<
     if (envelope === null) return emptySession(secure);
 
     const flash = new Set<string>(Array.isArray(envelope.f) ? envelope.f : []);
-    const createdAt = absoluteMaxAge === undefined ? undefined : (envelope.c ?? Date.now());
+    // A cookie sealed before `absoluteMaxAge` was configured carries no start.
+    // Its last commit (`e - maxAge`) stands in: a fixed point, so replaying
+    // the old cookie cannot restart the cap, and nobody is logged out at once.
+    const createdAt =
+      absoluteMaxAge === undefined ? undefined : (envelope.c ?? envelope.e - cookie.maxAge * 1000);
 
     if (store) {
       const record = await store.get(envelope.i);
@@ -470,6 +473,11 @@ export function createSessionStorage<
       state.createdAt ??= now;
       // Neither the sealed expiry nor the cookie attribute may outlive the cap.
       const endsAt = state.createdAt + absoluteMaxAge * 1000;
+      if (endsAt <= now) {
+        // The cap ran out during this request: end the session instead of
+        // sealing a cookie, or writing a store record, that is already dead.
+        return destroySession(session);
+      }
       if (endsAt < expiresAt) {
         expiresAt = endsAt;
         maxAge = Math.max(1, Math.ceil((endsAt - now) / 1000));
