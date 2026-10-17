@@ -1081,6 +1081,10 @@ async function enforceDestructiveConfirmation<TContext>(
       agent: options.agent ?? null,
       confirmationSecret: secret,
       tokenSubject: options.transport === "mcp" ? (options.tokenPrincipal?.subject ?? null) : null,
+      tokenIssuer:
+        options.transport === "mcp" && typeof options.tokenPrincipal?.claims?.iss === "string"
+          ? options.tokenPrincipal.claims.iss
+          : null,
     });
     principal = resolvedPrincipal?.record ?? "anonymous";
     confirmationPrincipal = resolvedPrincipal?.tokenBinding ?? "anonymous";

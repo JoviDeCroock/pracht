@@ -100,6 +100,11 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
   confirmationSecret: string;
   /** Subject of the OAuth bearer token verified by the remote MCP transport. */
   tokenSubject?: string | null;
+  /**
+   * Issuer of that token (`claims.iss` from the verifier), so equal subjects
+   * from different authorization servers stay distinct.
+   */
+  tokenIssuer?: string | null;
 }): Promise<ResolvedCapabilityApprovalPrincipal | null> {
   const applicationPrincipal = approvalState.resolver
     ? await approvalState.resolver({
@@ -122,7 +127,15 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
       : null;
   const parts: string[] = [];
   if (options.agent) parts.push(`agent:${options.agent.keyId}`);
-  if (tokenSubject) parts.push(`oauth:${tokenSubject}`);
+  if (tokenSubject) {
+    const issuer =
+      typeof options.tokenIssuer === "string" && options.tokenIssuer !== ""
+        ? options.tokenIssuer
+        : null;
+    parts.push(
+      issuer ? `oauth:${JSON.stringify([issuer, tokenSubject])}` : `oauth:${tokenSubject}`,
+    );
+  }
   if (applicationPrincipal) parts.push(`app:${applicationPrincipal}`);
   if (parts.length === 0) return null;
   const endUser = tokenSubject !== null || !!applicationPrincipal;

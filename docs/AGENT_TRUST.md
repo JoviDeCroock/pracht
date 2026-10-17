@@ -341,7 +341,9 @@ on `tools/call`. Merely registering unrelated middleware is not a startup hook.
 The resolver executes after API and capability middleware, and must return a
 stable authenticated user or tenant id — never a display name or
 caller-controlled value. On remote MCP behind `agents.mcp.auth`, the verified
-OAuth `tokenAuth.subject` is bound as well (`oauth:<subject>`). When Web Bot
+OAuth `tokenAuth.subject` is bound as well (`oauth:<subject>`, scoped by
+`claims.iss` when the verifier returns it — do so when several authorization
+servers may issue the same `sub`). When Web Bot
 Auth is also present, the proposal binds every identity. The raw end-user
 identity stays in the server-side approval record; caller-visible confirmation
 tokens bind a secret-keyed digest instead of exposing that identity.

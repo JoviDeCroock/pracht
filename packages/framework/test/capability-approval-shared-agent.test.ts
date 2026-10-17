@@ -138,6 +138,54 @@ describe("human approval behind a shared agent key", () => {
     expect((await store.get(first.body.error!.approvalId!))?.principal).toContain("app:alice");
   });
 
+  it("keeps equal OAuth subjects from different issuers apart", async () => {
+    const host = createCapabilityHost({
+      capabilities: { "subscription.cancel": cancel },
+      agents: {
+        confirmation: { mode: "human" },
+        mcp: {
+          destructive: true,
+          auth: {
+            resource: `${ORIGIN}/mcp`,
+            authorizationServers: ["https://a.example", "https://b.example"],
+            verify: async (token) => ({
+              subject: "123",
+              claims: { iss: `https://${token}.example` },
+            }),
+          },
+        },
+      },
+      createContext: () => ({ user: "123" }),
+    });
+    const prepare = async (issuer: string) => {
+      const response = await host.fetch(
+        new Request(`${ORIGIN}/mcp`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${issuer}`,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: "subscription_cancel", arguments: {} },
+          }),
+        }),
+      );
+      const body = (await response!.json()) as {
+        result: { _meta?: { "io.pracht/error"?: Envelope["error"] } };
+      };
+      return body.result._meta!["io.pracht/error"]!;
+    };
+
+    const a = await prepare("a");
+    const b = await prepare("b");
+    expect(a.code).toBe("confirmation_required");
+    expect(b.approvalId).not.toBe(a.approvalId);
+  });
+
   it("binds the verified OAuth subject on remote MCP", async () => {
     const host = createCapabilityHost({
       capabilities: { "subscription.cancel": cancel },
