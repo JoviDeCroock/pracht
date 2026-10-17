@@ -125,6 +125,16 @@ any session that was loaded or committed, so every request re-seals and
 and, with a store, a write per request. It never fires for a session that does
 not exist yet, so anonymous traffic still receives no cookie.
 
+`absoluteMaxAge` adds a cap that re-commits cannot extend. With it set, the
+envelope carries `c`, the lifetime start in milliseconds. `c` is set on the
+first commit, carried forward on every later one, and cleared by
+`regenerate()`, so the cap counts from login. `openEnvelope()` rejects a cookie
+whose `c + absoluteMaxAge` has passed. `commitSession()` clamps both the sealed
+`e` and the `Max-Age` attribute to the cap. A cookie sealed before the option
+was enabled has no `c`, and its lifetime starts on the next read instead of
+logging every user out. Without the option, `c` is never written, so cookie
+size and contents are unchanged.
+
 `rolling` interacts with prerendered routes. `varyOnCookie()` withholds
 `Vary: Cookie` from `ssg`/`isg` responses, but the commit itself is not
 withheld, and `isCacheableISGResponse()`

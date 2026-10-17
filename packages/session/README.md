@@ -114,7 +114,8 @@ servers. It is not a production store: the sessions die with the process.
 - **Expiry that the client cannot extend.** The lifetime is inside the sealed
   payload, not only in `Max-Age`. It is absolute from the last write, and the
   middleware commits only when the session changed; `rolling: true` re-commits
-  every request to give an idle timeout instead.
+  every request to give an idle timeout instead, and `absoluteMaxAge` caps the
+  total lifetime however often it is re-committed.
 - **Rotation without logging anyone out.** The first secret seals; every
   secret opens.
 - **Cookie hygiene by default.** `HttpOnly`, `SameSite=Lax`, `Path=/`, and

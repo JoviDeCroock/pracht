@@ -145,6 +145,15 @@ export interface SessionStorageOptions {
    * anonymous visitor who touches nothing still receives no cookie.
    */
   rolling?: boolean;
+  /**
+   * Hard cap on a session's lifetime, in seconds, however often it is
+   * re-committed. Counts from the session's first commit, or from its last
+   * {@link Session.regenerate} — so calling `regenerate()` at login makes it
+   * "time since sign-in". Once it passes, the cookie no longer opens and the
+   * visitor gets a fresh empty session. Pair it with `rolling` to get an idle
+   * timeout *and* an absolute one. Default: no cap.
+   */
+  absoluteMaxAge?: number;
 }
 
 /**
@@ -181,6 +190,8 @@ interface Envelope {
   d?: Record<string, unknown>;
   /** Keys whose value is consumed on the next read. */
   f?: string[];
+  /** Start of the absolute lifetime, `Date.now()` milliseconds — only with `absoluteMaxAge`. */
+  c?: number;
 }
 
 interface SessionState {
@@ -194,6 +205,8 @@ interface SessionState {
   loaded: boolean;
   /** Inferred from the request the session was read from; see `cookie.secure`. */
   secure: boolean;
+  /** Start of the absolute lifetime; `undefined` until the first commit. */
+  createdAt: number | undefined;
 }
 
 /**
@@ -221,6 +234,12 @@ export function createSessionStorage<
   const cookie: ResolvedCookieOptions = resolveCookieOptions(options.cookie);
   const store = options.store;
   const rolling = options.rolling === true;
+  const absoluteMaxAge = options.absoluteMaxAge;
+  if (absoluteMaxAge !== undefined && (!Number.isInteger(absoluteMaxAge) || absoluteMaxAge <= 0)) {
+    throw new TypeError(
+      "createSessionStorage: `absoluteMaxAge` must be a positive integer number of seconds.",
+    );
+  }
   const keyring: Keyring = createKeyring(options.cookie.secrets);
 
   // Sessions are handed to application code, so the bookkeeping lives beside
@@ -246,8 +265,10 @@ export function createSessionStorage<
     flash: Set<string>,
     secure: boolean,
     loaded: boolean,
+    createdAt?: number,
   ): Session<Data> {
     const state: SessionState = {
+      createdAt,
       data,
       destroyed: false,
       dirty: false,
@@ -297,6 +318,9 @@ export function createSessionStorage<
         const previous = state.id;
         state.id = randomId();
         state.dirty = true;
+        // The absolute lifetime restarts with the new id: `regenerate()` is
+        // the login step, and the cap is meant to count from sign-in.
+        state.createdAt = undefined;
         // Delete after minting the new id, so a store that throws cannot
         // leave the session pointing at a record it just orphaned.
         if (store && state.loaded) await store.delete(previous);
@@ -336,6 +360,15 @@ export function createSessionStorage<
     // attribute is a request the *client* is free to ignore; only this check
     // actually ends a session.
     if (typeof e !== "number" || !Number.isFinite(e) || e <= Date.now()) return null;
+    if (absoluteMaxAge !== undefined) {
+      const { c } = parsed as Envelope;
+      // A cookie sealed before `absoluteMaxAge` was configured carries no
+      // start; its lifetime starts now rather than logging everyone out.
+      if (c !== undefined) {
+        if (typeof c !== "number" || !Number.isFinite(c)) return null;
+        if (c + absoluteMaxAge * 1000 <= Date.now()) return null;
+      }
+    }
 
     return parsed as Envelope;
   }
@@ -389,20 +422,35 @@ export function createSessionStorage<
     if (envelope === null) return emptySession(secure);
 
     const flash = new Set<string>(Array.isArray(envelope.f) ? envelope.f : []);
+    const createdAt = absoluteMaxAge === undefined ? undefined : (envelope.c ?? Date.now());
 
     if (store) {
       const record = await store.get(envelope.i);
       // The store is authoritative: a deleted record ends the session even
       // though the browser still holds a perfectly valid cookie.
       if (record === null || typeof record !== "object") return emptySession(secure);
-      return makeSession(envelope.i, Object.assign(emptyData(), record), flash, secure, true);
+      return makeSession(
+        envelope.i,
+        Object.assign(emptyData(), record),
+        flash,
+        secure,
+        true,
+        createdAt,
+      );
     }
 
     const data = envelope.d;
     if (data === null || typeof data !== "object" || Array.isArray(data)) {
       return emptySession(secure);
     }
-    return makeSession(envelope.i, Object.assign(emptyData(), data), flash, secure, true);
+    return makeSession(
+      envelope.i,
+      Object.assign(emptyData(), data),
+      flash,
+      secure,
+      true,
+      createdAt,
+    );
   }
 
   async function commitSession(
@@ -410,15 +458,26 @@ export function createSessionStorage<
     commitOptions?: CommitOptions,
   ): Promise<string> {
     const state = stateOf(session);
-    const maxAge = resolveMaxAge(commitOptions?.maxAge, cookie.maxAge);
+    let maxAge = resolveMaxAge(commitOptions?.maxAge, cookie.maxAge);
 
     if (state.destroyed) {
       return serializeCookie({ cookie, maxAge: 0, secure: state.secure, value: "" });
     }
 
-    const expiresAt = Date.now() + maxAge * 1000;
+    const now = Date.now();
+    let expiresAt = now + maxAge * 1000;
+    if (absoluteMaxAge !== undefined) {
+      state.createdAt ??= now;
+      // Neither the sealed expiry nor the cookie attribute may outlive the cap.
+      const endsAt = state.createdAt + absoluteMaxAge * 1000;
+      if (endsAt < expiresAt) {
+        expiresAt = endsAt;
+        maxAge = Math.max(1, Math.ceil((endsAt - now) / 1000));
+      }
+    }
     const envelope: Envelope = { n: cookie.name, i: state.id, e: expiresAt };
     if (state.flash.size > 0) envelope.f = [...state.flash];
+    if (absoluteMaxAge !== undefined) envelope.c = state.createdAt;
 
     if (store) {
       await store.set(state.id, { ...state.data }, expiresAt);
