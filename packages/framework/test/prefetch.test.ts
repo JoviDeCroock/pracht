@@ -188,6 +188,119 @@ describe("prefetch strategies", () => {
     expect(fetchSpy.mock.calls[0][0]).toBe("/pricing");
   });
 
+  it('runs at most three "render" prefetches at a time', async () => {
+    const responses: Array<() => void> = [];
+    fetchSpy.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          responses.push(() => resolve(createJsonResponse({ data: null })));
+        }),
+    );
+    for (let page = 1; page <= 5; page++) {
+      addAnchor(`/pricing?page=${page}`, { "data-pracht-prefetch": "render" });
+    }
+    setupPrefetching(createApp());
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    responses[0]();
+    for (let i = 0; i < 20; i++) await flushMicrotasks();
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([
+      "/pricing?page=1",
+      "/pricing?page=2",
+      "/pricing?page=3",
+      "/pricing?page=4",
+    ]);
+  });
+
+  it('skips "render" and "viewport" prefetches when the visitor saves data, but not hover', () => {
+    Object.defineProperty(navigator, "connection", {
+      configurable: true,
+      value: { saveData: true, effectiveType: "4g" },
+    });
+    try {
+      addAnchor("/pricing", { "data-pracht-prefetch": "render" });
+      const hovered = addAnchor("/pricing?from=hover");
+      setupPrefetching(createApp());
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      hover(hovered);
+      vi.advanceTimersByTime(60);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (navigator as { connection?: unknown }).connection;
+    }
+  });
+
+  it("drops queued passive prefetches once the connection starts saving data", async () => {
+    const connection = { saveData: false, effectiveType: "4g" };
+    Object.defineProperty(navigator, "connection", { configurable: true, value: connection });
+    const responses: Array<() => void> = [];
+    fetchSpy.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          responses.push(() => resolve(createJsonResponse({ data: null })));
+        }),
+    );
+    try {
+      for (let page = 1; page <= 5; page++) {
+        addAnchor(`/pricing?page=${page}`, { "data-pracht-prefetch": "render" });
+      }
+      setupPrefetching(createApp());
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+      connection.effectiveType = "2g";
+      responses[0]();
+      for (let i = 0; i < 20; i++) await flushMicrotasks();
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      delete (navigator as { connection?: unknown }).connection;
+    }
+  });
+
+  it("drops queued passive prefetches for links that left the page", async () => {
+    const responses: Array<() => void> = [];
+    fetchSpy.mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          responses.push(() => resolve(createJsonResponse({ data: null })));
+        }),
+    );
+    const anchors = [1, 2, 3, 4, 5].map((page) =>
+      addAnchor(`/pricing?page=${page}`, { "data-pracht-prefetch": "render" }),
+    );
+    setupPrefetching(createApp());
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    // A client navigation replaces the page: the queued links are gone.
+    anchors[3].remove();
+    anchors[4].remove();
+    addAnchor("/pricing?page=new", { "data-pracht-prefetch": "render" });
+    await flushMicrotasks();
+    responses[0]();
+    for (let i = 0; i < 20; i++) await flushMicrotasks();
+    expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([
+      "/pricing?page=1",
+      "/pricing?page=2",
+      "/pricing?page=3",
+      "/pricing?page=new",
+    ]);
+  });
+
+  it('skips "render" prefetches on a 2G-class connection', () => {
+    Object.defineProperty(navigator, "connection", {
+      configurable: true,
+      value: { saveData: false, effectiveType: "slow-2g" },
+    });
+    try {
+      addAnchor("/pricing", { "data-pracht-prefetch": "render" });
+      setupPrefetching(createApp());
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      delete (navigator as { connection?: unknown }).connection;
+    }
+  });
+
   it('prefetches "render" links added to the DOM after setup', async () => {
     setupPrefetching(createApp());
     expect(fetchSpy).not.toHaveBeenCalled();

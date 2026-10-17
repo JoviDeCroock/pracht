@@ -26,7 +26,7 @@ Each route can declare a `prefetch` strategy in its route meta. The default for 
 | Strategy     | Trigger                                       | Best For                                  |
 | ------------ | --------------------------------------------- | ----------------------------------------- |
 | `"intent"`   | Mouse hover (50ms debounce) or keyboard focus | Most routes — low overhead, high hit rate |
-| `"viewport"` | Link scrolls into view (IntersectionObserver) | Navigation menus, link-heavy pages        |
+| `"viewport"` | Link scrolls into view (IntersectionObserver) | A few likely next pages                   |
 | `"hover"`    | Same as intent (hover + focus)                | Alias for intent                          |
 | `"none"`     | Disabled                                      | Rarely visited pages                      |
 
@@ -105,6 +105,8 @@ is a no-op during SSR, before hydration, and for URLs that match no route.
 ## Viewport Prefetching
 
 A `"viewport"` link is prefetched once, when it comes within 200px of the viewport. Links added by client-side navigation are picked up automatically.
+
+Each prefetch runs the route's loader on the server, and a viewport or `"render"` link prefetches without the visitor pointing at it. Those prefetches run three at a time, so a long list of them queues up instead of hitting the server together. When the browser reports Save-Data or a 2G connection they are skipped, while hover and focus prefetches still run.
 
 ---
 
