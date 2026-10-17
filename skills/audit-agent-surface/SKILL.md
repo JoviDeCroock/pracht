@@ -199,10 +199,10 @@ With `agents.mcp.auth`, check:
   ecosystem endpoint the app intends to trust.
 - `agentPolicy: "require"` on a capability while `webBotAuth` is unconfigured
   answers 401 for every caller — a loud misconfiguration, report as `error`.
-- Note the replay property: Pracht's stateless verifier does not enforce `nonce`
-  uniqueness, and the default covered components (`@authority`,
-  `signature-agent`) bind a signature to a host, not to a method, path, or body.
-  Treat a verified identity as authentication, not per-request authorization.
+- Replay: the verifier does not enforce `nonce` uniqueness, and by default a
+  signature binds only the host. If the identity gates anything and
+  `webBotAuth.requireComponents` lacks `@method` and `@path`, `warn`: a captured
+  signature replays onto any endpoint for `maxLifetimeSeconds` (24 h default).
 - Confirm an audit sink exists (`setCapabilityAuditHook()`,
   `addCapabilityAuditListener()`, or `onCapabilityAudit`) — without one there
   is no record of who called what. Grep for all three; `setCapabilityAuditHook`
