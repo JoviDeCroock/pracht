@@ -461,9 +461,8 @@ then use `netlify dev` for a platform-shaped local runtime.
 
 ## Node.js
 
-Run pracht as a standard Node.js HTTP server. The adapter handles static file
-serving, ISG stale-while-revalidate, and request translation, and the generated
-`dist/server/server.js` entry boots the production server directly.
+Run pracht as a standard Node.js HTTP server. The adapter serves static files
+and ISG pages, and the generated `dist/server/server.js` entry boots it directly.
 
 ### Setup
 
@@ -500,9 +499,7 @@ If the proxy also strips Vite's deploy base from the path, set
 ### Response compression
 
 Responses are compressed by default, negotiated from `Accept-Encoding` with
-brotli preferred. Streamed responses such as SSE are flushed chunk by chunk, so
-they still arrive incrementally. Static files are compressed once and served
-from memory.
+brotli preferred. Streamed responses such as SSE still arrive incrementally.
 
 Already-encoded responses, `Cache-Control: no-transform`, range requests,
 binary media, and bodies under 1 KiB are sent as-is. If a reverse proxy or CDN
@@ -519,6 +516,10 @@ pracht build
 node dist/server/server.js
 // Server listening on http://localhost:3000
 ```
+
+Each server keeps ISG pages in its own `dist/client`, so
+`POST /__pracht/revalidate` reaches one replica only. Behind a load balancer,
+run ISG on one instance or share `dist/client` between replicas.
 
 ### Graceful shutdown
 
@@ -537,10 +538,9 @@ A custom server built on `createNodeRequestHandler()` calls
 
 ### WebSockets
 
-Node delivers upgrade requests to the server's `upgrade` event, not to the
-request handler, so they never reach pracht. Attach a WebSocket server to the
-same HTTP server instead. The generated entry exports `handler`, and only
-starts its own server when run as the process entrypoint:
+Upgrade requests go to the server's `upgrade` event and never reach pracht, so
+attach a WebSocket server to the same HTTP server. The generated entry exports
+`handler`, and only starts its own server when run as the process entrypoint:
 
 ```js
 import { createServer } from "node:http";
@@ -699,7 +699,7 @@ export function createContext({ request }: { request: Request }) {
   };
 }
 
-// Node also receives { req, res }; on ISG pages they carry no visitor headers.
+// Node also receives { req, res }, without visitor headers on ISG pages.
 // Cloudflare receives { request, env, executionContext }.
 // Vercel Edge receives { request, context }. Node ISG provides a
 // waitUntil-compatible context, without other Edge-only fields.
