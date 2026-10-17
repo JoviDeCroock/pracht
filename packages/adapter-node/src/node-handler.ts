@@ -518,13 +518,19 @@ async function serveStaticFile(
 
     // Ranges are served from the identity representation only; a request
     // with a Range header is never compressed (see negotiateFileEncoding).
+    // A digest of the whole body cannot describe a slice of it, so files that
+    // carry one are always sent whole.
     const range =
-      request.method === "GET" && encoding === null
+      request.method === "GET" &&
+      encoding === null &&
+      !headers.has("content-digest") &&
+      !headers.has("content-md5")
         ? resolveByteRange(request, headers, fileStat.size)
         : null;
     if (range === "unsatisfiable") {
       res.statusCode = 416;
       headers.set("content-range", `bytes */${fileStat.size}`);
+      headers.set("content-length", "0");
       writeNodeHeaders(res, headers);
       res.end();
       return;

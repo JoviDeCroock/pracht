@@ -19,9 +19,16 @@ let server: ReturnType<typeof createServer>;
 beforeEach(async () => {
   staticDir = mkdtempSync(join(tmpdir(), "pracht-adapter-node-range-"));
   writeFileSync(join(staticDir, "clip.mp4"), fileBytes);
+  writeFileSync(join(staticDir, "rows.csv"), fileBytes);
+  writeFileSync(join(staticDir, "signed.csv"), fileBytes);
   const handler = createNodeRequestHandler({
     app: defineApp({ routes: [] }),
     canonicalOrigin: "http://localhost",
+    // Build-recorded headers that describe the whole file.
+    headersManifest: {
+      "/rows.csv": { "content-length": String(FILE_SIZE) },
+      "/signed.csv": { "content-digest": "sha-256=:AAAA:" },
+    },
     staticDir,
   });
   server = createServer((req, res) => void handler(req, res));
@@ -38,8 +45,8 @@ afterEach(async () => {
   rmSync(staticDir, { force: true, recursive: true });
 });
 
-async function get(headers: Record<string, string>, method = "GET") {
-  const response = await fetch(`${base}/clip.mp4`, { headers, method });
+async function get(headers: Record<string, string>, method = "GET", path = "/clip.mp4") {
+  const response = await fetch(`${base}${path}`, { headers, method });
   return { response, body: Buffer.from(await response.arrayBuffer()) };
 }
 
@@ -100,6 +107,25 @@ describe("static byte ranges", () => {
     });
     expect(outdated.response.status).toBe(200);
     expect(outdated.body.equals(fileBytes)).toBe(true);
+  });
+
+  it("replaces a recorded Content-Length on partial and unsatisfiable answers", async () => {
+    const partial = await get({ range: "bytes=0-9" }, "GET", "/rows.csv");
+    expect(partial.response.status).toBe(206);
+    expect(partial.response.headers.get("content-length")).toBe("10");
+    expect(partial.body.byteLength).toBe(10);
+
+    const unsatisfiable = await get({ range: "bytes=1000-" }, "GET", "/rows.csv");
+    expect(unsatisfiable.response.status).toBe(416);
+    expect(unsatisfiable.response.headers.get("content-length")).toBe("0");
+  });
+
+  it("sends a file with a recorded content digest whole", async () => {
+    const { response, body } = await get({ range: "bytes=0-9" }, "GET", "/signed.csv");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-digest")).toBe("sha-256=:AAAA:");
+    expect(body.equals(fileBytes)).toBe(true);
   });
 
   it("does not apply a range to HEAD", async () => {
