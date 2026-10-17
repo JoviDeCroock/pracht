@@ -1503,10 +1503,6 @@ Routes are sorted: static routes first, then dynamic (`:param`), then catch-all
 - **File edit** in pages dir: virtual modules are invalidated (fast update)
 - **File add/remove** in pages dir: dev server restarts (new routes need
   new globs)
-- **Restart timing**: `pracht dev` holds every restart until the replacement
-  server's file watcher has finished its initial scan (`whenWatcherReady()` in
-  `packages/cli/src/commands/dev.ts`). Vite alone announces "server restarted"
-  earlier, and a save in that gap was never reported.
 
 Except for the conservative compiled-format reloads above, editing a route,
 shell, or island component is ordinary Preact Fast Refresh: the component
