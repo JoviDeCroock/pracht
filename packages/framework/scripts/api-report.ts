@@ -18,8 +18,9 @@
 // reverse) is visible too.
 //
 // It reads the TypeScript sources tsdown compiles (dist/<name>.d.mts comes
-// from src/<name>.ts), so it needs no build and cannot read a stale dist/.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+// from src/<name>.ts), including those of workspace dependencies such as
+// @pracht/capabilities, so it needs no build and cannot read a stale dist/.
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,8 +56,8 @@ function collectTypesTargets(
   }
 }
 
-export function readEntryPoints(): EntryPoint[] {
-  const pkg = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf-8")) as {
+export function readEntryPoints(dir = packageDir): EntryPoint[] {
+  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as {
     name: string;
     exports: Record<string, ExportTarget>;
   };
@@ -72,7 +73,7 @@ export function readEntryPoints(): EntryPoint[] {
       const source = match
         ? ["ts", "tsx"]
             .map((ext) => `src/${match[1]}.${ext}`)
-            .find((file) => existsSync(join(packageDir, file)))
+            .find((file) => existsSync(join(dir, file)))
         : undefined;
       if (!source) {
         throw new Error(
@@ -118,6 +119,37 @@ function resolveExport(
   return { target: current, typeOnly };
 }
 
+/**
+ * Whether `symbol` reaches `file`'s exports through an `export type * from`.
+ * Those exports are plain (non-alias) symbols, so the alias walk misses them.
+ */
+function reachedThroughTypeOnlyStar(
+  checker: ts.TypeChecker,
+  file: ts.SourceFile,
+  symbol: ts.Symbol,
+  seen = new Set<ts.SourceFile>(),
+): boolean {
+  if (symbol.declarations?.some((declaration) => declaration.getSourceFile() === file)) {
+    return false;
+  }
+  seen.add(file);
+  for (const statement of file.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.exportClause) continue;
+    if (!statement.moduleSpecifier) continue;
+    const moduleSymbol = checker.getSymbolAtLocation(statement.moduleSpecifier);
+    const exported = moduleSymbol
+      ? checker.getExportsOfModule(moduleSymbol).find((candidate) => candidate.name === symbol.name)
+      : undefined;
+    if (!exported) continue;
+    if (statement.isTypeOnly) return true;
+    const target = moduleSymbol?.valueDeclaration;
+    return target && ts.isSourceFile(target) && !seen.has(target)
+      ? reachedThroughTypeOnlyStar(checker, target, exported, seen)
+      : false;
+  }
+  return false;
+}
+
 const KINDS: Array<[ts.SymbolFlags, string]> = [
   [ts.SymbolFlags.Class, "class"],
   [ts.SymbolFlags.Function, "function"],
@@ -142,7 +174,12 @@ function describeKind(target: ts.Symbol, typeOnly: boolean): string {
       kinds = kinds.map((kind) => (kind === "const" ? "let" : kind));
     }
   }
-  const kind = kinds.length > 0 ? kinds.join(" + ") : "unknown";
+  if (kinds.length === 0) {
+    throw new Error(
+      `api-report: cannot resolve the export "${target.name}" to a declaration, so the report would be wrong. Check the entry point's imports.`,
+    );
+  }
+  const kind = kinds.join(" + ");
   const hasValue = (target.flags & ts.SymbolFlags.Value) !== 0;
   return typeOnly && hasValue ? `${kind} (type-only export)` : kind;
 }
@@ -155,6 +192,27 @@ function isInternal(target: ts.Symbol): boolean {
 
 function compareCodePoints(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Maps every subpath of @pracht/core's workspace dependencies to its source
+ * file, so the report never reads another package's (possibly stale) dist/.
+ */
+function workspaceSourcePaths(): Record<string, string[]> {
+  const pkg = JSON.parse(readFileSync(join(packageDir, "package.json"), "utf-8")) as {
+    dependencies?: Record<string, string>;
+  };
+  const paths: Record<string, string[]> = {};
+  for (const [name, version] of Object.entries(pkg.dependencies ?? {})) {
+    if (!version.startsWith("workspace:")) continue;
+    const dir = realpathSync(join(packageDir, "node_modules", name));
+    for (const entry of readEntryPoints(dir)) {
+      for (const specifier of entry.specifiers) {
+        if (!specifier.includes(" [")) paths[specifier] = [join(dir, entry.source)];
+      }
+    }
+  }
+  return paths;
 }
 
 export function generateApiReport(): string {
@@ -173,8 +231,21 @@ export function generateApiReport(): string {
   if (!parsed) throw new Error(`api-report: cannot read ${configPath}`);
   const program = ts.createProgram(
     entries.map((entry) => join(packageDir, entry.source)),
-    { ...parsed.options, noEmit: true },
+    {
+      ...parsed.options,
+      paths: { ...parsed.options.paths, ...workspaceSourcePaths() },
+      noEmit: true,
+    },
   );
+  const distInputs = program
+    .getSourceFiles()
+    .map((sourceFile) => sourceFile.fileName.split("\\").join("/"))
+    .filter((fileName) => /\/packages\/[^/]+\/dist\//.test(fileName));
+  if (distInputs.length > 0) {
+    throw new Error(
+      `api-report: the report must read workspace sources, but it loaded build output:\n${distInputs.join("\n")}\nMap the import in workspaceSourcePaths().`,
+    );
+  }
   const checker = program.getTypeChecker();
 
   const lines = [
@@ -196,7 +267,10 @@ export function generateApiReport(): string {
       ? checker
           .getExportsOfModule(moduleSymbol)
           .map((symbol) => {
-            const { target, typeOnly } = resolveExport(checker, symbol);
+            const resolved = resolveExport(checker, symbol);
+            const { target } = resolved;
+            const typeOnly =
+              resolved.typeOnly || reachedThroughTypeOnlyStar(checker, sourceFile!, symbol);
             const internal = isInternal(target) ? " @internal" : "";
             return `${symbol.name}: ${describeKind(target, typeOnly)}${internal}`;
           })
