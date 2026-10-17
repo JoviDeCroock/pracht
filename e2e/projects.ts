@@ -45,7 +45,8 @@ export function specsMatcher(project: E2EProjectName): RegExp {
 }
 
 // Playwright's default `testMatch`: anything it would treat as a spec file.
-const SPEC_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/;
+// Case-insensitive like Playwright, so `x.Test.ts` is reported, not skipped.
+const SPEC_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/i;
 
 function listSpecFiles(dir: string, root: string): string[] {
   const files: string[] = [];
@@ -85,6 +86,23 @@ export function findE2ESpecAssignmentProblems(e2eDir: string): string[] {
   }
 
   return problems;
+}
+
+/**
+ * Returns `projects` unchanged after checking that it configures exactly the
+ * projects listed above: a list with no Playwright project behind it would
+ * pass the spec check and still run nothing.
+ */
+export function configuredProjects<T extends { name: string }>(projects: T[]): T[] {
+  const configured = projects.map((project) => project.name).sort();
+  const listed = Object.keys(e2eProjectSpecs).sort();
+  if (configured.join("\n") !== listed.join("\n")) {
+    throw new Error(
+      `playwright.config.ts configures projects [${configured.join(", ")}] but ` +
+        `e2e/projects.ts lists specs for [${listed.join(", ")}]; they must match.`,
+    );
+  }
+  return projects;
 }
 
 export function assertE2ESpecsAssigned(e2eDir: string): void {

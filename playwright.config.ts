@@ -13,7 +13,7 @@ import {
   registerE2EPortLeaseProcessExit,
   urlsForPorts,
 } from "./e2e/ports.ts";
-import { assertE2ESpecsAssigned, specsMatcher } from "./e2e/projects.ts";
+import { assertE2ESpecsAssigned, configuredProjects, specsMatcher } from "./e2e/projects.ts";
 
 // Fail before leasing ports or starting servers: a spec that no project picks
 // up would otherwise be skipped without a word.
@@ -52,7 +52,7 @@ export default defineConfig({
   // re-run of `verify` — far more than re-running the one spec. A real
   // regression still fails both attempts.
   retries: process.env.CI ? 0 : 1,
-  projects: [
+  projects: configuredProjects([
     {
       name: "basic",
       testMatch: specsMatcher("basic"),
@@ -93,7 +93,7 @@ export default defineConfig({
         baseURL: e2eUrls.capabilities,
       },
     },
-  ],
+  ]),
   webServer: [
     {
       command: `node e2e/start-dev-server.mjs examples/cloudflare ${e2ePorts.basic}`,
