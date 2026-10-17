@@ -96,8 +96,11 @@ export default defineCommand({
     routeTypes.start();
 
     try {
+      // Read capabilities from source like API routes: printing the banner
+      // must not run every capability module's top-level code at startup.
       const graph = await collectAppGraph(server, root, {
         appFile: readProjectConfig(root).appFile,
+        preferStaticCapabilities: true,
       });
       const urls = server.resolvedUrls ?? { local: [], network: [] };
       console.log(

@@ -154,6 +154,13 @@ export interface AppGraphModuleAccess {
 export interface SerializeCapabilitiesOptions {
   /** Fail the graph read when a registered capability module cannot load. */
   strict?: boolean;
+  /**
+   * Read each capability from its source instead of executing its module, and
+   * import it only when the source cannot be read statically. The entry then
+   * carries no `output` schema. Used where executing every capability module
+   * would run application code just to print a summary (the dev banner).
+   */
+  preferStatic?: boolean;
 }
 
 export interface SerializeApiRoutesOptions {
@@ -276,6 +283,29 @@ export function serializeCapabilities(
 ): Promise<AppGraphCapability[]> {
   return Promise.all(
     Object.entries(capabilities ?? {}).map(async ([name, file]) => {
+      if (options.preferStatic) {
+        const projection = readProjection(name, file, access);
+        if (
+          projection &&
+          projection.agentPolicy !== undefined &&
+          projection.middleware !== undefined
+        ) {
+          return {
+            agentPolicy: projection.agentPolicy,
+            description: projection.description,
+            effect: projection.effect,
+            hasUi: false as const,
+            httpPath: projection.httpPath,
+            input: projection.inputSchema,
+            middleware: projection.middleware,
+            name,
+            output: null,
+            source: file,
+            title: projection.title || null,
+            transports: projectionTransports(projection),
+          };
+        }
+      }
       try {
         const module = await access.loadModule(file);
         const capability = module.default as PrachtCapability | undefined;
@@ -402,14 +432,6 @@ export async function buildAppGraph(
     options.app.routes,
   );
   const mcpEndpoint = resolveMcpEndpoint(options.app.agents);
-  const capabilityFailures =
-    mcpEndpoint === null
-      ? []
-      : capabilities.flatMap((capability) =>
-          capability.error
-            ? [`Capability ${JSON.stringify(capability.name)} failed to load: ${capability.error}`]
-            : [],
-        );
   const mcpDestructive = servesDestructiveMcpTools(options.app, capabilities);
   let verifierFailure: string | null = null;
   if (options.app.agents?.mcp?.auth && options.verifyMcpTokenVerifier) {
@@ -433,8 +455,9 @@ export async function buildAppGraph(
       }`;
     }
   }
+  // A capability that fails to load is unavailable on its own (its entry
+  // carries `error`); the endpoint keeps serving the others.
   const mcpUnavailableReasons = [
-    ...capabilityFailures,
     ...(verifierFailure === null ? [] : [verifierFailure]),
     ...(setupFailure !== null
       ? [setupFailure]

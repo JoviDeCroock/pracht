@@ -142,18 +142,47 @@ export interface CapabilityHostApp {
   middleware?: Record<string, string>;
 }
 
-// Resolution loads every registered capability module once per app manifest +
-// registry instance. Resolution also depends on app-level middleware and MCP
-// configuration, so keying only by the capabilities record could leak a result
-// between distinct app manifests that happen to share that record. Dev HMR can
-// keep the same app manifest object while replacing the generated registry
-// after a capability edit, so both identities participate in the cache key.
-const resolvedCapabilitiesCache = new WeakMap<
-  object,
-  WeakMap<object, Promise<ResolvedCapability[]>>
->();
-const EMPTY_CAPABILITY_MODULES = {};
+/** A registered capability whose module failed to import or validate. */
+export interface CapabilityLoadFailure {
+  name: string;
+  file: string;
+  error: unknown;
+}
 
+// Resolution is per capability. A module that throws on import, or exports
+// something that is not a valid capability, makes *that* capability
+// unavailable; every other capability keeps serving. Successful loads are
+// cached per app manifest + registry instance (dev HMR can keep the manifest
+// object while replacing the generated registry after a capability edit, so
+// both identities participate in the key). Failures are never cached: the next
+// resolution retries them, so a transient import error does not last until
+// restart. (An ES module whose top-level code threw stays failed: the runtime
+// caches its evaluation error until the module itself is replaced.) Only graph-wide invariants — two capabilities on one HTTP path, or
+// a capability on the MCP endpoint — still fail the whole graph.
+interface CapabilityResolutionState {
+  /** Settled successes and in-flight loads; failed loads are evicted. */
+  loads: Map<string, Promise<ResolvedCapability>>;
+  /** The full graph once every capability loaded, reused from then on. */
+  complete: Promise<ResolvedCapability[]> | null;
+  /**
+   * The resolution in progress, shared by concurrent callers so overlapping
+   * requests never run more than one bounded worker pool.
+   */
+  inflight: Promise<ResolvedCapability[]> | null;
+}
+
+const resolvedCapabilitiesCache = new WeakMap<object, WeakMap<object, CapabilityResolutionState>>();
+const capabilityLoadFailures = new WeakMap<object, CapabilityLoadFailure[]>();
+const warnedCapabilityLoadFailures = new Set<string>();
+const EMPTY_CAPABILITY_MODULES = {};
+/** Capability modules imported at once while resolving a graph. */
+const CAPABILITY_LOAD_CONCURRENCY = 8;
+
+/**
+ * Resolve the app's capability graph. Resolves to every capability that
+ * loaded; read the ones that did not with {@link getCapabilityLoadFailures}.
+ * Rejects only when the loaded capabilities violate a graph-wide invariant.
+ */
 export function resolveAppCapabilities(
   app: CapabilityHostApp,
   registry: CapabilityModuleRegistry,
@@ -164,132 +193,229 @@ export function resolveAppCapabilities(
     registryCache = new WeakMap();
     resolvedCapabilitiesCache.set(app, registryCache);
   }
-  let resolved = registryCache.get(capabilityModules);
-  if (!resolved) {
-    resolved = resolveAppCapabilitiesUncached(app, registry);
-    registryCache.set(capabilityModules, resolved);
+  let state = registryCache.get(capabilityModules);
+  if (!state) {
+    state = { loads: new Map(), complete: null, inflight: null };
+    registryCache.set(capabilityModules, state);
   }
+  if (state.complete) return state.complete;
+  if (state.inflight) return state.inflight;
+  const current = state;
+  const inflight = resolveCapabilityGraph(app, registry, current).finally(() => {
+    if (current.inflight === inflight) current.inflight = null;
+  });
+  current.inflight = inflight;
+  return inflight;
+}
+
+/** Capabilities left out of a resolved graph because they failed to load. */
+export function getCapabilityLoadFailures(
+  capabilities: readonly ResolvedCapability[],
+): readonly CapabilityLoadFailure[] {
+  return capabilityLoadFailures.get(capabilities) ?? [];
+}
+
+async function resolveCapabilityGraph(
+  app: CapabilityHostApp,
+  registry: CapabilityModuleRegistry,
+  state: CapabilityResolutionState,
+): Promise<ResolvedCapability[]> {
+  const entries = Object.entries(app.capabilities ?? {});
+  const results: Array<{ ok: true; value: ResolvedCapability } | { ok: false; error: unknown }> =
+    [];
+
+  // Bounded concurrency: a large graph should not import one module at a time,
+  // nor start hundreds of imports at once.
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < entries.length) {
+      const index = next++;
+      const [name, file] = entries[index];
+      let load = state.loads.get(name);
+      if (!load) {
+        load = loadCapability(app, registry, name, file);
+        state.loads.set(name, load);
+        // Evict a failure so the next resolution retries it.
+        load.catch(() => {
+          if (state.loads.get(name) === load) state.loads.delete(name);
+        });
+      }
+      try {
+        results[index] = { ok: true, value: await load };
+      } catch (error: unknown) {
+        results[index] = { ok: false, error };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CAPABILITY_LOAD_CONCURRENCY, entries.length) }, worker),
+  );
+
+  const resolved: ResolvedCapability[] = [];
+  const failures: CapabilityLoadFailure[] = [];
+  results.forEach((result, index) => {
+    if (result.ok) {
+      resolved.push(result.value);
+    } else {
+      const [name, file] = entries[index];
+      failures.push({ name, file, error: result.error });
+    }
+  });
+
+  assertCapabilityGraphInvariants(app, resolved);
+
+  if (failures.length === 0) {
+    const complete = Promise.resolve(resolved);
+    // Concurrent cold resolutions may race here; any of them is the same graph.
+    if (!state.complete) state.complete = complete;
+    return resolved;
+  }
+  capabilityLoadFailures.set(resolved, failures);
+  for (const failure of failures) warnCapabilityLoadFailure(failure);
   return resolved;
 }
 
-async function resolveAppCapabilitiesUncached(
+function warnCapabilityLoadFailure(failure: CapabilityLoadFailure): void {
+  const detail = failure.error instanceof Error ? failure.error.message : String(failure.error);
+  const key = `${failure.name}\u0000${detail}`;
+  if (warnedCapabilityLoadFailures.has(key)) return;
+  warnedCapabilityLoadFailures.add(key);
+  try {
+    console.warn(
+      `[pracht] Capability "${failure.name}" (${failure.file}) failed to load and is ` +
+        `unavailable: ${detail}. Other capabilities keep serving; the load is retried on the ` +
+        "next request.",
+    );
+  } catch {
+    // Diagnostics are best-effort.
+  }
+}
+
+/** Load and validate one capability. Throws for that capability alone. */
+async function loadCapability(
   app: CapabilityHostApp,
   registry: CapabilityModuleRegistry,
-): Promise<ResolvedCapability[]> {
-  const resolved: ResolvedCapability[] = [];
+  name: string,
+  file: string,
+): Promise<ResolvedCapability> {
+  if (!CAPABILITY_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid capability name "${name}". Names must be dot-separated segments of ` +
+        'letters, numbers, hyphens, and underscores (e.g. "notes.search").',
+    );
+  }
+
+  const module = await resolveRegistryModule<CapabilityModule>(registry.capabilityModules, file);
+  const capability = module?.default;
+  if (!capability || capability.kind !== "capability") {
+    throw new Error(
+      `Capability "${name}" (${file}) must default-export the result of ` +
+        "defineCapability() from @pracht/capabilities.",
+    );
+  }
+
+  // `defineCapability()` already refuses this; re-check here so a
+  // hand-rolled capability object fails closed before it can be served.
+  // Destructive + HTTP and destructive + MCP are both allowed — the
+  // prepare/commit confirmation flow gates every dispatch on either, and the
+  // MCP projection additionally requires the `agents.mcp.destructive`
+  // opt-in before it serves one. WebMCP stays disallowed: a browser host's
+  // approval UX is not a security boundary.
+  if (capability.effect === "destructive" && capability.expose?.webmcp) {
+    throw new Error(
+      `Capability "${name}": destructive capabilities cannot be exposed as WebMCP page ` +
+        "tools — use expose.http, or expose.mcp with agents.mcp.destructive.",
+    );
+  }
+  if (capability.expose?.webmcp && !capability.expose.http) {
+    throw new Error(`Capability "${name}": expose.webmcp requires expose.http.`);
+  }
+  // The registered capability name is projected verbatim as the WebMCP tool
+  // name, and the browser rejects names outside the spec grammar — fail here
+  // rather than letting registration fail silently in the page.
+  if (capability.expose?.webmcp && !isValidWebmcpToolName(name)) {
+    throw new Error(`Capability "${name}": ${WEBMCP_TOOL_NAME_ERROR}.`);
+  }
+  if (
+    capability.expose?.mcp &&
+    (capability.input?.type !== "object" || capability.output?.type !== "object")
+  ) {
+    throw new Error(`Capability "${name}": ${MCP_SCHEMA_ROOT_ERROR}.`);
+  }
+  if (capability.expose?.mcp && !isValidMcpToolName(mcpToolName(name))) {
+    throw new Error(`Capability "${name}": ${MCP_TOOL_NAME_ERROR}.`);
+  }
+  if (
+    capability.expose &&
+    (typeof capability.validateInput !== "function" ||
+      typeof capability.validateOutput !== "function" ||
+      typeof capability.description !== "string" ||
+      !capability.input ||
+      !capability.output ||
+      !capability.effect)
+  ) {
+    throw new Error(
+      `Capability "${name}" is exposed but is missing its contract ` +
+        "(description, input schema, output schema, effect, validators).",
+    );
+  }
+
+  const middlewareFiles = (capability.middleware ?? []).map((middlewareName) => {
+    const middlewareFile = app.middleware?.[middlewareName];
+    if (!middlewareFile) {
+      throw new Error(
+        formatUnknownNameError({
+          kind: "middleware",
+          kindPlural: "middleware",
+          name: middlewareName,
+          registered: Object.keys(app.middleware ?? {}),
+          context: `capability "${name}"`,
+        }),
+      );
+    }
+    return middlewareFile;
+  });
+
+  let httpPath: string | null = null;
+  if (capability.expose?.http) {
+    const configuredPath = capability.expose.http.path ?? capabilityHttpPath(name);
+    if (!isValidCapabilityHttpPath(configuredPath)) {
+      throw new Error(
+        `Capability "${name}": HTTP exposure path must be an exact same-origin pathname ` +
+          'starting with "/".',
+      );
+    }
+    httpPath = normalizeCapabilityHttpPath(configuredPath);
+  }
+
+  return { name, file, capability, httpPath, middlewareFiles };
+}
+
+/** Invariants that span capabilities, checked over everything that loaded. */
+function assertCapabilityGraphInvariants(
+  app: CapabilityHostApp,
+  resolved: readonly ResolvedCapability[],
+): void {
   const seenHttpPaths = new Map<string, string>();
   const mcpEndpoint = app.agents?.mcp
     ? normalizeCapabilityHttpPath(app.agents.mcp.path ?? DEFAULT_MCP_ENDPOINT)
     : null;
-
-  for (const [name, file] of Object.entries(app.capabilities ?? {})) {
-    if (!CAPABILITY_NAME_RE.test(name)) {
+  for (const { name, httpPath } of resolved) {
+    if (httpPath === null) continue;
+    if (httpPath === mcpEndpoint) {
       throw new Error(
-        `Invalid capability name "${name}". Names must be dot-separated segments of ` +
-          'letters, numbers, hyphens, and underscores (e.g. "notes.search").',
+        `Capability "${name}" exposes HTTP path "${httpPath}", which is also the configured ` +
+          "MCP endpoint. Choose a distinct agents.mcp.path or capability HTTP path.",
       );
     }
-
-    const module = await resolveRegistryModule<CapabilityModule>(registry.capabilityModules, file);
-    const capability = module?.default;
-    if (!capability || capability.kind !== "capability") {
+    const existing = seenHttpPaths.get(httpPath);
+    if (existing) {
       throw new Error(
-        `Capability "${name}" (${file}) must default-export the result of ` +
-          "defineCapability() from @pracht/capabilities.",
+        `Capabilities "${existing}" and "${name}" both expose HTTP path "${httpPath}".`,
       );
     }
-
-    // `defineCapability()` already refuses this; re-check here so a
-    // hand-rolled capability object fails closed before it can be served.
-    // Destructive + HTTP and destructive + MCP are both allowed — the
-    // prepare/commit confirmation flow gates every dispatch on either, and the
-    // MCP projection additionally requires the `agents.mcp.destructive`
-    // opt-in before it serves one. WebMCP stays disallowed: a browser host's
-    // approval UX is not a security boundary.
-    if (capability.effect === "destructive" && capability.expose?.webmcp) {
-      throw new Error(
-        `Capability "${name}": destructive capabilities cannot be exposed as WebMCP page ` +
-          "tools — use expose.http, or expose.mcp with agents.mcp.destructive.",
-      );
-    }
-    if (capability.expose?.webmcp && !capability.expose.http) {
-      throw new Error(`Capability "${name}": expose.webmcp requires expose.http.`);
-    }
-    // The registered capability name is projected verbatim as the WebMCP tool
-    // name, and the browser rejects names outside the spec grammar — fail here
-    // rather than letting registration fail silently in the page.
-    if (capability.expose?.webmcp && !isValidWebmcpToolName(name)) {
-      throw new Error(`Capability "${name}": ${WEBMCP_TOOL_NAME_ERROR}.`);
-    }
-    if (
-      capability.expose?.mcp &&
-      (capability.input?.type !== "object" || capability.output?.type !== "object")
-    ) {
-      throw new Error(`Capability "${name}": ${MCP_SCHEMA_ROOT_ERROR}.`);
-    }
-    if (capability.expose?.mcp && !isValidMcpToolName(mcpToolName(name))) {
-      throw new Error(`Capability "${name}": ${MCP_TOOL_NAME_ERROR}.`);
-    }
-    if (
-      capability.expose &&
-      (typeof capability.validateInput !== "function" ||
-        typeof capability.validateOutput !== "function" ||
-        typeof capability.description !== "string" ||
-        !capability.input ||
-        !capability.output ||
-        !capability.effect)
-    ) {
-      throw new Error(
-        `Capability "${name}" is exposed but is missing its contract ` +
-          "(description, input schema, output schema, effect, validators).",
-      );
-    }
-
-    const middlewareFiles = (capability.middleware ?? []).map((middlewareName) => {
-      const middlewareFile = app.middleware?.[middlewareName];
-      if (!middlewareFile) {
-        throw new Error(
-          formatUnknownNameError({
-            kind: "middleware",
-            kindPlural: "middleware",
-            name: middlewareName,
-            registered: Object.keys(app.middleware ?? {}),
-            context: `capability "${name}"`,
-          }),
-        );
-      }
-      return middlewareFile;
-    });
-
-    let httpPath: string | null = null;
-    if (capability.expose?.http) {
-      const configuredPath = capability.expose.http.path ?? capabilityHttpPath(name);
-      if (!isValidCapabilityHttpPath(configuredPath)) {
-        throw new Error(
-          `Capability "${name}": HTTP exposure path must be an exact same-origin pathname ` +
-            'starting with "/".',
-        );
-      }
-      httpPath = normalizeCapabilityHttpPath(configuredPath);
-      if (httpPath === mcpEndpoint) {
-        throw new Error(
-          `Capability "${name}" exposes HTTP path "${httpPath}", which is also the configured ` +
-            "MCP endpoint. Choose a distinct agents.mcp.path or capability HTTP path.",
-        );
-      }
-      const existing = seenHttpPaths.get(httpPath);
-      if (existing) {
-        throw new Error(
-          `Capabilities "${existing}" and "${name}" both expose HTTP path "${httpPath}".`,
-        );
-      }
-      seenHttpPaths.set(httpPath, name);
-    }
-
-    resolved.push({ name, file, capability, httpPath, middlewareFiles });
+    seenHttpPaths.set(httpPath, name);
   }
-
-  return resolved;
 }
 
 export function matchCapabilityRoute(
@@ -1593,6 +1719,15 @@ export async function invokeCapabilityOnHost<T = unknown>(
   const capabilities = await resolveAppCapabilities(host.app, host.registry);
   const resolved = capabilities.find((entry) => entry.name === name);
   if (!resolved) {
+    const failure = getCapabilityLoadFailures(capabilities).find((entry) => entry.name === name);
+    if (failure) {
+      return errorEnvelope({
+        code: "internal_error",
+        message: `Capability "${name}" failed to load: ${
+          failure.error instanceof Error ? failure.error.message : String(failure.error)
+        }`,
+      }) as CapabilityEnvelope<T>;
+    }
     return errorEnvelope({
       code: "unknown_capability",
       message: formatUnknownNameError({

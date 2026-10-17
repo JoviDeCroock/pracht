@@ -855,6 +855,7 @@ export async function dispatchAgentSurface<TContext>(
   const {
     CAPABILITY_HTTP_PREFIX,
     envelopeResponse,
+    getCapabilityLoadFailures,
     handleCapabilityRequest,
     isRegisteredCapabilityHttpPath,
     matchCapabilityRoute,
@@ -863,8 +864,13 @@ export async function dispatchAgentSurface<TContext>(
   const routePathname = ctx.routePathname;
   let capabilities: ResolvedCapability[] | null = hasCapabilities ? null : [];
   let capabilityResolutionError: unknown;
+  // Capability endpoints answer POST, so a page GET or HEAD outside the
+  // capability prefix cannot be one: leave the graph unresolved rather than
+  // importing every capability module on a page view.
+  const mayDispatchCapability =
+    routePathname.startsWith(CAPABILITY_HTTP_PREFIX) || !SAFE_METHODS.has(request.method);
   try {
-    if (hasCapabilities && !isMcpRequest) {
+    if (hasCapabilities && !isMcpRequest && mayDispatchCapability) {
       capabilities = await resolveAppCapabilities(options.app, registry);
     }
   } catch (error: unknown) {
@@ -957,6 +963,32 @@ export async function dispatchAgentSurface<TContext>(
       });
       return withDefaultSecurityHeaders(
         withEnhancedCapabilityFormRedirect(capabilityResponse, request),
+      );
+    }
+
+    // A capability that failed to load may own this path: fail closed rather
+    // than answering 404 or falling through to a page.
+    const loadFailures = getCapabilityLoadFailures(capabilities);
+    if (
+      loadFailures.length > 0 &&
+      (routePathname.startsWith(CAPABILITY_HTTP_PREFIX) ||
+        (await isRegisteredCapabilityHttpPath(options.app, registry, routePathname)))
+    ) {
+      return withDefaultSecurityHeaders(
+        envelopeResponse(500, {
+          ok: false,
+          error: {
+            code: "internal_error",
+            message: ctx.exposeDiagnostics
+              ? `Capability failed to load: ${loadFailures
+                  .map(
+                    (failure) =>
+                      `${failure.name} (${failure.error instanceof Error ? failure.error.message : String(failure.error)})`,
+                  )
+                  .join("; ")}`
+              : "Capability failed to load.",
+          },
+        }),
       );
     }
 
