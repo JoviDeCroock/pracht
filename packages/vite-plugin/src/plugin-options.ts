@@ -60,7 +60,8 @@ export interface PrachtLlmsTxtOptions {
 
 /**
  * Optional client-router features, compiled out of the client bundle when
- * disabled. `prefetch` and `navigationGuards` default to `true`: turn one off
+ * disabled. `prefetch`, `navigationGuards`, and `accessibleNavigation`
+ * default to `true`: turn one off
  * only when the app really does not use it, since the router silently stops
  * honouring the corresponding route options and `<Link>` props.
  * `hydrationWarnings`, `richData`, and `islandsNavigation` add bytes and
@@ -80,6 +81,14 @@ export interface PrachtClientOptions {
    * back, and makes `useBlocker()` never block (it warns in development).
    */
   navigationGuards?: boolean;
+  /**
+   * After a client navigation to another page, move focus to the new page
+   * (its `autofocus` element, else the top of the document) and announce it
+   * to screen readers through a visually hidden live region, as a page load
+   * would. Focus the app moves itself is left alone. Turn it off only when the
+   * app manages focus and announcements on its own.
+   */
+  accessibleNavigation?: boolean;
   /**
    * Keep the hydration-mismatch reporter — the red banner and the matching
    * `console.error`, otherwise development-only — in the production client and
@@ -238,6 +247,7 @@ export type ResolvedPrachtPluginOptions = Required<PrachtPluginOptions>;
 export const CLIENT_FEATURE_DEFAULTS: Required<PrachtClientOptions> = {
   prefetch: true,
   navigationGuards: true,
+  accessibleNavigation: true,
   hydrationWarnings: false,
   richData: false,
   islandsNavigation: false,

@@ -567,6 +567,30 @@ with a fragment — it also moves focus to the target, adding a temporary
 on blur. Without this a skip link scrolls but leaves the next Tab stop at the
 top of the page, sending the user back into the navigation they just skipped.
 
+**Focus and announcement on page changes.** After a navigation that changes the
+pathname (push, replace, or traversal), `settlePageFocus()` in `router.ts` does
+what a document load does for assistive technology. It runs from the
+after-commit callback, next to scroll restoration:
+
+- Focus starts over on the new page's first `[autofocus]` element inside the
+  router root, else on `<body>` (a temporary `tabindex="-1"`, the same trick
+  `settleFocus()` in `islands-navigation.ts` uses). The next Tab then starts at
+  the top. This is skipped when the active element is no longer the one that
+  had focus when the navigation started (the page moved focus itself, e.g. in a
+  layout effect), and for `preserveScroll` navigations.
+- A visually hidden `aria-live="assertive"` region (`[data-pracht-announcer]`,
+  appended to `<body>` outside the router root, so hydration never sees it)
+  reads out, 50 ms after commit so route effects have run: `document.title` if
+  it changed during the navigation, else the root's first `<h1>`, else the
+  title. The router does not update `<title>` itself (head metadata is
+  server-rendered), so the heading is the usual source.
+- A navigation that keeps the pathname (a query or filter change) does
+  neither.
+
+`client: { accessibleNavigation: false }` sets
+`__PRACHT_ACCESSIBLE_NAVIGATION__` to `false` and compiles all of it out (about
+330 B gzip).
+
 When a fragment matches no element the router does what the browser does: it
 scrolls to the top of the document only for the empty fragment and the legacy
 `#top`, and stays exactly where it is otherwise.

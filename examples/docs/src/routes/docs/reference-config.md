@@ -71,6 +71,7 @@ app does not use it: the router then ignores the matching route options and
 | --- | --- | --- |
 | `client.prefetch` | `true` | JS [prefetching](/docs/prefetching#shipping-less-javascript) from `route({ prefetch })` and `<Link prefetch>`. Off makes `prefetch()` a no-op |
 | `client.navigationGuards` | `true` | [`useBlocker()`](/docs/data-loading#useblocker) navigation guards. Off makes `useBlocker()` never block; it warns in development |
+| `client.accessibleNavigation` | `true` | After a client navigation to another page, focus moves to the new page's `autofocus` element or the top of the page, and screen readers hear the page's title or first `<h1>`. Focus the page moves itself is left alone. Turn it off only if the app manages focus and announcements itself |
 | `client.hydrationWarnings` | `false` | Keep the [hydration-mismatch reporter](/docs/rendering#hydration-mismatch-warnings) in production client and islands bundles, to check a build before deploying it. Not for the build you ship |
 | `client.richData` | `false` | Send loader `Date`, `Map`, `Set`, `BigInt`, and shared references to the browser [as those types](/docs/data-loading#dates-maps-and-other-rich-values) instead of as JSON |
 | `client.islandsNavigation` | `false` | [Swap islands pages in place](/docs/islands#client-side-navigation-between-islands-pages) instead of loading a new document, keeping shared islands mounted. Every islands page then loads the bootstrap |
