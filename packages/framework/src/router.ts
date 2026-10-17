@@ -585,6 +585,28 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // outgoing page's height would clamp the restored position).
   let afterCommitCallback: (() => void) | null = null;
 
+  // Catches what no app ErrorBoundary does (the shell has none, and the route
+  // has none or the error is in the shell). A render error while a client
+  // navigation commits would otherwise leave the page blank, so the document
+  // is reloaded instead: the server
+  // renders the page, or its error page. Any other error (hydration, a later
+  // update) propagates as before, which also keeps the reload from looping.
+  class NavigationErrorBoundary extends Component<{ children: ComponentChildren }, { e?: 1 }> {
+    componentDidCatch(error: unknown): void {
+      if (!afterCommitCallback || typeof (error as { then?: unknown })?.then === "function") {
+        throw error;
+      }
+      afterCommitCallback = null;
+      window.reportError?.(error);
+      this.setState({ e: 1 });
+      window.location.reload();
+    }
+
+    render(props: { children: ComponentChildren }, state: { e?: 1 }): ComponentChildren {
+      return state.e ? null : props.children;
+    }
+  }
+
   // The route component's `data` prop is a snapshot taken when the route state
   // was resolved, but revalidation (`useRevalidate()`, `<Form capability>`, the
   // capability-settled listener) commits new data to the runtime provider
@@ -660,7 +682,9 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           Boundary: ShellBoundary,
           children: shellTree,
         })
-      : shellTree;
+      : // Unkeyed, and present whether or not the route has a boundary, so
+        // the shell is not remounted between pages.
+        h(NavigationErrorBoundary, null, shellTree);
     // Same position as the server render: inside the runtime providers, above
     // the shell.
     const rootedTree =
