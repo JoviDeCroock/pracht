@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   describeInlineCssOpportunity,
+  findStaticRouteStateConflicts,
   isStaticExportBuild,
   resolvePrerenderOutputPath,
   resolveRouteStateOutputPath,
@@ -12,6 +13,7 @@ import {
   validateStaticExport,
   validateStaticExportOutputPaths,
   writeStaticExportArtifacts,
+  writeStaticRouteState,
 } from "../src/build-static.ts";
 
 const tempDirs: string[] = [];
@@ -484,6 +486,39 @@ describe("validateStaticExport", () => {
     const message = (error as Error).message;
     expect(message).toContain("/x");
     expect(message).toContain("/api/x");
+  });
+});
+
+describe("streamed route-state writes", () => {
+  it("reports files public/ put in the state namespace, found before any page is written", () => {
+    const clientDir = createTempDir();
+    const statePath = resolveRouteStateOutputPath(clientDir, "/docs/b");
+    mkdirSync(dirname(statePath), { recursive: true });
+    writeFileSync(statePath, "{}");
+    const paths = ["/docs/a", "/docs/b"].map((path) => ({ path }));
+
+    const conflicts = findStaticRouteStateConflicts(clientDir, paths);
+
+    expect([...conflicts.keys()]).toEqual(["/docs/b"]);
+    writeStaticRouteState(clientDir, "/docs/a", '{"a":1}', conflicts.get("/docs/a"));
+    expect(() =>
+      writeStaticRouteState(clientDir, "/docs/b", '{"b":1}', conflicts.get("/docs/b")),
+    ).toThrow(/\/docs\/b would overwrite _pracht\/state\//);
+  });
+
+  it("does not rescan the state directory it is filling, so sibling pages cost the same", () => {
+    const clientDir = createTempDir();
+    const paths = Array.from({ length: 300 }, (_, index) => ({ path: `/doc/${index}` }));
+    const conflicts = findStaticRouteStateConflicts(clientDir, paths);
+    // Fill the directory first: a per-write scan would now find each page's
+    // own file, which a conflict check run before the writes cannot.
+    for (const { path } of paths) {
+      writeStaticRouteState(clientDir, path, "{}", conflicts.get(path));
+    }
+    for (const { path } of paths) {
+      expect(() => writeStaticRouteState(clientDir, path, "{}", conflicts.get(path))).not.toThrow();
+    }
+    expect(conflicts.size).toBe(0);
   });
 });
 

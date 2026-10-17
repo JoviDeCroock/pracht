@@ -34,6 +34,7 @@ import {
 import {
   decodeStaticOutputPath,
   describeInlineCssOpportunity,
+  findStaticRouteStateConflicts,
   isStaticExportBuild,
   resolveMarkdownFileOutputPath,
   resolvePrerenderOutputPath,
@@ -77,6 +78,15 @@ const PRERENDER_LOG_LIMIT = 20;
 
 /** Markdown pages replayed per batch, so their sources are written before the next batch runs. */
 const MARKDOWN_REPLAY_CHUNK = 200;
+
+/**
+ * A copy of `value` that shares no memory with the string it was cut from.
+ * V8 keeps a substring's parent alive, so a reason sliced out of a page's
+ * markup would otherwise pin that page's whole HTML until the build ends.
+ */
+function detachString(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : Buffer.from(value, "utf8").toString("utf8");
+}
 
 /** What the build keeps about a prerendered page once its HTML is on disk. */
 interface PrerenderedPage {
@@ -759,6 +769,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     let writtenPageCount = 0;
     let streamedStateFileCount = 0;
     let pathsChecked = false;
+    let stateConflicts = new Map<string, string>();
 
     const checkPaths = (paths: readonly { path: string }[]): void => {
       pathsChecked = true;
@@ -766,6 +777,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         // getStaticPaths() can produce paths that are absent from the manifest.
         // Validate the concrete set before writing even the first page.
         validateStaticExportOutputPaths(paths, serverMod);
+        stateConflicts = findStaticRouteStateConflicts(clientDir, paths);
       }
     };
     const writePage = (
@@ -779,10 +791,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         markdown: page.markdown,
         ...(page.spa ? { spa: true } : {}),
         written,
-        htmlReason: markdownFileHtmlReason(page.html),
+        htmlReason: detachString(markdownFileHtmlReason(page.html)),
       };
       if (isStaticExport && typeof page.routeState === "string") {
-        writeStaticRouteState(clientDir, page.path, page.routeState);
+        writeStaticRouteState(clientDir, page.path, page.routeState, stateConflicts.get(page.path));
         streamedStateFileCount += 1;
       }
       if (!written) return;

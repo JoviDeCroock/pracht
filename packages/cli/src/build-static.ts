@@ -674,16 +674,37 @@ export function describeInlineCssOpportunity(options: {
 }
 
 /**
+ * The files `public/` or Vite already put where a page's route-state JSON
+ * would go, by route path. Run once, before the first page is written, so
+ * each scan sees only those files and not the state files the build writes.
+ */
+export function findStaticRouteStateConflicts(
+  clientDir: string,
+  paths: ReadonlyArray<{ path: string }>,
+): Map<string, string> {
+  const conflicts = new Map<string, string>();
+  for (const { path } of paths) {
+    const existingPath = findPortableOutputConflict(
+      clientDir,
+      resolveRouteStateOutputPath(clientDir, path),
+    );
+    if (existingPath) conflicts.set(path, existingPath);
+  }
+  return conflicts;
+}
+
+/**
  * Write one page's route-state JSON as soon as the page renders, refusing to
- * replace a file `public/` or Vite put in the reserved namespace.
+ * replace a file `public/` or Vite put in the reserved namespace
+ * (`existingPath`, from {@link findStaticRouteStateConflicts}).
  */
 export function writeStaticRouteState(
   clientDir: string,
   routePath: string,
   routeState: string,
+  existingPath: string | undefined,
 ): void {
   const filePath = resolveRouteStateOutputPath(clientDir, routePath);
-  const existingPath = findPortableOutputConflict(clientDir, filePath);
   assertNoStateOutputConflicts(existingPath ? [{ existingPath, routePath }] : []);
   mkdirSync(dirname(filePath), { recursive: true });
   writeFileSync(filePath, routeState, "utf-8");
