@@ -322,6 +322,19 @@ the drift is intended, run `node bench/run.mjs --bytes-only --update`, commit
 `bench/baseline.json`, and update the published table in
 `examples/docs/src/routes/docs/performance.md`.
 
+`packages/framework/api-report.api.md` is the `@pracht/core` API report: every
+name each `package.json` `exports` subpath exposes, with its kind (`function`,
+`const`, `interface`, …), sorted, one per line. It lists every subpath,
+including the ones only generated code imports (`islands-client`,
+`devtools`, …), because those ship and must stay compatible across
+vite-plugin/core version pairs; exports tagged `@internal` are listed with that
+tag instead of being hidden. `packages/framework/test/api-report.test.ts`
+regenerates it from the sources tsdown compiles (no build needed, about two
+seconds) and fails naming each added or removed export, so it runs in
+`pnpm test`, `verify`, and CI. When the surface change is intended, run
+`pnpm api:update`, commit the report, and give the change a changeset with a
+deliberate bump; a removal or rename breaks apps and needs a migration note.
+
 The individual scripts (`pnpm run build|format|lint|typecheck|test|e2e`) still
 work on their own; `verify` only changes how they are scheduled.
 
