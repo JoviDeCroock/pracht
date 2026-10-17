@@ -11,7 +11,8 @@
 import { parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
 
 /**
- * Redirect hops one client navigation may follow before giving up. Twenty is
+ * Redirect hops one client navigation follows before handing the chain to the
+ * browser as a document navigation. Twenty is
  * the limit browsers apply to document redirects, so a chain a full page load
  * would survive is a chain client navigation survives too.
  */

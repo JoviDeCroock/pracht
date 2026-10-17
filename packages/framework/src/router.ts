@@ -273,8 +273,9 @@ interface InternalNavigateOptions extends NavigateOptions {
   _staticFallback?: boolean;
   /**
    * How many loader redirects this navigation has already followed. Chains
-   * longer than `MAX_REDIRECT_HOPS` stop with an error instead of recursing
-   * forever, matching how the browser bounds a document redirect chain.
+   * longer than `MAX_REDIRECT_HOPS` become a document navigation instead of
+   * recursing forever, so the browser's own redirect limit and error page end
+   * them.
    */
   _redirectHop?: number;
 }
@@ -935,7 +936,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (result.location) {
             const hop = (opts?._redirectHop ?? 0) + 1;
             if (hop > MAX_REDIRECT_HOPS) {
+              // Let the browser follow the chain: its own limit ends it on an
+              // error page instead of the old page staying put.
               console.error(`[pracht] too many redirects: ${result.location}`);
+              window.location.href = target.browserUrl;
               return;
             }
             const redirect = resolveRedirectTarget(result.location);

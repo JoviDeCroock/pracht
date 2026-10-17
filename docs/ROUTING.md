@@ -1104,7 +1104,10 @@ served static HTML never traverses it. This holds for manifest and pages
 
 Client-side navigations honor same-origin middleware redirects too. If a redirect
 lands on the page the user is already on, the router treats it as a no-op
-instead of forcing a reload loop.
+instead of forcing a reload loop. A chain longer than `MAX_REDIRECT_HOPS` (20,
+the browser's own limit) logs `[pracht] too many redirects` and becomes a
+document navigation to the last hop, so the browser ends it on its own error
+page instead of leaving the previous page on screen.
 
 ---
 

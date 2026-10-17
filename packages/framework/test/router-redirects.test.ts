@@ -109,7 +109,7 @@ describe("client redirect handling", () => {
     delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
   });
 
-  it("stops a loader redirect chain after twenty hops", async () => {
+  it("hands a loader redirect chain to the browser after twenty hops", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     // /a bounces to /b, /b bounces back to /a: a chain with no end.
     fetchSpy.mockImplementation((url: string) =>
@@ -128,9 +128,12 @@ describe("client redirect handling", () => {
 
     await window.__PRACHT_NAVIGATE__!("/a");
 
-    // Twenty hops followed, the twenty-first refused.
+    // Twenty hops followed; the twenty-first goes to the browser as a
+    // document navigation, so its own redirect limit and error page apply
+    // instead of the old page silently staying on screen.
     expect(fetchSpy).toHaveBeenCalledTimes(21);
     expect(consoleError).toHaveBeenCalledWith(expect.stringMatching(/too many redirects/));
+    expect(hrefSpy).toHaveBeenCalledWith("/a");
   });
 
   it("hands an opaque redirect to the browser instead of re-fetching the same URL", async () => {
