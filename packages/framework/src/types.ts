@@ -831,7 +831,8 @@ export interface PrachtAppConfig {
   viewTransitions?: boolean;
   /**
    * Budget, in milliseconds, for the `signal` the runtime hands to middleware,
-   * loaders, and API route handlers. Defaults to `30_000`.
+   * loaders, API route handlers, and capabilities (HTTP and remote MCP).
+   * Defaults to `30_000`.
    *
    * The signal aborts when the budget runs out *or* when the client
    * disconnects, whichever happens first, so work started for a request the
