@@ -419,7 +419,10 @@ so the exit status is the default one. Edges of that shape:
   and longer while a client keeps sending on it. Open `text/event-stream`
   responses are destroyed right after `server.close()` via
   `handler.closeEventStreams()` (request `signal` aborts, body stream is
-  cancelled; `EventSource` clients reconnect elsewhere). Upgraded WebSockets and
+  cancelled; `EventSource` clients reconnect elsewhere), including ones not yet
+  flushed; a 100ms sweep then closes event streams that in-flight requests open
+  later, and the entry awaits the closed streams' handlers before draining so
+  abort-time `waitUntil()` work is kept. Upgraded WebSockets and
   other long streaming responses still hold it until the deadline. The
   `waitUntil()` drain shares that deadline, so work still pending when it
   expires is cut off.

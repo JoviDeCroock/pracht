@@ -532,12 +532,13 @@ limit below your platform's kill grace period:
 ```ts [vite.config.ts]
 nodeAdapter({
   shutdownTimeoutMs: 8_000, // default 10_000
-  keepAliveTimeoutMs: 65_000, // above your load balancer's idle timeout
+  keepAliveTimeoutMs: 65_000, // above your load balancer's idle timeout; Node's default is 5_000
+  headersTimeoutMs: 66_000, // time to receive request headers; Node's default is 60_000
 });
 ```
 
-A custom server built on `createNodeRequestHandler()` calls
-`handler.closeEventStreams()` and `await handler.drain(timeoutMs)` after
+Custom servers built on `createNodeRequestHandler()` call
+`await handler.closeEventStreams()` then `await handler.drain(timeoutMs)` after
 `server.close()`.
 
 ### WebSockets

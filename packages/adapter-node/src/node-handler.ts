@@ -166,8 +166,12 @@ export interface NodeRequestHandler {
    * cancelled). Event streams never end on their own, so a graceful shutdown
    * calls this after `server.close()` instead of waiting out its timeout;
    * `EventSource` clients reconnect. Other responses are left to finish.
+   * From the first call on, event streams that in-flight requests open later
+   * are closed too. Resolves once the handlers of every stream closed so far
+   * have returned, so a `drain()` after it sees the `waitUntil()` work their
+   * abort listeners registered.
    */
-  closeEventStreams(): void;
+  closeEventStreams(): Promise<void>;
   /** Registered background work that has not settled yet. */
   readonly pending: number;
 }
@@ -437,10 +441,28 @@ export function createNodeRequestHandler<TContext = unknown>(
   // `http.createServer(handler)` ignores the returned promise, so a rejection
   // here would become an unhandled rejection and terminate the process. Every
   // failure has to be absorbed at this boundary.
-  const openResponses = new Set<ServerResponse>();
-  const listener = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    openResponses.add(res);
+  // Each open response with the promise of the request serving it.
+  const openResponses = new Map<ServerResponse, Promise<void>>();
+  const closedEventStreams = new Set<Promise<void>>();
+  let eventStreamSweep: ReturnType<typeof setInterval> | undefined;
+  const sweepEventStreams = (): void => {
+    for (const [res, served] of openResponses) {
+      if (res.writableEnded || res.destroyed) continue;
+      // Response headers are staged before the first body chunk, so a stream
+      // that has not sent an event yet is closed as well.
+      const contentType = String(res.getHeader("content-type") ?? "").toLowerCase();
+      if (!contentType.startsWith("text/event-stream")) continue;
+      res.destroy();
+      closedEventStreams.add(served);
+    }
+  };
+  const listener = (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const served = serve(req, res);
+    openResponses.set(res, served);
     res.once("close", () => openResponses.delete(res));
+    return served;
+  };
+  const serve = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       await handle(req, res);
     } catch (error) {
@@ -492,17 +514,16 @@ export function createNodeRequestHandler<TContext = unknown>(
   return Object.defineProperties(listener, {
     drain: { value: (timeoutMs?: number) => backgroundWork.drain(timeoutMs) },
     closeEventStreams: {
-      value: () => {
-        for (const res of openResponses) {
-          const contentType = String(res.getHeader("content-type") ?? "").toLowerCase();
-          if (
-            res.headersSent &&
-            !res.writableEnded &&
-            contentType.startsWith("text/event-stream")
-          ) {
-            res.destroy();
-          }
+      value: async () => {
+        sweepEventStreams();
+        if (!eventStreamSweep) {
+          // A request still in flight can answer with an event stream later.
+          eventStreamSweep = setInterval(sweepEventStreams, 100);
+          eventStreamSweep.unref();
         }
+        await Promise.all(closedEventStreams);
+        // Let close and abort listeners queued by the last response run.
+        await new Promise((resolveTurn) => setImmediate(resolveTurn));
       },
     },
     pending: { get: () => backgroundWork.pending },

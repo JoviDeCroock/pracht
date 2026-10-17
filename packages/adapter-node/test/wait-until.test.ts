@@ -174,6 +174,66 @@ describe("closeEventStreams", () => {
       csv.destroy();
     }
   });
+
+  it("closes streams before their first event and ones opened afterwards, then drains their work", async () => {
+    const work: string[] = [];
+    const started = { quiet: deferred(), late: deferred() };
+    const handler = createNodeRequestHandler({
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/quiet.ts", "/src/api/late.ts"]),
+      canonicalOrigin: "http://localhost",
+      compression: false,
+      registry: {
+        apiModules: Object.fromEntries(
+          (["quiet", "late"] as const).map((name) => [
+            `/src/api/${name}.ts`,
+            async () => ({
+              GET: ({
+                request,
+                waitUntil,
+              }: {
+                request: Request;
+                waitUntil(promise: Promise<unknown>): void;
+              }) => {
+                request.signal.addEventListener("abort", () =>
+                  waitUntil(new Promise((r) => setTimeout(r, 50)).then(() => work.push(name))),
+                );
+                // Never enqueues: the headers are staged but not yet sent.
+                // `pull` with no buffer runs once the adapter reads the body.
+                const body = new ReadableStream(
+                  { pull: () => started[name].resolve() },
+                  { highWaterMark: 0 },
+                );
+                return new Response(body, { headers: { "content-type": "text/event-stream" } });
+              },
+            }),
+          ]),
+        ),
+      },
+    });
+    const port = await listen(handler);
+    const hangUp = (path: string) =>
+      new Promise<void>((resolveHangUp) => {
+        const req = httpRequest({ hostname: "127.0.0.1", port, path });
+        req.on("error", () => resolveHangUp());
+        req.on("close", () => resolveHangUp());
+        req.end();
+      });
+
+    const quiet = hangUp("/api/quiet");
+    await started.quiet.promise;
+    await handler.closeEventStreams();
+    await quiet;
+    expect(await handler.drain(2_000)).toBe(true);
+    expect(work).toEqual(["quiet"]);
+
+    const late = hangUp("/api/late");
+    await started.late.promise;
+    await late;
+    await handler.closeEventStreams();
+    expect(await handler.drain(2_000)).toBe(true);
+    expect(work).toEqual(["quiet", "late"]);
+  });
 });
 
 describe("server timeouts of the generated Node entry", () => {
@@ -201,6 +261,7 @@ describe("graceful shutdown of the generated Node entry", () => {
     const dir = mkdtempSync(join(packageDir, ".tmp", "shutdown-"));
     tempDirs.push(dir);
     const marker = join(dir, "finished.txt");
+    const streamMarker = join(dir, "stream-closed.txt");
     const entry = join(dir, "server.mjs");
     const port = await freePort();
 
@@ -216,9 +277,14 @@ describe("graceful shutdown of the generated Node entry", () => {
       '    return new Response("sent");',
       "  },",
       "}), '/src/api/events.ts': async () => ({",
-      "  GET: () => new Response(new ReadableStream({",
-      "    start(controller) { controller.enqueue(new TextEncoder().encode('data: hi\\n\\n')); },",
-      "  }), { headers: { 'content-type': 'text/event-stream' } }),",
+      "  GET: ({ request, waitUntil }) => {",
+      "    request.signal.addEventListener('abort', () => waitUntil(",
+      "      new Promise((r) => setTimeout(r, 50)).then(() =>",
+      `        writeFileSync(${JSON.stringify(streamMarker)}, "closed"))));`,
+      "    return new Response(new ReadableStream({",
+      "      start(controller) { controller.enqueue(new TextEncoder().encode('data: hi\\n\\n')); },",
+      "    }), { headers: { 'content-type': 'text/event-stream' } });",
+      "  },",
       "}) } };",
       "const clientEntryUrl = null;",
       "const islandsEntryUrl = null;",
@@ -246,7 +312,7 @@ describe("graceful shutdown of the generated Node entry", () => {
       () => output.includes("listening"),
       () => output,
     );
-    return { child, exited, marker, port };
+    return { child, exited, marker, port, streamMarker };
   }
 
   it("waits for waitUntil() work before exiting on SIGTERM", async () => {
@@ -263,7 +329,7 @@ describe("graceful shutdown of the generated Node entry", () => {
   }, 15_000);
 
   it("closes open event streams instead of waiting out the shutdown timeout", async () => {
-    const { child, exited, port } = await startEntry({ workMs: 0 });
+    const { child, exited, port, streamMarker } = await startEntry({ workMs: 0 });
 
     const stream = await new Promise<IncomingMessage>((resolveStream, reject) => {
       const req = httpRequest({ hostname: "127.0.0.1", port, path: "/api/events" }, resolveStream);
@@ -281,6 +347,8 @@ describe("graceful shutdown of the generated Node entry", () => {
     expect(signal).toBe("SIGTERM");
     // The default 10s budget would otherwise be spent waiting on the stream.
     expect(Date.now() - startedAt).toBeLessThan(5_000);
+    // Work the stream's abort listener registered was drained, not cut off.
+    expect(existsSync(streamMarker)).toBe(true);
   }, 20_000);
 
   it("stops waiting at shutdownTimeoutMs", async () => {
