@@ -97,6 +97,7 @@ const FRAME_PARENS = /^\s*at\s+(?:async\s+)?.*?\((.*)\)\s*$/;
 const FRAME_BARE = /^\s*at\s+(?:async\s+)?(.*?)\s*$/;
 const LOCATION = /^(.*?):(\d+):(\d+)$/;
 const WINDOWS_DRIVE_PATH = /^\/?[A-Za-z]:[\\/]/;
+const VIRTUAL_MODULE_SEGMENT = /(?:^|[\\/])(?:__x00__)?virtual:/;
 
 /**
  * Parse a V8-style stack trace into frames. Non-frame lines (the message
@@ -142,7 +143,9 @@ function isInternalStackPath(path: string): boolean {
     path.includes("(") ||
     path.startsWith("node:") ||
     path.startsWith("internal/") ||
-    path.startsWith("virtual:") ||
+    // Vite's stack rewriting can join a virtual module id onto the root
+    // (`/app/virtual:pracht/server`) or escape its NUL (`__x00__virtual:`).
+    VIRTUAL_MODULE_SEGMENT.test(path) ||
     path.includes("\0") ||
     path.includes("/node_modules/") ||
     path.includes("\\node_modules\\") ||
@@ -185,15 +188,27 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
 
   // Root-relative dev-server URL (e.g. `/src/routes/home.tsx`): join onto
   // the project root so launch-editor resolves the real file. Paths already
-  // under the root (or Windows drive paths) are absolute filesystem paths.
+  // under the root (or Windows drive paths) are absolute filesystem paths, and
+  // so is a path that shares the root's top-level directory: a linked
+  // workspace package at `/Users/dev/repo/packages/core/dist/app.mjs` sits
+  // beside an app at `/Users/dev/repo/apps/web`, not inside it.
   if (root && path.startsWith("/") && !WINDOWS_DRIVE_PATH.test(path)) {
     const normalizedRoot = root.endsWith("/") ? root.slice(0, -1) : root;
-    if (path !== normalizedRoot && !path.startsWith(`${normalizedRoot}/`)) {
+    if (
+      path !== normalizedRoot &&
+      !path.startsWith(`${normalizedRoot}/`) &&
+      !sharesTopLevelDirectory(path, normalizedRoot)
+    ) {
       return `${normalizedRoot}${path}`;
     }
   }
 
   return path;
+}
+
+function sharesTopLevelDirectory(path: string, root: string): boolean {
+  const rootTop = root.split("/")[1];
+  return Boolean(rootTop) && path.split("/")[1] === rootTop;
 }
 
 export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {

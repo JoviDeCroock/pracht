@@ -100,6 +100,8 @@ describe("parseStackFrames", () => {
     const frames = parseStackFrames(
       [
         "    at loader (virtual:pracht/server:1:1)",
+        "    at loader (/Users/dev/my-app/virtual:pracht/server:116:57)",
+        "    at loader (/Users/dev/my-app/__x00__virtual:pracht/client:3:1)",
         "    at eval (eval at run (/Users/dev/app.ts:1:1), <anonymous>:1:1)",
         "    at native",
       ].join("\n"),
@@ -125,6 +127,19 @@ describe("normalizeStackFile", () => {
 
   it("handles Windows drive paths behind /@fs/", () => {
     expect(normalizeStackFile("/@fs/C:/proj/src/a.tsx")).toBe("C:/proj/src/a.tsx");
+  });
+
+  it("leaves absolute paths beside the root untouched", () => {
+    // A linked workspace package in a monorepo sits next to the app.
+    expect(
+      normalizeStackFile(
+        "/private/tmp/repo/packages/framework/dist/app.mjs",
+        "/private/tmp/repo/apps/web",
+      ),
+    ).toBe("/private/tmp/repo/packages/framework/dist/app.mjs");
+    expect(
+      normalizeStackFile("/@fs/Users/dev/repo/packages/core/src/a.ts?v=1", "/Users/dev/repo/app"),
+    ).toBe("/Users/dev/repo/packages/core/src/a.ts");
   });
 
   it("tolerates a trailing slash on the root", () => {
