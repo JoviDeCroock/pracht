@@ -1180,9 +1180,10 @@ cannot pull bypassed trees back into the bundle.
 An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
 prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
 representation that those URLs can still invoke the function to read.
-Bundled static lookup decodes percent-encoded spaces and Unicode characters,
-while rejecting encoded separators and traversal segments before filesystem
-resolution.
+Bundled static lookup tries the decoded spelling first (public files such as
+`legal terms.txt`), then the raw encoded spelling that `pracht build` uses for
+prerendered pages (`posts/caf%C3%A9/index.html`), and rejects encoded
+separators and traversal segments before filesystem resolution.
 
 ### SSG and ISG
 
