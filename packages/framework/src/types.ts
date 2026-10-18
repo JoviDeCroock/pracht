@@ -840,6 +840,14 @@ export interface PrachtAppConfig {
    * continues on what is left of it rather than starting a new one.
    */
   loaderTimeoutMs?: number;
+  /**
+   * Answer when the `loaderTimeoutMs` budget runs out even if a loader,
+   * middleware, or API handler ignores its `signal`: the request gets the
+   * same timeout error response a loader that rethrows the abort produces,
+   * and the late result is discarded. Off by default, where the response waits
+   * for application code to settle.
+   */
+  enforceLoaderTimeout?: boolean;
 }
 
 export interface PrachtApp {
@@ -853,6 +861,7 @@ export interface PrachtApp {
   constraints?: RouteConstraint[];
   viewTransitions?: boolean;
   loaderTimeoutMs?: number;
+  enforceLoaderTimeout?: boolean;
 }
 
 export interface StaticRouteSegment {

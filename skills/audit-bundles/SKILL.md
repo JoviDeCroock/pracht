@@ -22,7 +22,7 @@ and surfaces the worst offenders.
 
 ## Step 1: Build with analysis
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out. `pracht inspect` needs the pracht plugin in the vite config.
 `inspect build` needs a prior `pracht build`.
@@ -92,7 +92,7 @@ after the hydration adjustment above.
 If the app declares `budgets` in the pracht plugin config, the Step 1 JSON also
 contains a `budgets` section with per-route pass/fail — lead the report with any
 failures. If no budgets are configured, suggest adding them (see
-docs/PERFORMANCE.md), starting from the current sizes plus ~10% headroom.
+<https://pracht.resynapse.dev/docs/reference/config>), starting from the current sizes plus ~10% headroom.
 
 ## Step 4: Vendor chunk health
 
@@ -151,7 +151,7 @@ still ship, in a chunk the router lazily imports on every page. Recommend
 mechanism out (~2.6 KB gzip and one fewer request). Confirm nothing relies on
 prefetching first: the router silently stops honouring `route({ prefetch })` and
 `<Link prefetch>`, and the imperative `prefetch()` export becomes a no-op. See
-`docs/PERFORMANCE.md#switching-off-js-prefetching`.
+<https://pracht.resynapse.dev/docs/prefetching#shipping-less-javascript>.
 
 ## Step 6b: Chunk-group composition
 

@@ -281,6 +281,8 @@ export function createCloudflareServerEntryModule(
     ...workerEntryImports,
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     `export const cloudflareWorkersCacheEnabled = ${JSON.stringify(Boolean(cacheOptions))};`,
+    "// `pracht build` publishes /_pracht/headers.json in its shared form only for entries that read it.",
+    "export const headersManifestFormat = 2;",
     "",
     "let headersManifestPromise;",
     "async function readPrachtHeadersManifest(request, assets) {",
@@ -554,3 +556,7 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
     },
   };
 }
+
+// The contract the factory returns, carried in this package's own declarations
+// so a value of it can be named without importing `@pracht/vite-plugin`.
+export type { PrachtAdapter } from "@pracht/vite-plugin";

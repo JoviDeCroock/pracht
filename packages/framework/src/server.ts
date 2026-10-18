@@ -183,6 +183,7 @@ export {
   type RevalidationDetail,
   type RevalidationOutcome,
   type RevalidationReportBody,
+  type RevalidationScope,
   type RevalidationSkipReason,
   type RevalidationSingleFlight,
 } from "./revalidation.ts";
@@ -319,6 +320,8 @@ export type {
   ISGManifestEntry,
   PrerenderAppOptions,
   PrerenderAppResult,
+  PrerenderPageInfo,
+  PrerenderPath,
   PrerenderedMarkdown,
   PrerenderMarkdownOptions,
   PrerenderResult,
@@ -326,6 +329,9 @@ export type {
 
 export {
   applyHeadersManifest,
+  expandHeadersManifest,
   getManifestHeaders,
+  shareHeadersManifest,
   type HeadersManifest,
+  type SharedHeadersManifest,
 } from "./runtime-headers.ts";

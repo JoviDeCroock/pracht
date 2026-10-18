@@ -49,11 +49,25 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "@pracht/capabilities": "workspace:^",
     "@pracht/core": "workspace:^",
     "citty": "^0.1.6",
-    "playwright-core": "^1.59.1",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "playwright-core": "^1.59.1"
+  },
+  "peerDependencies": {
+    "playwright-core": "^1.59.1",
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright-core": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
   }
 }

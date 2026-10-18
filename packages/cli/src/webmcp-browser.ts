@@ -1,7 +1,9 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
-import { chromium, type Browser, type Page } from "playwright-core";
+import type { Browser, Page } from "playwright-core";
+
+import { loadPlaywrightCore } from "./optional-dependency.js";
 
 const WEBMCP_FEATURES = "WebMCPTesting,DevToolsWebMCPSupport";
 
@@ -69,6 +71,7 @@ export async function launchWebmcpBrowser(
   } = {},
 ): Promise<WebmcpBrowserSession> {
   const executable = findWebmcpBrowser(options.executable);
+  const { chromium } = await loadPlaywrightCore("Driving Chrome for WebMCP checks");
   const browser = await chromium.launch({
     executablePath: executable,
     headless: true,

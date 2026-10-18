@@ -6,8 +6,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { pracht } from "../src/index.ts";
 import {
+  collectExternalManifestModules,
   collectManifestModuleRefs,
   createPrachtClientModuleSource,
+  createPrachtRegistryModuleSource,
+  createRouteHintsForVirtualModules,
 } from "../src/plugin-codegen.ts";
 import { resolveOptions } from "../src/plugin-options.ts";
 
@@ -107,18 +110,52 @@ export const app = defineApp({ routes: [route("/", "./routes/home.tsx", { id: "h
     expect(routeGlobPatterns(root)).toContain("!/src/routes/parts/Card.tsx");
   });
 
-  it("leaves the registry alone when the manifest imports its routes from elsewhere", () => {
+  it("follows the local modules the manifest imports its routes from", () => {
+    const root = project({
+      "src/routes.ts": `import { defineApp } from "@pracht/core";
+import { marketing } from "./manifest/marketing";
+export const app = defineApp({ routes: [...marketing] });
+`,
+      "src/manifest/marketing.ts": `import { route } from "@pracht/core";
+export const marketing = [route("/pricing", "./routes/pricing.tsx", { id: "pricing" })];
+`,
+      "src/routes/pricing.tsx": COMPONENT,
+      "src/routes/draft.tsx": COMPONENT,
+    });
+
+    expect(collectManifestModuleRefs(resolveOptions({}), root).complete).toBe(true);
+    expect(routeGlobPatterns(root)).toContain("!/src/routes/draft.tsx");
+    expect(routeGlobPatterns(root)).not.toContain("!/src/routes/pricing.tsx");
+  });
+
+  it("reads an inline import() as a ref, not as manifest data to follow", () => {
+    const root = project({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({
+  middleware: { auth: () => import("./middleware/auth.ts") },
+  routes: [route("/", () => import("./routes/home.tsx"), { id: "home" })],
+});
+`,
+      "src/middleware/auth.ts":
+        'import "./auth.css";\nexport const middleware = (args, next) => next();\n',
+      "src/routes/home.tsx": COMPONENT,
+      "src/routes/draft.tsx": COMPONENT,
+    });
+
+    expect(collectManifestModuleRefs(resolveOptions({}), root).complete).toBe(true);
+    expect(routeGlobPatterns(root)).toContain("!/src/routes/draft.tsx");
+  });
+
+  it("leaves the registry alone when an imported manifest module cannot be read", () => {
     // Dropping a module a route needs breaks navigation to that route, which is
-    // worse than shipping one nothing reaches. A ref this file cannot see means
+    // worse than shipping one nothing reaches. A ref the scan cannot see means
     // no exclusions at all.
     const root = project({
       "src/routes.ts": `import { defineApp } from "@pracht/core";
-import { marketing } from "./marketing-routes.ts";
+import { marketing } from "./marketing-routes.json";
 export const app = defineApp({ routes: [...marketing] });
 `,
-      "src/marketing-routes.ts": `import { route } from "@pracht/core";
-export const marketing = [route("/pricing", "./routes/pricing.tsx", { id: "pricing" })];
-`,
+      "src/marketing-routes.json": "{}",
       "src/routes/pricing.tsx": COMPONENT,
     });
 
@@ -145,6 +182,42 @@ export const app = defineApp({
 
     expect(collectManifestModuleRefs(resolveOptions({}), root).complete).toBe(false);
     expect(routeGlobPatterns(root)).not.toContain("!/src/routes/draft.tsx");
+  });
+
+  it("leaves the registry alone when a route ref is not a literal", () => {
+    for (const ref of ['"./routes/" + name + ".tsx"', "`./routes/${name}.tsx`", "file"]) {
+      const root = project({
+        "src/routes.ts": `import { defineApp } from "@pracht/core";
+import { pages } from "./manifest/pages.ts";
+export const app = defineApp({ routes: pages });
+`,
+        "src/manifest/pages.ts": `import { route } from "@pracht/core";
+const file = "./routes/counter.tsx";
+export const pages = ["counter"].map((name) => route("/" + name, ${ref}));
+`,
+        "src/routes/counter.tsx": COMPONENT,
+      });
+
+      expect(collectManifestModuleRefs(resolveOptions({}), root).complete, ref).toBe(false);
+      expect(routeGlobPatterns(root)).not.toContain("!/src/routes/counter.tsx");
+    }
+  });
+
+  it("leaves the registry alone when a component or shell ref is not a literal", () => {
+    for (const manifest of [
+      'routes: [route("/", { component: COMPONENT_FILE })]',
+      'routes: [route("/", { ...config })]',
+      'shells: { ...SHELLS }, routes: [route("/", "./routes/home.tsx")]',
+      'shells: { side: SHELL_FILE }, routes: [route("/", "./routes/home.tsx")]',
+    ]) {
+      const root = project({
+        "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({ ${manifest} });
+`,
+        "src/routes/home.tsx": COMPONENT,
+      });
+      expect(collectManifestModuleRefs(resolveOptions({}), root).complete, manifest).toBe(false);
+    }
   });
 
   it("reads a bare package import as no threat to the scan", () => {
@@ -190,6 +263,160 @@ export const app = defineApp({
 
     const patterns = routeGlobPatterns(root);
     expect(patterns).not.toContain("!/src/pages/about.tsx");
+  });
+});
+
+describe("modules the manifest names outside the globbed directories", () => {
+  const MANIFEST = `import { defineApp, group, route } from "@pracht/core";
+import { more } from "./manifest/more.ts";
+export const app = defineApp({
+  shells: { side: "./layouts/side.tsx" },
+  middleware: { gate: "./guards/gate.ts" },
+  routes: [
+    route("/", "./routes/home.tsx", { id: "home" }),
+    route("/feature", () => import("./features/feature.tsx"), { id: "feature", shell: "side" }),
+    route("/data", { component: "./features/data.tsx", loader: "./data/load.ts" }, { id: "data" }),
+    group({ hydration: "islands" }, [route("/static", "./features/static.tsx", { id: "static" })]),
+    ...more,
+  ],
+  notFound: { component: "./features/missing.tsx" },
+});
+`;
+  const files = {
+    "src/routes.ts": MANIFEST,
+    "src/manifest/more.ts": `import { route } from "@pracht/core";
+export const more = [route("/more", "./features/more.tsx", { id: "more", middleware: ["gate"] })];
+`,
+    "src/routes/home.tsx": COMPONENT,
+    "src/features/feature.tsx": COMPONENT,
+    "src/features/data.tsx": COMPONENT,
+    "src/features/static.tsx": COMPONENT,
+    "src/features/more.tsx": COMPONENT,
+    "src/features/missing.tsx": COMPONENT,
+    "src/layouts/side.tsx": SHELL,
+    "src/guards/gate.ts": "export const middleware = (args, next) => next();\n",
+    "src/data/load.ts": "export const loader = () => ({});\n",
+  };
+
+  it("collects each ref by the registry that serves it", () => {
+    const root = project(files);
+    expect(collectExternalManifestModules(resolveOptions({}), root)).toEqual({
+      routes: [
+        "/src/features/data.tsx",
+        "/src/features/feature.tsx",
+        "/src/features/missing.tsx",
+        "/src/features/more.tsx",
+        "/src/features/static.tsx",
+      ],
+      shells: ["/src/layouts/side.tsx"],
+      middleware: ["/src/guards/gate.ts"],
+      loaders: ["/src/data/load.ts"],
+    });
+  });
+
+  it("registers route and shell modules in the client entry, minus non-hydrating routes", () => {
+    const root = project(files);
+    const source = createPrachtClientModuleSource({}, { root });
+    for (const file of [
+      "/src/features/feature.tsx",
+      "/src/features/more.tsx",
+      "/src/layouts/side.tsx",
+    ]) {
+      expect(source).toContain(
+        `${JSON.stringify(file)}: () => import(${JSON.stringify(`${file}?pracht-client`)}),`,
+      );
+    }
+    expect(source).not.toContain('import("/src/features/static.tsx');
+    // Server-only modules never reach the browser registry.
+    expect(source).not.toContain("/src/guards/gate.ts");
+    expect(source).not.toContain("/src/data/load.ts");
+  });
+
+  it("registers every kind in the server registry", () => {
+    const root = project(files);
+    const source = createPrachtRegistryModuleSource({}, { root });
+    for (const file of [
+      "/src/features/feature.tsx",
+      "/src/features/missing.tsx",
+      "/src/layouts/side.tsx",
+      "/src/guards/gate.ts",
+      "/src/data/load.ts",
+    ]) {
+      expect(source).toContain(JSON.stringify(file));
+    }
+  });
+
+  it("takes a file name holding glob syntax literally", () => {
+    const root = project({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({ routes: [route("/:id", "./features/[id].tsx", { id: "item" })] });
+`,
+      "src/features/[id].tsx": COMPONENT,
+    });
+    const entry = '"/src/features/[id].tsx": () => import("/src/features/[id].tsx';
+    expect(createPrachtRegistryModuleSource({}, { root })).toContain(entry);
+    expect(createPrachtClientModuleSource({}, { root })).toContain(entry);
+  });
+
+  it("scans their exports for the build's feature switches", () => {
+    const root = project({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({
+  shells: { side: "./layouts/side.tsx" },
+  routes: [route("/", "./features/home.tsx", { id: "home", shell: "side" })],
+});
+`,
+      "src/features/home.tsx": `export const search = schema;\n${COMPONENT}`,
+      "src/layouts/side.tsx": `export async function loader() { return {}; }\n${SHELL}`,
+    });
+    const hints = createRouteHintsForVirtualModules(resolveOptions({}), root);
+    expect(hints.shellLoaders).toBe(true);
+    expect(hints.loader["./layouts/side.tsx"]).toBe(true);
+    expect(hints.search["./features/home.tsx"]).toBe(true);
+    expect(hints.search["/src/features/home.tsx"]).toBe(true);
+  });
+
+  it("regenerates the dev registries when a module the manifest imports changes", () => {
+    const root = project(files);
+    const plugin = pracht().find((candidate) => candidate.name === "pracht")!;
+    (plugin.configResolved as (config: unknown) => void).call(plugin, {
+      root,
+      command: "serve",
+      base: "/",
+      build: {},
+      plugins: [],
+    });
+    let restarts = 0;
+    const server = {
+      config: { root },
+      moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} },
+      restart: () => {
+        restarts += 1;
+      },
+      ws: { send: () => {} },
+    };
+    const hotUpdate = (file: string) =>
+      (plugin.handleHotUpdate as (context: unknown) => unknown).call(plugin, {
+        file,
+        modules: [],
+        server,
+      });
+
+    // A new route in this fragment can name a module the client registry left
+    // out, so the entry has to be rebuilt just as for `src/routes.ts`.
+    hotUpdate(join(root, "src/manifest/more.ts"));
+    expect(restarts).toBe(1);
+    hotUpdate(join(root, "src/features/feature.tsx"));
+    expect(restarts).toBe(1);
+  });
+
+  it("ignores a ref that names no file", () => {
+    const root = project({
+      "src/routes.ts": `import { defineApp, route } from "@pracht/core";
+export const app = defineApp({ routes: [route("/gone", "./features/gone.tsx", { id: "gone" })] });
+`,
+    });
+    expect(collectExternalManifestModules(resolveOptions({}), root).routes).toEqual([]);
   });
 });
 

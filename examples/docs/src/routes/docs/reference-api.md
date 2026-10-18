@@ -238,7 +238,7 @@ From `@pracht/session`. It runs on every adapter. See
 
 | Export | Description |
 | --- | --- |
-| `createSessionStorage<Data>({ cookie, store, rolling })` | The app's session storage. Without `store`, data is sealed (AES-256-GCM) in the cookie; with one, the cookie holds only a sealed id. `rolling: true` makes `maxAge` an idle timeout |
+| `createSessionStorage<Data>({ cookie, store, rolling, absoluteMaxAge })` | The app's session storage. Without `store`, data is sealed (AES-256-GCM) in the cookie; with one, the cookie holds only a sealed id. `rolling: true` makes `maxAge` an idle timeout; `absoluteMaxAge` (seconds) caps the total lifetime |
 | `sessionMiddleware(storage, options?)` | Loads the session onto `context.session` and commits changes after the chain. Does not gate |
 | `requireSession(storage, options?)` | The same, plus a gate: page requests redirect to `loginPath`, API requests get `401` |
 | `createMemorySessionStore()` | In-memory `SessionStore` for tests and dev. Not a production store |

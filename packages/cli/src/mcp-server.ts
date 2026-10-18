@@ -1,10 +1,9 @@
 import { resolve } from "node:path";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { AUTHORING_GUIDE } from "./authoring-guide.js";
+import { McpToolServer, type CallToolResult } from "./mcp-tool-server.js";
 import { VERSION } from "./constants.js";
 import {
   extractDocsSection,
@@ -45,8 +44,8 @@ export interface PrachtMcpServerOptions {
   docsDir?: string;
 }
 
-export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}): McpServer {
-  const server = new McpServer({
+export function createPrachtMcpServer({ docsDir }: PrachtMcpServerOptions = {}): McpToolServer {
+  const server = new McpToolServer({
     name: "pracht",
     version: VERSION,
   });

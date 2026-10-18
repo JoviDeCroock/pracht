@@ -17,8 +17,7 @@ allowed-tools:
 
 # Pracht Audit Agent Surface
 
-Pracht's agent surface is opt-in end to end (`docs/CAPABILITIES.md`,
-`docs/AGENT_TRUST.md`, `docs/REMOTE_MCP.md`). State that baseline before
+Pracht's agent surface is opt-in end to end (<https://pracht.resynapse.dev/docs/agents>). State that baseline before
 auditing the opt-outs:
 
 - No loader or API route is ever inferred as a capability; a capability without
@@ -35,7 +34,7 @@ auditing the opt-outs:
 
 This skill reports; it never mutates. Prerequisites: `pracht inspect` needs a
 vite config registering the pracht plugin. If the pracht MCP server is
-registered (see `docs/MCP.md`), prefer its tools (`inspect_agents`,
+registered (`pracht dev-mcp`), prefer its tools (`inspect_agents`,
 `inspect_capabilities`, `inspect_routes`, `inspect_api`, `doctor`, `verify`)
 over shelling out.
 
@@ -156,9 +155,8 @@ With `agents.mcp.auth`, check:
   endpoint refuses to serve at all, and `pracht verify` only warns (its source
   scan cannot see a registration in a workspace package, so it must not
   hard-block). Two more preconditions fail the endpoint the same way — a
-  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with no principal
-  source (a resolver, `agents.mcp.auth`, or a valid Web Bot Auth key or HTTPS
-  directory) — so check all three together.
+  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither a
+  resolver nor `agents.mcp.auth` — so check all three together.
   Runtime-backed `/_pracht` reports a verified endpoint-wide failure by marking
   every MCP exposure `mcp(unserved)`. Graph-only `pracht dev`, `pracht inspect
   capabilities`, `pracht inspect agents`, and MCP inspection use
@@ -185,9 +183,9 @@ With `agents.mcp.auth`, check:
   commits. `createSqlApprovalStore()` over D1/Postgres/Turso qualifies;
   `createMemoryApprovalStore()` in a deployed multi-replica app does not, and
   neither does a hand-rolled store over Cloudflare KV.
-- `confirmation: { mode: "human" }` without both a store and an authenticated
-  principal fails closed — check both exist. Warn when Web Bot Auth is the only
-  principal source: reviewers see the agent, not the user.
+- `confirmation: { mode: "human" }` without both a store and an end-user
+  principal (a resolver, or `agents.mcp.auth` on MCP) fails closed — check
+  both exist. Web Bot Auth alone is refused: it names the agent.
 
 ## Step 4: Identity and policy
 

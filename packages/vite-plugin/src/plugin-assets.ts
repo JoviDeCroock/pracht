@@ -9,6 +9,8 @@ export const PRACHT_ISLANDS_CLIENT_MODULE_ID = "virtual:pracht/islands-client";
 export const PRACHT_SERVER_ISLANDS_CLIENT_MODULE_ID = "virtual:pracht/server-islands-client";
 export const PRACHT_CAPABILITIES_MODULE_ID = "virtual:pracht/capabilities";
 export const PRACHT_WEBMCP_MODULE_ID = "virtual:pracht/webmcp";
+/** One WebMCP tool's metadata and schema, imported only by routes that activate it. */
+export const PRACHT_WEBMCP_TOOL_MODULE_PREFIX = "virtual:pracht/webmcp-tool/";
 export const PRACHT_DEV_PAGE_TOOLS_MODULE_ID = "virtual:pracht/dev-page-tools";
 
 // Browser-safe path alias — the colon in "virtual:" is parsed as a protocol
@@ -207,6 +209,14 @@ export function isCapabilitiesModule(id: string): boolean {
 
 export function isWebmcpModule(id: string): boolean {
   return id === PRACHT_WEBMCP_MODULE_ID || id.endsWith(PRACHT_WEBMCP_MODULE_ID);
+}
+
+/** The capability name a per-tool WebMCP module id carries, or `null`. */
+export function webmcpToolModuleName(id: string): string | null {
+  const index = id.indexOf(PRACHT_WEBMCP_TOOL_MODULE_PREFIX);
+  if (index === -1) return null;
+  const name = id.slice(index + PRACHT_WEBMCP_TOOL_MODULE_PREFIX.length).split("?")[0]!;
+  return name === "" ? null : name;
 }
 
 export function isDevPageToolsModule(id: string): boolean {

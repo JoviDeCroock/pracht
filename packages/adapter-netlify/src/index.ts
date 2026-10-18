@@ -1,4 +1,8 @@
-import { applyHeadersManifest } from "@pracht/core/server";
+import {
+  applyHeadersManifest,
+  expandHeadersManifest,
+  type SharedHeadersManifest,
+} from "@pracht/core/server";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import type { McpAuthConfig } from "@pracht/core";
@@ -89,7 +93,7 @@ export interface NetlifyHandlerOptions<
   jsManifest?: Record<string, string[]>;
   staticDir?: string;
   isgManifest?: Record<string, ISGManifestEntry>;
-  headersManifest?: HeadersManifest;
+  headersManifest?: HeadersManifest | SharedHeadersManifest;
   /** Exact Markdown-capable routes. Omit only for legacy/custom server entries. */
   markdownManifest?: MarkdownManifest;
   createContext?: (args: NetlifyContextArgs<TNetlifyContext>) => TContext | Promise<TContext>;
@@ -331,6 +335,8 @@ export function createNetlifyServerEntryModule(options: NetlifyAdapterOptions = 
     "]);",
     'const isgManifest = readManifest("isg-manifest.json", {});',
     'const headersManifest = readManifest("headers-manifest.json", {});',
+    "// `pracht build` writes headers-manifest.json in its shared form only for entries that read it.",
+    "export const headersManifestFormat = 2;",
     'const markdownManifest = readManifest("markdown-manifest.json", undefined);',
     "",
     "const handler = createNetlifyHandler({",
@@ -690,7 +696,11 @@ function createNetlifyHeadersFile(
 }
 
 function parseNetlifyHeadersManifest(source: string): HeadersManifest {
-  const parsed: unknown = JSON.parse(source);
+  const raw: unknown = JSON.parse(source);
+  const parsed: unknown =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? expandHeadersManifest(raw as HeadersManifest | SharedHeadersManifest)
+      : raw;
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("dist/server/headers-manifest.json must contain an object.");
   }
@@ -803,7 +813,7 @@ async function handleNetlifyRevalidation<TNetlifyContext extends NetlifyExecutio
   const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
   if (!parsed.ok) return parsed.response;
 
-  const report = new RevalidationReport();
+  const report = new RevalidationReport("global");
   for (const pathname of parsed.paths) {
     const canonicalPathname = normalizePathname(pathname);
     const entry = isgManifest[canonicalPathname];
@@ -969,7 +979,7 @@ async function findContainedFile(
 async function serveStaticFile(
   request: Request,
   file: StaticFileResult,
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   pathname: string,
   staticMaxAge: number,
 ): Promise<Response> {
@@ -1171,3 +1181,7 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".xml": "application/xml; charset=utf-8",
 };
+
+// The contract the factory returns, carried in this package's own declarations
+// so a value of it can be named without importing `@pracht/vite-plugin`.
+export type { PrachtAdapter } from "@pracht/vite-plugin";

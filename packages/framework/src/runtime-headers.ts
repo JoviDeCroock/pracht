@@ -262,11 +262,36 @@ export function withEnhancedCapabilityFormRedirect(response: Response, request: 
   return new Response(null, { status: 204, headers });
 }
 
+/**
+ * Responses the framework constructed during this request, with mutable
+ * headers and a body nothing else has read. Route headers are applied to these
+ * in place instead of through a copy.
+ */
+const ownedResponses = new WeakSet<Response>();
+
+/** Mark a response this request just constructed; see `withRouteResponseHeaders`. */
+export function ownResponse(response: Response): Response {
+  ownedResponses.add(response);
+  return response;
+}
+
+/** Whether the framework built `response` (and so its body) for this request. */
+export function isOwnResponse(response: Response): boolean {
+  return ownedResponses.has(response);
+}
+
 export function withRouteResponseHeaders(
   response: Response,
   options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },
 ): Response {
   if (isProtocolSwitchResponse(response)) return response;
+  // The same headers the copy below would get, without a second Headers and
+  // Response for every document. Middleware may have changed the headers
+  // since, so they are still applied rather than assumed.
+  if (ownedResponses.has(response) && !response.bodyUsed) {
+    applySecurityAndRouteHeaders(response.headers, options);
+    return normalizeResponseHeaders(response);
+  }
 
   const headers = new Headers(response.headers);
   applySecurityAndRouteHeaders(headers, options);
@@ -307,9 +332,65 @@ export function appendVaryHeader(headers: Headers, value: string): void {
 /** Headers recorded while prerendering, indexed by route pathname. */
 export type HeadersManifest = Record<string, Record<string, string>>;
 
+/**
+ * The deduplicated form of a {@link HeadersManifest} that `pracht build` writes
+ * when the adapter reads it: every distinct header set once, and each path
+ * naming its set by index. Prerendered sites share a handful of sets across
+ * thousands of pages, so the file grows with the path count rather than with
+ * every page's full headers.
+ */
+export interface SharedHeadersManifest {
+  version: 2;
+  sets: Record<string, string>[];
+  paths: Record<string, number>;
+}
+
+/** Whether `value` is the shared (`version: 2`) form. Flat manifests key only `/` paths. */
+export function isSharedHeadersManifest(value: unknown): value is SharedHeadersManifest {
+  const candidate = value as Partial<SharedHeadersManifest> | null;
+  return (
+    typeof candidate === "object" &&
+    candidate !== null &&
+    candidate.version === 2 &&
+    Array.isArray(candidate.sets) &&
+    typeof candidate.paths === "object" &&
+    candidate.paths !== null
+  );
+}
+
+/** Store each distinct header set once. Paths keep their order. */
+export function shareHeadersManifest(manifest: HeadersManifest): SharedHeadersManifest {
+  const sets: Record<string, string>[] = [];
+  const indexByKey = new Map<string, number>();
+  const paths: Record<string, number> = {};
+  for (const [pathname, headers] of Object.entries(manifest)) {
+    const key = JSON.stringify(Object.entries(headers));
+    let index = indexByKey.get(key);
+    if (index === undefined) {
+      index = sets.push(headers) - 1;
+      indexByKey.set(key, index);
+    }
+    paths[pathname] = index;
+  }
+  return { version: 2, sets, paths };
+}
+
+/** The flat form of either manifest shape; paths that share a set share its object. */
+export function expandHeadersManifest(
+  manifest: HeadersManifest | SharedHeadersManifest,
+): HeadersManifest {
+  if (!isSharedHeadersManifest(manifest)) return manifest;
+  const expanded: HeadersManifest = {};
+  for (const [pathname, index] of Object.entries(manifest.paths)) {
+    const headers = manifest.sets[index];
+    if (headers) expanded[pathname] = headers;
+  }
+  return expanded;
+}
+
 export function applyHeadersManifest(
   headers: Headers,
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   pathname: string,
 ): void {
   const routeHeaders = getManifestHeaders(headersManifest, pathname);
@@ -321,11 +402,19 @@ export function applyHeadersManifest(
 }
 
 export function getManifestHeaders(
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   pathname: string,
 ): Record<string, string> | undefined {
   const withoutIndex = pathname.replace(/\/index\.html$/, "") || "/";
   const withoutSlash = pathname.replace(/\/$/, "") || "/";
+
+  if (isSharedHeadersManifest(headersManifest)) {
+    const { paths, sets } = headersManifest;
+    const key = [pathname, withoutSlash, withoutIndex].find((candidate) =>
+      Object.hasOwn(paths, candidate),
+    );
+    return key === undefined ? undefined : sets[paths[key]!];
+  }
 
   return (
     headersManifest[pathname] ??

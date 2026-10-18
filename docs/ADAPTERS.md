@@ -80,6 +80,14 @@ export function createNodeRequestHandler<TContext>(
 ): NodeRequestHandler; // (req, res) => Promise<void>, plus drain(timeoutMs?) and pending
 ```
 
+A handler may pass `handlePrachtRequest` either a resolved app or the
+authoring-shaped `defineApp()` result. `getResolvedApp` in `runtime-request.ts`
+resolves the latter once per object (a `WeakMap` keyed by identity) and reuses
+it, so per-app caches such as compiled href tables and the islands navigation
+table survive across requests. The cost is that mutating that object after its
+first request has no effect: a runtime route or option change needs a new
+`defineApp()` result, which HMR already produces.
+
 ### 3. Entry module generator (for custom adapters)
 
 ```typescript
@@ -183,7 +191,13 @@ legitimate route whose base-free path is `/my-project`.
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
-`dist/server/headers-manifest.json`. Node, Cloudflare, and Netlify look recorded
+`dist/server/headers-manifest.json`. When the generated entry exports
+`headersManifestFormat = 2` (Node, Netlify, and Cloudflare entries do), the
+build writes it in the shared form `{ version: 2, sets, paths }`: each distinct
+header set once, and every path naming its set by index, so the file grows with
+the page count rather than with every page's headers. Static exports, Vercel,
+and custom entries keep the flat `{ "<path>": { ...headers } }` map. Core's
+`getManifestHeaders()` reads either form. Node, Cloudflare, and Netlify look recorded
 headers up by the exact pathname, then without a trailing slash, then without
 `/index.html`. Exact routes with raw Markdown
 representations are recorded separately in `dist/server/markdown-manifest.json`.
@@ -196,7 +210,9 @@ that manifest.
   configured window, serves stale HTML immediately, and refreshes the file in
   the background. Webhook revalidation is exposed at
   `POST /__pracht/revalidate` and regenerates named paths synchronously after
-  authenticating `PRACHT_REVALIDATE_TOKEN`. Route-state requests
+  authenticating `PRACHT_REVALIDATE_TOKEN`, in this process's `dist/client`
+  only (`"scope": "instance"`): replicas behind a load balancer keep their own
+  files until their time window passes. Route-state requests
   (`x-pracht-route-state-request` and `?_data=1`) bypass the cached HTML path
   so client navigation still reaches `handlePrachtRequest()`. Every ISG render
   (stale regeneration, webhook, and the cold render that writes a missing
@@ -211,6 +227,10 @@ that manifest.
   ISG state is the local `staticDir` of one process: the webhook regenerates
   only on the replica that receives it, and single-flighting and snapshot
   identities are per process and host, so ISG is supported on one instance.
+  When a snapshot cannot be written (a read-only `staticDir`), the cold render
+  is still answered, the handler warns once with the error code, and stale
+  regeneration of that file pauses for one revalidate window after each failed
+  write instead of re-rendering on every request.
   Static and ISG files are
   streamed, and static responses support `ETag` / `Last-Modified` conditional
   revalidation and single byte ranges (`206`, `416`, `If-Range` by date;
@@ -403,6 +423,11 @@ runs with the `node:http` server before `listen()` when the generated entry is
 the process entrypoint, and with the dev server under `pracht dev` — see
 [WebSockets](#websockets) above.
 
+`keepAliveTimeoutMs` and `headersTimeoutMs` set `server.keepAliveTimeout` and
+`server.headersTimeout` on the generated server; left unset, Node's defaults
+(5s / 60s) apply. Behind a load balancer, keep-alive must outlast the balancer's
+idle timeout or it reuses sockets Node just closed (intermittent 502s).
+
 `shutdownTimeoutMs` (default `10000`) bounds the generated entry's graceful
 shutdown: on `SIGTERM` or `SIGINT` it closes the server, waits for in-flight
 requests and `waitUntil()` work up to that deadline, then re-raises the signal
@@ -410,10 +435,19 @@ so the exit status is the default one. Edges of that shape:
 
 - `server.close()` resolves only when every socket is gone. Idle keep-alive
   sockets are closed up front, but a socket whose request finishes during the
-  drain stays open for Node's `keepAliveTimeout` (5s), and longer while a
-  client keeps sending on it; SSE streams and upgraded WebSockets hold it until
-  the deadline. The `waitUntil()` drain shares that deadline, so work still
-  pending when it expires is cut off.
+  drain stays open for Node's `keepAliveTimeout` (5s, or `keepAliveTimeoutMs`),
+  and longer while a client keeps sending on it. Open `text/event-stream`
+  responses are destroyed right after `server.close()` via
+  `handler.closeEventStreams()` (request `signal` aborts, body stream is
+  cancelled; `EventSource` clients reconnect elsewhere), including ones not yet
+  flushed. From then on a request that answers with an event stream is closed
+  as soon as its headers are staged (`whenResponseHeadersStaged()` in
+  `node-request.ts`), and `closeEventStreams()` resolves only once every request
+  in flight has answered and the closed streams' handlers have returned, so the
+  drain after it keeps their abort-time `waitUntil()` work. Upgraded WebSockets and
+  other long streaming responses still hold it until the deadline. The
+  `waitUntil()` drain shares that deadline, so work still pending when it
+  expires is cut off.
 - The handlers are removed before the drain starts, so a second signal takes the
   default action and exits at once.
 - `configureServer()` runs first, so its own `SIGTERM`/`SIGINT` listeners run
@@ -500,9 +534,31 @@ build).
   cached for the isolate lifetime; transient asset or JSON failures are evicted
   so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the
-  request. This keeps ISG dependency-free and fast, but webhook invalidation is
-  not a global purge. Other colos refresh when they receive the webhook or when
-  their cached entry becomes stale and a visitor requests it.
+  request and does not replicate. This keeps ISG dependency-free and fast, but
+  a webhook re-renders the page only in the colo that receives the POST, and
+  the response says so with `"scope": "colo"`. A sender cannot target colos,
+  and a webhook-only entry never turns stale by time, so a colo holding a copy
+  keeps it until the Cache API evicts it (or its time window passes, for a
+  combined policy). Without a copy, a colo cannot tell whether a webhook
+  outdated the build-time snapshot elsewhere: on a Cache API miss, a route
+  with a webhook policy serves the `ASSETS` snapshot as `x-pracht-isg: stale`
+  and renders its own copy in the background (at most once a minute per page
+  per isolate, so a cache that keeps nothing cannot turn every request into a
+  render). Colos therefore pick up current
+  content on their first uncached request, and the receiving colo re-renders
+  after eviction instead of reverting to build-time HTML labelled `fresh`.
+  `pracht build` warns about every webhook route left on this per-colo path
+  (`describeCloudflareWebhookScope` in `packages/cli/src/commands/build.ts`).
+  Global webhook invalidation needs a time policy plus `cache: true` (below),
+  whose purge reaches every colo and reports `"scope": "global"`. No shared
+  store (KV, R2) backs ISG today.
+- **`*.workers.dev` (unverified)**: Cloudflare's Cache API reference says
+  Workers on custom domains have functional cache operations and that the
+  dashboard editor and Playground previews have none; it is silent on
+  `*.workers.dev`. Community reports say `cache.put()` has no effect there,
+  which would leave ISG serving the build snapshot (as `stale`) while the
+  webhook reports `revalidated`. This is not
+  confirmed by Cloudflare's docs or by a deploy; verify ISG on a custom domain.
 - **ISG via Workers Caching**: with `cloudflareAdapter({ cache: true })`,
   time-revalidated ISG routes are instead rendered on demand and cached in
   front of the Worker by
@@ -510,9 +566,9 @@ build).
   their `revalidate` window, with stale pages served instantly while the
   Worker re-renders in the background — a true edge-tier cache rather than
   the per-colo Cache API. Webhook-only ISG routes keep the worker-managed
-  path above so `POST /__pracht/revalidate` takes effect immediately; when a
-  route has both a time and a webhook policy, the webhook also purges the
-  edge entry.
+  path above, where `POST /__pracht/revalidate` takes effect in the receiving
+  colo; when a route has both a time and a webhook policy, the webhook also
+  purges the edge entry in every colo.
 - **Default request context**: generated worker entries pass `{ env,
   executionContext }` to pracht so loaders, API routes, and middleware can
   access bindings without extra wiring.
@@ -623,8 +679,8 @@ cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" });
 cache that sits **in front of** the Worker: Cloudflare stores responses whose
 caching headers mark them cacheable and answers repeat requests without
 invoking the Worker at all. Pracht maps time-revalidated ISG onto it;
-webhook-only ISG routes stay on the worker-managed Cache API path so
-`POST /__pracht/revalidate` takes effect immediately. Enable both sides:
+webhook-only ISG routes stay on the worker-managed, per-colo Cache API path
+(see Cache locality above). Enable both sides:
 
 ```typescript
 // vite.config.ts
@@ -650,8 +706,10 @@ With the option on:
   parameters, and the request body never reach `createContext`, middleware, or
   loaders while producing a shared response.
 - Routes with both a time and a webhook policy are edge-cached, and
-  `POST /__pracht/revalidate` purges their edge entries after regenerating
-  the worker-managed copy.
+  `POST /__pracht/revalidate` purges their edge entries in every colo after
+  regenerating the worker-managed copy (`"scope": "global"`). A purge that
+  throws or resolves `{ success: false }` leaves visitors the old page, so
+  the path is reported in `failed` with reason `edge_purge_failed`.
 - The worker stamps ISG document responses with
   `cloudflare-cdn-cache-control: max-age=<revalidate>,
   stale-while-revalidate=<staleWhileRevalidate>` — the edge holds the page

@@ -52,7 +52,10 @@ import {
 } from "./node-compress.ts";
 import {
   createISGRenderInput,
+  createISGSnapshotWriteGuard,
   getISGSnapshotHeaders,
+  ISGSnapshotWriteError,
+  type ISGSnapshotWriteGuard,
   readISGSnapshotHeaders,
   regenerateISGPage,
   writeISGSnapshot,
@@ -62,9 +65,11 @@ import {
   createWebRequest,
   isClientDisconnectError,
   pipeToResponse,
+  whenResponseHeadersStaged,
   writeNodeResponseHeaders,
   writeWebResponse,
 } from "./node-request.ts";
+import type { SharedHeadersManifest } from "@pracht/core/server";
 import {
   applyHeadersManifest,
   resolveStaticFile,
@@ -99,7 +104,7 @@ export interface NodeAdapterOptions<TContext = unknown> {
   cssManifest?: Record<string, string[]>;
   cssContentManifest?: Record<string, string>;
   jsManifest?: Record<string, string[]>;
-  headersManifest?: HeadersManifest;
+  headersManifest?: HeadersManifest | SharedHeadersManifest;
   /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
   markdownManifest?: MarkdownManifest;
   createContext?: (args: NodeAdapterContextArgs) => TContext | Promise<TContext>;
@@ -160,6 +165,19 @@ export interface NodeRequestHandler {
    * after `server.close()` when shutting down.
    */
   drain(timeoutMs?: number): Promise<boolean>;
+  /**
+   * Close every `text/event-stream` response still open, as if its client
+   * had disconnected (the request's `signal` aborts and the body stream is
+   * cancelled). Event streams never end on their own, so a graceful shutdown
+   * calls this after `server.close()` instead of waiting out its timeout;
+   * `EventSource` clients reconnect. Other responses are left to finish.
+   * From the first call on, a request that answers with an event stream later
+   * is closed as it answers. Resolves once every request in flight has
+   * answered and the handlers of the streams it closed have returned, so a
+   * `drain()` after it sees the `waitUntil()` work their abort listeners
+   * registered; waits at most `timeoutMs` (default 10s).
+   */
+  closeEventStreams(timeoutMs?: number): Promise<void>;
   /** Registered background work that has not settled yet. */
   readonly pending: number;
 }
@@ -177,6 +195,7 @@ export function createNodeRequestHandler<TContext = unknown>(
   const maxBodySize = options.maxBodySize;
   const compressionEnabled = options.compression !== false;
   const compressedAssetCache = new CompressedAssetCache();
+  const isgWriteGuard = createISGSnapshotWriteGuard();
   // A Node process outlives its responses, so registered work finishes on its
   // own; the tracker is what lets a graceful shutdown wait for it instead of
   // cutting it off.
@@ -339,6 +358,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         headersManifest,
         compression,
         waitUntil,
+        isgWriteGuard,
       );
       if (served) return;
     }
@@ -397,12 +417,18 @@ export function createNodeRequestHandler<TContext = unknown>(
         const html = await response.clone().text();
         const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
         if (htmlPath) {
-          await writeISGSnapshot(
-            htmlPath,
-            html,
-            getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
-          );
-          compressedAssetCache.invalidatePath(htmlPath);
+          try {
+            await writeISGSnapshot(
+              htmlPath,
+              html,
+              getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
+            );
+            compressedAssetCache.invalidatePath(htmlPath);
+          } catch (error) {
+            // The render succeeded; an unwritable static directory must not
+            // turn it into a 500. The next request renders again.
+            isgWriteGuard.failed(htmlPath, error);
+          }
         }
       }
 
@@ -429,7 +455,33 @@ export function createNodeRequestHandler<TContext = unknown>(
   // `http.createServer(handler)` ignores the returned promise, so a rejection
   // here would become an unhandled rejection and terminate the process. Every
   // failure has to be absorbed at this boundary.
-  const listener = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  // Each open response with the promise of the request serving it.
+  const openResponses = new Map<ServerResponse, Promise<void>>();
+  const closedEventStreams = new Set<Promise<void>>();
+  let closingEventStreams = false;
+  const closeIfEventStream = (res: ServerResponse, served: Promise<void>): void => {
+    if (res.writableEnded || res.destroyed) return;
+    // Response headers are staged before the first body chunk, so a stream
+    // that has not sent an event yet is closed as well.
+    const contentType = String(res.getHeader("content-type") ?? "").toLowerCase();
+    if (!contentType.startsWith("text/event-stream")) return;
+    res.destroy();
+    closedEventStreams.add(served);
+  };
+  // A request still answering may answer with an event stream, so it is
+  // checked once its headers are staged.
+  const closeOnceAnswered = (res: ServerResponse, served: Promise<void>): Promise<void> =>
+    Promise.race([whenResponseHeadersStaged(res), served]).then(() =>
+      closeIfEventStream(res, served),
+    );
+  const listener = (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const served = serve(req, res);
+    openResponses.set(res, served);
+    res.once("close", () => openResponses.delete(res));
+    if (closingEventStreams) void closeOnceAnswered(res, served);
+    return served;
+  };
+  const serve = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       await handle(req, res);
     } catch (error) {
@@ -480,8 +532,37 @@ export function createNodeRequestHandler<TContext = unknown>(
 
   return Object.defineProperties(listener, {
     drain: { value: (timeoutMs?: number) => backgroundWork.drain(timeoutMs) },
+    closeEventStreams: {
+      value: async (timeoutMs = 10_000) => {
+        closingEventStreams = true;
+        const deadline = Date.now() + timeoutMs;
+        await untilDeadline(
+          Promise.all(Array.from(openResponses, ([res, served]) => closeOnceAnswered(res, served))),
+          deadline,
+        );
+        await untilDeadline(Promise.all(closedEventStreams), deadline);
+        // Let close and abort listeners queued by the last response run.
+        await new Promise((resolveTurn) => setImmediate(resolveTurn));
+      },
+    },
     pending: { get: () => backgroundWork.pending },
   }) as NodeRequestHandler;
+}
+
+/** Wait for `promise`, but no later than `deadline` (epoch ms). */
+async function untilDeadline(promise: Promise<unknown>, deadline: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise,
+      new Promise<void>((resolveTimeout) => {
+        timer = setTimeout(resolveTimeout, Math.max(0, deadline - Date.now()));
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function shouldWarnAboutMissingCanonicalOrigin(staticDir: string | undefined): boolean {
@@ -494,7 +575,7 @@ async function serveStaticFile(
   request: Request,
   res: ServerResponse,
   staticResult: { filePath: string; contentType: string; cacheControl: string },
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   isgManifest: Record<string, ISGManifestEntry>,
   pathname: string,
   compression: CompressionState | undefined,
@@ -740,9 +821,10 @@ async function serveISGEntry<TContext>(
   staticDir: string,
   pathname: string,
   entry: ISGManifestEntry,
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
+  writeGuard: ISGSnapshotWriteGuard,
 ): Promise<boolean> {
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
@@ -816,7 +898,7 @@ async function serveISGEntry<TContext>(
       }
     }
 
-    if (isStale) {
+    if (isStale && writeGuard.canRegenerate(htmlPath)) {
       // Tracked like application `waitUntil()` work, so a graceful shutdown
       // lets an in-flight regeneration finish writing its snapshot.
       waitUntil(
@@ -827,9 +909,16 @@ async function serveISGEntry<TContext>(
           request,
           compression,
           waitUntil,
-        ).catch((err) => {
-          console.error(`ISG regeneration failed for ${pathname}:`, err);
-        }),
+        ).then(
+          () => writeGuard.succeeded(htmlPath),
+          (err) => {
+            if (err instanceof ISGSnapshotWriteError) {
+              writeGuard.failed(htmlPath, err, (revalidateSeconds ?? 0) * 1000);
+            } else {
+              console.error(`ISG regeneration failed for ${pathname}:`, err);
+            }
+          },
+        ),
       );
     }
 
@@ -861,7 +950,7 @@ async function handleRevalidationEndpoint<TContext>(
     );
   }
 
-  const report = new RevalidationReport();
+  const report = new RevalidationReport("instance");
 
   for (const pathname of parsed.paths) {
     try {
@@ -945,7 +1034,7 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
 function applySnapshotOrManifestHeaders(
   headers: Headers,
   snapshotHeaders: Record<string, string> | null,
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   pathname: string,
 ): void {
   if (!snapshotHeaders) {

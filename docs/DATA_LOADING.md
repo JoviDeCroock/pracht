@@ -263,16 +263,49 @@ pipeline and the prerendering rules.
 `signal` composes two independent reasons to stop: the request's own
 `AbortSignal` (the client went away) and a server-side budget. The budget
 defaults to 30 seconds and is set app-wide with `defineApp({ loaderTimeoutMs })`.
-It is one budget per request — the middleware chain, the loader, and the
-not-found render that follows a thrown `notFound()` all share it, so a 404 page
-cannot mint itself a fresh 30 seconds on top of a loader that already spent
-them. Runtimes without `AbortSignal.any` get the same composed signal wired by
-hand rather than losing the client's half of it.
+It is one budget per request (`createRequestBudget` in `runtime-request.ts`) —
+the middleware chain, the loader, and the not-found render that follows a
+thrown `notFound()` all share it, so a 404 page cannot mint itself a fresh 30
+seconds on top of a loader that already spent them. The timer runs only while
+work can still read the signal: the pipeline holds the budget until it has a
+response, a streamed document until its body ends, and each `waitUntil` promise
+until it settles. `releaseBudgetWith` hands the pipeline's hold to an app-built
+body (a proxied stream from a handler, loader, or middleware) until that body is
+read, errors, or is cancelled, and a 4xx/5xx response keeps the hold, so work a
+failed loader left behind (a sibling of the deferred field that threw) still
+times out. Neither applies when no code read `signal`, because then there is no
+timer. When the last hold is released the timer is cleared; a timer
+left to run out kept every finished request's signal and listener closures
+reachable for the whole budget (about 2 KB per request, 22 KB with a listener).
+The signal is composed by hand — one `AbortController`, a cancellable
+`setTimeout`, and a listener on `request.signal` that stays wired for the
+request's lifetime — because `AbortSignal.timeout` cannot be cancelled and an
+`AbortSignal.any` composite with a listener stays alive until a source aborts.
 
 Prerendering runs loaders through the same pipeline, so `loaderTimeoutMs`
 bounds SSG/ISG builds too. A budget tuned down for an edge runtime fails the
 build for any loader slower than it, and the build error names the route and
 the budget.
+
+`defineApp({ enforceLoaderTimeout: true })` makes the budget a response
+deadline too: `renderPage` and `dispatchApi` race the middleware chain against
+the signal (`untilAborted` in `runtime-request.ts`), so a loader, middleware,
+or API handler that ignores `signal` cannot hold the response. Expiry takes the
+same error path as a loader that rethrows the abort (a reported `TimeoutError`
+and the error document), a disconnect answers 499, and a late result is
+discarded with its body cancelled. It is opt-in because it changes what an app
+whose loaders outlive the budget sends: without it the response waits for them,
+as it always has. The error path and response finalization still await module
+imports and app hooks such as `head()`, so `withDeadlineBackstop` in
+`runtime.ts` races the whole dispatch too: if nothing has answered within
+`min(loaderTimeoutMs, 1s)` of expiry it sends a plain 500 (499 for a client that
+left) and discards the late result, cancelling its body whether it was returned
+or thrown. An enforced API request whose client left answers 499 without an
+`onApiError` report, matching pages. A decisive shell loader still waits for the
+route loader to start, which includes `search` validation and module
+resolution; the backstop bounds that wait. Server islands and a streamed body
+after its first flush are outside the race; the stream already stops on the
+signal.
 
 The two abort reasons are distinguished when the request fails. A client
 disconnect skips `onRouteError` and returns an empty 499 — reporting an

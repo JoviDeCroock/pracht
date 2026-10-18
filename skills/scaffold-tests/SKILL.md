@@ -20,7 +20,7 @@ allowed-tools:
 # Pracht Scaffold Tests
 
 Generate Vitest tests aligned with pracht's testing recipe
-(`examples/docs/src/routes/docs/recipes-testing.md`). Loaders and API handlers
+(<https://pracht.resynapse.dev/docs/recipes/testing>). Loaders and API handlers
 are plain async functions — they test directly with no framework bootstrap.
 Component tests need a renderer; the user picks the flavor.
 
@@ -132,7 +132,7 @@ If `vitest.config.ts` already exists, merge — never clobber.
 
 ## Step 4: Generate the tests
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
 tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
 config.
