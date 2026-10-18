@@ -356,8 +356,11 @@ function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigSca
   const mcpProperties = mcpBody === null ? null : scanTopLevelProperties(mcpBody);
   const destructive = evaluateLiteral(mcpProperties?.get("destructive") ?? "") === true;
   // An unreadable `mcp` value may still carry `auth`, so only a visible object
-  // without one proves its absence.
-  const mcpAuth = mcpProperties === null || mcpProperties.has("auth");
+  // without one (or with a falsy literal) proves its absence.
+  const auth = mcpProperties?.get("auth")?.trim();
+  const mcpAuth =
+    mcpProperties === null ||
+    (auth !== undefined && !["undefined", "null", "false"].includes(auth));
   return { configured: true, destructive, humanApproval, mcpAuth };
 }
 
@@ -374,7 +377,10 @@ function collectHumanApprovalChecks(
   checks: Check[],
 ): void {
   if (destructiveServed.length === 0 || !projection.humanApproval) return;
-  const scan = scanForSourceCall(project, /\bsetCapabilityApprovalPrincipalResolver\s*\(/);
+  const scan = scanForSourceCall(
+    project,
+    /\bsetCapabilityApprovalPrincipalResolver\s*(?:<[^()]*>\s*)?\(/,
+  );
   if (scan.found) return;
   checks.push(
     createCheck(

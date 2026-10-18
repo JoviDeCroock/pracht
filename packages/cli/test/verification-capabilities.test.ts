@@ -730,6 +730,29 @@ describe("collectCapabilityChecks", () => {
         expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
       });
 
+      it("accepts a resolver called with a type argument", () => {
+        const checks = checksFor({
+          appBlock: HUMAN,
+          extraFiles: {
+            "server/approvals.ts":
+              `${STORE_MODULE}setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(\n` +
+              "  ({ context }) => context.user.id,\n);\n",
+          },
+        });
+
+        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+      });
+
+      it("does not count an explicitly undefined agents.mcp.auth", () => {
+        const checks = checksFor({
+          appBlock:
+            '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true, auth: undefined } },',
+          extraFiles: { "server/approvals.ts": STORE_MODULE },
+        });
+
+        expect(warningsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+      });
+
       it("still warns for HTTP exposure when only agents.mcp.auth is set", () => {
         const previous = process.env.PRACHT_CONFIRMATION_SECRET;
         process.env.PRACHT_CONFIRMATION_SECRET = "verify-test-secret";
