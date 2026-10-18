@@ -36,26 +36,23 @@ export default function Dashboard({ data }: RouteComponentProps<typeof loader>) 
 }
 ```
 
-The component can be the default export or a named `Component` export. The
-other special exports are `loader`, `head`, `headers`, `markdown`,
-`ErrorBoundary`, and `getStaticPaths`. A `markdown` export serves the raw
-source to requests that prefer `Accept: text/markdown`; see
-[Markdown for agents](/docs/agents#discovery-markdown-and-llmstxt).
+The component is the default export or a named `Component`. The other special
+exports are `loader`, `head`, `headers`, `ErrorBoundary`, `getStaticPaths`, and
+`markdown`, which answers `Accept: text/markdown` requests (see
+[Markdown for agents](/docs/agents#discovery-markdown-and-llmstxt)).
 
 ### Dates, Maps, and other rich values
 
-By default, loader data reaches the browser as JSON. A `Date` arrives as its
-ISO string, even though `RouteComponentProps<typeof loader>` types it as a
-`Date`, and a `Map` arrives as `{}`. Turn on rich data to receive what the
-loader returned instead:
+Loader data reaches the browser as JSON by default, so a `Date` arrives as a
+string (though typed as `Date`) and a `Map` as `{}`. Turn on rich data to
+receive what the loader returned:
 
 ```ts [vite.config.ts]
 pracht({ client: { richData: true } });
 ```
 
-Then components get the same types from route and
-[shell](/docs/shells#shell-data) loaders alike: on the first load, after client
-navigation, from a static export, and from a streamed `defer()` value:
+Route and [shell](/docs/shells#shell-data) loader data then keeps these types
+on first load, client navigation, static exports, and streamed `defer()` values:
 
 - `Date`, `Map`, `Set`, `RegExp`, `URL`, and `BigInt`
 - `undefined`, `NaN`, `Infinity`, `-Infinity`, and `-0`
@@ -75,11 +72,10 @@ export default function Post({ data }: RouteComponentProps<typeof loader>) {
 }
 ```
 
-It adds about 0.3 KB gzip to fully hydrated pages, and plain JSON data is
-sent exactly as before. An object with a `toJSON()` method, such as a decimal
-type, arrives as what `toJSON()` returns. Any other value, like a function or
-a class instance, fails the request with an error that names its path.
-[Island props](/docs/islands) stay JSON-only either way.
+It adds about 0.3 KB gzip to fully hydrated pages; plain JSON is sent as
+before. An object with `toJSON()` arrives as what that returns. Any other value,
+like a function or class instance, fails the request with an error naming its
+path. [Island props](/docs/islands) stay JSON-only.
 
 ### LoaderArgs
 
@@ -113,9 +109,13 @@ export async function loader({ signal, url }: LoaderArgs) {
 
 The budget defaults to 30 seconds; set it app-wide with
 [`defineApp({ loaderTimeoutMs })`](/docs/reference/config#defineapp--the-route-manifest).
-One budget covers the whole request: middleware, the loader, and the not-found
-page after `notFound()`. [API route](/docs/api-routes) handlers get the same
-signal.
+[API route](/docs/api-routes) handlers get the same signal.
+
+One budget covers the whole request: middleware, the loader, the not-found page
+after `notFound()`, any response body still streaming, and `waitUntil` work.
+When a successful request finishes all of it, the budget stops and `signal`
+aborts only on a client disconnect. After an error response, the budget still
+runs out and aborts leftover loader work.
 
 - **It applies at build time.** SSG and ISG prerendering run loaders with the
   same budget, so a short edge budget fails the build for slower loaders.
@@ -138,12 +138,11 @@ export async function loader({ params, waitUntil }: LoaderArgs) {
 }
 ```
 
-Middleware, API route handlers, `head()`, `headers()`, and a capability's
-`run()` receive the same function, and it works on every adapter. Prerendering
-waits for it before the build moves on. On Node, the server waits for it on
-shutdown, up to [`shutdownTimeoutMs`](/docs/adapters#graceful-shutdown), so put
-long jobs in a queue. A rejected promise is logged as a `waitUntil` error and
-never fails the response.
+Middleware, API routes, `head()`, `headers()`, and a capability's `run()` get
+the same function on every adapter. Prerendering waits for it; on Node, shutdown
+waits up to [`shutdownTimeoutMs`](/docs/adapters#graceful-shutdown), so queue
+long jobs. A rejected promise is logged as a `waitUntil` error and never fails
+the response.
 
 ### When loaders run
 
@@ -164,9 +163,8 @@ Data every page in a shell shows, like the signed-in user, can come from a [shel
 
 ### Route-state caching
 
-Client navigation fetches loader data as JSON with `Cache-Control: no-store`
-by default. Set `loaderCache` when the same browser may reuse that data for a
-while:
+Client navigation fetches loader data with `Cache-Control: no-store`. Set
+`loaderCache` to let the browser reuse it for a while:
 
 ```ts [src/routes.ts]
 route("/pricing", "./routes/pricing.tsx", {
@@ -179,8 +177,7 @@ A positive value sets `Cache-Control: private, max-age=<seconds>` on successful
 responses. `false` or `0` keeps `no-store`, which also opts a route out of a
 group default.
 
-Don't set it for data that depends on the current user, session, cookies, or
-permissions. `loaderCache` is separate from ISG `revalidate` and from the
+Don't set it for per-user data. It is separate from ISG `revalidate` and the
 prefetch cache.
 
 ### Deferred values
@@ -224,16 +221,14 @@ function Reviews({ reviews }: { reviews: Deferred<Review[]> }) {
 }
 ```
 
-The loader data type keeps `Deferred<T>`, so passing `data.reviews` where
-`Review[]` is expected is a compile error. You always place the `<Suspense>`
-boundary yourself.
+The data type keeps `Deferred<T>`, so passing `data.reviews` as a `Review[]`
+is a compile error. You place the `<Suspense>` boundary yourself.
 
 `defer()` takes a promise, or a function returning one to delay the work until
 something reads the value. Reads are memoized.
 
-By default every render mode resolves deferred values before writing the
-response. Independent fields still resolve concurrently: two 300 ms calls cost
-300 ms, not 600 ms. To send the page before they settle, turn on
+By default the response waits for deferred values, which resolve concurrently:
+two 300 ms calls cost 300 ms. To send the page before they settle, turn on
 [streaming](#streaming-the-document).
 
 Rules:
@@ -262,9 +257,9 @@ route("/product/:id", () => import("./routes/product.tsx"), {
 It also works as a group option. Pages routes use `export const STREAMING = true`.
 Your `defer()` and `use()` code stays the same either way.
 
-The browser first gets the head, styles, and the page with each unresolved
-boundary showing its fallback. Each deferred value then streams in as it
-settles. Hydration starts once the document is complete.
+The browser first gets the page with each unresolved boundary showing its
+fallback; deferred values stream in as they settle, and hydration starts when
+the document is complete.
 
 Streaming needs `render: "ssr"` with `hydration: "full"`; any other combination
 is rejected. It also needs `preact-render-to-string` 6.7 or newer.
@@ -376,7 +371,7 @@ The route's own `ErrorBoundary` still wins. Shell boundaries do not catch 404s o
 
 ## Mutations
 
-Loaders only read. Writes go to an [API route](/docs/api-routes). The `<Form>` component posts to it over `fetch` without a page reload, exposes the pending state through `useNavigation()`, and falls back to a native submit before JavaScript loads.
+Writes go to an [API route](/docs/api-routes). `<Form>` posts to it over `fetch` without a page reload, exposes the pending state through `useNavigation()`, and submits natively before JavaScript loads.
 
 ```ts [src/api/projects.ts]
 import { redirect } from "@pracht/core";
@@ -430,7 +425,7 @@ export function Component() {
 
 **Loader data does not refresh on its own.** A `<Form action>` submission that gets a 2xx leaves it unchanged. Two ways to refresh:
 
-- **Redirect from the handler**, as above. The client router follows the redirect and refetches route state. This also works without JavaScript.
+- **Redirect from the handler**, as above. The client router follows it and refetches route state, with or without JavaScript.
 - **Call `useRevalidate()`** from `onResponse` when the page should stay put:
 
 ```tsx
@@ -608,7 +603,7 @@ export function Component() {
 }
 ```
 
-The id only sets the type. Passing an id other than the active route throws; to share data across routes, pass it down as a prop.
+The id only sets the type; an id other than the active route's throws. To share data across routes, pass it down as a prop.
 
 Without typegen, pass the loader type as a generic:
 
@@ -717,14 +712,13 @@ The predicate receives `{ currentLocation, nextLocation, historyAction }`, where
 `historyAction` is `"push"`, `"replace"`, `"pop"` (back/forward), or `"unload"`.
 
 **What is guarded.** `<Link>` clicks, `useNavigate()` calls, and back/forward.
-Reloads, closed tabs, and cross-origin links show the browser's own
-`beforeunload` dialog; the predicate sees `nextLocation: null` and
-`historyAction: "unload"`. Opt out with
+Reloads, closed tabs, and cross-origin links get the browser's `beforeunload`
+dialog, with `nextLocation: null` and `historyAction: "unload"`; opt out with
 `useBlocker(dirty, { beforeUnload: false })`.
 
-**What is not.** `<Form>` submissions, and back/forward onto history entries
-your code created with `history.pushState()`. Render at most one blocker at a
-time; a second one wins and warns in development.
+**What is not.** `<Form>` submissions, and back/forward onto entries your code
+pushed with `history.pushState()`. Render one blocker at a time; a second wins
+and warns in development.
 
 **Shipping less JavaScript.** An app that never blocks navigation can compile
 the guards out:
@@ -737,7 +731,7 @@ pracht({ client: { navigationGuards: false } });
 
 ### \<Form\> Component
 
-Submits forms over `fetch` with progressive enhancement; see [Mutations](#mutations) for a full example. Same-origin submissions skip the page reload; cross-origin actions submit natively. Without JavaScript it submits natively too. It drives `useNavigation()`'s `"submitting"` state.
+Submits same-origin forms over `fetch` without a page reload and drives `useNavigation()`'s `"submitting"` state; cross-origin actions, and any form before JavaScript loads, submit natively. See [Mutations](#mutations) for a full example.
 
 Set `action` to an API route path, or `capability` to post to a [capability](/docs/capabilities) endpoint.
 
@@ -745,6 +739,6 @@ Set `action` to an API route path, or `capability` to post to a [capability](/do
 
 ## API Routes
 
-Loaders read; API routes write. Files in `src/api/` export named HTTP method handlers that return `Response` objects, share the page routes' context, and never reach the client bundle. See [API Routes](/docs/api-routes) and [API Validation](/docs/api-validation).
+Files in `src/api/` export named HTTP method handlers that return a `Response`, share the page routes' context, and never reach the client bundle. See [API Routes](/docs/api-routes) and [API Validation](/docs/api-validation).
 
-To let agents call the same operation, define it as a [capability](/docs/capabilities) instead: one contract becomes an HTTP endpoint, a WebMCP page tool, and a remote MCP tool.
+For an operation agents can call too, define a [capability](/docs/capabilities): one contract becomes an HTTP endpoint, a WebMCP page tool, and a remote MCP tool.

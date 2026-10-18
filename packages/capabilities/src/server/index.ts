@@ -47,6 +47,7 @@ export {
   type CapabilityHost,
   type CapabilityHostApp,
   type CapabilityLoadFailure,
+  type CapabilityRequestBudget,
   type HandleCapabilityRequestOptions,
   type InvokeCapabilityContext,
   type ResolvedCapability,

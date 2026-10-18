@@ -186,11 +186,17 @@ When you want to state it explicitly, pass both
 `defineCapability<Input, Output>`.
 
 `signal` aborts when the caller disconnects — HTTP or the remote MCP
-transport request — or when the request budget (`defineApp({ loaderTimeoutMs })`,
-30 s by default; 30 s on a standalone host) runs out. The `api.middleware`
-chain and capability middleware receive the same signal. `invokeCapability()`
-uses the `signal` you pass, or else the incoming request's, under the default
-budget.
+transport request — or when the request budget runs out. Under
+`handlePrachtRequest` it is the request's own budget (the one API routes get,
+`defineApp({ loaderTimeoutMs })`, 30 s by default), passed in as
+`handleCapabilityRequest({ budget })` / `handleMcpRequest({ budget })` (see the
+request budget in [DATA_LOADING.md](DATA_LOADING.md)). The dispatch holds it
+while `waitUntil()` work runs, and a failed dispatch (status 400 and up, before
+MCP turns it into a 200 tool error) keeps it until the timer fires. A host that
+passes no budget (the standalone host, `invokeCapability()` without a
+`signal`) gets a per-dispatch one of `timeoutMs` (30 s) with the same holds,
+cleared once the dispatch answers and its work settles. The
+`api.middleware` chain and capability middleware receive the same signal.
 
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the
 verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
