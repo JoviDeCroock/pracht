@@ -24,7 +24,7 @@ These are the client JavaScript totals for the *same page*, rendering the
 | `hydration: "full"` | **17.9 KB** | 43.8 KB | The above plus the client router: navigation, prefetching, loader fetches. |
 | `hydration: "full"`, prefetching off | **16.3 KB** | 42.8 KB | Full hydration with `client: { prefetch: false }`. |
 | `hydration: "full"`, navigation guards off | **17.7 KB** | 42.9 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"`, rich data on | **18.2 KB** | 44.4 KB | Full hydration with `client: { richData: true }`. |
+| `hydration: "full"`, rich data on | **18.2 KB** | 44.5 KB | Full hydration with `client: { richData: true }`. |
 | `hydration: "full"` + `preact/compat` | **18.7 KB** | 46.1 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load: the route's chunks plus the chunk the router imports

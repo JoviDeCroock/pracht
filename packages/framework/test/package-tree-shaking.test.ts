@@ -255,12 +255,12 @@ describe("published package tree shaking", () => {
     // reset and route announcer (`client: { accessibleNavigation }`) about 330;
     // queueing `viewport`/`render` prefetches in the lazy prefetch chunk about 150; handing an
     // over-long redirect chain to the browser about 10; the reload
-    // fallback for a render error with no app ErrorBoundary about 55.
+    // fallback for a render error no app ErrorBoundary caught about 80.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,890 gzip bytes", async () => {
+    it("keeps the router runtime below 10,920 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_890);
+      expect(gzipBytes).toBeLessThanOrEqual(10_920);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -454,7 +454,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_590);
+      expect(gzipBytes).toBeLessThanOrEqual(10_630);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -547,7 +547,7 @@ describe("published package tree shaking", () => {
       const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
 
       expect(code).toContain("x-pracht-shell-data");
-      expect(gzipBytes).toBeLessThanOrEqual(11_300);
+      expect(gzipBytes).toBeLessThanOrEqual(11_330);
     });
 
     // Both opt-in router features at once: a route with a `search` schema
@@ -558,7 +558,7 @@ describe("published package tree shaking", () => {
         __PRACHT_SHELL_LOADERS__: "true",
       });
 
-      expect(gzipBytes).toBeLessThanOrEqual(11_400);
+      expect(gzipBytes).toBeLessThanOrEqual(11_430);
     });
   });
 

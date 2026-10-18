@@ -40,6 +40,64 @@ describe("static fallback router readiness", () => {
     _resetHydrationMismatchForTesting();
   });
 
+  it("does not reload a fallback boot whose route throws, which would only boot it again", async () => {
+    const reload = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        href: "http://localhost/items/42",
+        origin: "http://localhost",
+        pathname: "/items/42",
+        search: "",
+        hash: "",
+        reload,
+      },
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const app = resolveApp(
+      defineApp({
+        routes: [
+          route("/items/:id", "./routes/item.tsx", {
+            hasHead: false,
+            hasLoader: false,
+            id: "item",
+            render: "spa",
+          }),
+        ],
+      }),
+    );
+
+    try {
+      await initClientRouter({
+        app,
+        routeModules: {
+          "./routes/item.tsx": async () => ({
+            default: () => {
+              throw new Error("browser-only crash");
+            },
+          }),
+        },
+        shellModules: {},
+        initialState: {
+          data: undefined,
+          error: null,
+          fallback: true,
+          pending: true,
+          routeId: "__pracht_not_found__",
+          url: "/",
+        },
+        root,
+        findModuleKey: (_modules, file) => file,
+      }).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(reload).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+  });
+
   it("publishes readiness only after the fallback route commits", async () => {
     document.head.innerHTML =
       '<link data-pracht-font-preload rel="preload" as="font" href="/fallback.woff2"><style data-pracht-fonts>@font-face{font-family:"Fallback"}</style>';

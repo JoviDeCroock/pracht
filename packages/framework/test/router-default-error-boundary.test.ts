@@ -2,7 +2,7 @@
 import { Component, h, render, type ComponentChildren } from "preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { defineApp, initClientRouter, resolveApp, route } from "../src/index.ts";
+import { ErrorBoundary, defineApp, initClientRouter, resolveApp, route } from "../src/index.ts";
 import { _resetNavigationForTesting } from "../src/navigation-state.ts";
 import { clearPrefetchCache } from "../src/prefetch-cache.ts";
 
@@ -119,6 +119,37 @@ describe("client router: a render error without an app ErrorBoundary", () => {
     await flush();
 
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the next page normally when the reload does not happen", async () => {
+    // A `beforeunload` prompt the visitor cancels leaves the page in place.
+    await initRouter({ default: Crash });
+
+    await window.__PRACHT_NAVIGATE__!("/crash");
+    await flush();
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    await window.__PRACHT_NAVIGATE__!("/");
+    await flush();
+    expect(root.textContent).toBe("home");
+  });
+
+  it("leaves a render error to an ErrorBoundary in the app root", async () => {
+    await initRouter(
+      { default: Crash },
+      {
+        rootModule: {
+          Root: ({ children }: { children?: ComponentChildren }) =>
+            h(ErrorBoundary, { fallback: h("p", null, "root caught") }, children),
+        },
+      },
+    );
+
+    await window.__PRACHT_NAVIGATE__!("/crash");
+    await flush();
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(root.textContent).toBe("root caught");
   });
 
   it("keeps the shell mounted across navigations", async () => {

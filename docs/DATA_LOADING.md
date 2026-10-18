@@ -734,13 +734,17 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 Error boundaries compose: a route boundary catches route-level errors, while
 a shell boundary catches errors from any route inside that shell. If a route
 has no boundary, the error bubbles up to the shell, then to the global handler.
-On the client, a shell without a boundary is wrapped in the router's
-`NavigationErrorBoundary` (unkeyed, so the shell is never remounted by it). It
-acts only on a render or layout-effect error thrown while a client navigation
-commits (`afterCommitCallback` still pending): it reports the error with
-`reportError()`, renders nothing, and reloads the document, which the server
-renders or answers with its error page. Errors during hydration or any later
-update propagate as before, so the reload cannot loop.
+On the client, the router wraps the whole tree, outside the app `Root`, in
+`NavigationErrorBoundary`, so it sees only errors that every app boundary
+(route, shell, or a `<ErrorBoundary>` in `Root`) let through. It acts only on a
+render or layout-effect error thrown while a client navigation commits
+(`afterCommitCallback` still pending): it reports the error with
+`reportError()`, renders nothing for that route version, and reloads the
+document, which the server renders or answers with its error page. Errors
+during hydration or any later update propagate as before, so the reload cannot
+loop. A static host's SPA-fallback boot is excluded (a reload would serve the
+same fallback), and the wrapper is unkeyed and clears on the next route version
+(a cancelled `beforeunload` leaves the page usable).
 
 404s take a different path when the app declares a
 [`notFound` page](#custom-404-pages): a route boundary still wins, but the

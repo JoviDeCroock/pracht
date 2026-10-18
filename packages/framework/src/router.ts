@@ -585,25 +585,40 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   // outgoing page's height would clamp the restored position).
   let afterCommitCallback: (() => void) | null = null;
 
-  // Catches what no app ErrorBoundary does (the shell has none, and the route
-  // has none or the error is in the shell). A render error while a client
-  // navigation commits would otherwise leave the page blank, so the document
-  // is reloaded instead: the server
-  // renders the page, or its error page. Any other error (hydration, a later
-  // update) propagates as before, which also keeps the reload from looping.
-  class NavigationErrorBoundary extends Component<{ children: ComponentChildren }, { e?: 1 }> {
+  // Whether the committing navigation boots a static host's SPA fallback,
+  // which a reload would only serve again.
+  let committingStaticFallback = false;
+
+  // Outermost, so it sees only what every app ErrorBoundary (route, shell,
+  // one in `Root`) let through. A render error while a client navigation
+  // commits would otherwise leave the page blank, so the document is reloaded
+  // instead: the server renders the page, or its error page. Any other error
+  // (hydration, a later update) propagates as before, which also keeps the
+  // reload from looping. Unkeyed so nothing remounts between pages; a failed
+  // version stays blank only until the next one renders.
+  class NavigationErrorBoundary extends Component<
+    { children?: ComponentChildren; v: number },
+    { v?: number }
+  > {
     componentDidCatch(error: unknown): void {
-      if (!afterCommitCallback || typeof (error as { then?: unknown })?.then === "function") {
+      if (
+        !afterCommitCallback ||
+        (IS_STATIC_TARGET && committingStaticFallback) ||
+        typeof (error as { then?: unknown })?.then === "function"
+      ) {
         throw error;
       }
       afterCommitCallback = null;
       window.reportError?.(error);
-      this.setState({ e: 1 });
+      this.setState({ v: this.props.v });
       window.location.reload();
     }
 
-    render(props: { children: ComponentChildren }, state: { e?: 1 }): ComponentChildren {
-      return state.e ? null : props.children;
+    render(
+      props: { children?: ComponentChildren; v: number },
+      state: { v?: number },
+    ): ComponentChildren {
+      return state.v === props.v ? null : props.children;
     }
   }
 
@@ -682,16 +697,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           Boundary: ShellBoundary,
           children: shellTree,
         })
-      : // Unkeyed, and present whether or not the route has a boundary, so
-        // the shell is not remounted between pages.
-        h(NavigationErrorBoundary, null, shellTree);
+      : shellTree;
     // Same position as the server render: inside the runtime providers, above
     // the shell.
     const rootedTree =
       APP_ROOT_ENABLED && Root ? h(Root, { state: rootState }, guardedShellTree) : guardedShellTree;
+    const guardedTree = h(NavigationErrorBoundary, { v: version }, rootedTree);
     const componentTree = SEARCH_ENABLED
-      ? h(RouteSearchContext.Provider, { value: routeState.search }, rootedTree)
-      : rootedTree;
+      ? h(RouteSearchContext.Provider, { value: routeState.search }, guardedTree)
+      : guardedTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -1107,6 +1121,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
 
       const commit = () => {
+        if (IS_STATIC_TARGET) committingStaticFallback = !!opts?._staticFallback;
         afterCommitCallback = () => {
           restoreOrResetScroll(opts, target.browserUrl);
           // Another page, not a query or fragment change on this one.
