@@ -679,16 +679,83 @@ export function islandsNavigationRoutes(
           `${route.render !== "spa" && (route.hydration ?? "full") !== "full" ? "+" : "-"}${route.path}`,
       ),
     ];
-    table = all.filter(
-      (entry, index) =>
-        entry.startsWith("+") ||
-        all
-          .slice(index + 1)
-          .some((later) => later.startsWith("+") && patternsOverlap(entry, later)),
-    );
+    // Walk backwards, collecting the `+` patterns seen so far into a segment
+    // trie, so each `-` entry asks once whether any later `+` entry overlaps
+    // it instead of comparing against every one of them.
+    const later = createPatternNode();
+    let hasLater = false;
+    const keep: boolean[] = [];
+    for (let index = all.length - 1; index >= 0; index--) {
+      const entry = all[index]!;
+      const segments = entry.slice(1).split("/").filter(Boolean);
+      if (entry[0] === "+") {
+        keep[index] = true;
+        insertPattern(later, segments);
+        hasLater = true;
+      } else {
+        keep[index] = hasLater && overlapsPattern(later, segments, 0);
+      }
+    }
+    table = all.filter((_entry, index) => keep[index]);
     islandsNavigationRoutesCache.set(app, table);
   }
   return table;
+}
+
+/** A segment trie of route patterns: what `patternsOverlap` asks, for many at once. */
+interface PatternNode {
+  /** A pattern ends here. */
+  end: boolean;
+  /** A pattern continues with a catch-all here, matching any remainder. */
+  rest: boolean;
+  param?: PatternNode;
+  statics?: Map<string, PatternNode>;
+}
+
+function createPatternNode(): PatternNode {
+  return { end: false, rest: false };
+}
+
+function isCatchAllSegment(segment: string): boolean {
+  return segment === "*" || /^:.*\*$/.test(segment);
+}
+
+function insertPattern(root: PatternNode, segments: readonly string[]): void {
+  let node = root;
+  for (const segment of segments) {
+    if (isCatchAllSegment(segment)) {
+      node.rest = true;
+      return;
+    }
+    if (segment[0] === ":") {
+      node = node.param ??= createPatternNode();
+    } else {
+      const statics = (node.statics ??= new Map());
+      let next = statics.get(segment);
+      if (!next) statics.set(segment, (next = createPatternNode()));
+      node = next;
+    }
+  }
+  node.end = true;
+}
+
+/** Whether some URL path matches both `segments` and a pattern in the trie below `node`. */
+function overlapsPattern(node: PatternNode, segments: readonly string[], index: number): boolean {
+  if (node.rest) return true;
+  const segment = segments[index];
+  if (segment === undefined) return node.end;
+  // Every node lies on some inserted pattern, which a catch-all overlaps.
+  if (isCatchAllSegment(segment)) return true;
+  if (node.param && overlapsPattern(node.param, segments, index + 1)) return true;
+  if (!node.statics) return false;
+  if (segment[0] !== ":") {
+    const next = node.statics.get(segment);
+    return next !== undefined && overlapsPattern(next, segments, index + 1);
+  }
+  for (const next of node.statics.values()) {
+    if (overlapsPattern(next, segments, index + 1)) return true;
+  }
+  return false;
 }
 
 /** Whether some URL path matches both route patterns (`+`/`-` prefix ignored). */
