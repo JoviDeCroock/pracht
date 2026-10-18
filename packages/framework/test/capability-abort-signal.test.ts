@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
-import { createCapabilityHost } from "../../capabilities/src/server/index.ts";
+import {
+  createCapabilityHost,
+  handleCapabilityRequest,
+  resolveAppCapabilities,
+} from "../../capabilities/src/server/index.ts";
 import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
 import type { ModuleRegistry } from "../src/index.ts";
 
@@ -38,6 +42,28 @@ function slowCapability(probe: Probe, expose: Record<string, unknown> = { http: 
     },
   });
 }
+
+// Answers at once and keeps the signal it was handed, the way work registered
+// with `waitUntil()` or a pending listener would.
+function fastCapability(probe: Probe) {
+  return defineCapability({
+    title: "Fast",
+    description: "Answers at once.",
+    effect: "read",
+    input: { type: "object", properties: {}, additionalProperties: false },
+    output: { type: "object", properties: {} },
+    expose: { http: true },
+    async run({ signal }) {
+      probe.runSignal = signal;
+      signal.addEventListener("abort", () => {
+        probe.aborted = true;
+      });
+      return {};
+    },
+  });
+}
+
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function abortableRequest(url: string, body: unknown, abortAfterMs: number): Request {
   const controller = new AbortController();
@@ -123,5 +149,66 @@ describe("capability abort signal", () => {
     expect((probe.reason as Error).name).toBe("TimeoutError");
     expect(performance.now() - started).toBeLessThan(1_500);
     expect(probe.runSignal).toBe(probe.middlewareSignal);
+  });
+
+  it("hands capabilities the request budget, which stops timing once the response is read", async () => {
+    const probe: Probe = { aborted: false };
+    const app = defineApp({
+      loaderTimeoutMs: 50,
+      capabilities: { "x.fast": "./capabilities/fast.ts" },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./capabilities/fast.ts": (async () => ({
+          default: fastCapability(probe),
+        })) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/api/capabilities/x/fast", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    await settle(120);
+
+    expect(probe.runSignal).toBeDefined();
+    expect(probe.aborted).toBe(false);
+  });
+
+  it("stops a standalone dispatch's own timer once it has answered", async () => {
+    const probe: Probe = { aborted: false };
+    const app = { capabilities: { "x.fast": "./fast.ts" } };
+    const registry = {
+      capabilityModules: { "./fast.ts": async () => ({ default: fastCapability(probe) }) },
+    };
+    const [match] = await resolveAppCapabilities(app, registry);
+    const url = new URL("http://localhost/api/capabilities/x/fast");
+
+    const response = await handleCapabilityRequest({
+      match: match!,
+      context: {},
+      registry,
+      request: new Request(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      url,
+      exposeErrors: true,
+      timeoutMs: 50,
+    });
+    expect(response.status).toBe(200);
+    await settle(120);
+
+    expect(probe.aborted).toBe(false);
   });
 });

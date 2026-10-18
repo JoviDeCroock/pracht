@@ -1073,7 +1073,7 @@ export async function dispatchAgentSurface<TContext>(
       agent: ctx.agent,
       onAudit: options.onCapabilityAudit,
       resolutionError: capabilityResolutionError,
-      timeoutMs: ctx.loaderTimeoutMs,
+      signal: ctx.budget.signal,
     });
     return withDefaultSecurityHeaders(mcpResponse);
   }
@@ -1110,7 +1110,7 @@ export async function dispatchAgentSurface<TContext>(
         agents: options.app.agents,
         agent: ctx.agent,
         onAudit: options.onCapabilityAudit,
-        timeoutMs: ctx.loaderTimeoutMs,
+        signal: ctx.budget.signal,
       });
       return withDefaultSecurityHeaders(
         withEnhancedCapabilityFormRedirect(capabilityResponse, request),

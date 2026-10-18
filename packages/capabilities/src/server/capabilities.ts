@@ -72,50 +72,48 @@ export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
 const CAPABILITY_TIMEOUT_MS = 30_000;
 
 /**
- * The signal capability middleware and `run()` receive: the request budget
- * folded together with the caller going away, so work an agent abandoned stops
- * holding connections instead of running to the timeout.
+ * The signal for a dispatch whose host passed none (a standalone host, or a
+ * direct invocation without `signal`): it aborts after `timeoutMs` or when the
+ * caller goes away, whichever comes first, so work an agent abandoned stops
+ * holding connections instead of running to the timeout. `release()` clears
+ * the timer once the dispatch has answered; a pending timer would keep the
+ * signal, and everything its listeners close over, alive for the whole budget.
+ * The framework passes its request budget's signal instead.
  */
-export function capabilityRequestSignal(
+function createDispatchSignal(
   request: Request,
   timeoutMs: number = CAPABILITY_TIMEOUT_MS,
-): AbortSignal {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  const clientSignal = request.signal as AbortSignal | undefined;
-  if (!clientSignal) return timeout;
-  if (typeof AbortSignal.any === "function") return AbortSignal.any([clientSignal, timeout]);
-
-  // Runtimes without AbortSignal.any: wire both halves by hand.
+): { signal: AbortSignal; release(): void } {
   const controller = new AbortController();
-  if (clientSignal.aborted) {
+  const clientSignal = request.signal as AbortSignal | undefined;
+  if (clientSignal?.aborted) {
     controller.abort(clientSignal.reason);
-    return controller.signal;
+    return { signal: controller.signal, release: () => {} };
   }
-  const onClientAbort = () => {
-    timeout.removeEventListener("abort", onTimeoutAbort);
-    controller.abort(clientSignal.reason);
-  };
-  const onTimeoutAbort = () => {
-    clientSignal.removeEventListener("abort", onClientAbort);
-    controller.abort(timeout.reason);
-  };
-  clientSignal.addEventListener("abort", onClientAbort, { once: true });
-  timeout.addEventListener("abort", onTimeoutAbort, { once: true });
-  return controller.signal;
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+  }, timeoutMs);
+  // A budget must not keep a process alive on its own.
+  (timer as { unref?: () => void }).unref?.();
+  const release = () => clearTimeout(timer);
+  if (clientSignal) {
+    const onClientAbort = () => controller.abort(clientSignal.reason);
+    clientSignal.addEventListener("abort", onClientAbort, { once: true });
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        release();
+        clientSignal.removeEventListener("abort", onClientAbort);
+      },
+      { once: true },
+    );
+  }
+  return { signal: controller.signal, release };
 }
 
-// One signal per dispatch, shared by the `api.middleware` chain and the
-// capability pipeline it wraps, so both see the same budget.
-const dispatchSignals = new WeakMap<object, AbortSignal>();
-
-function requestSignalFor(options: HandleCapabilityRequestOptions<unknown>): AbortSignal {
-  let signal = dispatchSignals.get(options);
-  if (!signal) {
-    signal = capabilityRequestSignal(options.request, options.timeoutMs);
-    dispatchSignals.set(options, signal);
-  }
-  return signal;
-}
+type DispatchOptions<TContext> = HandleCapabilityRequestOptions<TContext> & {
+  signal: AbortSignal;
+};
 
 /** Names must be URL-safe: dot-separated segments of [a-z0-9_-]. */
 const CAPABILITY_NAME_RE = /^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/i;
@@ -659,9 +657,12 @@ export interface HandleCapabilityRequestOptions<TContext> {
   tokenPrincipal?: McpTokenPrincipal;
   onAudit?: CapabilityAuditHook;
   /**
-   * Budget for middleware and `run()`, in milliseconds (default 30000). The
-   * signal they receive also aborts when `request.signal` does.
+   * The signal middleware and `run()` receive: the host's request budget.
+   * When omitted, the dispatch gets its own, which aborts after `timeoutMs`
+   * or when `request.signal` does, and stops timing once it has answered.
    */
+  signal?: AbortSignal;
+  /** Budget, in milliseconds, of the signal created when `signal` is omitted (default 30000). */
   timeoutMs?: number;
 }
 
@@ -673,6 +674,18 @@ export interface HandleCapabilityRequestOptions<TContext> {
  */
 export async function handleCapabilityRequest<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
+): Promise<Response> {
+  if (options.signal) return dispatchCapabilityRequest(options as DispatchOptions<TContext>);
+  const own = createDispatchSignal(options.request, options.timeoutMs);
+  try {
+    return await dispatchCapabilityRequest({ ...options, signal: own.signal });
+  } finally {
+    own.release();
+  }
+}
+
+async function dispatchCapabilityRequest<TContext>(
+  options: DispatchOptions<TContext>,
 ): Promise<Response> {
   const started = performance.now();
   let dispatched = await dispatchCapabilityHttpWithApiMiddleware(options);
@@ -713,7 +726,7 @@ export async function handleCapabilityRequest<TContext>(
  * settled response without making its audit trail disagree with the client.
  */
 async function revalidateMcpSuccessEnvelope<TContext>(
-  options: HandleCapabilityRequestOptions<TContext>,
+  options: DispatchOptions<TContext>,
   dispatched: { response: Response; outcome: string },
 ): Promise<{ response: Response; outcome: string }> {
   if (!dispatched.outcome.startsWith("middleware_")) return dispatched;
@@ -773,7 +786,7 @@ async function revalidateMcpSuccessEnvelope<TContext>(
  * capability middleware, but must not inherit HTTP-only API policy.
  */
 async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
-  options: HandleCapabilityRequestOptions<TContext>,
+  options: DispatchOptions<TContext>,
 ): Promise<{ response: Response; outcome: string }> {
   const middlewareFiles = options.apiMiddlewareFiles ?? [];
   if (middlewareFiles.length === 0) {
@@ -794,7 +807,7 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
       registry: options.registry,
       request: options.request,
       route: capabilityMiddlewareRoute(options.match),
-      signal: requestSignalFor(options),
+      signal: options.signal,
       url: options.url,
       waitUntil: requestWaitUntil(options.request),
       terminal: async () => {
@@ -843,7 +856,7 @@ function withCapabilityEffect(response: Response, effect: string): Response {
 }
 
 async function dispatchCapabilityHttp<TContext>(
-  options: HandleCapabilityRequestOptions<TContext>,
+  options: DispatchOptions<TContext>,
 ): Promise<{ response: Response; outcome: string }> {
   const { capability, name } = options.match;
 
@@ -965,7 +978,7 @@ async function dispatchCapabilityHttp<TContext>(
       context: options.context,
       registry: options.registry,
       request: options.request,
-      signal: requestSignalFor(options),
+      signal: options.signal,
       url: options.url,
       pathname: options.pathname,
       exposeErrors: options.exposeErrors,
@@ -1607,6 +1620,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
   const started = performance.now();
   let context: unknown = ctx.context ?? {};
   let outcome: CapabilityPipelineOutcome;
+  const own = ctx.signal ? undefined : createDispatchSignal(ctx.request);
   try {
     context = capabilityPipelineContext(host, ctx.context);
     outcome =
@@ -1617,7 +1631,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
         context,
         registry: host.registry,
         request: ctx.request,
-        signal: ctx.signal ?? capabilityRequestSignal(ctx.request),
+        signal: ctx.signal ?? own!.signal,
         url: new URL(ctx.request.url),
         // Direct invocation stays server-side, so real error messages are safe.
         exposeErrors: true,
@@ -1648,6 +1662,8 @@ export async function invokeCapabilityOnHost<T = unknown>(
       host.waitUntil ?? detachedWaitUntil,
     );
     return envelope as CapabilityEnvelope<T>;
+  } finally {
+    own?.release();
   }
 
   // Direct invocation audits like HTTP dispatch does, marked as the "server"
