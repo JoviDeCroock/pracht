@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { h, render } from "preact";
+import { act } from "preact/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/prefetch.ts", () => {
@@ -25,7 +26,7 @@ describe("router readiness without prefetching", () => {
   });
 
   afterEach(() => {
-    render(null, root);
+    act(() => render(null, root));
     root.remove();
     vi.restoreAllMocks();
     delete window.__PRACHT_NAVIGATE__;
@@ -51,18 +52,24 @@ describe("router readiness without prefetching", () => {
       }),
     );
 
-    await expect(
-      initClientRouter({
-        app,
-        routeModules: {
-          "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
-        },
-        shellModules: {},
-        initialState: { data: undefined, routeId: "home", url: "/" },
-        root,
-        findModuleKey: (_modules, file) => file,
-      }),
-    ).resolves.toBeUndefined();
+    // Hydration queues Preact's after-paint effects behind a 35 ms timer that
+    // calls `cancelAnimationFrame`. Left pending, it can fire after jsdom is
+    // torn down and fail the run with an unhandled ReferenceError; act()
+    // flushes them before the test ends.
+    await act(async () => {
+      await expect(
+        initClientRouter({
+          app,
+          routeModules: {
+            "./routes/home.tsx": async () => ({ default: () => h("main", null, "Home") }),
+          },
+          shellModules: {},
+          initialState: { data: undefined, routeId: "home", url: "/" },
+          root,
+          findModuleKey: (_modules, file) => file,
+        }),
+      ).resolves.toBeUndefined();
+    });
 
     expect(window.__PRACHT_ROUTER_READY__).toBe(true);
     expect(document.documentElement.getAttribute("data-pracht-hydrated")).toBe("true");

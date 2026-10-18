@@ -58,6 +58,9 @@ export default defineCommand({
     );
 
     const routeTypes = createGeneratedRouteTypesSync(root);
+    // Set once the first server listens; servers created after that are
+    // restarts, whose banner follows Vite's own "server restarted".
+    let listened = false;
     const server = await createServer({
       cacheDir: args.cacheDir,
       // Vite re-creates the dev server (and its file watcher) on every
@@ -78,6 +81,18 @@ export default defineCommand({
                 if (dotEnvFiles.has(resolve(file))) dotEnv.load();
               });
             }
+            // A restart (a `routes.ts` edit, above all) can change every table
+            // in the banner, so print it again once the new server listens.
+            if (listened) {
+              devServer.httpServer?.once("listening", () => {
+                setTimeout(() => {
+                  void printDevBanner(devServer, root).catch(() => {
+                    // A manifest that no longer loads is reported by the
+                    // error overlay; keep the restart log quiet.
+                  });
+                }, 0);
+              });
+            }
           },
         },
       ],
@@ -86,6 +101,7 @@ export default defineCommand({
     });
 
     await server.listen();
+    listened = true;
     // Vite closes the server on SIGTERM; do the same for Ctrl+C so work
     // registered with `waitUntil()` gets its bounded drain. A second Ctrl+C
     // falls through to the default and exits immediately.
@@ -96,26 +112,7 @@ export default defineCommand({
     routeTypes.start();
 
     try {
-      const graph = await collectAppGraph(server, root, {
-        appFile: readProjectConfig(root).appFile,
-      });
-      const urls = server.resolvedUrls ?? { local: [], network: [] };
-      console.log(
-        formatDevBanner({
-          apiRoutes: graph.api,
-          capabilities: graph.capabilities,
-          color: supportsColor(),
-          localUrls: urls.local,
-          mcpAuthenticated: graph.mcpAuthenticated,
-          mcpEndpoint: graph.mcpEndpoint ?? null,
-          mcpDestructive: graph.mcpDestructive === true,
-          mcpRuntimeStatus: graph.mcpRuntimeStatus,
-          mcpUnavailableReasons: graph.mcpUnavailableReasons,
-          networkUrls: urls.network,
-          notFound: graph.notFound,
-          routes: graph.routes,
-        }),
-      );
+      await printDevBanner(server, root);
       if (!watchesGeneratedRouteTypes) {
         console.log(
           "\n  Tip: run `pracht typegen` once to enable typed routes and `apiFetch()`; `pracht dev` will keep them in sync.\n",
@@ -128,6 +125,33 @@ export default defineCommand({
     }
   },
 });
+
+async function printDevBanner(server: ViteDevServer, root: string): Promise<void> {
+  const graph = await collectAppGraph(server, root, {
+    appFile: readProjectConfig(root).appFile,
+  });
+  // A restarted server resolves its URLs just after it starts listening.
+  for (let attempt = 0; !server.resolvedUrls && attempt < 40; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  const urls = server.resolvedUrls ?? { local: [], network: [] };
+  console.log(
+    formatDevBanner({
+      apiRoutes: graph.api,
+      capabilities: graph.capabilities,
+      color: supportsColor(),
+      localUrls: urls.local,
+      mcpAuthenticated: graph.mcpAuthenticated,
+      mcpEndpoint: graph.mcpEndpoint ?? null,
+      mcpDestructive: graph.mcpDestructive === true,
+      mcpRuntimeStatus: graph.mcpRuntimeStatus,
+      mcpUnavailableReasons: graph.mcpUnavailableReasons,
+      networkUrls: urls.network,
+      notFound: graph.notFound,
+      routes: graph.routes,
+    }),
+  );
+}
 
 /**
  * Keep generated route types in sync while the dev server runs. Opt-in by

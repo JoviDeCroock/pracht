@@ -31,11 +31,11 @@ Gzipped client JavaScript for the same page and markup, with one setting changed
 | Route setting | Gzip client JS |
 | --- | --- |
 | `hydration: "none"` | 0 KB |
-| `hydration: "islands"` | 8.0 KB |
-| `hydration: "full"` | 17.4 KB |
+| `hydration: "islands"` | 8.1 KB |
+| `hydration: "full"` | 17.5 KB |
 | `hydration: "full"` + `preact/compat` | 18.2 KB |
 
-Your application code sits on top of these. `preact/compat` adds about 0.8 KB. The numbers come from `pnpm bench`; [Performance](/docs/performance) shows how to reproduce them and measure your own app.
+Your application code sits on top of these. `preact/compat` adds about 0.7 KB. The numbers come from `pnpm bench`; [Performance](/docs/performance) shows how to reproduce them and measure your own app.
 
 ### Explicit routing manifest
 

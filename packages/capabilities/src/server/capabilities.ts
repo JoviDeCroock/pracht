@@ -980,6 +980,31 @@ function envelopeOutcome(envelope: CapabilityEnvelope): string {
   return envelope.ok ? "ok" : envelope.error.code;
 }
 
+let warnedAgentOnlyHumanApproval = false;
+
+/**
+ * Human approval bound only to an agent key cannot tell the agent's users
+ * apart: whoever approves sees the agent, not the person. Say so once per
+ * process instead of on every request.
+ */
+function warnAgentOnlyHumanApproval(): void {
+  if (warnedAgentOnlyHumanApproval) return;
+  warnedAgentOnlyHumanApproval = true;
+  console.warn(
+    '[pracht] agents.confirmation.mode is "human" but approvals are bound only to a Web Bot ' +
+      "Auth key, which every user of that agent shares, so reviewers cannot tell whose request " +
+      "they approve. Call setCapabilityApprovalPrincipalResolver() from a server-only module " +
+      "(or protect remote MCP with agents.mcp.auth) to bind approvals to the end user.",
+  );
+}
+
+function randomProposalNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 /**
  * Prepare/commit gate for destructive capability HTTP calls. Returns the
  * envelope ending the request, or `null` when a valid confirmation token was
@@ -1047,6 +1072,7 @@ async function enforceDestructiveConfirmation<TContext>(
 
   let principal: string;
   let confirmationPrincipal: string;
+  let endUser = false;
   try {
     const resolvedPrincipal = await resolveCapabilityApprovalPrincipal({
       context: options.context,
@@ -1054,9 +1080,15 @@ async function enforceDestructiveConfirmation<TContext>(
       capability: name,
       agent: options.agent ?? null,
       confirmationSecret: secret,
+      tokenSubject: options.transport === "mcp" ? (options.tokenPrincipal?.subject ?? null) : null,
+      tokenIssuer:
+        options.transport === "mcp" && typeof options.tokenPrincipal?.claims?.iss === "string"
+          ? options.tokenPrincipal.claims.iss
+          : null,
     });
     principal = resolvedPrincipal?.record ?? "anonymous";
     confirmationPrincipal = resolvedPrincipal?.tokenBinding ?? "anonymous";
+    endUser = resolvedPrincipal?.endUser ?? false;
   } catch (error: unknown) {
     return {
       status: 403,
@@ -1077,11 +1109,17 @@ async function enforceDestructiveConfirmation<TContext>(
         code: "confirmation_unavailable",
         message:
           `Destructive capability "${name}" cannot run in human approval mode without an ` +
-          "authenticated principal (use Web Bot Auth or call " +
-          "setCapabilityApprovalPrincipalResolver() from a server-only module).",
+          "authenticated principal (call setCapabilityApprovalPrincipalResolver() from a " +
+          "server-only module, or protect remote MCP with agents.mcp.auth).",
       }),
     };
   }
+  // A Web Bot Auth key names the agent operator, which every user of that
+  // agent shares. Deriving the proposal from it alone would let one user's
+  // commit spend another user's approval of the identical input, so each
+  // prepare opens its own proposal, addressed by a nonce inside the token.
+  const perPrepareProposal = mode === "human" && !endUser;
+  if (perPrepareProposal) warnAgentOnlyHumanApproval();
   const canonicalInput = canonicalJson(validatedInput);
   const binding = {
     secret,
@@ -1096,11 +1134,12 @@ async function enforceDestructiveConfirmation<TContext>(
   // Proposal identity is derived from what the operation *is*, so repeated
   // prepares address one proposal instead of accumulating one per token.
   const inputHash = store ? await sha256Base64Url(canonicalInput) : null;
-  const approvalId = inputHash
-    ? await capabilityApprovalId(secret, principal, name, inputHash, mode)
-    : null;
 
   if (!presented) {
+    const proposalNonce = perPrepareProposal ? randomProposalNonce() : null;
+    const approvalId = inputHash
+      ? await capabilityApprovalId(secret, principal, name, inputHash, mode, proposalNonce)
+      : null;
     let expiresAtLimit = 0;
     if (store && approvalId && inputHash) {
       const now = Math.floor(Date.now() / 1000);
@@ -1147,6 +1186,7 @@ async function enforceDestructiveConfirmation<TContext>(
 
     const { token, expiresAt } = await createConfirmationToken({
       ...binding,
+      ...(proposalNonce ? { proposalNonce } : {}),
       ttlSeconds: store ? Math.max(1, expiresAtLimit) : ttlSeconds,
     });
     // The channel the caller has to use is transport-specific: remote MCP has
@@ -1186,6 +1226,28 @@ async function enforceDestructiveConfirmation<TContext>(
       }),
     };
   }
+  // A per-prepare proposal is only reachable through the nonce its own token
+  // carries; a token without one would address the shared, collidable
+  // proposal this mode exists to avoid.
+  if (perPrepareProposal !== (verification.proposalNonce !== null)) {
+    return {
+      status: 403,
+      envelope: errorEnvelope({
+        code: "confirmation_invalid",
+        message: "Confirmation token rejected (principal_mismatch).",
+      }),
+    };
+  }
+  const approvalId = inputHash
+    ? await capabilityApprovalId(
+        secret,
+        principal,
+        name,
+        inputHash,
+        mode,
+        verification.proposalNonce,
+      )
+    : null;
 
   if (store && approvalId) {
     const consumed = await withApprovalStore(name, options.exposeErrors, () =>
