@@ -7,5 +7,5 @@ export default defineConfig({
   entry: ["src/index.ts", "src/build-output.ts"],
   format: "esm",
   dts: true,
-  external: [/^@pracht\/core(\/.*)?$/, "@pracht/vite-plugin", /^node:/],
+  external: [/^@pracht\/core(\/.*)?$/, /^node:/, "vite"],
 });

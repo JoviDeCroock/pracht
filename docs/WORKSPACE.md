@@ -7,7 +7,7 @@ described in `VISION_MVP.md`.
 
 | Pin | Where | Value |
 | --- | --- | --- |
-| Package manager | root `package.json#packageManager`, both workflows | `pnpm@11.3.0` |
+| Package manager | root `package.json#packageManager`, every workflow that installs pnpm | `pnpm@11.3.0` |
 | Node | root `package.json#engines.node`, `.nvmrc`, `.node-version` | `>=22.18` / `22.22.3` |
 | Preact | every workspace `package.json`, the `create-pracht` scaffold | `11.0.1` / `^11.0.1` |
 
@@ -423,6 +423,49 @@ to regress:
   the same reason local runs retry once and CI does not: several agent
   workspaces routinely run this suite at once, and re-running one spec is far
   cheaper than re-running `verify`. A real regression fails both attempts.
+
+## Registry-install smoke
+
+Every app in the repo resolves `@pracht/*` through workspace links and the root
+tsconfig `paths`, so a published file that imports a package it never declared
+still works here. The `Package install` workflow runs `pnpm pack:smoke`
+(`scripts/pack-smoke.mjs`; run `pnpm build` first) to install the packages the
+way npm users get them:
+
+- `pnpm pack` every public package under `packages/`, so `workspace:` ranges
+  are rewritten as on publish.
+- Scaffold one app per adapter with the packed `create-pracht`, in a temp
+  directory outside the workspace, and point every `@pracht/*` dependency,
+  direct or transitive (pnpm `overrides`), at the tarballs.
+- Install with `hoist: false` and the virtual store outside the app's
+  `node_modules` — the layout of pnpm's global virtual store. Walking up from a
+  package's real path then never reaches the app's own dependencies, so a
+  package resolves only what its `package.json` declares, as under Yarn PnP.
+- Run the app's `typecheck`, then `pracht build`. Between them a probe file
+  fails if the adapter factory's published return type collapsed to `any`, or
+  if declaration emit cannot name the type of an exported, unannotated adapter.
+- For the Node adapter, serve `/` from the build, then again from an
+  `npm install --omit=dev` copy, which must not contain `vite`,
+  `@pracht/vite-plugin` or `@pracht/cli`.
+
+`--adapter=node` (repeatable or comma-separated) limits the run; `--keep` keeps
+the temp directory. The scaffold's deploy-only CLIs (`vercel`, `netlify-cli`)
+are dropped from the smoke apps because `pracht build` never calls them.
+
+Two consequences for package authors. A runtime package must not take a
+dependency edge — not even an optional peer — on build tooling: npm keeps an
+optional peer that the app has as a devDependency in `--omit=dev` installs, and
+pnpm `--prod` installs its dependencies, which puts Vite in every production
+image. That is why the adapters' published types inline the `PrachtAdapter`
+contract from `packages/vite-plugin/src/plugin-adapter.ts` (their tsdown
+configs do not mark `@pracht/vite-plugin` external, and `scripts/build.mjs`
+lists that file as an adapter build input) instead of importing
+`@pracht/vite-plugin`. Each adapter also re-exports the type as
+`PrachtAdapter`, so declaration emit can name an unannotated
+`export const adapter = nodeAdapter()`. The inlined contract still names `vite`'s `Plugin`
+type, which is present in any app that runs pracht's Vite plugin and degrades
+only `vitePlugins()`' element type where it cannot resolve. Dev-only packages
+such as `@pracht/cli` declare what they import (`vite`, as an optional peer).
 
 ## Later (Phase 2 remaining)
 

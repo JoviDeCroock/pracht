@@ -262,11 +262,36 @@ export function withEnhancedCapabilityFormRedirect(response: Response, request: 
   return new Response(null, { status: 204, headers });
 }
 
+/**
+ * Responses the framework constructed during this request, with mutable
+ * headers and a body nothing else has read. Route headers are applied to these
+ * in place instead of through a copy.
+ */
+const ownedResponses = new WeakSet<Response>();
+
+/** Mark a response this request just constructed; see `withRouteResponseHeaders`. */
+export function ownResponse(response: Response): Response {
+  ownedResponses.add(response);
+  return response;
+}
+
+/** Whether the framework built `response` (and so its body) for this request. */
+export function isOwnResponse(response: Response): boolean {
+  return ownedResponses.has(response);
+}
+
 export function withRouteResponseHeaders(
   response: Response,
   options: { isRouteStateRequest: boolean; loaderCache?: LoaderCache },
 ): Response {
   if (isProtocolSwitchResponse(response)) return response;
+  // The same headers the copy below would get, without a second Headers and
+  // Response for every document. Middleware may have changed the headers
+  // since, so they are still applied rather than assumed.
+  if (ownedResponses.has(response) && !response.bodyUsed) {
+    applySecurityAndRouteHeaders(response.headers, options);
+    return normalizeResponseHeaders(response);
+  }
 
   const headers = new Headers(response.headers);
   applySecurityAndRouteHeaders(headers, options);

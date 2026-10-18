@@ -759,18 +759,17 @@ At the runtime level, an adapter also typically needs to:
 1. Accept a platform request and convert it to a Web `Request`
 2. Serve static files from `dist/client/` with their headers
 3. Serve prerendered SSG/ISG HTML, checking ISG staleness where the platform can
-4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`, passing the platform's `waitUntil`
+4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`, passing the platform's `waitUntil`. It resolves each `app` object once, so pass a new `defineApp()` result to change routes at runtime
 5. Convert the Web `Response` back to the platform's response format
 6. Provide a context factory for platform-specific values
 
 A static-export adapter sets `staticTarget: true` and builds its entry with
-`createStaticServerEntryModule()` from `@pracht/adapter-static`, so the build
-can render `404.html` and the SPA fallback.
+`createStaticServerEntryModule()` from `@pracht/adapter-static` for `404.html`
+and the SPA fallback.
 
 If your transport sends responses itself, pass them through
 `normalizeResponseHeaders()` so bodyless responses (`HEAD`, `204`, `304`) don't
-carry a stale `Content-Length`. It leaves protocol-switch responses, such as
-Cloudflare's WebSocket `101`, untouched:
+carry a stale `Content-Length`:
 
 ```ts
 import { normalizeResponseHeaders } from "@pracht/core/server";
