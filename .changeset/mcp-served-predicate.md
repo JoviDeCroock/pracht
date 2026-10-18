@@ -1,6 +1,6 @@
 ---
 "@pracht/capabilities": minor
-"@pracht/core": patch
+"@pracht/core": minor
 "@pracht/cli": patch
 ---
 
