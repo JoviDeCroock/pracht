@@ -988,7 +988,10 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   data it was fetched against: `revalidateRouteData()` (so `useRevalidate()`
   and capability revalidation), a non-`GET`/`HEAD` `apiFetch()`, a successful
   non-read `CAPABILITY_SETTLED_EVENT` (even with `revalidate: false`), and a
-  `<Form>` submission.
+  `<Form>` submission. Each clear bumps `prefetchGeneration`; a navigation
+  whose generation moved before it commits (it may hold a promise taken from
+  the cache, or a response fetched before the mutation) re-runs once as a
+  `_reloadRouteState` navigation instead of rendering that state.
 - `hasShellLoader` is a build-time route hint (shell loader presence from the
   loader hint table, which scans shells and pages `_app` files too). A
   loaderless, headless, middleware-free route skips the route-state request
