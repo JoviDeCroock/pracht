@@ -635,6 +635,24 @@ describe("createNetlifyHandler", () => {
     expect(encodedSeparator.status).toBe(404);
   });
 
+  it("serves prerendered pages written under their percent-encoded route path", async () => {
+    // `pracht build` writes serverful SSG pages at the encoded spelling of
+    // the route path, the same one the request URL carries.
+    const staticDir = await createStaticBuild();
+    await mkdir(join(staticDir, "posts/caf%C3%A9"), { recursive: true });
+    await writeFile(join(staticDir, "posts/caf%C3%A9/index.html"), "<html>café post</html>");
+    const handler = createNetlifyHandler({ app, registry, staticDir });
+
+    const response = await handler(new Request("https://example.com/posts/caf%C3%A9"), {});
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("netlify-cdn-cache-control")).toContain("durable");
+    expect(await response.text()).toBe("<html>café post</html>");
+
+    const traversal = await handler(new Request("https://example.com/posts/%2E%2E%2Fguide"), {});
+    expect(await traversal.text()).not.toBe("<html>static guide</html>");
+  });
+
   it("bypasses static HTML for negotiated Markdown and route-state requests", async () => {
     const staticDir = await createStaticBuild();
     const handler = createNetlifyHandler({

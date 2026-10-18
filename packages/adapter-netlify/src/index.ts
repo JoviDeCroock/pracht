@@ -934,8 +934,8 @@ async function resolveStaticFile(
   pathname: string,
 ): Promise<StaticFileResult | null> {
   const root = resolve(staticDir);
-  const exact = resolveUrlPath(root, pathname);
-  if (exact && (await isContainedFile(root, exact))) {
+  const exact = await findContainedFile(root, pathname);
+  if (exact) {
     return {
       contentType: MIME_TYPES[extname(exact)] ?? "application/octet-stream",
       document: exact.endsWith(".html"),
@@ -943,10 +943,27 @@ async function resolveStaticFile(
     };
   }
 
-  const index =
-    pathname === "/" ? resolve(root, "index.html") : resolveUrlPath(root, pathname, "index.html");
-  if (!index || !(await isContainedFile(root, index))) return null;
+  const index = await findContainedFile(root, pathname, "index.html");
+  if (!index) return null;
   return { contentType: "text/html; charset=utf-8", document: true, filePath: index };
+}
+
+/**
+ * Files Vite copies from `public/` sit at their decoded names, while
+ * `pracht build` writes prerendered pages at the encoded route path
+ * (`posts/caf%C3%A9/index.html`). Try the decoded spelling first, then the
+ * raw one the request carries.
+ */
+async function findContainedFile(
+  root: string,
+  pathname: string,
+  suffix?: string,
+): Promise<string | null> {
+  const decoded = resolveUrlPath(root, pathname, suffix);
+  if (decoded && (await isContainedFile(root, decoded))) return decoded;
+  const raw = resolveRawUrlPath(root, pathname, suffix);
+  if (raw && raw !== decoded && (await isContainedFile(root, raw))) return raw;
+  return null;
 }
 
 async function serveStaticFile(
@@ -1089,6 +1106,13 @@ function resolveUrlPath(root: string, pathname: string, suffix?: string): string
   const candidate = suffix
     ? resolve(root, `.${decodedPathname}`, suffix)
     : resolve(root, `.${decodedPathname}`);
+  return pathIsInside(root, candidate) ? candidate : null;
+}
+
+function resolveRawUrlPath(root: string, pathname: string, suffix?: string): string | null {
+  if (pathname.includes("\0") || pathname.includes("\\")) return null;
+  if (pathname.split("/").some((segment) => segment === "." || segment === "..")) return null;
+  const candidate = suffix ? resolve(root, `.${pathname}`, suffix) : resolve(root, `.${pathname}`);
   return pathIsInside(root, candidate) ? candidate : null;
 }
 

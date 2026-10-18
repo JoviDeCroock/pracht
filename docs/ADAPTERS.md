@@ -200,11 +200,23 @@ that manifest.
   only (`"scope": "instance"`): replicas behind a load balancer keep their own
   files until their time window passes. Route-state requests
   (`x-pracht-route-state-request` and `?_data=1`) bypass the cached HTML path
-  so client navigation still reaches `handlePrachtRequest()`. All regeneration
-  uses a clean HTML request instead of replaying the triggering user's cookies,
-  authorization headers, locale, or experiment headers. Static and ISG files are
+  so client navigation still reaches `handlePrachtRequest()`. Every ISG render
+  (stale regeneration, webhook, and the cold render that writes a missing
+  snapshot) uses a clean HTML request, and `createContext` receives a detached
+  `req`/`res` pair mirroring it instead of the triggering request's, so no
+  cookies, authorization, locale, or experiment headers reach the shared HTML.
+  Each render's document headers (minus transfer and credential-shaped ones)
+  are recorded in `.index.html.pracht-headers.json` beside the HTML, bound to
+  that file's identity, and replace the build's `headers-manifest.json` entry
+  when the snapshot is served; the record is never served as a static file,
+  and a redeploy that replaces the HTML falls back to the manifest.
+  ISG state is the local `staticDir` of one process: the webhook regenerates
+  only on the replica that receives it, and single-flighting and snapshot
+  identities are per process and host, so ISG is supported on one instance.
+  Static and ISG files are
   streamed, and static responses support `ETag` / `Last-Modified` conditional
-  revalidation.
+  revalidation and single byte ranges (`206`, `416`, `If-Range` by date;
+  multi-range requests get the whole file).
 - **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
   `<link>` tags into server-rendered HTML.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
@@ -386,7 +398,8 @@ nodeAdapter({
 ```
 
 The context module must export `createContext(args)`. Node passes `{ request, req, res }`,
-in `pracht dev` as well as from the generated entry.
+in `pracht dev` as well as from the generated entry; ISG renders get a detached
+`req`/`res` that carries only the sanitized request's headers.
 The configure module must export `configureServer(server)` (sync or async); it
 runs with the `node:http` server before `listen()` when the generated entry is
 the process entrypoint, and with the dev server under `pracht dev` — see
@@ -1219,9 +1232,10 @@ cannot pull bypassed trees back into the bundle.
 An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
 prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
 representation that those URLs can still invoke the function to read.
-Bundled static lookup decodes percent-encoded spaces and Unicode characters,
-while rejecting encoded separators and traversal segments before filesystem
-resolution.
+Bundled static lookup tries the decoded spelling first (public files such as
+`legal terms.txt`), then the raw encoded spelling that `pracht build` uses for
+prerendered pages (`posts/caf%C3%A9/index.html`), and rejects encoded
+separators and traversal segments before filesystem resolution.
 
 ### SSG and ISG
 
@@ -1377,6 +1391,13 @@ cache.
   paths are reported as `failed` (detected via the
   `x-vercel-cache` response header) until you rebuild with
   `PRACHT_REVALIDATE_TOKEN` set.
+- **Route budget**: Vercel rejects a deployment with more than 2,048 routes on
+  Hobby and Pro plans. Each SSG page costs one rewrite route and each ISG page
+  one prerender-function route; the `Accept: text/markdown`, non-canonical
+  trailing-slash, and header routes are merged across pages, so they add a few
+  routes in total rather than one per page. `pracht build` warns once
+  `config.json` reaches 80% of the limit (`describeVercelRouteBudget` in
+  `cli/src/build-shared.ts`).
 - **Function-name safety**: the build fails with a descriptive error when an ISG
   route would use the same `.func` directory as the main edge function (for
   example, `/render` with the default `functionName: "render"`). Rename the
@@ -1408,8 +1429,10 @@ cache.
 - **Static security headers**: the generated `config.json` includes continuing
   `routes` entries with the baseline security headers for all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
-  get route and shell document headers from the prerender header manifest.
-  SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
+  get route and shell document headers from the prerender header manifest:
+  headers equal to that baseline are dropped, and pages left with the same
+  header set share `continue` routes whose `src` alternates their paths (each
+  pattern kept under 2,000 characters). SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
   `Authorization`, `Proxy-Authenticate`, `WWW-Authenticate`, and secret-shaped
   custom `x-*` headers before they can enter that manifest.
 
