@@ -62,6 +62,8 @@ import {
 } from "./plugin-capabilities.ts";
 import {
   clearPagesAppSourceCache,
+  collectExternalManifestModules,
+  collectManifestModuleFiles,
   createClientServerIslandModuleSource,
   createPrachtClientModuleSource,
   createPrachtServerIslandsClientModuleSource,
@@ -156,6 +158,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
+  // Route and shell modules the manifest names outside those directories.
+  let externalRouteFiles = new Set<string>();
+  // The manifest's own local imports: route fragments that feed the registries.
+  let manifestModuleFiles = new Set<string>();
+  const isRouteOrShellModule = (id: string): boolean =>
+    isRouteOrShellFile(id, routeFileDirs, routeFileExtensions) ||
+    isExternalRouteFile(id, externalRouteFiles, routeFileExtensions);
   let clientRouteHints: RouteHints = emptyRouteHints();
   let serverRouteLoaderHints: Record<string, true> = {};
   // What the *browser's* client entry actually carries. `handleHotUpdate` runs
@@ -483,6 +492,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       isBuild = config.command === "build";
       base = config.base;
       routeFileDirs = computeRouteFileDirs(root, resolved);
+      externalRouteFiles = computeExternalRouteFiles(root, resolved);
+      manifestModuleFiles = new Set(
+        collectManifestModuleFiles(resolved, root).flatMap((file) => [
+          file,
+          canonicalFilePath(file),
+        ]),
+      );
       capabilityModulePaths = new Set(
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
@@ -834,7 +850,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return;
       }
 
-      if (!isPagesMode && relative === resolved.appFile) {
+      // A module the manifest imports its routes from decides the registries
+      // as much as the manifest does.
+      if (
+        !isPagesMode &&
+        (relative === resolved.appFile || manifestModuleFiles.has(normalizedFile))
+      ) {
         server.restart();
         return [];
       }
@@ -954,7 +975,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const isAppRoot = !transformOptions?.ssr && isAppRootModule(id, appRootFile);
       const shouldStrip =
         isPrachtClientModuleId(id) ||
-        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions)) ||
+        (!transformOptions?.ssr && isRouteOrShellModule(id)) ||
         isPagesMiddlewareModule ||
         isAppRoot;
       if (!shouldStrip) return null;
@@ -1002,7 +1023,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   // Ordered right after `clientModuleTransformPlugin` on purpose: prefresh has
   // to see the module with its server-only exports already stripped.
   const clientModulePrefreshPlugin = createClientModulePrefreshPlugin(preactPlugins, {
-    isRouteOrShellModule: (id) => isRouteOrShellFile(id, routeFileDirs, routeFileExtensions),
+    isRouteOrShellModule,
   });
 
   const plugins: Plugin[] = [
@@ -1467,6 +1488,34 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
   return dirs.map((dir) => canonicalFilePath(resolveConfigPath(root, dir))).map(withTrailingSep);
+}
+
+/**
+ * Route and shell modules the manifest names outside the routes and shells
+ * directories, by absolute path. They are route modules wherever they live, so
+ * every import of one is stripped for the client like an import of a module
+ * under `src/routes/`.
+ */
+function computeExternalRouteFiles(
+  root: string,
+  resolved: ResolvedPrachtPluginOptions,
+): Set<string> {
+  const external = collectExternalManifestModules(resolved, root);
+  const files = new Set<string>();
+  for (const file of [...external.routes, ...external.shells]) {
+    const abs = resolveConfigPath(root, file);
+    files.add(toPosixPath(abs));
+    files.add(canonicalFilePath(abs));
+  }
+  return files;
+}
+
+function isExternalRouteFile(id: string, files: Set<string>, extensions: Set<string>): boolean {
+  if (files.size === 0) return false;
+  const queryStart = id.indexOf("?");
+  const path = toPosixPath(queryStart === -1 ? id : id.slice(0, queryStart));
+  const extIndex = path.lastIndexOf(".");
+  return extIndex !== -1 && extensions.has(path.slice(extIndex)) && files.has(path);
 }
 
 /**

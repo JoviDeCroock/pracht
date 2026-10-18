@@ -106,8 +106,8 @@ test("server-only route exports and their imports are stripped from client bundl
           'export const app = defineApp({\n  root: "./root.ts",',
         )
         .replace(
-          'route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),',
-          `route("/", () => import("./routes/home.tsx"), { id: "home", render: "ssg" }),\n      route("/strip-marker", () => import("./routes/strip-marker.tsx"), { id: "strip-marker", render: "ssr" }),`,
+          'route("/", () => import("./routes/home.tsx"), {',
+          `route("/strip-marker", () => import("./routes/strip-marker.tsx"), { id: "strip-marker", render: "ssr" }),\n      route("/", () => import("./routes/home.tsx"), {`,
         ),
       "utf-8",
     );

@@ -21,6 +21,10 @@ import type { MarkdownFile, PrerenderedMarkdown } from "@pracht/core";
 import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
 import { writeCloudflareAssetHeaders } from "../cloudflare-asset-headers.js";
 import {
+  findUnresolvedManifestModules,
+  formatUnresolvedManifestModules,
+} from "../manifest-modules.js";
+import {
   describeVercelRouteBudget,
   resolveVercelRuntimeRoutes,
   writeVercelBuildOutput,
@@ -709,6 +713,10 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     const buildBase = typeof serverMod.buildBase === "string" ? serverMod.buildBase : "/";
     const buildTrailingSlash = readBuildTrailingSlash(serverMod);
     const isStaticExport = isStaticExportBuild(serverMod);
+    const unresolvedModules = await findUnresolvedManifestModules(serverMod);
+    if (unresolvedModules.length > 0) {
+      throw new Error(formatUnresolvedManifestModules(unresolvedModules));
+    }
     if (isStaticExport) {
       // Fail closed before prerendering: a static export has no server, so
       // Request-runtime routes/features and network-exposed capabilities are
