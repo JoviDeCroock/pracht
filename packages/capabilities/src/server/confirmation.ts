@@ -93,6 +93,8 @@ interface ConfirmationClaims {
   exp: number;
   /** Approval policy bound into durable (v2) confirmation tokens. */
   m?: CapabilityConfirmationMode;
+  /** Per-prepare proposal nonce, minted when the principal cannot tell users apart. */
+  n?: string;
 }
 
 export type CapabilityConfirmationMode = "token" | "human";
@@ -104,6 +106,12 @@ export interface ConfirmationBinding {
   canonicalInput: string;
   /** Present when a durable approval store backs this confirmation. */
   approvalMode?: CapabilityConfirmationMode;
+  /**
+   * Per-prepare proposal nonce. Minted for human approval bound only to an
+   * agent key, so each prepare addresses its own proposal; verification
+   * returns the token's nonce rather than comparing it.
+   */
+  proposalNonce?: string;
   now?: number;
 }
 
@@ -118,6 +126,7 @@ export async function createConfirmationToken(
     i: await sha256Base64Url(binding.canonicalInput),
     exp: now + binding.ttlSeconds,
     ...(binding.approvalMode ? { m: binding.approvalMode } : {}),
+    ...(binding.approvalMode && binding.proposalNonce ? { n: binding.proposalNonce } : {}),
   };
   const payload = base64UrlEncode(encoder.encode(JSON.stringify(claims)));
   const signature = await hmacSha256Base64Url(binding.secret, `${version}.${payload}`);
@@ -153,7 +162,7 @@ export type ConfirmationFailure =
   | "already_used";
 
 export type ConfirmationVerification =
-  | { ok: true; signature: string; expiresAt: number }
+  | { ok: true; signature: string; expiresAt: number; proposalNonce: string | null }
   | { ok: false; reason: ConfirmationFailure };
 
 /**
@@ -198,7 +207,12 @@ export async function verifyConfirmationToken(
     return { ok: false, reason: "input_mismatch" };
   }
 
-  return { ok: true, signature, expiresAt: claims.exp };
+  return {
+    ok: true,
+    signature,
+    expiresAt: claims.exp,
+    proposalNonce: typeof claims.n === "string" && claims.n !== "" ? claims.n : null,
+  };
 }
 
 function confirmationTokenVersion(binding: ConfirmationBinding): string {
