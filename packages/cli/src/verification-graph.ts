@@ -101,7 +101,7 @@ export async function collectGraphChecks(project: ProjectConfig, checks: Check[]
       ),
     );
   }
-  if (wantsCapabilityLoad) collectMcpServingChecks(live, checks);
+  if (wantsCapabilityLoad) collectMcpServingChecks(live, checks, project);
   collectMcpRouteCollisionChecks(live, checks);
   collectWebmcpRouteChecks(live, checks);
   collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
@@ -341,6 +341,11 @@ function manifestDeclaresConstraints(project: ProjectConfig): boolean {
 
 function manifestDeclaresCapabilities(project: ProjectConfig): boolean {
   if (project.mode === "pages") {
+    // Modules under capabilitiesDir are registered without any page export.
+    const capabilitiesDir = resolveProjectPath(project.root, project.capabilitiesDir);
+    if (existsSync(capabilitiesDir) && listFilesRecursively(capabilitiesDir).some(isModuleSource)) {
+      return true;
+    }
     const pagesDir = resolveProjectPath(project.root, project.pagesDir);
     return (
       existsSync(pagesDir) &&

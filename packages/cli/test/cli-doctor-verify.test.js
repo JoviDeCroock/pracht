@@ -696,7 +696,9 @@ export default defineConfig({
   });
 
   it("verifies capabilities auto-discovered from src/capabilities in pages mode", () => {
-    const appDir = createTempDir("pracht-cli-doctor-pages-capabilities-");
+    // Auto-discovered capabilities load into the resolved graph, so the
+    // fixture must resolve the workspace packages.
+    const appDir = createRepoTempDir("pracht-cli-doctor-pages-capabilities-");
     writePagesApp(appDir);
     writeProjectFile(appDir, "src/pages/index.tsx", "export function Component() { return null; }");
     writeProjectFile(

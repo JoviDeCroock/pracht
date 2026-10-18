@@ -206,6 +206,49 @@ describe("collectAppGraph", () => {
     }
   });
 
+  it("keeps MCP scopes on static and load-fallback capability entries", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-mcp-scoped-graph-"));
+    mkdirSync(join(root, "src/capabilities"), { recursive: true });
+    writeFileSync(
+      join(root, "src/capabilities/notes-search.ts"),
+      `export default defineCapability({
+        title: "Search notes",
+        description: "Find matching notes.",
+        input: { type: "object", properties: {} },
+        output: { type: "object", properties: {} },
+        effect: "read",
+        expose: { mcp: { scopes: ["notes.read"] } },
+      });`,
+    );
+
+    try {
+      const server = fakeServer({
+        "virtual:pracht/dev-metadata": {
+          apiRoutes: [],
+          registry: {
+            capabilityModules: {
+              "/src/capabilities/notes-search.ts": async () => {
+                throw new Error("search backend failed to initialize");
+              },
+            },
+          },
+          resolvedApp: {
+            agents: { mcp: {} },
+            capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+            routes: [],
+          },
+        },
+      });
+
+      const fallback = await collectAppGraph(server, root);
+      expect(fallback.capabilities[0]).toMatchObject({ mcpScopes: ["notes.read"] });
+      const staticGraph = await collectAppGraph(server, root, { preferStaticCapabilities: true });
+      expect(staticGraph.capabilities[0]).toMatchObject({ mcpScopes: ["notes.read"] });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
   it("reports an authenticated endpoint as blocked when its verifier cannot load", async () => {
     const server = fakeServer({
       "virtual:pracht/dev-metadata": {

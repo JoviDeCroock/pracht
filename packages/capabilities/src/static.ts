@@ -42,6 +42,8 @@ export interface CapabilityProjection {
    * report an MCP-exposed capability as unexposed.
    */
   mcp: boolean;
+  /** OAuth scopes from `expose.mcp.scopes`. Absent when the tool requires none. */
+  mcpScopes?: readonly string[];
   /**
    * Per-capability Web Bot Auth policy, or `null` when it inherits the app
    * default. `undefined` means "declared, but not as a literal we can read" —
@@ -592,8 +594,15 @@ export function extractCapabilityProjection(
     webmcpUntrustedContent,
     inputSchema,
     mcp: expose.mcp === true || isPlainObject(expose.mcp),
+    ...readStaticMcpScopes(expose.mcp),
     ...readGuardProperties(properties, truncated),
   };
+}
+
+function readStaticMcpScopes(mcp: unknown): { mcpScopes?: readonly string[] } {
+  if (!isPlainObject(mcp) || !Array.isArray(mcp.scopes)) return {};
+  const scopes = mcp.scopes.filter((scope): scope is string => typeof scope === "string");
+  return scopes.length > 0 ? { mcpScopes: [...new Set(scopes)] } : {};
 }
 
 /**

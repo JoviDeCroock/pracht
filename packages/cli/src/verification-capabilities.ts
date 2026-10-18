@@ -333,6 +333,9 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
  */
 export const staticMcpServingChecks = new WeakSet<Check>();
 
+/** Check lists whose destructive-MCP secret and store checks the manifest text already ran. */
+const staticDestructiveMcpChecked = new WeakSet<Check[]>();
+
 /**
  * What the manifest source says about `agents.mcp`. Static, so a manifest that
  * assembles its `agents` config elsewhere reads as unconfigured — which is why
@@ -400,6 +403,11 @@ function collectDestructiveMcpChecks(
     return;
   }
 
+  staticDestructiveMcpChecked.add(checks);
+  collectApprovalStoreCheck(names, project, checks);
+}
+
+function collectApprovalStoreCheck(names: string, project: ProjectConfig, checks: Check[]): void {
   const scan = scanForApprovalStore(project);
   if (!scan.found) {
     checks.push(
@@ -526,11 +534,13 @@ export function collectMcpServingChecks(
     mcpAuthenticated?: boolean;
   },
   checks: Check[],
+  project?: ProjectConfig,
 ): void {
   for (let index = checks.length - 1; index >= 0; index--) {
     if (staticMcpServingChecks.has(checks[index]!)) checks.splice(index, 1);
   }
   const unserved = new Map<McpToolServing, string[]>();
+  const servedDestructive: string[] = [];
   for (const capability of graph.capabilities) {
     const serving = mcpToolServing(
       {
@@ -546,6 +556,9 @@ export function collectMcpServingChecks(
         auth: graph.mcpAuthenticated === true,
       },
     );
+    if (serving === "served" && capability.effect === "destructive") {
+      servedDestructive.push(capability.name);
+    }
     if (serving === "served" || serving === "not-exposed") continue;
     unserved.set(serving, [...(unserved.get(serving) ?? []), capability.name]);
   }
@@ -568,6 +581,22 @@ export function collectMcpServingChecks(
           "scopes, so nothing serves them. Configure agents.mcp.auth or drop the scopes.",
       ),
     );
+  }
+  // An `agents` config the manifest text cannot read skipped these checks
+  // statically; the resolved app says destructive tools are served.
+  if (project && servedDestructive.length > 0 && !staticDestructiveMcpChecked.has(checks)) {
+    if (!process.env.PRACHT_CONFIRMATION_SECRET) {
+      checks.push(
+        createCheck(
+          "warning",
+          `Destructive MCP tools (${quote(servedDestructive)}) are served, but ` +
+            "PRACHT_CONFIRMATION_SECRET is not set in the environment — the endpoint refuses " +
+            "to serve them without it. Set a real variable where the server runs; " +
+            "verification does not read `.env`.",
+        ),
+      );
+    }
+    collectApprovalStoreCheck(quote(servedDestructive), project, checks);
   }
 }
 

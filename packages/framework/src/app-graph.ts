@@ -305,6 +305,7 @@ export function serializeCapabilities(
             source: file,
             title: projection.title || null,
             transports: projectionTransports(projection),
+            ...(projection.mcpScopes ? { mcpScopes: [...projection.mcpScopes] } : {}),
           };
         }
       }
@@ -383,6 +384,7 @@ export function serializeCapabilities(
           source: file,
           title: null,
           transports: projectionTransports(projection),
+          ...(projection?.mcpScopes ? { mcpScopes: [...projection.mcpScopes] } : {}),
         };
       }
     }),
