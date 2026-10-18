@@ -48,6 +48,7 @@ import {
   sha256Base64Url,
   verifyConfirmationToken,
 } from "./confirmation.ts";
+import { isValidOAuthScopeToken } from "./mcp-config.ts";
 import { resolveRegistryModule } from "./registry.ts";
 import { runMiddlewareChain } from "./middleware.ts";
 import { detachedWaitUntil, type WaitUntil } from "./wait-until.ts";
@@ -70,6 +71,96 @@ export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
 
 /** Longest a capability may run before its signal aborts, matching API routes. */
 const CAPABILITY_TIMEOUT_MS = 30_000;
+
+/**
+ * The part of a host's request budget a capability dispatch uses: the signal
+ * middleware and `run()` receive, and a hold that keeps its timer running
+ * while work can still read that signal.
+ */
+export interface CapabilityRequestBudget {
+  readonly signal: AbortSignal;
+  /** Keep the budget's timer running until the returned function is called. */
+  hold(): () => void;
+}
+
+/**
+ * The budget for a dispatch whose host passed none (a standalone host, or a
+ * direct invocation without `signal`): its signal aborts after `timeoutMs` or
+ * when the caller goes away, whichever comes first, so work an agent abandoned
+ * stops holding connections instead of running to the timeout. The dispatch
+ * holds it until `release()`, and each `waitUntil()` task until it settles;
+ * the last release clears the timer, since a pending timer keeps the signal,
+ * and everything its listeners close over, alive for the whole budget. The
+ * framework passes its request budget instead.
+ */
+function createDispatchBudget(
+  request: Request,
+  timeoutMs: number = CAPABILITY_TIMEOUT_MS,
+): CapabilityRequestBudget & { release(): void } {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The dispatch's own hold, released through `release()`.
+  let holds = 1;
+  const clear = () => {
+    clearTimeout(timer);
+    timer = undefined;
+  };
+  const once = () => {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (holds > 0 && --holds === 0) clear();
+    };
+  };
+  const budget = {
+    signal: controller.signal,
+    hold() {
+      if (holds === 0) return () => {};
+      holds++;
+      return once();
+    },
+    release: once(),
+  };
+
+  const clientSignal = request.signal as AbortSignal | undefined;
+  if (clientSignal?.aborted) {
+    controller.abort(clientSignal.reason);
+    return budget;
+  }
+  timer = setTimeout(() => {
+    controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+  }, timeoutMs);
+  // A budget must not keep a process alive on its own.
+  (timer as { unref?: () => void }).unref?.();
+  if (clientSignal) {
+    const onClientAbort = () => controller.abort(clientSignal.reason);
+    clientSignal.addEventListener("abort", onClientAbort, { once: true });
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        clear();
+        clientSignal.removeEventListener("abort", onClientAbort);
+      },
+      { once: true },
+    );
+  }
+  return budget;
+}
+
+/** `waitUntil` that keeps `budget` running until each task settles. */
+function holdingWaitUntil(budget: CapabilityRequestBudget, waitUntil: WaitUntil): WaitUntil {
+  return (promise) => {
+    const release = budget.hold();
+    waitUntil(promise);
+    void Promise.resolve(promise).then(release, release);
+  };
+}
+
+type DispatchOptions<TContext> = HandleCapabilityRequestOptions<TContext> & {
+  signal: AbortSignal;
+  waitUntil: WaitUntil;
+};
 
 /** Names must be URL-safe: dot-separated segments of [a-z0-9_-]. */
 const CAPABILITY_NAME_RE = /^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/i;
@@ -96,18 +187,47 @@ export interface CapabilityHostApp {
   middleware?: Record<string, string>;
 }
 
-// Resolution loads every registered capability module once per app manifest +
-// registry instance. Resolution also depends on app-level middleware and MCP
-// configuration, so keying only by the capabilities record could leak a result
-// between distinct app manifests that happen to share that record. Dev HMR can
-// keep the same app manifest object while replacing the generated registry
-// after a capability edit, so both identities participate in the cache key.
-const resolvedCapabilitiesCache = new WeakMap<
-  object,
-  WeakMap<object, Promise<ResolvedCapability[]>>
->();
-const EMPTY_CAPABILITY_MODULES = {};
+/** A registered capability whose module failed to import or validate. */
+export interface CapabilityLoadFailure {
+  name: string;
+  file: string;
+  error: unknown;
+}
 
+// Resolution is per capability. A module that throws on import, or exports
+// something that is not a valid capability, makes *that* capability
+// unavailable; every other capability keeps serving. Successful loads are
+// cached per app manifest + registry instance (dev HMR can keep the manifest
+// object while replacing the generated registry after a capability edit, so
+// both identities participate in the key). Failures are never cached: the next
+// resolution retries them, so a transient import error does not last until
+// restart. (An ES module whose top-level code threw stays failed: the runtime
+// caches its evaluation error until the module itself is replaced.) Only graph-wide invariants — two capabilities on one HTTP path, or
+// a capability on the MCP endpoint — still fail the whole graph.
+interface CapabilityResolutionState {
+  /** Settled successes and in-flight loads; failed loads are evicted. */
+  loads: Map<string, Promise<ResolvedCapability>>;
+  /** The full graph once every capability loaded, reused from then on. */
+  complete: Promise<ResolvedCapability[]> | null;
+  /**
+   * The resolution in progress, shared by concurrent callers so overlapping
+   * requests never run more than one bounded worker pool.
+   */
+  inflight: Promise<ResolvedCapability[]> | null;
+}
+
+const resolvedCapabilitiesCache = new WeakMap<object, WeakMap<object, CapabilityResolutionState>>();
+const capabilityLoadFailures = new WeakMap<object, CapabilityLoadFailure[]>();
+const warnedCapabilityLoadFailures = new Set<string>();
+const EMPTY_CAPABILITY_MODULES = {};
+/** Capability modules imported at once while resolving a graph. */
+const CAPABILITY_LOAD_CONCURRENCY = 8;
+
+/**
+ * Resolve the app's capability graph. Resolves to every capability that
+ * loaded; read the ones that did not with {@link getCapabilityLoadFailures}.
+ * Rejects only when the loaded capabilities violate a graph-wide invariant.
+ */
 export function resolveAppCapabilities(
   app: CapabilityHostApp,
   registry: CapabilityModuleRegistry,
@@ -118,132 +238,236 @@ export function resolveAppCapabilities(
     registryCache = new WeakMap();
     resolvedCapabilitiesCache.set(app, registryCache);
   }
-  let resolved = registryCache.get(capabilityModules);
-  if (!resolved) {
-    resolved = resolveAppCapabilitiesUncached(app, registry);
-    registryCache.set(capabilityModules, resolved);
+  let state = registryCache.get(capabilityModules);
+  if (!state) {
+    state = { loads: new Map(), complete: null, inflight: null };
+    registryCache.set(capabilityModules, state);
   }
+  if (state.complete) return state.complete;
+  if (state.inflight) return state.inflight;
+  const current = state;
+  const inflight = resolveCapabilityGraph(app, registry, current).finally(() => {
+    if (current.inflight === inflight) current.inflight = null;
+  });
+  current.inflight = inflight;
+  return inflight;
+}
+
+/** Capabilities left out of a resolved graph because they failed to load. */
+export function getCapabilityLoadFailures(
+  capabilities: readonly ResolvedCapability[],
+): readonly CapabilityLoadFailure[] {
+  return capabilityLoadFailures.get(capabilities) ?? [];
+}
+
+async function resolveCapabilityGraph(
+  app: CapabilityHostApp,
+  registry: CapabilityModuleRegistry,
+  state: CapabilityResolutionState,
+): Promise<ResolvedCapability[]> {
+  const entries = Object.entries(app.capabilities ?? {});
+  const results: Array<{ ok: true; value: ResolvedCapability } | { ok: false; error: unknown }> =
+    [];
+
+  // Bounded concurrency: a large graph should not import one module at a time,
+  // nor start hundreds of imports at once.
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < entries.length) {
+      const index = next++;
+      const [name, file] = entries[index];
+      let load = state.loads.get(name);
+      if (!load) {
+        load = loadCapability(app, registry, name, file);
+        state.loads.set(name, load);
+        // Evict a failure so the next resolution retries it.
+        load.catch(() => {
+          if (state.loads.get(name) === load) state.loads.delete(name);
+        });
+      }
+      try {
+        results[index] = { ok: true, value: await load };
+      } catch (error: unknown) {
+        results[index] = { ok: false, error };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CAPABILITY_LOAD_CONCURRENCY, entries.length) }, worker),
+  );
+
+  const resolved: ResolvedCapability[] = [];
+  const failures: CapabilityLoadFailure[] = [];
+  results.forEach((result, index) => {
+    if (result.ok) {
+      resolved.push(result.value);
+    } else {
+      const [name, file] = entries[index];
+      failures.push({ name, file, error: result.error });
+    }
+  });
+
+  assertCapabilityGraphInvariants(app, resolved);
+
+  if (failures.length === 0) {
+    const complete = Promise.resolve(resolved);
+    // Concurrent cold resolutions may race here; any of them is the same graph.
+    if (!state.complete) state.complete = complete;
+    return resolved;
+  }
+  capabilityLoadFailures.set(resolved, failures);
+  for (const failure of failures) warnCapabilityLoadFailure(failure);
   return resolved;
 }
 
-async function resolveAppCapabilitiesUncached(
+function warnCapabilityLoadFailure(failure: CapabilityLoadFailure): void {
+  const detail = failure.error instanceof Error ? failure.error.message : String(failure.error);
+  const key = `${failure.name}\u0000${detail}`;
+  if (warnedCapabilityLoadFailures.has(key)) return;
+  warnedCapabilityLoadFailures.add(key);
+  try {
+    console.warn(
+      `[pracht] Capability "${failure.name}" (${failure.file}) failed to load and is ` +
+        `unavailable: ${detail}. Other capabilities keep serving; the load is retried on the ` +
+        "next request.",
+    );
+  } catch {
+    // Diagnostics are best-effort.
+  }
+}
+
+/** Load and validate one capability. Throws for that capability alone. */
+async function loadCapability(
   app: CapabilityHostApp,
   registry: CapabilityModuleRegistry,
-): Promise<ResolvedCapability[]> {
-  const resolved: ResolvedCapability[] = [];
+  name: string,
+  file: string,
+): Promise<ResolvedCapability> {
+  if (!CAPABILITY_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid capability name "${name}". Names must be dot-separated segments of ` +
+        'letters, numbers, hyphens, and underscores (e.g. "notes.search").',
+    );
+  }
+
+  const module = await resolveRegistryModule<CapabilityModule>(registry.capabilityModules, file);
+  const capability = module?.default;
+  if (!capability || capability.kind !== "capability") {
+    throw new Error(
+      `Capability "${name}" (${file}) must default-export the result of ` +
+        "defineCapability() from @pracht/capabilities.",
+    );
+  }
+
+  // `defineCapability()` already refuses this; re-check here so a
+  // hand-rolled capability object fails closed before it can be served.
+  // Destructive + HTTP and destructive + MCP are both allowed — the
+  // prepare/commit confirmation flow gates every dispatch on either, and the
+  // MCP projection additionally requires the `agents.mcp.destructive`
+  // opt-in before it serves one. WebMCP stays disallowed: a browser host's
+  // approval UX is not a security boundary.
+  if (capability.effect === "destructive" && capability.expose?.webmcp) {
+    throw new Error(
+      `Capability "${name}": destructive capabilities cannot be exposed as WebMCP page ` +
+        "tools — use expose.http, or expose.mcp with agents.mcp.destructive.",
+    );
+  }
+  if (capability.expose?.webmcp && !capability.expose.http) {
+    throw new Error(`Capability "${name}": expose.webmcp requires expose.http.`);
+  }
+  // The registered capability name is projected verbatim as the WebMCP tool
+  // name, and the browser rejects names outside the spec grammar — fail here
+  // rather than letting registration fail silently in the page.
+  if (capability.expose?.webmcp && !isValidWebmcpToolName(name)) {
+    throw new Error(`Capability "${name}": ${WEBMCP_TOOL_NAME_ERROR}.`);
+  }
+  if (
+    capability.expose?.mcp &&
+    (capability.input?.type !== "object" || capability.output?.type !== "object")
+  ) {
+    throw new Error(`Capability "${name}": ${MCP_SCHEMA_ROOT_ERROR}.`);
+  }
+  if (capability.expose?.mcp && !isValidMcpToolName(mcpToolName(name))) {
+    throw new Error(`Capability "${name}": ${MCP_TOOL_NAME_ERROR}.`);
+  }
+  const mcpScopes: unknown = capability.expose?.mcpScopes;
+  if (
+    mcpScopes !== undefined &&
+    (!Array.isArray(mcpScopes) || mcpScopes.some((scope) => !isValidOAuthScopeToken(scope)))
+  ) {
+    throw new Error(`Capability "${name}": expose.mcp scopes must be OAuth scope tokens.`);
+  }
+  if (
+    capability.expose &&
+    (typeof capability.validateInput !== "function" ||
+      typeof capability.validateOutput !== "function" ||
+      typeof capability.description !== "string" ||
+      !capability.input ||
+      !capability.output ||
+      !capability.effect)
+  ) {
+    throw new Error(
+      `Capability "${name}" is exposed but is missing its contract ` +
+        "(description, input schema, output schema, effect, validators).",
+    );
+  }
+
+  const middlewareFiles = (capability.middleware ?? []).map((middlewareName) => {
+    const middlewareFile = app.middleware?.[middlewareName];
+    if (!middlewareFile) {
+      throw new Error(
+        formatUnknownNameError({
+          kind: "middleware",
+          kindPlural: "middleware",
+          name: middlewareName,
+          registered: Object.keys(app.middleware ?? {}),
+          context: `capability "${name}"`,
+        }),
+      );
+    }
+    return middlewareFile;
+  });
+
+  let httpPath: string | null = null;
+  if (capability.expose?.http) {
+    const configuredPath = capability.expose.http.path ?? capabilityHttpPath(name);
+    if (!isValidCapabilityHttpPath(configuredPath)) {
+      throw new Error(
+        `Capability "${name}": HTTP exposure path must be an exact same-origin pathname ` +
+          'starting with "/".',
+      );
+    }
+    httpPath = normalizeCapabilityHttpPath(configuredPath);
+  }
+
+  return { name, file, capability, httpPath, middlewareFiles };
+}
+
+/** Invariants that span capabilities, checked over everything that loaded. */
+function assertCapabilityGraphInvariants(
+  app: CapabilityHostApp,
+  resolved: readonly ResolvedCapability[],
+): void {
   const seenHttpPaths = new Map<string, string>();
   const mcpEndpoint = app.agents?.mcp
     ? normalizeCapabilityHttpPath(app.agents.mcp.path ?? DEFAULT_MCP_ENDPOINT)
     : null;
-
-  for (const [name, file] of Object.entries(app.capabilities ?? {})) {
-    if (!CAPABILITY_NAME_RE.test(name)) {
+  for (const { name, httpPath } of resolved) {
+    if (httpPath === null) continue;
+    if (httpPath === mcpEndpoint) {
       throw new Error(
-        `Invalid capability name "${name}". Names must be dot-separated segments of ` +
-          'letters, numbers, hyphens, and underscores (e.g. "notes.search").',
+        `Capability "${name}" exposes HTTP path "${httpPath}", which is also the configured ` +
+          "MCP endpoint. Choose a distinct agents.mcp.path or capability HTTP path.",
       );
     }
-
-    const module = await resolveRegistryModule<CapabilityModule>(registry.capabilityModules, file);
-    const capability = module?.default;
-    if (!capability || capability.kind !== "capability") {
+    const existing = seenHttpPaths.get(httpPath);
+    if (existing) {
       throw new Error(
-        `Capability "${name}" (${file}) must default-export the result of ` +
-          "defineCapability() from @pracht/capabilities.",
+        `Capabilities "${existing}" and "${name}" both expose HTTP path "${httpPath}".`,
       );
     }
-
-    // `defineCapability()` already refuses this; re-check here so a
-    // hand-rolled capability object fails closed before it can be served.
-    // Destructive + HTTP and destructive + MCP are both allowed — the
-    // prepare/commit confirmation flow gates every dispatch on either, and the
-    // MCP projection additionally requires the `agents.mcp.destructive`
-    // opt-in before it serves one. WebMCP stays disallowed: a browser host's
-    // approval UX is not a security boundary.
-    if (capability.effect === "destructive" && capability.expose?.webmcp) {
-      throw new Error(
-        `Capability "${name}": destructive capabilities cannot be exposed as WebMCP page ` +
-          "tools — use expose.http, or expose.mcp with agents.mcp.destructive.",
-      );
-    }
-    if (capability.expose?.webmcp && !capability.expose.http) {
-      throw new Error(`Capability "${name}": expose.webmcp requires expose.http.`);
-    }
-    // The registered capability name is projected verbatim as the WebMCP tool
-    // name, and the browser rejects names outside the spec grammar — fail here
-    // rather than letting registration fail silently in the page.
-    if (capability.expose?.webmcp && !isValidWebmcpToolName(name)) {
-      throw new Error(`Capability "${name}": ${WEBMCP_TOOL_NAME_ERROR}.`);
-    }
-    if (
-      capability.expose?.mcp &&
-      (capability.input?.type !== "object" || capability.output?.type !== "object")
-    ) {
-      throw new Error(`Capability "${name}": ${MCP_SCHEMA_ROOT_ERROR}.`);
-    }
-    if (capability.expose?.mcp && !isValidMcpToolName(mcpToolName(name))) {
-      throw new Error(`Capability "${name}": ${MCP_TOOL_NAME_ERROR}.`);
-    }
-    if (
-      capability.expose &&
-      (typeof capability.validateInput !== "function" ||
-        typeof capability.validateOutput !== "function" ||
-        typeof capability.description !== "string" ||
-        !capability.input ||
-        !capability.output ||
-        !capability.effect)
-    ) {
-      throw new Error(
-        `Capability "${name}" is exposed but is missing its contract ` +
-          "(description, input schema, output schema, effect, validators).",
-      );
-    }
-
-    const middlewareFiles = (capability.middleware ?? []).map((middlewareName) => {
-      const middlewareFile = app.middleware?.[middlewareName];
-      if (!middlewareFile) {
-        throw new Error(
-          formatUnknownNameError({
-            kind: "middleware",
-            kindPlural: "middleware",
-            name: middlewareName,
-            registered: Object.keys(app.middleware ?? {}),
-            context: `capability "${name}"`,
-          }),
-        );
-      }
-      return middlewareFile;
-    });
-
-    let httpPath: string | null = null;
-    if (capability.expose?.http) {
-      const configuredPath = capability.expose.http.path ?? capabilityHttpPath(name);
-      if (!isValidCapabilityHttpPath(configuredPath)) {
-        throw new Error(
-          `Capability "${name}": HTTP exposure path must be an exact same-origin pathname ` +
-            'starting with "/".',
-        );
-      }
-      httpPath = normalizeCapabilityHttpPath(configuredPath);
-      if (httpPath === mcpEndpoint) {
-        throw new Error(
-          `Capability "${name}" exposes HTTP path "${httpPath}", which is also the configured ` +
-            "MCP endpoint. Choose a distinct agents.mcp.path or capability HTTP path.",
-        );
-      }
-      const existing = seenHttpPaths.get(httpPath);
-      if (existing) {
-        throw new Error(
-          `Capabilities "${existing}" and "${name}" both expose HTTP path "${httpPath}".`,
-        );
-      }
-      seenHttpPaths.set(httpPath, name);
-    }
-
-    resolved.push({ name, file, capability, httpPath, middlewareFiles });
+    seenHttpPaths.set(httpPath, name);
   }
-
-  return resolved;
 }
 
 export function matchCapabilityRoute(
@@ -612,6 +836,15 @@ export interface HandleCapabilityRequestOptions<TContext> {
   /** Principal supplied by the authenticated MCP transport, never inferred from app context. */
   tokenPrincipal?: McpTokenPrincipal;
   onAudit?: CapabilityAuditHook;
+  /**
+   * The host's request budget: middleware and `run()` receive its signal,
+   * and `waitUntil()` work and a failed dispatch hold it. When omitted, the
+   * dispatch gets its own, which aborts after `timeoutMs` or when
+   * `request.signal` does.
+   */
+  budget?: CapabilityRequestBudget;
+  /** Budget, in milliseconds, of the one created when `budget` is omitted (default 30000). */
+  timeoutMs?: number;
 }
 
 /**
@@ -622,6 +855,31 @@ export interface HandleCapabilityRequestOptions<TContext> {
  */
 export async function handleCapabilityRequest<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
+): Promise<Response> {
+  const own = options.budget ? undefined : createDispatchBudget(options.request, options.timeoutMs);
+  const budget = options.budget ?? own!;
+  let response: Response;
+  try {
+    response = await dispatchCapabilityRequest({
+      ...options,
+      signal: budget.signal,
+      waitUntil: holdingWaitUntil(budget, requestWaitUntil(options.request)),
+    });
+  } catch (error: unknown) {
+    own?.release();
+    throw error;
+  }
+  // A failed dispatch may have left work running against the signal, such as
+  // a sibling of the call that threw, so its budget keeps timing until it
+  // fires. Remote MCP answers tool errors with HTTP 200, so only this layer
+  // can tell.
+  if (response.status >= 400) budget.hold();
+  own?.release();
+  return response;
+}
+
+async function dispatchCapabilityRequest<TContext>(
+  options: DispatchOptions<TContext>,
 ): Promise<Response> {
   const started = performance.now();
   let dispatched = await dispatchCapabilityHttpWithApiMiddleware(options);
@@ -662,7 +920,7 @@ export async function handleCapabilityRequest<TContext>(
  * settled response without making its audit trail disagree with the client.
  */
 async function revalidateMcpSuccessEnvelope<TContext>(
-  options: HandleCapabilityRequestOptions<TContext>,
+  options: DispatchOptions<TContext>,
   dispatched: { response: Response; outcome: string },
 ): Promise<{ response: Response; outcome: string }> {
   if (!dispatched.outcome.startsWith("middleware_")) return dispatched;
@@ -722,7 +980,7 @@ async function revalidateMcpSuccessEnvelope<TContext>(
  * capability middleware, but must not inherit HTTP-only API policy.
  */
 async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
-  options: HandleCapabilityRequestOptions<TContext>,
+  options: DispatchOptions<TContext>,
 ): Promise<{ response: Response; outcome: string }> {
   const middlewareFiles = options.apiMiddlewareFiles ?? [];
   if (middlewareFiles.length === 0) {
@@ -743,9 +1001,9 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
       registry: options.registry,
       request: options.request,
       route: capabilityMiddlewareRoute(options.match),
-      signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+      signal: options.signal,
       url: options.url,
-      waitUntil: requestWaitUntil(options.request),
+      waitUntil: options.waitUntil,
       terminal: async () => {
         holder.dispatched = await dispatchCapabilityHttp(options);
         return holder.dispatched.response;
@@ -792,7 +1050,7 @@ function withCapabilityEffect(response: Response, effect: string): Response {
 }
 
 async function dispatchCapabilityHttp<TContext>(
-  options: HandleCapabilityRequestOptions<TContext>,
+  options: DispatchOptions<TContext>,
 ): Promise<{ response: Response; outcome: string }> {
   const { capability, name } = options.match;
 
@@ -914,11 +1172,11 @@ async function dispatchCapabilityHttp<TContext>(
       context: options.context,
       registry: options.registry,
       request: options.request,
-      signal: AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+      signal: options.signal,
       url: options.url,
       pathname: options.pathname,
       exposeErrors: options.exposeErrors,
-      waitUntil: requestWaitUntil(options.request),
+      waitUntil: options.waitUntil,
       beforeRun,
     });
 
@@ -1494,6 +1752,15 @@ export async function invokeCapabilityOnHost<T = unknown>(
   const capabilities = await resolveAppCapabilities(host.app, host.registry);
   const resolved = capabilities.find((entry) => entry.name === name);
   if (!resolved) {
+    const failure = getCapabilityLoadFailures(capabilities).find((entry) => entry.name === name);
+    if (failure) {
+      return errorEnvelope({
+        code: "internal_error",
+        message: `Capability "${name}" failed to load: ${
+          failure.error instanceof Error ? failure.error.message : String(failure.error)
+        }`,
+      }) as CapabilityEnvelope<T>;
+    }
     return errorEnvelope({
       code: "unknown_capability",
       message: formatUnknownNameError({
@@ -1508,6 +1775,12 @@ export async function invokeCapabilityOnHost<T = unknown>(
   const started = performance.now();
   let context: unknown = ctx.context ?? {};
   let outcome: CapabilityPipelineOutcome;
+  // Without a caller's signal the invocation runs on its own budget, held by
+  // its `waitUntil()` work and, when it fails, until the timer fires.
+  const own = ctx.signal ? undefined : createDispatchBudget(ctx.request);
+  const waitUntil = own
+    ? holdingWaitUntil(own, host.waitUntil ?? detachedWaitUntil)
+    : (host.waitUntil ?? detachedWaitUntil);
   try {
     context = capabilityPipelineContext(host, ctx.context);
     outcome =
@@ -1518,11 +1791,11 @@ export async function invokeCapabilityOnHost<T = unknown>(
         context,
         registry: host.registry,
         request: ctx.request,
-        signal: ctx.signal ?? AbortSignal.timeout(CAPABILITY_TIMEOUT_MS),
+        signal: ctx.signal ?? own!.signal,
         url: new URL(ctx.request.url),
         // Direct invocation stays server-side, so real error messages are safe.
         exposeErrors: true,
-        waitUntil: host.waitUntil ?? detachedWaitUntil,
+        waitUntil,
       }));
   } catch (error: unknown) {
     // Middleware resolution/execution can throw (bad module, a middleware that
@@ -1557,6 +1830,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
   // Bot Auth is enabled.
   const agent = capabilityHostAgent(host, context);
   const status = outcome.kind === "envelope" ? outcome.status : outcome.response.status;
+  if (status < 400) own?.release();
   const auditOutcome =
     outcome.kind === "envelope" ? envelopeOutcome(outcome.envelope) : `middleware_${status}`;
   emitCapabilityAudit(

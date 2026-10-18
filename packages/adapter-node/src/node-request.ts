@@ -170,8 +170,9 @@ export function pipeToResponse(source: NodeJS.ReadableStream, res: ServerRespons
  * Node reports a completed exchange and an abandoned one the same way — a
  * `close` on both the request and the response — so the response's own state
  * is the discriminator: `close` while `res.writableFinished` is still `false`
- * means the socket went away while the app was still working. Both events are
- * wired because a connection can die before the request stream ever completes.
+ * means the socket went away while the app was still working. The request's
+ * `close` only counts while its body is incomplete: Node also emits it as soon
+ * as a fully read upload is consumed, while the app is still answering.
  *
  * Without this the platform `Request` carries a signal that never aborts, and
  * `defineApp({ loaderTimeoutMs })` degrades to a plain timeout on the one
@@ -186,7 +187,9 @@ export function createClientDisconnectSignal(
     if (res.writableFinished || controller.signal.aborted) return;
     controller.abort(new DOMException("The client closed the request.", "AbortError"));
   };
-  req.on("close", abortIfUnfinished);
+  req.on("close", () => {
+    if (!req.complete) abortIfUnfinished();
+  });
   res.on("close", abortIfUnfinished);
   return controller.signal;
 }

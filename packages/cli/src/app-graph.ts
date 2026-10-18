@@ -7,6 +7,7 @@ import {
   resolveRegistryModule,
   serializeApiRoutesStatic,
   serializeCapabilities,
+  isMcpToolServed,
   servesDestructiveMcpTools,
   withWebmcpRoutes,
 } from "@pracht/core";
@@ -92,7 +93,7 @@ function isMissingDevMetadataModule(error: unknown): boolean {
 export async function collectAppGraph(
   server: ViteDevServer,
   root: string,
-  options: { appFile?: string } = {},
+  options: { appFile?: string; preferStaticCapabilities?: boolean } = {},
 ): Promise<AppGraph> {
   const serverModule = await loadAppMetadataModule(server);
   const notFound = serverModule.resolvedApp.notFound;
@@ -121,33 +122,40 @@ export async function collectCapabilityAppGraph(
   server: ViteDevServer,
   root: string,
   serverModule: Record<string, any>,
-  options: { appFile?: string; strict?: boolean } = {},
+  options: { appFile?: string; preferStaticCapabilities?: boolean; strict?: boolean } = {},
 ): Promise<CapabilityAppGraph> {
+  const loadModule = capabilityModuleLoader(server, serverModule);
   const capabilities = withWebmcpRoutes(
     await serializeCapabilities(
       serverModule.resolvedApp.capabilities,
       {
-        loadModule: capabilityModuleLoader(server, serverModule),
+        loadModule,
         readSource: createSourceReader(root, options.appFile ?? "/src/routes.ts"),
       },
-      { strict: options.strict ?? false },
+      { strict: options.strict ?? false, preferStatic: options.preferStaticCapabilities },
     ),
     serverModule.resolvedApp.routes,
   );
   const mcpEndpoint = resolveMcpEndpoint(serverModule.resolvedApp.agents);
-  const capabilityFailures =
-    mcpEndpoint === null
-      ? []
-      : capabilities.flatMap((capability) =>
-          capability.error
-            ? [`Capability ${JSON.stringify(capability.name)} failed to load: ${capability.error}`]
-            : [],
-        );
   const mcpDestructive = servesDestructiveMcpTools(serverModule.resolvedApp, capabilities);
   const verifierFailure = await readMcpTokenVerifierFailure(serverModule);
   let setupFailure: string | null = null;
   if (mcpDestructive) {
     try {
+      if (options.preferStaticCapabilities) {
+        // Approval-store and principal registrations often live in the
+        // destructive capability's own module; a statically read graph has not
+        // run it, so run just those before checking the preconditions.
+        await Promise.all(
+          capabilities
+            .filter(
+              (capability) =>
+                capability.effect === "destructive" &&
+                isMcpToolServed(serverModule.resolvedApp.agents, capability),
+            )
+            .map((capability) => loadModule(capability.source)),
+        );
+      }
       await loadDestructiveMcpSetupModules(server, serverModule, capabilities);
     } catch (error: unknown) {
       setupFailure = `destructive MCP setup modules failed to load: ${
@@ -155,8 +163,9 @@ export async function collectCapabilityAppGraph(
       }`;
     }
   }
+  // A capability that fails to load is unavailable on its own (its entry
+  // carries `error`); the endpoint keeps serving the others.
   const mcpUnavailableReasons = [
-    ...capabilityFailures,
     ...(verifierFailure === null ? [] : [verifierFailure]),
     ...(setupFailure !== null
       ? [setupFailure]

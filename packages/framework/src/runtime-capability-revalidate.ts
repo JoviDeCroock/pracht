@@ -21,6 +21,7 @@
 import { CAPABILITY_SETTLED_EVENT } from "@pracht/capabilities";
 
 import { getMountedRuntimes } from "./runtime-context.ts";
+import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { revalidateRouteData, shouldRevalidateAfterCapability } from "./runtime-revalidate.ts";
 
 let installed = false;
@@ -38,7 +39,11 @@ export function ensureCapabilityRevalidation(): void {
   installed = true;
 
   window.addEventListener(CAPABILITY_SETTLED_EVENT, (event: Event) => {
-    if (!shouldRevalidateAfterCapability((event as CustomEvent).detail)) return;
+    const detail = (event as CustomEvent).detail;
+    // A successful mutation stales prefetched route data even when the caller
+    // opted out of refreshing the page (`revalidate: false`).
+    if (detail?.ok === true && detail.effect !== "read") clearPrefetchCache();
+    if (!shouldRevalidateAfterCapability(detail)) return;
     for (const runtime of getMountedRuntimes()) {
       void revalidateRouteData(runtime).catch(() => {
         // Revalidation is best-effort; the mutation itself already succeeded.

@@ -151,7 +151,7 @@ describe("collectAppGraph", () => {
     expect(destructiveMcpPreconditionErrors).toHaveBeenCalledOnce();
   });
 
-  it("does not report an endpoint as ready when an MCP capability cannot load", async () => {
+  it("flags an MCP capability that cannot load without blocking the endpoint", async () => {
     const root = mkdtempSync(join(tmpdir(), "pracht-mcp-capability-graph-"));
     mkdirSync(join(root, "src/capabilities"), { recursive: true });
     writeFileSync(
@@ -187,10 +187,63 @@ describe("collectAppGraph", () => {
 
       const graph = await collectAppGraph(server, root);
 
-      expect(graph.mcpRuntimeStatus).toBe("unverified");
-      expect(graph.mcpUnavailableReasons).toEqual([
-        'Capability "notes.search" failed to load: search backend failed to initialize',
-      ]);
+      // At runtime the other capabilities keep serving, so the endpoint is
+      // ready and the failure stays on the capability's own entry.
+      expect(graph.capabilities[0].error).toBe("search backend failed to initialize");
+      expect(graph.mcpRuntimeStatus).toBe("ready");
+      expect(graph.mcpUnavailableReasons).toEqual([]);
+
+      // The dev banner reads capabilities from source and never runs them.
+      const staticGraph = await collectAppGraph(server, root, { preferStaticCapabilities: true });
+      expect(staticGraph.capabilities[0]).toMatchObject({
+        effect: "read",
+        name: "notes.search",
+        transports: ["mcp"],
+      });
+      expect(staticGraph.capabilities[0].error).toBeUndefined();
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps MCP scopes on static and load-fallback capability entries", async () => {
+    const root = mkdtempSync(join(tmpdir(), "pracht-mcp-scoped-graph-"));
+    mkdirSync(join(root, "src/capabilities"), { recursive: true });
+    writeFileSync(
+      join(root, "src/capabilities/notes-search.ts"),
+      `export default defineCapability({
+        title: "Search notes",
+        description: "Find matching notes.",
+        input: { type: "object", properties: {} },
+        output: { type: "object", properties: {} },
+        effect: "read",
+        expose: { mcp: { scopes: ["notes.read"] } },
+      });`,
+    );
+
+    try {
+      const server = fakeServer({
+        "virtual:pracht/dev-metadata": {
+          apiRoutes: [],
+          registry: {
+            capabilityModules: {
+              "/src/capabilities/notes-search.ts": async () => {
+                throw new Error("search backend failed to initialize");
+              },
+            },
+          },
+          resolvedApp: {
+            agents: { mcp: {} },
+            capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+            routes: [],
+          },
+        },
+      });
+
+      const fallback = await collectAppGraph(server, root);
+      expect(fallback.capabilities[0]).toMatchObject({ mcpScopes: ["notes.read"] });
+      const staticGraph = await collectAppGraph(server, root, { preferStaticCapabilities: true });
+      expect(staticGraph.capabilities[0]).toMatchObject({ mcpScopes: ["notes.read"] });
     } finally {
       rmSync(root, { force: true, recursive: true });
     }

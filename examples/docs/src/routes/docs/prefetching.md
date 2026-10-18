@@ -26,7 +26,7 @@ Each route can declare a `prefetch` strategy in its route meta. The default for 
 | Strategy     | Trigger                                       | Best For                                  |
 | ------------ | --------------------------------------------- | ----------------------------------------- |
 | `"intent"`   | Mouse hover (50ms debounce) or keyboard focus | Most routes — low overhead, high hit rate |
-| `"viewport"` | Link scrolls into view (IntersectionObserver) | Navigation menus, link-heavy pages        |
+| `"viewport"` | Link scrolls into view (IntersectionObserver) | A few likely next pages                   |
 | `"hover"`    | Same as intent (hover + focus)                | Alias for intent                          |
 | `"none"`     | Disabled                                      | Rarely visited pages                      |
 
@@ -106,6 +106,8 @@ is a no-op during SSR, before hydration, and for URLs that match no route.
 
 A `"viewport"` link is prefetched once, when it comes within 200px of the viewport. Links added by client-side navigation are picked up automatically.
 
+Each prefetch runs the route's loader on the server, and a viewport or `"render"` link prefetches without the visitor pointing at it. Those prefetches run three at a time, so a long list of them queues up instead of hitting the server together. When the browser reports Save-Data or a 2G connection they are skipped, while hover and focus prefetches still run.
+
 ---
 
 ## Cache Behavior
@@ -114,6 +116,7 @@ A `"viewport"` link is prefetched once, when it comes within 200px of the viewpo
 - The cache is keyed by pathname and search, so different query parameters are cached separately.
 - Clicking a link whose prefetch is still in flight reuses that request.
 - All strategies and navigations share the cache. A viewport prefetch can be consumed by a later click.
+- A mutation empties the cache, so the next click fetches fresh data, and a navigation still loading when the mutation lands fetches its data again. That covers a `<Form>` submission, a non-`GET` `apiFetch()`, a successful non-read capability call, and `useRevalidate()`.
 
 ---
 

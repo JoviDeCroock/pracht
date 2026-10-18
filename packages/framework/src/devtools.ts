@@ -6,6 +6,8 @@
  * module graph is broken, so it never imports Preact or app code.
  */
 
+import { mcpToolServing } from "@pracht/capabilities";
+
 import type { AppGraph, AppGraphApiRoute, AppGraphRoute } from "./app-graph.ts";
 import { escapeHtml } from "./html-escape.ts";
 
@@ -120,9 +122,14 @@ export function buildDevtoolsHtml(
       const transports = capability.transports.map((transport) =>
         transport !== "mcp"
           ? transport
-          : !graph.mcpEndpoint ||
-              (capability.effect === "destructive" && graph.mcpDestructive !== true) ||
-              mcpRuntimeStatus === "blocked"
+          : mcpToolServing(
+                { effect: capability.effect, mcp: true, mcpScopes: capability.mcpScopes },
+                {
+                  endpoint: !!graph.mcpEndpoint,
+                  destructive: graph.mcpDestructive === true,
+                  auth: graph.mcpAuthenticated === true,
+                },
+              ) !== "served" || mcpRuntimeStatus === "blocked"
             ? "mcp(unserved)"
             : mcpRuntimeStatus === "unverified"
               ? "mcp(unverified)"

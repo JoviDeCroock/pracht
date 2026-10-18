@@ -26,6 +26,7 @@ import { verifyAgentSignature } from "./agent-auth.ts";
 import { validateAgentsConfig } from "./agents-config.ts";
 import {
   envelopeResponse,
+  getCapabilityLoadFailures,
   handleCapabilityRequest,
   invokeCapabilityOnHost,
   matchCapabilityRoute,
@@ -299,6 +300,15 @@ export function createCapabilityHost<TContext = Record<string, unknown>>(
         }
 
         match = matchCapabilityRoute(capabilities, url.pathname);
+        if (!match && getCapabilityLoadFailures(capabilities).length > 0) {
+          // A capability that failed validation may own this path: fail closed.
+          return finalize(
+            envelopeResponse(500, {
+              ok: false,
+              error: { code: "internal_error", message: "Capability failed to load." },
+            }),
+          );
+        }
         if (!match) {
           // Unmatched requests under the generated capability prefix belong to
           // the host, but need no application context or authentication work.

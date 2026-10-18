@@ -21,11 +21,11 @@ These are the client JavaScript totals for the *same page*, rendering the
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
 | `hydration: "islands"` | **8.1 KB** | 18.1 KB | Preact, the island bootstrap, and the island chunks on the page. |
 | `hydration: "islands"`, islands navigation on | **11.8 KB** | 27.9 KB | Islands with `client: { islandsNavigation: true }`. |
-| `hydration: "full"` | **17.5 KB** | 43.1 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **16.0 KB** | 42.1 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **17.2 KB** | 42.2 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"`, rich data on | **17.7 KB** | 43.8 KB | Full hydration with `client: { richData: true }`. |
-| `hydration: "full"` + `preact/compat` | **18.2 KB** | 45.2 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "full"` | **18.0 KB** | 44.3 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **16.4 KB** | 43.2 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **17.8 KB** | 43.4 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"`, rich data on | **18.3 KB** | 45.0 KB | Full hydration with `client: { richData: true }`. |
+| `hydration: "full"` + `preact/compat` | **18.7 KB** | 46.4 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load: the route's chunks plus the chunk the router imports
 after hydration. Raw is the route's chunks only. Both come from
@@ -37,10 +37,13 @@ What to read off the table:
 - **Islands is the biggest lever.** Going from full hydration to islands
   removes the whole client router.
 - **[Prefetching off](/docs/prefetching#shipping-less-javascript) saves about
-  1.5 KB.** The router loads the prefetch runtime after hydration, so it counts
+  1.6 KB.** The router loads the prefetch runtime after hydration, so it counts
   on a cold load without appearing in any route's chunk list.
 - **[Navigation guards off](/docs/data-loading#useblocker) saves about
   0.25 KB**, the full cost of `useBlocker()`.
+- **[Accessible navigation](/docs/reference/config#client-bundle) off saves
+  about 0.3 KB**, but only an app that moves focus and announces pages itself
+  should turn it off.
 - **[Rich data](/docs/data-loading#dates-maps-and-other-rich-values) costs
   about 0.3 KB**, and only when you turn it on.
 - **[Islands navigation](/docs/islands#client-side-navigation-between-islands-pages)
@@ -84,7 +87,7 @@ Add `--json` for machine-readable output, and set per-route
 [budgets](/docs/reference/config) to fail a build when a route ships too much.
 
 Route totals count the chunks a route loads *to hydrate*. On a full-hydration
-route, the browser also fetches the prefetch runtime afterwards, about 1.1 KB
+route, the browser also fetches the prefetch runtime afterwards, about 1.2 KB
 gzip, which no route total includes.
 
 ---

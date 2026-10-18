@@ -105,6 +105,45 @@ export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.Ne
   };
 }
 
+/**
+ * Vite's own CORS middleware answers every `OPTIONS` preflight before plugin
+ * middleware runs, without the headers a remote MCP endpoint grants its
+ * `agents.mcp.allowedOrigins`. Registered ahead of Vite's internals, this
+ * hands exactly those preflights — `OPTIONS` to the MCP endpoint from a listed
+ * origin — to the pracht handler, and leaves every other request to Vite.
+ */
+export function createDevMcpPreflightMiddleware(
+  server: ViteDevServer,
+  handler: Connect.NextHandleFunction,
+): Connect.NextHandleFunction {
+  const devBase = server.config.base || "/";
+  return (req, res, next) => {
+    const origin = req.headers.origin;
+    if (req.method !== "OPTIONS" || typeof origin !== "string") return next();
+    void (async () => {
+      const serverMod = await server.ssrLoadModule(PRACHT_SERVER_MODULE_ID);
+      const mcp = (serverMod.resolvedApp as ResolvedPrachtApp).agents?.mcp;
+      if (!mcp?.allowedOrigins?.includes(origin)) return next();
+      const configured = mcp.path ?? "/mcp";
+      const endpoint =
+        configured.length > 1 && configured.endsWith("/") ? configured.slice(0, -1) : configured;
+      let pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      // This runs before Vite strips the base, so strip it the same way.
+      if (devBase !== "/") {
+        if (!pathname.startsWith(devBase)) return next();
+        pathname = `/${pathname.slice(devBase.length)}`;
+      }
+      const normalized =
+        pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+      if (normalized !== endpoint) return next();
+      // Only the request pracht answers loses its base; any other request
+      // reaches Vite's base middleware with its URL untouched.
+      if (devBase !== "/") req.url = `/${(req.url ?? "/").slice(devBase.length)}`;
+      await handler(req, res, next);
+    })().catch(next);
+  };
+}
+
 export function createDevSSRMiddleware(
   server: ViteDevServer,
   options: {
@@ -286,7 +325,12 @@ export function createDevSSRMiddleware(
 
       let webRequest: Request;
       try {
-        webRequest = await nodeToWebRequest(req, maxBodySize, devBase);
+        webRequest = await nodeToWebRequest(
+          req,
+          maxBodySize,
+          devBase,
+          devDisconnectSignal(req, res),
+        );
       } catch (err) {
         if (err instanceof Error && err.message === "Request body too large") {
           res.statusCode = 413;
@@ -2016,10 +2060,35 @@ const DEV_ASSET_EXTENSIONS = new Set([
   ".xml",
 ]);
 
+/**
+ * Aborts when the client hangs up before the dev response finished, so
+ * `request.signal` (and a capability's `signal`) behave as on the Node adapter.
+ * The request's `close` counts only while its body is incomplete: Node also
+ * emits it once a fully read upload is consumed.
+ */
+export function devDisconnectSignal(
+  req: IncomingMessage,
+  res: { writableFinished: boolean; on(event: "close", listener: () => void): unknown },
+): AbortSignal | undefined {
+  // Connect-style middleware stacks can hand over non-stream stand-ins.
+  if (typeof req.on !== "function" || typeof res.on !== "function") return undefined;
+  const controller = new AbortController();
+  const abortIfUnfinished = (): void => {
+    if (res.writableFinished || controller.signal.aborted) return;
+    controller.abort(new DOMException("The client closed the request.", "AbortError"));
+  };
+  req.on("close", () => {
+    if (!req.complete) abortIfUnfinished();
+  });
+  res.on("close", abortIfUnfinished);
+  return controller.signal;
+}
+
 async function nodeToWebRequest(
   req: IncomingMessage,
   maxBodySize: number,
   base = "/",
+  signal?: AbortSignal,
 ): Promise<Request> {
   // Dev server is always a direct connection — never trust forwarded headers.
   // Protocol is always plain HTTP (Vite's dev server does not use TLS), and
@@ -2046,7 +2115,7 @@ async function nodeToWebRequest(
     }
   }
 
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = { method, headers, signal };
 
   if (!BODYLESS_METHODS.has(method.toUpperCase())) {
     const chunks: Uint8Array[] = [];

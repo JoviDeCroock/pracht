@@ -249,3 +249,48 @@ export interface PrachtAgentIdentity {
   /** The `keyid` signature parameter (base64url JWK thumbprint). */
   readonly keyId: string;
 }
+
+/**
+ * Whether the remote MCP endpoint serves a capability as a tool, and if not,
+ * why. The single rule the runtime, `pracht dev`'s banner, `pracht inspect`,
+ * the app graph, and `pracht verify` all apply, so they cannot disagree.
+ */
+export type McpToolServing =
+  | "served"
+  | "not-exposed"
+  | "no-endpoint"
+  | "destructive-not-enabled"
+  | "scopes-need-auth";
+
+export interface McpServingCapability {
+  effect?: string | null;
+  /** The capability sets `expose.mcp`. */
+  mcp: boolean;
+  /** OAuth scopes from `expose: { mcp: { scopes } }`. */
+  mcpScopes?: readonly string[];
+}
+
+export interface McpServingConfig {
+  /** The app configures `agents.mcp`, so an endpoint exists. */
+  endpoint: boolean;
+  /** `agents.mcp.destructive` is `true`. */
+  destructive?: boolean;
+  /** `agents.mcp.auth` is configured. */
+  auth?: boolean;
+}
+
+export function mcpToolServing(
+  capability: McpServingCapability,
+  config: McpServingConfig,
+): McpToolServing {
+  if (!capability.mcp) return "not-exposed";
+  if (!config.endpoint) return "no-endpoint";
+  // A scoped tool is only served to a verified token carrying its scopes, so
+  // an endpoint without OAuth never serves it.
+  if ((capability.mcpScopes?.length ?? 0) > 0 && !config.auth) return "scopes-need-auth";
+  // Compared with `=== true` so a hand-rolled non-boolean reads as "off".
+  if (capability.effect === "destructive" && config.destructive !== true) {
+    return "destructive-not-enabled";
+  }
+  return "served";
+}

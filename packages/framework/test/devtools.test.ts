@@ -954,7 +954,7 @@ describe("buildAppGraph", () => {
     expect(graph.mcpRuntimeStatus).toBe("blocked");
   });
 
-  it("reports an MCP capability load failure as a blocked endpoint", async () => {
+  it("reports an MCP capability load failure on the capability, not the endpoint", async () => {
     const app = resolveApp(
       defineApp({
         agents: { mcp: {} },
@@ -980,11 +980,10 @@ describe("buildAppGraph", () => {
       `,
     });
 
+    // The endpoint keeps serving the capabilities that did load.
     expect(graph.capabilities[0].error).toBe("search backend failed to initialize");
-    expect(graph.mcpRuntimeStatus).toBe("blocked");
-    expect(graph.mcpUnavailableReasons).toEqual([
-      'Capability "notes.search" failed to load: search backend failed to initialize',
-    ]);
+    expect(graph.mcpRuntimeStatus).toBe("ready");
+    expect(graph.mcpUnavailableReasons).toEqual([]);
   });
 
   it("defaults to an empty API list when no API routes are passed", async () => {

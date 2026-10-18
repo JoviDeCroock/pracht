@@ -46,9 +46,11 @@ export interface CapabilityExposeConfig {
   /**
    * Advertise the capability to the configured remote MCP projection. A
    * `destructive` capability is only served when the app also sets
-   * `agents.mcp.destructive`; otherwise the projection filters it out.
+   * `agents.mcp.destructive`; otherwise the projection filters it out. The
+   * object form sets `scopes`: OAuth scopes a caller's token must carry for
+   * the tool to be listed or called (requires `agents.mcp.auth`).
    */
-  mcp?: boolean;
+  mcp?: boolean | CapabilityMcpOptions;
   /**
    * Register the capability as a WebMCP page tool. Requires `http` — calls
    * dispatch through the HTTP projection. The object form sets
@@ -57,6 +59,16 @@ export interface CapabilityExposeConfig {
    * content the host should treat as untrusted.
    */
   webmcp?: boolean | CapabilityWebmcpOptions;
+}
+
+export interface CapabilityMcpOptions {
+  /**
+   * OAuth scopes the caller's bearer token must carry. `tools/list` leaves the
+   * tool out for a token without all of them, and `tools/call` answers
+   * `403 insufficient_scope`. Only an endpoint protected by `agents.mcp.auth`
+   * can serve a scoped tool.
+   */
+  scopes?: readonly string[];
 }
 
 export interface CapabilityWebmcpOptions {
@@ -68,6 +80,8 @@ export interface CapabilityWebmcpOptions {
 export interface CapabilityExposure {
   http: CapabilityHttpExposure | null;
   mcp: boolean;
+  /** OAuth scopes an MCP caller must hold. Absent when the tool requires none. */
+  mcpScopes?: readonly string[];
   webmcp: boolean;
   /** The WebMCP tool's `untrustedContentHint` annotation. Always `false` when `webmcp` is `false`. */
   webmcpUntrustedContent: boolean;
@@ -446,6 +460,11 @@ function assertDefinition(definition: CapabilityDefinition<never, unknown, never
   }
 }
 
+/** RFC 6749 Appendix A.4 `scope-token`: printable ASCII except space, `"`, and `\\`. */
+function isOAuthScopeToken(value: unknown): value is string {
+  return typeof value === "string" && /^[\x21\x23-\x5b\x5d-\x7e]+$/.test(value);
+}
+
 function normalizeExposure(expose: CapabilityExposeConfig | undefined): CapabilityExposure | null {
   if (!expose) return null;
 
@@ -485,9 +504,28 @@ function normalizeExposure(expose: CapabilityExposeConfig | undefined): Capabili
     throw new Error('Capability "expose.webmcp" must be a boolean or an options object.');
   }
 
+  let mcp = false;
+  let mcpScopes: readonly string[] | undefined;
+  if (expose.mcp === true) {
+    mcp = true;
+  } else if (expose.mcp && typeof expose.mcp === "object" && !Array.isArray(expose.mcp)) {
+    mcp = true;
+    const { scopes } = expose.mcp;
+    if (scopes !== undefined) {
+      if (!Array.isArray(scopes) || scopes.some((scope) => !isOAuthScopeToken(scope))) {
+        throw new Error(
+          'Capability MCP exposure "scopes" must be an array of OAuth scope tokens ' +
+            "(printable ASCII without spaces, quotes, or backslashes).",
+        );
+      }
+      if (scopes.length > 0) mcpScopes = Object.freeze([...new Set<string>(scopes)]);
+    }
+  }
+
   const normalized: CapabilityExposure = {
     http,
-    mcp: expose.mcp === true,
+    mcp,
+    ...(mcpScopes ? { mcpScopes } : {}),
     webmcp,
     webmcpUntrustedContent,
   };

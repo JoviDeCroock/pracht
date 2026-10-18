@@ -20,6 +20,7 @@ import {
 } from "./graph-snapshot.js";
 import { listFilesRecursively, resolveProjectPath, type ProjectConfig } from "./project.js";
 import { detectAdapterTarget } from "./commands/preview.js";
+import { collectMcpServingChecks } from "./verification-capabilities.js";
 import { createCheck, isModuleSource, type Check } from "./verification-helpers.js";
 import { collectStaticExportChecks } from "./verification-static.js";
 
@@ -119,6 +120,7 @@ export async function collectGraphChecks(
       ),
     );
   }
+  if (wantsCapabilityLoad) collectMcpServingChecks(live, checks, project);
   collectMcpRouteCollisionChecks(live, checks);
   collectWebmcpRouteChecks(live, checks);
   collectStaticExportChecks(live, checks, { loaderRoutePaths, staticTarget });
@@ -358,6 +360,11 @@ function manifestDeclaresConstraints(project: ProjectConfig): boolean {
 
 function manifestDeclaresCapabilities(project: ProjectConfig): boolean {
   if (project.mode === "pages") {
+    // Modules under capabilitiesDir are registered without any page export.
+    const capabilitiesDir = resolveProjectPath(project.root, project.capabilitiesDir);
+    if (existsSync(capabilitiesDir) && listFilesRecursively(capabilitiesDir).some(isModuleSource)) {
+      return true;
+    }
     const pagesDir = resolveProjectPath(project.root, project.pagesDir);
     return (
       existsSync(pagesDir) &&

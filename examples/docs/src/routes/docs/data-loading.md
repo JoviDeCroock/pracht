@@ -304,7 +304,7 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 }
 ```
 
-A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler.
+A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler. If a component throws while a client navigation renders and no boundary catches it, the router reloads the page so the server renders it, or its error page, instead of leaving the page blank.
 
 #### Scoping a boundary to a subtree
 
@@ -639,7 +639,20 @@ export function Component() {
 }
 ```
 
-To change the query, navigate. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML, and a [`search` schema](/docs/routing#search-params) when you want it validated and typed.
+To change the query, use `useSetSearchParams()`. On an SSG page the hook returns the build-time query during hydration, then the browser's; use `useIsHydrated()` or stable fallback UI to avoid a visible change. Use SSR when the query must affect loader data or the initial HTML, and a [`search` schema](/docs/routing#search-params) when you want it validated and typed.
+
+### useSetSearchParams()
+
+Change the current page's query. Loaders re-run and `useSearchParams()` updates:
+
+```tsx
+const setSearchParams = useSetSearchParams();
+
+setSearchParams({ sort: "price", tag: ["a", "b"] }, { preserveScroll: true });
+setSearchParams((query) => (query.delete("page"), query), { replace: true });
+```
+
+It also accepts a string or `URLSearchParams`.
 
 ### useRevalidate()
 
@@ -652,7 +665,7 @@ export function Component() {
 }
 ```
 
-Revalidation bypasses `loaderCache` and always fetches fresh data.
+Revalidation bypasses `loaderCache` and always fetches fresh data. When revalidations overlap, the page keeps the data of the one started last, whichever response arrives first.
 
 ### useNavigation()
 

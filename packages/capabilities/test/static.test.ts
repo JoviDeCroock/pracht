@@ -492,6 +492,19 @@ describe("extractCapabilityProjection guard fields", () => {
     expect(projection.middleware).toEqual(["auth"]);
   });
 
+  it("recovers mcp exposure from the scoped object form", () => {
+    const source = capability("").replace(
+      "mcp: true",
+      'mcp: { scopes: ["notes.write", "notes.write"] }',
+    );
+    const projection = extractCapabilityProjection("kv.get", source, (detail) => detail);
+    expect(projection.mcp).toBe(true);
+    expect(projection.mcpScopes).toEqual(["notes.write"]);
+    expect(
+      extractCapabilityProjection("kv.get", capability(""), (detail) => detail).mcpScopes,
+    ).toBeUndefined();
+  });
+
   it('distinguishes "absent" from "declared but unreadable"', () => {
     const absent = extractCapabilityProjection("kv.get", capability(""), (detail) => detail);
     expect(absent.agentPolicy).toBeNull();

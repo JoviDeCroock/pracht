@@ -135,7 +135,9 @@ Route-level strategies are `"none"`, `"hover"`, `"intent"`, `"viewport"`
 Cost model for `"viewport"`: the IntersectionObserver fires once per anchor —
 it unobserves the anchor after the first prefetch, and prefetched route state
 is cached for 30 seconds — so a link in a marketing footer costs at most one
-prefetch per anchor per page view, not one per scroll. It's still wasteful
+prefetch per anchor per page view, not one per scroll. Viewport and render
+prefetches run three at a time, drop links that left the page, and are skipped
+on Save-Data or 2G connections. It's still wasteful
 for a 300 KB route that footer visitors rarely click; prefer `"none"` or
 `"hover"` there. Also note the per-link escape hatch: `<Link prefetch="...">`
 overrides the route-level strategy for a single anchor (and accepts the extra

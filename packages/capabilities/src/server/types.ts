@@ -225,6 +225,19 @@ export interface McpProjectionConfig {
    * `WWW-Authenticate` header, and authentication stays your middleware's job.
    */
   auth?: McpAuthConfig;
+  /**
+   * Most tools one `tools/list` page returns before it hands back a
+   * `nextCursor`. Default 100.
+   */
+  pageSize?: number;
+  /**
+   * Exact browser origins (such as `"https://inspector.example"`) allowed to
+   * call the endpoint with CORS. Requests from any other `Origin` still get
+   * 403, and cookie-bearing requests are rejected whatever their origin, so a
+   * listed page must authenticate with an `Authorization` header. Default:
+   * none — every browser-originated request gets 403.
+   */
+  allowedOrigins?: readonly string[];
 }
 
 /**

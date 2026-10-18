@@ -58,6 +58,7 @@ import {
 import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { SERVER_ISLAND_REFRESH_EVENT } from "./server-islands-shared.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
+import { navigateToUrl } from "./runtime-navigate-url.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import { ShellDataContext } from "./runtime-shell-data.ts";
 import type {
@@ -146,6 +147,13 @@ export interface FormProps<TName extends HttpCapabilityName = HttpCapabilityName
    * clone, so the body is never consumed before this callback.
    */
   onResponse?: (response: Response) => void;
+  /**
+   * For a `GET` form: navigate to the action with the form's fields as its
+   * query through the client router (no document reload, loader data fetched
+   * like any navigation) instead of the browser's native submission.
+   * Cross-origin actions stay native. Off by default.
+   */
+  clientNavigation?: boolean;
 }
 
 /**
@@ -337,6 +345,54 @@ export function useSearchParams(): ReadonlyURLSearchParams {
   return useMemo(() => new PrachtReadonlyURLSearchParams(search), [search]);
 }
 
+/** A new query string: a string, `URLSearchParams`, or a record of fields. */
+export type SearchParamsInit =
+  | string
+  | URLSearchParams
+  | Record<string, string | readonly string[] | null | undefined>;
+
+export interface SetSearchParamsOptions {
+  /** Replace the current history entry instead of pushing a new one. */
+  replace?: boolean;
+  /** Keep the scroll position, as a filter or search box usually wants. */
+  preserveScroll?: boolean;
+}
+
+export type SetSearchParams = (
+  next: SearchParamsInit | ((current: URLSearchParams) => SearchParamsInit),
+  options?: SetSearchParamsOptions,
+) => Promise<void>;
+
+function setSearchParams(
+  next: SearchParamsInit | ((current: URLSearchParams) => SearchParamsInit),
+  options?: SetSearchParamsOptions,
+): Promise<void> {
+  let init = typeof next === "function" ? next(new URLSearchParams(window.location.search)) : next;
+  if (typeof init === "object" && !(init instanceof URLSearchParams)) {
+    const params = new URLSearchParams();
+    for (const [name, value] of Object.entries(init)) {
+      for (const item of typeof value === "string" ? [value] : (value ?? [])) {
+        params.append(name, item);
+      }
+    }
+    init = params;
+  }
+  const url = new URL(window.location.href);
+  url.search = new URLSearchParams(init).toString();
+  url.hash = "";
+  return navigateToUrl(url, options);
+}
+
+/**
+ * Change the query string of the current page. The setter navigates to the
+ * same path with the new query, through the client router when the page has
+ * one (loaders re-run, `useSearchParams()` updates), else as a document load.
+ * Pass a function to derive the new query from the current one.
+ */
+export function useSetSearchParams(): SetSearchParams {
+  return setSearchParams;
+}
+
 export function useParams(): RouteParams {
   return useContext(RouteDataContext)?.params ?? {};
 }
@@ -498,6 +554,7 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
     schema,
     onValidationIssues,
     onResponse,
+    clientNavigation,
     ...rest
   } = props;
   // Capability forms post to the capability's HTTP projection; the action
@@ -689,7 +746,10 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
       const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
       const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
       const isSafeMethod = SAFE_METHODS.has(formMethod);
-      if (isSafeMethod && !schema) {
+      // Results meant for another browsing context stay a native submission.
+      const formTarget = nativeSubmitter?.getAttribute("formtarget") ?? form.getAttribute("target");
+      const navigatesHere = clientNavigation && (!formTarget || formTarget === "_self");
+      if (isSafeMethod && !schema && !navigatesHere) {
         return;
       }
 
@@ -717,6 +777,11 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         }
       }
 
+      if (isSafeMethod && navigatesHere) {
+        const { navigateFormGet } = await import("./runtime-navigate-url.ts");
+        if (await navigateFormGet(submitterAction ?? form.getAttribute("action"), formData)) return;
+      }
+
       if (isSafeMethod || isCrossOriginAction) {
         validatedNativeSubmissions.add(form);
         try {
@@ -727,7 +792,6 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         return;
       }
 
-      clearPrefetchCache();
       // Expose the in-flight submission through useNavigation().
       const navigationToken = beginSubmittingNavigation(
         createNavigationLocation(actionUrl),
@@ -744,6 +808,9 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           credentials: "same-origin",
           headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
         });
+        // After the response, like `apiFetch()`: a prefetch cached while the
+        // request was in flight predates the mutation too.
+        clearPrefetchCache();
 
         const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
         if (
