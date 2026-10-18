@@ -475,7 +475,15 @@ build).
   an entry's lifetime from that header; staleness comes only from the stored
   `x-pracht-isg-generated-at` timestamp, and a cached page is served with the
   browser policy `public, max-age=0, must-revalidate` (route `headers()`
-  exports still apply on top). Successful manifest reads are
+  exports still apply on top). `caches.default` survives `wrangler deploy`,
+  so each Cache API key carries the build's prerender timestamp in its path
+  (`/__pracht/isg-build/<generatedAt>/<route path>`, from the ISG manifest; a
+  path rather than a query parameter because a zone cache key may ignore query
+  strings): a new version never reads an entry the previous build rendered
+  against its own asset hashes and starts from its own `ASSETS` snapshots,
+  while a rollback reads the entries its version wrote. Manifest entries
+  without `generatedAt` (hand-written manifests) keep the bare path key and
+  are not deploy-scoped. Successful manifest reads are
   cached for the isolate lifetime; transient asset or JSON failures are evicted
   so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the
@@ -695,7 +703,8 @@ of looping; `pracht verify` warns about it, reading the policy from
 `dist/server/routing.json` or the Vite config. The Worker does redirect where
 the binding is skipped: an ISG page answered from `caches.default` and an
 edge-cached ISG route. ISG manifest lookups and Cache API keys use the slashless
-route path, so `/pricing/` and `/pricing` share one entry.
+route path (under the build prefix), so `/pricing/` and `/pricing` share one
+entry.
 
 `"run_worker_first": true` is what routes a request for a prerendered file
 through the Worker at all. Without it Cloudflare answers from the assets
