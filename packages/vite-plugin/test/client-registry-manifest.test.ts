@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -471,6 +471,26 @@ export const more = [route("/added", "./features/added.tsx", { id: "added" })];
     // Its cached transform, and its importers', predate the new role.
     expect(dev.record.invalidated).toEqual(
       expect.arrayContaining([added, join(root, "src/pages-shared/page.tsx")]),
+    );
+  });
+
+  it("drops the cached transform of a module the edit makes the app root", () => {
+    // Canonical, as Vite's module graph keys files.
+    const root = realpathSync(project(files));
+    const dev = devServer(root);
+    const shared = join(root, "src/features/added.tsx");
+    writeFileSync(shared, COMPONENT);
+    writeFileSync(
+      join(root, "src/routes.ts"),
+      MANIFEST.replace(
+        "export const app = defineApp({",
+        'export const app = defineApp({\n  root: "./features/added.tsx",',
+      ),
+    );
+    dev.hotUpdate(join(root, "src/routes.ts"));
+    // Its cached browser transform, and its importers', predate the new role.
+    expect(dev.record.invalidated).toEqual(
+      expect.arrayContaining([shared, join(root, "src/pages-shared/page.tsx")]),
     );
   });
 

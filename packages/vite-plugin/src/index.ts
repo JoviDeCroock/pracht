@@ -221,6 +221,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   let base = "/";
   let configuredBase: string | undefined;
 
+  const prachtApi = {
+    llmsTxtEnabled: Boolean(resolved.llmsTxt),
+    pracht: {
+      staticTarget: resolved.adapter.staticTarget === true,
+      // Manifest edits dev applied in place, without restarting the server.
+      manifestUpdates: 0,
+    },
+  };
   const prachtPlugin: Plugin = {
     name: "pracht",
     enforce: "pre",
@@ -232,14 +240,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
     // The nested `pracht` bag carries the same kind of inter-plugin metadata
     // for tooling that executes the Vite config and needs the adapter Pracht
     // actually selected, without reinterpreting the config source.
-    api: {
-      llmsTxtEnabled: Boolean(resolved.llmsTxt),
-      pracht: {
-        staticTarget: resolved.adapter.staticTarget === true,
-        // Dev applies a manifest edit in place instead of restarting the server.
-        manifestHotUpdate: resolved.adapter.ownsDevServer !== true,
-      },
-    },
+    api: prachtApi,
 
     config(_config, env) {
       const isEdge = resolved.adapter.edge === true;
@@ -865,12 +866,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // route or capability role is transformed differently now, so its
         // cached transform is dropped too.
         const previousRoles = [externalRouteFiles, capabilityModulePaths];
+        const previousAppRoot = appRootFile;
         refreshManifestState();
         const changedRoles = [externalRouteFiles, capabilityModulePaths].flatMap((next, index) =>
           symmetricDifference(previousRoles[index]!, next),
         );
+        if (previousAppRoot !== appRootFile) {
+          for (const appRoot of [previousAppRoot, appRootFile]) {
+            if (appRoot !== null) changedRoles.push(appRoot);
+          }
+        }
         invalidateManifestDependents(server, [file, ...changedRoles]);
         server.ws.send({ type: "full-reload" });
+        // `pracht dev` reprints its banner when this count moves.
+        prachtApi.pracht.manifestUpdates += 1;
         return [];
       }
 

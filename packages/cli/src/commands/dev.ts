@@ -58,7 +58,9 @@ export default defineCommand({
     );
 
     const routeTypes = createGeneratedRouteTypesSync(root);
-    const appFilePath = resolveProjectPath(root, readProjectConfig(root).appFile);
+    // Per pracht plugin instance (a restart creates a new one): the manifest
+    // updates it had applied when the banner last printed.
+    const printedManifestUpdates = new WeakMap<object, number>();
     let bannerReprint: ReturnType<typeof setTimeout> | undefined;
     // Set once the first server listens; servers created after that are
     // restarts, whose banner follows Vite's own "server restarted".
@@ -97,19 +99,17 @@ export default defineCommand({
               });
             }
           },
-          // The pracht plugin (`enforce: "pre"`) has applied a manifest edit by
-          // the time this runs, so the banner reflects the new route table. A
-          // plugin that restarts on manifest edits instead (or predates the
-          // flag) gets its banner from the restart path above.
-          handleHotUpdate({ file, server: devServer }) {
-            const pracht = devServer.config.plugins.find((plugin) => plugin.name === "pracht");
-            if (
-              !listened ||
-              pracht?.api?.pracht?.manifestHotUpdate !== true ||
-              !isAppManifestDependency(devServer, file, appFilePath)
-            ) {
-              return;
-            }
+          // The pracht plugin (`enforce: "pre"`) runs first and counts each
+          // manifest edit it applies in place, so the banner reflects the new
+          // route table. An edit it answers with a restart instead gets its
+          // banner from the restart path above.
+          handleHotUpdate({ server: devServer }) {
+            const api = devServer.config.plugins.find((plugin) => plugin.name === "pracht")?.api
+              ?.pracht as { manifestUpdates?: unknown } | undefined;
+            const updates = api?.manifestUpdates;
+            if (!listened || !api || typeof updates !== "number") return;
+            if (updates === (printedManifestUpdates.get(api) ?? 0)) return;
+            printedManifestUpdates.set(api, updates);
             clearTimeout(bannerReprint);
             bannerReprint = setTimeout(() => {
               void printDevBanner(devServer, root).catch(() => {
