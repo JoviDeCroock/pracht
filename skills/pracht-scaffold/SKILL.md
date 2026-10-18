@@ -54,7 +54,7 @@ If the CLI can express the request, do not reimplement the scaffold by hand.
 (layout-level data such as the signed-in user). `generate api` takes
 `--path` and `--methods`. All subcommands accept `--json` — use it when another
 agent or tool consumes the output. When the pracht MCP server is registered
-(docs/MCP.md), call the `generate_route`/`generate_shell`/`generate_middleware`/
+(`pracht dev-mcp`), call the `generate_route`/`generate_shell`/`generate_middleware`/
 `generate_api` MCP tools instead of Bash: same behavior, structured results.
 
 - `--shell`/`--middleware` names must already be registered or the CLI errors.
@@ -173,7 +173,7 @@ returns `{ response, send, close }` — return `response`, push with
 `send({ data, event?, id? })`, and stop producing when `send()` returns `false`
 (client disconnected). Consume with `useEventSource(url, { json: true })` from
 `@pracht/core`. Works on every adapter. For WebSockets use
-`isUpgradeRequest(request)` plus the per-adapter recipes in `docs/ADAPTERS.md`
+`isUpgradeRequest(request)` plus the per-adapter recipes in <https://pracht.resynapse.dev/docs/adapters>
 (Cloudflare: API route + Durable Object; Node:
 `nodeAdapter({ configureServerFrom })`; Vercel: unsupported — use SSE).
 

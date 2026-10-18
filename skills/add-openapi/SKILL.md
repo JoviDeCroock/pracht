@@ -19,14 +19,14 @@ allowed-tools:
 
 # Pracht Add OpenAPI
 
-`@pracht/openapi` is an opt-in companion package (`docs/OPENAPI.md`). Ordinary
+`@pracht/openapi` is an opt-in companion package (<https://pracht.resynapse.dev/docs/openapi>). Ordinary
 `defineApi()` routes keep their authoring, runtime behavior, and `apiFetch()`
 type inference — the package only reads the resolved server graph and owns its
 own descriptor.
 
 ## Step 1: Inventory the API first
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_api`/`inspect_routes`/`doctor`/`verify` tools over shelling out.
 
 ```bash
@@ -172,7 +172,7 @@ drift is caught.
   allow that exact script by hash (and the asset origin), or the page must be
   replaced with an app-owned route following the app's nonce policy —
   self-hosting the bundle alone does not fix an inline-script ban. See
-  `docs/CSP.md` and `/audit-headers`.
+  <https://pracht.resynapse.dev/docs/recipes/csp> and `/audit-headers`.
 
 ## Step 7: Verify
 
