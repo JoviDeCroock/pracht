@@ -26,6 +26,7 @@
     "e2e": "playwright test",
     "bench": "node ./bench/run.mjs",
     "bench:check": "node ./bench/run.mjs --bytes-only --check",
+    "bench:update": "node ./bench/run.mjs --bytes-only --update",
     "api:update": "node ./packages/framework/scripts/api-report.ts --update",
     "pack:smoke": "node ./scripts/pack-smoke.mjs",
     "dev:example": "cd examples/cloudflare && node ../../packages/cli/bin/pracht.js dev",

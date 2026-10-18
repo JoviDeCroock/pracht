@@ -109,6 +109,18 @@ import { webhookRevalidate } from "@pracht/core";
 Set `PRACHT_REVALIDATE_TOKEN`, then POST concrete paths to
 `/__pracht/revalidate` with `Authorization: Bearer <token>`.
 
+The JSON response lists `revalidated`, `skipped`, and `failed` paths, and its
+`scope` says how far the refresh reached. `global` (Netlify, Vercel) means
+every visitor gets the new page. `instance` (Node) means only the server that
+received the POST, so replicas behind a load balancer keep their copy.
+
+`colo` (Cloudflare) means only the data center that received it: another data
+center renders current content on its first uncached request but keeps a copy
+it already holds, and `pracht build` warns about each such route. Add a time
+window to the route's policy to bound that lag; with
+[Workers Caching](/docs/adapters#isg-and-workers-caching) the webhook then
+purges the route everywhere and reports `global`.
+
 ---
 
 ## SPA — Single Page Application

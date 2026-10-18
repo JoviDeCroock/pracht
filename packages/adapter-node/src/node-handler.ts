@@ -862,7 +862,7 @@ async function handleRevalidationEndpoint<TContext>(
     );
   }
 
-  const report = new RevalidationReport();
+  const report = new RevalidationReport("instance");
 
   for (const pathname of parsed.paths) {
     try {

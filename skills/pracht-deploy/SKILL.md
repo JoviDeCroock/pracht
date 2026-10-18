@@ -206,7 +206,8 @@ subrequest or Durable Object response passes along its immutable headers.
 
 **ISG.** Works with no cache option: the worker-managed path serves the
 build-time snapshot, detects staleness, regenerates in the background per colo
-via the Workers Cache API, and `POST /__pracht/revalidate` forces regeneration.
+via the Workers Cache API, and `POST /__pracht/revalidate` forces regeneration
+in the colo that receives it (`"scope": "colo"`).
 `cloudflareAdapter({ cache: true })` plus `{ "cache": { "enabled": true } }` in
 wrangler.jsonc moves that to edge-tier Workers Caching: time-revalidated pages
 then render on demand, are cached for their `revalidate` window (stale served

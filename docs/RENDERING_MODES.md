@@ -194,7 +194,11 @@ same secret in the `x-pracht-revalidate-token` header for webhook providers
 that cannot send bearer auth.
 
 The request accepts at most 64 paths; larger batches receive `400`. The
-response reports `revalidated`, `skipped`, and `failed` path arrays. Ineligible
+response reports `revalidated`, `skipped`, and `failed` path arrays, plus a
+`scope` naming how far the refresh reached: `instance` (Node), `colo`
+(Cloudflare's Cache API), or `global` (Netlify, Vercel, and Cloudflare routes
+purged through Workers Caching). Each revalidated `details` entry carries its
+own `scope`; the top-level one is the narrowest of them. Ineligible
 paths (not ISG, not prerendered, no `webhookRevalidate()`) are skipped; paths
 whose regeneration errored are reported in `failed` and keep serving the
 previously generated copy. Concurrent regenerations of the same path are
@@ -228,10 +232,15 @@ This means "regenerate hourly, or sooner when a CMS webhook names this path."
 | Cloudflare | Cache API + `env.ASSETS` fallback       | Overwrites the Cache API entry      |
 | Vercel     | Build Output API prerender `expiration` | Uses `x-prerender-revalidate`       |
 
-Cloudflare's Cache API is per-colo. A webhook updates the colo that receives
-the webhook request; other colos refresh on their next stale request or their
-own webhook hit. Use shorter time windows when globally immediate invalidation
-is required.
+Cloudflare's Cache API is per-colo and Node's ISG files are per-instance, so a
+webhook refreshes only the colo or instance that receives it. A Cloudflare colo
+without a cached copy serves the build-time snapshot of a webhook route as
+stale and renders current content in the background; a colo that already
+holds a copy keeps it until eviction or its time window. `pracht build` warns
+about Cloudflare webhook routes in this position. Pair the webhook with a time
+window to bound the lag, and on Cloudflare enable `cache: true` so the webhook
+purges the edge copy in every colo (see
+[ADAPTERS.md](ADAPTERS.md#cloudflare-adapter-phase-2)).
 
 ---
 
