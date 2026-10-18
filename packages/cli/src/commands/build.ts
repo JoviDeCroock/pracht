@@ -1184,9 +1184,9 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       contentArtifacts: Object.keys(contentArtifactHeaders),
       staticRoutes: [...generatedStaticRoutes, ...contentArtifactCleanRoutes],
       log,
-      warn: (message) => {
-        if (!analyzeJson) console.warn(message);
-      },
+      // Like every other build warning: stderr, so `--analyze --json` keeps
+      // stdout parseable without dropping the warning.
+      warn: (message) => console.warn(message),
     };
     if (buildAdapter?.id === buildTarget && typeof buildAdapter.finalizeBuild === "function") {
       await buildAdapter.finalizeBuild(adapterBuildContext);
