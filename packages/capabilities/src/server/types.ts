@@ -56,6 +56,16 @@ export interface WebBotAuthConfig {
   clockSkewSeconds?: number;
   /** Maximum accepted signature lifetime (`expires - created`), seconds. Default 86400 (24h, per draft guidance). */
   maxLifetimeSeconds?: number;
+  /**
+   * Extra components a signature must cover to verify, beyond `@authority`
+   * and `signature-agent`, e.g. `["@method", "@path"]`. The draft only
+   * requires the authority, so such a signature verifies for any method and
+   * path on this host until it expires; requiring the request target binds it
+   * to the call it was made for. A signature covering `@target-uri` satisfies
+   * `@authority`, `@scheme`, `@path`, and `@query`. Signatures that do not
+   * cover every listed component are treated as unsigned. Default: none.
+   */
+  requireComponents?: readonly string[];
   /** In-memory TTL for fetched key directories, seconds. Default 300. */
   directoryCacheTtlSeconds?: number;
 }
@@ -79,9 +89,10 @@ export interface CapabilityConfirmationConfig {
    *   exactly-once across replicas.
    * - `"human"` — the commit is refused with `confirmation_pending` until a
    *   person approves the proposal out of band. Requires an approval store and
-   *   an authenticated principal from Web Bot Auth or
-   *   `setCapabilityApprovalPrincipalResolver()`; without both, destructive
-   *   calls fail closed.
+   *   an end-user principal from `setCapabilityApprovalPrincipalResolver()` or
+   *   a verified OAuth subject (`agents.mcp.auth`); without both, destructive
+   *   calls fail closed. A Web Bot Auth key alone is not enough: it identifies
+   *   the agent, which all of its users share.
    */
   mode?: "token" | "human";
 }
@@ -99,7 +110,7 @@ export type CapabilityApprovalState = "pending" | "approved" | "rejected" | "con
 export interface CapabilityApprovalRecord {
   /** Secret-keyed from principal + capability + input hash + mode; never client-supplied. */
   id: string;
-  /** Verified agent and/or application identity, or `"anonymous"` in token mode. */
+  /** Verified agent, OAuth subject, and/or application identity, or `"anonymous"` in token mode. */
   principal: string;
   capability: string;
   /** Base64url SHA-256 of the canonicalized validated input. */

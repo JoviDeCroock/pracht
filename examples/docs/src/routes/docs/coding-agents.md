@@ -316,7 +316,7 @@ An agent keeps every installed skill's `name` and `description` in context all s
 | All 33 descriptions | 12,000 characters (~3k tokens) | Every session |
 | One `SKILL.md` | 20,000 bytes | Per invocation |
 
-A typical skill costs about 2k tokens when run. The standing cost is why `create-pracht` seeds only five core skills; each skill is standalone, so install just the ones you use.
+A typical skill costs about 2k tokens when run. The standing cost is why `create-pracht` seeds only four core skills; each skill is standalone, so install just the ones you use.
 
 ### Discovery Endpoint
 
@@ -372,7 +372,7 @@ shasum -a 256 .claude/skills/audit-csrf/SKILL.md
 Set up Claude Code skills + MCP? (Y/n):
 ```
 
-Yes writes the five core skills, an `.mcp.json` for `pracht dev-mcp`, and `AGENTS.md` with a `CLAUDE.md` alias. `--agent-tools=full` seeds the whole catalog and `--no-agent-tools` skips it all; see [create-pracht](/docs/cli#create-pracht).
+Yes writes the four core skills, an `.mcp.json` for `pracht dev-mcp`, and `AGENTS.md` with a `CLAUDE.md` alias. `--agent-tools=full` seeds the whole catalog and `--no-agent-tools` skips it all; see [create-pracht](/docs/cli#create-pracht).
 
 ---
 
