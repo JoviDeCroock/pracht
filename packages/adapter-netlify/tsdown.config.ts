@@ -5,11 +5,5 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: "esm",
   dts: true,
-  external: [
-    /^@netlify\/functions(\/.*)?$/,
-    /^@pracht\/core(\/.*)?$/,
-    "@pracht/vite-plugin",
-    /^node:/,
-    "vite",
-  ],
+  external: [/^@netlify\/functions(\/.*)?$/, /^@pracht\/core(\/.*)?$/, /^node:/, "vite"],
 });
