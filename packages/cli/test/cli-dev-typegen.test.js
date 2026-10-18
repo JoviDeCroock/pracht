@@ -184,6 +184,13 @@ describe("@pracht/cli dev typegen", () => {
         30_000,
         () => output,
       );
+      // The probe prints while the restart is still evaluating the config; an
+      // edit made before the new server's watcher exists is never seen.
+      await waitFor(
+        () => output.includes("server restarted"),
+        30_000,
+        () => output,
+      );
 
       writeProjectFile(appDir, ".env", "# emptied\n");
       await waitFor(
