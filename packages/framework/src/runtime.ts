@@ -1,4 +1,4 @@
-import { matchAppRoute } from "./app.ts";
+import { matchIndexedResolvedRoute } from "./route-matching.ts";
 import { getServerIslandsRuntime } from "./server-islands-runtime.ts";
 import { PRACHT_SERVER_ISLAND_ENDPOINT } from "./server-islands-shared.ts";
 import { SAFE_METHODS } from "./runtime-constants.ts";
@@ -73,7 +73,7 @@ async function handlePrachtRequestPipeline<TContext>(
   const agentResponse = await dispatchAgentSurface(ctx);
   if (agentResponse) return agentResponse;
 
-  const match = matchAppRoute(ctx.resolvedApp, ctx.routePathname);
+  const match = matchIndexedResolvedRoute(ctx.resolvedApp, ctx.routePathname);
 
   if (!match) {
     if (ctx.isRouteStateRequest) {

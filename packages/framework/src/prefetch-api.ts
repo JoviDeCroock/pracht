@@ -55,10 +55,6 @@ export function registerPrefetchTarget(app: ResolvedPrachtApp, warmModules?: Mod
   activePrefetchTarget = { app, warmModules };
 }
 
-export function getPrefetchTarget(): { app: ResolvedPrachtApp; warmModules?: ModuleWarmFn } | null {
-  return activePrefetchTarget;
-}
-
 /**
  * Fetch (or reuse) the route-state JSON for `url` and store it in the shared
  * bounded prefetch cache so a subsequent client navigation can consume it

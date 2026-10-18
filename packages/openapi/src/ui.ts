@@ -1,3 +1,5 @@
+import { hasControlCharacter } from "./control-character.ts";
+
 export type OpenApiUiProvider = "scalar" | "swagger";
 
 export interface CreateOpenApiUiHtmlOptions {
@@ -81,17 +83,6 @@ function assertAbsolutePath(value: string, name: string): void {
   ) {
     throw new TypeError(`createOpenApiUiHtml() ${name} must be a root-relative URL path.`);
   }
-}
-
-function hasControlCharacter(value: string): boolean {
-  for (const character of value) {
-    const codePoint = character.codePointAt(0);
-    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 function escapeHtml(value: string): string {
