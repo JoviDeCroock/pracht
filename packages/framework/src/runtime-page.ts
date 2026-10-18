@@ -25,7 +25,7 @@ import {
   reportRequestError,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
+import { appendVaryHeader, ownResponse, withRouteResponseHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider, RouteSearchContext } from "./runtime-context.ts";
 import { ShellDataContext } from "./runtime-shell-data.ts";
 import {
@@ -505,7 +505,7 @@ async function buildRouteStateResponse<TContext>(
     : { data: encodedData, fontHead };
   // The app root's snapshot is plain JSON, whatever the data encoding.
   if (root !== undefined) body.root = root;
-  const response = withRouteResponseHeaders(Response.json(body), {
+  const response = withRouteResponseHeaders(ownResponse(Response.json(body)), {
     isRouteStateRequest: true,
     loaderCache: job.match.route.loaderCache,
   });
