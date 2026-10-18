@@ -8,6 +8,8 @@
  * code paths.
  */
 
+import { escapeHtml } from "./html-escape.ts";
+
 export interface DevNotFoundRoute {
   path: string;
   render?: string | null;
@@ -211,12 +213,4 @@ function withDevBase(path: string, base: string): string {
   if (base === "/" || !path.startsWith("/")) return path;
   const prefix = base.endsWith("/") ? base : `${base}/`;
   return `${prefix}${path.slice(1)}`;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

@@ -1081,9 +1081,7 @@ describe("create-pracht", () => {
     expect(packageJson).toMatch(/"tailwindcss": "\^\d+\.\d+\.\d+"/);
     expect(packageJson).toMatch(/"@tailwindcss\/vite": "\^\d+\.\d+\.\d+"/);
     expect(viteConfig).toContain('import tailwindcss from "@tailwindcss/vite";');
-    expect(viteConfig).toContain(
-      "plugins: [pracht({ adapter: nodeAdapter(), llmsTxt: {} }), tailwindcss()]",
-    );
+    expect(viteConfig).toContain("plugins: [pracht({ adapter: nodeAdapter() }), tailwindcss()]");
     expect(globalCss).toBe('@import "tailwindcss";\n');
     expect(shell).toContain('import "../styles/global.css";');
     expect(readme).toContain("src/styles/global.css");
@@ -1111,7 +1109,7 @@ describe("create-pracht", () => {
     const app = await readFile(join(targetDir, "src/pages/_app.tsx"), "utf-8");
 
     expect(viteConfig).toContain(
-      'plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter(), llmsTxt: {} }), tailwindcss()]',
+      'plugins: [pracht({ pagesDir: "/src/pages", adapter: nodeAdapter() }), tailwindcss()]',
     );
     expect(app).toContain('import "../styles/global.css";');
     expect(existsSync(join(targetDir, "src/styles/global.css"))).toBe(true);
@@ -1153,8 +1151,26 @@ describe("create-pracht", () => {
     // nothing to audit in an eight-file starter, and every description it
     // seeds costs the agent context in every later session.
     expect(output.files).not.toContain(".claude/skills/audit-loaders/SKILL.md");
-    expect(output.files.filter((file) => file.startsWith(".claude/skills/"))).toHaveLength(5);
+    expect(output.files.filter((file) => file.startsWith(".claude/skills/"))).toHaveLength(4);
+    // The agent surface is opt-in: no capabilities skill until the author asks.
+    expect(output.files).not.toContain(".claude/skills/add-capabilities/SKILL.md");
     expect(existsSync(targetDir)).toBe(false);
+  });
+
+  it("scaffolds a vite config without opting into llms.txt", async () => {
+    for (const router of ["manifest", "pages"]) {
+      const root = await mkdtemp(join(tmpdir(), "pracht-start-no-llms-"));
+      const targetDir = join(root, "my-app");
+      await scaffoldProject({
+        adapter: NODE_ADAPTER,
+        packageManager: "pnpm",
+        resolveRemoteVersions: false,
+        router,
+        targetDir,
+      });
+      const viteConfig = await readFile(join(targetDir, "vite.config.ts"), "utf-8");
+      expect(viteConfig).not.toContain("llmsTxt");
+    }
   });
 
   it("run --dry-run --json omits tailwind files for the minimal template", async () => {
@@ -1482,6 +1498,28 @@ describe("create-pracht", () => {
     expect(packageJson.devDependencies["preact-render-to-string"]).toBe(
       core.peerDependencies["preact-render-to-string"],
     );
+  });
+
+  it("scaffolds the Preact release the workspace tests and benchmarks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-preact-"));
+    const targetDir = join(root, "my-preact-app");
+    await scaffoldProject({
+      adapter: NODE_ADAPTER,
+      agentTools: false,
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const workspace = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../../../package.json", import.meta.url)), "utf-8"),
+    );
+    const workspacePreact = workspace.devDependencies.preact;
+    // An exact, stable release: a pre-release pin would test a version that a
+    // caret range in a new project never installs.
+    expect(workspacePreact).toMatch(/^\d+\.\d+\.\d+$/);
+    const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
+    expect(packageJson.devDependencies.preact).toBe(`^${workspacePreact}`);
   });
 
   it("parseArgs handles --no-git flag", () => {

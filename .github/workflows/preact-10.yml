@@ -1,0 +1,65 @@
+name: Preact 10
+
+# The workspace develops and tests on Preact 11, which is what create-pracht
+# scaffolds. The published peer ranges still accept Preact 10, and the
+# framework patches Preact's private option hooks, whose shape differs between
+# majors. This job reruns the unit suite and the `basic` e2e project with every
+# `preact` in the workspace overridden to 10.x, so the peer range stays true.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  preact-10:
+    name: Unit + E2E (basic) on Preact 10
+    runs-on: ubuntu-latest
+    env:
+      PREACT_10_VERSION: 10.29.8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        with:
+          version: 11.3.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Override Preact to 10.x
+        run: |
+          printf '\noverrides:\n  preact: %s\n' "$PREACT_10_VERSION" >> pnpm-workspace.yaml
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Check the override took effect
+        run: |
+          installed="$(node -p "require('preact/package.json').version")"
+          echo "preact $installed"
+          test "$installed" = "$PREACT_10_VERSION"
+          if grep -q "preact@11" pnpm-lock.yaml; then
+            echo "pnpm-lock.yaml still resolves a Preact 11 somewhere" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+
+      - name: E2E tests (basic project)
+        run: pnpm exec playwright test --project=basic

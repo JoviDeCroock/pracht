@@ -68,6 +68,8 @@ export const app = defineApp({
       clockSkewSeconds: 60,       // default
       maxLifetimeSeconds: 86_400, // default, per draft guidance
       directoryCacheTtlSeconds: 300,
+      // Opt-in: bind signatures to the request target (default: none).
+      requireComponents: ["@method", "@path"],
     },
   },
   // capabilities, routes, ...
@@ -123,7 +125,8 @@ yields `context.agent = null`, never a partial identity:
 - `Signature-Input`/`Signature` parse as RFC 8941 structured fields and the
   member's `tag` is `web-bot-auth`;
 - covered components include `@authority` (and `signature-agent` whenever the
-  header is present, per the draft);
+  header is present, per the draft), plus every entry of `requireComponents`
+  (`@target-uri` satisfies `@authority`, `@scheme`, `@path`, and `@query`);
 - `created`/`expires` are present, `created ≤ now ≤ expires` within the
   configured clock skew, and the lifetime is within `maxLifetimeSeconds`;
 - `alg`, when present, is `ed25519`;
@@ -152,9 +155,17 @@ For statically pinned keys, `context.agent.agentDomain` is the configured
 allowlisted directory.
 
 Replay note: the drafts allow enforcing `nonce` uniqueness with a store;
-Pracht's stateless verifier does not (a signature can be replayed against
-the same authority until it expires). Bind short `expires` windows and treat
-the identity as *authentication*, not as a per-request authorization grant.
+Pracht's stateless verifier does not. The draft only requires `@authority`,
+so by default a captured signature verifies for any method and path on the
+same authority until it expires (up to `maxLifetimeSeconds`, 24 h by default).
+Requiring more is not the default because it would refuse signatures that
+compliant agents send today. When the identity authorizes anything — `policy:
+"require"`, `agentPolicy`, or an approval principal — set `requireComponents:
+["@method", "@path"]` so a signature only verifies for the request it was
+made for, and lower `maxLifetimeSeconds` to the freshness window your agents
+actually use. A signature that does not cover every required component is
+treated as unsigned. Agents signing with `signAgentRequest()` add them with
+`additionalComponents: ["@method", "@path"]`.
 
 ### Policy modes
 
@@ -340,18 +351,30 @@ its destructive-tool preconditions; their middleware functions still run only
 on `tools/call`. Merely registering unrelated middleware is not a startup hook.
 The resolver executes after API and capability middleware, and must return a
 stable authenticated user or tenant id — never a display name or
-caller-controlled value. When Web Bot Auth is also present, the proposal binds
-both identities. The raw application identity stays in the server-side approval
-record; caller-visible confirmation tokens bind a secret-keyed digest instead
-of exposing that identity.
+caller-controlled value. On remote MCP behind `agents.mcp.auth`, the verified
+OAuth `tokenAuth.subject` is bound as well (`oauth:<subject>`, scoped by
+`claims.iss` when the verifier returns it — do so when several authorization
+servers may issue the same `sub`). When Web Bot
+Auth is also present, the proposal binds every identity. The raw end-user
+identity stays in the server-side approval record; caller-visible confirmation
+tokens bind a secret-keyed digest instead of exposing that identity.
+
+A Web Bot Auth key identifies the agent operator, which every user of that
+agent shares. In human mode with no end-user identity (no resolver result and
+no OAuth subject), each prepare therefore opens its *own* proposal: the
+proposal id also covers a random nonce carried in the confirmation token's
+signed `n` claim, so only the token minted by that prepare can consume it, and
+a nonce-less token is refused. Two users of one agent sending identical input
+can no longer share — and so spend — one approval. The server warns once per
+process in this configuration, because a reviewer still sees only the agent.
 
 A proposal's id is a secret-keyed digest derived server-side from the
 principal, capability name, canonicalized input, and approval mode — never
 supplied by a caller. Keying keeps a caller-visible id from becoming an
 offline oracle for low-entropy application user or tenant ids. Repeated
-prepare calls for the same operation and mode address **one** proposal, so a
-person approves an action rather than one particular token, and re-preparing
-cannot extend a proposal's life.
+prepare calls for the same operation, mode, and end user address **one**
+proposal, so a person approves an action rather than one particular token, and
+re-preparing cannot extend a proposal's life.
 
 The confirmation HMAC keeps doing its job: the signature is verified *before*
 the store is touched, so a forged token can never consume (and thereby
@@ -398,7 +421,7 @@ endpoint or UI — a framework-default approval route would be the same mistake
 as trusting host-reported approval.
 
 `mode: "human"` without both a registered store and an authenticated principal
-(from Web Bot Auth or the resolver) fails closed with `403
+(from the resolver, a verified OAuth subject, or Web Bot Auth) fails closed with `403
 confirmation_unavailable` rather than silently degrading to self-approval or
 sharing one approval across unrelated application users.
 
