@@ -216,11 +216,7 @@ export async function createWebRequest(
 
   if (!BODYLESS_METHODS.has(method.toUpperCase())) {
     const body = await readRequestBody(req, options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE);
-    if (body.byteLength > 0) {
-      const exactBody = new Uint8Array(body.byteLength);
-      exactBody.set(body);
-      init.body = exactBody.buffer;
-    }
+    if (body.byteLength > 0) init.body = body;
   }
 
   return new Request(url, init);
@@ -500,12 +496,26 @@ function createHeaders(headers: IncomingMessage["headers"]): Headers {
   return result;
 }
 
-async function readRequestBody(req: IncomingMessage, maxBodySize: number): Promise<Uint8Array> {
+/**
+ * Buffer the request body into one exactly-sized `Uint8Array`: each chunk is
+ * copied once, and the result owns its `ArrayBuffer` (a pooled `Buffer` would
+ * expose neighbouring bytes through `.buffer`). A declared `Content-Length`
+ * over the limit is rejected before any of the body is read.
+ */
+async function readRequestBody(
+  req: IncomingMessage,
+  maxBodySize: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const declaredLength = Number(req.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && declaredLength > maxBodySize) {
+    throw new Error("Request body too large");
+  }
+
   const chunks: Uint8Array[] = [];
   let totalSize = 0;
 
   for await (const chunk of req) {
-    const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    const buf: Uint8Array = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
     totalSize += buf.byteLength;
     if (totalSize > maxBodySize) {
       throw new Error("Request body too large");
@@ -513,7 +523,13 @@ async function readRequestBody(req: IncomingMessage, maxBodySize: number): Promi
     chunks.push(buf);
   }
 
-  return Buffer.concat(chunks);
+  const body = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
 }
 
 function getFirstHeaderValue(value: string | string[] | undefined): string | undefined {
