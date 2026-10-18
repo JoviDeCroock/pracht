@@ -153,7 +153,9 @@ Three behaviours worth knowing before changing them:
 - `requireSession()` distinguishes a page match from an API match by the
   presence of `middlewareFiles` on `args.route`, and answers a page with a
   redirect (which the client router follows on its route-state fetch) and an
-  API route with `401`.
+  API route with `401`. The redirect's return-path parameter is the route path
+  with the deploy base stripped (`stripBase()`), because the login handler
+  passes it to core's `redirect()`, which adds the base back.
 
 ## Dogfood
 
