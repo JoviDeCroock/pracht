@@ -40,6 +40,17 @@ const DEFAULT_DIRECTORY_CACHE_TTL_SECONDS = 300;
 const DIRECTORY_MAX_BYTES = 65_536;
 const DIRECTORY_FETCH_TIMEOUT_MS = 5_000;
 const ED25519_PUBLIC_KEY_BYTES = 32;
+
+/** Components whose value `@target-uri` already contains. */
+const TARGET_URI_PARTS = new Set(["@authority", "@scheme", "@path", "@query"]);
+
+/** Whether a signature's covered components include `required`. */
+function coversComponent(components: readonly string[], required: string): boolean {
+  return (
+    components.includes(required) ||
+    (TARGET_URI_PARTS.has(required) && components.includes("@target-uri"))
+  );
+}
 const ED25519_JWK_X_RE = /^[A-Za-z0-9_-]{43}$/;
 
 /**
@@ -439,6 +450,13 @@ async function verifyAgentSignatureUnsafe(
     // whenever the header is present (draft §4.2.1).
     if (!member.components.includes("@authority")) continue;
     if (signatureAgentHeader && !member.components.includes("signature-agent")) continue;
+    // App-required components bind the signature to this request target.
+    if (
+      options.requireComponents &&
+      !options.requireComponents.every((component) => coversComponent(member.components, component))
+    ) {
+      continue;
+    }
 
     // Required parameters and freshness window (with clock-skew allowance).
     const { created, expires, keyid, alg } = member.params;
