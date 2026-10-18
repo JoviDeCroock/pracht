@@ -233,6 +233,59 @@ describe("createImageHandler work bounds", () => {
     expect(h.fetched).toEqual(["https://cdn.example/h%65ro.png?sig=valid"]);
   });
 
+  it("keeps retained source query parameters exactly as written", async () => {
+    const h = harness({ cache: false, sourceQueryParams: ["token", "sig"] });
+    await h.get("/private/report.png?token=a%20b&bust=1&sig=valid");
+    expect(h.fetched).toEqual([`${ORIGIN}/private/report.png?token=a%20b&sig=valid`]);
+  });
+
+  it("rejects a source served by the image endpoint itself", async () => {
+    const h = harness({ maxConcurrency: 1, remotePatterns: [{ hostname: "app.example" }] });
+    const nested = await h.get("/api/_pracht/image?url=%2Fhero.png&w=640");
+    expect(nested.status).toBe(400);
+    expect(await nested.text()).toMatch(/image endpoint itself/);
+    expect((await h.get(`${ORIGIN}/api/_pracht/im%61ge/?url=x`)).status).toBe(400);
+    expect(h.fetched).toEqual([]);
+  });
+
+  it("refuses a redirect back to the image endpoint", async () => {
+    const h = harness({
+      fetchImage: async () =>
+        new Response(null, {
+          status: 302,
+          headers: { location: "/api/_pracht/image?url=%2Fhero.png&w=640" },
+        }),
+    });
+    const response = await h.get("/redirect.png");
+    expect(response.status).toBe(502);
+    expect(await response.text()).toMatch(/redirected to the image endpoint/);
+  });
+
+  it("reports the age of a cached result", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const h = harness({ cacheControl: "public, max-age=30, must-revalidate" });
+    expect((await h.get("/hero.png")).headers.get("age")).toBeNull();
+    vi.advanceTimersByTime(29_000);
+    expect((await h.get("/hero.png")).headers.get("age")).toBe("29");
+  });
+
+  it("does not let a new request join work every earlier caller abandoned", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const h = harness({ maxConcurrency: 1 }, () => gate);
+    const controller = new AbortController();
+    const abandoned = h.get("/hero.png", "w=640", {}, controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort();
+    const live = h.get("/hero.png");
+    release();
+    await abandoned;
+    expect((await live).status).toBe(200);
+    expect(h.fetched).toEqual([`${ORIGIN}/hero.png`, `${ORIGIN}/hero.png`]);
+  });
+
   it("fetches an extensionless relative source exactly as spelled", async () => {
     const h = harness();
     await h.get("/api/r%65port?sig=valid");

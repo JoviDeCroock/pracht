@@ -102,6 +102,7 @@ const IMAGE_FILE_PATTERN = /\.(?:avif|bmp|gif|ico|jpe?g|png|svg|tiff?|webp)$/i;
 interface CachedImage {
   body: Uint8Array;
   headers: Record<string, string>;
+  storedAt: number;
   expiresAt: number;
   size: number;
 }
@@ -134,7 +135,8 @@ function createImageCache(maxBytes: number, maxAgeMs: number) {
       if (size > maxBytes) return;
       const existing = entries.get(key);
       if (existing) remove(key, existing);
-      entries.set(key, { body, headers, expiresAt: Date.now() + maxAgeMs, size });
+      const storedAt = Date.now();
+      entries.set(key, { body, headers, storedAt, expiresAt: storedAt + maxAgeMs, size });
       bytes += size;
       for (const [oldestKey, oldest] of entries) {
         if (bytes <= maxBytes) break;
@@ -190,19 +192,28 @@ function createLimiter(max: number) {
  * source (an extensionless route, a remote URL) is fetched exactly as given.
  */
 function normalizeLocalSource(target: URL, keep: ReadonlySet<string>): void {
-  const pathname = target.pathname.replace(/%[0-9a-f]{2}/gi, (escape) => {
+  const pathname = decodeUnreserved(target.pathname);
+  if (!IMAGE_FILE_PATTERN.test(pathname)) return;
+  target.pathname = pathname;
+  // Kept parameters stay exactly as written and in order, so a signature over them still verifies.
+  const kept = target.search
+    .slice(1)
+    .split("&")
+    .filter((part) => {
+      try {
+        return keep.has(decodeURIComponent(part.split("=")[0].replace(/\+/g, " ")));
+      } catch {
+        return false;
+      }
+    });
+  target.search = kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
+function decodeUnreserved(pathname: string): string {
+  return pathname.replace(/%[0-9a-f]{2}/gi, (escape) => {
     const char = String.fromCharCode(parseInt(escape.slice(1), 16));
     return /[\w.~-]/.test(char) ? char : escape.toUpperCase();
   });
-  if (!IMAGE_FILE_PATTERN.test(pathname)) return;
-  target.pathname = pathname;
-  const kept = new URLSearchParams();
-  for (const [name, value] of target.searchParams) {
-    if (keep.has(name)) kept.append(name, value);
-  }
-  kept.sort();
-  const search = kept.toString();
-  target.search = search ? `?${search}` : "";
 }
 
 function preferredFormat(
@@ -447,15 +458,28 @@ export function createImageHandler(
       : createImageCache(cacheMaxBytes, cacheLifetime * 1000);
   // Identical concurrent misses share one fetch and encode. The work aborts
   // only once every request waiting on it has aborted.
-  const inFlight = new Map<
-    string,
-    { result: Promise<SharedResult>; controller: AbortController; waiters: number }
-  >();
+  type InFlight = { result: Promise<SharedResult>; controller: AbortController; waiters: number };
+  const inFlight = new Map<string, InFlight>();
+  const forget = (key: string, entry: InFlight) => {
+    if (inFlight.get(key) === entry) inFlight.delete(key);
+  };
   const maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
   if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1) {
     throw new Error("createImageHandler({ maxConcurrency }) expects a positive integer.");
   }
   const limiter = createLimiter(maxConcurrency);
+
+  /**
+   * A source served by this endpoint would wait for a slot its own caller
+   * holds, so a few such requests could stall every other image.
+   */
+  function isImageEndpoint(target: URL, requestUrl: URL): boolean {
+    if (target.origin !== requestUrl.origin && target.origin !== configuredLocalOrigin) {
+      return false;
+    }
+    const path = (pathname: string) => decodeUnreserved(pathname).replace(/\/+$/, "");
+    return path(target.pathname) === path(requestUrl.pathname);
+  }
 
   async function handleImageRequest({ request, signal }: ImageHandlerArgs): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -543,12 +567,20 @@ export function createImageHandler(
       }
     }
 
+    if (isImageEndpoint(target, requestUrl)) {
+      return errorResponse(400, 'The "url" parameter may not point at the image endpoint itself.');
+    }
+
     const accept = request.headers.get("accept") ?? "";
     const format = preferredFormat(accept, formats);
     const cacheKey = `${target.href}\n${width}\n${quality}\n${format ?? ""}`;
     const cached = cache?.get(cacheKey);
     if (cached) {
-      return new Response(imageResponseBody(request, cached.body), { headers: cached.headers });
+      // `Age` keeps a downstream cache from restarting the result's freshness.
+      const age = String(Math.floor((Date.now() - cached.storedAt) / 1000));
+      return new Response(imageResponseBody(request, cached.body), {
+        headers: { ...cached.headers, age },
+      });
     }
 
     if (!cache) {
@@ -561,7 +593,7 @@ export function createImageHandler(
     let shared = inFlight.get(cacheKey);
     if (!shared) {
       const controller = new AbortController();
-      const created = {
+      const created: InFlight = {
         controller,
         waiters: 0,
         result: run(request, controller.signal, source, target, width, quality, format)
@@ -569,7 +601,7 @@ export function createImageHandler(
             if (!("status" in result)) cache.set(cacheKey, result.body, result.headers);
             return result;
           })
-          .finally(() => inFlight.delete(cacheKey)),
+          .finally(() => forget(cacheKey, created)),
       };
       inFlight.set(cacheKey, created);
       shared = created;
@@ -578,7 +610,10 @@ export function createImageHandler(
     entry.waiters += 1;
     const onAbort = () => {
       entry.waiters -= 1;
-      if (entry.waiters === 0) entry.controller.abort();
+      if (entry.waiters > 0) return;
+      // Abandoned work is never joined by a later request.
+      forget(cacheKey, entry);
+      entry.controller.abort();
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     if (signal?.aborted) onAbort();
@@ -663,6 +698,9 @@ export function createImageHandler(
           403,
           `Source image "${source}" redirected to a host that is not allowed.`,
         );
+      }
+      if (isImageEndpoint(nextTarget, new URL(request.url))) {
+        return errorResponse(502, `Source image "${source}" redirected to the image endpoint.`);
       }
 
       try {

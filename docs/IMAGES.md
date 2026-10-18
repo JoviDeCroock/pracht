@@ -300,7 +300,8 @@ configuration is needed.
   (`/h%65ro.png` is `/hero.png`), so equivalent spellings share one fetch and
   cache entry. Extensionless relative sources (an API route drawing an image)
   and remote sources are fetched exactly as spelled, minus the fragment, so a
-  signature over the raw target still verifies. Together with the width
+  signature over the raw target still verifies; kept parameters also keep
+  their spelling and order. Together with the width
   allowlist and the 1–100 quality range, this bounds the variants a caller
   can mint per local image file.
 - **Work bounds.** At most `maxConcurrency` (default 4) requests fetch and
@@ -309,7 +310,9 @@ configuration is needed.
   default 50 MiB for 3600 s, keyed on source URL + width + quality +
   negotiated format), so repeated URLs skip the fetch and the encode, and
   identical concurrent misses share one in-flight fetch and encode (it is
-  aborted only once every waiting request has aborted). Each entry is charged
+  aborted only once every waiting request has aborted, and a later request
+  never joins abandoned work). A cache hit carries an `Age` header so a
+  downstream cache does not restart its freshness. Each entry is charged
   its body plus its key and 1 KiB of overhead. A request aborted while queued
   leaves the queue. An entry lives for `cache.maxAge` or the `s-maxage` /
   `max-age` in `cacheControl`, whichever is shorter, so `max-age=0` (or no
@@ -317,8 +320,9 @@ configuration is needed.
   request reaches the origin. The cache is shared by every caller, so it is
   off when `cacheControl` contains `private`, `no-store`, or `no-cache`, and
   off by default when a custom `fetchImage` is passed (set `cache` to opt back
-  in).
-  `cache.maxBytes` and `cache.maxAge` must be finite and non-negative.
+  in). `cache.maxBytes` and `cache.maxAge` must be finite and non-negative.
+  A source (or redirect) that points back at the endpoint's own path is
+  refused, since the nested request would wait for a slot its caller holds.
 - Source responses must be `image/*` and are capped at 25 MiB
   (`maxSourceBytes`).
 
