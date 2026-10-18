@@ -22,7 +22,7 @@ Run before every production deploy. Each adapter has a different runtime
 contract; enforce the one that matches the build. Never deploy on the user's
 behalf — end at the verdict.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 

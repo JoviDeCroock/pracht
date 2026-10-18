@@ -384,7 +384,7 @@ async function handleVercelRevalidationEndpoint(
   const parsed = await readRevalidationRequest(request, token);
   if (!parsed.ok) return parsed.response;
 
-  const report = new RevalidationReport();
+  const report = new RevalidationReport("global");
 
   for (const pathname of parsed.paths) {
     const match = matchAppRoute(app, pathname);

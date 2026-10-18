@@ -24,12 +24,12 @@ it cannot save you from a value that flows into the return.
 Prerequisites: `pracht inspect` requires a vite config that registers the
 pracht plugin; the env-safety report under `dist/client/_pracht/` requires a
 prior `pracht build`. If the pracht MCP server is registered (see
-`docs/MCP.md`), prefer its tools (`inspect_routes`, `inspect_api`,
+<https://pracht.resynapse.dev/docs/coding-agents#the-authoring-mcp-server>), prefer its tools (`inspect_routes`, `inspect_api`,
 `inspect_build`, `doctor`, `verify`) over shelling out.
 
 ## Step 0: Run the native env safety check
 
-Pracht has built-in env leak detection (see `docs/ENV.md`):
+Pracht has built-in env leak detection (see <https://pracht.resynapse.dev/docs/env#client-leak-detection>):
 
 - `pracht build` fails when a client chunk references a non-public env var
   (anything not `PRACHT_PUBLIC_`-prefixed and not a Vite built-in),
@@ -86,8 +86,7 @@ imports of:
 The Vite plugin strips the server-only exports `loader`, `head`, `headers`,
 `getStaticPaths`, and `markdown` from route files when serving the client
 query (`middleware` is not a route-file export — middleware lives in the
-manifest); see the client module transform notes in `docs/ARCHITECTURE.md`
-and `docs/ENV.md`. But a component that imports `../server/db` will still
+manifest); see <https://pracht.resynapse.dev/docs/env#client-leak-detection>. But a component that imports `../server/db` will still
 pull `db` into the client bundle. Flag those imports. The app root's browser
 copy loses only `dehydrate` and the imports nothing else uses; `setup()`,
 `Root`, `hydrate()`, and everything they import ship. A `dehydrate` bound in

@@ -125,6 +125,18 @@ any session that was loaded or committed, so every request re-seals and
 and, with a store, a write per request. It never fires for a session that does
 not exist yet, so anonymous traffic still receives no cookie.
 
+`absoluteMaxAge` adds a cap that re-commits cannot extend. With it set, the
+envelope carries `c`, the lifetime start in milliseconds. `c` is set on the
+first commit, carried forward on every later one, and cleared by
+`regenerate()`, so the cap counts from login. `openEnvelope()` rejects a cookie
+whose `c + absoluteMaxAge` has passed. `commitSession()` clamps both the sealed
+`e` and the `Max-Age` attribute to the cap. A cookie sealed before the option
+was enabled has no `c`. Its last commit (`e - cookie.maxAge`) stands in: a
+fixed point that replaying the old cookie cannot move. A commit after the cap
+has run out ends the session (`destroySession()`) instead of sealing a dead
+cookie or writing an already-expired store record. Without the option, `c`
+is never written, so cookie size and contents are unchanged.
+
 `rolling` interacts with prerendered routes. `varyOnCookie()` withholds
 `Vary: Cookie` from `ssg`/`isg` responses, but the commit itself is not
 withheld, and `isCacheableISGResponse()`
@@ -153,7 +165,9 @@ Three behaviours worth knowing before changing them:
 - `requireSession()` distinguishes a page match from an API match by the
   presence of `middlewareFiles` on `args.route`, and answers a page with a
   redirect (which the client router follows on its route-state fetch) and an
-  API route with `401`.
+  API route with `401`. The redirect's return-path parameter is the route path
+  with the deploy base stripped (`stripBase()`), because the login handler
+  passes it to core's `redirect()`, which adds the base back.
 
 ## Dogfood
 

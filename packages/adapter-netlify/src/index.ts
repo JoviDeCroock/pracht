@@ -803,7 +803,7 @@ async function handleNetlifyRevalidation<TNetlifyContext extends NetlifyExecutio
   const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
   if (!parsed.ok) return parsed.response;
 
-  const report = new RevalidationReport();
+  const report = new RevalidationReport("global");
   for (const pathname of parsed.paths) {
     const canonicalPathname = normalizePathname(pathname);
     const entry = isgManifest[canonicalPathname];

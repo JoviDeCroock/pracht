@@ -91,6 +91,23 @@ prachtOpenApi({
 });
 ```
 
+## Include capabilities
+
+Set `capabilities: true` to also document every [capability](/docs/capabilities) with `expose.http`:
+
+```ts
+prachtOpenApi({
+  info: { title: "Acme API", version: "1.0.0" },
+  capabilities: true,
+});
+```
+
+Each one becomes a `POST` operation at its HTTP path, with the capability name as `operationId`, its
+title and description, and its own input schema as the request body. The `200` response is the success
+envelope `{ ok: true, data }` with the output schema as `data`, and `default` is the error envelope.
+Destructive capabilities also list the optional `x-pracht-confirm` header. The `x-pracht-effect`
+extension carries the effect class. Capabilities without `expose.http` are left out.
+
 ## Add servers and authentication
 
 Use `document` for metadata shared across operations:
@@ -148,5 +165,5 @@ scriptUrl?, styleUrl? })` returns the Scalar or Swagger page for it.
 - Default-export API handlers are omitted because their supported methods cannot be inferred.
 - Catch-all paths become a single `{path}` parameter and warn about slash encoding.
 - Request bodies currently default to `application/json`.
-- Capability HTTP projections are not included yet.
+- Capabilities are included only with `capabilities: true`.
 - There is no dedicated drift-diff command; use `failOnWarnings` and the deterministic build output.

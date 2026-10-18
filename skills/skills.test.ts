@@ -605,6 +605,16 @@ describe.each(skills)("skills/$name/SKILL.md", (skill) => {
       ).toBe(true);
     }
   });
+
+  it("links only to pages an installed skill's reader can open", () => {
+    // An installed skill has no repo next to it: `docs/*.md` (contributor
+    // notes) and `examples/docs/src/...` (the site's sources) do not exist for
+    // its reader. Point at https://pracht.resynapse.dev/docs/... instead. The
+    // lookbehind skips `./routes/docs/x.md` imports inside code samples.
+    const text = parsed(skill).body;
+    const internal = text.match(/(?<![\w/.-])(?:\.\.\/)*docs\/[\w-]+\.md|examples\/docs\/src\//g);
+    expect(internal ?? [], "repo-internal doc paths").toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

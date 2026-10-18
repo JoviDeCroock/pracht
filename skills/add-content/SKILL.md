@@ -20,7 +20,7 @@ allowed-tools:
 # Pracht Add Content Collections
 
 `@pracht/content` is the optional, **server-only** content layer
-(`docs/CONTENT.md`). It exists so a content-heavy app has *one* registry
+(<https://pracht.resynapse.dev/docs/content>). It exists so a content-heavy app has *one* registry
 instead of two readers that drift — route modules reading source through Vite,
 and sitemap/`llms.txt`/search plugins scanning the filesystem again.
 `@pracht/markdown` is the opinionated Markdown route-module compiler on top of
@@ -173,7 +173,7 @@ in tsconfig (or triple-slash references in any `.d.ts`).
 
 `llmsTxtArtifacts()` (collection-driven, curated, can emit an `llms-full.txt`)
 is **not** the same as the core `llmsTxt` plugin option (app-graph driven,
-`docs/LLMS_TXT.md`). Both default to `/llms.txt`, and enabling both fails the
+<https://pracht.resynapse.dev/docs/agents#llmstxt>). Both default to `/llms.txt`, and enabling both fails the
 build rather than silently overwriting — pick one, or give the collection a
 distinct `summaryPath`. A third, unrelated file is `pracht llms`, which prints
 the *authoring guide* for coding agents; `pracht llms --write` drops it in the

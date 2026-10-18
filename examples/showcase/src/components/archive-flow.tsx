@@ -124,7 +124,7 @@ export function ArchiveFlow({ projectId, name }: { projectId: string; name: stri
 
 function describe(code: string, message: string): string {
   if (code === "confirmation_unavailable") {
-    return "Fails closed: destructive calls need an approval store and an authenticated principal. Sign in first.";
+    return "Fails closed: destructive calls need an approval store and a signed-in user. Sign in first.";
   }
   if (code === "confirmation_invalid") {
     return "Token rejected — it was tampered with, expired, or bound to different input.";
