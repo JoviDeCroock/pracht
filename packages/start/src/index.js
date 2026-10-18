@@ -125,19 +125,12 @@ const SKILL_DIRS = [resolve(PACKAGE_ROOT, "skills"), resolve(PACKAGE_ROOT, "../.
  * the app's context budget on audits that have nothing to audit yet and on
  * additive scaffolds for decisions the author has not made.
  *
- * These five cover the lifecycle of the app as scaffolded — write it, fix it,
- * ship it, keep it current — plus the one thing pracht does that an agent will
- * not infer from any other framework it knows. Everything else is one
- * `pracht skills add <name>` away, and the generated README and AGENTS.md say
- * so.
+ * These four cover the lifecycle of the app as scaffolded — write it, fix it,
+ * ship it, keep it current. The agent surface (`add-capabilities`) is opt-in
+ * like the rest: everything else is one `pracht skills add <name>` away, and
+ * the generated README and AGENTS.md say so.
  */
-const CORE_SKILLS = [
-  "pracht-scaffold",
-  "pracht-debug",
-  "pracht-deploy",
-  "upgrade-pracht",
-  "add-capabilities",
-];
+const CORE_SKILLS = ["pracht-scaffold", "pracht-debug", "pracht-deploy", "upgrade-pracht"];
 
 const SKILL_CATALOG_URL = "https://pracht.resynapse.dev/.well-known/agent-skills/index.json";
 
@@ -990,8 +983,8 @@ function createViteConfig(adapter, router, tailwind) {
 
   const prachtOptions =
     router === "pages"
-      ? `{ pagesDir: "/src/pages", adapter: ${info.fn}(), llmsTxt: {} }`
-      : `{ adapter: ${info.fn}(), llmsTxt: {} }`;
+      ? `{ pagesDir: "/src/pages", adapter: ${info.fn}() }`
+      : `{ adapter: ${info.fn}() }`;
 
   const plugins = tailwind
     ? `[pracht(${prachtOptions}), tailwindcss()]`

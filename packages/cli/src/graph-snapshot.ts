@@ -263,11 +263,6 @@ export function resolveBaseSnapshot(root: string, ref: string): BaseSnapshotResu
   return snapshot ? { status: "ok", snapshot } : { status: "no-snapshot", snapshot: null };
 }
 
-/** Read the committed snapshot at a git ref, or null when absent/unreadable. */
-export function readGraphSnapshotFromRef(root: string, ref: string): GraphSnapshot | null {
-  return resolveBaseSnapshot(root, ref).snapshot;
-}
-
 function parseSnapshot(contents: string): GraphSnapshot | null {
   try {
     const parsed = JSON.parse(contents);

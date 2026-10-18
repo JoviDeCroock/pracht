@@ -319,7 +319,9 @@ together, and finishes with E2E — printing output only for the steps that fail
 
 `--check` exists for the places where a rewritten file is a failure rather than
 a fixup — a pre-push hook, or a CI job reusing this script. It changes only the
-two mutating steps; the build still writes `packages/*/dist`.
+two mutating steps; the build still writes `packages/*/dist`. CI's unit job runs
+the same read-only lint (`oxlint` without `--fix`) and the same generated-type
+check, so a change that passes `verify` cannot fail CI on either.
 
 `bench:check` (`node bench/run.mjs --bytes-only --check`) is the client-byte
 gate CI runs as its own job. Client bytes are deterministic, so a drift is
@@ -328,6 +330,19 @@ cheap enough to sit beside the unit tests rather than be discovered on CI. When
 the drift is intended, run `pnpm bench:update` and commit the result: it
 rewrites `bench/baseline.json` and every page that quotes it (listed in
 `bench/published-numbers.mjs`, and checked by a unit test).
+
+`packages/framework/api-report.api.md` is the `@pracht/core` API report: every
+name each `package.json` `exports` subpath exposes, with its kind (`function`,
+`const`, `interface`, …), sorted, one per line. It lists every subpath,
+including the ones only generated code imports (`islands-client`,
+`devtools`, …), because those ship and must stay compatible across
+vite-plugin/core version pairs; exports tagged `@internal` are listed with that
+tag instead of being hidden. `packages/framework/test/api-report.test.ts`
+regenerates it from the sources tsdown compiles (no build needed, about two
+seconds) and fails naming each added or removed export, so it runs in
+`pnpm test`, `verify`, and CI. When the surface change is intended, run
+`pnpm api:update`, commit the report, and give the change a changeset with a
+deliberate bump; a removal or rename breaks apps and needs a migration note.
 
 The individual scripts (`pnpm run build|format|lint|typecheck|test|e2e`) still
 work on their own; `verify` only changes how they are scheduled.
@@ -395,6 +410,11 @@ to regress:
   `node_modules/.vite` directory. Build specs that mutate `dist/`, `.vercel/`,
   or fixture source must copy the example into a per-test `.tmp` project first
   and remove it in `finally`; production-server specs ask the OS for a port.
+- **Every E2E spec belongs to exactly one project.** A Playwright project
+  picks its specs by name, and a spec no project names would never run.
+  `e2e/projects.ts` lists each project's specs, and `playwright.config.ts`
+  refuses to start when a spec in `e2e/` is in no list, in two, or listed but
+  deleted. Add a new spec to the list for the dev server it needs.
 - **E2E timeouts bound hangs, not latency.** The per-test and dev-server-boot
   budgets are deliberately generous. Timing-sensitive specs (pending navigation
   state, hover prefetch) assert on ordering and request counts, so a tight

@@ -2,7 +2,7 @@ import { createContext, h, options } from "preact";
 import type { ComponentChildren, ComponentType, FunctionComponent, VNode } from "preact";
 import { useContext } from "preact/hooks";
 
-import { matchAppRoute } from "./app.ts";
+import { matchIndexedResolvedRoute } from "./route-matching.ts";
 import { stripBase } from "./base.ts";
 import {
   getIslandsClientEntryUrl,
@@ -540,7 +540,8 @@ export async function handleServerIslandRequest<TContext>(
     return serverIslandTextResponse("Server island path must be a same-origin path", 400);
   }
   const routePathname = stripBase(pageUrl.pathname);
-  const match = routePathname === null ? undefined : matchAppRoute(ctx.resolvedApp, routePathname);
+  const match =
+    routePathname === null ? undefined : matchIndexedResolvedRoute(ctx.resolvedApp, routePathname);
   if (!match) return serverIslandTextResponse("No route matches the server island path", 404);
 
   // The server island must be one this route or its shell lists. A server island
