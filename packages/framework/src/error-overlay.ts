@@ -98,6 +98,7 @@ const FRAME_PARENS = /^\s*at\s+(?:async\s+)?.*?\((.*)\)\s*$/;
 const FRAME_BARE = /^\s*at\s+(?:async\s+)?(.*?)\s*$/;
 const LOCATION = /^(.*?):(\d+):(\d+)$/;
 const WINDOWS_DRIVE_PATH = /^\/?[A-Za-z]:[\\/]/;
+const VIRTUAL_MODULE_SEGMENT = /(?:^|[\\/])(?:__x00__)?virtual:/;
 
 /**
  * Parse a V8-style stack trace into frames. Non-frame lines (the message
@@ -143,7 +144,9 @@ function isInternalStackPath(path: string): boolean {
     path.includes("(") ||
     path.startsWith("node:") ||
     path.startsWith("internal/") ||
-    path.startsWith("virtual:") ||
+    // Vite's stack rewriting can join a virtual module id onto the root
+    // (`/app/virtual:pracht/server`) or escape its NUL (`__x00__virtual:`).
+    VIRTUAL_MODULE_SEGMENT.test(path) ||
     path.includes("\0") ||
     path.includes("/node_modules/") ||
     path.includes("\\node_modules\\") ||
@@ -160,8 +163,12 @@ function isInternalStackPath(path: string): boolean {
  */
 export function normalizeStackFile(rawPath: string, root?: string): string | undefined {
   let path = rawPath;
+  // `file://` and `/@fs/` spell a filesystem path; an http(s) URL is always a
+  // dev-server URL. Only a bare `/…` path is ambiguous.
+  let filesystemPath = path.startsWith("file://");
+  const devServerUrl = path.startsWith("http://") || path.startsWith("https://");
 
-  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("file://")) {
+  if (devServerUrl || filesystemPath) {
     try {
       const url = new URL(path);
       path = decodeURIComponent(url.pathname);
@@ -175,6 +182,7 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
 
   if (path.startsWith("/@fs/")) {
     path = path.slice("/@fs".length);
+    filesystemPath = true;
   }
 
   // `file://C:/...` and `/@fs/C:/...` leave a spurious leading slash on Windows.
@@ -186,15 +194,40 @@ export function normalizeStackFile(rawPath: string, root?: string): string | und
 
   // Root-relative dev-server URL (e.g. `/src/routes/home.tsx`): join onto
   // the project root so launch-editor resolves the real file. Paths already
-  // under the root (or Windows drive paths) are absolute filesystem paths.
-  if (root && path.startsWith("/") && !WINDOWS_DRIVE_PATH.test(path)) {
+  // under the root (or Windows drive paths) are absolute filesystem paths, and
+  // so is a bare path that exists on disk: a linked workspace package's
+  // `dist/app.mjs` sits beside the app, not inside it.
+  if (root && !filesystemPath && path.startsWith("/") && !WINDOWS_DRIVE_PATH.test(path)) {
     const normalizedRoot = root.endsWith("/") ? root.slice(0, -1) : root;
-    if (path !== normalizedRoot && !path.startsWith(`${normalizedRoot}/`)) {
+    if (
+      path !== normalizedRoot &&
+      !path.startsWith(`${normalizedRoot}/`) &&
+      (devServerUrl || !fileExists(path))
+    ) {
       return `${normalizedRoot}${path}`;
     }
   }
 
   return path;
+}
+
+/**
+ * The overlay is built in the dev server's Node process. Read `node:fs`
+ * through `process.getBuiltinModule` so this module still loads anywhere
+ * else, where every bare path is treated as root-relative.
+ */
+function fileExists(path: string): boolean {
+  const runtime = globalThis as {
+    process?: { getBuiltinModule?: (id: string) => unknown };
+  };
+  try {
+    const fs = runtime.process?.getBuiltinModule?.("node:fs") as
+      | { existsSync?: (path: string) => boolean }
+      | undefined;
+    return fs?.existsSync?.(path) === true;
+  } catch {
+    return false;
+  }
 }
 
 export function buildErrorOverlayHtml(options: ErrorOverlayOptions): string {
