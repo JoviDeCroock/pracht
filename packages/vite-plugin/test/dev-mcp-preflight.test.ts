@@ -51,4 +51,12 @@ describe("createDevMcpPreflightMiddleware", () => {
     });
     expect((await run("OPTIONS", "/mcp", "https://inspector.example")).handled).toBe(false);
   });
+
+  it("leaves the URL of an unrelated preflight under the dev base for Vite", async () => {
+    const { run } = setup({ base: "/app/", mcp });
+    expect(await run("OPTIONS", "/app/api/upload", "https://inspector.example")).toEqual({
+      handled: false,
+      url: "/app/api/upload",
+    });
+  });
 });
