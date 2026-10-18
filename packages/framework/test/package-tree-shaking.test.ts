@@ -200,6 +200,14 @@ describe("published package tree shaking", () => {
     expect((await bundleExport(exportName)).gzipBytes).toBeLessThanOrEqual(maxGzipBytes);
   });
 
+  it("keeps the server route index out of a browser matchAppRoute import", async () => {
+    const { code } = await bundleExport("matchAppRoute", {
+      define: { "import.meta.env.DEV": "false" },
+    });
+    expect(code).toContain("matchAppRoute");
+    expect(code).not.toContain("anyFirstSegment");
+  });
+
   it("drops Web Vitals when another browser export is used", async () => {
     const { code } = await bundleExport("createHref");
 

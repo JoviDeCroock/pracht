@@ -24,6 +24,7 @@
 
 import type { PrachtAgentIdentity } from "../protocol.ts";
 import type { WebBotAuthConfig, WebBotAuthStaticKey } from "./types.ts";
+import { base64UrlEncode } from "./base64url.ts";
 import { decodeBody, readBoundedBody } from "./body.ts";
 
 export const SIGNATURE_AGENT_DIRECTORY_PATH = "/.well-known/http-message-signatures-directory";
@@ -39,6 +40,17 @@ const DEFAULT_DIRECTORY_CACHE_TTL_SECONDS = 300;
 const DIRECTORY_MAX_BYTES = 65_536;
 const DIRECTORY_FETCH_TIMEOUT_MS = 5_000;
 const ED25519_PUBLIC_KEY_BYTES = 32;
+
+/** Components whose value `@target-uri` already contains. */
+const TARGET_URI_PARTS = new Set(["@authority", "@scheme", "@path", "@query"]);
+
+/** Whether a signature's covered components include `required`. */
+function coversComponent(components: readonly string[], required: string): boolean {
+  return (
+    components.includes(required) ||
+    (TARGET_URI_PARTS.has(required) && components.includes("@target-uri"))
+  );
+}
 const ED25519_JWK_X_RE = /^[A-Za-z0-9_-]{43}$/;
 
 /**
@@ -278,12 +290,6 @@ function base64Decode(value: string): Uint8Array {
   return bytes;
 }
 
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 /**
  * RFC 8037 Appendix A.3 JWK thumbprint for an Ed25519 public key: SHA-256
  * over the canonical `{"crv","kty","x"}` JSON, base64url encoded. This is
@@ -444,6 +450,13 @@ async function verifyAgentSignatureUnsafe(
     // whenever the header is present (draft §4.2.1).
     if (!member.components.includes("@authority")) continue;
     if (signatureAgentHeader && !member.components.includes("signature-agent")) continue;
+    // App-required components bind the signature to this request target.
+    if (
+      options.requireComponents &&
+      !options.requireComponents.every((component) => coversComponent(member.components, component))
+    ) {
+      continue;
+    }
 
     // Required parameters and freshness window (with clock-skew allowance).
     const { created, expires, keyid, alg } = member.params;
