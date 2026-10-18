@@ -21,8 +21,7 @@ const SHELL_LOADERS_ENABLED =
 // `false` when no route in the build streams, the only way hydration state
 // carries `deferred` references.
 declare const __PRACHT_STREAMING__: boolean | undefined;
-const STREAMING_ENABLED =
-  typeof __PRACHT_STREAMING__ === "undefined" || __PRACHT_STREAMING__ !== false;
+const STREAMING_ENABLED = typeof __PRACHT_STREAMING__ === "undefined" || __PRACHT_STREAMING__;
 
 export interface PrachtHydrationState<TData = unknown> {
   url: string;
