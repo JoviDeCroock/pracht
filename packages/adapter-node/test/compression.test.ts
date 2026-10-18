@@ -1509,18 +1509,26 @@ describe("static asset compression", () => {
     expect(conditional.status).toBe(304);
   });
 
-  it("keeps static Range requests identity-encoded when returning a full response", async () => {
+  it("keeps static Range requests identity-encoded", async () => {
     const { handler } = createStaticHandler();
     const base = await listen(handler);
 
-    const response = await rawRequest(`${base}/assets/app.js`, {
+    const partial = await rawRequest(`${base}/assets/app.js`, {
       "accept-encoding": "br",
       range: "bytes=0-3",
     });
+    expect(partial.status).toBe(206);
+    expect(partial.headers["content-encoding"]).toBeUndefined();
+    expect(partial.body.byteLength).toBe(4);
 
-    expect(response.status).toBe(200);
-    expect(response.headers["content-encoding"]).toBeUndefined();
-    expect(response.body.toString("utf-8")).toContain("payload");
+    // A Range the server ignores still gets the identity representation.
+    const full = await rawRequest(`${base}/assets/app.js`, {
+      "accept-encoding": "br",
+      range: "bytes=0-1,4-5",
+    });
+    expect(full.status).toBe(200);
+    expect(full.headers["content-encoding"]).toBeUndefined();
+    expect(full.body.toString("utf-8")).toContain("payload");
   });
 
   it("serves identical bytes to concurrent first requests for the same asset", async () => {

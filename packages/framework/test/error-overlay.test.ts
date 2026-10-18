@@ -1,3 +1,6 @@
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -100,6 +103,8 @@ describe("parseStackFrames", () => {
     const frames = parseStackFrames(
       [
         "    at loader (virtual:pracht/server:1:1)",
+        "    at loader (/Users/dev/my-app/virtual:pracht/server:116:57)",
+        "    at loader (/Users/dev/my-app/__x00__virtual:pracht/client:3:1)",
         "    at eval (eval at run (/Users/dev/app.ts:1:1), <anonymous>:1:1)",
         "    at native",
       ].join("\n"),
@@ -125,6 +130,31 @@ describe("normalizeStackFile", () => {
 
   it("handles Windows drive paths behind /@fs/", () => {
     expect(normalizeStackFile("/@fs/C:/proj/src/a.tsx")).toBe("C:/proj/src/a.tsx");
+  });
+
+  it("leaves absolute paths outside the root untouched", () => {
+    // A linked workspace package in a monorepo sits next to the app, or in
+    // another top-level directory altogether.
+    const external = fileURLToPath(import.meta.url);
+    expect(normalizeStackFile(external, "/nonexistent-pracht-root/apps/web")).toBe(external);
+    expect(normalizeStackFile(`${external}?v=1`, dirname(dirname(external)) + "/app")).toBe(
+      external,
+    );
+    expect(
+      normalizeStackFile("/@fs/Users/dev/repo/packages/core/src/a.ts?v=1", "/opt/apps/web"),
+    ).toBe("/Users/dev/repo/packages/core/src/a.ts");
+    expect(normalizeStackFile("file:///private/tmp/repo/core/dist/app.mjs", "/Users/app")).toBe(
+      "/private/tmp/repo/core/dist/app.mjs",
+    );
+  });
+
+  it("joins root-relative paths onto a root that shares their first segment", () => {
+    expect(normalizeStackFile("/src/routes/home.tsx", "/src/my-app")).toBe(
+      "/src/my-app/src/routes/home.tsx",
+    );
+    expect(normalizeStackFile("http://localhost:3000/src/routes/home.tsx", "/src/my-app")).toBe(
+      "/src/my-app/src/routes/home.tsx",
+    );
   });
 
   it("tolerates a trailing slash on the root", () => {

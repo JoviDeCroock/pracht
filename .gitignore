@@ -4,6 +4,7 @@ dist
 .claude/*
 !.claude/skills
 test-results
+bench/.scale
 .tmp
 .wrangler
 .env*

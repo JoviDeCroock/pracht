@@ -25,7 +25,7 @@ npm run dev
   `onlyBuiltDependencies` for pnpm 10 or `allowBuilds` for pnpm 11. All adapters
   allow `esbuild`, Cloudflare also allows `workerd`, and Tailwind starters also
   allow `@tailwindcss/oxide`.
-- Seeds five core pracht Claude Code skills into `.claude/skills/`, writes a `.mcp.json` registering the `pracht dev-mcp` server, and writes `AGENTS.md` (yes-default prompt; all of it skipped with `--no-agent-tools`, which leaves a project with no agent files at all). `--agent-tools=full` seeds the whole catalog instead; `pracht skills add <name>` installs the rest one at a time.
+- Seeds four core pracht Claude Code skills into `.claude/skills/`, writes a `.mcp.json` registering the `pracht dev-mcp` server, and writes `AGENTS.md` (yes-default prompt; all of it skipped with `--no-agent-tools`, which leaves a project with no agent files at all). `--agent-tools=full` seeds the whole catalog instead; `pracht skills add <name>` installs the rest one at a time.
 - Initializes a git repository with an initial commit (skipped with `--no-git`, when git is unavailable, or when the target is already inside a repository).
 - `--dry-run` uses pinned fallback versions and does not require npm registry access.
 
