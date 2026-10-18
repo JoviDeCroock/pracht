@@ -33,11 +33,11 @@ importers:
         specifier: ^1.58.0
         version: 1.58.0
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       tsdown:
         specifier: ^0.21.10
         version: 0.21.10(typescript@6.0.3)
@@ -67,11 +67,11 @@ importers:
         specifier: workspace:*
         version: link:../../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -92,11 +92,11 @@ importers:
         specifier: workspace:*
         version: link:../../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -150,11 +150,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -181,11 +181,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -215,7 +215,7 @@ importers:
         version: link:../../packages/markdown
       '@tabler/icons-preact':
         specifier: ^3.41.1
-        version: 3.41.1(preact@11.0.0-rc.1)
+        version: 3.41.1(preact@11.0.1)
       wrangler:
         specifier: ^4.80.0
         version: 4.80.0
@@ -230,11 +230,11 @@ importers:
         specifier: ^18.0.0
         version: 18.0.0
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       sharp:
         specifier: ^0.34.0
         version: 0.34.5
@@ -261,11 +261,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -298,11 +298,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -326,11 +326,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -351,11 +351,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/vite-plugin
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -377,13 +377,13 @@ importers:
         version: link:../../packages/vite-plugin
       '@tsrx/vite-plugin-preact':
         specifier: ^0.0.3
-        version: 0.0.3(preact@11.0.0-rc.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+        version: 0.0.3(preact@11.0.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
       vite:
         specifier: ^8.0.0
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
@@ -492,11 +492,11 @@ importers:
         version: 6.2.1
     devDependencies:
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
 
   packages/i18n:
     dependencies:
@@ -507,8 +507,8 @@ importers:
   packages/image:
     devDependencies:
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       sharp:
         specifier: ^0.34.0
         version: 0.34.5
@@ -556,11 +556,11 @@ importers:
         version: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
     devDependencies:
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
 
   packages/query:
     dependencies:
@@ -573,13 +573,13 @@ importers:
     devDependencies:
       '@tanstack/preact-query':
         specifier: ^5.91.0
-        version: 5.103.1(preact@11.0.0-rc.1)
+        version: 5.103.1(preact@11.0.1)
       preact:
-        specifier: 11.0.0-rc.1
-        version: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+        specifier: 11.0.1
+        version: 11.0.1(preact-render-to-string@6.7.0)
       preact-render-to-string:
         specifier: ^6.7.0
-        version: 6.7.0(preact@11.0.0-rc.1)
+        version: 6.7.0(preact@11.0.1)
 
   packages/session:
     dependencies:
@@ -618,10 +618,10 @@ importers:
         version: link:../preact-ssr-precompile
       '@preact/preset-vite':
         specifier: ^2.10.5
-        version: 2.10.5(@babel/core@7.29.0)(preact@11.0.0-rc.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+        version: 2.10.5(@babel/core@7.29.0)(preact@11.0.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       '@prefresh/vite':
         specifier: ^2.0.0
-        version: 2.4.12(preact@11.0.0-rc.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+        version: 2.4.12(preact@11.0.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       es-module-lexer:
         specifier: ^1.7.0
         version: 1.7.0
@@ -2988,10 +2988,10 @@ packages:
     peerDependencies:
       preact: '>=10 || >= 11.0.0-0'
 
-  preact@11.0.0-rc.1:
-    resolution: {integrity: sha512-WwZRT+5QYP6A+sUtnLz0fpdi7t/32AtOuDeVo0Z14WC9qCFH8eMo0WQMDJym4k+TNr2DXefEbaWOTMqLIVPwZQ==}
+  preact@11.0.1:
+    resolution: {integrity: sha512-TNNwEq++jYNHy747LziCjPRVgEwnLSOIOAw/oYcjI3Tdnubx2EXtt76I0an8PATvUWtx/DX1kFIg1eFN+O/fkw==}
     peerDependencies:
-      preact-render-to-string: '>=5'
+      preact-render-to-string: '>=6.7.0'
     peerDependenciesMeta:
       preact-render-to-string:
         optional: true
@@ -4446,12 +4446,12 @@ snapshots:
 
   '@poppinss/exception@1.2.3': {}
 
-  '@preact/preset-vite@2.10.5(@babel/core@7.29.0)(preact@11.0.0-rc.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
+  '@preact/preset-vite@2.10.5(@babel/core@7.29.0)(preact@11.0.1)(rollup@4.60.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx': 7.28.6(@babel/core@7.29.0)
       '@babel/plugin-transform-react-jsx-development': 7.27.1(@babel/core@7.29.0)
-      '@prefresh/vite': 2.4.12(preact@11.0.0-rc.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
+      '@prefresh/vite': 2.4.12(preact@11.0.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))
       '@rollup/pluginutils': 5.3.0(rollup@4.60.1)
       babel-plugin-transform-hook-names: 1.0.2(@babel/core@7.29.0)
       debug: 4.4.3
@@ -4467,20 +4467,20 @@ snapshots:
 
   '@prefresh/babel-plugin@0.5.3': {}
 
-  '@prefresh/core@1.5.9(preact@11.0.0-rc.1)':
+  '@prefresh/core@1.5.9(preact@11.0.1)':
     dependencies:
-      preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+      preact: 11.0.1(preact-render-to-string@6.7.0)
 
   '@prefresh/utils@1.2.1': {}
 
-  '@prefresh/vite@2.4.12(preact@11.0.0-rc.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
+  '@prefresh/vite@2.4.12(preact@11.0.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
     dependencies:
       '@babel/core': 7.29.0
       '@prefresh/babel-plugin': 0.5.3
-      '@prefresh/core': 1.5.9(preact@11.0.0-rc.1)
+      '@prefresh/core': 1.5.9(preact@11.0.1)
       '@prefresh/utils': 1.2.1
       '@rollup/pluginutils': 4.2.1
-      preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+      preact: 11.0.1(preact-render-to-string@6.7.0)
       vite: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
     transitivePeerDependencies:
       - supports-color
@@ -4690,17 +4690,17 @@ snapshots:
     dependencies:
       acorn: 8.16.0
 
-  '@tabler/icons-preact@3.41.1(preact@11.0.0-rc.1)':
+  '@tabler/icons-preact@3.41.1(preact@11.0.1)':
     dependencies:
       '@tabler/icons': 3.41.1
-      preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+      preact: 11.0.1(preact-render-to-string@6.7.0)
 
   '@tabler/icons@3.41.1': {}
 
-  '@tanstack/preact-query@5.103.1(preact@11.0.0-rc.1)':
+  '@tanstack/preact-query@5.103.1(preact@11.0.1)':
     dependencies:
       '@tanstack/query-core': 5.103.1
-      preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+      preact: 11.0.1(preact-render-to-string@6.7.0)
 
   '@tanstack/query-core@5.103.1': {}
 
@@ -4718,18 +4718,18 @@ snapshots:
     transitivePeerDependencies:
       - '@typescript-eslint/types'
 
-  '@tsrx/preact@0.0.3(preact@11.0.0-rc.1)':
+  '@tsrx/preact@0.0.3(preact@11.0.1)':
     dependencies:
       '@tsrx/core': 0.0.8
       esrap: 2.2.5
-      preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+      preact: 11.0.1(preact-render-to-string@6.7.0)
       zimmerframe: 1.1.4
     transitivePeerDependencies:
       - '@typescript-eslint/types'
 
-  '@tsrx/vite-plugin-preact@0.0.3(preact@11.0.0-rc.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
+  '@tsrx/vite-plugin-preact@0.0.3(preact@11.0.1)(vite@8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0))':
     dependencies:
-      '@tsrx/preact': 0.0.3(preact@11.0.0-rc.1)
+      '@tsrx/preact': 0.0.3(preact@11.0.1)
       vite: 8.0.3(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@types/node@22.19.17)(esbuild@0.27.3)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@typescript-eslint/types'
@@ -5535,13 +5535,13 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  preact-render-to-string@6.7.0(preact@11.0.0-rc.1):
+  preact-render-to-string@6.7.0(preact@11.0.1):
     dependencies:
-      preact: 11.0.0-rc.1(preact-render-to-string@6.7.0)
+      preact: 11.0.1(preact-render-to-string@6.7.0)
 
-  preact@11.0.0-rc.1(preact-render-to-string@6.7.0):
+  preact@11.0.1(preact-render-to-string@6.7.0):
     optionalDependencies:
-      preact-render-to-string: 6.7.0(preact@11.0.0-rc.1)
+      preact-render-to-string: 6.7.0(preact@11.0.1)
 
   proxy-addr@2.0.7:
     dependencies:

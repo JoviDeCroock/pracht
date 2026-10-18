@@ -12,7 +12,7 @@ next:
 
 ## Route Manifest
 
-The manifest is the central source of truth for your app's routing. Define it in `src/routes.ts` using `defineApp`, `route`, and `group`:
+Define the manifest in `src/routes.ts` with `defineApp`, `route`, and `group`:
 
 ```ts [src/routes.ts]
 import { defineApp, group, route, timeRevalidate } from "@pracht/core";
@@ -114,6 +114,18 @@ route("/files/:path*", "./routes/files.tsx");
 // Same match, captured under params.path instead
 ```
 
+### Match order
+
+The first declared route that matches wins, so put specific routes first:
+
+```ts
+route("/blog/new", "./routes/new-post.tsx"), // first, or /blog/:slug takes it
+route("/blog/:slug", "./routes/blog-post.tsx"),
+```
+
+The dev server warns when an earlier route matches every URL a later one does,
+or two routes share an id.
+
 ### Reading params
 
 Server-side, matched params arrive on the loader, middleware, and API route
@@ -125,7 +137,7 @@ export async function loader({ params }: LoaderArgs) {
 }
 ```
 
-In a component, `useParams()` reads the same values from the active route:
+In a component, `useParams()` reads them from the active route:
 
 ```tsx
 import { useParams } from "@pracht/core";
@@ -136,8 +148,8 @@ export default function BlogPost() {
 }
 ```
 
-It returns `{}` when no route is active. Prefer the loader's `params` when you
-only need the value to fetch data.
+It returns `{}` when no route is active. To fetch data, use the loader's
+`params`.
 
 A catch-all segment is exposed under the key `"*"`:
 
@@ -164,9 +176,9 @@ export const app = defineApp({
 
 `create-pracht` generates this entry and `src/routes/not-found.tsx` (`src/pages/404.tsx` in pages mode).
 
-The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the module directly. The full form also accepts `loader`, `middleware`, and `hydration`. The module is a normal route module.
+The shorthand `notFound: () => import("./routes/not-found.tsx")` takes the route module directly; the full form also accepts `loader`, `middleware`, and `hydration`.
 
-Prefer `notFound` over a trailing `route("/*", ...)`: a catch-all shadows static assets and later routes, and appears in typed routes, prefetching, and SSG paths. `notFound` runs only after routes and static assets both miss.
+Prefer `notFound` over a trailing `route("/*", ...)`, which shadows static assets and later routes and appears in typed routes, prefetching, and SSG paths. `notFound` runs only after routes and static assets both miss.
 
 It also renders when a loader or middleware throws [`notFound()`](/docs/data-loading#custom-404-page), unless the route exports its own `ErrorBoundary`. Route-state and non-GET requests keep their usual 404; apps without `notFound` get a plain-text 404.
 
@@ -224,14 +236,13 @@ on the first request and on client navigation alike.
 ### On prerendered routes
 
 SSG and ISG pages are built without a query, so their loader and `head()` see
-the schema's defaults, and a schema that rejects an empty query fails to
-prerender. After hydration `useSearch()` switches to the visitor's query while
-the loader data stays the build-time result; a query the schema rejects then
-swaps in the `ErrorBoundary`, even though the page was served with a 200. Keep
-query-dependent data on SSR or SPA routes.
+the schema's defaults; a schema that rejects an empty query fails to prerender.
+After hydration `useSearch()` reads the visitor's query while loader data stays
+build-time, and a rejected query swaps in the `ErrorBoundary` on a page served
+with 200. Keep query-dependent data on SSR or SPA routes.
 
-The schema ships to the browser with the route module. An app where no route
-exports `search` ships none of this.
+The schema ships with the route module; an app without `search` exports ships
+none of this.
 
 ---
 
@@ -268,7 +279,7 @@ export function ProductActions({ id }: { id: string }) {
 }
 ```
 
-Routes without an explicit `id` get one generated from the path. Run `pracht typegen --check` in CI to catch stale generated files.
+Run `pracht typegen --check` in CI to catch stale generated files.
 
 A route with a [`search` schema](#search-params) gets its `search` option typed from the schema's input, required when the schema has a required key.
 
@@ -336,8 +347,8 @@ See [Shells](/docs/shells) for [shell data](/docs/shells#shell-data), `head()`, 
 
 ## Middleware
 
-Middleware wraps the rest of the request through a `next()` callback. It can
-redirect, mutate context, or short-circuit.
+Middleware wraps the request through `next()` and can redirect, mutate
+context, or short-circuit.
 
 ```ts [src/middleware/auth.ts]
 import { redirect, type MiddlewareFn } from "@pracht/core";
@@ -349,8 +360,7 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 };
 ```
 
-Group and route middleware stack in order. See [Middleware](/docs/middleware)
-for the full guide.
+Group and route middleware stack in order; see [Middleware](/docs/middleware).
 
 ---
 
@@ -378,11 +388,11 @@ export default defineConfig({
 });
 ```
 
-With `"always"`, `GET /about?ref=mail` answers `308` with `Location: /about/?ref=mail`, and `/about/` renders the page. `"never"` does the reverse. Hrefs from `<Link route>`, `href()`, `useNavigate()`, and `redirect()` use the canonical spelling, and so do `llms.txt` and the speculation rules. A hand-written `<a href="/about">` or `navigate("/about")` lands on `/about/` through the client router without a request for the other spelling.
+With `"always"`, `GET /about?ref=mail` answers `308` with `Location: /about/?ref=mail`, and `/about/` renders the page. `"never"` does the reverse. `<Link route>`, `href()`, `useNavigate()`, `redirect()`, `llms.txt`, and the speculation rules all use the canonical spelling. A hand-written `<a href="/about">` or `navigate("/about")` lands on `/about/` through the client router without an extra request.
 
 The root (`/`, or `/my-project/` under a [deploy base](/docs/deployment#sub-path-deploys)) always keeps its slash. A path whose last segment contains a dot, such as `/feed.xml`, never gets one. API routes, static files, route-state fetches, and `Accept: text/markdown` requests answer either spelling without a redirect. Route paths in the manifest stay slashless, while `useLocation()` reports the URL as the visitor sees it.
 
-Every adapter applies the policy, including to prerendered and ISG pages. On Cloudflare, set the assets binding's `html_handling` to match it; see [Adapters](/docs/adapters#cloudflare-workers). A static export writes every page as `about/index.html`, which most static hosts serve at `/about/`, so pair it with `"always"`.
+Every adapter applies the policy, prerendered and ISG pages included. On Cloudflare, set the assets binding's `html_handling` to match ([Adapters](/docs/adapters#cloudflare-workers)). A static export writes `about/index.html`, which most hosts serve at `/about/`, so pair it with `"always"`.
 
 ---
 
@@ -497,10 +507,10 @@ pracht({
 });
 ```
 
-Register the format's Vite plugin yourself and, if needed, an ambient
-TypeScript module declaration. Keep the array inline or in a `const` so
-`pracht verify` can read it. Formats Vite cannot scan need their own
-`optimizeDeps` setup. `.tsrx` is discovered without this option.
+Register the format's Vite plugin and, if needed, an ambient module
+declaration yourself. Keep the array inline or in a `const` so `pracht verify`
+can read it; formats Vite cannot scan need their own `optimizeDeps`. `.tsrx`
+needs no option.
 
 ### Middleware via `_middleware.ts`
 
@@ -636,7 +646,7 @@ generateRoutesFile("src/pages", "src/routes.ts", {
 });
 ```
 
-The generated manifest carries everything auto-discovery registered. Remove `pagesDir` from your pracht config and point the discovery directories at the files it references; refs outside them fail at request time:
+The generated manifest carries everything auto-discovery registered. Remove `pagesDir` and point the discovery directories at the files it references; refs outside them fail at request time:
 
 ```ts
 pracht({
