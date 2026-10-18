@@ -22,7 +22,7 @@ These are the client JavaScript totals for the *same page*, rendering the
 | `hydration: "islands"` | **8.1 KB** | 18.1 KB | Preact, the island bootstrap, and the island chunks on the page. |
 | `hydration: "islands"`, islands navigation on | **11.8 KB** | 27.9 KB | Islands with `client: { islandsNavigation: true }`. |
 | `hydration: "full"` | **17.5 KB** | 43.1 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **16.0 KB** | 42.1 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, prefetching off | **16.0 KB** | 42.2 KB | Full hydration with `client: { prefetch: false }`. |
 | `hydration: "full"`, navigation guards off | **17.2 KB** | 42.2 KB | Full hydration with `client: { navigationGuards: false }`. |
 | `hydration: "full"`, rich data on | **17.7 KB** | 43.8 KB | Full hydration with `client: { richData: true }`. |
 | `hydration: "full"` + `preact/compat` | **18.2 KB** | 45.2 KB | Full hydration with the React compatibility layer in the graph. |
