@@ -154,6 +154,11 @@ function collectManifestStrings(program: StaticProgramNode): {
       (node.type === "Literal" || node.type === "StringLiteral")
     )
       strings.push(node.value);
+    // `\`./routes/a.tsx\`` is a ref like "./routes/a.tsx", and counts as one.
+    if (node.type === "TemplateLiteral") {
+      const value = staticRefValue(node);
+      if (value !== null) strings.push(value);
+    }
 
     // A module ref can only be a plain string, so `import("./" + name)` never
     // contributes one — and a specifier that is not a literal is read below as
@@ -388,7 +393,11 @@ function collectNonFullRouteRefs(program: StaticProgramNode, refs: string[]): vo
         return;
       }
       if (name === "route") {
-        if (metaHydrationMode(args[2], inherited) === "nonFull") {
+        // `route(path, { component, …meta })` reads its options from the
+        // config object and ignores a third argument.
+        const config = unwrapStaticExpression(args[1]);
+        const meta = config?.type === "ObjectExpression" ? args[1] : args[2];
+        if (metaHydrationMode(meta, inherited) === "nonFull") {
           const ref = componentRef(args[1]);
           if (ref !== null) refs.push(ref);
         }

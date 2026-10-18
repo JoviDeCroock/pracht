@@ -878,6 +878,30 @@ describe("client route module build", () => {
       expect(source).not.toContain('"!/src/routes/inner.tsx"');
     });
 
+    it("reads a config-object route's own hydration over its group's", () => {
+      const source = clientSourceFor([
+        '    group({ hydration: "islands" }, [',
+        '      route("/full", { component: "./routes/full.tsx", hydration: "full" }),',
+        '      route("/maybe", { component: "./routes/maybe.tsx", hydration: FLAG ? "full" : "none" }),',
+        '      route("/plain", { component: "./routes/plain.tsx" }),',
+        // The config overload ignores a third argument.
+        '      route("/meta", { component: "./routes/meta.tsx" }, { hydration: "full" }),',
+        "    ]),",
+      ]);
+      expect(source).not.toContain('"!/src/routes/full.tsx"');
+      expect(source).not.toContain('"!/src/routes/maybe.tsx"');
+      expect(source).toContain('"!/src/routes/plain.tsx"');
+      expect(source).toContain('"!/src/routes/meta.tsx"');
+    });
+
+    it("counts a template-literal ref to a shared module like a string one", () => {
+      const source = clientSourceFor([
+        '    route("/a", "./routes/shared.tsx"),',
+        '    route("/b", `./routes/shared.tsx`, { hydration: "none" }),',
+      ]);
+      expect(source).not.toContain('"!/src/routes/shared.tsx"');
+    });
+
     it("applies the innermost group's mode to nested groups", () => {
       const source = clientSourceFor([
         '    group({ middleware: ["locale"] }, [',
