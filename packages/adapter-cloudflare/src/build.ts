@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { applyDefaultSecurityHeaders } from "@pracht/core";
+import {
+  applyDefaultSecurityHeaders,
+  getTimeRevalidateSeconds,
+  hasWebhookRevalidate,
+  type ISGManifestEntry,
+} from "@pracht/core";
 import type { PrachtAdapterBuildContext } from "@pracht/vite-plugin";
 
 /**
@@ -142,6 +147,12 @@ export async function finalizeCloudflareBuild(context: PrachtAdapterBuildContext
     );
   }
 
+  const webhookScopeWarning = describeCloudflareWebhookScope(
+    isgManifest,
+    serverEntry.cloudflareWorkersCacheEnabled === true,
+  );
+  if (webhookScopeWarning) context.warn(webhookScopeWarning);
+
   if (serverEntry.cloudflareWorkersCacheEnabled === true && context.onDemandPages.length > 0) {
     context.log(
       `\n  ISG via Workers Caching: ${context.onDemandPages.length} route(s) render on demand and revalidate at the edge. Requires "cache": { "enabled": true } in wrangler config.\n`,
@@ -183,6 +194,33 @@ export async function finalizeCloudflareBuild(context: PrachtAdapterBuildContext
 
   context.log("\n  Cloudflare worker → dist/server/worker.js\n");
   context.log(describeCloudflareDeploy(root));
+}
+
+/**
+ * The build warning for Cloudflare ISG routes a webhook refreshes in one data
+ * center only: those served from the per-data-center Cache API. With Workers
+ * Caching on, routes that also have a time policy are purged everywhere.
+ */
+export function describeCloudflareWebhookScope(
+  isgManifest: Readonly<Record<string, Pick<ISGManifestEntry, "revalidate">>>,
+  workersCacheEnabled: boolean,
+): string | null {
+  const paths = Object.keys(isgManifest).filter((path) => {
+    const revalidate = isgManifest[path]?.revalidate;
+    if (!hasWebhookRevalidate(revalidate)) return false;
+    return !(workersCacheEnabled && (getTimeRevalidateSeconds(revalidate) ?? 0) > 0);
+  });
+  if (paths.length === 0) return null;
+
+  const listed = paths.slice(0, 5).join(", ") + (paths.length > 5 ? `, +${paths.length - 5}` : "");
+  return (
+    `\n  Warning: ${paths.length} Cloudflare ISG page(s) use webhookRevalidate() with the per-data-center Cache API (${listed}). ` +
+    "POST /__pracht/revalidate re-renders a page only in the data center that receives it, and its response reports " +
+    '"scope": "colo". Other data centers render current content on their first uncached request and keep a copy they already hold. ' +
+    (workersCacheEnabled
+      ? "Add timeRevalidate() to these routes so the webhook purges their Workers Caching entries everywhere.\n"
+      : "Add timeRevalidate() to bound how long a data center can lag, or with cloudflareAdapter({ cache: true }) the webhook purges those routes everywhere.\n")
+  );
 }
 
 /**

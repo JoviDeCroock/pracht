@@ -530,7 +530,8 @@ build).
   content on their first uncached request, and the receiving colo re-renders
   after eviction instead of reverting to build-time HTML labelled `fresh`.
   `pracht build` warns about every webhook route left on this per-colo path
-  (`describeCloudflareWebhookScope` in `packages/cli/src/commands/build.ts`).
+  (`describeCloudflareWebhookScope`, run from the adapter's `finalizeBuild` in
+  `packages/adapter-cloudflare/src/build.ts`).
   Global webhook invalidation needs a time policy plus `cache: true` (below),
   whose purge reaches every colo and reports `"scope": "global"`. No shared
   store (KV, R2) backs ISG today.
