@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { Duplex } from "node:stream";
@@ -9,9 +9,11 @@ import {
   createRevalidationSingleFlight,
   handlePrachtRequest,
   isCacheableISGResponse,
+  isDangerousPrerenderHeader,
   restoreBasePathInRequest,
 } from "@pracht/core/server";
 import type { NodeAdapterOptions } from "./node-handler.ts";
+import { ISG_SNAPSHOT_HEADERS_SUFFIX } from "./node-static.ts";
 
 // Shared across all handler instances in this process so a stampede of stale
 // requests (or repeated webhook posts) for the same output file collapses
@@ -23,9 +25,14 @@ const regenerationSingleFlight = createRevalidationSingleFlight();
  * readers from observing a partially-written document, the replacement gives
  * the file a new durable identity so validators and compression caches in
  * restarted or sibling Node workers cannot alias a same-size rewrite whose
- * mtime is unchanged on a coarse-timestamp filesystem.
+ * mtime is unchanged on a coarse-timestamp filesystem. `beforePublish` runs
+ * with the fully written temporary file just before it replaces `htmlPath`.
  */
-export async function writeISGFile(htmlPath: string, html: string): Promise<void> {
+export async function writeISGFile(
+  htmlPath: string,
+  html: string,
+  beforePublish?: (temporaryPath: string) => Promise<void>,
+): Promise<void> {
   const directory = dirname(htmlPath);
   await mkdir(directory, { recursive: true });
   const existing = await stat(htmlPath).catch(() => null);
@@ -40,10 +47,128 @@ export async function writeISGFile(htmlPath: string, html: string): Promise<void
       flush: true,
       ...(existing ? { mode: existing.mode & 0o777 } : {}),
     });
+    await beforePublish?.(temporaryPath);
     await rename(temporaryPath, htmlPath);
   } finally {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
   }
+}
+
+/** Response headers that describe one transfer, not the document. */
+const TRANSFER_HEADERS = new Set([
+  "connection",
+  "content-encoding",
+  "content-length",
+  "date",
+  "etag",
+  "keep-alive",
+  "last-modified",
+  "transfer-encoding",
+  "x-pracht-isg",
+]);
+
+/**
+ * The document headers an ISG render produced, as they should be replayed
+ * with its HTML: transfer headers are dropped and credential-shaped headers
+ * are stripped, since the snapshot is served to every visitor.
+ */
+export function getISGSnapshotHeaders(
+  response: Response,
+  pathname: string,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const dangerous: string[] = [];
+  for (const [name, value] of response.headers) {
+    if (isDangerousPrerenderHeader(name)) dangerous.push(name);
+    else if (!TRANSFER_HEADERS.has(name)) headers[name] = value;
+  }
+  if (dangerous.length > 0) {
+    console.error(
+      `Stripped ${dangerous.map((name) => `"${name}"`).join(", ")} from the ISG snapshot for ` +
+        `"${pathname}" — snapshots are replayed to every visitor. Move cookies and credential ` +
+        "headers to API routes, middleware responses, or an SSR route.",
+    );
+  }
+  return headers;
+}
+
+interface ISGSnapshotHeadersRecord {
+  /** Identity of the HTML file these headers were rendered with. */
+  file: string;
+  headers: Record<string, string> | null;
+}
+
+// Keyed by HTML path. An entry is only used while the file on disk still has
+// the identity it was recorded for, so a redeploy that replaces the HTML falls
+// back to the build's headers manifest.
+const snapshotHeadersCache = new Map<string, ISGSnapshotHeadersRecord>();
+
+function getSnapshotFileIdentity(fileStat: {
+  dev: number;
+  ino: number;
+  size: number;
+  mtimeMs: number;
+}): string {
+  return `${fileStat.dev}:${fileStat.ino}:${fileStat.size}:${fileStat.mtimeMs}`;
+}
+
+function getSnapshotHeadersPath(htmlPath: string): string {
+  return join(dirname(htmlPath), `.${basename(htmlPath)}${ISG_SNAPSHOT_HEADERS_SUFFIX}`);
+}
+
+/**
+ * Publish an ISG snapshot with the document headers it was rendered with.
+ * The headers are recorded first, for the identity the HTML file will have
+ * once renamed into place, so no reader (in this or another process) sees
+ * the new HTML before its headers. If recording fails, the HTML is served
+ * with the build's headers, as before.
+ */
+export async function writeISGSnapshot(
+  htmlPath: string,
+  html: string,
+  headers: Record<string, string>,
+): Promise<void> {
+  await writeISGFile(htmlPath, html, async (temporaryPath) => {
+    // A rename keeps the device, inode, size, and mtime.
+    const record: ISGSnapshotHeadersRecord = {
+      file: getSnapshotFileIdentity(await stat(temporaryPath)),
+      headers,
+    };
+    snapshotHeadersCache.set(htmlPath, record);
+    await writeISGFile(getSnapshotHeadersPath(htmlPath), JSON.stringify(record)).catch((error) => {
+      console.error(`[pracht] Could not record the ISG snapshot headers for ${htmlPath}:`, error);
+    });
+  });
+}
+
+/**
+ * The document headers recorded for the ISG snapshot whose stats are given,
+ * or `null` when it has none (a build-time snapshot, or one replaced since).
+ */
+export async function readISGSnapshotHeaders(
+  htmlPath: string,
+  fileStat: { dev: number; ino: number; size: number; mtimeMs: number },
+): Promise<Record<string, string> | null> {
+  const file = getSnapshotFileIdentity(fileStat);
+  const cached = snapshotHeadersCache.get(htmlPath);
+  if (cached?.file === file) return cached.headers;
+
+  const stored = await readFile(getSnapshotHeadersPath(htmlPath), "utf-8")
+    .then((source) => parseSnapshotHeadersRecord(source))
+    .catch(() => null);
+  const headers = stored?.file === file ? stored.headers : null;
+  snapshotHeadersCache.set(htmlPath, { file, headers });
+  return headers;
+}
+
+function parseSnapshotHeadersRecord(source: string): ISGSnapshotHeadersRecord | null {
+  const value: unknown = JSON.parse(source);
+  if (!value || typeof value !== "object") return null;
+  const { file, headers } = value as Record<string, unknown>;
+  if (typeof file !== "string" || !headers || typeof headers !== "object") return null;
+  const entries = Object.entries(headers);
+  if (!entries.every(([, header]) => typeof header === "string")) return null;
+  return { file, headers: Object.fromEntries(entries) as Record<string, string> };
 }
 
 /**
@@ -171,8 +296,9 @@ async function renderAndWriteISGPage<TContext>(
     return false;
   }
 
+  const headers = getISGSnapshotHeaders(response, new URL(request.url).pathname);
   const html = await response.text();
-  await writeISGFile(htmlPath, html);
+  await writeISGSnapshot(htmlPath, html, headers);
   return true;
 }
 

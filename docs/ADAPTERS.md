@@ -203,6 +203,11 @@ that manifest.
   snapshot) uses a clean HTML request, and `createContext` receives a detached
   `req`/`res` pair mirroring it instead of the triggering request's, so no
   cookies, authorization, locale, or experiment headers reach the shared HTML.
+  Each render's document headers (minus transfer and credential-shaped ones)
+  are recorded in `.index.html.pracht-headers.json` beside the HTML, bound to
+  that file's identity, and replace the build's `headers-manifest.json` entry
+  when the snapshot is served; the record is never served as a static file,
+  and a redeploy that replaces the HTML falls back to the manifest.
   Static and ISG files are
   streamed, and static responses support `ETag` / `Last-Modified` conditional
   revalidation.
