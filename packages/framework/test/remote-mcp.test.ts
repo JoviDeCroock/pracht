@@ -1505,7 +1505,7 @@ describe("destructive capabilities over MCP", () => {
     );
     expect(withoutTrustSource.json?.error.code).toBe(-32603);
     expect(withoutTrustSource.json?.error.message).toContain(
-      "valid 32-byte base64url Ed25519 static key or HTTPS directory",
+      "setCapabilityApprovalPrincipalResolver()",
     );
 
     // A non-empty but malformed JWK cannot verify any signature, so it must
@@ -1517,9 +1517,7 @@ describe("destructive capabilities over MCP", () => {
         { agents: { ...agents, webBotAuth: { keys: [{ x }] } } },
       );
       expect(withMalformedKey.json?.error.code).toBe(-32603);
-      expect(withMalformedKey.json?.error.message).toContain(
-        "valid 32-byte base64url Ed25519 static key",
-      );
+      expect(withMalformedKey.json?.error.message).toContain("no principal can ever be resolved");
     }
 
     // A real Web Bot Auth trust source makes a principal possible, so the

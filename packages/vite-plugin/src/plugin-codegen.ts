@@ -1619,32 +1619,11 @@ export function createRouteHintsForVirtualModules(
   return hints;
 }
 
-export function createRouteHeadHintsForVirtualModules(
-  options: ResolvedPrachtPluginOptions,
-  root = process.cwd(),
-): Record<string, boolean> {
-  return createRouteHintsForVirtualModules(options, root).head;
-}
-
 export function createRouteHeadersHintsForVirtualModules(
   options: ResolvedPrachtPluginOptions,
   root = process.cwd(),
 ): Record<string, boolean> {
   return createRouteHintsForVirtualModules(options, root).headers;
-}
-
-export function createRouteStaticPathsHintsForVirtualModules(
-  options: ResolvedPrachtPluginOptions,
-  root = process.cwd(),
-): Record<string, boolean> {
-  return createRouteHintsForVirtualModules(options, root).staticPaths;
-}
-
-export function createRouteLoaderHintsForVirtualModules(
-  options: ResolvedPrachtPluginOptions,
-  root = process.cwd(),
-): Record<string, boolean> {
-  return createRouteHintsForVirtualModules(options, root).loader;
 }
 
 /**

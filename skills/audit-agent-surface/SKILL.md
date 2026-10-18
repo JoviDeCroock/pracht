@@ -156,9 +156,9 @@ With `agents.mcp.auth`, check:
   endpoint refuses to serve at all, and `pracht verify` only warns (its source
   scan cannot see a registration in a workspace package, so it must not
   hard-block). Two more preconditions fail the endpoint the same way — a
-  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither
-  `agents.webBotAuth` with a valid 32-byte base64url Ed25519 static key or HTTPS
-  directory nor a principal resolver — so check all three together.
+  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with no principal
+  source (a resolver, `agents.mcp.auth`, or a valid Web Bot Auth key or HTTPS
+  directory) — so check all three together.
   Runtime-backed `/_pracht` reports a verified endpoint-wide failure by marking
   every MCP exposure `mcp(unserved)`. Graph-only `pracht dev`, `pracht inspect
   capabilities`, `pracht inspect agents`, and MCP inspection use
@@ -166,9 +166,7 @@ With `agents.mcp.auth`, check:
   preconditions may be registered by the adapter server entry they deliberately
   skip. JSON inspection exposes `mcpEndpoint`, `mcpDestructive`,
   `mcpRuntimeStatus`, and `mcpUnavailableReasons`; use those fields instead of
-  treating a declared `mcp` transport as proof of reachability. These surfaces
-  load applied setup middleware modules without executing the middleware
-  functions.
+  treating a declared `mcp` transport as proof of reachability.
   Destructive `expose.mcp` *without* the opt-in is dead exposure: the tool is
   invisible, and `pracht verify` warns.
 - `PRACHT_CONFIRMATION_SECRET` must be set in the server environment for each
@@ -188,7 +186,8 @@ With `agents.mcp.auth`, check:
   `createMemoryApprovalStore()` in a deployed multi-replica app does not, and
   neither does a hand-rolled store over Cloudflare KV.
 - `confirmation: { mode: "human" }` without both a store and an authenticated
-  principal fails closed — check both exist.
+  principal fails closed — check both exist. Warn when Web Bot Auth is the only
+  principal source: reviewers see the agent, not the user.
 
 ## Step 4: Identity and policy
 
@@ -200,10 +199,10 @@ With `agents.mcp.auth`, check:
   ecosystem endpoint the app intends to trust.
 - `agentPolicy: "require"` on a capability while `webBotAuth` is unconfigured
   answers 401 for every caller — a loud misconfiguration, report as `error`.
-- Note the replay property: Pracht's stateless verifier does not enforce `nonce`
-  uniqueness, and the default covered components (`@authority`,
-  `signature-agent`) bind a signature to a host, not to a method, path, or body.
-  Treat a verified identity as authentication, not per-request authorization.
+- Replay: the verifier does not enforce `nonce` uniqueness, and by default a
+  signature binds only the host. If the identity gates anything and
+  `webBotAuth.requireComponents` lacks `@method` and `@path`, `warn`: a captured
+  signature replays onto any endpoint for `maxLifetimeSeconds` (24 h default).
 - Confirm an audit sink exists (`setCapabilityAuditHook()`,
   `addCapabilityAuditListener()`, or `onCapabilityAudit`) — without one there
   is no record of who called what. Grep for all three; `setCapabilityAuditHook`

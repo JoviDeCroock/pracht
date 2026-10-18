@@ -1,4 +1,12 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import {
   createServer,
   request as httpRequest,
@@ -408,7 +416,62 @@ describe("createNodeRequestHandler", () => {
     });
 
     expect(response.status).toBe(413);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("connection")).toBe("close");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.text()).resolves.toBe("Payload Too Large");
+
+    // Without a Content-Length the limit applies while streaming.
+    const chunked = await fetch(`http://127.0.0.1:${address.port}/upload`, {
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("too"));
+          controller.enqueue(new TextEncoder().encode("-large"));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+      method: "POST",
+    } as RequestInit);
+    expect(chunked.status).toBe(413);
+    expect(chunked.headers.get("x-content-type-options")).toBe("nosniff");
+    await chunked.text();
+  });
+
+  it("hands API routes the exact request body", async () => {
+    const app = defineApp({ routes: [] });
+    const handler = createNodeRequestHandler({
+      app,
+      apiRoutes: resolveApiRoutes(["/src/api/echo.ts"]),
+      registry: {
+        apiModules: {
+          "/src/api/echo.ts": async () => ({
+            POST: async ({ request }: { request: Request }) => {
+              const bytes = new Uint8Array(await request.arrayBuffer());
+              return Response.json({ length: bytes.byteLength, last: bytes.at(-1) });
+            },
+          }),
+        },
+      },
+    });
+    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+      void handler(req, res);
+    });
+    servers.add(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP address");
+
+    for (const length of [3, 70_000]) {
+      const body = new Uint8Array(length).fill(7);
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/echo`, {
+        body,
+        headers: { origin: `http://127.0.0.1:${address.port}` },
+        method: "POST",
+      });
+      await expect(response.json()).resolves.toEqual({ length, last: 7 });
+    }
   });
 
   it("preserves multiple Set-Cookie headers from framework responses", async () => {
@@ -551,6 +614,289 @@ describe("createNodeRequestHandler", () => {
     expect(createContextCalls).toEqual(["missing"]);
     expect(readFileSync(htmlPath, "utf-8")).toContain("missing");
     expect(readFileSync(htmlPath, "utf-8")).toContain("/assets/islands-agent.js");
+  });
+
+  describe("ISG renders never see the visitor's Node request", () => {
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    afterEach(() => {
+      if (previousToken === undefined) delete process.env.PRACHT_REVALIDATE_TOKEN;
+      else process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+    });
+
+    const sanitizedContextArgs = {
+      reqHeaders: { accept: "text/html", host: "localhost" },
+      reqUrl: "/p",
+      auth: null,
+    };
+
+    async function startPersonalizedIsgServer(options: {
+      staleSnapshot: boolean;
+      revalidate: ReturnType<typeof timeRevalidate> | ReturnType<typeof webhookRevalidate>;
+    }) {
+      const staticDir = makeTempDir();
+      const htmlDir = join(staticDir, "p");
+      const htmlPath = join(htmlDir, "index.html");
+      mkdirSync(htmlDir, { recursive: true });
+      if (options.staleSnapshot) {
+        writeFileSync(htmlPath, "<html><body>build</body></html>", "utf-8");
+        const staleAt = new Date(Date.now() - 60_000);
+        utimesSync(htmlPath, staleAt, staleAt);
+      }
+
+      const seen: Array<{
+        reqHeaders: IncomingMessage["headers"];
+        reqUrl: string | undefined;
+        auth: string | null;
+      }> = [];
+      const responses = { closed: 0 };
+      const app = defineApp({
+        routes: [route("/p", "./routes/p.tsx", { render: "isg", revalidate: options.revalidate })],
+      });
+      const handler = createNodeRequestHandler({
+        app,
+        canonicalOrigin: "http://localhost",
+        // The idiomatic Node session lookup: read the cookie from `req`.
+        createContext: ({ request, req, res }) => {
+          seen.push({
+            reqHeaders: { ...req.headers },
+            reqUrl: req.url,
+            auth: request.headers.get("authorization"),
+          });
+          // Writing to the response must not reach the visitor, and its
+          // lifecycle events still fire once the render is done.
+          res.setHeader("x-context", "touched");
+          res.once("close", () => responses.closed++);
+          return { user: /session=(\w+)/.exec(req.headers.cookie ?? "")?.[1] };
+        },
+        isgManifest: { "/p": { revalidate: options.revalidate } },
+        registry: {
+          routeModules: {
+            "./routes/p.tsx": async () => ({
+              Component: ({ data }) => `<main>Hello ${(data as { user: string }).user}</main>`,
+              loader: async ({ context }) => ({
+                user: (context as { user?: string }).user ?? "anonymous",
+              }),
+            }),
+          },
+        },
+        staticDir,
+      });
+
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Expected TCP address");
+      return { base: `http://127.0.0.1:${address.port}`, handler, htmlPath, responses, seen };
+    }
+
+    it("regenerates a stale page without the triggering visitor's req or res", async () => {
+      const { base, handler, htmlPath, responses, seen } = await startPersonalizedIsgServer({
+        staleSnapshot: true,
+        revalidate: timeRevalidate(1),
+      });
+
+      const stale = await fetch(`${base}/p`, { headers: { cookie: "session=alice" } });
+      expect(stale.headers.get("x-pracht-isg")).toBe("stale");
+      await stale.text();
+      await handler.drain();
+
+      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(seen).toEqual([sanitizedContextArgs]);
+      await waitFor(() => responses.closed === 1);
+      const anonymous = await fetch(`${base}/p`);
+      await expect(anonymous.text()).resolves.not.toContain("alice");
+    });
+
+    it("renders and persists a cold page from a sanitized request", async () => {
+      const { base, handler, htmlPath, responses, seen } = await startPersonalizedIsgServer({
+        staleSnapshot: false,
+        revalidate: timeRevalidate(3600),
+      });
+
+      const cold = await fetch(`${base}/p?ref=alice`, {
+        headers: { cookie: "session=alice", authorization: "Bearer alice-token" },
+      });
+      expect(cold.status).toBe(200);
+      expect(cold.headers.get("x-context")).toBeNull();
+      await expect(cold.text()).resolves.toContain("Hello anonymous");
+      await handler.drain();
+
+      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(seen).toEqual([sanitizedContextArgs]);
+      await waitFor(() => responses.closed === 1);
+    });
+
+    it("still answers the visitor's If-Match on a cold render", async () => {
+      const { base } = await startPersonalizedIsgServer({
+        staleSnapshot: false,
+        revalidate: timeRevalidate(3600),
+      });
+
+      const response = await fetch(`${base}/p`, {
+        headers: { "accept-encoding": "gzip", "if-match": '"not-this-page"' },
+      });
+      expect(response.status).toBe(412);
+      await response.arrayBuffer();
+    });
+
+    it("regenerates from the webhook without the webhook caller's req or credentials", async () => {
+      process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+      const { base, htmlPath, responses, seen } = await startPersonalizedIsgServer({
+        staleSnapshot: true,
+        revalidate: webhookRevalidate(),
+      });
+
+      const response = await fetch(`${base}/__pracht/revalidate`, {
+        body: JSON.stringify({ paths: ["/p"] }),
+        headers: {
+          authorization: "Bearer secret",
+          "content-type": "application/json",
+          cookie: "session=alice",
+        },
+        method: "POST",
+      });
+      await expect(response.json()).resolves.toMatchObject({ revalidated: ["/p"] });
+
+      expect(readFileSync(htmlPath, "utf-8")).toContain("Hello anonymous");
+      expect(seen).toEqual([sanitizedContextArgs]);
+      await waitFor(() => responses.closed === 1);
+    });
+  });
+
+  describe("regenerated ISG pages keep the document headers they were rendered with", () => {
+    const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
+    afterEach(() => {
+      if (previousToken === undefined) delete process.env.PRACHT_REVALIDATE_TOKEN;
+      else process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
+    });
+
+    async function startWithdrawableIsgServer(
+      staticDir: string,
+      state: { withdrawn: boolean },
+      createHandler: typeof createNodeRequestHandler = createNodeRequestHandler,
+    ) {
+      const app = defineApp({
+        routes: [route("/w", "./routes/w.tsx", { render: "isg", revalidate: webhookRevalidate() })],
+      });
+      const handler = createHandler({
+        app,
+        canonicalOrigin: "http://localhost",
+        isgManifest: { "/w": { revalidate: webhookRevalidate() } },
+        // What the build recorded from the prerender, while the page was live.
+        headersManifest: {
+          "/w": {
+            "content-type": "text/html; charset=utf-8",
+            "x-robots-tag": "all",
+            "x-build-only": "1",
+          },
+        },
+        registry: {
+          routeModules: {
+            "./routes/w.tsx": async () => ({
+              Component: ({ data }) =>
+                `<main>withdrawn=${(data as { withdrawn: boolean }).withdrawn}</main>`,
+              loader: async () => ({ withdrawn: state.withdrawn }),
+              headers: ({ data }: { data: { withdrawn: boolean } }) => ({
+                "x-robots-tag": data.withdrawn ? "noindex" : "all",
+                "x-secret-token": "never-persisted",
+              }),
+            }),
+          },
+        },
+        staticDir,
+      });
+      const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+        void handler(req, res);
+      });
+      servers.add(server);
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("Expected TCP address");
+      return `http://127.0.0.1:${address.port}`;
+    }
+
+    it("records the headers of a cold render with its snapshot", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const staticDir = makeTempDir();
+      const state = { withdrawn: true };
+      const base = await startWithdrawableIsgServer(staticDir, state);
+
+      const cold = await fetch(`${base}/w`);
+      expect(cold.headers.get("x-pracht-isg")).toBeNull();
+      expect(cold.headers.get("x-robots-tag")).toBe("noindex");
+      await cold.text();
+
+      const fromDisk = await fetch(`${base}/w`);
+      expect(fromDisk.headers.get("x-pracht-isg")).toBe("fresh");
+      expect(fromDisk.headers.get("x-robots-tag")).toBe("noindex");
+      expect(fromDisk.headers.get("x-build-only")).toBeNull();
+      await expect(fromDisk.text()).resolves.toContain("withdrawn=true");
+    });
+
+    it("serves a webhook-regenerated page with its own headers, across restarts", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      process.env.PRACHT_REVALIDATE_TOKEN = "secret";
+      const staticDir = makeTempDir();
+      const htmlPath = join(staticDir, "w", "index.html");
+      mkdirSync(join(staticDir, "w"), { recursive: true });
+      writeFileSync(htmlPath, "<html><body>withdrawn=false</body></html>", "utf-8");
+      const state = { withdrawn: false };
+      const base = await startWithdrawableIsgServer(staticDir, state);
+
+      const built = await fetch(`${base}/w`);
+      expect(built.headers.get("x-robots-tag")).toBe("all");
+      expect(built.headers.get("x-build-only")).toBe("1");
+      await built.text();
+
+      state.withdrawn = true;
+      const revalidated = await fetch(`${base}/__pracht/revalidate`, {
+        body: JSON.stringify({ paths: ["/w"] }),
+        headers: { authorization: "Bearer secret", "content-type": "application/json" },
+        method: "POST",
+      });
+      await expect(revalidated.json()).resolves.toMatchObject({ revalidated: ["/w"] });
+
+      // A restarted process (a fresh module, so nothing cached) reads the
+      // recorded headers from disk.
+      vi.resetModules();
+      const fresh = await import("../src/index.ts");
+      const restarted = await startWithdrawableIsgServer(
+        staticDir,
+        state,
+        fresh.createNodeRequestHandler,
+      );
+      for (const url of [`${base}/w`, `${restarted}/w`, `${base}/w/index.html`]) {
+        const served = await fetch(url);
+        await expect(served.text()).resolves.toContain("withdrawn=true");
+        expect(served.headers.get("x-robots-tag")).toBe("noindex");
+        // The snapshot replaces the build's header set rather than merging.
+        expect(served.headers.get("x-build-only")).toBeNull();
+        // Credential-shaped headers never ride along with a shared snapshot.
+        expect(served.headers.get("x-secret-token")).toBeNull();
+        expect(served.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(served.headers.get("cache-control")).toBe("public, max-age=0, must-revalidate");
+      }
+
+      // A redeploy that replaces the HTML brings back the build's headers.
+      writeFileSync(htmlPath, "<html><body>withdrawn=false (redeployed)</body></html>", "utf-8");
+      const redeployed = await fetch(`${base}/w`);
+      await expect(redeployed.text()).resolves.toContain("redeployed");
+      expect(redeployed.headers.get("x-robots-tag")).toBe("all");
+
+      // The recorded headers are not a public file.
+      const listing = readdirSync(join(staticDir, "w")).filter((name) => name !== "index.html");
+      expect(listing.length).toBeGreaterThan(0);
+      for (const name of listing) {
+        const direct = await fetch(`${base}/w/${name}`);
+        expect(direct.status).toBe(404);
+        await direct.arrayBuffer();
+      }
+    });
   });
 
   it("authenticates webhook ISG revalidation and regenerates opted-in paths", async () => {

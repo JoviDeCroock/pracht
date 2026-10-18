@@ -140,10 +140,6 @@ export function classifyRevalidationSkip(
   return null;
 }
 
-export interface ParsedRevalidationRequest {
-  paths: string[];
-}
-
 export type RevalidationSingleFlight = <T>(key: string, task: () => Promise<T>) => Promise<T>;
 
 /**
