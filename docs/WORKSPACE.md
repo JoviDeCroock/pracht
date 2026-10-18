@@ -365,9 +365,12 @@ to regress:
   `PACKAGE_OVERRIDES` (`create-pracht` reads `skills/`; `@pracht/cli` reads the
   docs site pages and sidebar).
   `scripts/typecheck.mjs`
-  runs the four TypeScript programs side by side, each with its own
-  `.tsbuildinfo`. `tsBuildInfoFile` is passed per invocation rather than set in
-  `tsconfig.json` because the programs all extend the root config, and a
+  runs the five TypeScript programs side by side, each with its own
+  `.tsbuildinfo`. One of them is `create-pracht`, which ships plain JavaScript:
+  `packages/start/tsconfig.json` checks it from its JSDoc with every strict
+  option except `noImplicitAny`. `tsBuildInfoFile` is passed per invocation
+  rather than set in `tsconfig.json` because the other programs extend the
+  root config, and a
   relative path declared there resolves against the root — so they would share
   one file and invalidate each other every run.
 - **A contended machine uses less concurrency.** Several agent workspaces
