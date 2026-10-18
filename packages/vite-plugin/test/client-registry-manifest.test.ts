@@ -392,16 +392,18 @@ export const app = defineApp({
     const virtualServer = node("\0virtual:pracht/server");
     const manifest = node(join(root, "src/routes.ts"), [virtualServer]);
     const fragment = node(join(root, "src/manifest/more.ts"), [manifest]);
+    // An ordinary component a page imports, until the manifest names it.
+    const page = node(join(root, "src/pages-shared/page.tsx"));
+    const shared = node(join(root, "src/features/added.tsx"), [page]);
+    const modules = [fragment, manifest, shared];
     const server = {
       config: { root },
       moduleGraph: {
         getModuleById: (id: string) => (id.includes("pracht/") ? node(id) : undefined),
-        getModulesByFile: (file: string) =>
-          file === fragment.id
-            ? new Set([fragment])
-            : file === manifest.id
-              ? new Set([manifest])
-              : undefined,
+        getModulesByFile: (file: string) => {
+          const mod = modules.find((candidate) => candidate.id === file);
+          return mod ? new Set([mod]) : undefined;
+        },
         invalidateModule: (mod: { id: string }) => record.invalidated.push(mod.id),
       },
       restart: () => {
@@ -466,6 +468,10 @@ export const more = [route("/added", "./features/added.tsx", { id: "added" })];
     );
     dev.hotUpdate(join(root, "src/manifest/more.ts"));
     expect(JSON.stringify(await stripped())).not.toContain("../server/db");
+    // Its cached transform, and its importers', predate the new role.
+    expect(dev.record.invalidated).toEqual(
+      expect.arrayContaining([added, join(root, "src/pages-shared/page.tsx")]),
+    );
   });
 
   it("restarts for an adapter that runs its own dev server", () => {

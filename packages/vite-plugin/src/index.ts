@@ -859,9 +859,15 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // Everything the manifest decides is regenerated in place: the state
         // read from it here, every virtual module built from it, and every
         // server-side module that evaluated the old one. The open page then
-        // reloads against the new route table.
+        // reloads against the new route table. A module that gained or lost a
+        // route or capability role is transformed differently now, so its
+        // cached transform is dropped too.
+        const previousRoles = [externalRouteFiles, capabilityModulePaths];
         refreshManifestState();
-        invalidateManifestDependents(server, file);
+        const changedRoles = [externalRouteFiles, capabilityModulePaths].flatMap((next, index) =>
+          symmetricDifference(previousRoles[index]!, next),
+        );
+        invalidateManifestDependents(server, [file, ...changedRoles]);
         server.ws.send({ type: "full-reload" });
         return [];
       }
@@ -1487,11 +1493,11 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
 
 /**
  * Invalidate what an edit to the app manifest (or a module it imports) makes
- * stale: every virtual module generated from the manifest, and every module
- * that imports the changed file, transitively, so the server re-evaluates the
- * new route table instead of a cached copy.
+ * stale: every virtual module generated from the manifest, and each of `files`
+ * (the changed file and any module whose role changed) with its importers,
+ * transitively, so nothing serves a transform or a route table from before.
  */
-function invalidateManifestDependents(server: import("vite").ViteDevServer, file: string): void {
+function invalidateManifestDependents(server: import("vite").ViteDevServer, files: string[]): void {
   for (const id of [
     PRACHT_CLIENT_MODULE_ID,
     PRACHT_SERVER_MODULE_ID,
@@ -1505,7 +1511,7 @@ function invalidateManifestDependents(server: import("vite").ViteDevServer, file
     if (mod) server.moduleGraph.invalidateModule(mod);
   }
   const seen = new Set<unknown>();
-  const queue = [...(server.moduleGraph.getModulesByFile(file) ?? [])];
+  const queue = files.flatMap((file) => [...(server.moduleGraph.getModulesByFile(file) ?? [])]);
   while (queue.length > 0) {
     const mod = queue.pop()!;
     if (seen.has(mod)) continue;
@@ -1513,6 +1519,13 @@ function invalidateManifestDependents(server: import("vite").ViteDevServer, file
     server.moduleGraph.invalidateModule(mod);
     queue.push(...mod.importers);
   }
+}
+
+function symmetricDifference(previous: Set<string>, next: Set<string>): string[] {
+  return [
+    ...[...previous].filter((file) => !next.has(file)),
+    ...[...next].filter((file) => !previous.has(file)),
+  ];
 }
 
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
