@@ -7,7 +7,7 @@ described in `VISION_MVP.md`.
 
 | Pin | Where | Value |
 | --- | --- | --- |
-| Package manager | root `package.json#packageManager`, both workflows | `pnpm@11.3.0` |
+| Package manager | root `package.json#packageManager`, every workflow that installs pnpm | `pnpm@11.3.0` |
 | Node | root `package.json#engines.node`, `.nvmrc`, `.node-version` | `>=22.18` / `22.22.3` |
 | Preact | every workspace `package.json`, the `create-pracht` scaffold | `11.0.1` / `^11.0.1` |
 
@@ -73,6 +73,16 @@ constraint; the CLI test is.
 | `examples/cloudflare`         | `@pracht/example-cloudflare` | Cloudflare-targeted example app with SSG, ISG, SSR, SPA routes, auth middleware, and API routes              |
 | `examples/docs`               | `@pracht/example-docs`       | **The published documentation site** — every page under `src/routes/docs/*.md` is public user- and agent-facing docs. Cloudflare adapter, all routes SSG, generates `llms.txt`, sitemap, and the agent-skills index, and serves the docs MCP server at `/mcp` |
 | `examples/tsrx`               | `@pracht/example-tsrx`       | Mixed `.tsrx` (TSRX/Ripple-flavoured Preact) and `.tsx` routes via `@tsrx/vite-plugin-preact`                |
+
+Packages that run inside an app — `vite-plugin`, the adapters, `session`,
+`i18n`, `query`, and `test` — take `@pracht/core` as a `peerDependency` (plus
+a `devDependency` for the workspace link), never a `dependency`. Core keeps
+request state in module scope, so the app must see one copy; a hard dependency
+published as `^0.x` would nest a second core under the package as soon as the
+app upgrades core to the next minor. `vite-plugin` matters most: if it kept a
+private core, npm would nest its default `adapter-node` beside that core, where
+the generated server entry cannot resolve it. Only `cli`, a 1.x dev tool that
+can run without an app install, still depends on core directly.
 
 ## Documentation
 
@@ -327,9 +337,9 @@ check, so a change that passes `verify` cannot fail CI on either.
 gate CI runs as its own job. Client bytes are deterministic, so a drift is
 always a real change; four fixture builds cost about five seconds, which is
 cheap enough to sit beside the unit tests rather than be discovered on CI. When
-the drift is intended, run `node bench/run.mjs --bytes-only --update`, commit
-`bench/baseline.json`, and update the published table in
-`examples/docs/src/routes/docs/performance.md`.
+the drift is intended, run `pnpm bench:update` and commit the result: it
+rewrites `bench/baseline.json` and every page that quotes it (listed in
+`bench/published-numbers.mjs`, and checked by a unit test).
 
 `packages/framework/api-report.api.md` is the `@pracht/core` API report: every
 name each `package.json` `exports` subpath exposes, with its kind (`function`,
@@ -365,9 +375,12 @@ to regress:
   `PACKAGE_OVERRIDES` (`create-pracht` reads `skills/`; `@pracht/cli` reads the
   docs site pages and sidebar).
   `scripts/typecheck.mjs`
-  runs the four TypeScript programs side by side, each with its own
-  `.tsbuildinfo`. `tsBuildInfoFile` is passed per invocation rather than set in
-  `tsconfig.json` because the programs all extend the root config, and a
+  runs the five TypeScript programs side by side, each with its own
+  `.tsbuildinfo`. One of them is `create-pracht`, which ships plain JavaScript:
+  `packages/start/tsconfig.json` checks it from its JSDoc with every strict
+  option except `noImplicitAny`. `tsBuildInfoFile` is passed per invocation
+  rather than set in `tsconfig.json` because the other programs extend the
+  root config, and a
   relative path declared there resolves against the root — so they would share
   one file and invalidate each other every run.
 - **A contended machine uses less concurrency.** Several agent workspaces
@@ -423,6 +436,49 @@ to regress:
   the same reason local runs retry once and CI does not: several agent
   workspaces routinely run this suite at once, and re-running one spec is far
   cheaper than re-running `verify`. A real regression fails both attempts.
+
+## Registry-install smoke
+
+Every app in the repo resolves `@pracht/*` through workspace links and the root
+tsconfig `paths`, so a published file that imports a package it never declared
+still works here. The `Package install` workflow runs `pnpm pack:smoke`
+(`scripts/pack-smoke.mjs`; run `pnpm build` first) to install the packages the
+way npm users get them:
+
+- `pnpm pack` every public package under `packages/`, so `workspace:` ranges
+  are rewritten as on publish.
+- Scaffold one app per adapter with the packed `create-pracht`, in a temp
+  directory outside the workspace, and point every `@pracht/*` dependency,
+  direct or transitive (pnpm `overrides`), at the tarballs.
+- Install with `hoist: false` and the virtual store outside the app's
+  `node_modules` — the layout of pnpm's global virtual store. Walking up from a
+  package's real path then never reaches the app's own dependencies, so a
+  package resolves only what its `package.json` declares, as under Yarn PnP.
+- Run the app's `typecheck`, then `pracht build`. Between them a probe file
+  fails if the adapter factory's published return type collapsed to `any`, or
+  if declaration emit cannot name the type of an exported, unannotated adapter.
+- For the Node adapter, serve `/` from the build, then again from an
+  `npm install --omit=dev` copy, which must not contain `vite`,
+  `@pracht/vite-plugin` or `@pracht/cli`.
+
+`--adapter=node` (repeatable or comma-separated) limits the run; `--keep` keeps
+the temp directory. The scaffold's deploy-only CLIs (`vercel`, `netlify-cli`)
+are dropped from the smoke apps because `pracht build` never calls them.
+
+Two consequences for package authors. A runtime package must not take a
+dependency edge — not even an optional peer — on build tooling: npm keeps an
+optional peer that the app has as a devDependency in `--omit=dev` installs, and
+pnpm `--prod` installs its dependencies, which puts Vite in every production
+image. That is why the adapters' published types inline the `PrachtAdapter`
+contract from `packages/vite-plugin/src/plugin-adapter.ts` (their tsdown
+configs do not mark `@pracht/vite-plugin` external, and `scripts/build.mjs`
+lists that file as an adapter build input) instead of importing
+`@pracht/vite-plugin`. Each adapter also re-exports the type as
+`PrachtAdapter`, so declaration emit can name an unannotated
+`export const adapter = nodeAdapter()`. The inlined contract still names `vite`'s `Plugin`
+type, which is present in any app that runs pracht's Vite plugin and degrades
+only `vitePlugins()`' element type where it cannot resolve. Dev-only packages
+such as `@pracht/cli` declare what they import (`vite`, as an optional peer).
 
 ## Later (Phase 2 remaining)
 

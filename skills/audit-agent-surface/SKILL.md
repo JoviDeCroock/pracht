@@ -156,9 +156,8 @@ With `agents.mcp.auth`, check:
   endpoint refuses to serve at all, and `pracht verify` only warns (its source
   scan cannot see a registration in a workspace package, so it must not
   hard-block). Two more preconditions fail the endpoint the same way — a
-  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with no principal
-  source (a resolver, `agents.mcp.auth`, or a valid Web Bot Auth key or HTTPS
-  directory) — so check all three together.
+  missing `PRACHT_CONFIRMATION_SECRET`, and `mode: "human"` with neither a
+  resolver nor `agents.mcp.auth` — so check all three together.
   Runtime-backed `/_pracht` reports a verified endpoint-wide failure by marking
   every MCP exposure `mcp(unserved)`. Graph-only `pracht dev`, `pracht inspect
   capabilities`, `pracht inspect agents`, and MCP inspection use
@@ -185,9 +184,9 @@ With `agents.mcp.auth`, check:
   commits. `createSqlApprovalStore()` over D1/Postgres/Turso qualifies;
   `createMemoryApprovalStore()` in a deployed multi-replica app does not, and
   neither does a hand-rolled store over Cloudflare KV.
-- `confirmation: { mode: "human" }` without both a store and an authenticated
-  principal fails closed — check both exist. Warn when Web Bot Auth is the only
-  principal source: reviewers see the agent, not the user.
+- `confirmation: { mode: "human" }` without both a store and an end-user
+  principal (a resolver, or `agents.mcp.auth` on MCP) fails closed — check
+  both exist. Web Bot Auth alone is refused: it names the agent.
 
 ## Step 4: Identity and policy
 

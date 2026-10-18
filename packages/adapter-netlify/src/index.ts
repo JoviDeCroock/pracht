@@ -813,7 +813,7 @@ async function handleNetlifyRevalidation<TNetlifyContext extends NetlifyExecutio
   const parsed = await readRevalidationRequest(request, resolveRevalidationToken());
   if (!parsed.ok) return parsed.response;
 
-  const report = new RevalidationReport();
+  const report = new RevalidationReport("global");
   for (const pathname of parsed.paths) {
     const canonicalPathname = normalizePathname(pathname);
     const entry = isgManifest[canonicalPathname];
@@ -1181,3 +1181,7 @@ const MIME_TYPES: Record<string, string> = {
   ".woff2": "font/woff2",
   ".xml": "application/xml; charset=utf-8",
 };
+
+// The contract the factory returns, carried in this package's own declarations
+// so a value of it can be named without importing `@pracht/vite-plugin`.
+export type { PrachtAdapter } from "@pracht/vite-plugin";

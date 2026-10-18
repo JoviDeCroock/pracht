@@ -9,6 +9,7 @@ import {
   normalizeRouteRevalidate,
   classifyRevalidationSkip,
   readRevalidationRequest,
+  RevalidationReport,
   resolveRevalidationToken,
   timeRevalidate,
   webhookRevalidate,
@@ -300,5 +301,32 @@ describe("classifyRevalidationSkip", () => {
   it("reports an ISG route with no cached copy as not_prerendered", () => {
     // A dynamic ISG path getStaticPaths() never enumerated.
     expect(classifyRevalidationSkip(undefined, false, { render: "isg" })).toBe("not_prerendered");
+  });
+});
+
+describe("RevalidationReport scope", () => {
+  it("omits scope when the adapter declares none", () => {
+    const report = new RevalidationReport();
+    report.revalidated("/a");
+    expect(report.toJSON()).not.toHaveProperty("scope");
+    expect(report.toJSON().details).toEqual([{ outcome: "revalidated", path: "/a" }]);
+  });
+
+  it("reports the adapter's scope when nothing was revalidated", () => {
+    const report = new RevalidationReport("colo");
+    report.skipped("/a", "not_a_route");
+    expect(report.toJSON().scope).toBe("colo");
+  });
+
+  it("reports the narrowest scope among the revalidated paths", () => {
+    const report = new RevalidationReport("colo");
+    report.revalidated("/purged", "global");
+    expect(report.toJSON().scope).toBe("global");
+    report.revalidated("/local");
+    expect(report.toJSON().scope).toBe("colo");
+    expect(report.toJSON().details).toEqual([
+      { outcome: "revalidated", path: "/purged", scope: "global" },
+      { outcome: "revalidated", path: "/local", scope: "colo" },
+    ]);
   });
 });

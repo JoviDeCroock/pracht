@@ -28,6 +28,7 @@ import { gzipSync } from "node:zlib";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { syncPublishedNumbers } from "./published-numbers.mjs";
 import { writeScaleApp } from "./scale-app.mjs";
 
 const benchDir = dirname(fileURLToPath(import.meta.url));
@@ -472,6 +473,17 @@ async function main() {
       };
       writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`);
       console.log(`Wrote ${baselinePath}`);
+      // The docs, site and README quote these numbers; rewrite them from the
+      // baseline just written so they cannot be left behind.
+      const unmatched = syncPublishedNumbers({ write: true });
+      if (unmatched.length > 0) {
+        console.error("\nSome published bundle sizes could not be located:\n");
+        for (const line of unmatched) console.error(`  ${line}`);
+        console.error("\nUpdate PUBLISHED in bench/published-numbers.mjs.\n");
+        process.exitCode = 1;
+      } else {
+        console.log("Rewrote the published bundle sizes from it.");
+      }
     }
 
     if (flag("check")) {
@@ -484,9 +496,8 @@ async function main() {
         console.error("\nClient bytes drifted from bench/baseline.json:\n");
         for (const line of drift) console.error(`  ${line}`);
         console.error(
-          "\nIf the change is intended, run `node bench/run.mjs --bytes-only --update` and" +
-            " include the new baseline in the commit — and update the published numbers in" +
-            " examples/docs/src/routes/docs/performance.md.\n",
+          "\nIf the change is intended, run `pnpm bench:update` and commit the result: it" +
+            " rewrites bench/baseline.json and every published number that quotes it.\n",
         );
         process.exitCode = 1;
         return;

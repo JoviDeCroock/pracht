@@ -109,9 +109,13 @@ export async function loader({ signal, url }: LoaderArgs) {
 
 The budget defaults to 30 seconds; set it app-wide with
 [`defineApp({ loaderTimeoutMs })`](/docs/reference/config#defineapp--the-route-manifest).
-One budget covers the whole request: middleware, the loader, and the not-found
-page after `notFound()`. [API route](/docs/api-routes) handlers get the same
-signal.
+[API route](/docs/api-routes) handlers get the same signal.
+
+One budget covers the whole request: middleware, the loader, the not-found page
+after `notFound()`, any response body still streaming, and `waitUntil` work.
+When a successful request finishes all of it, the budget stops and `signal`
+aborts only on a client disconnect. After an error response, the budget still
+runs out and aborts leftover loader work.
 
 - **It applies at build time.** SSG and ISG prerendering run loaders with the
   same budget, so a short edge budget fails the build for slower loaders.

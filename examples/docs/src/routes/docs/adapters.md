@@ -119,9 +119,10 @@ cloudflareAdapter({ persistState: { path: ".wrangler/state-dev-a" } });
 
 ### ISG and Workers Caching
 
-By default, ISG stores regenerated pages in the per-colo Cache API. Opt into
-Cloudflare's cache in front of the Worker when time-revalidated routes should
-render on demand at the edge:
+ISG stores regenerated pages in each data center's Cache API by default, so a
+[webhook](/docs/rendering#webhook-revalidation) refreshes one data center.
+Opt into Cloudflare's edge cache to render time-revalidated routes on demand
+and purge them everywhere:
 
 ```ts [vite.config.ts]
 cloudflareAdapter({ cache: true });
@@ -136,7 +137,7 @@ cloudflareAdapter({ cache: { staleWhileRevalidate: 86_400 } });
 
 Workers Caching keys on the exact path and query string. Query order and
 trailing slashes create separate entries, and arbitrary query values create
-unbounded cold renders, so keep query shapes on shared ISG routes bounded.
+unbounded cold renders, so keep ISG query shapes bounded.
 Cached hits skip middleware, so per-visitor policy belongs on SSR routes.
 
 Without `assets.html_handling`, the assets binding redirects `/guide` to
@@ -754,19 +755,18 @@ At the runtime level, an adapter also typically needs to:
 1. Accept a platform request and convert it to a Web `Request`
 2. Check for static assets -- serve files from `dist/client/` with appropriate headers
 3. Check for prerendered pages -- serve SSG/ISG HTML (with staleness checking for ISG when the platform supports it)
-4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`, passing the platform's `waitUntil`
+4. Delegate dynamic requests to `handlePrachtRequest()`, passing the platform's `waitUntil`. It resolves each `app` object once, so pass a new `defineApp()` result to change routes at runtime
 5. Convert the Web `Response` back to the platform's response format
 6. Provide a context factory for platform-specific values
 7. Export an entry module generator for the Vite plugin
 
 A static-export adapter sets `staticTarget: true` and builds its entry with
-`createStaticServerEntryModule()` from `@pracht/adapter-static`, so the build
-can render `404.html` and the SPA fallback.
+`createStaticServerEntryModule()` from `@pracht/adapter-static` for `404.html`
+and the SPA fallback.
 
 If your transport sends responses itself, pass them through
 `normalizeResponseHeaders()` so bodyless responses (`HEAD`, `204`, `304`) don't
-carry a stale `Content-Length`. It leaves protocol-switch responses, such as
-Cloudflare's WebSocket `101`, untouched:
+carry a stale `Content-Length`:
 
 ```ts
 import { normalizeResponseHeaders } from "@pracht/core/server";
