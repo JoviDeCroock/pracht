@@ -127,8 +127,11 @@ export default defineCommand({
 });
 
 async function printDevBanner(server: ViteDevServer, root: string): Promise<void> {
+  // Read capabilities from source like API routes: printing the banner
+  // must not run every capability module's top-level code at startup.
   const graph = await collectAppGraph(server, root, {
     appFile: readProjectConfig(root).appFile,
+    preferStaticCapabilities: true,
   });
   // A restarted server resolves its URLs just after it starts listening.
   for (let attempt = 0; !server.resolvedUrls && attempt < 40; attempt += 1) {

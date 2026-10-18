@@ -77,6 +77,7 @@ import {
 } from "./plugin-codegen.ts";
 import {
   createDevCssInjectionMiddleware,
+  createDevMcpPreflightMiddleware,
   createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
@@ -664,16 +665,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       const backgroundWork = createWaitUntilTracker();
       devBackgroundWork = backgroundWork;
+      const ssrMiddleware = createDevSSRMiddleware(server, {
+        adapterDev: resolved.adapter.dev,
+        llmsTxt: !!resolved.llmsTxt,
+        markdownFiles: resolved.markdownFiles,
+        maxBodySize: resolved.maxBodySize,
+        waitUntil: backgroundWork.waitUntil,
+      });
+      server.middlewares.use(createDevMcpPreflightMiddleware(server, ssrMiddleware));
       return () => {
-        server.middlewares.use(
-          createDevSSRMiddleware(server, {
-            adapterDev: resolved.adapter.dev,
-            llmsTxt: !!resolved.llmsTxt,
-            markdownFiles: resolved.markdownFiles,
-            maxBodySize: resolved.maxBodySize,
-            waitUntil: backgroundWork.waitUntil,
-          }),
-        );
+        server.middlewares.use(ssrMiddleware);
       };
     },
 

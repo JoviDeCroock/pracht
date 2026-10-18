@@ -352,6 +352,7 @@ isAuthorizedRevalidationRequest: function
 isCacheableISGResponse: function
 isDangerousPrerenderHeader: function
 isMcpResourceMetadataPath: function
+isMcpToolServed: function
 isUpgradeRequest: function
 isValidOAuthScopeToken: function
 json: function

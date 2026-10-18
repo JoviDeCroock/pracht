@@ -31,12 +31,15 @@ import {
   MCP_STATUS_META_KEY,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
+  mcpToolServing,
 } from "../protocol.ts";
 import {
   clearDestructiveConfirmed,
+  getCapabilityLoadFailures,
   handleCapabilityRequest,
   setActiveCapabilityHost,
   type CapabilityHostApp,
+  type CapabilityRequestBudget,
   type ResolvedCapability,
 } from "./capabilities.ts";
 import { humanApprovalPreconditionError, resolveCapabilityApprovalStore } from "./approval.ts";
@@ -111,11 +114,17 @@ export function mcpExposedCapabilities(
   // Compared with `=== true` so an absent, undefined, or non-boolean config
   // reads as "off". Manifest validation rejects non-booleans; this is the
   // second line of defense for a hand-rolled app object.
-  const allowDestructive = mcp?.destructive === true;
+  const config = { endpoint: true, destructive: mcp?.destructive === true, auth: !!mcp?.auth };
   return capabilities.filter(
     (entry) =>
-      entry.capability.expose?.mcp === true &&
-      (allowDestructive || entry.capability.effect !== "destructive"),
+      mcpToolServing(
+        {
+          effect: entry.capability.effect,
+          mcp: entry.capability.expose?.mcp === true,
+          mcpScopes: entry.capability.expose?.mcpScopes,
+        },
+        config,
+      ) === "served",
   );
 }
 
@@ -136,6 +145,10 @@ export interface HandleMcpRequestOptions<TContext> {
   tokenPrincipal?: McpTokenPrincipal;
   apiMiddlewareFiles?: string[];
   onAudit?: CapabilityAuditHook;
+  /** The host's request budget, handed to each `tools/call` dispatch. */
+  budget?: CapabilityRequestBudget;
+  /** Budget, in milliseconds, of the signal each `tools/call` creates when `budget` is omitted (default 30000). */
+  timeoutMs?: number;
   /** Registry resolution failure captured by the outer application runtime. */
   resolutionError?: unknown;
 }
@@ -145,6 +158,64 @@ export interface HandleMcpRequestOptions<TContext> {
  * become JSON-RPC errors, capability problems become tool errors.
  */ export async function handleMcpRequest<TContext>(
   options: HandleMcpRequestOptions<TContext>,
+): Promise<Response> {
+  const { request } = options;
+  const origin = request.headers.get("origin");
+  const allowedOrigin =
+    origin !== null && options.mcp.allowedOrigins?.includes(origin) ? origin : null;
+
+  // CORS preflight from a browser page. Only a listed origin is answered;
+  // anything else is the same 403 an actual request from it would get.
+  if (origin !== null && request.method.toUpperCase() === "OPTIONS") {
+    if (allowedOrigin === null) return browserOriginRejection();
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "access-control-allow-origin": allowedOrigin,
+        "access-control-allow-methods": "POST",
+        "access-control-allow-headers": MCP_CORS_REQUEST_HEADERS,
+        "access-control-max-age": "600",
+        vary: "Origin",
+      },
+    });
+  }
+
+  const response = await handleMcpTransportRequest(options, allowedOrigin);
+  return allowedOrigin === null ? response : withMcpCorsHeaders(response, allowedOrigin);
+}
+
+// Plain literals (not templates over the header constant) so bundlers can drop
+// them from client graphs that share this module's chunk.
+const MCP_CORS_REQUEST_HEADERS = "authorization, content-type, mcp-protocol-version";
+const MCP_CORS_EXPOSED_HEADERS = "mcp-protocol-version, www-authenticate";
+
+/**
+ * Let a listed origin read the response. Credentials are never allowed: a
+ * cookie-bearing request is rejected before dispatch, so a browser page must
+ * authenticate with an `Authorization` header it attaches itself.
+ */
+function withMcpCorsHeaders(response: Response, origin: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-expose-headers", MCP_CORS_EXPOSED_HEADERS);
+  headers.append("vary", "Origin");
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+function browserOriginRejection(): Response {
+  return new Response("Browser-originated requests are not allowed", {
+    status: 403,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}
+
+async function handleMcpTransportRequest<TContext>(
+  options: HandleMcpRequestOptions<TContext>,
+  allowedOrigin: string | null,
 ): Promise<Response> {
   const { request } = options;
 
@@ -157,16 +228,14 @@ export interface HandleMcpRequestOptions<TContext> {
     });
   }
 
-  // DNS-rebinding protection: remote MCP has no browser use case, so reject
-  // browser provenance instead of comparing Origin to `request.url`. Adapters
-  // may derive that URL from the attacker-controlled Host header, which makes
-  // a same-origin comparison bypassable after DNS rebinding. Ordinary MCP
-  // clients send neither header and are unaffected.
-  if (!isNonBrowserRequest(request)) {
-    return new Response("Browser-originated requests are not allowed", {
-      status: 403,
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
+  // DNS-rebinding protection: reject browser provenance unless the Origin is
+  // on the app's explicit allowlist, instead of comparing Origin to
+  // `request.url`. Adapters may derive that URL from the attacker-controlled
+  // Host header, which makes a same-origin comparison bypassable after DNS
+  // rebinding; a rebound page keeps its own origin, which no allowlist names.
+  // Ordinary MCP clients send neither header and are unaffected.
+  if (allowedOrigin === null && !isNonBrowserRequest(request)) {
+    return browserOriginRejection();
   }
 
   // Adapters may have already derived `context` from the original request
@@ -289,6 +358,12 @@ export interface HandleMcpRequestOptions<TContext> {
     method?: unknown;
     params?: unknown;
   };
+  // A client's response to a server request is accepted with 202 and no body,
+  // like a notification. This server never sends requests, so there is
+  // nothing to correlate it with.
+  if (isJsonRpcResponseMessage(message)) {
+    return new Response(null, { status: 202 });
+  }
   if (message?.jsonrpc !== "2.0" || typeof message.method !== "string") {
     return respond(400, {
       jsonrpc: "2.0",
@@ -326,19 +401,17 @@ export interface HandleMcpRequestOptions<TContext> {
     });
   }
 
-  const exposedCapabilities = mcpExposedCapabilities(options.capabilities, options.mcp);
+  const projection = projectMcpTools(options.capabilities, options.mcp);
 
   // Fail closed, loudly, rather than advertising destructive tools that every
   // call would refuse — or worse, serving commits that could be replayed. One
   // rule for all of the preconditions: if a destructive tool would be served
   // and anything its confirmation flow needs is missing, the whole endpoint
   // answers an explanatory error instead of half-working.
-  const destructiveCapabilities = exposedCapabilities.filter(
-    (entry) => entry.capability.effect === "destructive",
-  );
-  if (destructiveCapabilities.length > 0) {
+  const destructiveFiles = servableDestructiveMiddlewareFiles(projection, options);
+  if (destructiveFiles !== null) {
     try {
-      await loadDestructiveMcpRegistrationModules(options, destructiveCapabilities);
+      await loadDestructiveMcpRegistrationModules(options, destructiveFiles);
     } catch (error: unknown) {
       const detail = options.exposeErrors && error instanceof Error ? `: ${error.message}` : ".";
       return respond(200, {
@@ -365,37 +438,11 @@ export interface HandleMcpRequestOptions<TContext> {
     }
   }
 
-  const invalidToolNames = exposedCapabilities.filter(
-    (entry) => !isValidMcpToolName(mcpToolName(entry.name)),
-  );
-  if (invalidToolNames.length > 0) {
+  if (projection.error !== null) {
     return respond(200, {
       jsonrpc: "2.0",
       id,
-      error: {
-        code: JSONRPC_INTERNAL_ERROR,
-        message:
-          `${MCP_TOOL_NAME_ERROR}: ` +
-          invalidToolNames.map((entry) => `${entry.name} → ${mcpToolName(entry.name)}`).join("; "),
-      },
-    });
-  }
-
-  const collisions = findMcpToolNameCollisions(exposedCapabilities.map((entry) => entry.name));
-  if (collisions.length > 0) {
-    // `pracht verify` reports this at build time; refuse to serve an
-    // ambiguous tool list rather than picking a winner at random.
-    return respond(200, {
-      jsonrpc: "2.0",
-      id,
-      error: {
-        code: JSONRPC_INTERNAL_ERROR,
-        message:
-          "Capability names collide as MCP tool names: " +
-          collisions
-            .map((collision) => `${collision.capabilities.join(" / ")} → ${collision.toolName}`)
-            .join("; "),
-      },
+      error: { code: JSONRPC_INTERNAL_ERROR, message: projection.error },
     });
   }
 
@@ -429,15 +476,20 @@ export interface HandleMcpRequestOptions<TContext> {
     case "ping":
       return respond(200, { jsonrpc: "2.0", id, result: {} });
 
-    case "tools/list":
-      return respond(200, {
-        jsonrpc: "2.0",
-        id,
-        result: { tools: exposedCapabilities.map(toolDescriptor) },
-      });
+    case "tools/list": {
+      const page = listToolsPage(projection, options, message.params);
+      if (page === null) {
+        return respond(200, {
+          jsonrpc: "2.0",
+          id,
+          error: { code: JSONRPC_INVALID_PARAMS, message: "Invalid tools/list cursor." },
+        });
+      }
+      return respond(200, { jsonrpc: "2.0", id, result: page });
+    }
 
     case "tools/call":
-      return handleToolsCall(options, id, message.params, activeVersion);
+      return handleToolsCall(options, projection, id, message.params, activeVersion);
 
     default:
       return respond(200, {
@@ -461,16 +513,38 @@ export interface HandleMcpRequestOptions<TContext> {
  * Importing is enough here. The middleware functions still execute only for a
  * real `tools/call`, through the ordinary capability pipeline.
  */
+/**
+ * The middleware files whose setup must load before any destructive tool this
+ * endpoint can serve, or `null` when it serves none. A scoped tool is never
+ * served without `agents.mcp.auth`, so it does not gate the endpoint then.
+ * Cached on the projection so a warm request does not walk every tool.
+ */
+function servableDestructiveMiddlewareFiles<TContext>(
+  projection: McpToolProjection,
+  options: HandleMcpRequestOptions<TContext>,
+): readonly string[] | null {
+  const apiFiles = options.apiMiddlewareFiles ?? [];
+  const key = apiFiles.join("\0");
+  const cached = projection.destructiveFiles.get(key);
+  if (cached !== undefined) return cached;
+  let files: readonly string[] | null = null;
+  if (projection.destructive.length > 0) {
+    const set = new Set(apiFiles);
+    for (const capability of projection.destructive) {
+      for (const file of capability.middlewareFiles) set.add(file);
+    }
+    files = [...set];
+  }
+  projection.destructiveFiles.set(key, files);
+  return files;
+}
+
 async function loadDestructiveMcpRegistrationModules<TContext>(
   options: HandleMcpRequestOptions<TContext>,
-  capabilities: readonly ResolvedCapability[],
+  files: readonly string[],
 ): Promise<void> {
-  const files = new Set(options.apiMiddlewareFiles ?? []);
-  for (const capability of capabilities) {
-    for (const file of capability.middlewareFiles) files.add(file);
-  }
   await Promise.all(
-    [...files].map((file) =>
+    files.map((file) =>
       resolveRegistryModule<MiddlewareModule>(options.registry.middlewareModules, file),
     ),
   );
@@ -564,6 +638,142 @@ async function authenticateMcp<TContext>(
 // ---------------------------------------------------------------------------
 // tools/list
 // ---------------------------------------------------------------------------
+
+/** Tools per `tools/list` page when `agents.mcp.pageSize` is unset. */
+export const DEFAULT_MCP_TOOLS_PAGE_SIZE = 100;
+
+/**
+ * Everything the transport derives from one resolved graph: the served tools,
+ * their descriptors, a name index for `tools/call`, and any graph-wide naming
+ * error. Computed once per graph and destructive opt-in rather than on every
+ * request, so a large graph costs O(1) per `tools/call`.
+ */
+interface McpToolProjection {
+  exposed: readonly ResolvedCapability[];
+  destructive: readonly ResolvedCapability[];
+  /** Why the projection cannot be served, or `null`. */
+  error: string | null;
+  byToolName: ReadonlyMap<string, ResolvedCapability>;
+  descriptors: ReadonlyMap<ResolvedCapability, ReturnType<typeof toolDescriptor>>;
+  /** {@link servableDestructiveMiddlewareFiles}, per auth presence and API middleware. */
+  destructiveFiles: Map<string, readonly string[] | null>;
+}
+
+const toolProjectionCache = new WeakMap<
+  readonly ResolvedCapability[],
+  Map<string, McpToolProjection>
+>();
+
+function projectMcpTools(
+  capabilities: readonly ResolvedCapability[],
+  mcp: McpProjectionConfig | undefined,
+): McpToolProjection {
+  const configKey = `${mcp?.destructive === true ? 1 : 0}${mcp?.auth ? 1 : 0}`;
+  let byConfig = toolProjectionCache.get(capabilities);
+  const cached = byConfig?.get(configKey);
+  if (cached) return cached;
+
+  const exposed = mcpExposedCapabilities(capabilities, mcp);
+  let error: string | null = null;
+  const invalidToolNames = exposed.filter((entry) => !isValidMcpToolName(mcpToolName(entry.name)));
+  if (invalidToolNames.length > 0) {
+    error =
+      `${MCP_TOOL_NAME_ERROR}: ` +
+      invalidToolNames.map((entry) => `${entry.name} → ${mcpToolName(entry.name)}`).join("; ");
+  } else {
+    const collisions = findMcpToolNameCollisions(exposed.map((entry) => entry.name));
+    // `pracht verify` reports this at build time; refuse to serve an
+    // ambiguous tool list rather than picking a winner at random.
+    if (collisions.length > 0) {
+      error =
+        "Capability names collide as MCP tool names: " +
+        collisions
+          .map((collision) => `${collision.capabilities.join(" / ")} → ${collision.toolName}`)
+          .join("; ");
+    }
+  }
+
+  const projection: McpToolProjection = {
+    exposed,
+    destructive: exposed.filter((entry) => entry.capability.effect === "destructive"),
+    error,
+    byToolName: new Map(exposed.map((entry) => [mcpToolName(entry.name), entry])),
+    descriptors: new Map(exposed.map((entry) => [entry, toolDescriptor(entry)])),
+    destructiveFiles: new Map(),
+  };
+  if (!byConfig) {
+    byConfig = new Map();
+    toolProjectionCache.set(capabilities, byConfig);
+  }
+  byConfig.set(configKey, projection);
+  return projection;
+}
+
+/** OAuth scopes a caller must hold to see and call this tool. */
+function requiredToolScopes(entry: ResolvedCapability): readonly string[] {
+  return entry.capability.expose?.mcpScopes ?? [];
+}
+
+/**
+ * Whether this caller may see and call the tool. A tool that declares scopes
+ * is served only to a verified token carrying all of them, so an endpoint
+ * without `agents.mcp.auth` never serves one.
+ */
+function isToolVisible<TContext>(
+  entry: ResolvedCapability,
+  options: HandleMcpRequestOptions<TContext>,
+): boolean {
+  const required = requiredToolScopes(entry);
+  if (required.length === 0) return true;
+  const granted = options.mcp.auth ? options.tokenPrincipal?.scopes : undefined;
+  return !!granted && required.every((scope) => granted.includes(scope));
+}
+
+/**
+ * One page of the caller's tools. The cursor is opaque to clients: it names
+ * the last tool of the previous page, so a page boundary stays put when tools
+ * the caller cannot see come and go. `null` means the cursor is invalid.
+ */
+function listToolsPage<TContext>(
+  projection: McpToolProjection,
+  options: HandleMcpRequestOptions<TContext>,
+  rawParams: unknown,
+): { tools: unknown[]; nextCursor?: string } | null {
+  if (rawParams !== undefined && rawParams !== null && !isObjectRecord(rawParams)) return null;
+  const cursor = rawParams?.cursor;
+  if (cursor !== undefined && typeof cursor !== "string") return null;
+
+  const visible = projection.exposed.filter((entry) => isToolVisible(entry, options));
+  let start = 0;
+  if (cursor !== undefined) {
+    const after = decodeToolsCursor(cursor);
+    const index =
+      after === null ? -1 : visible.findIndex((entry) => mcpToolName(entry.name) === after);
+    if (index === -1) return null;
+    start = index + 1;
+  }
+
+  const pageSize = options.mcp.pageSize ?? DEFAULT_MCP_TOOLS_PAGE_SIZE;
+  const page = visible.slice(start, start + pageSize);
+  const tools = page.map((entry) => projection.descriptors.get(entry)!);
+  if (start + pageSize >= visible.length || page.length === 0) return { tools };
+  return { tools, nextCursor: encodeToolsCursor(mcpToolName(page[page.length - 1]!.name)) };
+}
+
+function encodeToolsCursor(toolName: string): string {
+  return btoa(toolName).replace(/=+$/, "");
+}
+
+function decodeToolsCursor(cursor: string): string | null {
+  if (!/^[A-Za-z0-9+/]{1,128}$/.test(cursor)) return null;
+  try {
+    const name = atob(cursor.padEnd(cursor.length + ((4 - (cursor.length % 4)) % 4), "="));
+    return isValidMcpToolName(name) ? name : null;
+  } catch {
+    return null;
+  }
+}
+
 function toolDescriptor(entry: ResolvedCapability) {
   const { capability } = entry;
   const destructive = capability.effect === "destructive";
@@ -607,6 +817,7 @@ function toolDescriptor(entry: ResolvedCapability) {
 
 async function handleToolsCall<TContext>(
   options: HandleMcpRequestOptions<TContext>,
+  projection: McpToolProjection,
   id: string | number,
   rawParams: unknown,
   // Threaded rather than defaulted: `tools/call` is the method that does the
@@ -641,9 +852,35 @@ async function handleToolsCall<TContext>(
     });
   }
 
-  const exposed = mcpExposedCapabilities(options.capabilities, options.mcp);
-  const match = exposed.find((entry) => mcpToolName(entry.name) === params.name);
+  const served = projection.byToolName.get(params.name);
+  if (served && options.mcp.auth && !isToolVisible(served, options)) {
+    // Step-up: the token is valid but lacks this tool's scopes. Answer the
+    // challenge the MCP authorization spec defines so the host can request
+    // them, rather than pretending the tool does not exist.
+    const required = requiredToolScopes(served);
+    const { mcpAuthChallengeResponse } = await import("./mcp-auth.ts");
+    return mcpAuthChallengeResponse(options.mcp.auth, {
+      status: 403,
+      error: "insufficient_scope",
+      description: `The token is missing scope(s) this tool requires: ${required.join(" ")}.`,
+      scope: [...new Set([...(options.mcp.auth.requiredScopes ?? []), ...required])],
+    });
+  }
+  const match = served && isToolVisible(served, options) ? served : undefined;
   if (!match) {
+    const failed = getCapabilityLoadFailures(options.capabilities).find(
+      (failure) => mcpToolName(failure.name) === params.name,
+    );
+    if (failed) {
+      return jsonRpcResponse(200, protocolVersion, {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: JSONRPC_INTERNAL_ERROR,
+          message: `Tool ${JSON.stringify(params.name)} is unavailable: its capability failed to load.`,
+        },
+      });
+    }
     // An unknown tool is a protocol-level error, not a tool execution failure.
     return jsonRpcResponse(200, protocolVersion, {
       jsonrpc: "2.0",
@@ -652,7 +889,12 @@ async function handleToolsCall<TContext>(
         code: JSONRPC_INVALID_PARAMS,
         message:
           `Unknown tool ${JSON.stringify(params.name)}. Known tools: ` +
-          `${exposed.map((entry) => mcpToolName(entry.name)).join(", ") || "(none)"}.`,
+          `${
+            projection.exposed
+              .filter((entry) => isToolVisible(entry, options))
+              .map((entry) => mcpToolName(entry.name))
+              .join(", ") || "(none)"
+          }.`,
       },
     });
   }
@@ -697,6 +939,8 @@ async function handleToolsCall<TContext>(
       transport: "mcp",
       tokenPrincipal: options.tokenPrincipal,
       onAudit: options.onAudit,
+      budget: options.budget,
+      timeoutMs: options.timeoutMs,
     });
   } finally {
     // The synthesized and incoming transport requests share one host object.
@@ -769,6 +1013,8 @@ function synthesizeCapabilityRequest<TContext>(
     method: "POST",
     headers,
     body: JSON.stringify(args ?? {}),
+    // The MCP client going away aborts the tool's work like an HTTP caller's.
+    signal: options.request.signal,
   });
 }
 
@@ -892,6 +1138,17 @@ function acceptsJson(request: Request): boolean {
   const accept = request.headers.get("accept");
   if (!accept) return true;
   return accept.includes("application/json") || accept.includes("*/*");
+}
+
+function isJsonRpcResponseMessage(message: unknown): boolean {
+  if (!isObjectRecord(message) || message.jsonrpc !== "2.0" || "method" in message) return false;
+  const hasResult = "result" in message;
+  const hasError = "error" in message;
+  if (hasResult === hasError) return false;
+  if (typeof message.id === "string" || typeof message.id === "number") return true;
+  // An error response may omit its id (or send null) when the request's id
+  // could not be read.
+  return hasError && (message.id === undefined || message.id === null);
 }
 
 /** Reject browser fetches/forms; remote MCP clients send neither header. */

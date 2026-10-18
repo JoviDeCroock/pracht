@@ -15,6 +15,7 @@ import {
 } from "../src/index.ts";
 import {
   capabilityHttpPath,
+  getCapabilityLoadFailures,
   matchCapabilityRoute,
   resolveAppCapabilities,
 } from "../src/runtime-capabilities.ts";
@@ -25,6 +26,16 @@ afterEach(() => {
 });
 
 type CapabilityDefinition = Parameters<typeof defineCapability>[0];
+
+/** Resolve, surfacing the first per-capability load failure as a rejection. */
+async function resolveOrThrowLoadFailure(
+  ...args: Parameters<typeof resolveAppCapabilities>
+): ReturnType<typeof resolveAppCapabilities> {
+  const resolved = await resolveAppCapabilities(...args);
+  const [failure] = getCapabilityLoadFailures(resolved);
+  if (failure) throw failure.error;
+  return resolved;
+}
 
 function createSearchCapability(overrides: Record<string, unknown> = {}) {
   return defineCapability({
@@ -189,7 +200,7 @@ describe("resolveAppCapabilities", () => {
     capability.expose!.http!.path = "//evil.test/collect";
     const { app, registry } = createApp(capability);
 
-    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+    await expect(resolveOrThrowLoadFailure(app, registry)).rejects.toThrow(
       /exact same-origin pathname/,
     );
   });
@@ -257,12 +268,12 @@ describe("resolveAppCapabilities", () => {
 
   it("rejects unknown middleware names with a helpful error", async () => {
     const { app, registry } = createApp(createSearchCapability({ middleware: ["authz"] }));
-    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(/Unknown middleware/);
+    await expect(resolveOrThrowLoadFailure(app, registry)).rejects.toThrow(/Unknown middleware/);
   });
 
   it("rejects modules that do not export a capability", async () => {
     const { app, registry } = createApp({ not: "a capability" });
-    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+    await expect(resolveOrThrowLoadFailure(app, registry)).rejects.toThrow(
       /must default-export the result of defineCapability/,
     );
   });
@@ -273,7 +284,7 @@ describe("resolveAppCapabilities", () => {
       effect: "destructive" as const,
     };
     const { app, registry } = createApp(capability);
-    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+    await expect(resolveOrThrowLoadFailure(app, registry)).rejects.toThrow(
       /destructive capabilities cannot be exposed as WebMCP page tools/,
     );
   });
@@ -286,7 +297,7 @@ describe("resolveAppCapabilities", () => {
       createSearchCapability({ expose: { http: true, webmcp: true } }),
       { capabilities: { [longName]: "./capabilities/notes-search.ts" } },
     );
-    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+    await expect(resolveOrThrowLoadFailure(app, registry)).rejects.toThrow(
       /not a valid WebMCP tool name/,
     );
   });
@@ -309,7 +320,7 @@ describe("resolveAppCapabilities", () => {
       output: { type: "array", items: { type: "string" } },
     };
     const { app, registry } = createApp(capability);
-    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+    await expect(resolveOrThrowLoadFailure(app, registry)).rejects.toThrow(
       /expose\.mcp requires "input" and "output" schemas with type: "object"/,
     );
   });
@@ -321,7 +332,7 @@ describe("resolveAppCapabilities", () => {
       capabilities: { [name]: "./capabilities/notes-search.ts" },
     });
 
-    await expect(resolveAppCapabilities(app, registry)).rejects.toThrow(
+    await expect(resolveOrThrowLoadFailure(app, registry)).rejects.toThrow(
       /projected MCP tool names must match/,
     );
   });
@@ -748,10 +759,11 @@ describe("capability HTTP projection", () => {
     expect(await response.json()).toEqual({ from: "api-route" });
   });
 
-  it("fails closed at a custom path when another capability breaks registry resolution", async () => {
+  it("keeps serving healthy capabilities when another capability fails to load", async () => {
     const capability = createSearchCapability({
       expose: { http: { path: "/api/find-notes" } },
     });
+    let brokenImports = 0;
     const app = defineApp({
       capabilities: {
         "notes.search": "./capabilities/notes-search.ts",
@@ -765,20 +777,93 @@ describe("capability HTTP projection", () => {
       },
       capabilityModules: {
         "./capabilities/notes-search.ts": async () => ({ default: capability }),
-        "./capabilities/broken.ts": (async () => ({
-          not: "a capability",
-        })) as unknown as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+        "./capabilities/broken.ts": (async () => {
+          brokenImports += 1;
+          throw new Error("needs a database url");
+        }) as unknown as NonNullable<ModuleRegistry["capabilityModules"]>[string],
       },
     };
 
-    const response = await handlePrachtRequest({
+    const healthy = await handlePrachtRequest({
       app,
       registry,
       request: postCapability("/api/find-notes", { query: "hello" }),
     });
+    expect(healthy.status).toBe(200);
 
-    expect(response.status).toBe(500);
-    expect((await response.json()).error.code).toBe("internal_error");
+    // The broken capability's own path fails closed instead of answering 404.
+    const broken = await handlePrachtRequest({
+      app,
+      registry,
+      request: postCapability("/api/capabilities/notes/broken", {}),
+    });
+    expect(broken.status).toBe(500);
+    expect((await broken.json()).error.code).toBe("internal_error");
+
+    // A failed import is retried rather than cached until restart.
+    expect(brokenImports).toBeGreaterThanOrEqual(2);
+  });
+
+  it("shares one bounded resolution between overlapping requests", async () => {
+    const capabilities: Record<string, string> = {};
+    const capabilityModules: NonNullable<ModuleRegistry["capabilityModules"]> = {};
+    let pending = 0;
+    let peak = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    for (let index = 0; index < 20; index += 1) {
+      const file = `./capabilities/c${index}.ts`;
+      capabilities[`notes.c${index}`] = file;
+      capabilityModules[file] = (async () => {
+        pending += 1;
+        peak = Math.max(peak, pending);
+        await gate;
+        pending -= 1;
+        return {
+          default: createSearchCapability({
+            expose: { http: { path: `/api/c${index}` } },
+          }),
+        };
+      }) as NonNullable<ModuleRegistry["capabilityModules"]>[string];
+    }
+    const app = defineApp({ capabilities, routes: [route("/", "./routes/home.tsx")] });
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules,
+    };
+
+    const first = resolveAppCapabilities(app, registry);
+    const second = resolveAppCapabilities(app, registry);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(peak).toBeLessThanOrEqual(8);
+    release();
+    expect((await first).length).toBe(20);
+    expect(await second).toBe(await first);
+  });
+
+  it("does not import capability modules for a page view", async () => {
+    let imports = 0;
+    const app = defineApp({
+      capabilities: { "notes.search": "./capabilities/notes-search.ts" },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./capabilities/notes-search.ts": (async () => {
+          imports += 1;
+          return { default: createSearchCapability() };
+        }) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+
+    const page = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/"),
+    });
+    expect(page.status).toBe(200);
+    expect(imports).toBe(0);
   });
 });
 

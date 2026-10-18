@@ -21,7 +21,15 @@ import type { PrachtAgentsConfig } from "./types.ts";
 
 const AGENT_POLICY_MODES = ["observe", "require"];
 const CONFIRMATION_MODES = ["token", "human"];
-const MCP_CONFIG_KEYS = ["path", "serverInfo", "instructions", "destructive", "auth"];
+const MCP_CONFIG_KEYS = [
+  "path",
+  "serverInfo",
+  "instructions",
+  "destructive",
+  "auth",
+  "pageSize",
+  "allowedOrigins",
+];
 const MCP_AUTH_CONFIG_KEYS = [
   "resource",
   "authorizationServers",
@@ -97,7 +105,35 @@ export function validateAgentsConfig(
       `${label("agents.mcp.destructive")} must be a boolean, got ${JSON.stringify(mcp.destructive)}.`,
     );
   }
+  if (
+    mcp?.pageSize !== undefined &&
+    (typeof mcp.pageSize !== "number" || !Number.isInteger(mcp.pageSize) || mcp.pageSize < 1)
+  ) {
+    throw new Error(
+      `${label("agents.mcp.pageSize")} must be a positive integer, got ${JSON.stringify(mcp.pageSize)}.`,
+    );
+  }
+  if (mcp?.allowedOrigins !== undefined) {
+    const origins: unknown = mcp.allowedOrigins;
+    if (!Array.isArray(origins) || !origins.every(isExactWebOrigin)) {
+      throw new Error(
+        `${label("agents.mcp.allowedOrigins")} must be an array of exact origins such as ` +
+          `"https://inspector.example", got ${JSON.stringify(origins)}.`,
+      );
+    }
+  }
   if (mcp?.auth) validateMcpAuthConfig(mcp, options);
+}
+
+/** An `http(s)` origin exactly as browsers serialize it in the `Origin` header. */
+function isExactWebOrigin(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.origin === value;
+  } catch {
+    return false;
+  }
 }
 
 function validateMcpAuthConfig(
