@@ -350,7 +350,13 @@ static `200.html` fallback boot is the exception: reloading would re-serve the
 same document, so it logs instead.
 Prefetching (hover/intent/viewport) also warms module chunks alongside route-state data.
 Its bounded 30-second in-memory reuse window is independent of the route-state
-response's browser HTTP cache policy.
+response's browser HTTP cache policy. The passive strategies (`viewport`,
+`render`) go through a per-`setupPrefetching()` queue that runs at most
+`MAX_PASSIVE_PREFETCHES` (3) at once, since each one runs a loader on the server
+for a link nobody pointed at. They are skipped entirely when
+`navigator.connection` reports `saveData` or a `2g`/`slow-2g` `effectiveType`.
+Hover/focus intent and the imperative `prefetch()` bypass both the queue and
+the check.
 
 This "server-owned navigation" pattern means loaders never run in the browser.
 Secrets in loader code stay server-side. The client only receives serialized data.
@@ -656,6 +662,9 @@ name-suggestions.ts — edit-distance "did you mean" helpers for wiring errors
 app.ts          — route manifest, matching, SSG path building
     ↑
 runtime-context.ts — hydration state reader and Preact runtime provider
+    ↑
+runtime-navigate-url.ts — absolute same-origin navigations for useSetSearchParams()
+  and `<Form clientNavigation>` GET submissions (lazily imported by Form)
     ↑
 runtime-hooks.ts — public browser hooks/components (Link, Form, useRevalidate, etc.)
     ↑

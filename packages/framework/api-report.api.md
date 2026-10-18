@@ -262,6 +262,7 @@ ScriptStrategy: type
 SearchArgs: type
 SearchParamPrimitive: type
 SearchParamValue: type
+SearchParamsInit: type
 SearchParamsInput: type
 SearchParamsRecord: type
 SerializeApiRoutesOptions: interface
@@ -272,6 +273,8 @@ ServerIslandLoaderArgs: interface
 ServerIslandLoaderData: type
 ServerIslandModule: interface
 ServerIslandProps: interface
+SetSearchParams: type
+SetSearchParamsOptions: interface
 ShellDataFor: type
 ShellModule: interface
 ShellName: type
@@ -417,6 +420,7 @@ useRouteData: function
 useSearch: function
 useSearchParams: function
 useServerIslandData: function
+useSetSearchParams: function
 useShellData: function
 useWebVitals: function
 validateIslandProps: function
@@ -612,6 +616,7 @@ ScriptStrategy: type
 SearchArgs: type
 SearchParamPrimitive: type
 SearchParamValue: type
+SearchParamsInit: type
 SearchParamsInput: type
 SearchParamsRecord: type
 SerializedRouteError: interface
@@ -619,6 +624,8 @@ ServerIslandLoaderArgs: interface
 ServerIslandLoaderData: type
 ServerIslandModule: interface
 ServerIslandProps: interface
+SetSearchParams: type
+SetSearchParamsOptions: interface
 ShellDataFor: type
 ShellModule: interface
 ShellName: type
@@ -702,6 +709,7 @@ useRouteData: function
 useSearch: function
 useSearchParams: function
 useServerIslandData: function
+useSetSearchParams: function
 useShellData: function
 useWebVitals: function
 validateStandardSchema: function

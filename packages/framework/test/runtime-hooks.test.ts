@@ -40,6 +40,7 @@ import {
   useNavigation,
   useRouteData,
   useSearchParams,
+  useSetSearchParams,
   type Blocker,
   type Location,
   type PrachtHydrationState,
@@ -139,6 +140,84 @@ describe("<Form> action submissions", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     // Not preventing the default is what lets the browser navigate.
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("navigates a GET form through the router when it opts into client navigation", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/search?q=old&page=2#results");
+    render(
+      h(
+        Form,
+        { action: "/search", method: "get", clientNavigation: true },
+        h("input", { name: "q", value: "pracht" }),
+        h("input", { name: "tag", value: "a" }),
+        h("input", { name: "tag", value: "b" }),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const event = new Event("submit", { bubbles: true, cancelable: true });
+    form.dispatchEvent(event);
+    await flush();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Like the browser: the form's fields replace the action's query.
+    expect(navigate).toHaveBeenCalledWith(
+      `${location.origin}/search?q=pracht&tag=a&tag=b`,
+      undefined,
+    );
+  });
+
+  it("encodes a client-navigating GET form the way the browser does", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    document.head.innerHTML = '<base href="/app/">';
+    render(
+      h(
+        Form,
+        { action: "results#top", method: "get", clientNavigation: true },
+        h("textarea", { name: "note", value: "a\nb" }),
+        h("input", { name: "upload", type: "file" }),
+      ),
+      root,
+    );
+
+    await submit();
+
+    // Resolved against the document base, the fragment kept, line breaks as
+    // CRLF, and a file input sent by name.
+    expect(navigate).toHaveBeenCalledWith(
+      `${location.origin}/app/results?note=a%0D%0Ab&upload=#top`,
+      undefined,
+    );
+  });
+
+  it("leaves a client-navigating GET form aimed at another tab to the browser", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    render(
+      h(
+        Form,
+        { action: "/search", method: "get", clientNavigation: true },
+        h("button", { formtarget: "_blank", type: "submit" }, "Open"),
+      ),
+      root,
+    );
+
+    const form = root.querySelector("form")!;
+    const event = new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+      submitter: root.querySelector("button"),
+    });
+    form.dispatchEvent(event);
+    await flush();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("fetches a POST submission with the redirect handshake header and form fields", async () => {
@@ -721,5 +800,80 @@ describe("readHydrationState() and startApp()", () => {
 
     expect(startApp()).toEqual({ from: "html" });
     expect(startApp({ initialData: { from: "caller" } })).toEqual({ from: "caller" });
+  });
+});
+
+describe("useSetSearchParams()", () => {
+  function renderSetter(): ReturnType<typeof useSetSearchParams> {
+    let setter!: ReturnType<typeof useSetSearchParams>;
+    function Probe() {
+      setter = useSetSearchParams();
+      return null;
+    }
+    render(h(Probe, null), root);
+    return setter;
+  }
+
+  it("navigates to the current page with the new query", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/products?lang=en#top");
+
+    await renderSetter()({ lang: "zh", tag: ["a", "b"], empty: undefined });
+
+    expect(navigate).toHaveBeenCalledWith(
+      `${location.origin}/products?lang=zh&tag=a&tag=b`,
+      undefined,
+    );
+  });
+
+  it("derives the query from the current one and passes navigation options", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/products?lang=en&page=3");
+
+    await renderSetter()(
+      (current) => {
+        current.delete("page");
+        current.set("sort", "price");
+        return current;
+      },
+      { replace: true, preserveScroll: true },
+    );
+
+    expect(navigate).toHaveBeenCalledWith(`${location.origin}/products?lang=en&sort=price`, {
+      replace: true,
+      preserveScroll: true,
+    });
+  });
+
+  it("drops the query entirely when nothing is left", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    window.history.replaceState(null, "", "/products?lang=en");
+
+    await renderSetter()("");
+
+    expect(navigate).toHaveBeenCalledWith(`${location.origin}/products`, undefined);
+  });
+
+  it("keeps a page whose path begins with // on this origin", async () => {
+    const navigate = vi.fn(async () => {});
+    window.__PRACHT_NAVIGATE__ = navigate;
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { href: "http://localhost//attacker.example/search?q=old", search: "?q=old" },
+    });
+    try {
+      await renderSetter()({ q: "new" });
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+    }
+
+    expect(navigate).toHaveBeenCalledWith(
+      "http://localhost//attacker.example/search?q=new",
+      undefined,
+    );
   });
 });

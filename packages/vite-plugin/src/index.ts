@@ -302,6 +302,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // in `pracht dev` as it does in the build that ships.
       const clientFeatureDefines = {
         __PRACHT_CLIENT_BLOCKER__: String(resolved.client.navigationGuards),
+        __PRACHT_ACCESSIBLE_NAVIGATION__: String(resolved.client.accessibleNavigation),
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
         __PRACHT_HYDRATION_WARNINGS__: String(resolved.client.hydrationWarnings),
         // Read by the server bundle too: with it on, every islands page
