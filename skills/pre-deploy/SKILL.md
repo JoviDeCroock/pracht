@@ -96,8 +96,8 @@ For a PR deploy, `pracht report --base origin/main` produces a markdown summary
 - If the app registers background work with `args.waitUntil()`, the process
   manager sends `SIGTERM` (not `SIGKILL`) on stop and its grace period exceeds
   `nodeAdapter({ shutdownTimeoutMs })` (default 10s); otherwise that work is
-  cut off on every deploy. A custom server entry must call `handler.drain()`
-  itself.
+  cut off on every deploy. A custom server entry must call
+  `handler.closeEventStreams()` then `handler.drain()` itself.
 - Background work still reaching for `context.executionContext.waitUntil` or a
   platform context should move to the portable `args.waitUntil()` — the
   platform-specific call is undefined on every other adapter.

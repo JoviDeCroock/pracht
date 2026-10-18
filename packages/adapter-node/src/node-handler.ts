@@ -62,6 +62,7 @@ import {
   createWebRequest,
   isClientDisconnectError,
   pipeToResponse,
+  whenResponseHeadersStaged,
   writeNodeResponseHeaders,
   writeWebResponse,
 } from "./node-request.ts";
@@ -160,6 +161,19 @@ export interface NodeRequestHandler {
    * after `server.close()` when shutting down.
    */
   drain(timeoutMs?: number): Promise<boolean>;
+  /**
+   * Close every `text/event-stream` response still open, as if its client
+   * had disconnected (the request's `signal` aborts and the body stream is
+   * cancelled). Event streams never end on their own, so a graceful shutdown
+   * calls this after `server.close()` instead of waiting out its timeout;
+   * `EventSource` clients reconnect. Other responses are left to finish.
+   * From the first call on, a request that answers with an event stream later
+   * is closed as it answers. Resolves once every request in flight has
+   * answered and the handlers of the streams it closed have returned, so a
+   * `drain()` after it sees the `waitUntil()` work their abort listeners
+   * registered; waits at most `timeoutMs` (default 10s).
+   */
+  closeEventStreams(timeoutMs?: number): Promise<void>;
   /** Registered background work that has not settled yet. */
   readonly pending: number;
 }
@@ -429,7 +443,33 @@ export function createNodeRequestHandler<TContext = unknown>(
   // `http.createServer(handler)` ignores the returned promise, so a rejection
   // here would become an unhandled rejection and terminate the process. Every
   // failure has to be absorbed at this boundary.
-  const listener = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+  // Each open response with the promise of the request serving it.
+  const openResponses = new Map<ServerResponse, Promise<void>>();
+  const closedEventStreams = new Set<Promise<void>>();
+  let closingEventStreams = false;
+  const closeIfEventStream = (res: ServerResponse, served: Promise<void>): void => {
+    if (res.writableEnded || res.destroyed) return;
+    // Response headers are staged before the first body chunk, so a stream
+    // that has not sent an event yet is closed as well.
+    const contentType = String(res.getHeader("content-type") ?? "").toLowerCase();
+    if (!contentType.startsWith("text/event-stream")) return;
+    res.destroy();
+    closedEventStreams.add(served);
+  };
+  // A request still answering may answer with an event stream, so it is
+  // checked once its headers are staged.
+  const closeOnceAnswered = (res: ServerResponse, served: Promise<void>): Promise<void> =>
+    Promise.race([whenResponseHeadersStaged(res), served]).then(() =>
+      closeIfEventStream(res, served),
+    );
+  const listener = (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const served = serve(req, res);
+    openResponses.set(res, served);
+    res.once("close", () => openResponses.delete(res));
+    if (closingEventStreams) void closeOnceAnswered(res, served);
+    return served;
+  };
+  const serve = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       await handle(req, res);
     } catch (error) {
@@ -480,8 +520,37 @@ export function createNodeRequestHandler<TContext = unknown>(
 
   return Object.defineProperties(listener, {
     drain: { value: (timeoutMs?: number) => backgroundWork.drain(timeoutMs) },
+    closeEventStreams: {
+      value: async (timeoutMs = 10_000) => {
+        closingEventStreams = true;
+        const deadline = Date.now() + timeoutMs;
+        await untilDeadline(
+          Promise.all(Array.from(openResponses, ([res, served]) => closeOnceAnswered(res, served))),
+          deadline,
+        );
+        await untilDeadline(Promise.all(closedEventStreams), deadline);
+        // Let close and abort listeners queued by the last response run.
+        await new Promise((resolveTurn) => setImmediate(resolveTurn));
+      },
+    },
     pending: { get: () => backgroundWork.pending },
   }) as NodeRequestHandler;
+}
+
+/** Wait for `promise`, but no later than `deadline` (epoch ms). */
+async function untilDeadline(promise: Promise<unknown>, deadline: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      promise,
+      new Promise<void>((resolveTimeout) => {
+        timer = setTimeout(resolveTimeout, Math.max(0, deadline - Date.now()));
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function shouldWarnAboutMissingCanonicalOrigin(staticDir: string | undefined): boolean {
