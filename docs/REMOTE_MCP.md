@@ -162,6 +162,22 @@ rendering, so hosts that only read text still get something useful:
 }
 ```
 
+### Pages and per-request cost
+
+`tools/list` returns at most 100 tools per page (`agents.mcp.pageSize` changes
+that) and a `nextCursor` when more remain, per the MCP pagination utility. The
+cursor is opaque to clients; internally it names the last tool of the previous
+page, so a deploy that adds or removes other tools does not shift a page
+boundary. A cursor that does not name a tool the caller can see is `-32602`.
+Graphs under the page size answer in one page with no `nextCursor`, exactly as
+before pagination existed.
+
+The served-tool projection — exposure filter, tool-name validation, collision
+check, descriptors, and a name index — is computed once per resolved graph
+array and `destructive` opt-in, then reused. `tools/call` looks its tool up in
+the index instead of re-filtering the graph. A graph with load failures is a new
+array per resolution, so it is re-projected until every capability loads.
+
 ## Errors
 
 The split follows what actually failed:
@@ -169,7 +185,8 @@ The split follows what actually failed:
 | Situation | Answer |
 | --- | --- |
 | Unknown tool, malformed params, bad JSON-RPC | JSON-RPC `error` |
-| Unsupported protocol version, non-POST, browser-originated, cookie-bearing request | HTTP 400 / 405 / 403 |
+| Unsupported protocol version, non-POST, browser-originated (unlisted `Origin`), cookie-bearing request | HTTP 400 / 405 / 403 |
+| Notification, or a client JSON-RPC response (`id` plus exactly one of `result`/`error`) | HTTP 202, no body |
 | Body over 1 MiB (declared `Content-Length` or counted while streaming) | HTTP 413 with a JSON-RPC `-32600` error; nothing is parsed |
 | Missing, rejected, or under-scoped bearer token (when `agents.mcp.auth` is set) | HTTP 401 / 403 with `WWW-Authenticate` |
 | Validation failure, middleware rejection, policy denial | `isError: true` result |
@@ -289,10 +306,17 @@ The projection inherits every capability guarantee and adds three of its own:
   answers 403 whenever the transport request carries a cookie; a browser
   session can therefore never authenticate remote MCP. `authorization` *is*
   forwarded, so middleware sees the MCP credential.
-- **Browser-originated requests are rejected.** Remote MCP has no browser use
-  case, so requests carrying `Origin` or `Sec-Fetch-Site` receive 403. This
-  avoids trusting a Host-derived request URL during Origin validation, closing
-  the DNS-rebinding path. Non-browser MCP clients send neither header and are
+- **Browser-originated requests are rejected unless allowlisted.** Requests
+  carrying `Origin` or `Sec-Fetch-Site` receive 403 unless
+  `agents.mcp.allowedOrigins` lists that exact `Origin`. The check never
+  compares Origin with the Host-derived request URL, so DNS rebinding cannot
+  pass it: a rebound page keeps its own origin, which no allowlist names. A
+  listed origin gets `Access-Control-Allow-Origin` (never
+  `Allow-Credentials`), exposed `mcp-protocol-version` and `www-authenticate`
+  headers, and an `OPTIONS` preflight answer (204; an unlisted origin's
+  preflight gets 403, and `OPTIONS` without `Origin` stays 405). The cookie
+  rejection above still applies, so a listed page authenticates with
+  `Authorization`. Non-browser MCP clients send neither header and are
   unaffected.
 - **Destructive capabilities are unreachable without the opt-in.** Without
   `agents.mcp.destructive` the projection filters them out of `tools/list` and
@@ -466,6 +490,7 @@ because they serve no protected-resource metadata.
 | No `Authorization: Bearer` | `401`, `WWW-Authenticate: Bearer resource_metadata="…"` and configured `scope="…"` |
 | Token present but rejected | `401`, plus `error="invalid_token"` and configured `scope="…"` |
 | Token valid, scope missing | `403`, plus `error="insufficient_scope"`, `scope="…"` |
+| `tools/call` of a tool whose `expose.mcp.scopes` the token lacks | `403`, plus `error="insufficient_scope"`, `scope="…"` naming `requiredScopes` and the tool's scopes |
 
 ```text
 WWW-Authenticate: Bearer error="invalid_token",
@@ -486,6 +511,18 @@ is parsed and long before a tool is resolved, so an unauthenticated caller
 learns nothing about the graph — not even whether a tool name exists. Method,
 `Origin`, and cookie rejections still come first: a cookie-bearing request is
 403 whether or not it also carries a token.
+
+### Per-tool scopes
+
+`expose: { mcp: { scopes: ["notes.write"] } }` narrows one tool to tokens that
+carry every listed scope. `tools/list` omits the tool for any other caller, and
+`tools/call` answers the step-up challenge in the table above rather than
+"unknown tool", so a host can re-authorize for the missing scope. Scopes are read
+from the verified principal's `scopes`; without `agents.mcp.auth` there is no
+principal, so a scoped tool is never served. The gate covers the MCP entry point
+only: server-side composition (`invokeCapability()`) is first-party code and
+does not re-check scopes. The normalized exposure carries them as
+`expose.mcpScopes`; `expose.mcp` stays a boolean for every other consumer.
 
 ### Writing `verify`
 
@@ -598,7 +635,10 @@ curl -sX POST http://localhost:3000/mcp \
 
 Supported protocol versions are negotiated on `initialize`, newest first:
 `2025-11-25`, `2025-06-18`. An `MCP-Protocol-Version` header outside that set
-is a 400.
+is a 400. A request with no header is served as the newest version. This is a
+deliberate deviation: the spec says a stateless server SHOULD assume
+`2025-03-26`, which pracht does not support, so following it would turn every
+headerless call (including the `curl` examples on the site) into a 400.
 
 `examples/basic` serves this endpoint; `e2e/capabilities.test.ts` exercises
 it end to end. The public docs site (`examples/docs`) serves its documentation

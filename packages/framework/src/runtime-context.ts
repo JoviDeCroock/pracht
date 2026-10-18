@@ -64,6 +64,11 @@ export interface PrachtRuntimeValue {
   /** True while this provider still owns the router's active route state. */
   isCurrent?: () => boolean;
   setData: (data: unknown) => void;
+  /**
+   * @internal Stable for the provider's lifetime, unlike the value itself:
+   * orders overlapping revalidations started from different renders.
+   */
+  revalidation?: object;
 }
 
 export const RouteDataContext = createContext<PrachtRuntimeValue | undefined>(undefined);
@@ -152,6 +157,8 @@ export function PrachtRuntimeProvider<TData>({
           stateVersion,
           url,
         }),
+      // The state setter is stable for the provider's lifetime.
+      revalidation: setRouteDataState,
       url,
     }),
     // `data` is deliberately not a dependency: it is read only as the `source`

@@ -796,7 +796,10 @@ history.
   (client-declared, informational).
 - **Declared-but-unserved `expose.mcp` is labeled.** `pracht verify` warns
   and the dev banner prints `mcp(unserved)` when the app does not configure
-  `agents.mcp`.
+  `agents.mcp`. Every surface applies the runtime's own rule
+  (`mcpToolServing`), and verify applies it to the resolved app graph when it
+  can boot one, falling back to the manifest text scan otherwise, so
+  `agents: sharedConfig` no longer reads as unconfigured.
 - **Eval scenarios gained `confirm`.** Sugar for the confirmation header;
   raw `headers` still work.
 - **`llmsTxt` deliberately stays a plugin option.** The cohesion review

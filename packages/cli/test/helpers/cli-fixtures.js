@@ -121,11 +121,11 @@ export function runCli(args, { cwd }) {
   };
 }
 
-export function runCliStatus(args, { cwd }) {
+export function runCliStatus(args, { cwd, env = process.env }) {
   return spawnSync(process.execPath, [cliPath, ...args], {
     cwd,
     encoding: "utf-8",
-    env: process.env,
+    env,
   });
 }
 

@@ -185,6 +185,19 @@ partially infer defaulted generics, that form leaves the output as `unknown`.
 When you want to state it explicitly, pass both
 `defineCapability<Input, Output>`.
 
+`signal` aborts when the caller disconnects — HTTP or the remote MCP
+transport request — or when the request budget runs out. Under
+`handlePrachtRequest` it is the request's own budget (the one API routes get,
+`defineApp({ loaderTimeoutMs })`, 30 s by default), passed in as
+`handleCapabilityRequest({ budget })` / `handleMcpRequest({ budget })` (see the
+request budget in [DATA_LOADING.md](DATA_LOADING.md)). The dispatch holds it
+while `waitUntil()` work runs, and a failed dispatch (status 400 and up, before
+MCP turns it into a 200 tool error) keeps it until the timer fires. A host that
+passes no budget (the standalone host, `invokeCapability()` without a
+`signal`) gets a per-dispatch one of `timeoutMs` (30 s) with the same holds,
+cleared once the dispatch answers and its work settles. The
+`api.middleware` chain and capability middleware receive the same signal.
+
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the
 verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when
 `agents` is not configured — see [AGENT_TRUST.md](AGENT_TRUST.md)), and
@@ -792,9 +805,24 @@ edge-only import inside `run()`.
   envelope. The cap is fixed: capability inputs are JSON, and file uploads
   belong in API routes. Edge adapters do not cap bodies themselves, so this is
   the only bound on Workers, Netlify, and Vercel.
-- **Fail closed** — a capability registry that cannot resolve (bad module,
-  duplicate paths, unknown middleware) answers capability requests with 500
-  and never partially serves.
+- **Fail closed, per capability** — resolution loads each registered module
+  separately (at most eight imports at once) on the first request that can
+  dispatch a capability: a POST, anything under `/api/capabilities/`, or the
+  MCP endpoint. A page `GET`/`HEAD` outside that prefix never imports capability
+  modules. A module that throws on import, or exports an invalid contract
+  (unknown middleware, bad path, missing schemas), makes only that capability
+  unavailable: requests under the capability prefix — or at a path a capability
+  still claims — answer `500`, `invokeCapability()` returns `internal_error`,
+  and its MCP tool is left out of `tools/list` (a `tools/call` answers
+  `-32603`). The failure is logged once per message and is not cached; the next
+  resolution calls the loader again, so a transient import error (a missing
+  chunk, a flaky custom loader) does not last until restart. An ES module whose
+  top-level code threw stays failed: the runtime caches that evaluation error
+  until the module is replaced (an edit in dev, a restart in production).
+  Overlapping resolutions share one in-flight pass, so at most eight imports
+  run at once. `getCapabilityLoadFailures(resolved)` lists them. Graph-wide
+  invariants — two capabilities on one HTTP path, or a capability on the MCP
+  endpoint — still fail every capability request with `500`.
 
 ## Cost when unused
 
@@ -826,7 +854,14 @@ agent surface at all:
 The capability graph feeds every existing inspection surface:
 
 - the `pracht dev` startup banner prints a Capabilities table (name, effect,
-  exposure, dispatch path) whenever the app registers any;
+  exposure, dispatch path) whenever the app registers any. It reads each
+  capability from source, like API routes. It imports a capability module only
+  when the static extractor cannot read it, or when the MCP endpoint serves it
+  as a destructive tool (`agents.mcp.destructive`): the precondition check
+  needs the approval registrations those modules make. No other capability's
+  top-level code runs at startup.
+  A capability that fails to load is reported on its own row and does not
+  mark the MCP endpoint unavailable — the endpoint keeps serving the rest;
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP
   path, WebMCP route patterns, middleware, source, plus the input/output JSON Schemas in `--json`
   output. It also reports `mcpEndpoint`, `mcpDestructive`, `mcpRuntimeStatus`,
@@ -845,7 +880,11 @@ The capability graph feeds every existing inspection surface:
   and its capability table shows the inverse route mapping. Retained traffic keeps the Agents panel visible after
   HMR removes the final capability, until the dev server restarts; MCP
   declarations are labeled `mcp(unserved)` until the endpoint serves them,
-  including destructive declarations without `agents.mcp.destructive`;
+  including destructive declarations without `agents.mcp.destructive` and
+  scoped ones without `agents.mcp.auth`. The runtime endpoint, this page, the
+  dev banner, `pracht inspect`, the app graph, and `pracht verify` all decide
+  "served" with one function, `mcpToolServing` from `@pracht/capabilities`, so
+  a new exposure rule lands everywhere at once;
 - the `pracht dev-mcp` server exposes `inspect_capabilities` and `inspect_agents`
   tools;
 - every dev document registers dev-only `pracht_*` WebMCP page tools

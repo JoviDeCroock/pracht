@@ -12,6 +12,7 @@ import {
   defineApp,
   handlePrachtRequest,
   invokeCapability,
+  resolveApp,
   route,
   setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
@@ -551,32 +552,44 @@ describe("serving is opt-in", () => {
     expect(await response.json()).toMatchObject({ result: { tools: [] } });
   });
 
-  it("keeps registry failures on the MCP protocol surface", async () => {
+  it("leaves a capability that fails to load off the tool list and fails its calls", async () => {
     const app = defineApp({
       agents: { mcp: {} },
       capabilities: { broken: "./capabilities/broken.ts" },
       routes: [],
     });
-    const response = await handlePrachtRequest({
-      app,
-      registry: {
-        routeModules: {},
-        capabilityModules: {
-          "./capabilities/broken.ts": async () => ({ default: {} }) as never,
-        },
+    const registry = {
+      routeModules: {},
+      capabilityModules: {
+        "./capabilities/broken.ts": async () => ({ default: {} }) as never,
       },
-      request: new Request(`${ORIGIN}/mcp`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-      }),
-    });
+    };
+    const rpc = async (body: unknown) => {
+      const response = await handlePrachtRequest({
+        app,
+        registry,
+        request: new Request(`${ORIGIN}/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      jsonrpc: "2.0",
-      id: 1,
-      error: { code: -32603 },
+    expect(await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })).toMatchObject({
+      result: { tools: [] },
+    });
+    expect(
+      await rpc({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "broken", arguments: {} },
+      }),
+    ).toMatchObject({
+      error: { code: -32603, message: expect.stringContaining("failed to load") },
     });
   });
 });
@@ -607,6 +620,91 @@ describe("transport", () => {
     );
     expect(status).toBe(403);
     expect(text).toContain("Browser-originated requests are not allowed");
+  });
+
+  it("accepts a client JSON-RPC response with 202 and no body", async () => {
+    const result = await mcp({ jsonrpc: "2.0", id: 7, result: {} });
+    expect(result.status).toBe(202);
+    expect(result.text).toBe("");
+    const error = await mcp({ jsonrpc: "2.0", id: "x", error: { code: -1, message: "no" } });
+    expect(error.status).toBe(202);
+    const idless = await mcp({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" } });
+    expect(idless.status).toBe(202);
+    // Neither result nor error, or both, is still not a valid message.
+    expect((await mcp({ jsonrpc: "2.0", id: 7 })).status).toBe(400);
+    expect((await mcp({ jsonrpc: "2.0", id: 7, result: {}, error: {} })).status).toBe(400);
+  });
+
+  describe("agents.mcp.allowedOrigins", () => {
+    const INSPECTOR = "https://inspector.example";
+    const agents: PrachtAgentsConfig = { mcp: { allowedOrigins: [INSPECTOR] } };
+
+    it("serves a listed browser origin with CORS headers", async () => {
+      const { status, json, response } = await mcp(
+        { jsonrpc: "2.0", id: 1, method: "ping" },
+        { agents, headers: { origin: INSPECTOR, "sec-fetch-site": "cross-site" } },
+      );
+      expect(status).toBe(200);
+      expect(json).toMatchObject({ id: 1, result: {} });
+      expect(response.headers.get("access-control-allow-origin")).toBe(INSPECTOR);
+      expect(response.headers.get("access-control-expose-headers")).toContain(
+        "mcp-protocol-version",
+      );
+      expect(response.headers.get("access-control-allow-credentials")).toBeNull();
+      expect(response.headers.get("vary")).toContain("Origin");
+    });
+
+    it("still rejects unlisted origins, Sec-Fetch-Site alone, and cookies", async () => {
+      const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+      const evil = await mcp(ping, { agents, headers: { origin: "https://evil.example" } });
+      expect(evil.status).toBe(403);
+      expect(evil.response.headers.get("access-control-allow-origin")).toBeNull();
+      expect(
+        (await mcp(ping, { agents, headers: { "sec-fetch-site": "cross-site" } })).status,
+      ).toBe(403);
+      const cookie = await mcp(ping, {
+        agents,
+        headers: { origin: INSPECTOR, cookie: "session=1" },
+      });
+      expect(cookie.status).toBe(403);
+      expect(cookie.text).toContain("Cookie-authenticated requests are not allowed");
+    });
+
+    it("answers the CORS preflight only for a listed origin", async () => {
+      const preflight = (origin?: string) =>
+        mcp(null, {
+          agents,
+          method: "OPTIONS",
+          rawBody: "",
+          headers: {
+            ...(origin ? { origin } : {}),
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "authorization, content-type, mcp-protocol-version",
+          },
+        });
+      const allowed = await preflight(INSPECTOR);
+      expect(allowed.status).toBe(204);
+      expect(allowed.response.headers.get("access-control-allow-origin")).toBe(INSPECTOR);
+      expect(allowed.response.headers.get("access-control-allow-methods")).toBe("POST");
+      expect(allowed.response.headers.get("access-control-allow-headers")).toContain(
+        "authorization",
+      );
+      expect((await preflight("https://evil.example")).status).toBe(403);
+      expect((await preflight()).status).toBe(405);
+    });
+
+    it("rejects entries that are not exact web origins", () => {
+      for (const allowedOrigins of [
+        ["https://inspector.example/"],
+        ["*"],
+        ["inspector.example"],
+        "https://inspector.example",
+      ]) {
+        expect(() =>
+          resolveApp(createApp({ mcp: { allowedOrigins } } as unknown as PrachtAgentsConfig).app),
+        ).toThrow(/allowedOrigins.* must be an array of exact origins/);
+      }
+    });
   });
 
   it("serves non-browser callers that send no Origin", async () => {

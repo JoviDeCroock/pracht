@@ -410,6 +410,31 @@ describe("collectCapabilityChecks", () => {
     );
   });
 
+  it("reads the scoped expose.mcp object form as MCP exposure", () => {
+    const scoped = (scopes: string) =>
+      runChecks(
+        capabilitySource(`  title: "Search notes",
+  description: "Find notes.",
+  input: { type: "string" },
+  output: { type: "object" },
+  effect: "read",
+  expose: { mcp: { scopes: ${scopes} } },`),
+      );
+
+    expect(scoped('["notes.read"]')).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('expose.mcp requires "input" and "output" schemas'),
+        status: "error",
+      }),
+    );
+    expect(scoped('["bad scope"]')).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining('MCP exposure "scopes" must be an array of OAuth scope'),
+        status: "error",
+      }),
+    );
+  });
+
   it("fails MCP exposure with non-object schema roots", () => {
     const checks = runChecks(
       capabilitySource(`  title: "Search notes",

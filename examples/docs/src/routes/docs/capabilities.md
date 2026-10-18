@@ -10,7 +10,7 @@ next:
   title: Standalone Capabilities
 ---
 
-> **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover every module in `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`; everything on this page — HTTP endpoints, WebMCP, remote MCP, typed clients, `pracht eval` — works the same in both.
+> **Both routers.** Manifest apps register capabilities through `defineApp({ capabilities })`. [Pages-router](/docs/routing#capabilities-via-srccapabilities) apps auto-discover `src/capabilities/` and configure `agents` from `src/pages/_app.config.ts`. Everything on this page works the same in both.
 
 ## One Contract, Many Surfaces
 
@@ -73,6 +73,8 @@ export default defineCapability({
 ```
 
 A `hydration: "islands"` route that activates a page tool keeps the page bootstrap even when it renders no islands.
+
+Capability modules load on the first capability or MCP request, never for a page view. A throwing module disables only that capability (`500` at its path, absent from `tools/list`); the rest keep serving. Failed imports retry; top-level throws persist until edit or restart.
 
 ---
 
@@ -357,9 +359,9 @@ POST /mcp
   → tools/call  = the capability HTTP dispatch, verbatim
 ```
 
-Validation, middleware, `agentPolicy`, and auditing are identical across HTTP, WebMCP, and MCP. Nested `invokeCapability()` calls under MCP re-apply the callee's `agentPolicy` and refuse destructive callees unless the served tool already cleared prepare/commit. See [Remote MCP Composition Is Guarded](/docs/agent-trust#remote-mcp-composition-is-guarded).
+Validation, middleware, `agentPolicy`, and auditing are identical across HTTP, WebMCP, and MCP. Nested `invokeCapability()` calls under MCP are [guarded](/docs/agent-trust#remote-mcp-composition-is-guarded): they re-apply the callee's `agentPolicy` and refuse unconfirmed destructive callees.
 
-The endpoint is stateless (no sessions or server→client streams), so it runs unchanged on the Node, Cloudflare, Netlify, and Vercel adapters.
+The endpoint is stateless (no sessions or server→client streams), so it runs unchanged on every serverful adapter.
 
 ### What an Agent Sees
 
@@ -380,11 +382,13 @@ The endpoint is stateless (no sessions or server→client streams), so it runs u
 }
 ```
 
-Annotations are UX hints; the server enforces the effect class. `write` capabilities omit `destructiveHint`, and `destructive` ones set it to `true`.
+Annotations are UX hints; the server enforces the effect class.
+
+`tools/list` returns 100 tools per page (`agents.mcp.pageSize`) and a `nextCursor` while more remain.
 
 Dots in names become underscores: `notes.search` becomes `notes_search`. Names that collide after that mapping, or exceed 64 characters, fail `pracht verify`, and the endpoint answers every call with an error until you rename them.
 
-Results carry both the validated output and a text rendering, for hosts that only read text:
+Results carry the validated output and a text rendering:
 
 ```jsonc
 {
@@ -461,7 +465,7 @@ A tampered, expired, or replayed token answers `confirmation_invalid`; in `mode:
 ### Transport Security
 
 - **Cookie-bearing requests get 403**, so a browser session never authenticates remote MCP. `Authorization` is forwarded to your middleware.
-- **Browser requests get 403**: any request with an `Origin` or `Sec-Fetch-Site` header.
+- **Browser requests get 403** (any `Origin` or `Sec-Fetch-Site` header) unless `agents.mcp.allowedOrigins` lists the exact origin (`"https://inspector.example"`), which gets CORS headers and authenticates with `Authorization`.
 - **Destructive capabilities are unreachable without the opt-in**, even through composition.
 
 Every dispatch audits with `transport: "mcp"`, and composed calls with `via: "mcp"`. See [Audit Trail](/docs/agent-trust#audit-trail).
@@ -541,7 +545,9 @@ WWW-Authenticate: Bearer error="invalid_token",
   scope="notes.read"
 ```
 
-`resource_metadata` tells a new host which authorization server to use. The check runs before the JSON-RPC body is parsed, so an unauthenticated caller learns nothing about your tools.
+With `expose: { mcp: { scopes: ["notes.write"] } }`, only tokens carrying those scopes see the tool; calling it without them returns the `403` challenge. Scoped tools need `auth`.
+
+`resource_metadata` tells a new host which authorization server to use. Unauthenticated callers learn nothing about your tools.
 
 #### Writing `verify`
 
@@ -568,9 +574,9 @@ const verify: McpTokenVerifier = async (token) => {
 export default verify;
 ```
 
-`jose` runs on Workers and Vercel Edge, but any library or an introspection call works too.
+Any JWT library or an introspection call works.
 
-The hook **fails closed**: returning `null`, throwing, or returning no non-empty `subject` answers `401 invalid_token`. Thrown messages are logged, never sent to the caller. A `verify` module that fails to load answers 401 to every request, and inspection reports the endpoint `blocked`. The second argument holds a readable `request` clone.
+The hook fails closed with `401 invalid_token`, and a `verify` module that fails to load makes inspection report the endpoint `blocked`. The second argument holds a readable `request` clone.
 
 #### The Verified Principal
 
@@ -582,7 +588,7 @@ async run({ context }) {
 }
 ```
 
-It is a read-only, request-local snapshot that middleware cannot rewrite, present only on authenticated MCP requests. `claims` is frozen only at the top level. Requests answer 500 if your adapter context already has a `tokenAuth` field or is a native built-in such as `Map`; wrap one in an ordinary object.
+It is a read-only, request-local snapshot that middleware cannot rewrite, present only on authenticated MCP requests. Requests answer 500 if your adapter context already has `tokenAuth` or is a built-in such as `Map`; wrap it in an ordinary object.
 
 An adapter's `createContext` hook may run before MCP authentication. Treat its request as untrusted and avoid privileged or expensive work there.
 
@@ -603,7 +609,7 @@ curl -sX POST http://localhost:3000/mcp \
 
 Protocol versions are negotiated on `initialize`, newest first: `2025-11-25`, `2025-06-18`.
 
-For a repeatable check, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives the endpoint like a host. For a protected endpoint, add `"mcpHeaders": { "authorization": "Bearer …" }`, and keep real tokens out of committed files.
+For a repeatable check, a [`pracht eval`](/docs/agent-trust#the-same-scenario-over-remote-mcp) scenario with `"transport": "mcp"` drives the endpoint like a host. Protected endpoints take `"mcpHeaders": { "authorization": "Bearer …" }`; keep real tokens out of committed files.
 
 With `auth` configured, send the token. Point hosts at the endpoint, not the metadata URL:
 

@@ -26,6 +26,7 @@ export {
   clearCapabilityAuditListeners,
   clearDestructiveConfirmed,
   envelopeResponse,
+  getCapabilityLoadFailures,
   handleCapabilityRequest,
   invokeCapabilityOnHost,
   isRegisteredCapabilityHttpPath,

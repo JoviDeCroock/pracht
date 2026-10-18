@@ -80,6 +80,7 @@ import {
 import { invalidatePageFacts } from "./pages-router.ts";
 import {
   createDevCssInjectionMiddleware,
+  createDevMcpPreflightMiddleware,
   createOwnedDevEntryMiddleware,
   createDevSSRMiddleware,
   injectDevCssForPath,
@@ -329,6 +330,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // in `pracht dev` as it does in the build that ships.
       const clientFeatureDefines = {
         __PRACHT_CLIENT_BLOCKER__: String(resolved.client.navigationGuards),
+        __PRACHT_ACCESSIBLE_NAVIGATION__: String(resolved.client.accessibleNavigation),
         __PRACHT_CLIENT_PREFETCH__: String(resolved.client.prefetch),
         __PRACHT_HYDRATION_WARNINGS__: String(resolved.client.hydrationWarnings),
         // Read by the server bundle too: with it on, every islands page
@@ -681,16 +683,16 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       }
       const backgroundWork = createWaitUntilTracker();
       devBackgroundWork = backgroundWork;
+      const ssrMiddleware = createDevSSRMiddleware(server, {
+        adapterDev: resolved.adapter.dev,
+        llmsTxt: !!resolved.llmsTxt,
+        markdownFiles: resolved.markdownFiles,
+        maxBodySize: resolved.maxBodySize,
+        waitUntil: backgroundWork.waitUntil,
+      });
+      server.middlewares.use(createDevMcpPreflightMiddleware(server, ssrMiddleware));
       return () => {
-        server.middlewares.use(
-          createDevSSRMiddleware(server, {
-            adapterDev: resolved.adapter.dev,
-            llmsTxt: !!resolved.llmsTxt,
-            markdownFiles: resolved.markdownFiles,
-            maxBodySize: resolved.maxBodySize,
-            waitUntil: backgroundWork.waitUntil,
-          }),
-        );
+        server.middlewares.use(ssrMiddleware);
       };
     },
 

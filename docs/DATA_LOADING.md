@@ -773,6 +773,17 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 Error boundaries compose: a route boundary catches route-level errors, while
 a shell boundary catches errors from any route inside that shell. If a route
 has no boundary, the error bubbles up to the shell, then to the global handler.
+On the client, the router wraps the whole tree, outside the app `Root`, in
+`NavigationErrorBoundary`, so it sees only errors that every app boundary
+(route, shell, or a `<ErrorBoundary>` in `Root`) let through. It acts only on a
+render or layout-effect error thrown while a client navigation commits
+(`afterCommitCallback` still pending): it reports the error with
+`reportError()`, renders nothing for that route version, and reloads the
+document, which the server renders or answers with its error page. Errors
+during hydration or any later update propagate as before, so the reload cannot
+loop. A static host's SPA-fallback boot is excluded (a reload would serve the
+same fallback), and the wrapper is unkeyed and clears on the next route version
+(a cancelled `beforeunload` leaves the page usable).
 
 404s take a different path when the app declares a
 [`notFound` page](#custom-404-pages): a route boundary still wins, but the
@@ -1197,9 +1208,22 @@ with `lang=zh` without causing a hydration mismatch. Use `useIsHydrated()` or
 stable fallback UI when query-dependent markup should not visibly change after
 hydration.
 
-Changing the returned object is intentionally unsupported; navigate to a new
-URL to update the query string. SSG loader data remains build-time data and is
-not rerun for the visitor query. Use SSR when query parameters must affect
+Changing the returned object is intentionally unsupported (the mutators throw);
+`useSetSearchParams()` returns a stable module-level setter that builds the new
+query (string, `URLSearchParams`, record with array values repeated, or a
+function of a copy of `window.location.search`) and navigates to the current
+URL with that query through `window.__PRACHT_NAVIGATE__`
+with `{ replace, preserveScroll }`, or as a document navigation when the page
+has no client router. The hash is dropped. A `GET` `<Form clientNavigation>`
+does the same for a form, building the URL the browser would: the action
+resolved against `document.baseURI` (none means the page), its fragment kept,
+its query replaced by the fields with files sent by name and CRLF line breaks.
+Without the prop, for a cross-origin action, or with a `target`/`formtarget`
+other than `_self`, it stays a native submission. Both pass the router an
+absolute URL, and the router hands any path beginning with `//` to the browser
+as a document navigation, since reusing it as a relative URL would name
+another host. SSG loader data
+remains build-time data and is not rerun for the visitor query. Use SSR when query parameters must affect
 server-loaded data or the initial HTML.
 
 ### `useSearch()`
@@ -1232,6 +1256,13 @@ export function Component() {
   return <button onClick={() => revalidate()}>Refresh</button>;
 }
 ```
+
+Every revalidation path goes through `revalidateRouteData()`, which numbers the
+requests it starts per runtime value (a `WeakMap`, so the capability listener's
+refresh of every mounted runtime does not cross-supersede). Only the latest
+request for a runtime commits data, fonts, shell data, the server-island refresh,
+or a redirect. A superseded one still resolves with what it fetched (or throws
+its error) for its own caller. Requests are not aborted.
 
 ### `useNavigation()`
 

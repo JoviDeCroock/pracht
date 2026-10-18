@@ -37,10 +37,13 @@ What to read off the table:
 - **Islands is the biggest lever.** Going from full hydration to islands
   removes the whole client router.
 - **[Prefetching off](/docs/prefetching#shipping-less-javascript) saves about
-  1.5 KB.** The router loads the prefetch runtime after hydration, so it counts
+  1.6 KB.** The router loads the prefetch runtime after hydration, so it counts
   on a cold load without appearing in any route's chunk list.
 - **[Navigation guards off](/docs/data-loading#useblocker) saves about
   0.25 KB**, the full cost of `useBlocker()`.
+- **[Accessible navigation](/docs/reference/config#client-bundle) off saves
+  about 0.3 KB**, but only an app that moves focus and announces pages itself
+  should turn it off.
 - **[Rich data](/docs/data-loading#dates-maps-and-other-rich-values) costs
   about 0.3 KB**, and only when you turn it on.
 - **[Islands navigation](/docs/islands#client-side-navigation-between-islands-pages)
@@ -84,7 +87,7 @@ Add `--json` for machine-readable output, and set per-route
 [budgets](/docs/reference/config) to fail a build when a route ships too much.
 
 Route totals count the chunks a route loads *to hydrate*. On a full-hydration
-route, the browser also fetches the prefetch runtime afterwards, about 1.1 KB
+route, the browser also fetches the prefetch runtime afterwards, about 1.2 KB
 gzip, which no route total includes.
 
 ---

@@ -1,5 +1,7 @@
 import type { AppGraphCapability } from "@pracht/core";
 
+import { formatCapabilityTransports } from "./capability-exposure.js";
+
 import type { AppGraphApiRoute, AppGraphRoute } from "./app-graph.js";
 
 export interface DevBannerRoute extends Pick<
@@ -189,24 +191,12 @@ export function formatDevBanner(options: DevBannerOptions): string {
       const rows = capabilities.map((capability) => [
         capability.name,
         capability.effect ?? "?",
-        capability.transports.length > 0
-          ? capability.transports
-              // `expose.mcp` is only served when the app configures
-              // `agents.mcp`, and a destructive capability additionally needs
-              // `agents.mcp.destructive` — don't let the banner imply either.
-              .map((transport) =>
-                transport !== "mcp"
-                  ? transport
-                  : !mcpEndpoint ||
-                      (capability.effect === "destructive" && !mcpDestructive) ||
-                      mcpRuntimeStatus === "blocked"
-                    ? "mcp(unserved)"
-                    : mcpRuntimeStatus === "unverified"
-                      ? "mcp(unverified)"
-                      : transport,
-              )
-              .join(",")
-          : "private",
+        formatCapabilityTransports(capability, {
+          mcpEndpoint,
+          mcpDestructive,
+          mcpAuthenticated,
+          mcpRuntimeStatus,
+        }),
         capability.httpPath ?? "-",
       ]);
       const header = ["NAME", "EFFECT", "EXPOSURE", "HTTP"];

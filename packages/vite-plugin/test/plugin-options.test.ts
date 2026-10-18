@@ -39,6 +39,7 @@ describe("resolveOptions client", () => {
     expect(resolveOptions({}).client).toEqual({
       prefetch: true,
       navigationGuards: true,
+      accessibleNavigation: true,
       hydrationWarnings: false,
       richData: false,
       islandsNavigation: false,
@@ -49,6 +50,7 @@ describe("resolveOptions client", () => {
     expect(resolveOptions({ client: { prefetch: false } }).client).toEqual({
       prefetch: false,
       navigationGuards: true,
+      accessibleNavigation: true,
       hydrationWarnings: false,
       richData: false,
       islandsNavigation: false,
@@ -56,6 +58,7 @@ describe("resolveOptions client", () => {
     expect(resolveOptions({ client: { navigationGuards: false } }).client).toEqual({
       prefetch: true,
       navigationGuards: false,
+      accessibleNavigation: true,
       hydrationWarnings: false,
       richData: false,
       islandsNavigation: false,
@@ -63,6 +66,7 @@ describe("resolveOptions client", () => {
     expect(resolveOptions({ client: { hydrationWarnings: true } }).client).toEqual({
       prefetch: true,
       navigationGuards: true,
+      accessibleNavigation: true,
       hydrationWarnings: true,
       richData: false,
       islandsNavigation: false,
@@ -70,6 +74,7 @@ describe("resolveOptions client", () => {
     expect(resolveOptions({ client: { richData: true } }).client).toEqual({
       prefetch: true,
       navigationGuards: true,
+      accessibleNavigation: true,
       hydrationWarnings: false,
       richData: true,
       islandsNavigation: false,
@@ -77,9 +82,21 @@ describe("resolveOptions client", () => {
     expect(resolveOptions({ client: { islandsNavigation: true } }).client).toEqual({
       prefetch: true,
       navigationGuards: true,
+      accessibleNavigation: true,
       hydrationWarnings: false,
       richData: false,
       islandsNavigation: true,
+    });
+  });
+
+  it("turns off accessible navigation on request", () => {
+    expect(resolveOptions({ client: { accessibleNavigation: false } }).client).toEqual({
+      prefetch: true,
+      navigationGuards: true,
+      accessibleNavigation: false,
+      hydrationWarnings: false,
+      richData: false,
+      islandsNavigation: false,
     });
   });
 

@@ -16,7 +16,9 @@ import {
   MCP_SCHEMA_ROOT_ERROR,
   MCP_TOOL_NAME_ERROR,
   mcpToolName,
+  mcpToolServing,
   WEBMCP_TOOL_NAME_ERROR,
+  type McpToolServing,
 } from "@pracht/capabilities";
 import {
   evaluateLiteral,
@@ -32,6 +34,7 @@ import {
   scanTopLevelPropertyEntries,
 } from "@pracht/capabilities/static";
 import { isValidOAuthScopeToken, OAUTH_PROTECTED_RESOURCE_WELL_KNOWN } from "@pracht/core";
+import type { AppGraphCapability } from "@pracht/core";
 
 import { parseAst } from "vite";
 
@@ -42,7 +45,15 @@ import { createCheck, isModuleSource, type Check } from "./verification-helpers.
 
 const CAPABILITY_EFFECTS = new Set(["read", "write", "destructive"]);
 const AGENT_POLICIES = new Set(["observe", "require"]);
-const MCP_CONFIG_KEYS = new Set(["path", "serverInfo", "instructions", "destructive", "auth"]);
+const MCP_CONFIG_KEYS = new Set([
+  "path",
+  "serverInfo",
+  "instructions",
+  "destructive",
+  "auth",
+  "pageSize",
+  "allowedOrigins",
+]);
 const MCP_AUTH_CONFIG_KEYS = new Set([
   "resource",
   "authorizationServers",
@@ -317,6 +328,18 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
 }
 
 /**
+ * Warnings that say an `expose.mcp` tool is not served, derived from the
+ * manifest text. A manifest that assembles `agents` elsewhere reads as
+ * unconfigured here, so when `pracht verify` resolves the app graph it
+ * replaces these with the same rule applied to the resolved app
+ * (`collectMcpServingChecks`).
+ */
+export const staticMcpServingChecks = new WeakSet<Check>();
+
+/** Check lists whose destructive-MCP secret and store checks the manifest text already ran. */
+const staticDestructiveMcpChecked = new WeakSet<Check[]>();
+
+/**
  * What the manifest source says about `agents.mcp`. Static, so a manifest that
  * assembles its `agents` config elsewhere reads as unconfigured — which is why
  * an unseen projection downgrades to the existing warning instead of failing
@@ -426,18 +449,18 @@ function collectDestructiveMcpChecks(
   if (!projection.destructive) {
     // An unseen `agents.mcp` already produced the "nothing serves it" warning.
     if (projection.configured) {
-      checks.push(
-        createCheck(
-          "warning",
-          `Capabilities ${names} are destructive and set expose.mcp, but the manifest does not ` +
-            "set agents.mcp.destructive — the projection filters them out at serve time. Add " +
-            "`agents: { mcp: { destructive: true } }` (with an approval store) or drop expose.mcp.",
-        ),
-      );
+      const check = createCheck("warning", destructiveMcpNotEnabledMessage(names));
+      staticMcpServingChecks.add(check);
+      checks.push(check);
     }
     return;
   }
 
+  staticDestructiveMcpChecked.add(checks);
+  collectApprovalStoreCheck(names, project, checks);
+}
+
+function collectApprovalStoreCheck(names: string, project: ProjectConfig, checks: Check[]): void {
   const scan = scanForSourceCall(project, /\bsetCapabilityApprovalStore\s*\(/);
   if (!scan.found) {
     checks.push(
@@ -527,15 +550,109 @@ function collectMcpProjectionChecks(
   }
 
   if (!projection.configured) {
+    const check = createCheck("warning", mcpNotConfiguredMessage(mcpExposed.length));
+    staticMcpServingChecks.add(check);
+    checks.push(check);
+  }
+}
+
+function mcpNotConfiguredMessage(count: number): string {
+  return (
+    `${count} capabilit${count === 1 ? "y sets" : "ies set"} ` +
+    "expose.mcp, but the app does not configure agents.mcp — the exposure is recorded " +
+    "in the graph and nothing serves it. Add `agents: { mcp: {} }` to defineApp() to serve " +
+    "them at /mcp."
+  );
+}
+
+function destructiveMcpNotEnabledMessage(names: string): string {
+  return (
+    `Capabilities ${names} are destructive and set expose.mcp, but the app does not ` +
+    "set agents.mcp.destructive — the projection filters them out at serve time. Add " +
+    "`agents: { mcp: { destructive: true } }` (with an approval store) or drop expose.mcp."
+  );
+}
+
+/**
+ * The resolved-graph counterpart of the static serving warnings: apply
+ * `mcpToolServing` — the rule the endpoint itself uses — to every `expose.mcp`
+ * capability in the resolved app, and replace the text-derived warnings with
+ * what it says.
+ */
+export function collectMcpServingChecks(
+  graph: {
+    capabilities: readonly Pick<
+      AppGraphCapability,
+      "effect" | "error" | "mcpScopes" | "name" | "transports"
+    >[];
+    mcpEndpoint: string | null;
+    mcpDestructive?: boolean;
+    mcpAuthenticated?: boolean;
+  },
+  checks: Check[],
+  project?: ProjectConfig,
+): void {
+  for (let index = checks.length - 1; index >= 0; index--) {
+    if (staticMcpServingChecks.has(checks[index]!)) checks.splice(index, 1);
+  }
+  const unserved = new Map<McpToolServing, string[]>();
+  const servedDestructive: string[] = [];
+  for (const capability of graph.capabilities) {
+    const serving = mcpToolServing(
+      {
+        effect: capability.effect,
+        mcp: capability.transports.includes("mcp"),
+        mcpScopes: capability.mcpScopes,
+      },
+      {
+        endpoint: graph.mcpEndpoint !== null,
+        // The graph sets `mcpDestructive` exactly when the opt-in is on and a
+        // destructive tool is otherwise servable — the case this rule decides.
+        destructive: graph.mcpDestructive === true,
+        auth: graph.mcpAuthenticated === true,
+      },
+    );
+    if (serving === "served" && capability.effect === "destructive") {
+      servedDestructive.push(capability.name);
+    }
+    if (serving === "served" || serving === "not-exposed") continue;
+    unserved.set(serving, [...(unserved.get(serving) ?? []), capability.name]);
+  }
+  const quote = (names: string[]) => names.map((name) => JSON.stringify(name)).join(", ");
+  const notConfigured = unserved.get("no-endpoint");
+  if (notConfigured) {
+    checks.push(createCheck("warning", mcpNotConfiguredMessage(notConfigured.length)));
+  }
+  const destructive = unserved.get("destructive-not-enabled");
+  if (destructive) {
+    checks.push(createCheck("warning", destructiveMcpNotEnabledMessage(quote(destructive))));
+  }
+  const scoped = unserved.get("scopes-need-auth");
+  if (scoped) {
     checks.push(
       createCheck(
         "warning",
-        `${mcpExposed.length} capabilit${mcpExposed.length === 1 ? "y sets" : "ies set"} ` +
-          "expose.mcp, but the manifest does not configure agents.mcp — the exposure is recorded " +
-          "in the graph and nothing serves it. Add `agents: { mcp: {} }` to defineApp() to serve " +
-          "them at /mcp.",
+        `Capabilities ${quote(scoped)} set expose.mcp scopes, but agents.mcp.auth is not ` +
+          "configured — the endpoint only serves a scoped tool to an OAuth token carrying its " +
+          "scopes, so nothing serves them. Configure agents.mcp.auth or drop the scopes.",
       ),
     );
+  }
+  // An `agents` config the manifest text cannot read skipped these checks
+  // statically; the resolved app says destructive tools are served.
+  if (project && servedDestructive.length > 0 && !staticDestructiveMcpChecked.has(checks)) {
+    if (!process.env.PRACHT_CONFIRMATION_SECRET) {
+      checks.push(
+        createCheck(
+          "warning",
+          `Destructive MCP tools (${quote(servedDestructive)}) are served, but ` +
+            "PRACHT_CONFIRMATION_SECRET is not set in the environment — the endpoint refuses " +
+            "to serve them without it. Set a real variable where the server runs; " +
+            "verification does not read `.env`.",
+        ),
+      );
+    }
+    collectApprovalStoreCheck(quote(servedDestructive), project, checks);
   }
 }
 
@@ -1593,9 +1710,23 @@ function readExposeFlags(text: string | undefined): {
     problems.push('"expose.webmcp" must be true or an options object');
   }
 
+  let hasMcp = false;
+  if (expose.mcp === true) {
+    hasMcp = true;
+  } else if (expose.mcp && typeof expose.mcp === "object" && !Array.isArray(expose.mcp)) {
+    hasMcp = true;
+    const { scopes } = expose.mcp as Record<string, unknown>;
+    if (
+      scopes !== undefined &&
+      (!Array.isArray(scopes) || scopes.some((scope) => !isValidOAuthScopeToken(scope)))
+    ) {
+      problems.push('MCP exposure "scopes" must be an array of OAuth scope tokens');
+    }
+  }
+
   return {
     hasHttp,
-    hasMcp: expose.mcp === true,
+    hasMcp,
     hasWebmcp,
     unknown: false,
     problems,

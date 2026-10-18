@@ -1,5 +1,11 @@
 import { EventEmitter } from "node:events";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  createServer,
+  request as httpRequest,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it } from "vitest";
 
 import { createClientDisconnectSignal, createWebRequest } from "../src/node-request.ts";
@@ -68,6 +74,61 @@ describe("createClientDisconnectSignal", () => {
     res.emit("close");
 
     expect(reasons).toHaveLength(1);
+  });
+});
+
+describe("createClientDisconnectSignal over a real socket", () => {
+  it("stays un-aborted after a POST body is fully read and the response is pending", async () => {
+    let observed: boolean | undefined;
+    const server = createServer(async (req, res) => {
+      const signal = createClientDisconnectSignal(req, res);
+      const request = await createWebRequest(req, { trustProxy: false, signal });
+      await request.text();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      observed = request.signal.aborted;
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ hello: "world" }),
+      });
+      expect(await response.text()).toBe("ok");
+      expect(observed).toBe(false);
+    } finally {
+      server.close();
+    }
+  });
+
+  it("aborts when the client hangs up while the app is still working", async () => {
+    let resolveAborted!: (value: boolean) => void;
+    const aborted = new Promise<boolean>((resolve) => (resolveAborted = resolve));
+    let resolveReady!: () => void;
+    const ready = new Promise<void>((resolve) => (resolveReady = resolve));
+    const server = createServer(async (req, res) => {
+      const signal = createClientDisconnectSignal(req, res);
+      const request = await createWebRequest(req, { trustProxy: false, signal });
+      await request.text();
+      request.signal.addEventListener("abort", () => resolveAborted(true));
+      setTimeout(() => resolveAborted(request.signal.aborted), 2000);
+      resolveReady();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const client = httpRequest({ port, host: "127.0.0.1", method: "POST", path: "/" });
+      client.on("error", () => {});
+      client.end("{}");
+      await ready;
+      client.destroy();
+      expect(await aborted).toBe(true);
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 });
 

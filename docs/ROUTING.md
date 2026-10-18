@@ -511,7 +511,8 @@ and `<Link prefetch>` overrides it per link:
 Prefetching warms the route's JS chunks and caches the route-state JSON in a
 bounded LRU cache (30s TTL); a subsequent navigation consumes the cached
 result instead of fetching again. Failed prefetches are evicted so they never
-poison a later navigation. This short-lived in-memory cache is independent of
+poison a later navigation, and every mutation path empties the cache (see the
+shell-data notes below). This short-lived in-memory cache is independent of
 the route's HTTP `loaderCache` policy.
 
 There is also an imperative API for warming a route from code (e.g. before
@@ -566,6 +567,30 @@ with a fragment — it also moves focus to the target, adding a temporary
 `tabindex="-1"` when the element is not natively focusable and removing it again
 on blur. Without this a skip link scrolls but leaves the next Tab stop at the
 top of the page, sending the user back into the navigation they just skipped.
+
+**Focus and announcement on page changes.** After a navigation that changes the
+pathname (push, replace, or traversal), `settlePageFocus()` in `router.ts` does
+what a document load does for assistive technology. It runs from the
+after-commit callback, next to scroll restoration:
+
+- Focus starts over on the new page's first `[autofocus]` element inside the
+  router root (scrolled into view, as a document load does), else on `<body>` (a temporary `tabindex="-1"`, the same trick
+  `settleFocus()` in `islands-navigation.ts` uses). The next Tab then starts at
+  the top. This is skipped when the active element is no longer the one that
+  had focus when the navigation started (the page moved focus itself, e.g. in a
+  layout effect), and for `preserveScroll` navigations.
+- A visually hidden `aria-live="assertive"` region (`[data-pracht-announcer]`,
+  appended to `<body>` outside the router root, so hydration never sees it)
+  reads out, 50 ms after commit so route effects have run: `document.title` if
+  it changed during the navigation, else the root's first `<h1>`, else the
+  pathname (the unchanged title would name the page being left). The router does not update `<title>` itself (head metadata is
+  server-rendered), so the heading is the usual source.
+- A navigation that keeps the pathname (a query or filter change) does
+  neither.
+
+`client: { accessibleNavigation: false }` sets
+`__PRACHT_ACCESSIBLE_NAVIGATION__` to `false` and compiles all of it out (about
+330 B gzip).
 
 When a fragment matches no element the router does what the browser does: it
 scrolls to the top of the document only for the empty fragment and the legacy
@@ -1025,10 +1050,15 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   so later same-shell navigations reuse the fresh value.
 - Prefetches claim the held shell for routes in it; the claim is part of the
   prefetch cache key (`routeStateCacheKey`), so a response fetched without the
-  shell's data is never consumed by a navigation that needs it. A revalidation
-  does not evict prefetched entries (route data has the same 30 s window), so
-  re-entering a shell soon after a revalidation can show the prefetched shell
-  data; a `<Form>` submission clears the prefetch cache.
+  shell's data is never consumed by a navigation that needs it. Every mutation
+  path empties the prefetch cache, so a prefetched entry never outlives the
+  data it was fetched against: `revalidateRouteData()` (so `useRevalidate()`
+  and capability revalidation), a non-`GET`/`HEAD` `apiFetch()`, a successful
+  non-read `CAPABILITY_SETTLED_EVENT` (even with `revalidate: false`), and a
+  `<Form>` submission. Each clear bumps `prefetchGeneration`; a navigation
+  whose generation moved before it commits (it may hold a promise taken from
+  the cache, or a response fetched before the mutation) re-runs once as a
+  `_reloadRouteState` navigation instead of rendering that state.
 - `hasShellLoader` is a build-time route hint (the loader bit of the shell's
   row in the client hint table, which scans shells and pages `_app` files too). A
   loaderless, headless, middleware-free route skips the route-state request
@@ -1144,7 +1174,11 @@ served static HTML never traverses it. This holds for manifest and pages
 
 Client-side navigations honor same-origin middleware redirects too. If a redirect
 lands on the page the user is already on, the router treats it as a no-op
-instead of forcing a reload loop.
+instead of forcing a reload loop. A chain longer than `MAX_REDIRECT_HOPS` (20,
+the browser's own limit) logs `[pracht] too many redirects` and becomes a
+document navigation to the last hop instead of leaving the previous page on
+screen. The browser starts a fresh redirect budget there: a finite chain lands
+on its destination, and a loop ends on the browser's own error page.
 
 ---
 

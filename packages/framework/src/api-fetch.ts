@@ -1,4 +1,5 @@
 import { withBase } from "./base.ts";
+import { clearPrefetchCache } from "./prefetch-cache.ts";
 import {
   buildPathFromSegments,
   normalizeHrefParams,
@@ -116,6 +117,8 @@ export async function apiFetch<
     requestInit.duplex = "half";
   }
   const response = await fetchImpl(url, requestInit);
+  // A mutation can change what any prefetched route would load.
+  if (method !== "GET" && method !== "HEAD") clearPrefetchCache();
 
   if (!response.ok) {
     throw new ApiFetchError(response, await readResponseBody(response, method === "HEAD", true));

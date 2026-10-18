@@ -32,7 +32,7 @@ import {
   createNavigationLocation,
   settleNavigation,
 } from "./navigation-state.ts";
-import { getCachedRouteState, routeStateCacheKey } from "./prefetch-cache.ts";
+import { getCachedRouteState, prefetchGeneration, routeStateCacheKey } from "./prefetch-cache.ts";
 import { registerPrefetchTarget } from "./prefetch-api.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
 import {
@@ -164,6 +164,17 @@ declare const __PRACHT_APP_ROOT__: boolean | undefined;
 const APP_ROOT_ENABLED =
   typeof __PRACHT_APP_ROOT__ === "undefined" || __PRACHT_APP_ROOT__ !== false;
 
+/**
+ * Focus reset and route announcement after a client navigation to another
+ * page, compiled out by `client: { accessibleNavigation: false }` for an app
+ * that manages both itself.
+ */
+declare const __PRACHT_ACCESSIBLE_NAVIGATION__: boolean | undefined;
+
+const ACCESSIBLE_NAVIGATION_ENABLED =
+  typeof __PRACHT_ACCESSIBLE_NAVIGATION__ === "undefined" ||
+  __PRACHT_ACCESSIBLE_NAVIGATION__ !== false;
+
 interface RouteRenderState {
   Shell: FunctionComponent | null;
   Component: FunctionComponent;
@@ -262,8 +273,8 @@ interface InternalNavigateOptions extends NavigateOptions {
   _staticFallback?: boolean;
   /**
    * How many loader redirects this navigation has already followed. Chains
-   * longer than `MAX_REDIRECT_HOPS` stop with an error instead of recursing
-   * forever, matching how the browser bounds a document redirect chain.
+   * longer than `MAX_REDIRECT_HOPS` become a document navigation instead of
+   * recursing forever, and the browser follows the rest.
    */
   _redirectHop?: number;
 }
@@ -565,10 +576,51 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     }
   }
 
+  // The page last announced; a navigation that keeps the pathname (a query or
+  // filter change) neither moves focus nor announces.
+  let announcedPathname = window.location.pathname;
+
   // Runs after the DOM for a newly committed route state is in place —
   // scroll restoration must not race Preact's asynchronous re-render (the
   // outgoing page's height would clamp the restored position).
   let afterCommitCallback: (() => void) | null = null;
+
+  // Whether the committing navigation boots a static host's SPA fallback,
+  // which a reload would only serve again.
+  let committingStaticFallback = false;
+
+  // Outermost, so it sees only what every app ErrorBoundary (route, shell,
+  // one in `Root`) let through. A render error while a client navigation
+  // commits would otherwise leave the page blank, so the document is reloaded
+  // instead: the server renders the page, or its error page. Any other error
+  // (hydration, a later update) propagates as before, which also keeps the
+  // reload from looping. Unkeyed so nothing remounts between pages; a failed
+  // version stays blank only until the next one renders.
+  class NavigationErrorBoundary extends Component<
+    { children?: ComponentChildren; v: number },
+    { v?: number }
+  > {
+    componentDidCatch(error: unknown): void {
+      if (
+        !afterCommitCallback ||
+        (IS_STATIC_TARGET && committingStaticFallback) ||
+        typeof (error as { then?: unknown })?.then === "function"
+      ) {
+        throw error;
+      }
+      afterCommitCallback = null;
+      window.reportError?.(error);
+      this.setState({ v: this.props.v });
+      window.location.reload();
+    }
+
+    render(
+      props: { children?: ComponentChildren; v: number },
+      state: { v?: number },
+    ): ComponentChildren {
+      return state.v === props.v ? null : props.children;
+    }
+  }
 
   // The route component's `data` prop is a snapshot taken when the route state
   // was resolved, but revalidation (`useRevalidate()`, `<Form capability>`, the
@@ -650,9 +702,10 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     // the shell.
     const rootedTree =
       APP_ROOT_ENABLED && Root ? h(Root, { state: rootState }, guardedShellTree) : guardedShellTree;
+    const guardedTree = h(NavigationErrorBoundary, { v: version }, rootedTree);
     const componentTree = SEARCH_ENABLED
-      ? h(RouteSearchContext.Provider, { value: routeState.search }, rootedTree)
-      : rootedTree;
+      ? h(RouteSearchContext.Provider, { value: routeState.search }, guardedTree)
+      : guardedTree;
 
     return h(
       NavigateContext.Provider as FunctionComponent<Record<string, unknown>>,
@@ -808,7 +861,12 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       return;
     }
 
+    // What had focus, and the title, when the navigation started: focus the
+    // app moves on its own is left alone, and a title it sets is announced.
+    const focused = ACCESSIBLE_NAVIGATION_ENABLED ? document.activeElement : null;
+    const title = ACCESSIBLE_NAVIGATION_ENABLED ? document.title : "";
     const navigationId = ++latestNavigationId;
+    const generation = prefetchGeneration;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
     activeNavigationAbort = abortController;
@@ -916,7 +974,11 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           if (result.location) {
             const hop = (opts?._redirectHop ?? 0) + 1;
             if (hop > MAX_REDIRECT_HOPS) {
+              // Let the browser follow the rest of the chain: it lands on the
+              // destination, or a loop ends on the browser's error page,
+              // instead of the old page staying put.
               console.error(`[pracht] too many redirects: ${result.location}`);
+              window.location.href = target.browserUrl;
               return;
             }
             const redirect = resolveRedirectTarget(result.location);
@@ -1024,6 +1086,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       ).catch(() => null);
       if (navigationId !== latestNavigationId) return;
 
+      // A mutation landed while this navigation waited, so the state it holds
+      // (prefetched, or fetched before the change) may predate it. Fetch it
+      // again rather than commit it; the reload navigation does not retry.
+      if (PREFETCH_ENABLED && !opts?._reloadRouteState && generation !== prefetchGeneration) {
+        return navigate(to, { ...opts, _blockerChecked: true, _reloadRouteState: true });
+      }
+
       if (!routeState) {
         // A route or shell chunk failed to load — typically one a newer deploy
         // removed — or the module renders nothing. A document navigation loads
@@ -1060,7 +1129,15 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
       }
 
       const commit = () => {
-        afterCommitCallback = () => restoreOrResetScroll(opts, target.browserUrl);
+        if (IS_STATIC_TARGET) committingStaticFallback = !!opts?._staticFallback;
+        afterCommitCallback = () => {
+          restoreOrResetScroll(opts, target.browserUrl);
+          // Another page, not a query or fragment change on this one.
+          if (ACCESSIBLE_NAVIGATION_ENABLED && target.urlPathname !== announcedPathname) {
+            announcedPathname = target.urlPathname;
+            settlePageFocus(root, focused, title, !opts?.preserveScroll);
+          }
+        };
         if (fontHead) applyFontHeadFragments(fontHead);
         applyRouteState(routeState);
       };
@@ -1501,6 +1578,58 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
   document.documentElement.setAttribute("data-pracht-hydrated", "true");
 }
 
+let announcer: HTMLElement | undefined;
+const NO_SCROLL: FocusOptions = { preventScroll: true };
+
+/**
+ * Do what a document load does for assistive technology after a client
+ * navigation to another page. Focus starts over on the page's `autofocus`
+ * element, else on the body so the next Tab starts at the top, unless the app
+ * already moved focus somewhere else. A visually hidden live region then reads
+ * out the page: a title the app set, else its first heading, else its path
+ * (the title still names the page being left).
+ */
+function settlePageFocus(
+  root: HTMLElement,
+  focused: Element | null,
+  title: string,
+  resetFocus: boolean,
+): void {
+  const body = document.body;
+  const active = document.activeElement;
+  if (resetFocus && (!active || active === body || active === focused)) {
+    // Scrolled into view, as a document load would; the body reset is not.
+    const autofocus = root.querySelector<HTMLElement>("[autofocus]");
+    autofocus?.focus();
+    if (document.activeElement !== autofocus) {
+      // The body takes focus only while it has a tabindex; focusing it for
+      // that instant moves the sequential focus starting point to the top.
+      const tabindex = body.getAttribute("tabindex");
+      body.tabIndex = -1;
+      body.focus(NO_SCROLL);
+      if (tabindex === null) body.removeAttribute("tabindex");
+      else body.setAttribute("tabindex", tabindex);
+    }
+  }
+  if (!announcer?.isConnected) {
+    announcer = body.appendChild(document.createElement("div"));
+    announcer.setAttribute("aria-live", "assertive");
+    announcer.setAttribute("data-pracht-announcer", "");
+    announcer.style.cssText = "position:fixed;clip-path:inset(50%)";
+  }
+  // After the route's effects, which may set the title. Emptied first so a
+  // page with the same heading as the last one is still read out.
+  announcer.textContent = "";
+  const region = announcer;
+  const doc = document;
+  setTimeout(() => {
+    region.textContent =
+      (doc.title !== title && doc.title) ||
+      root.querySelector("h1")?.textContent ||
+      doc.location.pathname;
+  }, 50);
+}
+
 /**
  * Fire the `hashchange` the platform would have fired for a fragment
  * navigation the router intercepted. Both URLs are absolute, as the event's
@@ -1581,7 +1710,9 @@ function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
     // Same origin but outside the deploy base is somebody else's app on this
     // host. Returning null hands the link back to the browser.
     const routePathname = stripBase(url.pathname);
-    if (routePathname === null) {
+    // A path that begins with `//` would read as another host wherever the
+    // router reuses it as a relative URL (history, route-state fetches).
+    if (routePathname === null || url.pathname.startsWith("//")) {
       return null;
     }
 

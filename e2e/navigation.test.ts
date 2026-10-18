@@ -51,6 +51,24 @@ test("useNavigation exposes loading state while a slow loader navigation is in f
 });
 
 // ---------------------------------------------------------------------------
+// Focus and announcement after a client navigation
+// ---------------------------------------------------------------------------
+
+test("a client navigation starts focus over and announces the new page", async ({ page }) => {
+  await page.goto("/");
+  await waitForRouter(page);
+
+  await page.focus("#long-link");
+  await page.keyboard.press("Enter");
+
+  await page.waitForURL("/long");
+  await expect(page.locator("h1")).toContainText("Long page");
+  await expect(page.locator("[data-pracht-announcer]")).toHaveText("Long page");
+  await expect(page.locator("[data-pracht-announcer]")).toHaveAttribute("aria-live", "assertive");
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
 // Route chunk that fails to load (an open tab after a deploy removed it)
 // ---------------------------------------------------------------------------
 
