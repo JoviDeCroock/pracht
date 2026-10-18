@@ -737,7 +737,10 @@ describe("collectCapabilityChecks", () => {
           const checks: Check[] = [];
           collectCapabilityChecks(
             createProject({
-              capability: DESTRUCTIVE_MCP.replace("expose: { mcp: true }", "expose: { http: true }"),
+              capability: DESTRUCTIVE_MCP.replace(
+                "expose: { mcp: true }",
+                "expose: { http: true }",
+              ),
               appBlock:
                 '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true, auth: AUTH } },',
               extraFiles: { "server/approvals.ts": STORE_MODULE },
