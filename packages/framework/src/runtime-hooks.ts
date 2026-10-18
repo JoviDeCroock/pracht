@@ -792,7 +792,6 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         return;
       }
 
-      clearPrefetchCache();
       // Expose the in-flight submission through useNavigation().
       const navigationToken = beginSubmittingNavigation(
         createNavigationLocation(actionUrl),
@@ -809,6 +808,9 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
           credentials: "same-origin",
           headers: { [CAPABILITY_FORM_REQUEST_HEADER]: "1" },
         });
+        // After the response, like `apiFetch()`: a prefetch cached while the
+        // request was in flight predates the mutation too.
+        clearPrefetchCache();
 
         const enhancedRedirect = response.headers.get(CAPABILITY_FORM_REDIRECT_HEADER);
         if (

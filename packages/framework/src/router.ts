@@ -32,7 +32,7 @@ import {
   createNavigationLocation,
   settleNavigation,
 } from "./navigation-state.ts";
-import { getCachedRouteState, routeStateCacheKey } from "./prefetch-cache.ts";
+import { getCachedRouteState, prefetchGeneration, routeStateCacheKey } from "./prefetch-cache.ts";
 import { registerPrefetchTarget } from "./prefetch-api.ts";
 import type { ModuleWarmFn } from "./prefetch-api.ts";
 import {
@@ -866,6 +866,7 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
     const focused = ACCESSIBLE_NAVIGATION_ENABLED ? document.activeElement : null;
     const title = ACCESSIBLE_NAVIGATION_ENABLED ? document.title : "";
     const navigationId = ++latestNavigationId;
+    const generation = prefetchGeneration;
     activeNavigationAbort?.abort();
     const abortController = new AbortController();
     activeNavigationAbort = abortController;
@@ -1084,6 +1085,13 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
         shellModPromise,
       ).catch(() => null);
       if (navigationId !== latestNavigationId) return;
+
+      // A mutation landed while this navigation waited, so the state it holds
+      // (prefetched, or fetched before the change) may predate it. Fetch it
+      // again rather than commit it; the reload navigation does not retry.
+      if (PREFETCH_ENABLED && !opts?._reloadRouteState && generation !== prefetchGeneration) {
+        return navigate(to, { ...opts, _blockerChecked: true, _reloadRouteState: true });
+      }
 
       if (!routeState) {
         // A route or shell chunk failed to load — typically one a newer deploy

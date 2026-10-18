@@ -116,7 +116,7 @@ Each prefetch runs the route's loader on the server, and a viewport or `"render"
 - The cache is keyed by pathname and search, so different query parameters are cached separately.
 - Clicking a link whose prefetch is still in flight reuses that request.
 - All strategies and navigations share the cache. A viewport prefetch can be consumed by a later click.
-- A mutation empties the cache, so the next click fetches fresh data. That covers a `<Form>` submission, a non-`GET` `apiFetch()`, a successful non-read capability call, and `useRevalidate()`.
+- A mutation empties the cache, so the next click fetches fresh data, and a navigation still loading when the mutation lands fetches its data again. That covers a `<Form>` submission, a non-`GET` `apiFetch()`, a successful non-read capability call, and `useRevalidate()`.
 
 ---
 
