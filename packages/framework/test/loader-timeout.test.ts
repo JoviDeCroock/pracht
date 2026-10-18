@@ -65,12 +65,8 @@ describe("the request signal handed to loaders and API handlers", () => {
       app,
       registry: {
         routeModules: {
-          "./routes/home.tsx": async () => ({
-            Component: () => null,
-            loader: ({ signal }) => {
-              loaderSignal = signal;
-              return { ok: true };
-            },
+          "./routes/home.tsx": abortableRoute((signal) => {
+            loaderSignal = signal;
           }),
         },
       },
@@ -326,12 +322,8 @@ describe("runtimes without AbortSignal.any", () => {
       app,
       registry: {
         routeModules: {
-          "./routes/home.tsx": async () => ({
-            Component: () => null,
-            loader: ({ signal }: { signal: AbortSignal }) => {
-              loaderSignal = signal;
-              return { ok: true };
-            },
+          "./routes/home.tsx": abortableRoute((signal) => {
+            loaderSignal = signal;
           }),
         },
       },

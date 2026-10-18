@@ -2,7 +2,7 @@ import { createContext, h, options } from "preact";
 import type { ComponentChildren, ComponentType, FunctionComponent, VNode } from "preact";
 import { useContext } from "preact/hooks";
 
-import { matchAppRoute } from "./app.ts";
+import { matchIndexedResolvedRoute } from "./route-matching.ts";
 import { stripBase } from "./base.ts";
 import {
   getIslandsClientEntryUrl,
@@ -32,11 +32,7 @@ import { reportRequestError, type PrachtRuntimeDiagnosticPhase } from "./runtime
 import { installServerIslandsRuntime } from "./server-islands-runtime.ts";
 import { withDefaultSecurityHeaders } from "./runtime-headers.ts";
 import { resolveRegistryModule } from "./runtime-manifest.ts";
-import {
-  composeRequestSignal,
-  isClientDisconnect,
-  type PrachtRequestContext,
-} from "./runtime-request.ts";
+import { isClientDisconnect, type PrachtRequestContext } from "./runtime-request.ts";
 import { getRenderToStringAsync } from "./runtime-response.ts";
 import { resolveRequestRoot } from "./runtime-root.ts";
 import {
@@ -540,7 +536,8 @@ export async function handleServerIslandRequest<TContext>(
     return serverIslandTextResponse("Server island path must be a same-origin path", 400);
   }
   const routePathname = stripBase(pageUrl.pathname);
-  const match = routePathname === null ? undefined : matchAppRoute(ctx.resolvedApp, routePathname);
+  const match =
+    routePathname === null ? undefined : matchIndexedResolvedRoute(ctx.resolvedApp, routePathname);
   if (!match) return serverIslandTextResponse("No route matches the server island path", 404);
 
   // The server island must be one this route or its shell lists. A server island
@@ -583,12 +580,11 @@ export async function handleServerIslandRequest<TContext>(
     headers: new Headers(request.headers),
     signal: request.signal,
   });
-  const signal = composeRequestSignal(pageRequest, ctx.loaderTimeoutMs);
   const routeArgs = createPageRouteArgs(options, match, {
     request: pageRequest,
     url: pageUrl,
     context: ctx.context,
-    signal,
+    budget: ctx.budget,
     requestPath: pagePath,
     errorContext: { serverIslandFile: descriptor.file },
   });
@@ -670,7 +666,7 @@ export async function handleServerIslandRequest<TContext>(
     }
     return serverIslandResponse(response.body, response.status, response.headers);
   } catch (error: unknown) {
-    if (isClientDisconnect(request, signal)) {
+    if (isClientDisconnect(request, routeArgs.signal)) {
       return new Response(null, { status: 499 });
     }
     if (error instanceof Response || error instanceof ServerIslandResponse) {

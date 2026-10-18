@@ -385,6 +385,34 @@ export function writeNodeResponseHeaders(res: ServerResponse, headers: Headers):
   if (setCookieHeaders.length > 0) {
     res.setHeader("set-cookie", setCookieHeaders);
   }
+
+  stagedResponses.add(res);
+  const onStaged = headerWaiters.get(res);
+  if (onStaged) {
+    headerWaiters.delete(res);
+    onStaged();
+  }
+}
+
+const stagedResponses = new WeakSet<ServerResponse>();
+const headerWaiters = new WeakMap<ServerResponse, () => void>();
+
+/**
+ * Resolves once the response headers for `res` are staged, so its
+ * `content-type` says what kind of response it is. A shutdown waits on this
+ * for requests still answering: one may yet turn into an event stream.
+ */
+export function whenResponseHeadersStaged(res: ServerResponse): Promise<void> {
+  if (stagedResponses.has(res) || res.headersSent || res.writableEnded) {
+    return Promise.resolve();
+  }
+  return new Promise((resolveStaged) => {
+    const previous = headerWaiters.get(res);
+    headerWaiters.set(res, () => {
+      previous?.();
+      resolveStaged();
+    });
+  });
 }
 
 function getSetCookieHeaders(headers: Headers): string[] {
