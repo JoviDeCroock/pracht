@@ -250,13 +250,12 @@ describe("published package tree shaking", () => {
     // shape (no client defines at all) is the worst case, where neither branch
     // can be folded.
     //
-    // Streaming adds route error boundaries, waits for renderer DOM swaps, and
-    // revives `defer()` values unless `__PRACHT_STREAMING__` is `false`.
+    // Streaming adds route error boundaries and waits for renderer DOM swaps.
     // These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 10,260 gzip bytes", async () => {
+    it("keeps the router runtime below 10,250 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_260);
+      expect(gzipBytes).toBeLessThanOrEqual(10_250);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -573,6 +572,15 @@ describe("published package tree shaking", () => {
       expect(off.code).not.toContain("Invalid deferred hydration path");
       expect(off.code).not.toContain("__PRACHT_DEFER__");
       expect(on.gzipBytes - off.gzipBytes).toBeGreaterThan(0);
+    });
+
+    it("keeps deferred-data hydration when the define is absent", async () => {
+      const { code } = await bundleExport("readHydrationState", {
+        define: { "import.meta.env.DEV": "false" },
+        entry: clientEntry,
+      });
+
+      expect(code).toContain("Invalid deferred hydration path");
     });
   });
 
