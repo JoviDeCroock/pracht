@@ -52,7 +52,10 @@ import {
 } from "./node-compress.ts";
 import {
   createISGRenderInput,
+  createISGSnapshotWriteGuard,
   getISGSnapshotHeaders,
+  ISGSnapshotWriteError,
+  type ISGSnapshotWriteGuard,
   readISGSnapshotHeaders,
   regenerateISGPage,
   writeISGSnapshot,
@@ -191,6 +194,7 @@ export function createNodeRequestHandler<TContext = unknown>(
   const maxBodySize = options.maxBodySize;
   const compressionEnabled = options.compression !== false;
   const compressedAssetCache = new CompressedAssetCache();
+  const isgWriteGuard = createISGSnapshotWriteGuard();
   // A Node process outlives its responses, so registered work finishes on its
   // own; the tracker is what lets a graceful shutdown wait for it instead of
   // cutting it off.
@@ -353,6 +357,7 @@ export function createNodeRequestHandler<TContext = unknown>(
         headersManifest,
         compression,
         waitUntil,
+        isgWriteGuard,
       );
       if (served) return;
     }
@@ -411,12 +416,18 @@ export function createNodeRequestHandler<TContext = unknown>(
         const html = await response.clone().text();
         const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
         if (htmlPath) {
-          await writeISGSnapshot(
-            htmlPath,
-            html,
-            getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
-          );
-          compressedAssetCache.invalidatePath(htmlPath);
+          try {
+            await writeISGSnapshot(
+              htmlPath,
+              html,
+              getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
+            );
+            compressedAssetCache.invalidatePath(htmlPath);
+          } catch (error) {
+            // The render succeeded; an unwritable static directory must not
+            // turn it into a 500. The next request renders again.
+            isgWriteGuard.failed(htmlPath, error);
+          }
         }
       }
 
@@ -812,6 +823,7 @@ async function serveISGEntry<TContext>(
   headersManifest: HeadersManifest,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
+  writeGuard: ISGSnapshotWriteGuard,
 ): Promise<boolean> {
   const htmlPath = resolveContainedPath(staticDir, pathname);
   if (!htmlPath) return false;
@@ -885,7 +897,7 @@ async function serveISGEntry<TContext>(
       }
     }
 
-    if (isStale) {
+    if (isStale && writeGuard.canRegenerate(htmlPath)) {
       // Tracked like application `waitUntil()` work, so a graceful shutdown
       // lets an in-flight regeneration finish writing its snapshot.
       waitUntil(
@@ -896,9 +908,16 @@ async function serveISGEntry<TContext>(
           request,
           compression,
           waitUntil,
-        ).catch((err) => {
-          console.error(`ISG regeneration failed for ${pathname}:`, err);
-        }),
+        ).then(
+          () => writeGuard.succeeded(htmlPath),
+          (err) => {
+            if (err instanceof ISGSnapshotWriteError) {
+              writeGuard.failed(htmlPath, err, (revalidateSeconds ?? 0) * 1000);
+            } else {
+              console.error(`ISG regeneration failed for ${pathname}:`, err);
+            }
+          },
+        ),
       );
     }
 
