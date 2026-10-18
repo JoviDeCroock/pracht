@@ -459,7 +459,8 @@ describe("initClientRouter", () => {
 
     const navigation = window.__PRACHT_NAVIGATE__!("/next?lang=fr");
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(window.location.pathname).toBe("/next");
+    // History moves only once the destination's module has loaded.
+    expect(window.location.pathname).toBe("/dashboard");
 
     resolveSuspense();
     await flush();

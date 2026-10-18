@@ -177,6 +177,12 @@ for host configuration.
 
 ---
 
+## Tabs Open Across a Deploy
+
+A deploy that removes the previous build's hashed chunks leaves open tabs pointing at files that no longer exist. When a client navigation cannot load the next route's chunk, the router loads that URL as a full page instead, which picks up the new build. Route chunks need no `vite:preloadError` listener; one that calls `location.reload()` reloads the page the visitor is leaving rather than the link they clicked.
+
+---
+
 ## Sub-Path Deploys
 
 Set Vite's `base` to serve the app under a path rather than an origin root — a
