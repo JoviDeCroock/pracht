@@ -1624,6 +1624,44 @@ export default function Home() {
     expect(componentResult).toBeNull();
   });
 
+  it("strips a route module the manifest names outside the routes directory", async () => {
+    const root = makeTempProject();
+    const routeSource = [
+      'import { db } from "../server/db";',
+      "export async function loader() {",
+      "  return db.query();",
+      "}",
+      "export function Component() {",
+      "  return null;",
+      "}",
+      "",
+    ].join("\n");
+    mkdirSync(join(root, "src", "features"), { recursive: true });
+    writeFileSync(
+      join(root, "src", "routes.ts"),
+      'import { defineApp, route } from "@pracht/core";\nexport const app = defineApp({ routes: [route("/a", "./features/a.tsx")] });\n',
+    );
+    writeFileSync(join(root, "src", "features", "a.tsx"), routeSource);
+
+    const plugins = pracht(MANIFEST_PLUGIN_OPTIONS);
+    const transformPlugin = plugins.find((p) => p.name === "pracht:client-module-transform");
+    if (!transformPlugin || typeof transformPlugin.transform !== "function") {
+      throw new Error("pracht:client-module-transform plugin is missing a transform hook");
+    }
+    findPrachtConfigResolved(plugins)({ root, command: "build" } as never);
+
+    // Another module importing a component from it gets the plain id, no
+    // `?pracht-client` query, and must still not pull the loader's imports in.
+    const clientResult = await callTransform(
+      transformPlugin.transform,
+      routeSource,
+      join(root, "src", "features", "a.tsx"),
+      { ssr: false },
+    );
+    expect(clientResult).not.toContain("../server/db");
+    expect(clientResult).toContain("function Component");
+  });
+
   it("strips dehydrate from the registered app root in the client environment only", async () => {
     const root = makeTempProject();
     const rootSource = [

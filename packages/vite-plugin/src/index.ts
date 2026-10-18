@@ -40,6 +40,8 @@ import {
   isServerIslandsClientModule,
   isServerModule,
   isWebmcpModule,
+  PRACHT_WEBMCP_TOOL_MODULE_PREFIX,
+  webmcpToolModuleName,
 } from "./plugin-assets.ts";
 import {
   appCoreHasDevPageTools,
@@ -51,13 +53,17 @@ import {
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
-  createPrachtWebmcpModuleSourceAsync,
+  buildPrachtWebmcpShimSource,
+  buildPrachtWebmcpToolModuleSource,
+  resolvePrachtWebmcpTools,
   hasAgentSurface,
   hasWebmcpCapabilities,
   resolveCapabilityModulePaths,
 } from "./plugin-capabilities.ts";
 import {
   clearPagesAppSourceCache,
+  collectExternalManifestModules,
+  collectManifestModuleFiles,
   createClientServerIslandModuleSource,
   createPrachtClientModuleSource,
   createPrachtServerIslandsClientModuleSource,
@@ -153,6 +159,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   const isPagesMode = !!resolved.pagesDir;
   let root = process.cwd();
   let routeFileDirs: string[] = [];
+  // Route and shell modules the manifest names outside those directories.
+  let externalRouteFiles = new Set<string>();
+  // The manifest's own local imports: route fragments that feed the registries.
+  let manifestModuleFiles = new Set<string>();
+  const isRouteOrShellModule = (id: string): boolean =>
+    isRouteOrShellFile(id, routeFileDirs, routeFileExtensions) ||
+    isExternalRouteFile(id, externalRouteFiles, routeFileExtensions);
   let clientRouteHints: RouteHints = emptyRouteHints();
   let serverRouteLoaderHints: Record<string, true> = {};
   // What the *browser's* client entry actually carries. `handleHotUpdate` runs
@@ -179,6 +192,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   // server, and a pages `_root` add/remove regenerates the entry.
   let appRootFile: string | null = null;
   let capabilityRunnerConfig: UserConfig = {};
+  // WebMCP tool metadata shared by the shim and every per-tool chunk, so a
+  // build resolves the capability graph once rather than once per tool.
+  let webmcpTools: Promise<Map<string, Record<string, unknown>>> | null = null;
   let usesEjectedPagesLayout = false;
 
   if (isPagesMode && options.appFile) {
@@ -479,6 +495,13 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       isBuild = config.command === "build";
       base = config.base;
       routeFileDirs = computeRouteFileDirs(root, resolved);
+      externalRouteFiles = computeExternalRouteFiles(root, resolved);
+      manifestModuleFiles = new Set(
+        collectManifestModuleFiles(resolved, root).flatMap((file) => [
+          file,
+          canonicalFilePath(file),
+        ]),
+      );
       capabilityModulePaths = new Set(
         resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
       );
@@ -507,6 +530,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       if (isServerModule(id)) return PRACHT_SERVER_MODULE_ID;
       if (isCapabilitiesModule(id)) return PRACHT_CAPABILITIES_MODULE_ID;
       if (isWebmcpModule(id)) return PRACHT_WEBMCP_MODULE_ID;
+      const webmcpToolName = webmcpToolModuleName(id);
+      if (webmcpToolName !== null) return PRACHT_WEBMCP_TOOL_MODULE_PREFIX + webmcpToolName;
       if (isDevPageToolsModule(id)) return PRACHT_DEV_PAGE_TOOLS_MODULE_ID;
 
       // Fail loudly when client code imports the server-only env entry.
@@ -569,10 +594,27 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtCapabilitiesClientModuleSource(resolved, { root });
       }
       if (isWebmcpModule(id)) {
-        return createPrachtWebmcpModuleSourceAsync(resolved, {
+        // The shim is the module that must reflect the current graph, so it
+        // always re-resolves; the per-tool chunks share its result.
+        const tools = resolvePrachtWebmcpTools(resolved, {
           root,
           runnerConfig: capabilityRunnerConfig,
         });
+        webmcpTools = tools;
+        tools.catch(() => {
+          if (webmcpTools === tools) webmcpTools = null;
+        });
+        return tools.then(buildPrachtWebmcpShimSource);
+      }
+      const webmcpToolName = webmcpToolModuleName(id);
+      if (webmcpToolName !== null) {
+        webmcpTools ??= resolvePrachtWebmcpTools(resolved, {
+          root,
+          runnerConfig: capabilityRunnerConfig,
+        });
+        return webmcpTools.then((tools) =>
+          buildPrachtWebmcpToolModuleSource(tools, webmcpToolName),
+        );
       }
       if (isDevPageToolsModule(id)) {
         // Dev-only by construction: a build never imports the module, and
@@ -816,7 +858,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return;
       }
 
-      if (!isPagesMode && relative === resolved.appFile) {
+      // A module the manifest imports its routes from decides the registries
+      // as much as the manifest does.
+      if (
+        !isPagesMode &&
+        (relative === resolved.appFile || manifestModuleFiles.has(normalizedFile))
+      ) {
         server.restart();
         return [];
       }
@@ -864,6 +911,12 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
           ]) {
             const capabilityMod = server.moduleGraph.getModuleById(moduleId);
             if (capabilityMod) server.moduleGraph.invalidateModule(capabilityMod);
+          }
+          webmcpTools = null;
+          for (const [moduleId, toolMod] of server.moduleGraph.idToModuleMap) {
+            if (webmcpToolModuleName(moduleId) !== null) {
+              server.moduleGraph.invalidateModule(toolMod);
+            }
           }
         }
       }
@@ -930,7 +983,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       const isAppRoot = !transformOptions?.ssr && isAppRootModule(id, appRootFile);
       const shouldStrip =
         isPrachtClientModuleId(id) ||
-        (!transformOptions?.ssr && isRouteOrShellFile(id, routeFileDirs, routeFileExtensions)) ||
+        (!transformOptions?.ssr && isRouteOrShellModule(id)) ||
         isPagesMiddlewareModule ||
         isAppRoot;
       if (!shouldStrip) return null;
@@ -978,7 +1031,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   // Ordered right after `clientModuleTransformPlugin` on purpose: prefresh has
   // to see the module with its server-only exports already stripped.
   const clientModulePrefreshPlugin = createClientModulePrefreshPlugin(preactPlugins, {
-    isRouteOrShellModule: (id) => isRouteOrShellFile(id, routeFileDirs, routeFileExtensions),
+    isRouteOrShellModule,
   });
 
   const plugins: Plugin[] = [
@@ -1477,6 +1530,34 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {
   const dirs = resolved.pagesDir ? [resolved.pagesDir] : [resolved.routesDir, resolved.shellsDir];
   return dirs.map((dir) => canonicalFilePath(resolveConfigPath(root, dir))).map(withTrailingSep);
+}
+
+/**
+ * Route and shell modules the manifest names outside the routes and shells
+ * directories, by absolute path. They are route modules wherever they live, so
+ * every import of one is stripped for the client like an import of a module
+ * under `src/routes/`.
+ */
+function computeExternalRouteFiles(
+  root: string,
+  resolved: ResolvedPrachtPluginOptions,
+): Set<string> {
+  const external = collectExternalManifestModules(resolved, root);
+  const files = new Set<string>();
+  for (const file of [...external.routes, ...external.shells]) {
+    const abs = resolveConfigPath(root, file);
+    files.add(toPosixPath(abs));
+    files.add(canonicalFilePath(abs));
+  }
+  return files;
+}
+
+function isExternalRouteFile(id: string, files: Set<string>, extensions: Set<string>): boolean {
+  if (files.size === 0) return false;
+  const queryStart = id.indexOf("?");
+  const path = toPosixPath(queryStart === -1 ? id : id.slice(0, queryStart));
+  const extIndex = path.lastIndexOf(".");
+  return extIndex !== -1 && extensions.has(path.slice(extIndex)) && files.has(path);
 }
 
 /**

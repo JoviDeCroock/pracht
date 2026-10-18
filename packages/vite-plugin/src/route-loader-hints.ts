@@ -457,6 +457,8 @@ function toPosixPath(path: string): string {
 export interface RouteHintOptions {
   additionalExtensions?: readonly string[];
   appFileDir?: string;
+  /** Read exactly these files (absolute paths) instead of walking `routesDir`. */
+  files?: readonly string[];
   rootRelativePrefix?: string;
 }
 
@@ -521,7 +523,8 @@ export function createRouteHints(routesDir: string, options: RouteHintOptions = 
   const additionalExtensions = normalizeAdditionalExtensions(options.additionalExtensions);
   const extensions = withAdditionalExtensions(DEFAULT_ROUTE_EXTENSIONS, additionalExtensions);
   const scan: RouteFileScan = { files: [], incomplete: false };
-  scanRouteFiles(routesDir, extensions, scan);
+  if (options.files) scan.files.push(...options.files);
+  else scanRouteFiles(routesDir, extensions, scan);
 
   const hints: RouteHints = {
     capabilities: {},

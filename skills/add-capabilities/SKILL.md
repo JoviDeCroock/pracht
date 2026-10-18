@@ -20,7 +20,7 @@ allowed-tools:
 
 # Pracht Add Capabilities
 
-A capability is a protocol-neutral operation (`docs/CAPABILITIES.md`). Every
+A capability is a protocol-neutral operation. Every
 projection runs the identical pipeline, so rules never diverge per transport:
 
 ```text
@@ -261,7 +261,7 @@ Rules to hold the user to:
   Removing `auth` or a required scope, or trusting another authorization server,
   is a guard weakening even when `/mcp` itself did not move.
 
-See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
+See <https://pracht.resynapse.dev/docs/capabilities> for the metadata document and the `verify` recipe.
 
 ## Step 5: Destructive capabilities
 
@@ -279,7 +279,7 @@ See `docs/REMOTE_MCP.md` for the metadata document and the full `verify` recipe.
    header.
 
 Be honest about what this buys, and say so to the user
-(`docs/AGENT_TRUST.md`): stateless HMAC cannot prevent replay inside the TTL,
+(<https://pracht.resynapse.dev/docs/agent-trust>): stateless HMAC cannot prevent replay inside the TTL,
 the calling agent can hand the token back to itself, and without Web Bot Auth
 or `setCapabilityApprovalPrincipalResolver()` both phases run as `"anonymous"`.
 Register a `CapabilityApprovalStore` for exactly-once commits, and
@@ -290,7 +290,7 @@ closed without both a store and an end-user identity (a principal resolver, or
 `createSqlApprovalStore({ execute })` from `@pracht/core/server` is the
 first-party durable store — one implementation for Postgres, Cloudflare D1, and
 SQLite/Turso. Pass a parameterized-query function and run the migration from
-`docs/AGENT_TRUST.md`; use `dialect: "postgres"` for `$1` placeholders.
+the Agent Trust page; use `dialect: "postgres"` for `$1` placeholders.
 `createMemoryApprovalStore()` is for tests only. A non-SQL backend needs atomic
 conditional writes (Durable Objects, Redis — not Cloudflare KV).
 

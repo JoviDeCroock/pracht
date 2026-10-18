@@ -70,7 +70,7 @@ Grep for `<Form ` across `src/`. For each occurrence:
 pracht inspect api --json
 ```
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
@@ -161,7 +161,7 @@ Produce:
 
 ## Rules
 
-1. Point users at `examples/docs/src/routes/docs/recipes-auth.md` for cookie
+1. Point users at <https://pracht.resynapse.dev/docs/recipes/auth> for cookie
    and middleware patterns, and at `ApiConfig.requireSameOrigin` for the
    built-in guard.
 2. Do not flag GET-only forms or read-only API methods.

@@ -282,8 +282,10 @@ pracht verify webmcp --start "pracht preview" --scenario evals/notes-webmcp.eval
 It launches an installed Chrome 150+ with WebMCP testing enabled, visits each
 route that activates page tools, and exits 1 on startup failure, unsupported
 APIs, registration failure, or drift — including tools left behind after
-navigation. The dev-only `pracht_*` tools are ignored. Pracht never downloads a
-browser; pin one in CI with `--browser`.
+navigation. The dev-only `pracht_*` tools are ignored. It drives Chrome through
+`playwright-core`, which you add as a dev dependency (`npm install -D
+playwright-core`); Pracht never downloads a browser, so pin one in CI with
+`--browser`.
 
 - `--url` — the running app (default `http://localhost:3000`).
 - `--start "<command>"` — start the app, verify, then stop it, as in `pracht eval`.

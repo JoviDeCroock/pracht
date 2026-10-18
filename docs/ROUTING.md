@@ -227,7 +227,7 @@ module ref directly. The full form accepts:
 
 | Field       | Type                            | Description                                       |
 | ----------- | ------------------------------- | ------------------------------------------------- |
-| `component` | `ModuleRef`                     | The page module (must live in the routes directory) |
+| `component` | `ModuleRef`                     | The page module (a string literal when it lives outside the routes directory) |
 | `loader`    | `ModuleRef`                     | Optional separate loader module                   |
 | `shell`     | `string`                        | Named shell from `defineApp.shells`               |
 | `middleware`| `string[]`                      | Named middleware to run for this page             |
@@ -730,12 +730,33 @@ stays out of `dist/client` — as does a shared module kept under `src/routes/`,
 which is still imported by the route that uses it rather than becoming an entry
 of its own.
 
-Refs are read out of the manifest file itself. When one could live somewhere
-that file does not show — the manifest imports its routes from another module,
-or builds a specifier at runtime — the registry falls back to covering both
+Refs are read out of the manifest file and the local modules it imports
+(followed up to 64 modules; every ref resolves against the manifest's
+directory, wherever it is written). When one could live somewhere the scan does
+not show — a route or shell ref that is not a literal (`"./routes/" + name`, a
+variable, a spread), an import that does not resolve to a parseable module, or a
+specifier built at runtime — the registry falls back to covering both
 directories whole, because dropping a module a route needs would break
-navigation to it. The pages router is unaffected either way: there the
-directory *is* the route list.
+navigation to it. In dev, an edit to any of those manifest modules regenerates
+the registries like an edit to `src/routes.ts`. The pages router is unaffected
+either way: there the directory *is* the route list.
+
+The registries are directory globs, so a module outside them is added
+explicitly when the manifest names it as a string literal (or
+`() => import("…")`) in a ref position: a `route()` component or `component:`,
+`notFound`, a `shells` entry, a `defineApp({ middleware })` entry, or a route
+`loader:`. Each gets a keyed `() => import()` entry, not a glob, so a name like
+`[id].tsx` is taken literally. Route and shell modules enter both the client and
+server registries (the client copy with `?pracht-client`, minus
+non-full-hydration routes), are stripped for the client wherever they are
+imported from, and are scanned for the build's route hints and feature switches
+like modules under `src/routes/`; middleware and loader modules enter only the
+server's. After the server build, `pracht build` looks every resolved route,
+shell, `notFound`, page and `api.middleware` file up in the built server
+registry with the runtime's own lookup and fails,
+naming each ref, when one matches nothing — those requests would 500.
+(`packages/vite-plugin/src/plugin-codegen.ts` `collectExternalManifestModules`,
+`packages/cli/src/manifest-modules.ts`.)
 
 ---
 
@@ -944,10 +965,13 @@ Server side (`runtime-page.ts`):
 
 - The shell loader gets the route's `BaseRouteArgs` (same request, params,
   middleware context, signal, matched route) and runs after middleware,
-  **concurrently** with the route loader (`runPageLoaders`). Both settle before
-  either outcome is used, so the answer is deterministic: a shell error or
-  `Response` wins over the route's, because the shell wraps the route. A shell
-  loader failure is attributed to the shell file as `loaderFile`.
+  **concurrently** with the route loader (`runPageLoaders`). The answer is
+  deterministic: a shell error or `Response` wins over the route's, because the
+  shell wraps the route. So once the shell has answered, the response does not
+  wait for the route loader — only until it has started, after which it writes
+  nothing the error path reads — and the still-running route loader takes a
+  hold on the request budget so its `signal` still times out. A shell loader
+  failure is attributed to the shell file as `loaderFile`.
 - Its data (`defer()` values resolved; shell data never streams) is provided
   through `ShellDataContext` (`runtime-shell-data.ts`), serialized as
   `shellData` in the hydration state and the route-state JSON

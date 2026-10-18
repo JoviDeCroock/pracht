@@ -23,7 +23,7 @@ The `redirect()` helper from `@pracht/core` returns a scheme/CRLF-validated
 redirect `Response`. What the framework does NOT decide is *which* routes get
 an auth gate — that is app wiring, and this skill audits it.
 
-The pracht auth pattern (see `examples/docs/src/routes/docs/recipes-auth.md`):
+The pracht auth pattern (see <https://pracht.resynapse.dev/docs/recipes/auth>):
 middleware loads the session onto `context.session` and short-circuits with a
 redirect when there is no user; loaders downstream read `context.session`.
 
@@ -46,7 +46,7 @@ pracht plugin.
 pracht inspect routes --json
 ```
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 

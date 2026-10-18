@@ -63,7 +63,7 @@ async function call(
   ) as never;
 }
 
-test("every dev document registers the read-only pracht_* tools", async ({ page }) => {
+test("every dev document registers the read-only, debugging pracht_* tools", async ({ page }) => {
   await installFakeModelContext(page);
   await page.goto("/notes");
   await waitForDevTools(page);
@@ -75,11 +75,11 @@ test("every dev document registers the read-only pracht_* tools", async ({ page 
       .sort((a, b) => a.name.localeCompare(b.name)),
   );
   expect(tools).toEqual([
-    { name: "pracht_islands", annotations: { readOnlyHint: true } },
-    { name: "pracht_last_error", annotations: { readOnlyHint: true } },
-    { name: "pracht_loader_data", annotations: { readOnlyHint: true } },
-    { name: "pracht_page_tools", annotations: { readOnlyHint: true } },
-    { name: "pracht_route", annotations: { readOnlyHint: true } },
+    { name: "pracht_islands", annotations: { readOnlyHint: true, debugging: true } },
+    { name: "pracht_last_error", annotations: { readOnlyHint: true, debugging: true } },
+    { name: "pracht_loader_data", annotations: { readOnlyHint: true, debugging: true } },
+    { name: "pracht_page_tools", annotations: { readOnlyHint: true, debugging: true } },
+    { name: "pracht_route", annotations: { readOnlyHint: true, debugging: true } },
   ]);
 });
 

@@ -103,7 +103,7 @@ An agent driving a browser against `pracht dev` sees the page but not the framew
 | `pracht_last_error` | The server error this document rendered (dev overlay or `ErrorBoundary` state), plus recent uncaught client errors with stacks |
 | `pracht_page_tools` | The app's own WebMCP tools on this route, and why any declared capability is *not* one |
 
-Each returns a capability's `{ ok, data }` / `{ ok: false, error }` envelope. They follow client-side navigation, so after a click `pracht_route` describes the new page.
+Each returns a capability's `{ ok, data }` / `{ ok: false, error }` envelope and carries WebMCP's `debugging: true` annotation, which marks it as developer tooling rather than an end-user tool. They follow client-side navigation, so after a click `pracht_route` describes the new page.
 
 Nothing needs installing, but the browser or test harness must support WebMCP. `pracht dev` injects their script into every HTML document, including the 404 page and error overlay; production builds never contain it. Turn it off with `pracht({ devPageTools: false })` in `vite.config.ts`.
 

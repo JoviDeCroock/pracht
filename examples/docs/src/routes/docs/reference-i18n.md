@@ -42,7 +42,7 @@ export const i18n = defineI18n({
 
 | Member | Description |
 | --- | --- |
-| `middleware` | Locale-detection middleware. Resolves the locale, sets `context.locale`, and persists it in the cookie when a URL prefix chose it. Register it in `defineApp({ middleware })` |
+| `middleware` | Locale-detection middleware. Resolves the locale, sets `context.locale`, and persists it in the cookie when a URL prefix chose it. Under a deploy base the prefix is read after the base (`/my-project/nl/about` is `nl`). Register it in `defineApp({ middleware })` |
 | `locales`, `defaultLocale` | The configured values, readonly |
 | `cookieName` | The cookie name in use, or `null` when the cookie is disabled |
 | `isLocale(value)` | Type guard — `true` only for registered locales |
@@ -141,3 +141,5 @@ Matching runs per entry in q-value order:
 1. Exact tag match, case-insensitive — `nl` → `nl`
 2. RFC 4647 lookup, truncating the tag from the right — `zh-Hant-TW` → `zh-Hant` → `zh`, so `nl-BE` → `nl`
 3. A registered locale sharing the tag's primary language — `en-GB` → `en-US`
+
+The steps first consider only locales in the tag's script, written (`zh-Hant-TW`) or implied by its region (`zh-TW`, `zh-HK`), so `zh-TW` gets `zh-Hant` rather than `zh-Hans`. When none of those matches, they run again without that preference.

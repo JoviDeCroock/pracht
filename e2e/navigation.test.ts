@@ -51,6 +51,28 @@ test("useNavigation exposes loading state while a slow loader navigation is in f
 });
 
 // ---------------------------------------------------------------------------
+// Route chunk that fails to load (an open tab after a deploy removed it)
+// ---------------------------------------------------------------------------
+
+test("a route chunk that fails to load falls back to a document navigation", async ({ page }) => {
+  await page.goto("/");
+  await waitForRouter(page);
+  await page.evaluate(() => {
+    (window as any).__NAV_TOKEN__ = true;
+  });
+  await page.route(/\/src\/routes\/long\.tsx/, (route) =>
+    route.fulfill({ status: 404, body: "gone" }),
+  );
+
+  await page.click("#long-link");
+
+  await page.waitForURL("/long");
+  await expect(page.locator("h1")).toContainText("Long page");
+  // The server rendered the page: the click became a document load.
+  expect(await page.evaluate(() => (window as any).__NAV_TOKEN__)).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
 // Scroll restoration
 // ---------------------------------------------------------------------------
 

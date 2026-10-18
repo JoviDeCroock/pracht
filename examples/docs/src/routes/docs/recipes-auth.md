@@ -450,9 +450,10 @@ export function sessions() {
       },
       async set(id, data, expiresAt) {
         await KV.put(`session:${id}`, JSON.stringify(data), {
-          // Cloudflare KV takes an absolute expiration in seconds; the store
-          // then reaps the record without a cron job.
-          expiration: Math.floor(expiresAt / 1000),
+          // Cloudflare KV takes an absolute expiration in seconds, at least 60
+          // seconds out, and then reaps the record without a cron job. The
+          // sealed cookie still ends the session at `expiresAt`.
+          expiration: Math.max(Math.floor(expiresAt / 1000), Math.ceil(Date.now() / 1000) + 60),
         });
       },
       async delete(id) {
@@ -494,6 +495,13 @@ createSessionStorage<AppSession>({
 
 The cost is a `Set-Cookie` on every response and, with a `store`, a write per
 request. Anonymous visitors still get no cookie.
+
+A rolling session never ends while it is used inside the window, and neither
+does a copied cookie. Add `absoluteMaxAge` (seconds) to cap the total lifetime:
+`absoluteMaxAge: 60 * 60 * 12` signs everyone out 12 hours after their session
+started, however active they are. The cap counts from the first commit, or from
+the last `regenerate()`, so with the login step above it measures time since
+sign-in.
 
 **`rolling` and cached routes.** A response with a `Set-Cookie` is never
 cached, so `ssg` or `isg` routes under rolling-session middleware go uncached

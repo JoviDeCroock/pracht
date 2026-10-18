@@ -525,17 +525,22 @@ single instance; replicas behind a load balancer drift apart.
 ### Graceful shutdown
 
 On `SIGTERM` or `SIGINT`, the generated server stops accepting connections,
-lets in-flight requests and [`waitUntil()`](/docs/data-loading#waituntil) work
-finish, then exits. Open SSE streams and WebSockets hold it until the limit, and
-a second signal exits at once. Keep the limit below your platform's kill grace
-period:
+closes SSE streams, lets in-flight requests and
+[`waitUntil()`](/docs/data-loading#waituntil) work finish, then exits.
+WebSockets hold it until the limit; a second signal exits at once. Keep the
+limit below your platform's kill grace period:
 
 ```ts [vite.config.ts]
-nodeAdapter({ shutdownTimeoutMs: 8_000 }); // default 10_000
+nodeAdapter({
+  shutdownTimeoutMs: 8_000, // default 10_000
+  keepAliveTimeoutMs: 65_000, // above your load balancer's idle timeout; Node's default is 5_000
+  headersTimeoutMs: 66_000, // time to receive request headers; Node's default is 60_000
+});
 ```
 
-A custom server built on `createNodeRequestHandler()` calls
-`await handler.drain(timeoutMs)` after `server.close()`.
+Custom servers built on `createNodeRequestHandler()` call
+`await handler.closeEventStreams(timeoutMs)` then `await handler.drain(timeoutMs)` after
+`server.close()`.
 
 ### WebSockets
 

@@ -218,7 +218,9 @@ function createNonFullHydrationExcludes(
 
   let strings: string[];
   try {
-    strings = collectManifestStrings(source, appFile).strings;
+    strings = collectManifestStrings(
+      parseAst(source, { lang: getRolldownLang(appFile) }) as unknown as StaticProgramNode,
+    ).strings;
   } catch {
     // An unparseable manifest is the dev server's error to report.
     return [];
@@ -247,16 +249,12 @@ const IMPORTING_NODE_TYPES = new Set([
 ]);
 
 /** Every string the manifest holds, and where it imports from. */
-function collectManifestStrings(
-  source: string,
-  file: string,
-): {
+function collectManifestStrings(program: StaticProgramNode): {
   localImports: string[];
   strings: string[];
 } {
   const strings: string[] = [];
   const localImports: string[] = [];
-  const program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
 
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) {
@@ -278,7 +276,11 @@ function collectManifestStrings(
     // source at all and is not one of them.
     if (IMPORTING_NODE_TYPES.has(node.type) && node.source != null) {
       const specifier = asStaticProgramNode(node.source);
-      localImports.push(typeof specifier?.value === "string" ? specifier.value : "");
+      const value = typeof specifier?.value === "string" ? specifier.value : "";
+      // A literal `import("./x")` is a module ref (a route, middleware, or
+      // capability the runtime loads), not manifest data: it is read as a
+      // string above and never followed.
+      if (node.type !== "ImportExpression" || value === "") localImports.push(value);
     }
 
     for (const key of Object.keys(node)) {
@@ -292,19 +294,276 @@ function collectManifestStrings(
 }
 
 /**
+ * Refs written where the runtime reads a module from them, by registry:
+ * `route()` components and `notFound` (route modules), `shells` entries,
+ * and the server-only `defineApp({ middleware })` entries and route `loader`
+ * files. Each value is the ref exactly as written.
+ */
+interface PositionalManifestRefs {
+  routes: string[];
+  shells: string[];
+  middleware: string[];
+  loaders: string[];
+}
+
+/** The literal a ref position holds: a string, or `() => import("…")`. */
+function staticRefValue(value: unknown): string | null {
+  const node = unwrapStaticExpression(value);
+  if (!node) return null;
+  if ((node.type === "Literal" || node.type === "StringLiteral") && typeof node.value === "string")
+    return node.value;
+  if (node.type === "TemplateLiteral") {
+    const quasis = Array.isArray(node.quasis) ? node.quasis : [];
+    const expressions = Array.isArray(node.expressions) ? node.expressions : [];
+    if (expressions.length !== 0 || quasis.length !== 1) return null;
+    const cooked = (asStaticProgramNode(quasis[0])?.value as { cooked?: unknown } | undefined)
+      ?.cooked;
+    return typeof cooked === "string" ? cooked : null;
+  }
+  if (node.type === "ArrowFunctionExpression") {
+    const params = Array.isArray(node.params) ? node.params : [];
+    const body = unwrapStaticExpression(node.body);
+    if (params.length === 0 && body?.type === "ImportExpression")
+      return staticRefValue(body.source);
+  }
+  return null;
+}
+
+function staticPropertyName(value: unknown): string | null {
+  const property = asStaticProgramNode(value);
+  if (property?.type !== "Property" && property?.type !== "ObjectProperty") return null;
+  if (property.computed === true) return null;
+  return getStaticProgramName(asStaticProgramNode(property.key));
+}
+
+function staticObjectProperties(value: unknown): Array<{ name: string; value: unknown }> {
+  const node = unwrapStaticExpression(value);
+  if (node?.type !== "ObjectExpression") return [];
+  const properties = Array.isArray(node.properties) ? node.properties : [];
+  const result: Array<{ name: string; value: unknown }> = [];
+  for (const property of properties) {
+    const name = staticPropertyName(property);
+    if (name !== null) result.push({ name, value: asStaticProgramNode(property)!.value });
+  }
+  return result;
+}
+
+function calleeName(value: unknown): string | null {
+  const callee = unwrapStaticExpression(value);
+  if (callee?.type === "Identifier" && typeof callee.name === "string") return callee.name;
+  if (callee?.type === "MemberExpression" && callee.computed !== true)
+    return getStaticProgramName(asStaticProgramNode(callee.property));
+  return null;
+}
+
+/** Whether an object literal hides properties behind a spread or computed key. */
+function hasOpaqueProperties(value: unknown): boolean {
+  const node = unwrapStaticExpression(value);
+  if (node?.type !== "ObjectExpression") return true;
+  const properties = Array.isArray(node.properties) ? node.properties : [];
+  return properties.some((property) => staticPropertyName(property) === null);
+}
+
+/**
+ * The refs a manifest module writes in a position the runtime reads a module
+ * from. A ref held in a variable is not seen here; the build's registry check
+ * reports it if the registry cannot serve it.
+ *
+ * Returns false when a route or shell ref position holds something other than
+ * a literal (`"./routes/" + name + ".tsx"`, a variable, a spread): the module
+ * it names cannot be known, so the scan must not be trusted to list them all.
+ */
+function collectPositionalRefs(program: StaticProgramNode, refs: PositionalManifestRefs): boolean {
+  let literal = true;
+  const push = (list: string[], value: unknown, required: boolean): void => {
+    const ref = staticRefValue(value);
+    if (ref !== null) list.push(ref);
+    else if (required) literal = false;
+  };
+  const readComponentConfig = (value: unknown): void => {
+    if (staticRefValue(value) !== null) {
+      push(refs.routes, value, true);
+      return;
+    }
+    if (hasOpaqueProperties(value)) {
+      literal = false;
+      return;
+    }
+    let component = false;
+    for (const property of staticObjectProperties(value)) {
+      if (property.name === "component") {
+        component = true;
+        push(refs.routes, property.value, true);
+      }
+      if (property.name === "loader") push(refs.loaders, property.value, false);
+    }
+    if (!component) literal = false;
+  };
+
+  const walk = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item);
+      return;
+    }
+    const node = asStaticProgramNode(value);
+    if (!node) return;
+
+    if (node.type === "CallExpression" && calleeName(node.callee) === "route") {
+      const args = Array.isArray(node.arguments) ? node.arguments : [];
+      if (args.some((arg) => asStaticProgramNode(arg)?.type === "SpreadElement")) literal = false;
+      else readComponentConfig(args[1]);
+    } else if (node.type === "ObjectExpression") {
+      for (const property of staticObjectProperties(node)) {
+        if (property.name === "shells") {
+          if (hasOpaqueProperties(property.value)) literal = false;
+          for (const shell of staticObjectProperties(property.value))
+            push(refs.shells, shell.value, true);
+        } else if (property.name === "middleware") {
+          for (const entry of staticObjectProperties(property.value))
+            push(refs.middleware, entry.value, false);
+        } else if (property.name === "notFound") {
+          readComponentConfig(property.value);
+        }
+      }
+    }
+
+    for (const key of Object.keys(node)) {
+      if (key === "type") continue;
+      walk(node[key]);
+    }
+  };
+
+  walk(program.body);
+  return literal;
+}
+
+/** At most this many modules are read while following a manifest's imports. */
+const MANIFEST_MODULE_LIMIT = 64;
+const MANIFEST_IMPORT_EXTENSIONS = [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs"];
+
+/** The file a relative import specifier loads, or null when it cannot tell. */
+function resolveManifestImport(specifier: string, importer: string, root: string): string | null {
+  const base = specifier.startsWith("/")
+    ? resolve(root, specifier.slice(1))
+    : resolve(dirname(importer), specifier);
+  const candidates = [
+    base,
+    // TypeScript lets a `.js` specifier name the `.ts` source.
+    ...(/\.[mc]?js$/.test(base)
+      ? [base.replace(/js$/, "ts"), base.replace(/\.([mc]?)js$/, ".$1tsx")]
+      : []),
+    ...MANIFEST_IMPORT_EXTENSIONS.map((extension) => `${base}${extension}`),
+    ...MANIFEST_IMPORT_EXTENSIONS.map((extension) => join(base, `index${extension}`)),
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (statSync(candidate).isFile()) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
+/**
+ * What the app manifest and the local modules it imports say about module refs.
+ *
+ * `strings` holds every string literal in those modules, `refs` the ones
+ * written in a ref position. Refs resolve against the app manifest's directory
+ * wherever they are written — that is how the runtime reads them.
+ *
+ * `complete` is false as soon as a ref could live somewhere this scan cannot
+ * see: a route or shell ref that is not a literal, an import specifier
+ * assembled at runtime, a local import that does not resolve to a parseable
+ * module, or more imports than the scan follows.
+ */
+interface ManifestScan {
+  complete: boolean;
+  strings: string[];
+  refs: PositionalManifestRefs;
+  /** Absolute paths of the manifest and every local module the scan read. */
+  files: string[];
+}
+
+function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string): ManifestScan {
+  const refs: PositionalManifestRefs = { routes: [], shells: [], middleware: [], loaders: [] };
+  const strings: string[] = [];
+  const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
+  const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map((directory) =>
+    toPosixPath(resolve(root, directory.replace(/^\//, ""))),
+  );
+  const isOwned = (path: string): boolean =>
+    ownedDirectories.some((directory) => toPosixPath(path).startsWith(`${directory}/`));
+
+  const queue = [appFile];
+  const seen = new Set(queue);
+  let complete = true;
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    let program: StaticProgramNode;
+    let collected: { localImports: string[]; strings: string[] };
+    try {
+      const source = readFileSync(file, "utf-8");
+      program = parseAst(source, { lang: getRolldownLang(file) }) as unknown as StaticProgramNode;
+      collected = collectManifestStrings(program);
+    } catch {
+      // An unreadable or unparseable manifest is the dev server's error to
+      // report, not a reason to reorganize the bundle.
+      return { complete: false, strings, refs, files: [...seen] };
+    }
+    strings.push(...collected.strings);
+    if (!collectPositionalRefs(program, refs)) complete = false;
+
+    for (const specifier of collected.localImports) {
+      if (specifier === "") {
+        complete = false;
+        continue;
+      }
+      if (!specifier.startsWith(".") && !specifier.startsWith("/")) continue;
+      const target = resolveManifestImport(specifier, file, root);
+      if (target === null) {
+        complete = false;
+        continue;
+      }
+      // A route or shell module is a leaf: it holds components, not refs.
+      if (isOwned(target) || seen.has(target)) continue;
+      if (seen.size >= MANIFEST_MODULE_LIMIT || !/\.[mc]?[jt]sx?$/.test(target)) {
+        complete = false;
+        continue;
+      }
+      seen.add(target);
+      queue.push(target);
+    }
+  }
+
+  return { complete, strings, refs, files: [...seen] };
+}
+
+/**
+ * The manifest and the local modules it imports, as absolute POSIX paths. An
+ * edit to any of them can change what the registries hold, so the dev server
+ * treats each like the manifest itself.
+ */
+export function collectManifestModuleFiles(
+  resolved: ResolvedPrachtPluginOptions,
+  root: string = process.cwd(),
+): string[] {
+  if (resolved.pagesDir) return [];
+  return scanManifestModules(resolved, root).files.map(toPosixPath);
+}
+
+/**
  * The route and shell modules the app manifest names, and whether that answer
  * can be trusted.
  *
  * Refs are plain strings — `"./routes/home.tsx"`, or the specifier of a
- * `() => import("./routes/home.tsx")` — so every string in the manifest that
- * resolves to a file under the routes or shells directory is a ref. Reading
- * them this loosely is deliberate: a string that turns out to be something
- * else (a middleware path, a route pattern) resolves to no file there and drops
- * out, and over-collecting only ever keeps a module the app already ships.
+ * `() => import("./routes/home.tsx")` — so every string in the manifest, and
+ * in the local modules it imports, that resolves to a file under the routes or
+ * shells directory is a ref. Reading them this loosely is deliberate: a string
+ * that turns out to be something else (a middleware path, a route pattern)
+ * resolves to no file there and drops out, and over-collecting only ever keeps
+ * a module the app already ships.
  *
- * `complete` is false as soon as a ref could live somewhere this file cannot
- * see: a manifest that imports a routes fragment from another module, or
- * assembles a specifier at runtime. Callers must then leave the registry as it
+ * `complete` is false as soon as a ref could live somewhere the scan cannot
+ * see (see `scanManifestModules`). Callers must then leave the registry as it
  * was — dropping a module a route needs breaks navigation to it, which is far
  * worse than shipping one nothing reaches.
  */
@@ -315,54 +574,98 @@ export function collectManifestModuleRefs(
   const files = new Set<string>();
   if (resolved.pagesDir) return { complete: false, files };
 
-  const appFile = resolve(root, resolved.appFile.replace(/^\//, ""));
-  let source: string;
-  try {
-    source = readFileSync(appFile, "utf-8");
-  } catch {
-    return { complete: false, files };
-  }
-
-  let collected: { localImports: string[]; strings: string[] };
-  try {
-    collected = collectManifestStrings(source, appFile);
-  } catch {
-    // An unparseable manifest is the dev server's error to report, not a
-    // reason to reorganize the bundle.
-    return { complete: false, files };
-  }
-
-  const appDir = dirname(appFile);
+  const scan = scanManifestModules(resolved, root);
+  const appDir = dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
   const ownedDirectories = [resolved.routesDir, resolved.shellsDir].map((directory) =>
     toPosixPath(resolve(root, directory.replace(/^\//, ""))),
   );
   const isOwned = (path: string): boolean =>
     ownedDirectories.some((directory) => toPosixPath(path).startsWith(`${directory}/`));
 
-  for (const value of collected.strings) {
+  for (const value of scan.strings) {
     if (!value.startsWith(".") && !value.startsWith("/")) continue;
     const abs = value.startsWith("/") ? resolve(root, value.slice(1)) : resolve(appDir, value);
     if (!isOwned(abs)) continue;
     try {
       if (statSync(abs).isFile()) files.add(toPosixPath(abs));
     } catch {
-      // A ref to a file that is not there is reported by `pracht doctor`; it
-      // cannot be excluded from anything either way.
+      // A ref to a file that is not there fails `pracht build`; it cannot be
+      // excluded from anything either way.
     }
   }
 
-  // A relative import that is not itself a route or shell may be carrying route
-  // definitions of its own.
-  const complete = collected.localImports.every((specifier) => {
-    if (specifier === "") return false;
-    if (!specifier.startsWith(".") && !specifier.startsWith("/")) return true;
-    const abs = specifier.startsWith("/")
-      ? resolve(root, specifier.slice(1))
-      : resolve(appDir, specifier);
-    return isOwned(abs);
-  });
+  return { complete: scan.complete, files };
+}
 
-  return { complete, files };
+/**
+ * Root-absolute paths (`/src/features/a.tsx`) of the modules the manifest
+ * names outside the directories the registries glob, by registry.
+ *
+ * The registries are directory globs, so a route written as
+ * `"./features/a.tsx"` used to have no registry entry and failed on every
+ * request. Only refs in a ref position count, and only files that exist: a
+ * server-only module never reaches the client registry this way.
+ */
+export interface ExternalManifestModules {
+  routes: string[];
+  shells: string[];
+  middleware: string[];
+  loaders: string[];
+}
+
+/**
+ * Registry entries for named files, keyed like `import.meta.glob` keys them.
+ * Explicit imports rather than a glob, so a file name holding glob syntax
+ * (`[id].tsx`) is taken literally.
+ */
+function externalRegistryEntries(
+  files: readonly string[],
+  specifierOf: (file: string) => string,
+): string[] {
+  return files.map(
+    (file) => `  ${JSON.stringify(file)}: () => import(${JSON.stringify(specifierOf(file))}),`,
+  );
+}
+
+export function collectExternalManifestModules(
+  resolved: ResolvedPrachtPluginOptions,
+  root: string = process.cwd(),
+): ExternalManifestModules {
+  const external: ExternalManifestModules = { routes: [], shells: [], middleware: [], loaders: [] };
+  if (resolved.pagesDir) return external;
+
+  const scan = scanManifestModules(resolved, root);
+  const rootPosix = toPosixPath(root).replace(/\/$/, "");
+  const appDir = dirname(resolve(root, resolved.appFile.replace(/^\//, "")));
+  const directoryOf = (directory: string): string =>
+    `${toPosixPath(resolve(root, directory.replace(/^\//, "")))}/`;
+  const globbed = {
+    routes: [directoryOf(resolved.routesDir)],
+    shells: [directoryOf(resolved.shellsDir)],
+    middleware: [directoryOf(resolved.middlewareDir)],
+    loaders: [directoryOf(resolved.serverDir)],
+  };
+
+  for (const kind of ["routes", "shells", "middleware", "loaders"] as const) {
+    const found = new Set<string>();
+    for (const ref of scan.refs[kind]) {
+      if (!ref.startsWith(".") && !ref.startsWith("/")) continue;
+      const abs = toPosixPath(
+        ref.startsWith("/") ? resolve(root, ref.slice(1)) : resolve(appDir, ref.split("?")[0]!),
+      );
+      if (globbed[kind].some((directory) => abs.startsWith(directory))) continue;
+      if (!abs.startsWith(`${rootPosix}/`)) continue;
+      try {
+        if (!statSync(abs).isFile()) continue;
+      } catch {
+        continue;
+      }
+      found.add(abs.slice(rootPosix.length));
+    }
+    external[kind] = [...found].sort();
+  }
+
+  return external;
 }
 
 /**
@@ -466,6 +769,17 @@ export function createPrachtClientModuleSource(
   routeExcludes.push(...unreferencedExcludes);
   const routeGlobPattern = [routeGlob, ...routeExcludes];
   const additionalRouteGlobPattern = [additionalRouteGlob, ...routeExcludes];
+  // Modules the manifest names outside the globbed directories get entries of
+  // their own; hydration exclusions apply to them like to any route.
+  const external = isPagesMode
+    ? { routes: [], shells: [] }
+    : collectExternalManifestModules(resolved, buildOptions.root);
+  const externalGlobs = (files: string[], excludes: string[]): string[] =>
+    externalRegistryEntries(
+      files.filter((file) => !excludes.includes(`!${file}`)),
+      (file) =>
+        bareRouteExtensions.includes(extname(file)) ? file : `${file}${PRACHT_CLIENT_MODULE_QUERY}`,
+    );
 
   // Directory-scoped shells: every `_app` in the pages tree is registered, so
   // the glob walks subdirectories. `_reserved/**` helper trees stay excluded —
@@ -524,10 +838,12 @@ export function createPrachtClientModuleSource(
     `const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
     `  ...import.meta.glob(${JSON.stringify(additionalRouteGlobPattern)}),`,
+    ...externalGlobs(external.routes, routeExcludes),
     `};`,
     `const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlobPattern)}, { query: ${JSON.stringify(PRACHT_CLIENT_MODULE_QUERY)} }),`,
     `  ...import.meta.glob(${JSON.stringify(additionalShellGlobPattern)}),`,
+    ...externalGlobs(external.shells, []),
     ...ejectedPagesAppShellSources,
     `};`,
     "",
@@ -1233,25 +1549,50 @@ export function createRouteHintsForVirtualModules(
     staticPaths: {},
   };
 
-  for (const [prefix, directory] of directories) {
-    const scanned = createRouteHints(directory, {
-      additionalExtensions: options.additionalExtensions,
-      appFileDir,
-      rootRelativePrefix: prefix,
-    });
+  const merge = (scanned: RouteHints, isRoute: boolean, isShell: boolean): void => {
     hints.incomplete ||= scanned.incomplete;
     Object.assign(hints.head, scanned.head);
     Object.assign(hints.headers, scanned.headers);
     // Shells can own a loader too; only routes own `getStaticPaths()` and a
     // search schema.
     Object.assign(hints.loader, scanned.loader);
-    if (prefix === routesPrefix) {
+    if (isRoute) {
       Object.assign(hints.routeLoader, scanned.loader);
       Object.assign(hints.search, scanned.search);
       Object.assign(hints.staticPaths, scanned.staticPaths);
     }
-    if (prefix !== routesPrefix || prefix === options.shellsDir) {
-      hints.shellLoaders ||= Object.values(scanned.loader).includes(true);
+    if (isShell) hints.shellLoaders ||= Object.values(scanned.loader).includes(true);
+  };
+
+  for (const [prefix, directory] of directories) {
+    const scanned = createRouteHints(directory, {
+      additionalExtensions: options.additionalExtensions,
+      appFileDir,
+      rootRelativePrefix: prefix,
+    });
+    merge(
+      scanned,
+      prefix === routesPrefix,
+      prefix !== routesPrefix || prefix === options.shellsDir,
+    );
+  }
+
+  // Route and shell modules the manifest names outside those directories.
+  if (!options.pagesDir) {
+    const external = collectExternalManifestModules(options, root);
+    for (const [files, isRoute] of [
+      [external.routes, true],
+      [external.shells, false],
+    ] as const) {
+      for (const file of files) {
+        const scanned = createRouteHints(dirname(resolve(root, file.slice(1))), {
+          additionalExtensions: options.additionalExtensions,
+          appFileDir,
+          files: [resolve(root, file.slice(1))],
+          rootRelativePrefix: dirname(file),
+        });
+        merge(scanned, isRoute, !isRoute);
+      }
     }
   }
 
@@ -1347,15 +1688,21 @@ export function createPrachtRegistryModuleSource(
     resolved.middlewareDir,
     `${resolved.middlewareDir}/**/*.{ts,tsx,js,jsx}`,
   );
+  // Modules the manifest names outside the globbed directories.
+  const external = collectExternalManifestModules(resolved, buildOptions.root);
+  const externalGlob = (files: string[]): string[] =>
+    externalRegistryEntries(files, (file) => file);
 
   return [
     `export const routeModules = {`,
     `  ...import.meta.glob(${JSON.stringify(routeGlob)}),`,
     `  ...import.meta.glob(${JSON.stringify(additionalRouteGlob)}),`,
+    ...externalGlob(external.routes),
     `};`,
     `export const shellModules = {`,
     `  ...import.meta.glob(${JSON.stringify(shellGlob)}),`,
     `  ...import.meta.glob(${JSON.stringify(additionalShellGlob)}),`,
+    ...externalGlob(external.shells),
     `};`,
     // Pages mode adds the root `_middleware` file so the generated manifest's
     // `pages` middleware resolves through the same runtime registry.
@@ -1366,9 +1713,27 @@ export function createPrachtRegistryModuleSource(
           `  ...import.meta.glob(${JSON.stringify(`${resolved.pagesDir}/_middleware.{ts,tsx,js,jsx}`)}),`,
           `};`,
         ]
-      : [`export const middlewareModules = import.meta.glob(${JSON.stringify(middlewareGlob)});`]),
+      : external.middleware.length > 0
+        ? [
+            `export const middlewareModules = {`,
+            `  ...import.meta.glob(${JSON.stringify(middlewareGlob)}),`,
+            ...externalGlob(external.middleware),
+            `};`,
+          ]
+        : [
+            `export const middlewareModules = import.meta.glob(${JSON.stringify(middlewareGlob)});`,
+          ]),
     `export const apiModules = import.meta.glob(${JSON.stringify(apiGlobs)});`,
-    `export const dataModules = import.meta.glob(${JSON.stringify(moduleGlob(resolved.serverDir, `${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`))});`,
+    ...(external.loaders.length > 0
+      ? [
+          `export const dataModules = {`,
+          `  ...import.meta.glob(${JSON.stringify(moduleGlob(resolved.serverDir, `${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`))}),`,
+          ...externalGlob(external.loaders),
+          `};`,
+        ]
+      : [
+          `export const dataModules = import.meta.glob(${JSON.stringify(moduleGlob(resolved.serverDir, `${resolved.serverDir}/**/*.{ts,js,tsx,jsx}`))});`,
+        ]),
     `export const capabilityModules = import.meta.glob(${JSON.stringify(moduleGlob(resolved.capabilitiesDir, `${resolved.capabilitiesDir}/**/*.{ts,js,tsx,jsx}`))});`,
     // The one module `defineApp({ root })` registers, or none.
     appRoot

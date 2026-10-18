@@ -86,6 +86,17 @@ the server from the project directory.
 | `generate_api`        | `cwd?`, `path`, `methods?` (string[], defaults to `["GET"]`)                                                        | Files created and updated.                                                           |
 | `generate_capability` | `cwd?`, `name`, `effect?`, `expose?`, `title?`, `description?`                                                      | Files created and updated. Manifest apps get a `capabilities` registry entry; pages apps auto-discover `src/capabilities/`, so the module declares its own `name`. |
 
+## Implementation
+
+The server is tools-only, so `packages/cli/src/mcp-tool-server.ts` implements that slice of
+the protocol directly (newline-delimited JSON-RPC over stdio: `initialize`, `ping`,
+`tools/list`, `tools/call`) instead of depending on the MCP SDK, which would otherwise ship
+its HTTP server stack in every app's `@pracht/cli` install. Tool input schemas are zod raw
+shapes converted with `z.toJSONSchema` (draft-7, input side), and invalid arguments or an
+unknown tool come back as `isError` results, matching the SDK's behaviour. The tests drive it
+with the SDK client (a devDependency) over both in-memory and real stdio transports. Adding
+resources, prompts or sampling would mean revisiting this choice.
+
 ## Error handling
 
 Tool failures (missing manifest, unknown shell, refusing to overwrite an existing file,

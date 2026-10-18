@@ -40,7 +40,7 @@ Bound the search first — do not grep the whole repo blind:
 pracht inspect routes --json
 ```
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
