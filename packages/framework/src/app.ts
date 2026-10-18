@@ -153,6 +153,10 @@ export function defineApp(config: PrachtAppConfig): PrachtApp {
     constraints: config.constraints,
     viewTransitions: config.viewTransitions,
     loaderTimeoutMs: config.loaderTimeoutMs,
+    // Server-only, so client builds fold it away. Inline rather than a
+    // module constant: client builds replace `import.meta.env` after
+    // tree-shaking, and only the minifier can still drop the key here.
+    ...(import.meta.env?.SSR !== false && { enforceLoaderTimeout: config.enforceLoaderTimeout }),
   };
 }
 
@@ -271,6 +275,7 @@ export function resolveApp(app: PrachtApp): ResolvedPrachtApp {
     constraints: app.constraints,
     viewTransitions: app.viewTransitions,
     loaderTimeoutMs: app.loaderTimeoutMs,
+    ...(import.meta.env?.SSR !== false && { enforceLoaderTimeout: app.enforceLoaderTimeout }),
   };
 }
 
