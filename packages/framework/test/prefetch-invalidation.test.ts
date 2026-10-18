@@ -9,7 +9,7 @@ import { cacheRouteState, clearPrefetchCache, getCachedRouteState } from "../src
 import { ensureCapabilityRevalidation } from "../src/runtime-capability-revalidate.ts";
 import { revalidateRouteData } from "../src/runtime-revalidate.ts";
 import { initClientRouter } from "../src/router.ts";
-import { useRouteData } from "../src/runtime-hooks.ts";
+import { Form, useRouteData } from "../src/runtime-hooks.ts";
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
@@ -38,6 +38,28 @@ describe("every mutation path invalidates prefetched route state", () => {
 
     await apiFetch("/api/items" as never, { method: "POST", body: {}, fetch: fetchImpl } as never);
     expect(getCachedRouteState("/other")).toBeNull();
+  });
+
+  it("a <Form> submission clears what was prefetched while it was in flight", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        primePrefetchCache();
+        return new Response(null, { status: 204 });
+      }),
+    );
+    render(h(Form, { action: "/api/items", method: "post" }), root);
+
+    root
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getCachedRouteState("/other")).toBeNull();
+    render(null, root);
+    root.remove();
   });
 
   it("useRevalidate() clears it", async () => {
