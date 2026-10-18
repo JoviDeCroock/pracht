@@ -105,6 +105,43 @@ export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.Ne
   };
 }
 
+/**
+ * Vite's own CORS middleware answers every `OPTIONS` preflight before plugin
+ * middleware runs, without the headers a remote MCP endpoint grants its
+ * `agents.mcp.allowedOrigins`. Registered ahead of Vite's internals, this
+ * hands exactly those preflights — `OPTIONS` to the MCP endpoint from a listed
+ * origin — to the pracht handler, and leaves every other request to Vite.
+ */
+export function createDevMcpPreflightMiddleware(
+  server: ViteDevServer,
+  handler: Connect.NextHandleFunction,
+): Connect.NextHandleFunction {
+  const devBase = server.config.base || "/";
+  return (req, res, next) => {
+    const origin = req.headers.origin;
+    if (req.method !== "OPTIONS" || typeof origin !== "string") return next();
+    void (async () => {
+      const serverMod = await server.ssrLoadModule(PRACHT_SERVER_MODULE_ID);
+      const mcp = (serverMod.resolvedApp as ResolvedPrachtApp).agents?.mcp;
+      if (!mcp?.allowedOrigins?.includes(origin)) return next();
+      const configured = mcp.path ?? "/mcp";
+      const endpoint =
+        configured.length > 1 && configured.endsWith("/") ? configured.slice(0, -1) : configured;
+      let pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+      // This runs before Vite strips the base, so strip it the same way.
+      if (devBase !== "/") {
+        if (!pathname.startsWith(devBase)) return next();
+        pathname = `/${pathname.slice(devBase.length)}`;
+        req.url = `/${(req.url ?? "/").slice(devBase.length)}`;
+      }
+      const normalized =
+        pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+      if (normalized !== endpoint) return next();
+      await handler(req, res, next);
+    })().catch(next);
+  };
+}
+
 export function createDevSSRMiddleware(
   server: ViteDevServer,
   options: {

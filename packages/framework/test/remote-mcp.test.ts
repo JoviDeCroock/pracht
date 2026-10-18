@@ -627,6 +627,8 @@ describe("transport", () => {
     expect(result.text).toBe("");
     const error = await mcp({ jsonrpc: "2.0", id: "x", error: { code: -1, message: "no" } });
     expect(error.status).toBe(202);
+    const idless = await mcp({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" } });
+    expect(idless.status).toBe(202);
     // Neither result nor error, or both, is still not a valid message.
     expect((await mcp({ jsonrpc: "2.0", id: 7 })).status).toBe(400);
     expect((await mcp({ jsonrpc: "2.0", id: 7, result: {}, error: {} })).status).toBe(400);

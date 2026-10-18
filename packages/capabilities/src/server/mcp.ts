@@ -1152,8 +1152,13 @@ function acceptsJson(request: Request): boolean {
 
 function isJsonRpcResponseMessage(message: unknown): boolean {
   if (!isObjectRecord(message) || message.jsonrpc !== "2.0" || "method" in message) return false;
-  if (typeof message.id !== "string" && typeof message.id !== "number") return false;
-  return "result" in message !== "error" in message;
+  const hasResult = "result" in message;
+  const hasError = "error" in message;
+  if (hasResult === hasError) return false;
+  if (typeof message.id === "string" || typeof message.id === "number") return true;
+  // An error response may omit its id (or send null) when the request's id
+  // could not be read.
+  return hasError && (message.id === undefined || message.id === null);
 }
 
 /** Reject browser fetches/forms; remote MCP clients send neither header. */
