@@ -482,10 +482,14 @@ build).
   routes that opt into `webhookRevalidate()`. Regenerated entries are stored
   with `Cache-Control: public, max-age=31536000` because the Cache API takes
   an entry's lifetime from that header; staleness comes only from the stored
-  `x-pracht-isg-generated-at` timestamp, and a cached page is served with the
-  browser policy `public, max-age=0, must-revalidate` (route `headers()`
-  exports still apply on top). `caches.default` survives `wrangler deploy`,
-  so each Cache API key carries the build's prerender timestamp in its path
+  `x-pracht-isg-generated-at` timestamp. A cached page is served with the
+  headers its own render produced, so `headers()` output computed from loader
+  `data` (an `x-robots-tag`, say) changes with the HTML instead of reverting
+  to `_pracht/headers.json`; its Cache-Control is the render's own (kept in
+  `x-pracht-isg-cache-control` while the entry carries its storage TTL) or
+  `public, max-age=0, must-revalidate`. Entries without that header predate
+  it and still take the build's headers. `caches.default` survives
+  `wrangler deploy`, so each Cache API key carries the build's prerender timestamp in its path
   (`/__pracht/isg-build/<generatedAt>/<route path>`, from the ISG manifest; a
   path rather than a query parameter because a zone cache key may ignore query
   strings): a new version never reads an entry the previous build rendered
