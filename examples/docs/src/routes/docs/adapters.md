@@ -614,10 +614,9 @@ from `window.location`.
 
 #### Dropping the router from `404.html`
 
-Adopting the URL is the only thing the client router does on that page, and on
-a site whose other pages are islands or static it is the single largest chunk
-in the build — requested by `404.html` and nothing else. A 404 that shows fixed
-markup does not need it:
+On that page the client router only adopts the URL, yet on an islands or
+static site it is the largest chunk in the build. A 404 with fixed markup can
+drop it:
 
 ```ts
 notFound: {
@@ -627,10 +626,9 @@ notFound: {
 }
 ```
 
-The tradeoff is the URL. The page is prerendered at a synthetic path, so
-`useLocation()` reports that path rather than the one the visitor typed. Say
-nothing about the URL, or read it in an island — `hydration: "islands"` costs
-the islands bootstrap (a few kB) instead of the router:
+The page is prerendered at a synthetic path, so `useLocation()` then reports
+that path, not the visited one. To show the visited URL, read it in an island;
+`hydration: "islands"` costs a few kB instead of the router:
 
 ```tsx
 // src/islands/RequestedPath.tsx
@@ -660,14 +658,12 @@ pracht build      # dist/client/ is the deployable site
 pracht preview    # serves dist/client/ with a tiny static file server
 ```
 
-Pages are written as `<path>/index.html`, so the host must serve `index.html`
-for directory URLs (clean URLs). Paths are written decoded
-(`/posts/caf%C3%A9` → `posts/café/index.html`), matching how static hosts look
-files up.
+Pages are written decoded as `<path>/index.html`
+(`/posts/caf%C3%A9` → `posts/café/index.html`), so the host must serve
+`index.html` for directory URLs.
 
-The host, not pracht, sets response headers. The headers each route would have
-sent are recorded in `dist/server/headers-manifest.json`; mirror the ones you
-need in the host's config.
+The host sets response headers. Mirror the ones you need from
+`dist/server/headers-manifest.json`, which records each route's headers.
 
 A static host always answers `/about` with the HTML file, so `Accept`
 negotiation does not apply; agents read a page's `markdown` export at
@@ -682,7 +678,7 @@ To serve a static export under a sub-path, see
 
 ## Context Factory
 
-Adapters inject platform-specific values into loaders and API routes via a context factory. With generated entries, point the adapter at a module that exports `createContext`:
+To give loaders and API routes platform values, point the adapter at a module that exports `createContext`:
 
 ```ts [vite.config.ts]
 nodeAdapter({ createContextFrom: "/src/server/context.ts" });
@@ -705,7 +701,7 @@ export function createContext({ request }: { request: Request }) {
 // waitUntil-compatible context, without other Edge-only fields.
 ```
 
-A Cloudflare app with its own [Worker module](#composing-the-worker) passes `createContext` to `createPrachtHandler()` instead. Every loader, middleware, and API route handler receives the result as `args.context`, in `pracht dev` too. The dev server has no Vercel or Netlify runtime, so there the platform `context` argument holds only `waitUntil`.
+A Cloudflare app with its own [Worker module](#composing-the-worker) passes `createContext` to `createPrachtHandler()` instead. Loaders, middleware, and API routes receive the result as `args.context`, in `pracht dev` too, where the Vercel or Netlify platform `context` holds only `waitUntil`.
 
 ---
 
@@ -758,19 +754,18 @@ At the runtime level, an adapter also typically needs to:
 1. Accept a platform request and convert it to a Web `Request`
 2. Check for static assets -- serve files from `dist/client/` with appropriate headers
 3. Check for prerendered pages -- serve SSG/ISG HTML (with staleness checking for ISG when the platform supports it)
-4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`, passing the platform's `waitUntil`
+4. Delegate dynamic requests to `handlePrachtRequest()`, passing the platform's `waitUntil`. It resolves each `app` object once, so pass a new `defineApp()` result to change routes at runtime
 5. Convert the Web `Response` back to the platform's response format
 6. Provide a context factory for platform-specific values
 7. Export an entry module generator for the Vite plugin
 
 A static-export adapter sets `staticTarget: true` and builds its entry with
-`createStaticServerEntryModule()` from `@pracht/adapter-static`, so the build
-can render `404.html` and the SPA fallback.
+`createStaticServerEntryModule()` from `@pracht/adapter-static` for `404.html`
+and the SPA fallback.
 
 If your transport sends responses itself, pass them through
 `normalizeResponseHeaders()` so bodyless responses (`HEAD`, `204`, `304`) don't
-carry a stale `Content-Length`. It leaves protocol-switch responses, such as
-Cloudflare's WebSocket `101`, untouched:
+carry a stale `Content-Length`:
 
 ```ts
 import { normalizeResponseHeaders } from "@pracht/core/server";

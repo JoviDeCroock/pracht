@@ -80,6 +80,14 @@ export function createNodeRequestHandler<TContext>(
 ): NodeRequestHandler; // (req, res) => Promise<void>, plus drain(timeoutMs?) and pending
 ```
 
+A handler may pass `handlePrachtRequest` either a resolved app or the
+authoring-shaped `defineApp()` result. `getResolvedApp` in `runtime-request.ts`
+resolves the latter once per object (a `WeakMap` keyed by identity) and reuses
+it, so per-app caches such as compiled href tables and the islands navigation
+table survive across requests. The cost is that mutating that object after its
+first request has no effect: a runtime route or option change needs a new
+`defineApp()` result, which HMR already produces.
+
 ### 3. Entry module generator (for custom adapters)
 
 ```typescript
