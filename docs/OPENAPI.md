@@ -246,6 +246,25 @@ Raw JSON Schema response bodies work directly. Standard JSON Schema
 implementations use their output projection. Pass `resolveSchema` for
 libraries that require a separate converter.
 
+### Capabilities
+
+`prachtOpenApi({ capabilities: true })` (default `false`) adds
+`capabilities: () => resolveAppCapabilities(resolvedApp, registry)` to the
+generated call, so the document reflects the same resolved graph the runtime
+serves. `generateOpenApiDocument()` accepts the same `capabilities` option as an
+array or loader of resolved capabilities. Each capability with an HTTP path
+becomes a `POST` operation: `operationId` is the capability name, the request
+body is its normalized input JSON Schema, `200` is the success envelope with the
+output schema under `data`, and `default` is the error envelope. Destructive
+capabilities document the optional `x-pracht-confirm` header. `x-pracht-effect`
+and `x-pracht-capability` carry the effect class and name. A capability whose
+path an API route matches (whatever its methods, since the API route answers
+first at runtime) is omitted with `capability_path_conflict`; one whose name is
+already an API `operationId` keeps its operation without an `operationId`
+(`capability_operation_id_conflict`); and a loader that throws yields `capability_load_failed` instead of failing
+generation. It is opt-in so existing documents and client generators do not
+gain operations on upgrade.
+
 ## Current boundaries
 
 - Default-export handlers are not expanded because their supported methods
@@ -254,6 +273,7 @@ libraries that require a separate converter.
   about slash encoding.
 - Request bodies default to `application/json`; other content types need
   explicit request metadata in a future descriptor revision.
-- Capability HTTP projections are not included yet.
+- Capabilities are documented only with `capabilities: true`; their
+  form-encoded `<Form capability>` submissions are not described.
 - OpenAPI drift checking is expressed through deterministic build output and
   `failOnWarnings`; a dedicated CLI diff/check command is not included yet.

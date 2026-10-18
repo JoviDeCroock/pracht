@@ -42,8 +42,9 @@ pnpm inspect                        # the capability graph, with schemas
    MCP exposure, `agents.mcp.destructive`, and an approval store. A cookie or an
    `Origin` header on that endpoint is a 403.
 7. **`node scripts/agent.mjs`** — the same journey as a cryptographically
-   verified agent, over the HTTP projection *and* `/mcp`, stopping dead at the
-   human approval just like you did.
+   verified agent, over the HTTP projection *and* `/mcp`. The archive stops at
+   prepare with `confirmation_unavailable`: a signed agent names the agent, not
+   a user, so it cannot open a human-approval proposal.
 
 ## What each piece demonstrates
 

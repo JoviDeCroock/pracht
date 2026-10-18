@@ -278,8 +278,8 @@ exposed over HTTP and over remote MCP, and every dispatch is gated by a
 server-verified prepare/commit confirmation flow that requires
 `PRACHT_CONFIRMATION_SECRET` to be configured — optionally backed by a durable
 approval store for exactly-once commits and, in human mode, human approval
-(which also requires an authenticated principal from Web Bot Auth or
-`setCapabilityApprovalPrincipalResolver()`), see
+(which also requires an end-user principal from
+`setCapabilityApprovalPrincipalResolver()` or `agents.mcp.auth`), see
 [AGENT_TRUST.md](AGENT_TRUST.md).
 
 Two rules narrow that:

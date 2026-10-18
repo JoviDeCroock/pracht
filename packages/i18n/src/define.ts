@@ -1,3 +1,4 @@
+import { stripBase } from "@pracht/core";
 import type { MiddlewareFn } from "@pracht/core";
 
 import { matchAcceptLanguage } from "./accept-language.ts";
@@ -279,6 +280,15 @@ function normalizePathname(path: string): string {
   return new URL(pathname, "https://pracht.invalid").pathname;
 }
 
+/**
+ * A URL pathname as a route path: the deploy base (`/my-project/nl/about` →
+ * `/nl/about`) is removed so the locale prefix is the first segment. A path
+ * outside the base, such as a prerender request, is used as it is.
+ */
+function routePathname(pathname: string): string {
+  return stripBase(pathname) ?? pathname;
+}
+
 function splitTarget(path: string): { pathname: string; suffix: string } {
   const search = path.indexOf("?");
   const hash = path.indexOf("#");
@@ -409,7 +419,7 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     const target = url ?? new URL(request.url);
     for (const source of detectOrder) {
       if (source === "path") {
-        const { locale } = splitLocale(target.pathname);
+        const { locale } = splitLocale(routePathname(target.pathname));
         if (locale !== null) return { locale, source };
       } else if (source === "cookie") {
         const locale = readLocaleCookie(request);
@@ -481,7 +491,7 @@ export function defineI18n<const L extends string>(config: I18nConfig<L>): I18n<
     for (const source of detectOrder) {
       if (source === "path") {
         if (typeof location === "undefined") continue;
-        const { locale } = splitLocale(location.pathname);
+        const { locale } = splitLocale(routePathname(location.pathname));
         if (locale !== null) return { locale, source };
       } else if (source === "cookie") {
         if (cookie === false || typeof document === "undefined") continue;

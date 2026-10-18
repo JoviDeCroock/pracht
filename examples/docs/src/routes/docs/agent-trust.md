@@ -219,7 +219,7 @@ Import this module from a server entry, the destructive capability's module, or 
 
 The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. On remote MCP with [`agents.mcp.auth`](/docs/capabilities#oauth-letting-a-real-host-connect), the verified token subject is bound too. With Web Bot Auth also on, a proposal binds both the user and the agent.
 
-Repeated prepares of the same operation by the same user share one proposal, so a person approves *the action*. A Web Bot Auth key alone names the agent, which all its users share, so each prepare then gets its own proposal and the server logs a warning.
+Repeated prepares of the same operation by the same user share one proposal, so a person approves *the action*.
 
 `agents.confirmation.mode` picks who decides:
 
@@ -253,7 +253,7 @@ export async function POST({ request, context }: ApiRouteArgs) {
 
 Before enabling a store, know that:
 
-- `mode: "human"` without both a store and an authenticated principal fails closed.
+- `mode: "human"` fails closed without a store and an end-user identity (a principal resolver, or `agents.mcp.auth` on MCP). A Web Bot Auth key names only the agent, so it is refused.
 - Prepare and commit must reach the same store. A valid token whose proposal is unknown is refused.
 - Any exception from the store or principal resolver closes the gate.
 - `createMemoryApprovalStore()` is for tests and development. It is lost on restart and not shared across replicas.

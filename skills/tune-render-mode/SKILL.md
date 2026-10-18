@@ -72,7 +72,7 @@ For each route:
 
 ## Step 1: Enumerate
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
@@ -128,7 +128,7 @@ Examples of recommendations:
 
 Render mode controls when HTML is generated; **hydration mode** controls how
 much JavaScript ships afterwards (`hydration: "full" | "islands" | "none"`,
-default `"full"` — see `docs/ISLANDS.md`). A current `@pracht/cli` emits the
+default `"full"` — see <https://pracht.resynapse.dev/docs/islands>). A current `@pracht/cli` emits the
 resolved `hydration` per route in the inspect JSON; if your CLI predates the
 field (absent from the JSON), grep the manifest for `hydration:` (pages apps:
 `HYDRATION` exports) instead. While tuning, also flag:
@@ -215,7 +215,7 @@ Apply the edits only after the user confirms.
    | ---------- | -------------------------------------------------------------- | ----- |
    | Node       | Filesystem: `isg-manifest.json` + file-mtime revalidation      | Serves stale immediately, refreshes in place. |
    | Cloudflare | Worker-managed Workers Cache API, **per colo** — works without any extra config | `cloudflareAdapter({ cache: true })` + `"cache": { "enabled": true }` in wrangler config is an **optional upgrade** that moves time-revalidated routes to an edge-tier cache in front of the Worker; webhook-only routes stay worker-managed. Webhook invalidation on the default path is per-colo, not a global purge. |
-   | Vercel     | Native ISR: Build Output API prerender functions with `expiration` from the time policy; for webhook revalidation, `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and must be set at build time | ISG routes deploy as Node Serverless Functions (Vercel rejects ISR on an Edge Function) while SSR stays on the edge. Time-only ISR does not require the token. See docs/ADAPTERS.md. |
+   | Vercel     | Native ISR: Build Output API prerender functions with `expiration` from the time policy; for webhook revalidation, `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and must be set at build time | ISG routes deploy as Node Serverless Functions (Vercel rejects ISR on an Edge Function) while SSR stays on the edge. Time-only ISR does not require the token. See <https://pracht.resynapse.dev/docs/adapters>. |
 
 4. For dynamic SSG/ISG routes, ensure `getStaticPaths` exists. Flag if missing.
 5. Use `pracht inspect routes --json` rather than reading `src/routes.ts`

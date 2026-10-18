@@ -99,29 +99,50 @@ async function signedCall(
 }
 
 describe("human approval behind a shared agent key", () => {
-  it("never lets one user's commit spend another user's approval", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("refuses human approval when a Web Bot Auth key is the only identity", async () => {
     const host = httpHost();
 
-    const alicePrepare = await signedCall(host, "alice");
-    expect(alicePrepare.status).toBe(409);
-    await store.decide(alicePrepare.body.error!.approvalId!, "approved", "alice");
+    // The agent could otherwise mint a proposal for Alice, wait for her
+    // approval, and hand her token back while acting for Bob: the server sees
+    // the same agent key either way.
+    const prepare = await signedCall(host, "alice");
+    expect(prepare.status).toBe(403);
+    expect(prepare.body.error!.code).toBe("confirmation_unavailable");
+    expect(prepare.body.error!.message).toContain("setCapabilityApprovalPrincipalResolver()");
+    expect(prepare.body.error!.confirmationToken).toBeUndefined();
+    expect(await store.listPending()).toEqual([]);
+    expect(ran).toEqual([]);
+  });
 
-    const bobPrepare = await signedCall(host, "bob");
-    expect(bobPrepare.status).toBe(409);
-    expect(bobPrepare.body.error!.approvalId).not.toBe(alicePrepare.body.error!.approvalId);
-
-    const bobCommit = await signedCall(host, "bob", bobPrepare.body.error!.confirmationToken);
-    expect(bobCommit.status).toBe(409);
-    expect(bobCommit.body.error!.code).toBe("confirmation_pending");
-
-    const aliceCommit = await signedCall(host, "alice", alicePrepare.body.error!.confirmationToken);
-    expect(aliceCommit.status).toBe(200);
-    expect(ran).toEqual(["alice"]);
-
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining("setCapabilityApprovalPrincipalResolver"),
+  it("refuses the remote MCP endpoint in that configuration", async () => {
+    const host = createCapabilityHost({
+      capabilities: { "subscription.cancel": cancel },
+      agents: {
+        webBotAuth: { keys: [{ x: publicX, agent: AGENT }] },
+        confirmation: { mode: "human" },
+        mcp: { destructive: true },
+      },
+    });
+    const response = await host.fetch(
+      new Request(`${ORIGIN}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      }),
     );
+    const body = (await response!.json()) as { error?: { message: string } };
+    expect(body.error?.message).toContain("nothing identifies the end user");
+  });
+
+  it("refuses a request whose resolver finds no user", async () => {
+    setCapabilityApprovalPrincipalResolver(() => null);
+    const prepare = await signedCall(httpHost(), "alice");
+    expect(prepare.status).toBe(403);
+    expect(prepare.body.error!.code).toBe("confirmation_unavailable");
+    expect(ran).toEqual([]);
   });
 
   it("binds the application principal when one resolves", async () => {

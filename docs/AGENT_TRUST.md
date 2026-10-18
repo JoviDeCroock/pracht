@@ -360,13 +360,17 @@ identity stays in the server-side approval record; caller-visible confirmation
 tokens bind a secret-keyed digest instead of exposing that identity.
 
 A Web Bot Auth key identifies the agent operator, which every user of that
-agent shares. In human mode with no end-user identity (no resolver result and
-no OAuth subject), each prepare therefore opens its *own* proposal: the
-proposal id also covers a random nonce carried in the confirmation token's
-signed `n` claim, so only the token minted by that prepare can consume it, and
-a nonce-less token is refused. Two users of one agent sending identical input
-can no longer share — and so spend — one approval. The server warns once per
-process in this configuration, because a reviewer still sees only the agent.
+agent shares, so human mode never accepts it as the end user. Bound alone, the
+agent could prepare for Alice, wait for her approval, and commit her token while
+acting for Bob — the server sees the same key either way. Human mode therefore
+requires an end-user identity on every destructive call: a resolver result, or
+the verified OAuth subject on remote MCP. A request that resolves neither is
+refused with `403 confirmation_unavailable` before any proposal is recorded or
+token minted. The configuration-level form of the same rule
+(`humanApprovalPreconditionError()`: human mode with no resolver registered and
+no `agents.mcp.auth`) blocks the whole remote MCP endpoint, shows up in the dev
+banner and `/_pracht`, and `pracht verify` warns when it finds no
+`setCapabilityApprovalPrincipalResolver(` call.
 
 A proposal's id is a secret-keyed digest derived server-side from the
 principal, capability name, canonicalized input, and approval mode — never
@@ -420,10 +424,10 @@ Who may approve is an application decision, so pracht ships no approval
 endpoint or UI — a framework-default approval route would be the same mistake
 as trusting host-reported approval.
 
-`mode: "human"` without both a registered store and an authenticated principal
-(from the resolver, a verified OAuth subject, or Web Bot Auth) fails closed with `403
-confirmation_unavailable` rather than silently degrading to self-approval or
-sharing one approval across unrelated application users.
+`mode: "human"` without both a registered store and an end-user principal
+(from the resolver, or a verified OAuth subject on remote MCP) fails closed with
+`403 confirmation_unavailable` rather than silently degrading to self-approval
+or sharing one approval across the users of one agent.
 
 ### `createSqlApprovalStore()`: the first-party durable store
 

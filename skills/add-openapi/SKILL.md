@@ -19,14 +19,14 @@ allowed-tools:
 
 # Pracht Add OpenAPI
 
-`@pracht/openapi` is an opt-in companion package (`docs/OPENAPI.md`). Ordinary
+`@pracht/openapi` is an opt-in companion package (<https://pracht.resynapse.dev/docs/openapi>). Ordinary
 `defineApi()` routes keep their authoring, runtime behavior, and `apiFetch()`
 type inference — the package only reads the resolved server graph and owns its
 own descriptor.
 
 ## Step 1: Inventory the API first
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_api`/`inspect_routes`/`doctor`/`verify` tools over shelling out.
 
 ```bash
@@ -172,7 +172,7 @@ drift is caught.
   allow that exact script by hash (and the asset origin), or the page must be
   replaced with an app-owned route following the app's nonce policy —
   self-hosting the bundle alone does not fix an inline-script ban. See
-  `docs/CSP.md` and `/audit-headers`.
+  <https://pracht.resynapse.dev/docs/recipes/csp> and `/audit-headers`.
 
 ## Step 7: Verify
 
@@ -201,8 +201,9 @@ surface.
    any other client.
 5. Set a sane static cache policy for the document; immutable caching is wrong
    unless the URL is versioned or deployments purge it.
-6. Do not document a capability HTTP projection here — capability endpoints are
-   not included in generation yet (`/add-capabilities` owns that contract).
+6. Do not hand-document a capability HTTP projection with `defineOpenApi()` —
+   set `capabilities: true` and the plugin documents every `expose.http`
+   capability from its own schemas (`/add-capabilities` owns that contract).
 7. Never overwrite an existing `vite.config.ts` or a hand-written
    `public/openapi.json` — diff first and confirm with `AskUserQuestion`.
 
