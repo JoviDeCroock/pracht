@@ -71,6 +71,7 @@ export function validateAgentsConfig(
     ] as const) {
       assertPositiveNumber(webBotAuth[key], `agents.webBotAuth.${key}`, options);
     }
+    validateRequiredComponents(webBotAuth.requireComponents, options);
   }
   if (confirmation) {
     if (confirmation.mode !== undefined && !CONFIRMATION_MODES.includes(confirmation.mode)) {
@@ -246,6 +247,45 @@ function assertScopeList(value: readonly string[] | undefined, label: string): v
     throw new Error(
       `${label} must be an array of OAuth scope tokens using printable ASCII except quotes and backslashes.`,
     );
+  }
+}
+
+/** Derived components the Web Bot Auth verifier computes (agent-auth.ts). */
+const WEB_BOT_AUTH_DERIVED_COMPONENTS = [
+  "@authority",
+  "@method",
+  "@path",
+  "@query",
+  "@scheme",
+  "@target-uri",
+];
+const HEADER_COMPONENT_RE = /^[a-z0-9!#$%&'*+.^_`|~-]+$/;
+
+// A component the verifier cannot compute could never be covered, so every
+// signature would be refused; an uppercase header name could never match the
+// lowercase component a signer sends. Both read as a working requirement, so
+// reject them instead.
+function validateRequiredComponents(
+  value: readonly string[] | undefined,
+  options: ValidateAgentsConfigOptions,
+): void {
+  if (value === undefined) return;
+  const path = options.label("agents.webBotAuth.requireComponents");
+  if (!Array.isArray(value)) {
+    throw new Error(`${path} must be an array of component names, got ${JSON.stringify(value)}.`);
+  }
+  for (const component of value) {
+    const valid =
+      typeof component === "string" &&
+      (component.startsWith("@")
+        ? WEB_BOT_AUTH_DERIVED_COMPONENTS.includes(component)
+        : HEADER_COMPONENT_RE.test(component));
+    if (!valid) {
+      throw new Error(
+        `${path} contains ${JSON.stringify(component)}; use a lowercase header name or one of ` +
+          `${WEB_BOT_AUTH_DERIVED_COMPONENTS.map((name) => `"${name}"`).join(", ")}.`,
+      );
+    }
   }
 }
 

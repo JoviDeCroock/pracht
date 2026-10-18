@@ -1,4 +1,5 @@
 import { cpus } from "node:os";
+import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "@playwright/test";
 
@@ -12,6 +13,11 @@ import {
   registerE2EPortLeaseProcessExit,
   urlsForPorts,
 } from "./e2e/ports.ts";
+import { assertE2ESpecsAssigned, configuredProjects, specsMatcher } from "./e2e/projects.ts";
+
+// Fail before leasing ports or starting servers: a spec that no project picks
+// up would otherwise be skipped without a word.
+assertE2ESpecsAssigned(fileURLToPath(new URL("./e2e", import.meta.url)));
 
 const portLease = acquireE2EPortLease();
 process.env[E2E_PORT_BASE_ENV] = String(portLease.portBase);
@@ -46,27 +52,24 @@ export default defineConfig({
   // re-run of `verify` — far more than re-running the one spec. A real
   // regression still fails both attempts.
   retries: process.env.CI ? 0 : 1,
-  projects: [
+  projects: configuredProjects([
     {
       name: "basic",
-      testMatch:
-        /basic\.test\.ts|navigation\.test\.ts|shell-data\.test\.ts|node-build\.test\.ts|cloudflare-build\.test\.ts|netlify-build\.test\.ts|vercel-build\.test\.ts|pages-isg-build\.test\.ts|client-bundle-strip\.test\.ts|tsrx-build\.test\.ts|islands-build\.test\.ts|islands-navigation-build\.test\.ts|hydration-probe\.test\.ts|static-build\.test\.ts|static-404-hydration\.test\.ts|env-safety\.test\.ts|not-found\.test\.ts|openapi-cloudflare-dev\.test\.ts/,
+      testMatch: specsMatcher("basic"),
       use: {
         baseURL: e2eUrls.basic,
       },
     },
     {
       name: "pages-router",
-      testMatch:
-        /pages-router\.test\.ts|dev-404\.test\.ts|llms-txt-dev\.test\.ts|openapi-dev\.test\.ts/,
+      testMatch: specsMatcher("pages-router"),
       use: {
         baseURL: e2eUrls.pagesRouter,
       },
     },
     {
       name: "islands",
-      testMatch:
-        /(?:^|\/)islands-dev\.test\.ts|islands-css-parity\.test\.ts|edge-route-css\.test\.ts/,
+      testMatch: specsMatcher("islands"),
       use: {
         baseURL: e2eUrls.islands,
       },
@@ -76,7 +79,7 @@ export default defineConfig({
       // files, and the full reloads those edits broadcast would land on the
       // server island pages mid-assertion.
       name: "server-islands",
-      testMatch: /server-islands-dev\.test\.ts/,
+      testMatch: specsMatcher("server-islands"),
       dependencies: ["islands"],
       use: {
         baseURL: e2eUrls.islands,
@@ -85,13 +88,12 @@ export default defineConfig({
     {
       // These specs run against examples/basic (see the webServer entry below).
       name: "capabilities",
-      testMatch:
-        /capabilities\.test\.ts|dev-page-tools\.test\.ts|i18n\.test\.ts|markdown-files-dev\.test\.ts|search-params\.test\.ts/,
+      testMatch: specsMatcher("capabilities"),
       use: {
         baseURL: e2eUrls.capabilities,
       },
     },
-  ],
+  ]),
   webServer: [
     {
       command: `node e2e/start-dev-server.mjs examples/cloudflare ${e2ePorts.basic}`,

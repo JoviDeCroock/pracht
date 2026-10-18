@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { Connect, Plugin, ViteDevServer } from "vite";
 
+import { hasControlCharacter } from "./control-character.ts";
 import type { OpenApiDocumentOptions, OpenApiInfo } from "./types.ts";
 import type { OpenApiUiProvider } from "./ui.ts";
 
@@ -198,17 +199,6 @@ function pathHasUnsafeSegment(path: string): boolean {
   } catch {
     return true;
   }
-}
-
-function hasControlCharacter(value: string): boolean {
-  for (const character of value) {
-    const codePoint = character.codePointAt(0);
-    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
-      return true;
-    }
-  }
-
-  return false;
 }
 
 function isPrachtGraphModule(id: string): boolean {

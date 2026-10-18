@@ -11,8 +11,11 @@ built on `@tanstack/preact-query`.
 - A successful non-`read` capability call invalidates queries, the same way
   pracht revalidates route data.
 
+It needs Preact 10, the version `@tanstack/preact-query` supports. New projects
+start on Preact 11, so install Preact 10 alongside it:
+
 ```bash
-npm install @pracht/query @tanstack/preact-query
+npm install @pracht/query @tanstack/preact-query preact@^10
 ```
 
 ## Quick start

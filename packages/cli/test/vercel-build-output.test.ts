@@ -13,7 +13,48 @@ import { join } from "node:path";
 import { timeRevalidate } from "@pracht/core";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../src/build-shared.ts";
+import {
+  describeVercelRouteBudget,
+  resolveVercelRuntimeRoutes,
+  VERCEL_ROUTE_LIMIT,
+  writeVercelBuildOutput,
+} from "../src/build-shared.ts";
+
+interface VercelRoute {
+  continue?: boolean;
+  dest?: string;
+  handle?: string;
+  has?: { type: string; key: string; value: string }[];
+  headers?: Record<string, string>;
+  src?: string;
+}
+
+/**
+ * Walk the routing table the way Vercel's router does before its filesystem
+ * phase: `src` is matched case-insensitively, `continue` routes add headers and
+ * fall through, and the first other match decides where the request goes.
+ */
+function routeRequest(
+  routes: VercelRoute[],
+  pathname: string,
+  requestHeaders: Record<string, string> = {},
+): { dest: string | null; headers: Record<string, string> } {
+  const headers: Record<string, string> = {};
+  for (const route of routes) {
+    if (route.handle === "filesystem") break;
+    if (!route.src || !new RegExp(route.src, "i").test(pathname)) continue;
+    const hasMatches = (route.has ?? []).every(
+      (condition) =>
+        condition.type === "header" &&
+        new RegExp(`^${condition.value}$`).test(requestHeaders[condition.key] ?? ""),
+    );
+    if (!hasMatches) continue;
+    Object.assign(headers, route.headers);
+    if (route.continue) continue;
+    return { dest: route.dest ?? null, headers };
+  }
+  return { dest: null, headers };
+}
 
 describe("writeVercelBuildOutput", () => {
   const roots: string[] = [];
@@ -355,12 +396,12 @@ describe("writeVercelBuildOutput", () => {
         src?: string;
       }[];
     };
-    expect(config.routes).toContainEqual({
-      continue: true,
-      headers: { "content-type": "application/json" },
-      src: "^/feed/?$",
-    });
-    expect(config.routes).toContainEqual({ dest: "/feed/index.html", src: "^/feed/?$" });
+    for (const pathname of ["/feed", "/feed/", "/feed/index.html"]) {
+      expect(routeRequest(config.routes, pathname).headers).toMatchObject({
+        "content-type": "application/json",
+      });
+    }
+    expect(routeRequest(config.routes, "/feed").dest).toBe("/feed/index.html");
   });
 
   it("routes ISG markdown routes to the render function, not the prerender function", () => {
@@ -547,30 +588,127 @@ describe("writeVercelBuildOutput", () => {
     const read = (dir: string) =>
       (
         JSON.parse(readFileSync(join(dir, ".vercel/output/config.json"), "utf-8")) as {
-          routes: { dest?: string; src?: string }[];
+          routes: VercelRoute[];
         }
       ).routes;
     const routes = read(root);
-    const index = (src: string, dest?: string) =>
-      routes.findIndex((entry) => entry.src === src && (dest === undefined || entry.dest === dest));
+    const dest = (pathname: string) => routeRequest(routes, pathname).dest;
 
-    // Ahead of the optional-slash rewrite that would otherwise claim it.
-    expect(index("^/guide$", "/render")).toBeGreaterThanOrEqual(0);
-    expect(index("^/guide$", "/render")).toBeLessThan(index("^/guide/?$", "/guide/index.html"));
-    expect(index("^/pricing$", "/render")).toBeLessThan(index("^/pricing/?$", "/pricing"));
+    // The non-canonical spelling reaches the function ahead of the
+    // optional-slash rewrite that would otherwise claim it.
+    expect(dest("/guide")).toBe("/render");
+    expect(dest("/guide/")).toBe("/guide/index.html");
+    expect(dest("/pricing")).toBe("/render");
+    expect(dest("/pricing/")).toBe("/pricing");
     // A file-named page keeps no slash; the root has one spelling; a
     // non-page static route answers both.
-    expect(index("^/feed\\.xml/$", "/render")).toBeGreaterThanOrEqual(0);
-    expect(routes.filter((entry) => entry.src === "^/$")).toHaveLength(1);
-    expect(index("^/raw$", "/render")).toBe(-1);
+    expect(dest("/feed.xml/")).toBe("/render");
+    expect(dest("/feed.xml")).toBe("/feed.xml/index.html");
+    expect(dest("/")).toBe("/index.html");
+    expect(dest("/raw")).toBe("/raw/index.html");
+    expect(dest("/raw/")).toBe("/raw/index.html");
 
     const basedRoutes = read(based);
-    expect(
-      basedRoutes.some((entry) => entry.src === "^/app/guide/$" && entry.dest === "/render"),
-    ).toBe(true);
-    expect(basedRoutes.some((entry) => entry.src === "^/app/$" && entry.dest === "/render")).toBe(
-      false,
+    expect(routeRequest(basedRoutes, "/app/guide/").dest).toBe("/render");
+    expect(routeRequest(basedRoutes, "/app/guide").dest).toBe("/app/guide/index.html");
+    expect(routeRequest(basedRoutes, "/app/").dest).toBe("/app/index.html");
+  });
+
+  it("adds one route per prerendered page however many pages share headers", () => {
+    const root = createBuildRoot();
+    const pageHeaders = (vary: string) => ({
+      "content-type": "text/html; charset=utf-8",
+      "permissions-policy":
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      vary,
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+      "x-pracht-shell": "public",
+    });
+    const pages = Array.from({ length: 600 }, (_, index) => `/posts/post-${index}`);
+    const markdownPages = pages.slice(0, 200);
+    const headersManifest = Object.fromEntries(
+      pages.map((path) => [
+        path,
+        pageHeaders(
+          markdownPages.includes(path)
+            ? "x-pracht-route-state-request, Accept"
+            : "x-pracht-route-state-request",
+        ),
+      ]),
     );
+
+    const { routeCount } = writeVercelBuildOutput({
+      headersManifest,
+      isgManifest: {},
+      markdownRoutes: markdownPages,
+      pageRoutes: pages,
+      root,
+      staticRoutes: pages,
+      trailingSlash: "never",
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: VercelRoute[];
+    };
+    expect(routeCount).toBe(config.routes.length);
+    // Was four routes per markdown page and three per other page.
+    expect(config.routes.length).toBeLessThan(pages.length + 40);
+    for (const route of config.routes) {
+      expect(route.src?.length ?? 0).toBeLessThanOrEqual(2048);
+    }
+
+    for (const path of pages) {
+      const page = routeRequest(config.routes, path);
+      expect(page.dest).toBe(`${path}/index.html`);
+      expect(page.headers).toMatchObject(headersManifest[path]!);
+      expect(routeRequest(config.routes, `${path}/`).dest).toBe("/render");
+      expect(routeRequest(config.routes, path, { accept: "text/markdown" }).dest).toBe(
+        markdownPages.includes(path) ? "/render" : `${path}/index.html`,
+      );
+    }
+  });
+
+  it("adds no header route for a page whose headers are the defaults", () => {
+    const root = createBuildRoot();
+    const defaults = {
+      "permissions-policy":
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+      "referrer-policy": "strict-origin-when-cross-origin",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": "SAMEORIGIN",
+    };
+
+    writeVercelBuildOutput({
+      headersManifest: {
+        "/plain": defaults,
+        "/framed": { ...defaults, "x-frame-options": "DENY" },
+      },
+      isgManifest: {},
+      root,
+      staticRoutes: ["/plain", "/framed"],
+    });
+
+    const config = JSON.parse(readFileSync(join(root, ".vercel/output/config.json"), "utf-8")) as {
+      routes: VercelRoute[];
+    };
+    expect(config.routes.filter((route) => route.continue)).toEqual([
+      expect.objectContaining({ src: "^/(.*)$" }),
+      { continue: true, headers: { "x-frame-options": "DENY" }, src: "^/framed/?$" },
+    ]);
+    expect(routeRequest(config.routes, "/plain").headers).toEqual(defaults);
+    expect(routeRequest(config.routes, "/framed").headers).toEqual({
+      ...defaults,
+      "x-frame-options": "DENY",
+    });
+  });
+
+  it("warns when the routing table nears Vercel's route limit", () => {
+    expect(describeVercelRouteBudget(100)).toBeNull();
+    expect(describeVercelRouteBudget(Math.floor(VERCEL_ROUTE_LIMIT * 0.8) - 1)).toBeNull();
+    expect(describeVercelRouteBudget(1700)).toMatch(/1700 routes, close to Vercel's limit of 2048/);
+    expect(describeVercelRouteBudget(2100)).toMatch(/deploy will be rejected/);
   });
 
   it("adds no trailing-slash routes by default", () => {
