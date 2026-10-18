@@ -707,8 +707,11 @@ not show — a route or shell ref that is not a literal (`"./routes/" + name`, a
 variable, a spread), an import that does not resolve to a parseable module, or a
 specifier built at runtime — the registry falls back to covering both
 directories whole, because dropping a module a route needs would break
-navigation to it. In dev, an edit to any of those manifest modules regenerates
-the registries like an edit to `src/routes.ts`. The pages router is unaffected
+navigation to it. In dev, an edit to `src/routes.ts` or any manifest module it
+imports is applied without a server restart: the plugin re-reads the
+manifest-derived state, invalidates every pracht virtual module and every
+module that imports the changed file, and sends the page a full reload. An
+adapter that runs its own dev server (`ownsDevServer`) still restarts. The pages router is unaffected
 either way: there the directory *is* the route list.
 
 The registries are directory globs, so a module outside them is added

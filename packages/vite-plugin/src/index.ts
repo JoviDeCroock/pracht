@@ -161,6 +161,21 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   let externalRouteFiles = new Set<string>();
   // The manifest's own local imports: route fragments that feed the registries.
   let manifestModuleFiles = new Set<string>();
+  /**
+   * Everything this plugin derives from the app manifest outside the virtual
+   * modules. Read at startup and again whenever the manifest changes in dev.
+   */
+  const refreshManifestState = (): void => {
+    externalRouteFiles = computeExternalRouteFiles(root, resolved);
+    manifestModuleFiles = new Set(
+      collectManifestModuleFiles(resolved, root).flatMap((file) => [file, canonicalFilePath(file)]),
+    );
+    capabilityModulePaths = new Set(
+      resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
+    );
+    usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
+    appRootFile = resolveAppRootFile(resolved, root);
+  };
   const isRouteOrShellModule = (id: string): boolean =>
     isRouteOrShellFile(id, routeFileDirs, routeFileExtensions) ||
     isExternalRouteFile(id, externalRouteFiles, routeFileExtensions);
@@ -495,18 +510,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       isBuild = config.command === "build";
       base = config.base;
       routeFileDirs = computeRouteFileDirs(root, resolved);
-      externalRouteFiles = computeExternalRouteFiles(root, resolved);
-      manifestModuleFiles = new Set(
-        collectManifestModuleFiles(resolved, root).flatMap((file) => [
-          file,
-          canonicalFilePath(file),
-        ]),
-      );
-      capabilityModulePaths = new Set(
-        resolveCapabilityModulePaths(resolved, root).map(canonicalFilePath),
-      );
-      usesEjectedPagesLayout = isEjectedPagesLayout(resolved, root);
-      appRootFile = resolveAppRootFile(resolved, root);
+      refreshManifestState();
       // Non-literal WebMCP schemas are evaluated in a short-lived server
       // module runner. Preserve app aliases without reloading the Vite config
       // (which would recursively instantiate this plugin).
@@ -846,7 +850,19 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         !isPagesMode &&
         (relative === resolved.appFile || manifestModuleFiles.has(normalizedFile))
       ) {
-        server.restart();
+        // An adapter that runs its own dev server loads the manifest in its
+        // own runtime, which only a restart refreshes.
+        if (resolved.adapter.ownsDevServer) {
+          server.restart();
+          return [];
+        }
+        // Everything the manifest decides is regenerated in place: the state
+        // read from it here, every virtual module built from it, and every
+        // server-side module that evaluated the old one. The open page then
+        // reloads against the new route table.
+        refreshManifestState();
+        invalidateManifestDependents(server, file);
+        server.ws.send({ type: "full-reload" });
         return [];
       }
 
@@ -1467,6 +1483,36 @@ function invalidateVirtualModules(server: import("vite").ViteDevServer): void {
   if (clientMod) server.moduleGraph.invalidateModule(clientMod);
   if (serverMod) server.moduleGraph.invalidateModule(serverMod);
   if (devMod) server.moduleGraph.invalidateModule(devMod);
+}
+
+/**
+ * Invalidate what an edit to the app manifest (or a module it imports) makes
+ * stale: every virtual module generated from the manifest, and every module
+ * that imports the changed file, transitively, so the server re-evaluates the
+ * new route table instead of a cached copy.
+ */
+function invalidateManifestDependents(server: import("vite").ViteDevServer, file: string): void {
+  for (const id of [
+    PRACHT_CLIENT_MODULE_ID,
+    PRACHT_SERVER_MODULE_ID,
+    PRACHT_DEV_MODULE_ID,
+    PRACHT_CAPABILITIES_MODULE_ID,
+    PRACHT_WEBMCP_MODULE_ID,
+    PRACHT_ISLANDS_CLIENT_MODULE_ID,
+    PRACHT_DEV_PAGE_TOOLS_MODULE_ID,
+  ]) {
+    const mod = server.moduleGraph.getModuleById(id);
+    if (mod) server.moduleGraph.invalidateModule(mod);
+  }
+  const seen = new Set<unknown>();
+  const queue = [...(server.moduleGraph.getModulesByFile(file) ?? [])];
+  while (queue.length > 0) {
+    const mod = queue.pop()!;
+    if (seen.has(mod)) continue;
+    seen.add(mod);
+    server.moduleGraph.invalidateModule(mod);
+    queue.push(...mod.importers);
+  }
 }
 
 function computeRouteFileDirs(root: string, resolved: ResolvedPrachtPluginOptions): string[] {

@@ -376,9 +376,10 @@ export const app = defineApp({
     expect(hints.search["/src/features/home.tsx"]).toBe(true);
   });
 
-  it("regenerates the dev registries when a module the manifest imports changes", () => {
-    const root = project(files);
-    const plugin = pracht().find((candidate) => candidate.name === "pracht")!;
+  /** A dev server double that records what a hot update did. */
+  function devServer(root: string, options: Parameters<typeof pracht>[0] = {}) {
+    const plugins = pracht(options);
+    const plugin = plugins.find((candidate) => candidate.name === "pracht")!;
     (plugin.configResolved as (config: unknown) => void).call(plugin, {
       root,
       command: "serve",
@@ -386,14 +387,31 @@ export const app = defineApp({
       build: {},
       plugins: [],
     });
-    let restarts = 0;
+    const record = { restarts: 0, reloads: 0, invalidated: [] as string[] };
+    const node = (id: string, importers: unknown[] = []) => ({ id, importers: new Set(importers) });
+    const virtualServer = node("\0virtual:pracht/server");
+    const manifest = node(join(root, "src/routes.ts"), [virtualServer]);
+    const fragment = node(join(root, "src/manifest/more.ts"), [manifest]);
     const server = {
       config: { root },
-      moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} },
-      restart: () => {
-        restarts += 1;
+      moduleGraph: {
+        getModuleById: (id: string) => (id.includes("pracht/") ? node(id) : undefined),
+        getModulesByFile: (file: string) =>
+          file === fragment.id
+            ? new Set([fragment])
+            : file === manifest.id
+              ? new Set([manifest])
+              : undefined,
+        invalidateModule: (mod: { id: string }) => record.invalidated.push(mod.id),
       },
-      ws: { send: () => {} },
+      restart: () => {
+        record.restarts += 1;
+      },
+      ws: {
+        send: (payload: { type: string }) => {
+          if (payload.type === "full-reload") record.reloads += 1;
+        },
+      },
     };
     const hotUpdate = (file: string) =>
       (plugin.handleHotUpdate as (context: unknown) => unknown).call(plugin, {
@@ -401,13 +419,67 @@ export const app = defineApp({
         modules: [],
         server,
       });
+    const transform = plugins.find((p) => p.name === "pracht:client-module-transform")!
+      .transform as (code: string, id: string, options: { ssr: boolean }) => unknown;
+    return { record, hotUpdate, transform };
+  }
 
-    // A new route in this fragment can name a module the client registry left
-    // out, so the entry has to be rebuilt just as for `src/routes.ts`.
-    hotUpdate(join(root, "src/manifest/more.ts"));
-    expect(restarts).toBe(1);
-    hotUpdate(join(root, "src/features/feature.tsx"));
-    expect(restarts).toBe(1);
+  it("applies a manifest edit in dev without restarting the server", () => {
+    const root = project(files);
+    const dev = devServer(root);
+
+    // The fragment decides the registries as much as `src/routes.ts` does: the
+    // virtual modules and every module that evaluated it are invalidated, and
+    // the page reloads against the new route table.
+    expect(dev.hotUpdate(join(root, "src/manifest/more.ts"))).toEqual([]);
+    expect(dev.record).toMatchObject({ restarts: 0, reloads: 1 });
+    expect(dev.record.invalidated).toEqual(
+      expect.arrayContaining([
+        join(root, "src/manifest/more.ts"),
+        join(root, "src/routes.ts"),
+        "\0virtual:pracht/server",
+      ]),
+    );
+
+    dev.hotUpdate(join(root, "src/routes.ts"));
+    expect(dev.record).toMatchObject({ restarts: 0, reloads: 2 });
+
+    // An ordinary route module is not manifest data.
+    dev.hotUpdate(join(root, "src/features/feature.tsx"));
+    expect(dev.record).toMatchObject({ restarts: 0, reloads: 2 });
+  });
+
+  it("reads a route the edit adds outside the routes directory as a route module", async () => {
+    const root = project(files);
+    const dev = devServer(root);
+    const added = join(root, "src/features/added.tsx");
+    const source = `import { db } from "../server/db";\nexport async function loader() { return db; }\n${COMPONENT}`;
+    writeFileSync(added, source);
+    const stripped = () => dev.transform.call({} as never, source, added, { ssr: false });
+
+    expect(await stripped()).toBeNull();
+    writeFileSync(
+      join(root, "src/manifest/more.ts"),
+      `import { route } from "@pracht/core";
+export const more = [route("/added", "./features/added.tsx", { id: "added" })];
+`,
+    );
+    dev.hotUpdate(join(root, "src/manifest/more.ts"));
+    expect(JSON.stringify(await stripped())).not.toContain("../server/db");
+  });
+
+  it("restarts for an adapter that runs its own dev server", () => {
+    const root = project(files);
+    const dev = devServer(root, {
+      adapter: {
+        id: "owned",
+        serverImports: "",
+        ownsDevServer: true,
+        createServerEntryModule: () => "",
+      },
+    });
+    dev.hotUpdate(join(root, "src/routes.ts"));
+    expect(dev.record).toMatchObject({ restarts: 1, reloads: 0 });
   });
 
   it("ignores a ref that names no file", () => {
