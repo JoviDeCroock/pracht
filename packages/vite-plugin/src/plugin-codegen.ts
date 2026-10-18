@@ -163,9 +163,17 @@ function collectManifestStrings(program: StaticProgramNode): {
   const localImports: string[] = [];
   // Static imports that bring values (not just types) into the manifest.
   const valueImports: string[] = [];
-  // `() => import("./x")` is a lazy module ref; any other literal `import()`
-  // hands the manifest values this scan never reads.
+  // `() => import("./x")` written where a module ref goes (a call argument,
+  // an object property value, an array element) is a lazy module ref. Any
+  // other literal `import()`, including one behind a named helper the manifest
+  // can call, hands the manifest values this scan never reads.
   const lazyImports = new WeakSet<object>();
+  const markLazy = (candidate: unknown): void => {
+    const arrow = asStaticProgramNode(candidate);
+    if (arrow?.type !== "ArrowFunctionExpression") return;
+    const body = asStaticProgramNode(arrow.body);
+    if (body?.type === "ImportExpression") lazyImports.add(body);
+  };
   let eagerDynamicImport = false;
 
   const walk = (value: unknown): void => {
@@ -176,9 +184,12 @@ function collectManifestStrings(program: StaticProgramNode): {
     const node = asStaticProgramNode(value);
     if (!node) return;
 
-    if (node.type === "ArrowFunctionExpression") {
-      const body = asStaticProgramNode(node.body);
-      if (body?.type === "ImportExpression") lazyImports.add(body);
+    if (node.type === "CallExpression" && Array.isArray(node.arguments)) {
+      for (const argument of node.arguments) markLazy(argument);
+    } else if (node.type === "ArrayExpression" && Array.isArray(node.elements)) {
+      for (const element of node.elements) markLazy(element);
+    } else if (node.type === "Property" || node.type === "ObjectProperty") {
+      markLazy(node.value);
     }
 
     if (
