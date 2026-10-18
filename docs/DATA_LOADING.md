@@ -263,11 +263,24 @@ pipeline and the prerendering rules.
 `signal` composes two independent reasons to stop: the request's own
 `AbortSignal` (the client went away) and a server-side budget. The budget
 defaults to 30 seconds and is set app-wide with `defineApp({ loaderTimeoutMs })`.
-It is one budget per request — the middleware chain, the loader, and the
-not-found render that follows a thrown `notFound()` all share it, so a 404 page
-cannot mint itself a fresh 30 seconds on top of a loader that already spent
-them. Runtimes without `AbortSignal.any` get the same composed signal wired by
-hand rather than losing the client's half of it.
+It is one budget per request (`createRequestBudget` in `runtime-request.ts`) —
+the middleware chain, the loader, and the not-found render that follows a
+thrown `notFound()` all share it, so a 404 page cannot mint itself a fresh 30
+seconds on top of a loader that already spent them. The timer runs only while
+work can still read the signal: the pipeline holds the budget until it has a
+response, a streamed document until its body ends, and each `waitUntil` promise
+until it settles. `releaseBudgetWith` hands the pipeline's hold to an app-built
+body (a proxied stream from a handler, loader, or middleware) until that body is
+read, errors, or is cancelled, and a 4xx/5xx response keeps the hold, so work a
+failed loader left behind (a sibling of the deferred field that threw) still
+times out. Neither applies when no code read `signal`, because then there is no
+timer. When the last hold is released the timer is cleared; a timer
+left to run out kept every finished request's signal and listener closures
+reachable for the whole budget (about 2 KB per request, 22 KB with a listener).
+The signal is composed by hand — one `AbortController`, a cancellable
+`setTimeout`, and a listener on `request.signal` that stays wired for the
+request's lifetime — because `AbortSignal.timeout` cannot be cancelled and an
+`AbortSignal.any` composite with a listener stays alive until a source aborts.
 
 Prerendering runs loaders through the same pipeline, so `loaderTimeoutMs`
 bounds SSG/ISG builds too. A budget tuned down for an edge runtime fails the
