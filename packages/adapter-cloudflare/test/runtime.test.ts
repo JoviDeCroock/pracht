@@ -7,7 +7,7 @@ import {
   timeRevalidate,
   webhookRevalidate,
 } from "@pracht/core";
-import type { ModuleRegistry } from "@pracht/core";
+import type { ModuleRegistry, RouteRevalidate } from "@pracht/core";
 
 import { createCloudflareFetchHandler, type CloudflareExecutionContext } from "../src/runtime.ts";
 
@@ -917,6 +917,83 @@ describe("createCloudflareFetchHandler webhook revalidation", () => {
     await expect(cachedText(cache, keyUrl)).resolves.toContain("old-but-live");
   });
 
+  describe("document headers of a regenerated page", () => {
+    function createWithdrawablePage(state: { withdrawn: boolean }) {
+      const app = defineApp({
+        routes: [
+          route("/notice", "./routes/notice.tsx", {
+            render: "isg",
+            revalidate: webhookRevalidate(),
+          }),
+        ],
+      });
+      const registry: ModuleRegistry = {
+        routeModules: {
+          "./routes/notice.tsx": async () => ({
+            loader: async () => ({ withdrawn: state.withdrawn }),
+            headers: ({ data }: { data: { withdrawn: boolean } }) => ({
+              "cache-control": "public, max-age=60",
+              "x-robots-tag": data.withdrawn ? "noindex" : "all",
+            }),
+            Component: ({ data }) => `withdrawn=${(data as { withdrawn: boolean }).withdrawn}`,
+          }),
+        },
+      };
+      return createCloudflareFetchHandler({
+        app,
+        registry,
+        // What `pracht build` recorded from the build-time render.
+        headersManifest: {
+          "/notice": { "cache-control": "public, max-age=60", "x-robots-tag": "all" },
+        },
+        isgManifest: { "/notice": { revalidate: webhookRevalidate() } },
+      });
+    }
+
+    it("serves the headers the regenerated render produced, not the build's", async () => {
+      const { cache } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const host = "hook-headers.example";
+      const state = { withdrawn: false };
+      const handler = createWithdrawablePage(state);
+      const env = { ASSETS: create404Assets(), PRACHT_REVALIDATE_TOKEN: "secret" };
+
+      state.withdrawn = true;
+      const webhook = await handler(
+        createWebhookRequest(host, ["/notice"], "secret"),
+        env,
+        executionContext,
+      );
+      await expect(webhook.json()).resolves.toMatchObject({ revalidated: ["/notice"] });
+
+      const served = await handler(new Request(`https://${host}/notice`), env, executionContext);
+      await expect(served.text()).resolves.toContain("withdrawn=true");
+      expect(served.headers.get("x-robots-tag")).toBe("noindex");
+      // The route's own Cache-Control still reaches the browser, and the
+      // entry's storage bookkeeping does not.
+      expect(served.headers.get("cache-control")).toBe("public, max-age=60");
+      expect(served.headers.has("x-pracht-isg-cache-control")).toBe(false);
+    });
+
+    it("keeps applying build headers to entries stored by an earlier version", async () => {
+      const { cache, store } = createMockCaches();
+      vi.stubGlobal("caches", { default: cache });
+      const { executionContext } = createExecutionContext();
+      const host = "legacy-entry.example";
+      putCachedISGPage(store, cacheKeyUrl("/notice", host), "<html>legacy</html>", Date.now());
+      const handler = createWithdrawablePage({ withdrawn: false });
+
+      const served = await handler(
+        new Request(`https://${host}/notice`),
+        { ASSETS: create404Assets() },
+        executionContext,
+      );
+      expect(served.headers.get("cache-control")).toBe("public, max-age=60");
+      expect(served.headers.get("x-robots-tag")).toBe("all");
+    });
+  });
+
   it("returns 503 when the Cache API is unavailable", async () => {
     vi.stubGlobal("caches", undefined);
     const { executionContext } = createExecutionContext();
@@ -1225,5 +1302,108 @@ describe("createCloudflareFetchHandler and pracht({ trailingSlash })", () => {
     );
     expect(canonical.status).toBe(200);
     await expect(canonical.text()).resolves.toContain("cached");
+  });
+});
+
+describe("createCloudflareFetchHandler ISG across deploys", () => {
+  // `caches.default` is not cleared by `wrangler deploy`: the next version's
+  // isolates read the same data-center cache the previous version wrote.
+  function deployVersion(version: string, generatedAt: number, revalidate: RouteRevalidate) {
+    const app = defineApp({
+      routes: [route("/pricing", "./routes/pricing.tsx", { render: "isg", revalidate })],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: {
+        "./routes/pricing.tsx": async () => ({
+          Component: () => `render:${version}`,
+        }),
+      },
+    };
+    const handler = createCloudflareFetchHandler({
+      app,
+      registry,
+      clientEntryUrl: `/assets/app-${version}.js`,
+      isgManifest: { "/pricing": { generatedAt, revalidate } },
+    });
+    const env = {
+      ASSETS: {
+        fetch: async () =>
+          new Response(`<html>asset:${version}</html>`, {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      },
+      PRACHT_REVALIDATE_TOKEN: "secret",
+    };
+    return async (request: Request) => {
+      const { executionContext, waitUntils } = createExecutionContext();
+      const response = await handler(request, env, executionContext);
+      await Promise.all(waitUntils);
+      return response;
+    };
+  }
+
+  const webhook = (host: string) =>
+    new Request(`https://${host}/__pracht/revalidate`, {
+      body: JSON.stringify({ paths: ["/pricing"] }),
+      headers: { authorization: "Bearer secret", "content-type": "application/json" },
+      method: "POST",
+    });
+
+  it("does not serve a webhook render from the previous deploy", async () => {
+    const { cache } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const host = "deploy-webhook.example";
+
+    const v1 = deployVersion("v1", Date.now() - 60_000, webhookRevalidate());
+    await v1(webhook(host));
+    await expect((await v1(new Request(`https://${host}/pricing`))).text()).resolves.toContain(
+      "render:v1",
+    );
+
+    const v2 = deployVersion("v2", Date.now(), webhookRevalidate());
+    const afterDeploy = await v2(new Request(`https://${host}/pricing`));
+    await expect(afterDeploy.text()).resolves.not.toContain("v1");
+  });
+
+  it("keeps deploys apart when the zone's cache key ignores query strings", async () => {
+    const { cache } = createMockCaches();
+    const withoutQuery = (key: Request) => {
+      const url = new URL(key.url);
+      url.search = "";
+      return new Request(url, key);
+    };
+    vi.stubGlobal("caches", {
+      default: {
+        match: (key: Request) => cache.match(withoutQuery(key)),
+        put: (key: Request, response: Response) => cache.put(withoutQuery(key), response),
+      },
+    });
+    const host = "deploy-query-blind.example";
+
+    const v1 = deployVersion("v1", Date.now() - 60_000, webhookRevalidate());
+    await v1(webhook(host));
+
+    const v2 = deployVersion("v2", Date.now(), webhookRevalidate());
+    const afterDeploy = await v2(new Request(`https://${host}/pricing`));
+    await expect(afterDeploy.text()).resolves.not.toContain("v1");
+  });
+
+  it("does not serve a time-based render from the previous deploy as fresh", async () => {
+    const { cache } = createMockCaches();
+    vi.stubGlobal("caches", { default: cache });
+    const host = "deploy-time.example";
+
+    // v1's build is older than its window, so the first visit regenerates.
+    const v1 = deployVersion("v1", Date.now() - 7_200_000, timeRevalidate(3600));
+    await v1(new Request(`https://${host}/pricing`));
+    await expect((await v1(new Request(`https://${host}/pricing`))).text()).resolves.toContain(
+      "render:v1",
+    );
+
+    const v2 = deployVersion("v2", Date.now(), timeRevalidate(3600));
+    const afterDeploy = await v2(new Request(`https://${host}/pricing`));
+    expect(afterDeploy.headers.get("x-pracht-isg")).toBe("fresh");
+    await expect(afterDeploy.text()).resolves.toContain("asset:v2");
   });
 });

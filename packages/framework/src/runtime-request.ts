@@ -486,6 +486,7 @@ async function prepareAgentSurface<TContext>(
   mcpConfig: NonNullable<PrachtApp["agents"]>["mcp"] | undefined,
   exposeDiagnostics: boolean,
   requestPath: string,
+  signedRequest: Request = options.request,
 ): Promise<AgentSurfacePreparation<TContext>> {
   let requestContext = initialContext;
   let capabilityRuntime: typeof import("./runtime-capabilities.ts") | null = null;
@@ -507,9 +508,9 @@ async function prepareAgentSurface<TContext>(
     const webBotAuth = options.app.agents?.webBotAuth;
     if (webBotAuth) {
       const { bindAgentContext } = await import("./runtime-agent-context.ts");
-      if (options.request.headers.has("signature-input")) {
+      if (signedRequest.headers.has("signature-input")) {
         const { verifyAgentSignature } = await import("./runtime-agent-auth.ts");
-        agent = await verifyAgentSignature(options.request, webBotAuth);
+        agent = await verifyAgentSignature(signedRequest, webBotAuth);
       }
       try {
         requestContext = bindAgentContext(requestContext, agent);
@@ -582,6 +583,9 @@ export async function createRequestContext<TContext>(
   }
   const baseRedirect = createBaseRedirectResponse(options.request);
   if (baseRedirect) return { response: baseRedirect };
+  // Agent signatures cover the URL the client actually sent, so verify them
+  // against the request before the framework strips its `_data` marker.
+  const signedRequest = options.request;
   const url = new URL(options.request.url);
   const hasDataParam = url.searchParams.get("_data") === "1";
   if (hasDataParam) {
@@ -645,6 +649,7 @@ export async function createRequestContext<TContext>(
     mcpConfig,
     exposeDiagnostics,
     requestPath,
+    signedRequest,
   );
   if (surface.response) return { response: surface.response };
 

@@ -82,8 +82,15 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # `pnpm lint` passes `--fix`, which would rewrite a fixable violation on
+      # the runner and pass. CI reports it instead, like `verify --check`.
       - name: Lint
-        run: pnpm lint
+        run: pnpm exec oxlint .
+
+      # The committed generated route types must match the app graph, as
+      # `pnpm run verify` checks locally.
+      - name: Generated types check
+        run: pnpm --dir examples/basic run typegen:check
 
       - name: Test
         run: pnpm test
