@@ -457,7 +457,7 @@ describe("registerDevPageTools", () => {
       "pracht_page_tools",
     ]);
     const tool = active.get("pracht_route") as { annotations: Record<string, unknown> };
-    expect(tool.annotations).toEqual({ readOnlyHint: true });
+    expect(tool.annotations).toEqual({ readOnlyHint: true, debugging: true });
     registration!.abort();
     expect(active.size).toBe(0);
   });

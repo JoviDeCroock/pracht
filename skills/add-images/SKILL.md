@@ -22,12 +22,12 @@ allowed-tools:
 
 `@pracht/image` splits the problem the way next/image does: the `<Image>`
 component decides *which widths* to render, a loader decides *what URL* serves
-each width (`docs/IMAGES.md`). The component renders a plain `<img>` — SSR-safe,
+each width (<https://pracht.resynapse.dev/docs/images>). The component renders a plain `<img>` — SSR-safe,
 zero hydration, works with `hydration: "none"`.
 
 ## Step 1: Choose the backend for the deployment target
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_build`/`doctor`/`verify` tools over shelling out.
 
 ```bash
@@ -205,7 +205,7 @@ Check in the browser: the `<img>` carries `srcset`/`sizes`, the LCP image is
 4. Do not use `priority` on more than the one above-the-fold image per route.
 5. `placeholder="blur"` writes an inline `style` attribute: a CSP without
    `style-src-attr 'unsafe-inline'` silently drops it (and `fill` positioning),
-   and `img-src` must include `data:`. See `docs/CSP.md`.
+   and `img-src` must include `data:`. See <https://pracht.resynapse.dev/docs/recipes/csp>.
 6. Platform loaders generate URLs that only resolve on the deployed platform —
    fall back to `passthroughLoader` behind `import.meta.env.DEV` for local
    previews.

@@ -1,9 +1,9 @@
 import { format } from "node:util";
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { defineCommand } from "citty";
 
 import { createPrachtMcpServer } from "../mcp-server.js";
+import { StdioMessageTransport } from "../mcp-tool-server.js";
 
 /**
  * Shared by `dev-mcp` and its deprecated `mcp` alias.
@@ -19,7 +19,7 @@ export async function startDevMcpServer(): Promise<void> {
   }
 
   const server = createPrachtMcpServer();
-  await server.connect(new StdioServerTransport());
+  await server.connect(new StdioMessageTransport());
   process.stderr.write("pracht dev-mcp server listening on stdio\n");
 }
 

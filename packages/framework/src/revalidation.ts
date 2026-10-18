@@ -47,14 +47,34 @@ export type RevalidationSkipReason =
 
 export type RevalidationOutcome = "revalidated" | "skipped" | "failed";
 
+/**
+ * Where a revalidated page is now current: on the server `instance` that
+ * received the webhook, in the Cloudflare data center (`colo`) that received
+ * it, or everywhere the platform serves it (`global`).
+ */
+export type RevalidationScope = "instance" | "colo" | "global";
+
+const REVALIDATION_SCOPE_REACH: Record<RevalidationScope, number> = {
+  instance: 0,
+  colo: 1,
+  global: 2,
+};
+
 export interface RevalidationDetail {
   path: string;
   outcome: RevalidationOutcome;
   /** Present for `skipped`, and for `failed` when the cause is known. */
   reason?: RevalidationSkipReason | string;
+  /** Present for `revalidated` when the adapter declares a scope. */
+  scope?: RevalidationScope;
 }
 
 export interface RevalidationReportBody {
+  /**
+   * The narrowest scope among the revalidated paths, or the adapter's scope
+   * when none was revalidated.
+   */
+  scope?: RevalidationScope;
   revalidated: string[];
   skipped: string[];
   failed: string[];
@@ -64,15 +84,25 @@ export interface RevalidationReportBody {
 /**
  * Accumulates a revalidation batch's outcome.
  *
- * Shared by all three adapters so the wire shape cannot drift between them.
+ * Shared by every adapter so the wire shape cannot drift between them.
  * The three legacy arrays are still emitted verbatim — existing webhook
  * consumers keep working — with `details` carrying the per-path reason.
  */
 export class RevalidationReport {
   readonly #details: RevalidationDetail[] = [];
+  readonly #scope: RevalidationScope | undefined;
 
-  revalidated(path: string): void {
-    this.#details.push({ outcome: "revalidated", path });
+  /** `scope` is how far this adapter's revalidation reaches by default. */
+  constructor(scope?: RevalidationScope) {
+    this.#scope = scope;
+  }
+
+  revalidated(path: string, scope: RevalidationScope | undefined = this.#scope): void {
+    this.#details.push(
+      scope === undefined
+        ? { outcome: "revalidated", path }
+        : { outcome: "revalidated", path, scope },
+    );
   }
 
   skipped(path: string, reason: RevalidationSkipReason): void {
@@ -95,10 +125,23 @@ export class RevalidationReport {
     const pick = (outcome: RevalidationOutcome): string[] =>
       this.#details.filter((detail) => detail.outcome === outcome).map((detail) => detail.path);
 
+    let narrowest: RevalidationScope | undefined;
+    for (const detail of this.#details) {
+      if (detail.outcome !== "revalidated" || detail.scope === undefined) continue;
+      if (
+        narrowest === undefined ||
+        REVALIDATION_SCOPE_REACH[detail.scope] < REVALIDATION_SCOPE_REACH[narrowest]
+      ) {
+        narrowest = detail.scope;
+      }
+    }
+    const scope = narrowest ?? this.#scope;
+
     return {
       details: this.#details,
       failed: pick("failed"),
       revalidated: pick("revalidated"),
+      ...(scope === undefined ? {} : { scope }),
       skipped: pick("skipped"),
     };
   }

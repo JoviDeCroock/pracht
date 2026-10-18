@@ -335,13 +335,19 @@ User clicks <a> or calls navigate()
   → Server runs middleware, then the route and shell loaders concurrently
     (skipping a claimed shell's loader), and returns JSON (no HTML rendering)
     with no-store by default or the route's private loaderCache duration
+  → Once the modules have resolved, update the URL via history.pushState
+    (a navigation superseded before then pushes nothing)
   → Client updates component tree with new data + loaded modules, keeping the
     held shell data when the shell did not change
-  → Update URL via history.pushState
   → After the destination commits, replace WebMCP registrations with that route's capabilities
 ```
 
 Module imports are cached so repeated navigations to the same shell skip the import.
+A rejected import is evicted, and the navigation falls back to a document
+navigation to the target URL — the usual cause is an open tab whose hashed chunk a
+newer deploy removed, and the fresh document references the current build. The
+static `200.html` fallback boot is the exception: reloading would re-serve the
+same document, so it logs instead.
 Prefetching (hover/intent/viewport) also warms module chunks alongside route-state data.
 Its bounded 30-second in-memory reuse window is independent of the route-state
 response's browser HTTP cache policy.

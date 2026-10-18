@@ -73,6 +73,49 @@ export interface LiveGraphMetadata {
   staticTarget: boolean;
   /** Routes whose generated route or shell loader hint says a server fetch may be required. */
   loaderRoutePaths: ReadonlySet<string>;
+  /** The module references the resolved manifest registers, as written in it. */
+  manifest: ManifestModuleFacts;
+}
+
+export interface ManifestModuleFacts {
+  /**
+   * Every module path the resolved app references: route, loader, shell,
+   * middleware, capability and not-found modules, including routes spread in
+   * from other files. Relative paths resolve against the app manifest.
+   */
+  modules: string[];
+  routeCount: number;
+  shells: { name: string; path: string }[];
+  middleware: { name: string; path: string }[];
+}
+
+/** Read the module references off the resolved app rather than the manifest's text. */
+export function collectManifestModuleFacts(resolvedApp: {
+  routes?: readonly ResolvedRoute[];
+  notFound?: ResolvedRoute;
+  shells?: Record<string, unknown>;
+  middleware?: Record<string, unknown>;
+  capabilities?: Record<string, unknown>;
+}): ManifestModuleFacts {
+  const modules = new Set<string>();
+  const add = (file: unknown) => {
+    if (typeof file === "string" && file !== "") modules.add(file);
+  };
+  const routes = resolvedApp.routes ?? [];
+  for (const route of [...routes, ...(resolvedApp.notFound ? [resolvedApp.notFound] : [])]) {
+    add(route.file);
+    add(route.loaderFile);
+  }
+  const registry = (record: Record<string, unknown> | undefined) =>
+    Object.entries(record ?? {})
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([name, path]) => ({ name, path }));
+  const shells = registry(resolvedApp.shells);
+  const middleware = registry(resolvedApp.middleware);
+  for (const entry of [...shells, ...middleware, ...registry(resolvedApp.capabilities)]) {
+    add(entry.path);
+  }
+  return { modules: [...modules], routeCount: routes.length, shells, middleware };
 }
 
 export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphMetadata> {
@@ -126,6 +169,7 @@ export async function resolveLiveGraphMetadata(root: string): Promise<LiveGraphM
           .map((route) => route.path),
       ),
       staticTarget: serverModule.staticTarget === true,
+      manifest: collectManifestModuleFacts(serverModule.resolvedApp),
     };
   });
 }

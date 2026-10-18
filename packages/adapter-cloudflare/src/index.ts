@@ -281,6 +281,8 @@ export function createCloudflareServerEntryModule(
     ...workerEntryImports,
     `export const cloudflareAssetsBinding = ${JSON.stringify(assetsBinding)};`,
     `export const cloudflareWorkersCacheEnabled = ${JSON.stringify(Boolean(cacheOptions))};`,
+    "// `pracht build` publishes /_pracht/headers.json in its shared form only for entries that read it.",
+    "export const headersManifestFormat = 2;",
     "",
     "let headersManifestPromise;",
     "async function readPrachtHeadersManifest(request, assets) {",

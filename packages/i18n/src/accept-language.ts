@@ -112,6 +112,31 @@ function scriptSubtag(tag: string): string | null {
   );
 }
 
+/**
+ * Region → script for languages written in more than one script, so a tag
+ * without a script subtag (`zh-TW`) still prefers the matching registered
+ * locale (`zh-Hant` over `zh-Hans`). Keys are lowercased `language-region`.
+ */
+const LIKELY_SCRIPTS: Readonly<Record<string, string>> = {
+  "zh-tw": "hant",
+  "zh-hk": "hant",
+  "zh-mo": "hant",
+  "zh-cn": "hans",
+  "zh-sg": "hans",
+  "zh-my": "hans",
+  "sr-rs": "cyrl",
+  "sr-ba": "cyrl",
+  "sr-me": "latn",
+  "pa-in": "guru",
+  "pa-pk": "arab",
+};
+
+function likelyScript(tag: string): string | null {
+  const [language, region] = tag.split("-");
+  if (!language || !region || region.length !== 2) return null;
+  return LIKELY_SCRIPTS[`${language}-${region}`] ?? null;
+}
+
 export interface MatchAcceptLanguageOptions {
   /**
    * Locale a `*` wildcard entry resolves to (typically the default locale).
@@ -149,6 +174,60 @@ export function matchAcceptLanguage(
     );
   }
 
+  /**
+   * RFC 4647 lookup: try the tag, then progressively strip subtags from the
+   * right until a registered locale matches (`zh-hant-tw` → `zh-hant` →
+   * `zh`). A range also matches a longer registered tag, so `en-gb` prefers
+   * `en-gb-oxendict` over an unrelated same-language best fit. A locale whose
+   * script differs from `requestedScript` is skipped. `strict` accepts only a
+   * locale known to use that script, reading the script of a region-only
+   * locale too (`zh-TW` → Hant), so a generic `zh` cannot win the first pass.
+   */
+  function lookup(tag: string, requestedScript: string | null, strict: boolean): number {
+    function scriptAllowed(locale: string): boolean {
+      if (requestedScript === null) return true;
+      if (strict) return (scriptSubtag(locale) ?? likelyScript(locale)) === requestedScript;
+      const candidateScript = scriptSubtag(locale);
+      return candidateScript === null || candidateScript === requestedScript;
+    }
+
+    let candidate: string = tag;
+    let index = -1;
+    while (true) {
+      // Use the range that actually matched the registered locale when
+      // applying q=0 exclusions. If `en-US` had to truncate to `en`, a client
+      // that explicitly rejected `en` must not receive it.
+      const exact = lowered.indexOf(candidate);
+      index =
+        exact !== -1 &&
+        !isRejected(lowered[exact] as string, candidate) &&
+        (!strict || scriptAllowed(lowered[exact] as string))
+          ? exact
+          : lowered.findIndex(
+              (locale) =>
+                locale.startsWith(`${candidate}-`) &&
+                !isRejected(locale, candidate) &&
+                scriptAllowed(locale),
+            );
+      if (index !== -1) return index;
+      const dash = candidate.lastIndexOf("-");
+      if (dash === -1) break;
+      candidate = candidate.slice(0, dash);
+    }
+    // Best-fit fallback across regions: a registered locale whose primary
+    // language matches the tag's (`en` → `en-US`, `en-GB` → `en-US`) is a
+    // better answer than falling through to a lower-q language. An explicit
+    // script remains significant: `zh-Hans` must not best-fit `zh-Hant`.
+    const language = tag.split("-", 1)[0] ?? tag;
+    // Best fit only establishes a primary-language match, so a q=0 range for
+    // that language still excludes the candidate. The more-specific request
+    // cannot override a rejection it did not directly match.
+    return lowered.findIndex(
+      (locale) =>
+        locale.startsWith(`${language}-`) && !isRejected(locale, language) && scriptAllowed(locale),
+    );
+  }
+
   for (const { tag, quality } of entries) {
     if (quality === 0) continue;
     if (tag === "*") {
@@ -166,56 +245,15 @@ export function matchAcceptLanguage(
       }
       continue;
     }
-    // RFC 4647 lookup: try the tag, then progressively strip subtags from
-    // the right until a registered locale matches (`zh-hant-tw` → `zh-hant`
-    // → `zh`). A range also matches a longer registered tag, so `en-gb`
-    // prefers `en-gb-oxendict` over an unrelated same-language best fit.
-    const requestedScript = scriptSubtag(tag);
-    let candidate: string = tag;
-    let index = -1;
-    while (true) {
-      // Use the range that actually matched the registered locale when
-      // applying q=0 exclusions. If `en-US` had to truncate to `en`, a client
-      // that explicitly rejected `en` must not receive it.
-      const exact = lowered.indexOf(candidate);
-      index =
-        exact !== -1 && !isRejected(lowered[exact] as string, candidate)
-          ? exact
-          : lowered.findIndex((locale) => {
-              if (!locale.startsWith(`${candidate}-`) || isRejected(locale, candidate)) {
-                return false;
-              }
-              const candidateScript = scriptSubtag(locale);
-              return (
-                requestedScript === null ||
-                candidateScript === null ||
-                candidateScript === requestedScript
-              );
-            });
-      if (index !== -1) break;
-      const dash = candidate.lastIndexOf("-");
-      if (dash === -1) break;
-      candidate = candidate.slice(0, dash);
-    }
-    if (index === -1) {
-      // Best-fit fallback across regions: a registered locale whose primary
-      // language matches the tag's (`en` → `en-US`, `en-GB` → `en-US`) is a
-      // better answer than falling through to a lower-q language. An explicit
-      // script remains significant: `zh-Hans` must not best-fit `zh-Hant`.
-      const language = tag.split("-", 1)[0] ?? tag;
-      index = lowered.findIndex((locale) => {
-        // Best fit only establishes a primary-language match, so a q=0 range
-        // for that language still excludes the candidate. The more-specific
-        // request cannot override a rejection it did not directly match.
-        if (!locale.startsWith(`${language}-`) || isRejected(locale, language)) return false;
-        const candidateScript = scriptSubtag(locale);
-        return (
-          requestedScript === null ||
-          candidateScript === null ||
-          candidateScript === requestedScript
-        );
-      });
-    }
+    // A tag's script, explicit (`zh-Hant-TW`) or implied by its region
+    // (`zh-TW`), first picks a locale written in that script — `zh-TW` gets
+    // `zh-Hant` over `zh-Hans`, and `zh-HK` gets `zh-TW` over `zh-CN`. Only
+    // when none exists does the original lookup run, so an app
+    // without a matching-script locale gets the answer it always got.
+    const explicitScript = scriptSubtag(tag);
+    const script = explicitScript ?? likelyScript(tag);
+    let index = script === null ? -1 : lookup(tag, script, true);
+    if (index === -1) index = lookup(tag, explicitScript, false);
     if (index !== -1) return locales[index] as string;
   }
   return null;

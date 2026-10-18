@@ -24,6 +24,8 @@ export interface WebmcpToolAnnotations {
   untrustedContentHint?: boolean;
   /** The tool performs a significant real-world or non-reversible action. */
   consequentialHint?: boolean;
+  /** The tool serves debugging and developer tooling, not end-user tasks. */
+  debugging?: boolean;
 }
 
 export interface WebmcpTool {

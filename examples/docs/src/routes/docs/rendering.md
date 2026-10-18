@@ -49,7 +49,8 @@ export function Component({ data }) {
 ```
 
 The build runs the loader and renderer for each returned path, 10 at a time by
-default (`pracht({ prerenderConcurrency })`).
+default (`pracht({ prerenderConcurrency })`), and writes each page to disk as
+soon as it renders, so build memory does not grow with the HTML of the whole site.
 
 With a serverful adapter, a path that prerenders a redirect or 4xx is skipped
 with a warning and rendered live instead. A 5xx fails the build, and so does a
@@ -107,6 +108,18 @@ import { webhookRevalidate } from "@pracht/core";
 
 Set `PRACHT_REVALIDATE_TOKEN`, then POST concrete paths to
 `/__pracht/revalidate` with `Authorization: Bearer <token>`.
+
+The JSON response lists `revalidated`, `skipped`, and `failed` paths, and its
+`scope` says how far the refresh reached. `global` (Netlify, Vercel) means
+every visitor gets the new page. `instance` (Node) means only the server that
+received the POST, so replicas behind a load balancer keep their copy.
+
+`colo` (Cloudflare) means only the data center that received it: another data
+center renders current content on its first uncached request but keeps a copy
+it already holds, and `pracht build` warns about each such route. Add a time
+window to the route's policy to bound that lag; with
+[Workers Caching](/docs/adapters#isg-and-workers-caching) the webhook then
+purges the route everywhere and reports `global`.
 
 ---
 

@@ -279,13 +279,13 @@ expose: {
 },
 ```
 
-The WebMCP shim is a separate chunk that loads only in browsers with the API, on routes with page tools.
+The WebMCP shim loads only in browsers with the API, and a page downloads only its route's tool schemas. Activation is not access control: the HTTP endpoint stays reachable.
 
 ### Hosts and the origin trial
 
 WebMCP is a W3C Community Group Draft. Chrome's origin trial covers versions 149–156, and pracht's `document.modelContext` target needs Chromium 150 or later. Polyfills such as `@mcp-b/webmcp-polyfill` work too.
 
-Treat WebMCP as an experimental progressive enhancement. As of September 2026, no mainstream browser agent consumes page tools in production, so keep HTTP or remote MCP for agents that need a production transport.
+WebMCP is experimental: as of September 2026 no mainstream browser agent consumes page tools, so keep HTTP or remote MCP for production agents.
 
 Stable Chrome needs an [origin-trial token](https://developer.chrome.com/origintrials/) on the page, or the tools stay off. Register your origin, then emit the token from your shell's `head()`:
 
@@ -421,7 +421,7 @@ setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 
 Middleware applied to the capability or the app's API chain may import the setup instead. The store is required because the agent that receives the token also commits it; the store makes each token single-use. See [Durable Approvals](/docs/agent-trust#durable-approvals).
 
-If the store, `PRACHT_CONFIRMATION_SECRET`, or (in `mode: "human"`) a principal source is missing, the whole endpoint answers an error naming what is missing instead of serving tools. A principal source is a principal resolver, `agents.mcp.auth`, or a Web Bot Auth key or directory.
+If the store, `PRACHT_CONFIRMATION_SECRET`, or (in `mode: "human"`) a principal source is missing, the whole endpoint answers an error naming what is missing instead of serving tools. A principal source is a principal resolver or `agents.mcp.auth`, not a Web Bot Auth key.
 
 `pracht verify` warns when it finds no `setCapabilityApprovalStore()` call in your source directories.
 

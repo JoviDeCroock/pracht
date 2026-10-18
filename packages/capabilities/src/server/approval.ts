@@ -16,10 +16,9 @@
  * once. Human mode additionally requires an authenticated principal before an
  * out-of-band decision can authorize the operation. The end user — from
  * `setCapabilityApprovalPrincipalResolver()` or a verified OAuth subject on
- * remote MCP — is always bound when present. A Web Bot Auth key identifies the
- * agent operator, which every user of that agent shares: when it is the only
- * identity, every prepare opens its own proposal so one user's approval can
- * never be spent by another user's call.
+ * remote MCP — is required in human mode. A Web Bot Auth key identifies the
+ * agent operator, which every user of that agent shares, so it is bound when
+ * present but never stands in for the end user.
  *
  * The caller interaction does not change: callers still just echo the
  * confirmation token they were handed. Store-backed tokens use a distinct
@@ -35,6 +34,7 @@ import type {
   CapabilityApprovalPrincipalResolver,
   CapabilityApprovalRecord,
   CapabilityApprovalStore,
+  PrachtAgentsConfig,
 } from "./types.ts";
 
 // Module-level registration, like `setCapabilityAuditHook` and
@@ -60,8 +60,8 @@ export function resolveCapabilityApprovalStore(): CapabilityApprovalStore | null
 
 /**
  * Register a server-only resolver for the application-authenticated identity
- * bound to approval proposals. Human approval with neither this identity, a
- * verified OAuth subject, nor a verified agent identity fails closed.
+ * bound to approval proposals. Human approval without this identity (or a
+ * verified OAuth subject on remote MCP) fails closed.
  */
 export function setCapabilityApprovalPrincipalResolver<TContext = unknown>(
   resolver: CapabilityApprovalPrincipalResolver<TContext> | null,
@@ -76,6 +76,28 @@ export function setCapabilityApprovalPrincipalResolver<TContext = unknown>(
  */
 export function hasCapabilityApprovalPrincipalResolver(): boolean {
   return approvalState.resolver !== null;
+}
+
+/**
+ * Human approval binds each decision to the person behind the call. Only an
+ * application principal resolver or the verified OAuth subject behind
+ * `agents.mcp.auth` names that person; a Web Bot Auth key names the agent
+ * operator, which every user of that agent shares, so it never satisfies this.
+ * Like {@link hasCapabilityApprovalPrincipalResolver}, it says an end user is
+ * *possible*; the gate still refuses a request that resolves none.
+ */
+export function humanApprovalPreconditionError(
+  agents: (Pick<PrachtAgentsConfig, "confirmation"> & { mcp?: { auth?: unknown } }) | undefined,
+): string | null {
+  if (agents?.confirmation?.mode !== "human" || approvalState.resolver || agents.mcp?.auth) {
+    return null;
+  }
+  return (
+    'agents.confirmation.mode is "human" but nothing identifies the end user: call ' +
+    "setCapabilityApprovalPrincipalResolver() from a server-only module, or protect remote MCP " +
+    "with agents.mcp.auth. A Web Bot Auth key names the agent, which all of its users share, so " +
+    "it cannot bind an approval."
+  );
 }
 
 export interface ResolvedCapabilityApprovalPrincipal {
@@ -157,8 +179,7 @@ export async function resolveCapabilityApprovalPrincipal<TContext>(options: {
 
 /**
  * The proposal id for one destructive operation: a secret-keyed digest over
- * the principal, capability name, input hash, and approval mode (plus the
- * per-prepare nonce when the principal is only an agent key). Deriving it
+ * the principal, capability name, input hash, and approval mode. Deriving it
  * means two prepare calls for the same operation address the same proposal,
  * while keying it keeps caller-visible ids from revealing low-entropy
  * application principals through offline guessing.
@@ -169,11 +190,11 @@ export async function capabilityApprovalId(
   capability: string,
   inputHash: string,
   approvalMode: CapabilityConfirmationMode,
-  proposalNonce?: string | null,
 ): Promise<string> {
-  const parts: string[] = [principal, capability, inputHash, approvalMode];
-  if (proposalNonce) parts.push(proposalNonce);
-  return hmacSha256Base64Url(confirmationSecret, `pracht-approval-id:${JSON.stringify(parts)}`);
+  return hmacSha256Base64Url(
+    confirmationSecret,
+    `pracht-approval-id:${JSON.stringify([principal, capability, inputHash, approvalMode])}`,
+  );
 }
 
 export interface MemoryApprovalStoreOptions {

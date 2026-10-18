@@ -34,9 +34,26 @@ export interface NodeServerEntryModuleOptions {
    * exits, in milliseconds. Default `10000`.
    */
   shutdownTimeoutMs?: number;
+  /**
+   * `server.keepAliveTimeout` for the generated server, in milliseconds
+   * (Node's default is `5000`). Behind a load balancer, set it above the
+   * balancer's idle timeout so the balancer never reuses a connection Node
+   * has just closed.
+   */
+  keepAliveTimeoutMs?: number;
+  /** `server.headersTimeout` for the generated server, in milliseconds (Node's default is `60000`). */
+  headersTimeoutMs?: number;
 }
 
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
+
+function readOptionalMilliseconds(value: number | undefined, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`nodeAdapter({ ${name} }) expects a non-negative number of milliseconds.`);
+  }
+  return value;
+}
 
 export function createNodeServerEntryModule(options: NodeServerEntryModuleOptions = {}): string {
   const canonicalOrigin = options.canonicalOrigin ?? null;
@@ -47,6 +64,11 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
       "nodeAdapter({ shutdownTimeoutMs }) expects a non-negative number of milliseconds.",
     );
   }
+  const keepAliveTimeoutMs = readOptionalMilliseconds(
+    options.keepAliveTimeoutMs,
+    "keepAliveTimeoutMs",
+  );
+  const headersTimeoutMs = readOptionalMilliseconds(options.headersTimeoutMs, "headersTimeoutMs");
   const contextImport = options.createContextFrom
     ? `import { createContext as createPrachtContext } from ${JSON.stringify(options.createContextFrom)};`
     : "const createPrachtContext = undefined;";
@@ -78,6 +100,9 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     '  ? JSON.parse(readFileSync(markdownManifestPath, "utf-8"))',
     "  : undefined;",
     "",
+    "// `pracht build` writes headers-manifest.json in its shared form only for entries that read it.",
+    "export const headersManifestFormat = 2;",
+    "",
     "export const handler = createNodeRequestHandler({",
     "  app: resolvedApp,",
     "  registry,",
@@ -102,6 +127,12 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     "const entryHref = process.argv[1] ? pathToFileURL(process.argv[1]).href : null;",
     "if (entryHref && import.meta.url === entryHref) {",
     "  const server = createServer(handler);",
+    ...(keepAliveTimeoutMs === undefined
+      ? []
+      : [`  server.keepAliveTimeout = ${JSON.stringify(keepAliveTimeoutMs)};`]),
+    ...(headersTimeoutMs === undefined
+      ? []
+      : [`  server.headersTimeout = ${JSON.stringify(headersTimeoutMs)};`]),
     "  if (configurePrachtServer) await configurePrachtServer(server);",
     `  const port = Number(process.env.PORT ?? ${port});`,
     "  server.listen(port, () => {",
@@ -115,11 +146,20 @@ export function createNodeServerEntryModule(options: NodeServerEntryModuleOption
     '    process.off("SIGTERM", shutdown);',
     '    process.off("SIGINT", shutdown);',
     `    const deadline = Date.now() + ${JSON.stringify(shutdownTimeoutMs)};`,
-    "    await new Promise((resolve) => {",
-    "      server.close(() => resolve());",
-    "      server.closeIdleConnections?.();",
-    "      setTimeout(resolve, Math.max(0, deadline - Date.now())).unref();",
-    "    });",
+    "    const untilDeadline = () =>",
+    "      new Promise((resolve) => setTimeout(resolve, Math.max(0, deadline - Date.now())).unref());",
+    "    await Promise.race([",
+    "      new Promise((resolve) => {",
+    "        server.close(() => resolve());",
+    "        server.closeIdleConnections?.();",
+    "        // Event streams never end on their own; clients reconnect elsewhere.",
+    "        void handler.closeEventStreams(Math.max(0, deadline - Date.now()));",
+    "      }),",
+    "      untilDeadline(),",
+    "    ]);",
+    "    // Wait for the closed streams' handlers so their abort-time waitUntil()",
+    "    // work is registered before the drain looks.",
+    "    await handler.closeEventStreams(Math.max(0, deadline - Date.now()));",
     "    await handler.drain(Math.max(0, deadline - Date.now()));",
     "    process.kill(process.pid, signal);",
     "  };",

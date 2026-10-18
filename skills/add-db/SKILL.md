@@ -25,7 +25,7 @@ client factory wired to the project's adapter. Never overwrite an existing
 `drizzle.config.ts`, `wrangler.toml`, or `package.json` script — diff, merge,
 and ask about collisions.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
 tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
 config; `inspect build` needs a prior `pracht build`.
@@ -73,7 +73,7 @@ export const users = pgTable("users", {
 
 Read connection strings via `serverEnv` from `@pracht/core/env/server`, never
 `process.env` — it keeps the secret out of the client bundle and resolves per
-adapter (docs/ENV.md). The shape depends on the runtime:
+adapter (<https://pracht.resynapse.dev/docs/env>). The shape depends on the runtime:
 
 - **Node, persistent process** — a module-level singleton is fine, because
   `serverEnv` works at module top level there.

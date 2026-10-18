@@ -24,7 +24,7 @@ Use this workflow to keep route ids, params, links, and navigation type-safe.
 
 The resolved app graph is the source of truth — not a manual glob of `src/`.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
 tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
 config.
@@ -205,7 +205,7 @@ import { apiFetch } from "@pracht/core";
 const item = await apiFetch("/api/items/:id", { params: { id: "42" } });
 ```
 
-See docs/API_VALIDATION.md for `defineApi()` and validation error handling.
+See <https://pracht.resynapse.dev/docs/api-validation> for `defineApi()` and validation error handling.
 Typegen discovers API route files without importing them, so it is safe for
 route modules that initialize runtime-only services at module scope.
 

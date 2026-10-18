@@ -119,9 +119,10 @@ cloudflareAdapter({ persistState: { path: ".wrangler/state-dev-a" } });
 
 ### ISG and Workers Caching
 
-By default, ISG stores regenerated pages in the per-colo Cache API. Opt into
-Cloudflare's cache in front of the Worker when time-revalidated routes should
-render on demand at the edge:
+ISG stores regenerated pages in each data center's Cache API by default, so a
+[webhook](/docs/rendering#webhook-revalidation) refreshes one data center.
+Opt into Cloudflare's edge cache to render time-revalidated routes on demand
+and purge them everywhere:
 
 ```ts [vite.config.ts]
 cloudflareAdapter({ cache: true });
@@ -136,7 +137,7 @@ cloudflareAdapter({ cache: { staleWhileRevalidate: 86_400 } });
 
 Workers Caching keys on the exact path and query string. Query order and
 trailing slashes create separate entries, and arbitrary query values create
-unbounded cold renders, so keep query shapes on shared ISG routes bounded.
+unbounded cold renders, so keep ISG query shapes bounded.
 Cached hits skip middleware, so per-visitor policy belongs on SSR routes.
 
 Without `assets.html_handling`, the assets binding redirects `/guide` to
@@ -524,17 +525,22 @@ single instance; replicas behind a load balancer drift apart.
 ### Graceful shutdown
 
 On `SIGTERM` or `SIGINT`, the generated server stops accepting connections,
-lets in-flight requests and [`waitUntil()`](/docs/data-loading#waituntil) work
-finish, then exits. Open SSE streams and WebSockets hold it until the limit, and
-a second signal exits at once. Keep the limit below your platform's kill grace
-period:
+closes SSE streams, lets in-flight requests and
+[`waitUntil()`](/docs/data-loading#waituntil) work finish, then exits.
+WebSockets hold it until the limit; a second signal exits at once. Keep the
+limit below your platform's kill grace period:
 
 ```ts [vite.config.ts]
-nodeAdapter({ shutdownTimeoutMs: 8_000 }); // default 10_000
+nodeAdapter({
+  shutdownTimeoutMs: 8_000, // default 10_000
+  keepAliveTimeoutMs: 65_000, // above your load balancer's idle timeout; Node's default is 5_000
+  headersTimeoutMs: 66_000, // time to receive request headers; Node's default is 60_000
+});
 ```
 
-A custom server built on `createNodeRequestHandler()` calls
-`await handler.drain(timeoutMs)` after `server.close()`.
+Custom servers built on `createNodeRequestHandler()` call
+`await handler.closeEventStreams(timeoutMs)` then `await handler.drain(timeoutMs)` after
+`server.close()`.
 
 ### WebSockets
 

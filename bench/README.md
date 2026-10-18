@@ -98,8 +98,18 @@ number.
 ## When the baseline moves
 
 A failing `pnpm bench:check` is a question, not a verdict: did this PR mean to
-change what every app downloads? If yes, run
-`node bench/run.mjs --bytes-only --update`, commit the new `baseline.json`, and
-update the published table in
-`examples/docs/src/routes/docs/performance.md` so the site and the harness never
-disagree.
+change what every app downloads? If yes, run `pnpm bench:update` and commit
+what it changes.
+
+`baseline.json` is the only place the numbers are recorded. Every page that
+quotes one — the performance and why-pracht tables, the home page ladder, the
+README — is listed in `published-numbers.mjs`, and `--update` rewrites them
+from the baseline it just wrote. `published-numbers.test.mjs` fails the unit
+suite when a quoted number disagrees with the baseline or a listed quote can no
+longer be found, so a page cannot fall behind silently.
+
+Two PRs that both move bytes therefore collide in `baseline.json` alone. Resolve
+the conflict by rebasing and re-running `pnpm bench:update`, never by merging
+the numbers by hand: the gate is exact, so only a fresh measurement of the
+merged tree is right. To quote a new number on a page, add an entry to
+`PUBLISHED` rather than typing it in.

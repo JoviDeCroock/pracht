@@ -31,7 +31,7 @@ prompt the user to). This skill does not handle Vitest setup.
 
 ## Step 2: Enumerate API handlers
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
 tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
 config.

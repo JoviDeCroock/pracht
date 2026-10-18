@@ -250,6 +250,7 @@ export {
   type RevalidationDetail,
   type RevalidationOutcome,
   type RevalidationReportBody,
+  type RevalidationScope,
   type RevalidationSkipReason,
   type RevalidationSingleFlight,
 } from "./revalidation.ts";
@@ -438,6 +439,8 @@ export type {
   ISGManifestEntry,
   PrerenderAppOptions,
   PrerenderAppResult,
+  PrerenderPageInfo,
+  PrerenderPath,
   PrerenderedMarkdown,
   PrerenderMarkdownOptions,
   PrerenderResult,

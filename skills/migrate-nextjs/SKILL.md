@@ -176,8 +176,7 @@ imports: `react` → `preact/hooks` for hooks, `react`/`react-dom` →
 `"use client"` leaves, do not silently regress those pages to full-page
 hydration. Set `hydration: "islands"` on the route (or
 `export const HYDRATION = "islands"` in pages mode) and move the interactive
-components into `src/islands/` — the rest renders as inert HTML. See
-`docs/ISLANDS.md`.
+components into `src/islands/` — the rest renders as inert HTML.
 
 ## Phase 5: API routes
 
@@ -294,7 +293,7 @@ the runtime loader while keeping plain hydration-free `<img>` markup. For
 relative images in Markdown, `defineMarkdownCollection()` from
 `@pracht/markdown` applies the same pipeline to `![alt](./photo.jpg)`. Leave
 `public/` and remote URLs unchanged, and use an absolute Vite `base` for static
-variants. See `docs/IMAGES.md`.
+variants. See https://pracht.resynapse.dev/docs/images.
 
 **Server Actions.** A `"use server"` mutation becomes an API route; the
 `revalidatePath` half becomes an authenticated webhook call:
