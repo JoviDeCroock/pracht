@@ -1133,7 +1133,15 @@ export async function dispatchAgentSurface<TContext>(
   return undefined;
 }
 
-/** Resolve an authoring-shaped manifest, passing an already-resolved one through. */
+let resolvedApps: WeakMap<PrachtApp, ResolvedPrachtApp> | undefined;
+
+/**
+ * Resolve an authoring-shaped manifest, passing an already-resolved one through.
+ *
+ * Custom servers may hand `handlePrachtRequest` the authoring app on every
+ * request; resolving it costs about half a millisecond at 1,000 routes, so the
+ * result is kept for as long as that app object lives.
+ */
 export function getResolvedApp(app: PrachtApp): ResolvedPrachtApp {
   const routes = (app as { routes: readonly unknown[] }).routes;
   const notFoundResolved = !app.notFound || "segments" in app.notFound;
@@ -1141,7 +1149,13 @@ export function getResolvedApp(app: PrachtApp): ResolvedPrachtApp {
     return app as unknown as ResolvedPrachtApp;
   }
 
-  return resolveApp(app);
+  const cache = (resolvedApps ??= new WeakMap());
+  let resolved = cache.get(app);
+  if (!resolved) {
+    resolved = resolveApp(app);
+    cache.set(app, resolved);
+  }
+  return resolved;
 }
 
 function isHrefRouteDefinition(value: unknown): value is HrefRouteDefinition {
