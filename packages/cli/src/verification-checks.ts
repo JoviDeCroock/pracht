@@ -5,6 +5,7 @@ import { formatBytes } from "./bundle-report.js";
 import { hasNamedMiddlewareExport, maskCommentsAndStrings } from "@pracht/capabilities/static";
 import { parseAst } from "vite";
 
+import type { ManifestModuleFacts } from "./graph-snapshot.js";
 import { extractRegistryEntries, extractRelativeModulePaths } from "./manifest.js";
 import {
   displayPath,
@@ -91,7 +92,21 @@ export function collectConfigChecks(
 export function collectManifestVerification(
   project: ProjectConfig,
   checks: Check[],
-  { changedFiles, scope }: { changedFiles: string[]; scope: string },
+  {
+    changedFiles,
+    scope,
+    manifest,
+  }: {
+    changedFiles: string[];
+    scope: string;
+    /**
+     * Module facts from the resolved app graph. They see routes spread in from
+     * other modules and never mistake an import specifier for a route module;
+     * the text scan below is only the fallback for an app whose graph cannot
+     * be resolved.
+     */
+    manifest?: ManifestModuleFacts;
+  },
 ): void {
   const manifestPath = resolveProjectPath(project.root, project.appFile);
   if (!existsSync(manifestPath)) {
@@ -100,8 +115,15 @@ export function collectManifestVerification(
   }
 
   const source = readFileSync(manifestPath, "utf-8");
-  const relativeModules = [...extractRelativeModulePaths(source)];
-  const routeCount = (source.match(/\broute\s*\(/g) ?? []).length;
+  const relativeModules = manifest?.modules ?? [...extractRelativeModulePaths(source)];
+  const routeCount = manifest?.routeCount ?? (source.match(/\broute\s*\(/g) ?? []).length;
+  // App-absolute refs ("/src/routes/home.tsx") resolve against the project
+  // root; every other ref, bare ("routes/home.tsx") included, against the
+  // manifest, as the generated registry does.
+  const resolveManifestModule = (modulePath: string): string =>
+    modulePath.startsWith("/")
+      ? resolveProjectPath(project.root, modulePath)
+      : resolve(dirname(manifestPath), modulePath);
 
   if (scope === "full") {
     checks.push(createCheck("ok", `Found app manifest at ${project.appFile}.`));
@@ -117,8 +139,8 @@ export function collectManifestVerification(
       );
     }
 
-    const shellEntries = extractRegistryEntries(source, "shells");
-    const middlewareEntries = extractRegistryEntries(source, "middleware");
+    const shellEntries = manifest?.shells ?? extractRegistryEntries(source, "shells");
+    const middlewareEntries = manifest?.middleware ?? extractRegistryEntries(source, "middleware");
 
     if (shellEntries.length > 0) {
       checks.push(
@@ -149,7 +171,7 @@ export function collectManifestVerification(
     const missingModules = relativeModules
       .map((modulePath) => ({
         display: modulePath,
-        exists: existsSync(resolve(dirname(manifestPath), modulePath)),
+        exists: existsSync(resolveManifestModule(modulePath)),
       }))
       .filter((entry) => !entry.exists)
       .map((entry) => entry.display);
@@ -181,11 +203,7 @@ export function collectManifestVerification(
 
   // `.md` / `.mdx` are valid manifest route modules and break exactly the same
   // way a pages-router Markdown page does.
-  collectMarkdownTransformCheck(
-    project,
-    checks,
-    relativeModules.map((modulePath) => resolve(dirname(manifestPath), modulePath)),
-  );
+  collectMarkdownTransformCheck(project, checks, relativeModules.map(resolveManifestModule));
 }
 
 type MiddlewareParserLanguage = "js" | "jsx" | "ts" | "tsx";

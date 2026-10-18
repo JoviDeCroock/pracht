@@ -12,7 +12,11 @@ import {
 } from "./verification-checks.js";
 import { collectCapabilityChecks } from "./verification-capabilities.js";
 import { collectEnvLeakVerification } from "./verification-env.js";
-import { collectGraphChecks } from "./verification-graph.js";
+import {
+  collectGraphChecks,
+  tryResolveLiveGraph,
+  type LiveGraphResult,
+} from "./verification-graph.js";
 import { createCheck, type Check } from "./verification-helpers.js";
 import {
   collectChangedFiles,
@@ -85,10 +89,21 @@ export async function runVerification(
       ? "changed"
       : "full";
 
+  // A manifest app is checked against the graph dev and build resolve, so a
+  // manifest split across modules or a constraint held in a variable is seen.
+  // When the graph cannot be resolved, the manifest checks fall back to reading
+  // the manifest's source and the graph checks below report the failure if
+  // they need it.
+  let liveGraph: LiveGraphResult | undefined;
   if (project.mode === "pages") {
     collectPagesVerification(project, checks, { changedFiles: frameworkFiles, scope });
   } else {
-    collectManifestVerification(project, checks, { changedFiles: frameworkFiles, scope });
+    liveGraph = await tryResolveLiveGraph(project.root);
+    collectManifestVerification(project, checks, {
+      changedFiles: frameworkFiles,
+      scope,
+      manifest: "metadata" in liveGraph ? liveGraph.metadata.manifest : undefined,
+    });
   }
 
   // Capability contracts are cheap to verify statically and security relevant,
@@ -102,7 +117,24 @@ export async function runVerification(
   collectPackageChecks(project, checks, packageJsonPath);
   collectTypeScriptConfigChecks(project, checks);
   collectBudgetChecks(project, checks);
-  await collectGraphChecks(project, checks);
+  await collectGraphChecks(project, checks, liveGraph);
+
+  // A graph that dev and build cannot resolve either (an unknown shell, a
+  // throwing manifest) must not pass silently behind the text fallback. It is
+  // a warning, not an error, because the same failure also covers apps whose
+  // dependencies are not installed, which verified green before.
+  const graphFailureReported = checks.some((check) =>
+    check.message.startsWith("Could not resolve the app graph"),
+  );
+  if (liveGraph && "error" in liveGraph && !graphFailureReported) {
+    checks.push(
+      createCheck(
+        "warning",
+        `Could not resolve the app graph, so the manifest checks read ${project.appFile} as ` +
+          `text and constraints were not evaluated: ${liveGraph.error}`,
+      ),
+    );
+  }
 
   if (options.changed && frameworkFiles.length === 0 && !changedInfo.warning) {
     checks.push(

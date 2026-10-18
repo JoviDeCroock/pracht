@@ -109,7 +109,9 @@ Two middleware factories:
 - `sessionMiddleware(storage)` **loads** the session onto `context.session`.
   It never blocks.
 - `requireSession(storage)` loads it **and gates**: a page request without a
-  user is redirected to the login page, an API request gets a `401`.
+  user is redirected to the login page with `?redirect=` set to the route path
+  it asked for (without any deploy base, ready for `redirect()`), an API
+  request gets a `401`.
 
 ```ts [src/middleware/session.ts]
 import type { MiddlewareFn } from "@pracht/core";
