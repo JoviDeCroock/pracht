@@ -155,10 +155,18 @@ const IMPORTING_NODE_TYPES = new Set([
 /** Every string the manifest holds, and where it imports from. */
 function collectManifestStrings(program: StaticProgramNode): {
   localImports: string[];
+  valueImports: string[];
+  eagerDynamicImport: boolean;
   strings: string[];
 } {
   const strings: string[] = [];
   const localImports: string[] = [];
+  // Static imports that bring values (not just types) into the manifest.
+  const valueImports: string[] = [];
+  // `() => import("./x")` is a lazy module ref; any other literal `import()`
+  // hands the manifest values this scan never reads.
+  const lazyImports = new WeakSet<object>();
+  let eagerDynamicImport = false;
 
   const walk = (value: unknown): void => {
     if (Array.isArray(value)) {
@@ -167,6 +175,11 @@ function collectManifestStrings(program: StaticProgramNode): {
     }
     const node = asStaticProgramNode(value);
     if (!node) return;
+
+    if (node.type === "ArrowFunctionExpression") {
+      const body = asStaticProgramNode(node.body);
+      if (body?.type === "ImportExpression") lazyImports.add(body);
+    }
 
     if (
       typeof node.value === "string" &&
@@ -190,6 +203,11 @@ function collectManifestStrings(program: StaticProgramNode): {
       // capability the runtime loads), not manifest data: it is read as a
       // string above and never followed.
       if (node.type !== "ImportExpression" || value === "") localImports.push(value);
+      if (node.type === "ImportExpression") {
+        if (value !== "" && !lazyImports.has(node)) eagerDynamicImport = true;
+      } else if (node.importKind !== "type" && node.exportKind !== "type") {
+        valueImports.push(value);
+      }
     }
 
     for (const key of Object.keys(node)) {
@@ -199,7 +217,7 @@ function collectManifestStrings(program: StaticProgramNode): {
   };
 
   walk(program.body);
-  return { localImports, strings };
+  return { localImports, valueImports, eagerDynamicImport, strings };
 }
 
 /**
@@ -494,6 +512,10 @@ interface ManifestModuleFacts {
   /** Every route and shell ref position holds a literal. */
   literalRefs: boolean;
   mentionsStreaming: boolean;
+  /** Static value imports, which may supply route options. */
+  valueImports: string[];
+  /** A literal `import()` that is not a lazy `() => import(...)` ref. */
+  eagerDynamicImport: boolean;
 }
 
 /**
@@ -541,6 +563,8 @@ function readManifestModuleFacts(file: string): ManifestModuleFacts | null {
       nonFullRefs: [],
       literalRefs: true,
       mentionsStreaming: /\bstreaming\b/.test(source),
+      valueImports: collected.valueImports,
+      eagerDynamicImport: collected.eagerDynamicImport,
     };
     facts.literalRefs = collectPositionalRefs(program, facts.refs);
     collectNonFullRouteRefs(program, facts.nonFullRefs);
@@ -575,7 +599,7 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
     if (!facts) {
       return { complete: false, strings, refs, files: [...seen], nonFullRefs, mayStream: true };
     }
-    mayStream ||= facts.mentionsStreaming;
+    mayStream ||= facts.mentionsStreaming || facts.eagerDynamicImport;
     strings.push(...facts.strings);
     for (const kind of ["routes", "shells", "middleware", "loaders"] as const) {
       refs[kind].push(...facts.refs[kind]);
@@ -598,8 +622,14 @@ function scanManifestModules(resolved: ResolvedPrachtPluginOptions, root: string
         complete = false;
         continue;
       }
-      // A route or shell module is a leaf: it holds components, not refs.
-      if (isOwned(target) || seen.has(target)) continue;
+      // A route or shell module is a leaf: it holds components, not refs. A
+      // value imported from one may still be route options this scan never
+      // reads.
+      if (isOwned(target)) {
+        if (facts.valueImports.includes(specifier)) mayStream = true;
+        continue;
+      }
+      if (seen.has(target)) continue;
       if (seen.size >= MANIFEST_MODULE_LIMIT || !/\.[mc]?[jt]sx?$/.test(target)) {
         complete = false;
         continue;

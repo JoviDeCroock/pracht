@@ -496,6 +496,15 @@ export const app = defineApp({ routes: [${routes}] });
       "src/routes/home.tsx": COMPONENT,
     });
     expect(define(root)).toBe("false");
+    // Lazy refs and type-only imports supply no route options.
+    const lazy = project({
+      "src/routes.ts": manifest(
+        'route("/", () => import("./routes/home.tsx"))',
+        'import type { Props } from "./routes/home.tsx";',
+      ),
+      "src/routes/home.tsx": COMPONENT,
+    });
+    expect(define(lazy)).toBe("false");
     // Dev keeps it on, so `streaming: true` works without a restart.
     expect(define(root, "serve")).toBe("true");
   });
@@ -503,7 +512,9 @@ export const app = defineApp({ routes: [${routes}] });
   it("stays in a build that may stream", () => {
     const cases: Array<Record<string, string>> = [
       { "src/routes.ts": manifest('route("/", "./routes/home.tsx", { streaming: true })') },
-      { "src/routes.ts": manifest('group({ streaming: true }, [route("/", "./routes/home.tsx")])') },
+      {
+        "src/routes.ts": manifest('group({ streaming: true }, [route("/", "./routes/home.tsx")])'),
+      },
       {
         "src/routes.ts": manifest("...more", 'import { more } from "./more.ts";'),
         "src/more.ts":
@@ -515,6 +526,20 @@ export const app = defineApp({ routes: [${routes}] });
           'route("/", "./routes/home.tsx", options)',
           'import { options } from "shared-route-options";',
         ),
+      },
+      // Nor are values a route-directory module or an eager `import()` supplies.
+      {
+        "src/routes.ts": manifest(
+          'route("/", "./routes/home.tsx", options)',
+          'import { options } from "./routes/options.ts";',
+        ),
+        "src/routes/options.ts": "export const options = { streaming: true };\n",
+      },
+      {
+        "src/routes.ts": manifest(
+          'route("/", "./routes/home.tsx", (await import("./opts.ts")).options)',
+        ),
+        "src/opts.ts": "export const options = { streaming: true };\n",
       },
     ];
     for (const files of cases) {
