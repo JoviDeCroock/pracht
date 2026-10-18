@@ -211,6 +211,10 @@ that manifest.
   ISG state is the local `staticDir` of one process: the webhook regenerates
   only on the replica that receives it, and single-flighting and snapshot
   identities are per process and host, so ISG is supported on one instance.
+  When a snapshot cannot be written (a read-only `staticDir`), the cold render
+  is still answered, the handler warns once with the error code, and stale
+  regeneration of that file pauses for one revalidate window after each failed
+  write instead of re-rendering on every request.
   Static and ISG files are
   streamed, and static responses support `ETag` / `Last-Modified` conditional
   revalidation and single byte ranges (`206`, `416`, `If-Range` by date;

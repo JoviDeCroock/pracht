@@ -20,6 +20,61 @@ import { ISG_SNAPSHOT_HEADERS_SUFFIX } from "./node-static.ts";
 // into a single regeneration instead of N parallel renders racing to write.
 const regenerationSingleFlight = createRevalidationSingleFlight();
 
+/** The page rendered, but its snapshot could not be saved to disk. */
+export class ISGSnapshotWriteError extends Error {
+  readonly htmlPath: string;
+
+  constructor(htmlPath: string, cause: unknown) {
+    super(`Could not save the ISG page ${htmlPath}`, { cause });
+    this.name = "ISGSnapshotWriteError";
+    this.htmlPath = htmlPath;
+  }
+}
+
+export interface ISGSnapshotWriteGuard {
+  /** Whether a stale page may be regenerated now; `false` while its last write is backing off. */
+  canRegenerate(htmlPath: string): boolean;
+  /**
+   * Record a failed snapshot write. With `retryAfterMs`, stale regeneration of
+   * `htmlPath` pauses that long, so a read-only filesystem costs one render per
+   * revalidate window instead of one per request. Warns once per handler.
+   */
+  failed(htmlPath: string, error: unknown, retryAfterMs?: number): void;
+  succeeded(htmlPath: string): void;
+}
+
+export function createISGSnapshotWriteGuard(now: () => number = Date.now): ISGSnapshotWriteGuard {
+  // Only paths with a snapshot on disk are recorded here, so the map is
+  // bounded by the static directory rather than by request URLs.
+  const retryAt = new Map<string, number>();
+  let warned = false;
+  return {
+    canRegenerate(htmlPath) {
+      const at = retryAt.get(htmlPath);
+      return at === undefined || now() >= at;
+    },
+    failed(htmlPath, error, retryAfterMs) {
+      if (retryAfterMs !== undefined) retryAt.set(htmlPath, now() + retryAfterMs);
+      if (warned) return;
+      warned = true;
+      const cause = error instanceof ISGSnapshotWriteError ? error.cause : error;
+      const code = (cause as { code?: unknown } | null)?.code;
+      const reason = cause instanceof Error ? cause.message : String(cause);
+      console.warn(
+        `[pracht] ISG could not save a page under ${dirname(htmlPath)}` +
+          `${typeof code === "string" ? ` (${code})` : ""}: ${reason}. ` +
+          "ISG pages keep being served from their existing snapshot, or rendered per request " +
+          "when there is none, and a stale page is re-rendered at most once per revalidate " +
+          "window. Make the static directory writable to persist regenerated pages. " +
+          "This warning is shown once.",
+      );
+    },
+    succeeded(htmlPath) {
+      retryAt.delete(htmlPath);
+    },
+  };
+}
+
 /**
  * Publish an ISG snapshot as one filesystem replacement. Besides preventing
  * readers from observing a partially-written document, the replacement gives
@@ -298,7 +353,11 @@ async function renderAndWriteISGPage<TContext>(
 
   const headers = getISGSnapshotHeaders(response, new URL(request.url).pathname);
   const html = await response.text();
-  await writeISGSnapshot(htmlPath, html, headers);
+  try {
+    await writeISGSnapshot(htmlPath, html, headers);
+  } catch (error) {
+    throw new ISGSnapshotWriteError(htmlPath, error);
+  }
   return true;
 }
 
