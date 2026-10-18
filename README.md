@@ -133,7 +133,7 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 The skills are distributed three ways (see the [catalog](skills/README.md)):
 
 - **Discovery endpoint** — every skill is published at `https://pracht.resynapse.dev/skills/<name>/SKILL.md`, listed with SHA-256 digests in the manifest at [`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json) and advertised via a `Link: rel="agent-skills"` header.
-- **create-pracht** — `npm create pracht@latest` seeds five core skills into new apps' `.claude/skills/` and writes a `.mcp.json` registering `pracht dev-mcp` (yes-default prompt, `--agent-tools=full` for the whole catalog, `--no-agent-tools` to skip).
+- **create-pracht** — `npm create pracht@latest` seeds four core skills into new apps' `.claude/skills/` and writes a `.mcp.json` registering `pracht dev-mcp` (yes-default prompt, `--agent-tools=full` for the whole catalog, `--no-agent-tools` to skip).
 - **In this repo** — `.claude/skills` symlinks to [skills/](skills/README.md), so Claude Code loads them automatically for contributors.
 
 ## Repo map

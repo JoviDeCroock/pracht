@@ -31,6 +31,18 @@ describe("static content types", () => {
     ["skill.markdown", "text/markdown; charset=utf-8"],
     ["llms.txt", "text/plain; charset=utf-8"],
     ["module.wasm", "application/wasm"],
+    ["widget.mjs", "application/javascript"],
+    ["widget.js.map", "application/json"],
+    ["photo.avif", "image/avif"],
+    ["clip.mp4", "video/mp4"],
+    ["clip.webm", "video/webm"],
+    ["clip.vtt", "text/vtt; charset=utf-8"],
+    ["sound.mp3", "audio/mpeg"],
+    ["sound.ogg", "audio/ogg"],
+    ["sound.wav", "audio/wav"],
+    ["guide.pdf", "application/pdf"],
+    ["rows.csv", "text/csv; charset=utf-8"],
+    ["bundle.zip", "application/zip"],
   ])("serves %s as %s", async (file, contentType) => {
     const staticDir = makeStaticDir({ [file]: "# hello" });
 
