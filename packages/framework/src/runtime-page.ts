@@ -25,7 +25,7 @@ import {
   reportRequestError,
   type PrachtRuntimeDiagnosticPhase,
 } from "./runtime-errors.ts";
-import { appendVaryHeader, withRouteResponseHeaders } from "./runtime-headers.ts";
+import { appendVaryHeader, ownResponse, withRouteResponseHeaders } from "./runtime-headers.ts";
 import { PrachtRuntimeProvider, RouteSearchContext } from "./runtime-context.ts";
 import { ShellDataContext } from "./runtime-shell-data.ts";
 import {
@@ -220,7 +220,9 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   shellModule: ShellModule | undefined | Promise<ShellModule | undefined>;
 }): Promise<Response> {
   const { response, isRouteStateRequest, routeArgs } = options;
-  if (!isRouteStateRequest) return response;
+  // The framework's own route-state body already carries its fonts: return
+  // it before reading a byte of it.
+  if (!isRouteStateRequest || isFrameworkFontHeadResponse(response)) return response;
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!isJsonMediaType(contentType)) return response;
@@ -237,7 +239,7 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
 
   const body = payload as Record<string, unknown>;
-  if (isFrameworkFontHeadResponse(response) || typeof body.redirect === "string") return response;
+  if (typeof body.redirect === "string") return response;
 
   // This response already completed the middleware/loader contract. Font-head
   // enrichment must not replace it with a 500 if an eagerly-started route or
@@ -503,7 +505,7 @@ async function buildRouteStateResponse<TContext>(
     : { data: encodedData, fontHead };
   // The app root's snapshot is plain JSON, whatever the data encoding.
   if (root !== undefined) body.root = root;
-  const response = withRouteResponseHeaders(Response.json(body), {
+  const response = withRouteResponseHeaders(ownResponse(Response.json(body)), {
     isRouteStateRequest: true,
     loaderCache: job.match.route.loaderCache,
   });

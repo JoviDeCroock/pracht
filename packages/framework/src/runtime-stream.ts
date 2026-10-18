@@ -29,7 +29,7 @@
 import type { VNode } from "preact";
 
 import { escapeHtml, escapeScriptText } from "./runtime-html.ts";
-import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
+import { applyHeaders, applySecurityAndRouteHeaders, ownResponse } from "./runtime-headers.ts";
 import { normalizeRouteError } from "./runtime-errors.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
@@ -345,5 +345,5 @@ export async function streamingHtmlResponse(
   headers.delete("content-length");
 
   streamingResponseBodies.add(body);
-  return new Response(body, { status, headers });
+  return ownResponse(new Response(body, { status, headers }));
 }
