@@ -224,9 +224,12 @@ it expires — so exactly-once consumption is the whole reason the transport may
 carry a destructive effect at all. The runtime is the gate: the endpoint
 answers an explanatory JSON-RPC error instead of serving destructive tools
 whenever the store, the confirmation secret, or (in `mode: "human"`) any
-resolvable principal is missing. A policy-only `webBotAuth: {}` block is not an
-identity source: configure at least one valid 32-byte base64url Ed25519 static
-key or HTTPS directory, or register an application principal resolver. `pracht verify` *warns* when it
+resolvable principal is missing. Principal sources are an application principal
+resolver, `agents.mcp.auth` (the verified token subject is bound into each
+proposal), or Web Bot Auth with at least one valid 32-byte base64url Ed25519
+static key or HTTPS directory; a policy-only `webBotAuth: {}` block is not one.
+The error recommends the first two, which name the end user rather than the
+agent. `pracht verify` *warns* when it
 cannot find a `setCapabilityApprovalStore()` call in the configured source
 directories — a warning rather than an error because a source scan cannot see a
 registration that lives in a workspace package. There is no silent downgrade

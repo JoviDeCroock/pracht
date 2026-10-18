@@ -50,7 +50,13 @@ import {
   negotiateEncoding,
   protectIdentityEtag,
 } from "./node-compress.ts";
-import { regenerateISGPage, writeISGFile } from "./node-isg.ts";
+import {
+  createISGRenderInput,
+  getISGSnapshotHeaders,
+  readISGSnapshotHeaders,
+  regenerateISGPage,
+  writeISGSnapshot,
+} from "./node-isg.ts";
 import {
   createClientDisconnectSignal,
   createWebRequest,
@@ -71,7 +77,13 @@ const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 
 export interface NodeAdapterContextArgs {
   request: Request;
+  /**
+   * The visitor's `node:http` request. While rendering an ISG page it is a
+   * detached request mirroring `request` instead: that HTML is shared with
+   * every visitor, so it never sees one visitor's cookies or credentials.
+   */
   req: IncomingMessage;
+  /** The visitor's `node:http` response; detached while rendering an ISG page. */
   res: ServerResponse;
 }
 
@@ -198,7 +210,19 @@ export function createNodeRequestHandler<TContext = unknown>(
       });
     } catch (err) {
       if (err instanceof Error && err.message === "Request body too large") {
+        // The rest of the body is never read, so the connection cannot be
+        // reused for another request.
         res.statusCode = 413;
+        writeNodeResponseHeaders(
+          res,
+          applyDefaultSecurityHeaders(
+            new Headers({
+              "cache-control": "no-store",
+              connection: "close",
+              "content-type": "text/plain; charset=utf-8",
+            }),
+          ),
+        );
         res.end("Payload Too Large");
         return;
       }
@@ -250,11 +274,6 @@ export function createNodeRequestHandler<TContext = unknown>(
         options,
         staticDir,
         isgManifest,
-        {
-          request,
-          req,
-          res,
-        },
         compression,
         waitUntil,
       );
@@ -283,6 +302,7 @@ export function createNodeRequestHandler<TContext = unknown>(
           res,
           staticResult,
           headersManifest,
+          isgManifest,
           routePathname,
           compression,
         );
@@ -290,7 +310,10 @@ export function createNodeRequestHandler<TContext = unknown>(
       }
     }
 
-    if (
+    // An ISG document request is answered from the snapshot, or rendered into
+    // one. Either way the HTML is shared, so it is rendered without the
+    // visitor's request.
+    const isgDocumentKey =
       staticDir &&
       isStaticAssetMethod(request.method) &&
       !isMcpMetadataRequest &&
@@ -298,7 +321,10 @@ export function createNodeRequestHandler<TContext = unknown>(
       !wantsMarkdown &&
       isgKey !== null &&
       isgKey in isgManifest
-    ) {
+        ? isgKey
+        : null;
+
+    if (staticDir && isgDocumentKey !== null) {
       const trailingSlashRedirect = redirectToCanonicalPage();
       if (trailingSlashRedirect) {
         await writeWebResponse(res, trailingSlashRedirect);
@@ -309,76 +335,96 @@ export function createNodeRequestHandler<TContext = unknown>(
         res,
         options,
         staticDir,
-        isgKey,
-        isgManifest[isgKey],
+        isgDocumentKey,
+        isgManifest[isgDocumentKey],
         headersManifest,
-        { request, req, res },
         compression,
         waitUntil,
       );
       if (served) return;
     }
 
-    let applicationRequest = createApplicationRequest(request, compression);
-    if (options.basePathStripped) {
-      applicationRequest = restoreBasePathInRequest(applicationRequest);
-    }
-    const context = options.createContext
-      ? await options.createContext({ request: applicationRequest, req, res })
-      : undefined;
-
-    const response = await handlePrachtRequest({
-      app: options.app,
-      // The adapter restored the public pathname before exposing this Request
-      // to createContext or the framework runtime.
-      basePathStripped: false,
-      context,
-      registry: options.registry,
-      request: applicationRequest,
-      apiRoutes: options.apiRoutes,
-      clientEntryUrl: options.clientEntryUrl,
-      islandsEntryUrl: options.islandsEntryUrl,
-      islandsBootstrapRequired: options.islandsBootstrapRequired,
-      cssManifest: options.cssManifest,
-      cssContentManifest: options.cssContentManifest,
-      jsManifest: options.jsManifest,
-      waitUntil,
-    } satisfies HandlePrachtRequestOptions<TContext>);
-
-    const isIsgDocument =
-      staticDir !== undefined &&
-      request.method === "GET" &&
-      !isTransportRouteStateRequest &&
-      isgKey !== null &&
-      isgKey in isgManifest &&
-      response.status === 200 &&
-      (response.headers.get("content-type")?.includes("text/html") ?? false) &&
-      isCacheableISGResponse(response);
-
-    if (isIsgDocument) {
-      const html = await response.clone().text();
-      const htmlPath = resolveContainedPath(staticDir, isgKey);
-      if (htmlPath) {
-        await writeISGFile(htmlPath, html);
-        compressedAssetCache.invalidatePath(htmlPath);
+    let applicationRequest: Request;
+    let context: TContext | undefined;
+    let finishIsgRender: (() => void) | undefined;
+    if (isgDocumentKey !== null) {
+      // The transport still answers the visitor's own preconditions.
+      createApplicationRequest(request, compression);
+      // Cold miss: no snapshot on disk yet. Render the page everyone will be
+      // served, not this visitor's version of it.
+      ({
+        request: applicationRequest,
+        context,
+        finish: finishIsgRender,
+      } = await createISGRenderInput(options, isgDocumentKey, request));
+    } else {
+      applicationRequest = createApplicationRequest(request, compression);
+      if (options.basePathStripped) {
+        applicationRequest = restoreBasePathInRequest(applicationRequest);
       }
+      context = options.createContext
+        ? await options.createContext({ request: applicationRequest, req, res })
+        : undefined;
     }
 
-    // Evaluated after the ISG snapshot decision above: stamping a
-    // `Cache-Control` first would make `isCacheableISGResponse()` reject the
-    // very response it was about to persist. A reverse proxy or CDN in front of
-    // a Node deployment can otherwise apply heuristic freshness to an
-    // authenticated SSR page — the same hazard the Cloudflare adapter guards.
-    //
-    // ISG documents are exempt. This response is the cold render of a page that
-    // every later request answers from disk with
-    // `public, max-age=0, must-revalidate`; stamping only the cold one would
-    // make a route's caching headers depend on whether its snapshot exists yet.
-    await writeWebResponse(
-      res,
-      isIsgDocument ? response : preventHeuristicCaching(request, response),
-      compression,
-    );
+    try {
+      const response = await handlePrachtRequest({
+        app: options.app,
+        // The adapter restored the public pathname before exposing this Request
+        // to createContext or the framework runtime.
+        basePathStripped: false,
+        context,
+        registry: options.registry,
+        request: applicationRequest,
+        apiRoutes: options.apiRoutes,
+        clientEntryUrl: options.clientEntryUrl,
+        islandsEntryUrl: options.islandsEntryUrl,
+        islandsBootstrapRequired: options.islandsBootstrapRequired,
+        cssManifest: options.cssManifest,
+        cssContentManifest: options.cssContentManifest,
+        jsManifest: options.jsManifest,
+        waitUntil,
+      } satisfies HandlePrachtRequestOptions<TContext>);
+
+      const isIsgDocument =
+        staticDir !== undefined &&
+        request.method === "GET" &&
+        isgDocumentKey !== null &&
+        response.status === 200 &&
+        (response.headers.get("content-type")?.includes("text/html") ?? false) &&
+        isCacheableISGResponse(response);
+
+      if (isIsgDocument) {
+        const html = await response.clone().text();
+        const htmlPath = resolveContainedPath(staticDir, isgDocumentKey);
+        if (htmlPath) {
+          await writeISGSnapshot(
+            htmlPath,
+            html,
+            getISGSnapshotHeaders(response, new URL(applicationRequest.url).pathname),
+          );
+          compressedAssetCache.invalidatePath(htmlPath);
+        }
+      }
+
+      // Evaluated after the ISG snapshot decision above: stamping a
+      // `Cache-Control` first would make `isCacheableISGResponse()` reject the
+      // very response it was about to persist. A reverse proxy or CDN in front of
+      // a Node deployment can otherwise apply heuristic freshness to an
+      // authenticated SSR page — the same hazard the Cloudflare adapter guards.
+      //
+      // ISG documents are exempt. This response is the cold render of a page that
+      // every later request answers from disk with
+      // `public, max-age=0, must-revalidate`; stamping only the cold one would
+      // make a route's caching headers depend on whether its snapshot exists yet.
+      await writeWebResponse(
+        res,
+        isIsgDocument ? response : preventHeuristicCaching(request, response),
+        compression,
+      );
+    } finally {
+      finishIsgRender?.();
+    }
   };
 
   // `http.createServer(handler)` ignores the returned promise, so a rejection
@@ -450,6 +496,7 @@ async function serveStaticFile(
   res: ServerResponse,
   staticResult: { filePath: string; contentType: string; cacheControl: string },
   headersManifest: HeadersManifest | SharedHeadersManifest,
+  isgManifest: Record<string, ISGManifestEntry>,
   pathname: string,
   compression: CompressionState | undefined,
 ): Promise<void> {
@@ -464,15 +511,52 @@ async function serveStaticFile(
         "cache-control": staticResult.cacheControl,
         etag: createWeakEtag(fileStat),
         "last-modified": fileStat.mtime.toUTCString(),
+        "accept-ranges": "bytes",
       }),
     );
-    applyHeadersManifest(headers, headersManifest, pathname);
+    // `/page/index.html` names an ISG snapshot's file directly.
+    const snapshotHeaders =
+      (pathname.replace(/\/index\.html$/, "") || "/") in isgManifest
+        ? await readISGSnapshotHeaders(staticResult.filePath, fileStat)
+        : null;
+    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
     const encoding = negotiateFileEncoding(request, headers, fileStat.size, compression);
 
     if (isNotModified(request, headers, compressionGeneration === 0)) {
       res.statusCode = 304;
       writeNodeHeaders(res, headers);
       res.end();
+      return;
+    }
+
+    // Ranges are served from the identity representation only; a request
+    // with a Range header is never compressed (see negotiateFileEncoding).
+    // A digest of the whole body cannot describe a slice of it, so files that
+    // carry one are always sent whole.
+    const range =
+      request.method === "GET" &&
+      encoding === null &&
+      !headers.has("content-digest") &&
+      !headers.has("content-md5")
+        ? resolveByteRange(request, headers, fileStat.size)
+        : null;
+    if (range === "unsatisfiable") {
+      res.statusCode = 416;
+      headers.set("content-range", `bytes */${fileStat.size}`);
+      headers.set("content-length", "0");
+      writeNodeHeaders(res, headers);
+      res.end();
+      return;
+    }
+    if (range) {
+      res.statusCode = 206;
+      headers.set("content-range", `bytes ${range.start}-${range.end}/${fileStat.size}`);
+      headers.set("content-length", String(range.end - range.start + 1));
+      writeNodeHeaders(res, headers);
+      await pipeToResponse(
+        file.createReadStream({ start: range.start, end: range.end, autoClose: false }),
+        res,
+      );
       return;
     }
 
@@ -658,7 +742,6 @@ async function serveISGEntry<TContext>(
   pathname: string,
   entry: ISGManifestEntry,
   headersManifest: HeadersManifest | SharedHeadersManifest,
-  contextArgs: NodeAdapterContextArgs,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
@@ -687,7 +770,8 @@ async function serveISGEntry<TContext>(
         vary: ROUTE_STATE_REQUEST_HEADER,
       }),
     );
-    applyHeadersManifest(headers, headersManifest, pathname);
+    const snapshotHeaders = await readISGSnapshotHeaders(htmlPath, fileStat);
+    applySnapshotOrManifestHeaders(headers, snapshotHeaders, headersManifest, pathname);
     await applyCompressionContentValidator(
       headers,
       htmlPath,
@@ -741,7 +825,7 @@ async function serveISGEntry<TContext>(
           options,
           pathname,
           htmlPath,
-          contextArgs,
+          request,
           compression,
           waitUntil,
         ).catch((err) => {
@@ -761,7 +845,6 @@ async function handleRevalidationEndpoint<TContext>(
   options: NodeAdapterOptions<TContext>,
   staticDir: string | undefined,
   isgManifest: Record<string, ISGManifestEntry>,
-  contextArgs: NodeAdapterContextArgs,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<Response> {
@@ -802,7 +885,7 @@ async function handleRevalidationEndpoint<TContext>(
           options,
           pathname,
           htmlPath!,
-          contextArgs,
+          request,
           compression,
           waitUntil,
         )
@@ -824,11 +907,11 @@ async function regenerateISGPageAndInvalidateCache<TContext>(
   options: NodeAdapterOptions<TContext>,
   pathname: string,
   htmlPath: string,
-  contextArgs: NodeAdapterContextArgs,
+  origin: Request,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<boolean> {
-  const regenerated = await regenerateISGPage(options, pathname, htmlPath, contextArgs, waitUntil);
+  const regenerated = await regenerateISGPage(options, pathname, htmlPath, origin, waitUntil);
   if (regenerated) compression?.cache.invalidatePath(htmlPath);
   return regenerated;
 }
@@ -854,6 +937,61 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
     return null;
   }
   return resolved;
+}
+
+/**
+ * A regenerated ISG snapshot is served with the headers it was rendered with;
+ * the build's headers belong to the build's HTML.
+ */
+function applySnapshotOrManifestHeaders(
+  headers: Headers,
+  snapshotHeaders: Record<string, string> | null,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
+  pathname: string,
+): void {
+  if (!snapshotHeaders) {
+    applyHeadersManifest(headers, headersManifest, pathname);
+    return;
+  }
+  for (const [name, value] of Object.entries(snapshotHeaders)) headers.set(name, value);
+}
+
+/**
+ * The single byte range a `GET` asks for. Returns `null` to serve the whole
+ * file: no or malformed `Range`, several ranges, a unit other than `bytes`,
+ * or an `If-Range` that no longer matches (a weak `ETag` never does).
+ */
+function resolveByteRange(
+  request: Request,
+  headers: Headers,
+  size: number,
+): { start: number; end: number } | "unsatisfiable" | null {
+  const header = request.headers.get("range");
+  if (!header) return null;
+
+  const ifRange = request.headers.get("if-range")?.trim();
+  if (ifRange) {
+    const etag = headers.get("etag");
+    const matches = ifRange.startsWith('"')
+      ? etag !== null && !etag.startsWith("W/") && etag === ifRange
+      : !ifRange.startsWith("W/") && ifRange === headers.get("last-modified");
+    if (!matches) return null;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (match[1] === "" && match[2] === "")) return null;
+
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    if (suffix === 0 || size === 0) return "unsatisfiable";
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+
+  const start = Number(match[1]);
+  if (match[2] !== "" && Number(match[2]) < start) return null;
+  if (start >= size) return "unsatisfiable";
+  const end = match[2] === "" ? size - 1 : Number(match[2]);
+  return { start, end: Math.min(end, size - 1) };
 }
 
 function isRouteStateRequest(url: URL, headers: Headers): boolean {

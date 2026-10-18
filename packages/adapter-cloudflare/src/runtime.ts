@@ -51,6 +51,12 @@ const ISG_CACHE_ENTRY_CACHE_CONTROL = "public, max-age=31536000";
 // What browsers see on a cached ISG page: always revalidate with the Worker,
 // the same policy the build-time asset and the Node adapter send.
 const ISG_BROWSER_CACHE_CONTROL = "public, max-age=0, must-revalidate";
+// Where a stored entry keeps the Cache-Control its render produced.
+const ISG_DOCUMENT_CACHE_CONTROL_HEADER = "x-pracht-isg-cache-control";
+
+// Cache API key path prefix naming the build an ISG entry belongs to. Only
+// ever a synthetic key: no request is routed to it.
+const ISG_CACHE_KEY_BUILD_PREFIX = "/__pracht/isg-build";
 
 // Module-level so it survives across requests within an isolate even though
 // the generated worker entry creates a fresh fetch handler per request.
@@ -388,7 +394,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
   if (!entry) return null;
 
   const cache = getDefaultCache();
-  const cacheKey = createISGCacheKey(request, pathname);
+  const cacheKey = createISGCacheKey(request, pathname, entry);
   const cached = cache ? await cache.match(cacheKey) : undefined;
   if (cached) {
     // The assets binding's `html_handling` canonicalizes the spelling of every
@@ -477,7 +483,7 @@ async function handleCloudflareRevalidationEndpoint(
         continue;
       }
 
-      const cacheKey = createISGCacheKey(request, pathname);
+      const cacheKey = createISGCacheKey(request, pathname, entry);
       // A failed regeneration keeps the existing cached copy and is reported
       // in `failed` instead of aborting the whole batch with a 500.
       if (await regenerateCloudflareISGPage(cache, cacheKey, pathname, request, renderISGPage)) {
@@ -524,6 +530,9 @@ async function regenerateCloudflareISGPage(
       if (response.status !== 200 || !isCacheableISGResponse(response)) return false;
 
       const headers = applyDefaultSecurityHeaders(new Headers(response.headers));
+      // The render's own policy (a route `headers()` Cache-Control) is kept
+      // aside while the entry carries its storage TTL; empty means none.
+      headers.set(ISG_DOCUMENT_CACHE_CONTROL_HEADER, response.headers.get("cache-control") ?? "");
       headers.set("cache-control", ISG_CACHE_ENTRY_CACHE_CONTROL);
       headers.set("x-pracht-isg-generated-at", String(Date.now()));
       ensureRouteStateVary(headers);
@@ -574,8 +583,19 @@ function isDocumentAssetRequest(
   return !wantsRouteMarkdown(request, markdownManifest, url.pathname);
 }
 
-function createISGCacheKey(request: Request, pathname: string): Request {
-  const url = new URL(pathname, request.url);
+/**
+ * The Cache API entry for an ISG page of this build. `caches.default` outlives
+ * a deploy, so the key carries the build's prerender timestamp: a new version
+ * never reads a page the previous one rendered against its own asset hashes.
+ * A rollback reads the entries its version wrote. The timestamp sits in the
+ * path, not the query, because a zone cache key can ignore query strings.
+ */
+function createISGCacheKey(request: Request, pathname: string, entry: ISGManifestEntry): Request {
+  const generation =
+    typeof entry.generatedAt === "number" && Number.isFinite(entry.generatedAt)
+      ? `${ISG_CACHE_KEY_BUILD_PREFIX}/${entry.generatedAt}`
+      : "";
+  const url = new URL(`${generation}${pathname}`, request.url);
   url.search = "";
   url.hash = "";
   return new Request(url, {
@@ -611,11 +631,16 @@ function prepareCloudflareISGResponse(
   stale: boolean,
 ): Response {
   const headers = applyDefaultSecurityHeaders(new Headers(response.headers));
+  const documentCacheControl = headers.get(ISG_DOCUMENT_CACHE_CONTROL_HEADER);
+  headers.delete(ISG_DOCUMENT_CACHE_CONTROL_HEADER);
   // The entry's year-long storage TTL must never reach browsers or a CDN.
-  // Route `headers()` exports still apply on top, as on the asset path.
-  headers.set("cache-control", ISG_BROWSER_CACHE_CONTROL);
+  headers.set("cache-control", documentCacheControl || ISG_BROWSER_CACHE_CONTROL);
   headers.delete("age");
-  applyHeadersManifest(headers, headersManifest, pathname);
+  // A regenerated entry already carries the headers its own render produced,
+  // `headers()` output from the same loader data as the HTML, so the build's
+  // manifest must not overwrite them. Entries stored before the render's
+  // policy was kept aside still take the route's headers from the manifest.
+  if (documentCacheControl === null) applyHeadersManifest(headers, headersManifest, pathname);
   headers.set("x-pracht-isg", stale ? "stale" : "fresh");
   // Downstream caches must keep HTML documents and route-state JSON apart,
   // matching the Vary the asset path (`maybeServeAsset`) already sets.

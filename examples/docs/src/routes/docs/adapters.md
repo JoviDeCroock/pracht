@@ -461,9 +461,8 @@ then use `netlify dev` for a platform-shaped local runtime.
 
 ## Node.js
 
-Run pracht as a standard Node.js HTTP server. The adapter handles static file
-serving, ISG stale-while-revalidate, and request translation, and the generated
-`dist/server/server.js` entry boots the production server directly.
+Run pracht as a standard Node.js HTTP server. The adapter serves static files
+and ISG pages, and the generated `dist/server/server.js` entry boots it directly.
 
 ### Setup
 
@@ -500,9 +499,7 @@ If the proxy also strips Vite's deploy base from the path, set
 ### Response compression
 
 Responses are compressed by default, negotiated from `Accept-Encoding` with
-brotli preferred. Streamed responses such as SSE are flushed chunk by chunk, so
-they still arrive incrementally. Static files are compressed once and served
-from memory.
+brotli preferred. Streamed responses such as SSE still arrive incrementally.
 
 Already-encoded responses, `Cache-Control: no-transform`, range requests,
 binary media, and bodies under 1 KiB are sent as-is. If a reverse proxy or CDN
@@ -519,6 +516,10 @@ pracht build
 node dist/server/server.js
 // Server listening on http://localhost:3000
 ```
+
+Each server keeps ISG pages in its own `dist/client`, so
+`POST /__pracht/revalidate` reaches one replica only. Serve ISG routes from a
+single instance; replicas behind a load balancer drift apart.
 
 ### Graceful shutdown
 
@@ -537,10 +538,9 @@ A custom server built on `createNodeRequestHandler()` calls
 
 ### WebSockets
 
-Node delivers upgrade requests to the server's `upgrade` event, not to the
-request handler, so they never reach pracht. Attach a WebSocket server to the
-same HTTP server instead. The generated entry exports `handler`, and only
-starts its own server when run as the process entrypoint:
+Upgrade requests go to the server's `upgrade` event and never reach pracht, so
+attach a WebSocket server to the same HTTP server. The generated entry exports
+`handler`, and only starts its own server when run as the process entrypoint:
 
 ```js
 import { createServer } from "node:http";
@@ -614,10 +614,9 @@ from `window.location`.
 
 #### Dropping the router from `404.html`
 
-Adopting the URL is the only thing the client router does on that page, and on
-a site whose other pages are islands or static it is the single largest chunk
-in the build — requested by `404.html` and nothing else. A 404 that shows fixed
-markup does not need it:
+On that page the client router only adopts the URL, yet on an islands or
+static site it is the largest chunk in the build. A 404 with fixed markup can
+drop it:
 
 ```ts
 notFound: {
@@ -627,10 +626,9 @@ notFound: {
 }
 ```
 
-The tradeoff is the URL. The page is prerendered at a synthetic path, so
-`useLocation()` reports that path rather than the one the visitor typed. Say
-nothing about the URL, or read it in an island — `hydration: "islands"` costs
-the islands bootstrap (a few kB) instead of the router:
+The page is prerendered at a synthetic path, so `useLocation()` then reports
+that path, not the visited one. To show the visited URL, read it in an island;
+`hydration: "islands"` costs a few kB instead of the router:
 
 ```tsx
 // src/islands/RequestedPath.tsx
@@ -660,14 +658,12 @@ pracht build      # dist/client/ is the deployable site
 pracht preview    # serves dist/client/ with a tiny static file server
 ```
 
-Pages are written as `<path>/index.html`, so the host must serve `index.html`
-for directory URLs (clean URLs). Paths are written decoded
-(`/posts/caf%C3%A9` → `posts/café/index.html`), matching how static hosts look
-files up.
+Pages are written decoded as `<path>/index.html`
+(`/posts/caf%C3%A9` → `posts/café/index.html`), so the host must serve
+`index.html` for directory URLs.
 
-The host, not pracht, sets response headers. The headers each route would have
-sent are recorded in `dist/server/headers-manifest.json`; mirror the ones you
-need in the host's config.
+The host sets response headers. Mirror the ones you need from
+`dist/server/headers-manifest.json`, which records each route's headers.
 
 A static host always answers `/about` with the HTML file, so `Accept`
 negotiation does not apply; agents read a page's `markdown` export at
@@ -682,7 +678,7 @@ To serve a static export under a sub-path, see
 
 ## Context Factory
 
-Adapters inject platform-specific values into loaders and API routes via a context factory. With generated entries, point the adapter at a module that exports `createContext`:
+To give loaders and API routes platform values, point the adapter at a module that exports `createContext`:
 
 ```ts [vite.config.ts]
 nodeAdapter({ createContextFrom: "/src/server/context.ts" });
@@ -699,12 +695,13 @@ export function createContext({ request }: { request: Request }) {
   };
 }
 
+// Node also receives { req, res }, without visitor headers on ISG pages.
 // Cloudflare receives { request, env, executionContext }.
 // Vercel Edge receives { request, context }. Node ISG provides a
 // waitUntil-compatible context, without other Edge-only fields.
 ```
 
-A Cloudflare app with its own [Worker module](#composing-the-worker) passes `createContext` to `createPrachtHandler()` instead. Every loader, middleware, and API route handler receives the result as `args.context`, in `pracht dev` too. The dev server has no Vercel or Netlify runtime, so there the platform `context` argument holds only `waitUntil`.
+A Cloudflare app with its own [Worker module](#composing-the-worker) passes `createContext` to `createPrachtHandler()` instead. Loaders, middleware, and API routes receive the result as `args.context`, in `pracht dev` too, where the Vercel or Netlify platform `context` holds only `waitUntil`.
 
 ---
 
