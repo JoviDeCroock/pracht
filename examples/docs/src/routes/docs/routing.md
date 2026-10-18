@@ -12,7 +12,7 @@ next:
 
 ## Route Manifest
 
-The manifest is the central source of truth for your app's routing. Define it in `src/routes.ts` using `defineApp`, `route`, and `group`:
+Define the manifest in `src/routes.ts` with `defineApp`, `route`, and `group`:
 
 ```ts [src/routes.ts]
 import { defineApp, group, route, timeRevalidate } from "@pracht/core";
@@ -113,6 +113,18 @@ route("/docs/*", "./routes/docs.tsx");
 route("/files/:path*", "./routes/files.tsx");
 // Same match, captured under params.path instead
 ```
+
+### Match order
+
+The first declared route that matches wins, so put specific routes first:
+
+```ts
+route("/blog/new", "./routes/new-post.tsx"), // first, or /blog/:slug takes it
+route("/blog/:slug", "./routes/blog-post.tsx"),
+```
+
+The dev server warns when an earlier route matches every URL a later one does,
+or two routes share an id.
 
 ### Reading params
 
@@ -268,7 +280,7 @@ export function ProductActions({ id }: { id: string }) {
 }
 ```
 
-Routes without an explicit `id` get one generated from the path. Run `pracht typegen --check` in CI to catch stale generated files.
+Run `pracht typegen --check` in CI to catch stale generated files.
 
 A route with a [`search` schema](#search-params) gets its `search` option typed from the schema's input, required when the schema has a required key.
 
@@ -336,8 +348,8 @@ See [Shells](/docs/shells) for [shell data](/docs/shells#shell-data), `head()`, 
 
 ## Middleware
 
-Middleware wraps the rest of the request through a `next()` callback. It can
-redirect, mutate context, or short-circuit.
+Middleware wraps the request through `next()` and can redirect, mutate
+context, or short-circuit.
 
 ```ts [src/middleware/auth.ts]
 import { redirect, type MiddlewareFn } from "@pracht/core";
@@ -349,8 +361,7 @@ export const middleware: MiddlewareFn = async ({ request }, next) => {
 };
 ```
 
-Group and route middleware stack in order. See [Middleware](/docs/middleware)
-for the full guide.
+Group and route middleware stack in order; see [Middleware](/docs/middleware).
 
 ---
 

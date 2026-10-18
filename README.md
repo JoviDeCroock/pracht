@@ -26,7 +26,7 @@ npm create pracht@latest my-app
 - **One explicit app graph** — a typed `defineApp()` manifest wires routes, shells, middleware, and capabilities. What runs where is never a mystery, and because the graph is resolved rather than inferred, tooling can read it. Prefer file-based routing? Opt in to the pages router and skip the manifest entirely.
 - **The graph is projected to agents, not scraped from them** — one `defineCapability()` contract becomes a server call, an HTTP endpoint, a WebMCP page tool, and a tool on your app's own remote MCP endpoint, listed for discovery in a generated `llms.txt`. Same validation, same middleware, same effect class on every transport.
 - **Trust ships with the surface** — Web Bot Auth (RFC 9421) verified agent identity, per-capability policies, a prepare/commit confirmation gate for destructive effects, one structured audit event per dispatch, and `pracht eval` to prove agent flows in CI.
-- **Preact-first** — 0 KB of client JavaScript on a static route, 8.0 KB gzip with islands, 17.4 KB fully hydrated with the router. Measured by `pnpm bench` in this repo and gated in CI, not asserted.
+- **Preact-first** — 0 KB of client JavaScript on a static route, 8.1 KB gzip with islands, 17.5 KB fully hydrated with the router. Measured by `pnpm bench` in this repo and gated in CI, not asserted.
 - **Per-route render and hydration modes** — SPA, SSR, SSG, and ISG, and full, islands, or no hydration, chosen per route. No global default fighting you.
 - **Vite-native** — instant HMR, fast builds, multi-environment output out of the box.
 - **Performance budgets built in** — `pracht build --analyze` reports per-route client JS (gzip + raw), and per-route `budgets` fail the build when a route ships too much.
@@ -133,7 +133,7 @@ Pracht is built to be operated by coding agents as much as by humans — and for
 The skills are distributed three ways (see the [catalog](skills/README.md)):
 
 - **Discovery endpoint** — every skill is published at `https://pracht.resynapse.dev/skills/<name>/SKILL.md`, listed with SHA-256 digests in the manifest at [`/.well-known/agent-skills/index.json`](https://pracht.resynapse.dev/.well-known/agent-skills/index.json) and advertised via a `Link: rel="agent-skills"` header.
-- **create-pracht** — `npm create pracht@latest` seeds five core skills into new apps' `.claude/skills/` and writes a `.mcp.json` registering `pracht dev-mcp` (yes-default prompt, `--agent-tools=full` for the whole catalog, `--no-agent-tools` to skip).
+- **create-pracht** — `npm create pracht@latest` seeds four core skills into new apps' `.claude/skills/` and writes a `.mcp.json` registering `pracht dev-mcp` (yes-default prompt, `--agent-tools=full` for the whole catalog, `--no-agent-tools` to skip).
 - **In this repo** — `.claude/skills` symlinks to [skills/](skills/README.md), so Claude Code loads them automatically for contributors.
 
 ## Repo map

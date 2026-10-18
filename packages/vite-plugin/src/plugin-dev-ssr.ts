@@ -132,11 +132,13 @@ export function createDevMcpPreflightMiddleware(
       if (devBase !== "/") {
         if (!pathname.startsWith(devBase)) return next();
         pathname = `/${pathname.slice(devBase.length)}`;
-        req.url = `/${(req.url ?? "/").slice(devBase.length)}`;
       }
       const normalized =
         pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
       if (normalized !== endpoint) return next();
+      // Only the request pracht answers loses its base; any other request
+      // reaches Vite's base middleware with its URL untouched.
+      if (devBase !== "/") req.url = `/${(req.url ?? "/").slice(devBase.length)}`;
       await handler(req, res, next);
     })().catch(next);
   };

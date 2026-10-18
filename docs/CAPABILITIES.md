@@ -842,10 +842,11 @@ The capability graph feeds every existing inspection surface:
 
 - the `pracht dev` startup banner prints a Capabilities table (name, effect,
   exposure, dispatch path) whenever the app registers any. It reads each
-  capability from source, like API routes, and imports a module only when the
-  static extractor cannot read it, so startup runs no capability's top-level
-  code; with `agents.mcp.destructive` it also imports the destructive MCP
-  capabilities, whose approval registrations the precondition check needs.
+  capability from source, like API routes. It imports a capability module only
+  when the static extractor cannot read it, or when the MCP endpoint serves it
+  as a destructive tool (`agents.mcp.destructive`): the precondition check
+  needs the approval registrations those modules make. No other capability's
+  top-level code runs at startup.
   A capability that fails to load is reported on its own row and does not
   mark the MCP endpoint unavailable — the endpoint keeps serving the rest;
 - `pracht inspect capabilities [--json]` — name, effect, transports, HTTP

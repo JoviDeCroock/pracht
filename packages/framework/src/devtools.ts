@@ -9,6 +9,7 @@
 import { mcpToolServing } from "@pracht/capabilities";
 
 import type { AppGraph, AppGraphApiRoute, AppGraphRoute } from "./app-graph.ts";
+import { escapeHtml } from "./html-escape.ts";
 
 export {
   buildAppGraph,
@@ -536,12 +537,4 @@ function withDevBase(path: string, base: string): string {
 /** Dynamic patterns (`:id`, `*`) are not navigable as-is — render them as text. */
 function isLinkablePath(path: string): boolean {
   return !path.includes(":") && !path.includes("*");
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
