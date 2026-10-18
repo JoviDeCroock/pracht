@@ -516,8 +516,9 @@ export async function createPrachtWebmcpModuleSourceAsync(
   options: PrachtPluginOptions = {},
   buildOptions: WebmcpToolBuildOptions = {},
 ): Promise<string> {
-  const tools = await resolveWebmcpTools(options, buildOptions);
-  return buildPrachtWebmcpModuleSource(tools.map((tool) => tool.name as string));
+  return buildPrachtWebmcpModuleSource([
+    ...(await resolvePrachtWebmcpTools(options, buildOptions)).keys(),
+  ]);
 }
 
 /** Generate `virtual:pracht/webmcp-tool/<name>`: one tool's registration metadata. */
@@ -526,14 +527,43 @@ export async function createPrachtWebmcpToolModuleSourceAsync(
   name: string,
   buildOptions: WebmcpToolBuildOptions = {},
 ): Promise<string> {
-  const [tool] = await resolveWebmcpTools(options, buildOptions, name);
+  return buildPrachtWebmcpToolModuleSource(
+    await resolvePrachtWebmcpTools(options, buildOptions),
+    name,
+  );
+}
+
+/**
+ * Every WebMCP tool's registration metadata, keyed by name. The plugin
+ * resolves this once per build (and once per capability change in dev) and
+ * serves the shim and every per-tool chunk from it.
+ */
+export async function resolvePrachtWebmcpTools(
+  options: PrachtPluginOptions,
+  buildOptions: WebmcpToolBuildOptions = {},
+): Promise<Map<string, Record<string, unknown>>> {
+  const tools = await resolveWebmcpTools(options, buildOptions);
+  return new Map(tools.map((tool) => [tool.name as string, tool]));
+}
+
+/** The shim source for already resolved tools. */
+export function buildPrachtWebmcpShimSource(tools: ReadonlyMap<string, unknown>): string {
+  return buildPrachtWebmcpModuleSource([...tools.keys()]);
+}
+
+/** One per-tool chunk's source from already resolved tools. */
+export function buildPrachtWebmcpToolModuleSource(
+  tools: ReadonlyMap<string, Record<string, unknown>>,
+  name: string,
+): string {
+  const tool = tools.get(name);
   if (!tool) {
     throw new Error(`[pracht] No WebMCP-exposed capability is named ${JSON.stringify(name)}.`);
   }
   return `export default ${JSON.stringify(tool)};\n`;
 }
 
-interface WebmcpToolBuildOptions {
+export interface WebmcpToolBuildOptions {
   root?: string;
   loadCapability?: (file: string) => Promise<unknown>;
   runnerConfig?: InlineConfig;
@@ -542,10 +572,9 @@ interface WebmcpToolBuildOptions {
 async function resolveWebmcpTools(
   options: PrachtPluginOptions,
   buildOptions: WebmcpToolBuildOptions,
-  only?: string,
 ): Promise<Record<string, unknown>[]> {
   const capabilities = extractCapabilities(options, buildOptions.root).filter(
-    (capability) => capability.webmcp && (only === undefined || capability.name === only),
+    (capability) => capability.webmcp,
   );
 
   const root = buildOptions.root ?? process.cwd();

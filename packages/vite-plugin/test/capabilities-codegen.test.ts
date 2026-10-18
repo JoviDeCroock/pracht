@@ -9,6 +9,9 @@ import {
   createPrachtWebmcpModuleSource,
   createPrachtWebmcpModuleSourceAsync,
   createPrachtWebmcpToolModuleSourceAsync,
+  buildPrachtWebmcpShimSource,
+  buildPrachtWebmcpToolModuleSource,
+  resolvePrachtWebmcpTools,
   extractCapabilities,
 } from "../src/plugin-capabilities.ts";
 import {
@@ -700,6 +703,24 @@ describe("createPrachtWebmcpModuleSource", () => {
     expect(source).toContain('"untrustedContent":true');
   });
 
+  it("serves every per-tool chunk from one resolution of the graph", async () => {
+    const root = createFixture({
+      capabilities: {
+        "notes-search.ts": SEARCH_CAPABILITY,
+        "notes-find.ts": SEARCH_CAPABILITY.replace("Search notes", "Find notes"),
+      },
+    });
+    const tools = await resolvePrachtWebmcpTools({}, { root });
+    expect([...tools.keys()].sort()).toEqual(["notes.find", "notes.search"]);
+    expect(buildPrachtWebmcpShimSource(tools)).toContain("webmcp-tool/notes.find");
+    expect(buildPrachtWebmcpToolModuleSource(tools, "notes.search")).toContain(
+      '"name":"notes.search"',
+    );
+    expect(() => buildPrachtWebmcpToolModuleSource(tools, "notes.create")).toThrow(
+      /No WebMCP-exposed capability/,
+    );
+  });
+
   it("downloads only the schemas of the tools the active route registers", async () => {
     const root = createFixture({
       capabilities: {
@@ -737,7 +758,7 @@ describe("createPrachtWebmcpModuleSource", () => {
       },
     ) as (names: string[]) => Promise<unknown>;
 
-    await register(["notes.search"]);
+    await expect(register(["notes.search"])).resolves.toBe(true);
     expect(imported).toEqual(["virtual:pracht/webmcp-tool/notes.search"]);
     expect(registered).toEqual([["notes.search"]]);
 
@@ -752,7 +773,7 @@ describe("createPrachtWebmcpModuleSource", () => {
     // A superseded registration never registers once its tools arrive.
     const stale = register(["notes.find"]);
     await register([]);
-    await stale;
+    await expect(stale).resolves.toBe(false);
     expect(registered.at(-1)).toEqual([]);
   });
 });

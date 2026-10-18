@@ -53,8 +53,9 @@ import {
 import {
   createPrachtCapabilitiesClientModuleSource,
   createPrachtWebmcpModuleSource,
-  createPrachtWebmcpModuleSourceAsync,
-  createPrachtWebmcpToolModuleSourceAsync,
+  buildPrachtWebmcpShimSource,
+  buildPrachtWebmcpToolModuleSource,
+  resolvePrachtWebmcpTools,
   hasAgentSurface,
   hasWebmcpCapabilities,
   resolveCapabilityModulePaths,
@@ -181,6 +182,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
   // server, and a pages `_root` add/remove regenerates the entry.
   let appRootFile: string | null = null;
   let capabilityRunnerConfig: UserConfig = {};
+  // WebMCP tool metadata shared by the shim and every per-tool chunk, so a
+  // build resolves the capability graph once rather than once per tool.
+  let webmcpTools: Promise<Map<string, Record<string, unknown>>> | null = null;
   let usesEjectedPagesLayout = false;
 
   if (isPagesMode && options.appFile) {
@@ -566,17 +570,27 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         return createPrachtCapabilitiesClientModuleSource(resolved, { root });
       }
       if (isWebmcpModule(id)) {
-        return createPrachtWebmcpModuleSourceAsync(resolved, {
+        // The shim is the module that must reflect the current graph, so it
+        // always re-resolves; the per-tool chunks share its result.
+        const tools = resolvePrachtWebmcpTools(resolved, {
           root,
           runnerConfig: capabilityRunnerConfig,
         });
+        webmcpTools = tools;
+        tools.catch(() => {
+          if (webmcpTools === tools) webmcpTools = null;
+        });
+        return tools.then(buildPrachtWebmcpShimSource);
       }
       const webmcpToolName = webmcpToolModuleName(id);
       if (webmcpToolName !== null) {
-        return createPrachtWebmcpToolModuleSourceAsync(resolved, webmcpToolName, {
+        webmcpTools ??= resolvePrachtWebmcpTools(resolved, {
           root,
           runnerConfig: capabilityRunnerConfig,
         });
+        return webmcpTools.then((tools) =>
+          buildPrachtWebmcpToolModuleSource(tools, webmcpToolName),
+        );
       }
       if (isDevPageToolsModule(id)) {
         // Dev-only by construction: a build never imports the module, and
@@ -869,6 +883,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
             const capabilityMod = server.moduleGraph.getModuleById(moduleId);
             if (capabilityMod) server.moduleGraph.invalidateModule(capabilityMod);
           }
+          webmcpTools = null;
           for (const [moduleId, toolMod] of server.moduleGraph.idToModuleMap) {
             if (webmcpToolModuleName(moduleId) !== null) {
               server.moduleGraph.invalidateModule(toolMod);
