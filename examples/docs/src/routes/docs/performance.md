@@ -19,13 +19,13 @@ These are the client JavaScript totals for the *same page*, rendering the
 | Route setting | Gzip | Raw | What reaches the browser |
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
-| `hydration: "islands"` | **8.0 KB** | 17.6 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "islands"`, islands navigation on | **11.7 KB** | 27.5 KB | Islands with `client: { islandsNavigation: true }`. |
-| `hydration: "full"` | **18.0 KB** | 43.9 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **16.3 KB** | 42.8 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **17.7 KB** | 43.0 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"`, rich data on | **18.2 KB** | 44.6 KB | Full hydration with `client: { richData: true }`. |
-| `hydration: "full"` + `preact/compat` | **18.7 KB** | 46.2 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "islands"` | **8.1 KB** | 18.1 KB | Preact, the island bootstrap, and the island chunks on the page. |
+| `hydration: "islands"`, islands navigation on | **11.8 KB** | 27.9 KB | Islands with `client: { islandsNavigation: true }`. |
+| `hydration: "full"` | **18.1 KB** | 44.4 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **16.4 KB** | 43.3 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **17.8 KB** | 43.5 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"`, rich data on | **18.3 KB** | 45.1 KB | Full hydration with `client: { richData: true }`. |
+| `hydration: "full"` + `preact/compat` | **18.8 KB** | 46.5 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load: the route's chunks plus the chunk the router imports
 after hydration. Raw is the route's chunks only. Both come from
