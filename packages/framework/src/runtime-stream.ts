@@ -29,7 +29,7 @@
 import type { VNode } from "preact";
 
 import { escapeHtml, escapeScriptText } from "./runtime-html.ts";
-import { applyHeaders, applySecurityAndRouteHeaders } from "./runtime-headers.ts";
+import { applyHeaders, applySecurityAndRouteHeaders, ownResponse } from "./runtime-headers.ts";
 import { normalizeRouteError } from "./runtime-errors.ts";
 import { encodeRouteData } from "./route-data-codec.ts";
 import { getRenderToReadableStream } from "./runtime-response.ts";
@@ -62,6 +62,8 @@ export interface StreamingHtmlResponseOptions {
   onError?: (error: unknown) => void;
   /** Abort request-scoped deferred work when the response consumer disconnects. */
   onCancel?: () => void;
+  /** Called once the body has ended: closed, errored, or drained after a cancel. */
+  onSettled?: () => void;
   /**
    * Deferred loader values, written to the client as each settles. Their ids
    * match the out-of-band references `serializeDeferred()` recorded.
@@ -120,6 +122,7 @@ export async function streamingHtmlResponse(
     signal,
     onError,
     onCancel,
+    onSettled,
     pending = [],
     nonce,
     exposeErrorDetails = false,
@@ -317,6 +320,7 @@ export async function streamingHtmlResponse(
         } finally {
           if (signal) signal.removeEventListener("abort", abort);
           reader.releaseLock();
+          onSettled?.();
         }
       })();
     },
@@ -341,5 +345,5 @@ export async function streamingHtmlResponse(
   headers.delete("content-length");
 
   streamingResponseBodies.add(body);
-  return new Response(body, { status, headers });
+  return ownResponse(new Response(body, { status, headers }));
 }

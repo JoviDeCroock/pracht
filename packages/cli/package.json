@@ -59,10 +59,14 @@
     "playwright-core": "^1.59.1"
   },
   "peerDependencies": {
-    "playwright-core": "^1.59.1"
+    "playwright-core": "^1.59.1",
+    "vite": "^8.0.0"
   },
   "peerDependenciesMeta": {
     "playwright-core": {
+      "optional": true
+    },
+    "vite": {
       "optional": true
     }
   }
