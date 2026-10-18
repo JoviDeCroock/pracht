@@ -14,7 +14,15 @@ const prefetchCache = new Map<string, CacheEntry>();
 export const EMPTY_ROUTE_STATE_PROMISE: Promise<RouteStateResult> =
   Promise.resolve(EMPTY_ROUTE_STATE);
 
+/**
+ * Bumped by every clear. A navigation that took route state before a mutation
+ * cleared the cache sees it move and refetches before it commits: clearing the
+ * map cannot revoke a promise the navigation already holds.
+ */
+export let prefetchGeneration = 0;
+
 export function clearPrefetchCache(): void {
+  prefetchGeneration++;
   prefetchCache.clear();
 }
 
