@@ -356,12 +356,13 @@ describe("createVercelEdgeHandler webhook revalidation", () => {
     // a route without a webhook policy indistinguishable from a typo.
     await expect(response.json()).resolves.toEqual({
       details: [
-        { outcome: "revalidated", path: "/pricing" },
+        { outcome: "revalidated", path: "/pricing", scope: "global" },
         { outcome: "skipped", path: "/time-only", reason: "no_webhook_policy" },
         { outcome: "skipped", path: "/unknown", reason: "not_a_route" },
       ],
       failed: [],
       revalidated: ["/pricing"],
+      scope: "global",
       skipped: ["/time-only", "/unknown"],
     });
     expect(revalidateFetches).toEqual([

@@ -224,6 +224,7 @@ RevalidationDetail: interface
 RevalidationOutcome: type
 RevalidationReport: class
 RevalidationReportBody: interface
+RevalidationScope: type
 RevalidationSingleFlight: type
 RevalidationSkipReason: type
 RootModule: interface
@@ -1002,6 +1003,7 @@ RevalidationDetail: interface
 RevalidationOutcome: type
 RevalidationReport: class
 RevalidationReportBody: interface
+RevalidationScope: type
 RevalidationSingleFlight: type
 RevalidationSkipReason: type
 RouteComponentProps: interface
