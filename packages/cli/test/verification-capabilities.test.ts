@@ -693,6 +693,100 @@ describe("collectCapabilityChecks", () => {
       );
     });
 
+    describe("human approval", () => {
+      const HUMAN = '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true } },';
+      const RESOLVER_WARNING = "no `setCapabilityApprovalPrincipalResolver(` call was found";
+
+      it("warns when nothing identifies the end user", () => {
+        const checks = checksFor({
+          appBlock: HUMAN,
+          extraFiles: { "server/approvals.ts": STORE_MODULE },
+        });
+
+        expect(errorsOf(checks)).toEqual([]);
+        const warning = warningsOf(checks).find((message) => message.includes(RESOLVER_WARNING));
+        expect(warning).toContain("confirmation_unavailable");
+        expect(warning).toContain("Web Bot Auth");
+      });
+
+      it("accepts a registered principal resolver", () => {
+        const checks = checksFor({
+          appBlock: HUMAN,
+          extraFiles: {
+            "server/approvals.ts": `${STORE_MODULE}setCapabilityApprovalPrincipalResolver(resolve);\n`,
+          },
+        });
+
+        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+      });
+
+      it("accepts agents.mcp.auth as the end-user identity", () => {
+        const checks = checksFor({
+          appBlock:
+            '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true, auth: AUTH } },',
+          extraFiles: { "server/approvals.ts": STORE_MODULE },
+        });
+
+        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+      });
+
+      it("accepts a resolver called with a type argument", () => {
+        const checks = checksFor({
+          appBlock: HUMAN,
+          extraFiles: {
+            "server/approvals.ts":
+              `${STORE_MODULE}setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(\n` +
+              "  ({ context }) => context.user.id,\n);\n",
+          },
+        });
+
+        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+      });
+
+      it("does not count an explicitly undefined agents.mcp.auth", () => {
+        const checks = checksFor({
+          appBlock:
+            '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true, auth: undefined } },',
+          extraFiles: { "server/approvals.ts": STORE_MODULE },
+        });
+
+        expect(warningsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+      });
+
+      it("still warns for HTTP exposure when only agents.mcp.auth is set", () => {
+        const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+        process.env.PRACHT_CONFIRMATION_SECRET = "verify-test-secret";
+        try {
+          const checks: Check[] = [];
+          collectCapabilityChecks(
+            createProject({
+              capability: DESTRUCTIVE_MCP.replace(
+                "expose: { mcp: true }",
+                "expose: { http: true }",
+              ),
+              appBlock:
+                '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true, auth: AUTH } },',
+              extraFiles: { "server/approvals.ts": STORE_MODULE },
+            }),
+            checks,
+          );
+          expect(warningsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+        } finally {
+          if (previous === undefined) delete process.env.PRACHT_CONFIRMATION_SECRET;
+          else process.env.PRACHT_CONFIRMATION_SECRET = previous;
+        }
+      });
+
+      it("stays quiet in token mode", () => {
+        const checks = checksFor({
+          appBlock: "  agents: { mcp: { destructive: true } },",
+          extraFiles: { "server/approvals.ts": STORE_MODULE },
+        });
+
+        expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+      });
+    });
+
     it("fails destructive MCP exposure without the confirmation secret", () => {
       const previous = process.env.PRACHT_CONFIRMATION_SECRET;
       delete process.env.PRACHT_CONFIRMATION_SECRET;
