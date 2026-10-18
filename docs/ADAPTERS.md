@@ -1365,6 +1365,13 @@ cache.
   paths are reported as `failed` (detected via the
   `x-vercel-cache` response header) until you rebuild with
   `PRACHT_REVALIDATE_TOKEN` set.
+- **Route budget**: Vercel rejects a deployment with more than 2,048 routes on
+  Hobby and Pro plans. Each SSG page costs one rewrite route and each ISG page
+  one prerender-function route; the `Accept: text/markdown`, non-canonical
+  trailing-slash, and header routes are merged across pages, so they add a few
+  routes in total rather than one per page. `pracht build` warns once
+  `config.json` reaches 80% of the limit (`describeVercelRouteBudget` in
+  `cli/src/build-shared.ts`).
 - **Function-name safety**: the build fails with a descriptive error when an ISG
   route would use the same `.func` directory as the main edge function (for
   example, `/render` with the default `functionName: "render"`). Rename the
@@ -1396,8 +1403,10 @@ cache.
 - **Static security headers**: the generated `config.json` includes continuing
   `routes` entries with the baseline security headers for all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
-  get route and shell document headers from the prerender header manifest.
-  SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
+  get route and shell document headers from the prerender header manifest:
+  headers equal to that baseline are dropped, and pages left with the same
+  header set share `continue` routes whose `src` alternates their paths (each
+  pattern kept under 2,000 characters). SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
   `Authorization`, `Proxy-Authenticate`, `WWW-Authenticate`, and secret-shaped
   custom `x-*` headers before they can enter that manifest.
 

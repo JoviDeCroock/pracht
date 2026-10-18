@@ -100,23 +100,31 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
           dest: "/render",
         }),
         expect.objectContaining({ src: "^/$", dest: "/index.html" }),
-        expect.objectContaining({
-          src: "^/products/1/?$",
-          has: [{ type: "header", key: "accept", value: expect.stringContaining("[mM]") }],
-          dest: "/render",
-        }),
         expect.objectContaining({ src: "^/docs/?$", dest: "/docs/index.html" }),
         expect.objectContaining({ src: "^/pricing/?$", dest: "/pricing" }),
-        expect.objectContaining({
-          continue: true,
-          headers: expect.objectContaining({ "x-pracht-shell": "public" }),
-          src: "^/$",
-        }),
         expect.objectContaining({ handle: "filesystem" }),
         expect.objectContaining({ src: "/(.*)", dest: "/render" }),
       ]),
     );
     expect(config.headers).toBeUndefined();
+    // Pages that share headers share routes, so find them by what they match.
+    type Route = { continue?: boolean; has?: { key: string }[]; headers?: object; src?: string };
+    const matching = (pathname: string) =>
+      (config.routes as Route[]).filter(
+        (route) => route.src && new RegExp(route.src, "i").test(pathname),
+      );
+    expect(matching("/products/1")).toContainEqual(
+      expect.objectContaining({
+        has: [{ type: "header", key: "accept", value: expect.stringContaining("[mM]") }],
+        dest: "/render",
+      }),
+    );
+    expect(matching("/")).toContainEqual(
+      expect.objectContaining({
+        continue: true,
+        headers: expect.objectContaining({ "x-pracht-shell": "public" }),
+      }),
+    );
 
     // The home page's `.md` file is a static file with an explicit type and
     // the page's own headers; the products route negotiates through
@@ -128,14 +136,13 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
     expect(config.overrides).toEqual({
       "index.md": { contentType: "text/markdown; charset=utf-8" },
     });
-    expect(config.routes).toContainEqual(
+    expect(matching("/index.md")).toContainEqual(
       expect.objectContaining({
         continue: true,
         headers: expect.objectContaining({
           "content-type": "text/markdown; charset=utf-8",
           "x-pracht-shell": "public",
         }),
-        src: "^/index\\.md$",
       }),
     );
 
