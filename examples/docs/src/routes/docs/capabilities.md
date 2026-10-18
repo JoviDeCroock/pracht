@@ -421,7 +421,7 @@ setCapabilityApprovalStore(createSqlApprovalStore({ execute }));
 
 Middleware applied to the capability or the app's API chain may import the setup instead. The store is required because the agent that receives the token also commits it; the store makes each token single-use. See [Durable Approvals](/docs/agent-trust#durable-approvals).
 
-If the store, `PRACHT_CONFIRMATION_SECRET`, or (in `mode: "human"`) a principal source is missing, the whole endpoint answers an error naming what is missing instead of serving tools. A principal source is a principal resolver, `agents.mcp.auth`, or a Web Bot Auth key or directory.
+If the store, `PRACHT_CONFIRMATION_SECRET`, or (in `mode: "human"`) a principal source is missing, the whole endpoint answers an error naming what is missing instead of serving tools. A principal source is a principal resolver or `agents.mcp.auth`; a Web Bot Auth key names the agent, not the user, so it does not count.
 
 `pracht verify` warns when it finds no `setCapabilityApprovalStore()` call in your source directories.
 

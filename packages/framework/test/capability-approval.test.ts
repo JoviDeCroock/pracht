@@ -486,7 +486,7 @@ describe("human mode", () => {
     expect(response.status).toBe(403);
     const envelope = await envelopeOf(response);
     expect(!envelope.ok && envelope.error.code).toBe("confirmation_unavailable");
-    expect(!envelope.ok && envelope.error.message).toContain("authenticated principal");
+    expect(!envelope.ok && envelope.error.message).toContain("without an end-user identity");
     expect(purged).toEqual([]);
   });
 
