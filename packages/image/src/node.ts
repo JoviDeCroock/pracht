@@ -68,9 +68,10 @@ export interface CreateImageHandlerOptions {
   /**
    * In-process cache of optimized images, keyed on the source URL, width,
    * quality and output format, so a repeated request skips the fetch and the
-   * encode. Defaults to `{ maxBytes: 50 MiB, maxAge: 3600 }` (seconds);
+   * encode. Defaults to `{ maxBytes: 50 MiB, maxAge: 3600 }` (seconds); an
+   * entry never outlives the `s-maxage` or `max-age` in `cacheControl`.
    * `false` turns it off, and so does a `cacheControl` with `private`,
-   * `no-store` or `no-cache`. A cached result is served to every caller,
+   * `no-store`, `no-cache` or no positive lifetime. A cached result is served to every caller,
    * and concurrent requests for the same image share one fetch and encode.
    */
   cache?: { maxBytes?: number; maxAge?: number } | false;
@@ -183,24 +184,18 @@ function createLimiter(max: number) {
 }
 
 /**
- * Rewrite equivalent spellings of a source to one URL: the fragment never
- * reaches the server, and a percent-escaped unreserved character (`%65`) is
- * the character itself (RFC 3986 section 6.2.2.2).
+ * Rewrite a relative image-file source to one spelling: a percent-escaped
+ * unreserved character (`%65`) is the character itself (RFC 3986 section
+ * 6.2.2.2), and every query parameter not in `keep` is dropped. Any other
+ * source (an extensionless route, a remote URL) is fetched exactly as given.
  */
-function canonicalizeSource(target: URL): void {
-  target.hash = "";
-  target.pathname = target.pathname.replace(/%[0-9a-f]{2}/gi, (escape) => {
+function normalizeLocalSource(target: URL, keep: ReadonlySet<string>): void {
+  const pathname = target.pathname.replace(/%[0-9a-f]{2}/gi, (escape) => {
     const char = String.fromCharCode(parseInt(escape.slice(1), 16));
     return /[\w.~-]/.test(char) ? char : escape.toUpperCase();
   });
-}
-
-/**
- * Drop every query parameter not in `keep` from a relative image-file source.
- * A static file ignores its query, so the result fetches the same bytes.
- */
-function normalizeLocalSource(target: URL, keep: ReadonlySet<string>): void {
-  if (!IMAGE_FILE_PATTERN.test(target.pathname)) return;
+  if (!IMAGE_FILE_PATTERN.test(pathname)) return;
+  target.pathname = pathname;
   const kept = new URLSearchParams();
   for (const [name, value] of target.searchParams) {
     if (keep.has(name)) kept.append(name, value);
@@ -440,10 +435,16 @@ export function createImageHandler(
   if (!Number.isFinite(cacheMaxAge) || cacheMaxAge < 0) {
     throw new Error("createImageHandler({ cache: { maxAge } }) expects a non-negative number.");
   }
+  // The cache never keeps a result longer than the endpoint's own responses
+  // may be reused by a shared cache, so `max-age=0` reaches the origin every time.
+  const freshness =
+    /\bs-maxage\s*=\s*"?(\d+)/i.exec(cacheControl) ??
+    /(?:^|[\s,])max-age\s*=\s*"?(\d+)/i.exec(cacheControl);
+  const cacheLifetime = Math.min(cacheMaxAge, freshness ? Number(freshness[1]) : 0);
   const cache =
-    cacheOptions === false || !shareable
+    cacheOptions === false || !shareable || cacheLifetime <= 0
       ? null
-      : createImageCache(cacheMaxBytes, cacheMaxAge * 1000);
+      : createImageCache(cacheMaxBytes, cacheLifetime * 1000);
   // Identical concurrent misses share one fetch and encode. The work aborts
   // only once every request waiting on it has aborted.
   const inFlight = new Map<
@@ -483,7 +484,8 @@ export function createImageHandler(
       if (target.username || target.password) {
         return errorResponse(400, 'The "url" parameter may not contain credentials.');
       }
-      canonicalizeSource(target);
+      // The fragment never reaches the server; the rest of the URL is fetched as given.
+      target.hash = "";
       if (!matchesRemotePatterns(target, remotePatterns)) {
         return errorResponse(
           403,
@@ -505,7 +507,7 @@ export function createImageHandler(
           'Relative "url" values must remain on the configured localOrigin.',
         );
       }
-      canonicalizeSource(target);
+      target.hash = "";
       normalizeLocalSource(target, sourceQueryParams);
     } else {
       return errorResponse(

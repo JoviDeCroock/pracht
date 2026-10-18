@@ -3,7 +3,7 @@
  * mint new variants, a repeated request is served from memory, and only a few
  * images are optimized at once.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createImageHandler, type CreateImageHandlerOptions } from "../src/node.ts";
 
@@ -69,6 +69,10 @@ function harness(options: CreateImageHandlerOptions = {}, encodeDelay?: () => Pr
 }
 
 describe("createImageHandler work bounds", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("drops the query string from a relative image file", async () => {
     const h = harness();
     for (let i = 0; i < 50; i += 1) {
@@ -188,10 +192,51 @@ describe("createImageHandler work bounds", () => {
   });
 
   it("re-encodes an entry once maxAge has passed", async () => {
-    const h = harness({ cache: { maxAge: 0 } });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const h = harness({ cache: { maxAge: 60 } });
     await h.get("/hero.png");
+    vi.advanceTimersByTime(59_000);
+    await h.get("/hero.png");
+    expect(h.encodes).toBe(1);
+    vi.advanceTimersByTime(2_000);
     await h.get("/hero.png");
     expect(h.encodes).toBe(2);
+  });
+
+  it("keeps an entry no longer than the max-age in cacheControl", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const h = harness({ cacheControl: "public, max-age=30" });
+    await h.get("/hero.png");
+    vi.advanceTimersByTime(31_000);
+    await h.get("/hero.png");
+    expect(h.encodes).toBe(2);
+  });
+
+  it("refetches every request when cacheControl allows no reuse", async () => {
+    let version = 1;
+    const h = harness({
+      cacheControl: "public, max-age=0, must-revalidate",
+      fetchImage: async () =>
+        new Response(new Uint8Array([version]), { headers: { "content-type": "image/gif" } }),
+    });
+    const first = await h.get("/live.gif");
+    version = 2;
+    const second = await h.get("/live.gif");
+    expect(new Uint8Array(await first.arrayBuffer())).toEqual(new Uint8Array([1]));
+    expect(new Uint8Array(await second.arrayBuffer())).toEqual(new Uint8Array([2]));
+  });
+
+  it("fetches a remote source exactly as spelled", async () => {
+    const h = harness({ remotePatterns: [{ hostname: "cdn.example" }] });
+    const response = await h.get("https://cdn.example/h%65ro.png?sig=valid#frag");
+    expect(response.status).toBe(200);
+    expect(h.fetched).toEqual(["https://cdn.example/h%65ro.png?sig=valid"]);
+  });
+
+  it("fetches an extensionless relative source exactly as spelled", async () => {
+    const h = harness();
+    await h.get("/api/r%65port?sig=valid");
+    expect(h.fetched).toEqual([`${ORIGIN}/api/r%65port?sig=valid`]);
   });
 
   it("evicts the least recently used entry beyond maxBytes", async () => {

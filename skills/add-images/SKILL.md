@@ -180,10 +180,11 @@ no further configuration. The endpoint negotiates WebP via `Accept` (pass
 source, passes SVG/GIF through, and answers
 `Cache-Control: public, max-age=14400, must-revalidate` with `Vary: Accept`.
 It drops the query string from relative image files (`/hero.png?v=2` →
-`/hero.png`), so if the app cache-busts with a query parameter, keep it with
-`sourceQueryParams: ["v"]`. It also caches results in memory and encodes at
-most four at once (`cache`, `maxConcurrency`); a custom `fetchImage` turns
-the shared cache off unless `cache` is set.
+`/hero.png`), so if the app cache-busts or signs local images with a query
+parameter, keep it with `sourceQueryParams: ["v"]`. It also caches results in
+memory for no longer than `cacheControl` allows and encodes at most four at
+once (`cache`, `maxConcurrency`); a custom `fetchImage` turns the shared cache
+off unless `cache` is set.
 
 ## Step 7: Verify
 
