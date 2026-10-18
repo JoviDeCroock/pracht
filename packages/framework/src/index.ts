@@ -251,6 +251,7 @@ export {
   type RevalidationDetail,
   type RevalidationOutcome,
   type RevalidationReportBody,
+  type RevalidationScope,
   type RevalidationSkipReason,
   type RevalidationSingleFlight,
 } from "./revalidation.ts";

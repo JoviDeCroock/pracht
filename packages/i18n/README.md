@@ -146,8 +146,9 @@ route.
 
 Creates the app's i18n instance:
 
-- **`middleware`** — resolves the locale (default order: URL prefix →
-  cookie → `Accept-Language` q-values), sets `context.locale`, and persists
+- **`middleware`** — resolves the locale (default order: URL prefix, read
+  after any deploy base → cookie → `Accept-Language` q-values), sets
+  `context.locale`, and persists
   an explicit URL-prefix choice in the locale cookie (`Path=/`,
   `SameSite=Lax`, one year, `Secure` on https). Persistence is skipped on
   prerenderable (SSG/ISG) routes — their output is stored and replayed to

@@ -229,8 +229,8 @@ if (!token) {
   console.log();
   console.log(
     c.dim(
-      "  No confirmation token. In human mode this means the caller had no principal to bind\n" +
-        "  to — sign the requests (drop --unsigned) or sign in and use the browser flow.",
+      "  No confirmation token. Human approval binds to the end user, and a signed agent alone\n" +
+        "  names only the agent — sign in and use the browser flow at /app.",
     ),
   );
   console.log();

@@ -40,11 +40,20 @@ export const tscPath = resolve(repoRoot, "node_modules/typescript/bin/tsc");
 
 const tempDirs = [];
 
-/** Removes every temp dir created since the last cleanup. Call from afterEach. */
-export function cleanupTempDirs() {
+/**
+ * Removes every temp dir created since the last cleanup. Call from afterEach.
+ *
+ * It then yields one event-loop turn. Tests that only make synchronous CLI
+ * spawns never give the worker a macrotask turn, so vitest's worker RPC
+ * replies queue up until the file ends; a file that runs past the 60 s RPC
+ * timeout then fails with `Timeout calling "onTaskUpdate"` even though every
+ * test passed.
+ */
+export async function cleanupTempDirs() {
   while (tempDirs.length > 0) {
     removeTempDir(tempDirs.pop());
   }
+  await new Promise((resolve) => setImmediate(resolve));
 }
 
 /**

@@ -4,6 +4,7 @@ export { generateOpenApiDocument } from "./generate.ts";
 export type {
   GenerateOpenApiOptions,
   GenerateOpenApiResult,
+  OpenApiCapabilitySource,
   OpenApiRouteSource,
 } from "./generate.ts";
 export { createOpenApiUiHtml } from "./ui.ts";

@@ -23,7 +23,7 @@ component.
 
 ## Step 1: Enumerate
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
@@ -121,7 +121,7 @@ JSON first:
 - **Pages apps** (`mode: "pages"`): there is no `defineApp` shell registry.
   Each `_app` file is auto-registered — `src/pages/_app.tsx` as `"pages"`,
   `src/pages/blog/_app.tsx` as `"pages:blog"` — and owns the routes in its
-  directory subtree (see docs/ROUTING.md). Shells **replace**, they do not
+  directory subtree (see <https://pracht.resynapse.dev/docs/shells>). Shells **replace**, they do not
   nest: the nearest `_app` above a route is the only one that renders it, so a
   directory shell must carry its own `head()`/`headers()` rather than inherit
   the parent's. "Unused shells" analysis does not apply; instead check

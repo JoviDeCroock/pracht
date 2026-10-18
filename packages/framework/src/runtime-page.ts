@@ -81,7 +81,7 @@ import {
   wrapWithRoot,
   type RequestRoot,
 } from "./runtime-root.ts";
-import { isClientDisconnect, type PrachtRequestContext } from "./runtime-request.ts";
+import { isClientDisconnect, untilAborted, type PrachtRequestContext } from "./runtime-request.ts";
 import {
   applyRouteSearch,
   createPageRouteArgs,
@@ -336,6 +336,11 @@ interface PageRenderJob<TContext> {
   phase: PrachtRuntimeDiagnosticPhase;
   /** The policy fingerprint the rendered document states (`client.islandsNavigation`). */
   navigationPolicy?: string;
+  /**
+   * Called once the route loader is about to run: its module, search params,
+   * and loader file are settled, and it writes nothing else to the job.
+   */
+  onLoaderStart?: () => void;
 }
 
 /**
@@ -375,6 +380,7 @@ async function runPageLoader<TContext>(
 
   const { loader, loaderFile: resolvedLoaderFile } = await job.dataFunctionsPromise!;
   job.loaderFile = resolvedLoaderFile;
+  job.onLoaderStart?.();
 
   let loaderResult: unknown;
   const loaderStart = loader && timings ? performance.now() : 0;
@@ -456,14 +462,32 @@ async function runShellLoader<TContext>(
 }
 
 /**
- * Run the shell and route loaders concurrently. Both settle before either
- * outcome is used, so which one answers is deterministic: the shell wraps the
- * route, and its error or `Response` wins over the route's.
+ * Run the shell and route loaders concurrently. Which one answers is
+ * deterministic: the shell wraps the route, and its error or `Response` wins
+ * over the route's. So once the shell has answered, the route loader's result
+ * cannot change the response and is not waited for; its work keeps the
+ * request budget, so its `signal` still times out.
  */
 async function runPageLoaders<TContext>(
   job: PageRenderJob<TContext>,
 ): Promise<{ response: Response } | { data: unknown; hasLoader: boolean }> {
-  const [loaded, shellLoaded] = await Promise.allSettled([runPageLoader(job), runShellLoader(job)]);
+  let loaderStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    loaderStarted = resolve;
+  });
+  job.onLoaderStart = loaderStarted;
+  const settledRoute = runPageLoader(job).then(
+    (value) => ({ status: "fulfilled" as const, value }),
+    (reason: unknown) => ({ status: "rejected" as const, reason }),
+  );
+  const [shellLoaded] = await Promise.allSettled([runShellLoader(job)]);
+
+  if (shellLoaded.status === "rejected" || shellLoaded.value) {
+    // Wait only until the route loader is running: from then on it writes
+    // nothing the error path reads (search, phase, loader file).
+    await Promise.race([started, settledRoute]);
+    void settledRoute.then(job.ctx.budget.hold());
+  }
   if (shellLoaded.status === "rejected") {
     // Attribute the failure to the shell loader only when it came from the
     // loader; a shell module that failed to import is a render failure, as it
@@ -477,6 +501,8 @@ async function runPageLoaders<TContext>(
     throw shellLoaded.reason;
   }
   if (shellLoaded.value) return shellLoaded.value;
+
+  const loaded = await settledRoute;
   if (loaded.status === "rejected") throw loaded.reason;
   return loaded.value;
 }
@@ -1128,9 +1154,12 @@ export async function renderPage<TContext>(
       chainStart = performance.now();
     }
 
-    const response = await runPageMiddlewareChain(routeArgs, registry, terminal, () => {
+    const chain = runPageMiddlewareChain(routeArgs, registry, terminal, () => {
       job.phase = "middleware";
     });
+    const response = ctx.resolvedApp.enforceLoaderTimeout
+      ? await untilAborted(chain, requestSignal)
+      : await chain;
     if (timings) {
       timings.mw = performance.now() - chainStart - (timings.render ?? 0) - (timings.loader ?? 0);
     }

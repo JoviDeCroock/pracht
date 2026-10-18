@@ -42,11 +42,7 @@ import {
   type CapabilityRequestBudget,
   type ResolvedCapability,
 } from "./capabilities.ts";
-import { hasWebBotAuthIdentitySource } from "./agent-auth.ts";
-import {
-  hasCapabilityApprovalPrincipalResolver,
-  resolveCapabilityApprovalStore,
-} from "./approval.ts";
+import { humanApprovalPreconditionError, resolveCapabilityApprovalStore } from "./approval.ts";
 import {
   CONFIRMATION_SECRET_ENV,
   isWellFormedConfirmationToken,
@@ -574,21 +570,8 @@ export function destructiveMcpPreconditionErrors(agents: PrachtAgentsConfig | un
         "setCapabilityConfirmationSecret()).",
     );
   }
-  // Human mode needs an identity to attach a decision to. The end user — a
-  // verified OAuth subject or the application resolver — is what to configure;
-  // a Web Bot Auth key still counts, but only names the agent operator.
-  if (
-    agents?.confirmation?.mode === "human" &&
-    !agents.mcp?.auth &&
-    !hasWebBotAuthIdentitySource(agents.webBotAuth) &&
-    !hasCapabilityApprovalPrincipalResolver()
-  ) {
-    unmet.push(
-      'agents.confirmation.mode is "human" but no principal can ever be resolved ' +
-        "(call setCapabilityApprovalPrincipalResolver() from a server-only module, or protect " +
-        "the endpoint with agents.mcp.auth, so approvals are bound to the end user).",
-    );
-  }
+  const humanApproval = humanApprovalPreconditionError(agents);
+  if (humanApproval) unmet.push(humanApproval);
   return unmet;
 }
 

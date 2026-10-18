@@ -1145,6 +1145,7 @@ describe("createNetlifyHandler", () => {
     await expect(response.json()).resolves.toMatchObject({
       failed: [],
       revalidated: ["/pricing"],
+      scope: "global",
       skipped: [],
     });
     expect(purgeCache).toHaveBeenCalledWith({

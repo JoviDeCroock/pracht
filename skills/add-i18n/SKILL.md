@@ -23,12 +23,12 @@ allowed-tools:
 `@pracht/i18n` ships locale-detection middleware, lazy dictionaries with keys
 typed from the default locale, `t()`/`tPlural()` (plurals via
 `Intl.PluralRules`), `localePath()`, and `hreflang()` for `head()`. Full guide:
-`examples/docs/src/routes/docs/recipes-i18n.md` — which also carries a
+<https://pracht.resynapse.dev/docs/recipes/i18n> — which also carries a
 hand-rolled fallback recipe if the user refuses the dependency. Working setups
 live in `examples/basic`, both locale-prefixed (`/welcome`, `/en/welcome`,
 `/nl/welcome`) and prefix-free (`/greeting`, `src/api/locale.ts`).
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
 tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
 config.
