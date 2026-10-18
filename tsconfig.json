@@ -55,6 +55,7 @@
   // and the Cloudflare CLI fixture is checked by its local tsconfig so its
   // cloudflare:workers declaration cannot merge with the example's types.
   "exclude": [
+    "bench/.scale",
     "examples/showcase",
     "examples/basic/src/pracht.d.ts",
     "packages/cli/test/fixtures/cloudflare-runtime-import"

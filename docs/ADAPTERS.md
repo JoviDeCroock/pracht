@@ -80,6 +80,14 @@ export function createNodeRequestHandler<TContext>(
 ): NodeRequestHandler; // (req, res) => Promise<void>, plus drain(timeoutMs?) and pending
 ```
 
+A handler may pass `handlePrachtRequest` either a resolved app or the
+authoring-shaped `defineApp()` result. `getResolvedApp` in `runtime-request.ts`
+resolves the latter once per object (a `WeakMap` keyed by identity) and reuses
+it, so per-app caches such as compiled href tables and the islands navigation
+table survive across requests. The cost is that mutating that object after its
+first request has no effect: a runtime route or option change needs a new
+`defineApp()` result, which HMR already produces.
+
 ### 3. Entry module generator (for custom adapters)
 
 ```typescript
@@ -496,9 +504,21 @@ build).
   routes that opt into `webhookRevalidate()`. Regenerated entries are stored
   with `Cache-Control: public, max-age=31536000` because the Cache API takes
   an entry's lifetime from that header; staleness comes only from the stored
-  `x-pracht-isg-generated-at` timestamp, and a cached page is served with the
-  browser policy `public, max-age=0, must-revalidate` (route `headers()`
-  exports still apply on top). Successful manifest reads are
+  `x-pracht-isg-generated-at` timestamp. A cached page is served with the
+  headers its own render produced, so `headers()` output computed from loader
+  `data` (an `x-robots-tag`, say) changes with the HTML instead of reverting
+  to `_pracht/headers.json`; its Cache-Control is the render's own (kept in
+  `x-pracht-isg-cache-control` while the entry carries its storage TTL) or
+  `public, max-age=0, must-revalidate`. Entries without that header predate
+  it and still take the build's headers. `caches.default` survives
+  `wrangler deploy`, so each Cache API key carries the build's prerender timestamp in its path
+  (`/__pracht/isg-build/<generatedAt>/<route path>`, from the ISG manifest; a
+  path rather than a query parameter because a zone cache key may ignore query
+  strings): a new version never reads an entry the previous build rendered
+  against its own asset hashes and starts from its own `ASSETS` snapshots,
+  while a rollback reads the entries its version wrote. Manifest entries
+  without `generatedAt` (hand-written manifests) keep the bare path key and
+  are not deploy-scoped. Successful manifest reads are
   cached for the isolate lifetime; transient asset or JSON failures are evicted
   so the next request retries. A missing manifest (`404`) is cached as empty.
 - **Cache locality**: Cloudflare's Cache API is local to the colo handling the
@@ -718,7 +738,8 @@ of looping; `pracht verify` warns about it, reading the policy from
 `dist/server/routing.json` or the Vite config. The Worker does redirect where
 the binding is skipped: an ISG page answered from `caches.default` and an
 edge-cached ISG route. ISG manifest lookups and Cache API keys use the slashless
-route path, so `/pricing/` and `/pricing` share one entry.
+route path (under the build prefix), so `/pricing/` and `/pricing` share one
+entry.
 
 `"run_worker_first": true` is what routes a request for a prerendered file
 through the Worker at all. Without it Cloudflare answers from the assets
@@ -1207,9 +1228,10 @@ cannot pull bypassed trees back into the bundle.
 An exact exclusion such as `/feed.xml` omits only that exact file; unlike a
 prefix exclusion, it does not also exclude `/feed.xml/` or an `index.html`
 representation that those URLs can still invoke the function to read.
-Bundled static lookup decodes percent-encoded spaces and Unicode characters,
-while rejecting encoded separators and traversal segments before filesystem
-resolution.
+Bundled static lookup tries the decoded spelling first (public files such as
+`legal terms.txt`), then the raw encoded spelling that `pracht build` uses for
+prerendered pages (`posts/caf%C3%A9/index.html`), and rejects encoded
+separators and traversal segments before filesystem resolution.
 
 ### SSG and ISG
 
@@ -1365,6 +1387,13 @@ cache.
   paths are reported as `failed` (detected via the
   `x-vercel-cache` response header) until you rebuild with
   `PRACHT_REVALIDATE_TOKEN` set.
+- **Route budget**: Vercel rejects a deployment with more than 2,048 routes on
+  Hobby and Pro plans. Each SSG page costs one rewrite route and each ISG page
+  one prerender-function route; the `Accept: text/markdown`, non-canonical
+  trailing-slash, and header routes are merged across pages, so they add a few
+  routes in total rather than one per page. `pracht build` warns once
+  `config.json` reaches 80% of the limit (`describeVercelRouteBudget` in
+  `cli/src/build-shared.ts`).
 - **Function-name safety**: the build fails with a descriptive error when an ISG
   route would use the same `.func` directory as the main edge function (for
   example, `/render` with the default `functionName: "render"`). Rename the
@@ -1396,8 +1425,10 @@ cache.
 - **Static security headers**: the generated `config.json` includes continuing
   `routes` entries with the baseline security headers for all responses,
   including static assets served by Vercel's CDN. Static prerendered routes also
-  get route and shell document headers from the prerender header manifest.
-  SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
+  get route and shell document headers from the prerender header manifest:
+  headers equal to that baseline are dropped, and pages left with the same
+  header set share `continue` routes whose `src` alternates their paths (each
+  pattern kept under 2,000 characters). SSG/ISG prerendering rejects dangerous document headers such as `Set-Cookie`,
   `Authorization`, `Proxy-Authenticate`, `WWW-Authenticate`, and secret-shaped
   custom `x-*` headers before they can enter that manifest.
 
