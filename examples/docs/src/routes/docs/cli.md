@@ -33,7 +33,7 @@ Options:
 - `--adapter=node|cf|netlify|vercel|static` — Node.js, Cloudflare Workers, Netlify, Vercel, or pure static output.
 - `--router=manifest|pages` — explicit `src/routes.ts` routing or file-system `src/pages/` routing.
 - `--template=minimal|tailwind`, `--tailwind`, `--no-tailwind` — Tailwind setup.
-- `--agent-tools[=core|full]`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`. `core` (the default) seeds five skills; `full` seeds the whole catalog. Add more later with [`pracht skills add`](#pracht-skills).
+- `--agent-tools[=core|full]`, `--no-agent-tools` — seed or skip the pracht Claude Code skills, `.mcp.json`, and `AGENTS.md`/`CLAUDE.md`. `core` (the default) seeds four skills; `full` seeds the whole catalog. Add more later with [`pracht skills add`](#pracht-skills).
 - `--yes` — skip the prompts and use the defaults for anything not passed: a `pracht-app` directory, Node, manifest router, no Tailwind, core agent tools.
 - `--skip-install` — write files without installing dependencies.
 - `--no-git` — skip `git init` and the initial commit.
@@ -64,7 +64,7 @@ A failing loader, middleware, or render prints one terminal line — phase, rout
 
 When several dev servers share one checkout, give each its own `--cache-dir` so they do not race on Vite's optimizer cache (default `node_modules/.vite`).
 
-The startup banner prints the resolved app graph: routes with render mode, shell, and middleware; API endpoints with methods; and any [capabilities](/docs/capabilities) with effect class, exposure, and dispatch path.
+The startup banner prints the resolved app graph: routes with render mode, shell, and middleware; API endpoints with methods; and any [capabilities](/docs/capabilities) with effect class, exposure, and dispatch path. Route and API tables show their first 25 rows, and `pracht inspect routes` lists the rest. The banner prints again whenever the server restarts, for example after a `routes.ts` edit.
 
 ---
 
@@ -408,7 +408,7 @@ pracht skills list
 pracht skills add audit-loaders add-db
 ```
 
-`create-pracht` seeds five core skills; `pracht skills add` installs others one
+`create-pracht` seeds four core skills; `pracht skills add` installs others one
 at a time. See [Context Cost](/docs/coding-agents#context-cost) for why the
 default set is small.
 

@@ -170,6 +170,92 @@ export function matchResolvedRoute(
   return undefined;
 }
 
+/**
+ * `matchResolvedRoute` without the scan, for the server. Every request matches
+ * against the whole table, where a linear scan costs microseconds per route at
+ * a thousand routes, so the table is indexed once and reused. Only the
+ * request pipeline calls it. The client router and the public `matchAppRoute`
+ * (also exported to the browser) keep `matchResolvedRoute`: they match once
+ * per navigation, and the index would cost shipped bytes. Keep this a separate
+ * export rather than a flag inside `matchResolvedRoute`; client builds only
+ * replace `import.meta.env?.SSR` after tree-shaking, so a flag would ship it.
+ */
+export function matchIndexedResolvedRoute(
+  app: ResolvedPrachtApp,
+  pathname: string,
+): RouteMatch | undefined {
+  const normalizedPathname = normalizeRoutePath(pathname);
+  const match = matchIndexedRoute(app.routes, splitPathSegments(normalizedPathname));
+  return match && { route: match.route, params: match.params, pathname: normalizedPathname };
+}
+
+interface RouteIndex {
+  /** Fully static paths → the first route declaring that path. */
+  exact: Map<string, number>;
+  /** Routes with a parameter, by their static first segment. */
+  byFirstSegment: Map<string, number[]>;
+  /** Routes with a parameter or catch-all first, which any path may match. */
+  anyFirstSegment: number[];
+}
+
+let routeIndexes: WeakMap<readonly RouteDefinitionWithSegments[], RouteIndex> | undefined;
+
+type RouteDefinitionWithSegments = ResolvedPrachtApp["routes"][number];
+
+function getRouteIndex(routes: readonly RouteDefinitionWithSegments[]): RouteIndex {
+  const cache = (routeIndexes ??= new WeakMap());
+  let index = cache.get(routes);
+  if (index) return index;
+  index = { exact: new Map(), byFirstSegment: new Map(), anyFirstSegment: [] };
+  for (let position = 0; position < routes.length; position += 1) {
+    const segments = routes[position]!.segments;
+    if (segments.every((segment) => segment.type === "static")) {
+      const path = `/${segments.map((segment) => (segment as { value: string }).value).join("/")}`;
+      if (!index.exact.has(path)) index.exact.set(path, position);
+      continue;
+    }
+    const first = segments[0]!;
+    if (first.type !== "static") {
+      index.anyFirstSegment.push(position);
+      continue;
+    }
+    const bucket = index.byFirstSegment.get(first.value);
+    if (bucket) bucket.push(position);
+    else index.byFirstSegment.set(first.value, [position]);
+  }
+  cache.set(routes, index);
+  return index;
+}
+
+/**
+ * First-match semantics without the scan: the earliest of the exact static
+ * route and the dynamic routes that could match the first segment, tried in
+ * declaration order.
+ */
+function matchIndexedRoute(
+  routes: readonly RouteDefinitionWithSegments[],
+  targetSegments: string[],
+): { route: RouteDefinitionWithSegments; params: RouteParams } | undefined {
+  const index = getRouteIndex(routes);
+  const exact = index.exact.get(`/${targetSegments.join("/")}`) ?? routes.length;
+  const named =
+    targetSegments.length > 0 ? index.byFirstSegment.get(targetSegments[0]!) : undefined;
+  const any = index.anyFirstSegment;
+  let left = 0;
+  let right = 0;
+  for (;;) {
+    const fromNamed = named !== undefined && left < named.length ? named[left]! : routes.length;
+    const fromAny = right < any.length ? any[right]! : routes.length;
+    const position = fromNamed < fromAny ? fromNamed : fromAny;
+    if (position >= exact) break;
+    if (position === fromNamed) left += 1;
+    else right += 1;
+    const params = matchRouteSegments(routes[position]!.segments, targetSegments);
+    if (params) return { route: routes[position]!, params };
+  }
+  return exact < routes.length ? { route: routes[exact]!, params: {} } : undefined;
+}
+
 export function buildPathFromSegments(
   segments: readonly RouteSegment[],
   params: RouteParams,

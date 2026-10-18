@@ -1,4 +1,5 @@
 import { collectFontHeadFragments } from "./font.ts";
+import { escapeHtml } from "./html-escape.ts";
 import {
   ISLANDS_NAVIGATION_DATA_ID,
   ISLANDS_NAVIGATION_OWNED_ATTRIBUTE,
@@ -18,15 +19,7 @@ declare const __PRACHT_RICH_DATA__: boolean | undefined;
 const RICH_ROUTE_DATA =
   typeof __PRACHT_RICH_DATA__ !== "undefined" && __PRACHT_RICH_DATA__ === true;
 
-export { escapeScriptChildren };
-
-export function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+export { escapeHtml, escapeScriptChildren };
 
 export function serializeJsonForHtml(value: unknown): string {
   return escapeScriptText(JSON.stringify(value) ?? "null");
