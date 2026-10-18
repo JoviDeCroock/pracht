@@ -220,7 +220,9 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   shellModule: ShellModule | undefined | Promise<ShellModule | undefined>;
 }): Promise<Response> {
   const { response, isRouteStateRequest, routeArgs } = options;
-  if (!isRouteStateRequest) return response;
+  // The framework's own route-state body already carries its fonts: return
+  // it before reading a byte of it.
+  if (!isRouteStateRequest || isFrameworkFontHeadResponse(response)) return response;
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!isJsonMediaType(contentType)) return response;
@@ -237,7 +239,7 @@ async function attachFontHeadToRouteStateResponse<TContext>(options: {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return response;
 
   const body = payload as Record<string, unknown>;
-  if (isFrameworkFontHeadResponse(response) || typeof body.redirect === "string") return response;
+  if (typeof body.redirect === "string") return response;
 
   // This response already completed the middleware/loader contract. Font-head
   // enrichment must not replace it with a 500 if an eagerly-started route or
