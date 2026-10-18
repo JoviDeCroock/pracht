@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
+import { defineCapability } from "../../capabilities/src/index.ts";
 import { defineApi, json, type ApiHandlerTypes } from "../../framework/src/api-validation.ts";
 import type { AppGraphApiRoute } from "../../framework/src/app-graph.ts";
 import {
@@ -328,6 +329,167 @@ describe("generateOpenApiDocument", () => {
       schema: { type: "string" },
     });
     expect(result.warnings.map((warning) => warning.code)).toEqual(["undocumented_response"]);
+  });
+});
+
+describe("generateOpenApiDocument capabilities", () => {
+  const notesSearch = defineCapability({
+    title: "Search notes",
+    description: "Find notes by title.",
+    input: {
+      type: "object",
+      properties: { query: { type: "string" } },
+      required: ["query"],
+    },
+    output: { type: "object", properties: { notes: { type: "array" } } },
+    effect: "read",
+    expose: { http: true, mcp: true },
+    async run() {
+      return { notes: [] };
+    },
+  });
+  const notesPurge = defineCapability({
+    title: "Purge notes",
+    description: "Delete every note.",
+    input: { type: "object", properties: {} },
+    output: { type: "object", properties: { deleted: { type: "integer" } } },
+    effect: "destructive",
+    expose: { http: { path: "/api/purge" } },
+    async run() {
+      return { deleted: 0 };
+    },
+  });
+  const notesPrivate = defineCapability({
+    title: "Private",
+    description: "Server only.",
+    input: { type: "object" },
+    output: { type: "object" },
+    effect: "read",
+    expose: { mcp: true },
+    async run() {
+      return {};
+    },
+  });
+  const sources = [
+    { name: "notes.search", httpPath: "/api/capabilities/notes/search", capability: notesSearch },
+    { name: "notes.purge", httpPath: "/api/purge", capability: notesPurge },
+    { name: "notes.private", httpPath: null, capability: notesPrivate },
+  ];
+
+  it("leaves capabilities out unless they are passed", async () => {
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [],
+      loadModule: async () => ({}),
+    });
+    expect(result.document.paths).toEqual({});
+  });
+
+  it("documents HTTP-exposed capabilities as POST operations with their own schemas", async () => {
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [],
+      loadModule: async () => ({}),
+      capabilities: async () => sources,
+    });
+
+    expect(Object.keys(result.document.paths)).toEqual([
+      "/api/capabilities/notes/search",
+      "/api/purge",
+    ]);
+    const search = result.document.paths["/api/capabilities/notes/search"]?.post;
+    expect(search).toMatchObject({
+      operationId: "notes.search",
+      summary: "Search notes",
+      description: "Find notes by title.",
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: notesSearch.input } },
+      },
+      "x-pracht-effect": "read",
+    });
+    expect(search?.responses["200"]?.content?.["application/json"]?.schema).toMatchObject({
+      properties: { ok: { const: true }, data: notesSearch.output },
+    });
+    expect(search?.responses.default).toBeDefined();
+    expect(search?.parameters).toBeUndefined();
+
+    const purge = result.document.paths["/api/purge"]?.post;
+    expect(purge?.parameters).toEqual([
+      expect.objectContaining({ name: "x-pracht-confirm", in: "header", required: false }),
+    ]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("keeps an API route's operation when a capability shares its path", async () => {
+    const handler = defineApi({ handler: () => json({ ok: true }) });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [graphRoute({ path: "/api/purge", file: "/src/api/purge.ts" })],
+      loadModule: async () => ({ POST: handler }),
+      capabilities: sources,
+    });
+    expect(result.document.paths["/api/purge"]?.post?.operationId).toBeUndefined();
+    expect(result.warnings.map((warning) => warning.code)).toContain("capability_path_conflict");
+  });
+
+  it("omits a capability that a GET-only or dynamic API route shadows", async () => {
+    const handler = defineApi({ handler: () => json({ ok: true }) });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [
+        graphRoute({ path: "/api/purge", file: "/src/api/purge.ts", methods: ["GET"] }),
+        graphRoute({
+          path: "/api/capabilities/notes/:action",
+          file: "/src/api/notes.ts",
+          methods: ["GET"],
+        }),
+      ],
+      loadModule: async () => ({ GET: handler }),
+      capabilities: sources,
+    });
+    expect(result.document.paths["/api/purge"]?.post).toBeUndefined();
+    expect(result.document.paths["/api/capabilities/notes/search"]).toBeUndefined();
+    expect(
+      result.warnings.filter((warning) => warning.code === "capability_path_conflict"),
+    ).toHaveLength(2);
+  });
+
+  it("drops a capability operationId an API operation already uses", async () => {
+    const handler = defineOpenApi(defineApi({ handler: () => json({ ok: true }) }), {
+      operationId: "notes.search",
+      responses: { 200: { description: "OK" } },
+    });
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [graphRoute({ path: "/api/other", file: "/src/api/other.ts" })],
+      loadModule: async () => ({ POST: handler }),
+      capabilities: sources,
+    });
+    expect(result.document.paths["/api/other"]?.post?.operationId).toBe("notes.search");
+    expect(
+      result.document.paths["/api/capabilities/notes/search"]?.post?.operationId,
+    ).toBeUndefined();
+    expect(result.warnings.map((warning) => warning.code)).toContain(
+      "capability_operation_id_conflict",
+    );
+  });
+
+  it("warns instead of failing when capabilities cannot be resolved", async () => {
+    const result = await generateOpenApiDocument({
+      info: { title: "Example", version: "1.0.0" },
+      routes: [],
+      loadModule: async () => ({}),
+      capabilities: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(result.warnings).toEqual([
+      expect.objectContaining({
+        code: "capability_load_failed",
+        message: expect.stringContaining("boom"),
+      }),
+    ]);
   });
 });
 

@@ -201,8 +201,9 @@ surface.
    any other client.
 5. Set a sane static cache policy for the document; immutable caching is wrong
    unless the URL is versioned or deployments purge it.
-6. Do not document a capability HTTP projection here — capability endpoints are
-   not included in generation yet (`/add-capabilities` owns that contract).
+6. Do not hand-document a capability HTTP projection with `defineOpenApi()` —
+   set `capabilities: true` and the plugin documents every `expose.http`
+   capability from its own schemas (`/add-capabilities` owns that contract).
 7. Never overwrite an existing `vite.config.ts` or a hand-written
    `public/openapi.json` — diff first and confirm with `AskUserQuestion`.
 
