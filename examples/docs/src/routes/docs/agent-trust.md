@@ -48,7 +48,9 @@ async run({ context }) {
 
 Verification fails closed: an expired, incomplete, or untrusted signature gives `context.agent = null`, never a partial identity. `context.agent` is read-only, so middleware cannot rewrite it before policy and audit checks.
 
-If you build the request context yourself, create a fresh, mutable, plain object per request. Reusing one object for different identities, giving it a read-only or inherited `agent` field, or using a frozen or sealed native built-in such as `Map` fails closed: `handlePrachtRequest()` answers `500` and `invokeCapability()` returns `internal_error`. A frozen or sealed context works, but its methods and getters cannot see `agent`.
+A default signature covers only the host and verifies on any path for up to 24 hours. When the identity gates access, set `requireComponents: ["@method", "@path"]` and a lower `maxLifetimeSeconds`; uncovered signatures count as unsigned. Agents using `signAgentRequest()` pass `additionalComponents` to cover them.
+
+If you build the request context yourself, create a fresh, mutable, plain object per request. Other shapes fail closed: `handlePrachtRequest()` answers `500` and `invokeCapability()` returns `internal_error`.
 
 For requests pracht does not route, such as a custom adapter or a standalone endpoint, run the same verifier directly:
 
@@ -215,9 +217,9 @@ setCapabilityApprovalPrincipalResolver<{ user: { id: string } }>(
 
 Import this module from a server entry, the destructive capability's module, or middleware applied to that capability or to the app's capability API chain. Importing it from unrelated middleware is not enough.
 
-The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. With Web Bot Auth also on, a proposal binds both the user and the agent.
+The principal resolver runs after middleware. Return a stable authenticated user or tenant id, never caller-controlled input. On remote MCP with [`agents.mcp.auth`](/docs/capabilities#oauth-letting-a-real-host-connect), the verified token subject is bound too. With Web Bot Auth also on, a proposal binds both the user and the agent.
 
-Repeated prepares of the same operation share one proposal, so a person approves *the action*, not one particular token.
+Repeated prepares of the same operation by the same user share one proposal, so a person approves *the action*. A Web Bot Auth key alone names the agent, which all its users share, so each prepare then gets its own proposal and the server logs a warning.
 
 `agents.confirmation.mode` picks who decides:
 

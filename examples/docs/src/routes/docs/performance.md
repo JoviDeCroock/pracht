@@ -19,17 +19,17 @@ These are the client JavaScript totals for the *same page*, rendering the
 | Route setting | Gzip | Raw | What reaches the browser |
 | --- | --- | --- | --- |
 | `hydration: "none"` | **0 KB** | 0 KB | Nothing. No script tag is emitted. |
-| `hydration: "islands"` | **8.0 KB** | 17.6 KB | Preact, the island bootstrap, and the island chunks on the page. |
-| `hydration: "islands"`, islands navigation on | **11.7 KB** | 27.5 KB | Islands with `client: { islandsNavigation: true }`. |
-| `hydration: "full"` | **17.7 KB** | 43.5 KB | The above plus the client router: navigation, prefetching, loader fetches. |
-| `hydration: "full"`, prefetching off | **16.2 KB** | 42.5 KB | Full hydration with `client: { prefetch: false }`. |
-| `hydration: "full"`, navigation guards off | **17.5 KB** | 42.6 KB | Full hydration with `client: { navigationGuards: false }`. |
-| `hydration: "full"`, rich data on | **18.0 KB** | 44.2 KB | Full hydration with `client: { richData: true }`. |
-| `hydration: "full"` + `preact/compat` | **18.5 KB** | 45.8 KB | Full hydration with the React compatibility layer in the graph. |
+| `hydration: "islands"` | **8.1 KB** | 18.1 KB | Preact, the island bootstrap, and the island chunks on the page. |
+| `hydration: "islands"`, islands navigation on | **11.8 KB** | 27.9 KB | Islands with `client: { islandsNavigation: true }`. |
+| `hydration: "full"` | **17.5 KB** | 43.1 KB | The above plus the client router: navigation, prefetching, loader fetches. |
+| `hydration: "full"`, prefetching off | **16.0 KB** | 42.2 KB | Full hydration with `client: { prefetch: false }`. |
+| `hydration: "full"`, navigation guards off | **17.2 KB** | 42.2 KB | Full hydration with `client: { navigationGuards: false }`. |
+| `hydration: "full"`, rich data on | **17.7 KB** | 43.8 KB | Full hydration with `client: { richData: true }`. |
+| `hydration: "full"` + `preact/compat` | **18.2 KB** | 45.2 KB | Full hydration with the React compatibility layer in the graph. |
 
 Gzip is a cold load: the route's chunks plus the chunk the router imports
 after hydration. Raw is the route's chunks only. Both come from
-`bench/baseline.json`, measured with Preact `11.0.0-rc.1` and
+`bench/baseline.json`, measured with Preact `11.0.1` and
 render-to-string `6.7.0`. Your application code sits on top of these.
 
 What to read off the table:
@@ -41,9 +41,6 @@ What to read off the table:
   on a cold load without appearing in any route's chunk list.
 - **[Navigation guards off](/docs/data-loading#useblocker) saves about
   0.25 KB**, the full cost of `useBlocker()`.
-- **[Accessible navigation](/docs/reference/config#client-bundle) off saves
-  about 0.3 KB**, but only an app that moves focus and announces pages itself
-  should turn it off.
 - **[Rich data](/docs/data-loading#dates-maps-and-other-rich-values) costs
   about 0.3 KB**, and only when you turn it on.
 - **[Islands navigation](/docs/islands#client-side-navigation-between-islands-pages)

@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { extname, resolve, sep } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
 import type { ISGManifestEntry } from "@pracht/core/server";
 
 import { getManifestHeaders } from "@pracht/core/server";
@@ -10,6 +10,8 @@ export type { HeadersManifest } from "@pracht/core/server";
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".map": "application/json",
   ".css": "text/css",
   ".json": "application/json",
   ".png": "image/png",
@@ -17,6 +19,7 @@ const MIME_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".gif": "image/gif",
   ".webp": "image/webp",
+  ".avif": "image/avif",
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".woff": "font/woff",
@@ -29,6 +32,15 @@ const MIME_TYPES: Record<string, string> = {
   ".xml": "application/xml",
   ".webmanifest": "application/manifest+json",
   ".wasm": "application/wasm",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".vtt": "text/vtt; charset=utf-8",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
+  ".wav": "audio/wav",
+  ".pdf": "application/pdf",
+  ".csv": "text/csv; charset=utf-8",
+  ".zip": "application/zip",
 };
 
 /**
@@ -36,6 +48,13 @@ const MIME_TYPES: Record<string, string> = {
  * indefinitely.  Everything else gets a conservative policy.
  */
 const HASHED_ASSET_RE = /\/assets\//;
+
+/**
+ * Suffix of the file that records a regenerated ISG snapshot's document
+ * headers next to its HTML. It lives in the static directory but is never
+ * served as a static file.
+ */
+export const ISG_SNAPSHOT_HEADERS_SUFFIX = ".pracht-headers.json";
 
 export function getCacheControl(urlPath: string): string {
   if (HASHED_ASSET_RE.test(urlPath)) {
@@ -72,7 +91,9 @@ export async function resolveStaticFile(
   const exactPath = resolveUrlPath(staticRoot, pathname);
   if (!exactPath) return null;
 
-  const exactStat = await lstat(exactPath).catch(() => null);
+  const exactStat = basename(exactPath).endsWith(ISG_SNAPSHOT_HEADERS_SUFFIX)
+    ? null
+    : await lstat(exactPath).catch(() => null);
   if (exactStat?.isFile() && !exactStat.isSymbolicLink()) {
     if (!(await realPathIsInside(staticRoot, exactPath))) return null;
     const ext = extname(exactPath);

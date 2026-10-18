@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { defineCapability, type CapabilityRunArgs } from "../../capabilities/src/index.ts";
+import { defineApp, handlePrachtRequest, route } from "../src/index.ts";
+import type { ModuleRegistry } from "../src/types.ts";
+
 import {
   clearAgentDirectoryCache,
   ed25519JwkThumbprint,
@@ -63,6 +67,7 @@ async function signedRequest(options: SignOptions = {}): Promise<Request> {
     if (component === "@authority") return `"@authority": ${parsedUrl.host}`;
     if (component === "@method") return `"@method": ${method}`;
     if (component === "@path") return `"@path": ${parsedUrl.pathname}`;
+    if (component === "@target-uri") return `"@target-uri": ${url}`;
     return `"${component}": ${headers.get(component)}`;
   });
   lines.push(`"@signature-params": ${params}`);
@@ -231,6 +236,82 @@ describe("verifyAgentSignature", () => {
   it("rejects non-ed25519 alg parameters", async () => {
     const request = await signedRequest({ alg: "rsa-pss-sha512" });
     expect(await verifyAgentSignature(request, staticOptions)).toBeNull();
+  });
+});
+
+describe("requireComponents", () => {
+  function replay(request: Request, url: string, method = "POST"): Request {
+    return new Request(url, { method, headers: request.headers });
+  }
+  const OTHER_PATH = "https://app.example/api/capabilities/billing/refund";
+  const bound = { ...staticOptions, requireComponents: ["@method", "@path"] };
+
+  it("by default, accepts an authority-only signature replayed onto another path", async () => {
+    const request = await signedRequest();
+    expect(await verifyAgentSignature(replay(request, OTHER_PATH), staticOptions)).not.toBeNull();
+  });
+
+  it("treats a signature that does not cover a required component as unsigned", async () => {
+    const request = await signedRequest();
+    expect(await verifyAgentSignature(request, bound)).toBeNull();
+  });
+
+  it("verifies a signature bound to the method and path, and refuses it elsewhere", async () => {
+    const request = await signedRequest({
+      components: ["@authority", "@method", "@path", "signature-agent"],
+    });
+    expect(await verifyAgentSignature(request, bound)).toMatchObject({ verified: true });
+    expect(await verifyAgentSignature(replay(request, OTHER_PATH), bound)).toBeNull();
+    expect(await verifyAgentSignature(replay(request, request.url, "DELETE"), bound)).toBeNull();
+  });
+
+  it("verifies against the URL the client signed, including the _data marker", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const app = defineApp({
+      capabilities: { "agent.whoami": "./whoami.ts" },
+      agents: {
+        webBotAuth: { keys: staticOptions.keys, requireComponents: ["@target-uri"] },
+      },
+      routes: [route("/", "./home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: { "./home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./whoami.ts": (async () => ({
+          default: defineCapability({
+            title: "Whoami",
+            description: "Report the verified agent.",
+            input: { type: "object", properties: {}, additionalProperties: false },
+            output: { type: "object", properties: { verified: { type: "boolean" } } },
+            effect: "read",
+            expose: { http: true },
+            async run({ context }: CapabilityRunArgs<Record<string, never>>) {
+              return { verified: !!context.agent };
+            },
+          }),
+        })) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+    const signed = await signedRequest({
+      url: "https://app.example/api/capabilities/agent/whoami?_data=1",
+      components: ["@authority", "@method", "@target-uri", "signature-agent"],
+      created: now - 10,
+      expires: now + 300,
+    });
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request(signed.url, { method: "POST", headers: signed.headers, body: "{}" }),
+    });
+    expect(await response.json()).toMatchObject({ data: { verified: true } });
+  });
+
+  it("lets @target-uri satisfy a required @path", async () => {
+    const request = await signedRequest({
+      components: ["@authority", "@method", "@target-uri", "signature-agent"],
+    });
+    expect(await verifyAgentSignature(request, bound)).toMatchObject({ verified: true });
+    expect(await verifyAgentSignature(replay(request, OTHER_PATH), bound)).toBeNull();
   });
 });
 
