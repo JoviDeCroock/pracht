@@ -58,6 +58,7 @@ import {
 import { clearPrefetchCache } from "./prefetch-cache.ts";
 import { SERVER_ISLAND_REFRESH_EVENT } from "./server-islands-shared.ts";
 import { navigateToClientLocation, parseSafeNavigationUrl } from "./runtime-client-fetch.ts";
+import { navigateToUrl } from "./runtime-navigate-url.ts";
 import { revalidateRouteData } from "./runtime-revalidate.ts";
 import { ShellDataContext } from "./runtime-shell-data.ts";
 import type {
@@ -376,12 +377,10 @@ function setSearchParams(
     }
     init = params;
   }
-  const query = new URLSearchParams(init).toString();
-  const target = window.location.pathname + (query ? `?${query}` : "");
-  if (window.__PRACHT_NAVIGATE__) return window.__PRACHT_NAVIGATE__(target, options);
-  if (options?.replace) window.location.replace(target);
-  else window.location.href = target;
-  return Promise.resolve();
+  const url = new URL(window.location.href);
+  url.search = new URLSearchParams(init).toString();
+  url.hash = "";
+  return navigateToUrl(url, options);
 }
 
 /**
@@ -747,7 +746,10 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
       const submitterMethod = nativeSubmitter?.getAttribute("formmethod") || undefined;
       const formMethod = (submitterMethod ?? method ?? form.method ?? "post").toUpperCase();
       const isSafeMethod = SAFE_METHODS.has(formMethod);
-      if (isSafeMethod && !schema && !clientNavigation) {
+      // Results meant for another browsing context stay a native submission.
+      const formTarget = nativeSubmitter?.getAttribute("formtarget") ?? form.getAttribute("target");
+      const navigatesHere = clientNavigation && (!formTarget || formTarget === "_self");
+      if (isSafeMethod && !schema && !navigatesHere) {
         return;
       }
 
@@ -775,12 +777,9 @@ export function Form<TName extends HttpCapabilityName = HttpCapabilityName>(
         }
       }
 
-      if (isSafeMethod && clientNavigation && actionTarget && !isCrossOriginAction) {
-        // The fields replace the action's query, as a native GET submission does.
-        actionTarget.search = new URLSearchParams(formData as unknown as string[][]).toString();
-        actionTarget.hash = "";
-        await navigateToClientLocation(actionTarget.href);
-        return;
+      if (isSafeMethod && navigatesHere) {
+        const { navigateFormGet } = await import("./runtime-navigate-url.ts");
+        if (await navigateFormGet(submitterAction ?? form.getAttribute("action"), formData)) return;
       }
 
       if (isSafeMethod || isCrossOriginAction) {

@@ -109,6 +109,17 @@ describe("client redirect handling", () => {
     delete globalThis.__PRACHT_ROUTE_DEFINITIONS__;
   });
 
+  it("hands a same-origin path that begins with // to the browser", async () => {
+    await initRouter();
+    fetchSpy.mockClear();
+
+    await window.__PRACHT_NAVIGATE__!("http://localhost//evil.example/a?q=1");
+
+    // Reused as a relative URL, `//evil.example/a` would fetch another host.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(hrefSpy).toHaveBeenCalledWith("http://localhost//evil.example/a?q=1");
+  });
+
   it("hands a loader redirect chain to the browser after twenty hops", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     // /a bounces to /b, /b bounces back to /a: a chain with no end.

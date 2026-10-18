@@ -340,7 +340,7 @@ import { Form } from "@pracht/core";
 </Form>
 ```
 
-The fields replace the action's query, as they do natively. A cross-origin action is always submitted natively.
+The query is built as the browser builds it, replacing the action's own. A cross-origin action, or a `target`/`formtarget` other than `_self`, still submits natively.
 
 ---
 

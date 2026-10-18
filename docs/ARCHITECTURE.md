@@ -663,6 +663,9 @@ app.ts          — route manifest, matching, SSG path building
     ↑
 runtime-context.ts — hydration state reader and Preact runtime provider
     ↑
+runtime-navigate-url.ts — absolute same-origin navigations for useSetSearchParams()
+  and `<Form clientNavigation>` GET submissions (lazily imported by Form)
+    ↑
 runtime-hooks.ts — public browser hooks/components (Link, Form, useRevalidate, etc.)
     ↑
 runtime-request.ts — front half of the server pipeline: createRequestContext,

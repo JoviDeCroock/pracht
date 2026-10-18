@@ -1172,13 +1172,18 @@ hydration.
 Changing the returned object is intentionally unsupported (the mutators throw);
 `useSetSearchParams()` returns a stable module-level setter that builds the new
 query (string, `URLSearchParams`, record with array values repeated, or a
-function of a copy of `window.location.search`) and navigates to
-`window.location.pathname` plus that query through `window.__PRACHT_NAVIGATE__`
+function of a copy of `window.location.search`) and navigates to the current
+URL with that query through `window.__PRACHT_NAVIGATE__`
 with `{ replace, preserveScroll }`, or as a document navigation when the page
 has no client router. The hash is dropped. A `GET` `<Form clientNavigation>`
-does the same for a form: after any `schema` check it replaces the action's
-query with the fields and calls `navigateToClientLocation()`; without the prop,
-or for a cross-origin action, it stays a native submission. SSG loader data
+does the same for a form, building the URL the browser would: the action
+resolved against `document.baseURI` (none means the page), its fragment kept,
+its query replaced by the fields with files sent by name and CRLF line breaks.
+Without the prop, for a cross-origin action, or with a `target`/`formtarget`
+other than `_self`, it stays a native submission. Both pass the router an
+absolute URL, and the router hands any path beginning with `//` to the browser
+as a document navigation, since reusing it as a relative URL would name
+another host. SSG loader data
 remains build-time data and is not rerun for the visitor query. Use SSR when query parameters must affect
 server-loaded data or the initial HTML.
 

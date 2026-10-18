@@ -1702,7 +1702,9 @@ function resolveBrowserRouteTarget(to: string): BrowserRouteTarget | null {
     // Same origin but outside the deploy base is somebody else's app on this
     // host. Returning null hands the link back to the browser.
     const routePathname = stripBase(url.pathname);
-    if (routePathname === null) {
+    // A path that begins with `//` would read as another host wherever the
+    // router reuses it as a relative URL (history, route-state fetches).
+    if (routePathname === null || url.pathname.startsWith("//")) {
       return null;
     }
 
