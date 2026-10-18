@@ -25,8 +25,12 @@ function createApp(): string {
 }
 
 describe("plain vite build", () => {
-  it("fails with a pointer to pracht build instead of an unresolved index.html", async () => {
+  it.each([
+    ["an app", false],
+    ["an app with islands, whose entries pracht adds itself", true],
+  ])("fails for %s with a pointer to pracht build", async (_label, islands) => {
     const root = createApp();
+    if (islands) mkdirSync(join(root, "src/islands"), { recursive: true });
 
     await expect(
       build({

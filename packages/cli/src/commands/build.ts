@@ -31,7 +31,7 @@ import {
   type AdapterBuildContext,
   type BuildAdapter,
 } from "../legacy-adapter-build.js";
-import { loadPrachtServerEntry } from "../server-entry.js";
+import { assertServerEntryBuildTarget, loadPrachtServerEntry } from "../server-entry.js";
 import {
   decodeStaticOutputPath,
   describeInlineCssOpportunity,
@@ -550,11 +550,19 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
   };
 
   let publicDir = resolve(root, "public");
-  let buildAdapter: BuildAdapter | undefined;
   const capturePublicDir: Plugin = {
     name: "pracht:capture-public-dir",
     configResolved(config) {
       publicDir = config.publicDir;
+    },
+  };
+  // The adapter instance that generated the server entry: a config that
+  // picks options per build (`isSsrBuild`) or a stateful adapter must be
+  // finalized by that instance, not the client build's.
+  let buildAdapter: BuildAdapter | undefined;
+  const captureServerAdapter: Plugin = {
+    name: "pracht:capture-server-adapter",
+    configResolved(config) {
       buildAdapter = findBuildAdapter(config.plugins);
     },
   };
@@ -577,6 +585,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
   await viteBuild({
     root,
     logLevel,
+    plugins: [captureServerAdapter],
     build: {
       outDir: "dist/server",
       // The server bundle is build tooling (prerender + adapter entry), never
@@ -630,6 +639,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
     // the bundle can be imported in Node for the prerender pass below.
     registerPrerenderModuleHooks();
     const serverMod = await loadPrachtServerEntry(serverEntry);
+    assertServerEntryBuildTarget(serverMod, buildAdapter?.id);
     buildTarget = typeof serverMod.buildTarget === "string" ? serverMod.buildTarget : null;
     const buildBase = typeof serverMod.buildBase === "string" ? serverMod.buildBase : "/";
     const buildTrailingSlash = readBuildTrailingSlash(serverMod);

@@ -1010,6 +1010,40 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
 }
 
 /**
+ * A pracht app has no `index.html`: `pracht build` hands Vite the client and
+ * server entries, then prerenders and writes the deploy output. A bare
+ * `vite build` falls back to `<root>/index.html` as its input, or, when the
+ * app has islands, builds only the islands entries pracht's `config` hook
+ * adds; either way nothing deployable comes out.
+ */
+function assertPrachtBuildEntry(root: string, input: unknown): void {
+  const entries =
+    typeof input === "string"
+      ? [input]
+      : Array.isArray(input)
+        ? input
+        : typeof input === "object" && input !== null
+          ? Object.values(input)
+          : [];
+  const indexHtml = resolve(root, "index.html");
+  const bare =
+    entries.length > 0 &&
+    entries.every(
+      (entry) =>
+        entry === PRACHT_ISLANDS_CLIENT_MODULE_ID ||
+        entry === PRACHT_SERVER_ISLANDS_CLIENT_MODULE_ID ||
+        (typeof entry === "string" && resolve(entry) === indexHtml),
+    );
+  if (!bare || existsSync(indexHtml)) return;
+
+  throw new Error(
+    "[pracht] `vite build` has no entry to build: a pracht app has no index.html. Run " +
+      "`pracht build` instead, which builds the client and server bundles, prerenders the " +
+      "SSG and ISG pages, and writes the adapter's deploy output.",
+  );
+}
+
+/**
  * A pracht app has no `index.html`, so `build.cssCodeSplit: false` is not the
  * "one stylesheet instead of many" it is in an SPA.
  *
@@ -1021,23 +1055,6 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
  * single stylesheet, which is the kind of failure nobody reads a build log to
  * find.
  */
-/**
- * A pracht app has no `index.html`: `pracht build` hands Vite the client and
- * server entries, then prerenders and writes the deploy output. A bare
- * `vite build` falls back to `<root>/index.html` as its input, and would
- * otherwise stop at "Cannot resolve entry module index.html".
- */
-function assertPrachtBuildEntry(root: string, input: unknown): void {
-  if (typeof input !== "string" || resolve(input) !== resolve(root, "index.html")) return;
-  if (existsSync(input)) return;
-
-  throw new Error(
-    "[pracht] `vite build` has no entry to build: a pracht app has no index.html. Run " +
-      "`pracht build` instead, which builds the client and server bundles, prerenders the " +
-      "SSG and ISG pages, and writes the adapter's deploy output.",
-  );
-}
-
 function assertCssCodeSplitEnabled(config: {
   build?: { cssCodeSplit?: boolean; ssr?: boolean | string };
   command?: string;

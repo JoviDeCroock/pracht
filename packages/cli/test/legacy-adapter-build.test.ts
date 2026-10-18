@@ -10,7 +10,7 @@ import {
   finalizeLegacyAdapterBuild,
   type AdapterBuildContext,
 } from "../src/legacy-adapter-build.ts";
-import { assertPrachtServerEntry } from "../src/server-entry.ts";
+import { assertPrachtServerEntry, assertServerEntryBuildTarget } from "../src/server-entry.ts";
 
 const roots: string[] = [];
 
@@ -141,6 +141,21 @@ describe("assertPrachtServerEntry", () => {
       "dist/server/server.js is missing resolvedApp and prerenderApp(), so it was not generated " +
         "by the pracht() Vite plugin. Build with `pracht build` (not `vite build`)",
     );
+  });
+
+  it("refuses a bundle whose build target is not the configured adapter's", () => {
+    const entry = { resolvedApp: { routes: [] }, prerenderApp: () => [] } as never;
+    expect(() => assertServerEntryBuildTarget(entry, "vercel")).toThrow(
+      'dist/server/server.js reports build target null, but vite.config\'s pracht() adapter is "vercel"',
+    );
+    expect(() =>
+      assertServerEntryBuildTarget(
+        { ...(entry as object), buildTarget: "vercel" } as never,
+        "vercel",
+      ),
+    ).not.toThrow();
+    // A plugin release without adapter metadata leaves nothing to compare.
+    expect(() => assertServerEntryBuildTarget(entry, undefined)).not.toThrow();
   });
 
   it("accepts a generated entry", () => {

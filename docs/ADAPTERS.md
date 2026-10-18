@@ -2107,9 +2107,10 @@ export default async function handle(request) {
 
 ### The build hook
 
-`pracht build` finds the adapter through the `pracht` plugin's
-`api.pracht.adapter` and, when its `id` matches the server bundle's
-`buildTarget`, awaits `finalizeBuild(context)` after the headers, Markdown,
+`pracht build` takes the adapter from the `pracht` plugin's
+`api.pracht.adapter` in the server build's resolved config (the instance that
+generated the server entry), fails when the server bundle's `buildTarget` is
+not that adapter's `id`, and awaits `finalizeBuild(context)` after the headers, Markdown,
 routing, CSS and ISG manifests are written and before Netlify's
 `finalizePrachtBuild` export and the bundle report. `PrachtAdapterBuildContext`
 (exported by `@pracht/vite-plugin`) carries:

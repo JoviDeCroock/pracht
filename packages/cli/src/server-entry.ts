@@ -102,3 +102,18 @@ export function assertPrachtServerEntry(mod: object): asserts mod is PrachtServe
       "in vite.config's plugins, and keep @pracht/vite-plugin and @pracht/core on matching releases.",
   );
 }
+
+/**
+ * The bundle's `buildTarget` decides which deploy step runs, so a bundle that
+ * names another target (or none) than the adapter vite.config configured would
+ * build "successfully" without that platform's output. `adapterId` is absent
+ * when the plugin release predates its adapter metadata.
+ */
+export function assertServerEntryBuildTarget(entry: PrachtServerEntry, adapterId: unknown): void {
+  if (typeof adapterId !== "string" || entry.buildTarget === adapterId) return;
+  throw new Error(
+    `dist/server/server.js reports build target ${JSON.stringify(entry.buildTarget ?? null)}, ` +
+      `but vite.config's pracht() adapter is ${JSON.stringify(adapterId)}, so its deploy output ` +
+      "would not be written. Keep @pracht/vite-plugin, @pracht/core and the adapter on matching releases.",
+  );
+}
