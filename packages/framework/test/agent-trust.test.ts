@@ -689,6 +689,19 @@ describe("agents config validation", () => {
     );
   });
 
+  it("rejects required Web Bot Auth components the verifier could never match", () => {
+    for (const component of ["@body", "Content-Digest", ""]) {
+      expect(() =>
+        resolveApp(buildApp({ webBotAuth: { requireComponents: [component] } })),
+      ).toThrow(/requireComponents/);
+    }
+    expect(() =>
+      resolveApp(
+        buildApp({ webBotAuth: { requireComponents: ["@method", "@path", "content-digest"] } }),
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects MCP endpoint paths that cannot match a request pathname", () => {
     expect(() => resolveApp(buildApp({ mcp: { path: "mcp" } }))).toThrow(
       /exact same-origin pathname/,

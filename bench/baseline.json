@@ -1,5 +1,5 @@
 {
-  "note": "Byte sizes are deterministic for a given commit. Regenerate with `node bench/run.mjs --update`.",
+  "note": "Byte sizes are deterministic for a given commit. Regenerate with `node bench/run.mjs --bytes-only --update`.",
   "rungs": [
     {
       "rung": "hydration: none",
@@ -12,58 +12,78 @@
     {
       "rung": "hydration: islands",
       "hydration": "islands",
-      "bytes": 18073,
-      "gzipBytes": 8170,
+      "bytes": 18484,
+      "gzipBytes": 8245,
       "lazyGzipBytes": 0,
-      "coldGzipBytes": 8170
+      "coldGzipBytes": 8245
     },
     {
       "rung": "hydration: islands, islands navigation on",
       "hydration": "islands",
-      "bytes": 28126,
-      "gzipBytes": 12007,
+      "bytes": 28537,
+      "gzipBytes": 12085,
       "lazyGzipBytes": 0,
-      "coldGzipBytes": 12007
+      "coldGzipBytes": 12085
     },
     {
       "rung": "hydration: full",
       "hydration": "full",
-      "bytes": 44939,
-      "gzipBytes": 17107,
-      "lazyGzipBytes": 1283,
-      "coldGzipBytes": 18390
+      "bytes": 45222,
+      "gzipBytes": 17155,
+      "lazyGzipBytes": 1282,
+      "coldGzipBytes": 18437
     },
     {
       "rung": "hydration: full, prefetch off",
       "hydration": "full",
-      "bytes": 43842,
-      "gzipBytes": 16694,
+      "bytes": 44127,
+      "gzipBytes": 16738,
       "lazyGzipBytes": 0,
-      "coldGzipBytes": 16694
+      "coldGzipBytes": 16738
     },
     {
       "rung": "hydration: full, navigation guards off",
       "hydration": "full",
-      "bytes": 44039,
-      "gzipBytes": 16861,
+      "bytes": 44318,
+      "gzipBytes": 16909,
       "lazyGzipBytes": 1283,
-      "coldGzipBytes": 18144
+      "coldGzipBytes": 18192
     },
     {
       "rung": "hydration: full, rich data on",
       "hydration": "full",
-      "bytes": 45623,
-      "gzipBytes": 17369,
-      "lazyGzipBytes": 1284,
-      "coldGzipBytes": 18653
+      "bytes": 45905,
+      "gzipBytes": 17426,
+      "lazyGzipBytes": 1281,
+      "coldGzipBytes": 18707
     },
     {
       "rung": "hydration: full + preact/compat",
       "hydration": "full",
-      "bytes": 47309,
-      "gzipBytes": 17903,
+      "bytes": 47376,
+      "gzipBytes": 17869,
+      "lazyGzipBytes": 1282,
+      "coldGzipBytes": 19151
+    }
+  ],
+  "routeScale": [
+    {
+      "routes": 50,
+      "rung": "hydration: full, 50 routes",
+      "hydration": "full",
+      "bytes": 59558,
+      "gzipBytes": 19318,
       "lazyGzipBytes": 1283,
-      "coldGzipBytes": 19186
+      "coldGzipBytes": 20601
+    },
+    {
+      "routes": 500,
+      "rung": "hydration: full, 500 routes",
+      "hydration": "full",
+      "bytes": 207168,
+      "gzipBytes": 41300,
+      "lazyGzipBytes": 1284,
+      "coldGzipBytes": 42584
     }
   ]
 }
