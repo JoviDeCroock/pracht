@@ -201,6 +201,8 @@ PrefetchStrategy: type
 PrerenderAppOptions: interface
 PrerenderAppResult: interface
 PrerenderMarkdownOptions: interface
+PrerenderPageInfo: interface
+PrerenderPath: interface
 PrerenderResult: interface
 PrerenderedMarkdown: type
 PublicEnvOf: type
@@ -987,6 +989,8 @@ PrefetchStrategy: type
 PrerenderAppOptions: interface
 PrerenderAppResult: interface
 PrerenderMarkdownOptions: interface
+PrerenderPageInfo: interface
+PrerenderPath: interface
 PrerenderResult: interface
 PrerenderedMarkdown: type
 PublicEnvOf: type
@@ -1039,6 +1043,7 @@ ServerIslandLoaderArgs: interface
 ServerIslandLoaderData: type
 ServerIslandModule: interface
 ServerIslandProps: interface
+SharedHeadersManifest: interface
 ShellDataFor: type
 ShellModule: interface
 ShellName: type
@@ -1088,6 +1093,7 @@ destructiveMcpPreconditionErrors: function
 detectApiExports: function
 detectApiExportsStatic: function
 detectApiMethods: function
+expandHeadersManifest: function
 filterPublicEnv: function
 formDataToRecord: function
 formatServerTimingHeader: function
@@ -1148,6 +1154,7 @@ setCapabilityConfirmationSecret: function
 setIslandsClientEntryUrl: function
 setServerEnv: function
 setServerIslandsClientEntryUrl: function
+shareHeadersManifest: function
 stripBase: function
 timeRevalidate: function
 useServerIslandData: function
