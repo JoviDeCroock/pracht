@@ -253,8 +253,24 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
         method: "POST",
       });
 
+    // The handler regenerates a page by fetching it back through Vercel with
+    // the bypass header. Answer that fetch here: the request host is a fake
+    // `.test` domain, so a real fetch only ever exercised the failure path
+    // (after a DNS lookup) and logged a `getaddrinfo ENOTFOUND` stack.
+    const previousFetch = globalThis.fetch;
+    const regenerationRequests: Array<{ bypass: string | null; url: string }> = [];
     const previousToken = process.env.PRACHT_REVALIDATE_TOKEN;
     try {
+      globalThis.fetch = async (input, init) => {
+        const request = new Request(input, init);
+        regenerationRequests.push({
+          bypass: request.headers.get("x-prerender-revalidate"),
+          url: request.url,
+        });
+        return new Response("<!doctype html>", {
+          headers: { "x-vercel-cache": "REVALIDATED" },
+        });
+      };
       process.env.PRACHT_REVALIDATE_TOKEN = "e2e-revalidate-token";
       const authorized = await edgeHandler(revalidateRequest(), { waitUntil() {} });
       expect(authorized.status).toBe(200);
@@ -262,12 +278,17 @@ test("pracht build emits a deployable Vercel Build Output setup", async () => {
       // than reported as skipped.
       const body = await authorized.json();
       expect(body.skipped).toEqual([]);
-      expect([...body.revalidated, ...body.failed]).toContain("/pricing");
+      expect(body.failed).toEqual([]);
+      expect(body.revalidated).toEqual(["/pricing"]);
+      expect(regenerationRequests).toEqual([
+        { bypass: "e2e-revalidate-token", url: "https://pracht-vercel.test/pricing" },
+      ]);
 
       delete process.env.PRACHT_REVALIDATE_TOKEN;
       const unauthorized = await edgeHandler(revalidateRequest(), { waitUntil() {} });
       expect(unauthorized.status).toBe(401);
     } finally {
+      globalThis.fetch = previousFetch;
       if (previousToken === undefined) delete process.env.PRACHT_REVALIDATE_TOKEN;
       else process.env.PRACHT_REVALIDATE_TOKEN = previousToken;
     }
