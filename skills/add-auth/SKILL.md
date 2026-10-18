@@ -20,7 +20,7 @@ allowed-tools:
 # Pracht Add Auth
 
 Stamps out the auth pattern documented in
-`examples/docs/src/routes/docs/recipes-auth.md`, on top of `@pracht/session`.
+<https://pracht.resynapse.dev/docs/recipes/auth>, on top of `@pracht/session`.
 The user replaces `verifyCredentials()` with a real DB lookup.
 
 Never hand-roll the session cookie. `@pracht/session` already handles
@@ -28,7 +28,7 @@ encryption, expiry inside the payload, secret rotation, the `Secure`/`HttpOnly`
 attributes, and the 4 KB size ceiling — every one of which the hand-rolled
 version got wrong.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify`/`generate_*`
 tools over shelling out. `pracht inspect` needs the pracht plugin in the vite
 config.

@@ -20,6 +20,8 @@ import {
   dispatchAgentSurface,
   dispatchApi,
   type HandlePrachtRequestOptions,
+  discardLate,
+  isClientDisconnect,
   type PrachtRequestContext,
   releaseBudgetWith,
 } from "./runtime-request.ts";
@@ -63,7 +65,9 @@ async function handlePrachtRequestPipeline<TContext>(
   const ctx = prepared.ctx;
   let response: Response;
   try {
-    response = await dispatchRequest(ctx);
+    response = ctx.resolvedApp.enforceLoaderTimeout
+      ? await withDeadlineBackstop(dispatchRequest(ctx), ctx)
+      : await dispatchRequest(ctx);
   } catch (error) {
     ctx.budget.release();
     throw error;
@@ -71,6 +75,60 @@ async function handlePrachtRequestPipeline<TContext>(
   // The response exists. Its unread body, `waitUntil` work, and a failed
   // request's leftovers may still keep the request budget running.
   return releaseBudgetWith(ctx.budget, response);
+}
+
+/** Longest the error path may take once an enforced budget has run out. */
+const DEADLINE_GRACE_MS = 1_000;
+
+/**
+ * `defineApp({ enforceLoaderTimeout })` backstop. The middleware chains race
+ * the signal and answer with the timeout error, but that error path and the
+ * response finalization still await module imports and app hooks (`head()`).
+ * If they have not answered within a short grace after the budget runs out,
+ * send a plain 500 (499 for a client that left) and discard the late result.
+ */
+function withDeadlineBackstop<TContext>(
+  work: Promise<Response>,
+  ctx: PrachtRequestContext<TContext>,
+): Promise<Response> {
+  const signal = ctx.budget.signal;
+  return new Promise<Response>((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => {
+      timer = setTimeout(
+        () => {
+          discardLate(work);
+          resolve(
+            isClientDisconnect(ctx.request, signal)
+              ? new Response(null, { status: 499 })
+              : withDefaultSecurityHeaders(
+                  new Response("Internal Server Error", {
+                    status: 500,
+                    headers: { "content-type": "text/plain; charset=utf-8" },
+                  }),
+                ),
+          );
+        },
+        Math.min(ctx.loaderTimeoutMs, DEADLINE_GRACE_MS),
+      );
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    const settle = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+    };
+    work.then(
+      (response) => {
+        settle();
+        resolve(response);
+      },
+      (error: unknown) => {
+        settle();
+        reject(error);
+      },
+    );
+  });
 }
 
 async function dispatchRequest<TContext>(ctx: PrachtRequestContext<TContext>): Promise<Response> {

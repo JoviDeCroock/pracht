@@ -61,7 +61,7 @@ pracht inspect routes --json
 pracht inspect api --json
 ```
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
@@ -103,15 +103,14 @@ permanently and submit to the preload list.
 
 ## Step 4: Content-Security-Policy
 
-Start from the canonical starter policy in `docs/CSP.md` — it includes
-`'inline-speculation-rules'` in `script-src`, required for routes that opt
-into `speculation` (they emit an inline
-`<script type="speculationrules">`). Then add observed origins:
+Start from the starter policy in <https://pracht.resynapse.dev/docs/recipes/csp>,
+then adjust it for speculation and add observed origins:
 
 1. Check which routes use `speculation`: read the `speculation` field from
    `pracht inspect routes --json` (requires a current `@pracht/cli`; on older
-   CLIs, grep the manifest for `speculation:` instead). If none do,
-   `'inline-speculation-rules'` can be dropped.
+   CLIs, grep the manifest for `speculation:` instead). Those routes emit an
+   inline `<script type="speculationrules">`, so add
+   `'inline-speculation-rules'` to `script-src` unless you use a nonce.
 2. Grep the app for fetch URLs, image URLs, CSS `@import`, `<script src>`,
    `<link href>`, font URLs, iframe sources.
 3. Group by directive: `default-src`, `script-src`, `style-src`, `img-src`,
@@ -126,7 +125,7 @@ into `speculation` (they emit an inline
    `scriptNonce` from the shell `head()` and allow it in `script-src`; it also
    covers the speculation rules script.
 
-Output a draft CSP referencing `docs/CSP.md` and explain what each origin is
+Output a draft CSP referencing <https://pracht.resynapse.dev/docs/recipes/csp> and explain what each origin is
 for. Do not hand the user a CSP that breaks their site — present as draft.
 
 ## Step 5: Prerendered header manifest safety

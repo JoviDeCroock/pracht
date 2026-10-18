@@ -13,6 +13,7 @@ import {
   handlePrachtRequest,
   invokeCapability,
   route,
+  setCapabilityApprovalPrincipalResolver,
   setCapabilityApprovalStore,
   setCapabilityAuditHook,
 } from "../src/index.ts";
@@ -1498,7 +1499,7 @@ describe("destructive capabilities over MCP", () => {
     expect(purged).toEqual([]);
   });
 
-  it("fails closed in human mode when no principal could ever be resolved", async () => {
+  it("fails closed in human mode without an end-user identity source", async () => {
     const agents: PrachtAgentsConfig = {
       mcp: { destructive: true },
       confirmation: { mode: "human" },
@@ -1506,35 +1507,12 @@ describe("destructive capabilities over MCP", () => {
 
     const list = await mcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { agents });
     expect(list.json?.error.code).toBe(-32603);
-    expect(list.json?.error.message).toContain("human");
-    expect(list.json?.error.message).toContain("principal");
+    expect(list.json?.error.message).toContain("nothing identifies the end user");
+    expect(list.json?.error.message).toContain("setCapabilityApprovalPrincipalResolver()");
 
-    // A policy-only Web Bot Auth block has no key or directory that could
-    // authenticate a request, so it must not make a dead tool look available.
-    const withoutTrustSource = await mcp(
-      { jsonrpc: "2.0", id: 1, method: "tools/list" },
-      { agents: { ...agents, webBotAuth: { policy: "observe" } } },
-    );
-    expect(withoutTrustSource.json?.error.code).toBe(-32603);
-    expect(withoutTrustSource.json?.error.message).toContain(
-      "setCapabilityApprovalPrincipalResolver()",
-    );
-
-    // A non-empty but malformed JWK cannot verify any signature, so it must
-    // not make the endpoint advertise a destructive tool that every call will
-    // reject for lack of a principal.
-    for (const x of ["not-a-key", "A".repeat(42), `${"A".repeat(42)}!`]) {
-      const withMalformedKey = await mcp(
-        { jsonrpc: "2.0", id: 1, method: "tools/list" },
-        { agents: { ...agents, webBotAuth: { keys: [{ x }] } } },
-      );
-      expect(withMalformedKey.json?.error.code).toBe(-32603);
-      expect(withMalformedKey.json?.error.message).toContain("no principal can ever be resolved");
-    }
-
-    // A real Web Bot Auth trust source makes a principal possible, so the
-    // endpoint can advertise the tool (individual unsigned calls still fail).
-    const withIdentity = await mcp(
+    // A Web Bot Auth key names the agent, which all of its users share, so even
+    // a valid key cannot bind a human decision to one person.
+    const withAgentKey = await mcp(
       { jsonrpc: "2.0", id: 1, method: "tools/list" },
       {
         agents: {
@@ -1546,10 +1524,20 @@ describe("destructive capabilities over MCP", () => {
         },
       },
     );
-    expect(withIdentity.json?.error).toBeUndefined();
-    expect(withIdentity.json?.result.tools.map((tool: { name: string }) => tool.name)).toContain(
-      "notes_purge",
-    );
+    expect(withAgentKey.json?.error.code).toBe(-32603);
+    expect(withAgentKey.json?.error.message).toContain("A Web Bot Auth key names the agent");
+
+    // A principal resolver names the end user, so the endpoint serves the tool.
+    setCapabilityApprovalPrincipalResolver(() => "user-1");
+    try {
+      const withResolver = await mcp({ jsonrpc: "2.0", id: 1, method: "tools/list" }, { agents });
+      expect(withResolver.json?.error).toBeUndefined();
+      expect(withResolver.json?.result.tools.map((tool: { name: string }) => tool.name)).toContain(
+        "notes_purge",
+      );
+    } finally {
+      setCapabilityApprovalPrincipalResolver(null);
+    }
   });
 
   it("reports every unmet precondition at once", async () => {

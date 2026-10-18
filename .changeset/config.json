@@ -3,7 +3,7 @@
   "changelog": ["@changesets/changelog-github", { "repo": "JoviDeCroock/pracht" }],
   "commit": false,
   "format": false,
-  "fixed": [],
+  "fixed": [["@pracht/core", "@pracht/capabilities", "@pracht/vite-plugin"]],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

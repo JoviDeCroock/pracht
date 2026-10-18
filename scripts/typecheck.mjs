@@ -29,6 +29,8 @@ const PROGRAMS = [
   { name: "cloudflare-fixture", project: "packages/cli/test/fixtures/cloudflare-runtime-import" },
   { name: "showcase", project: "examples/showcase" },
   { name: "basic", project: "examples/basic" },
+  // create-pracht is plain JavaScript, checked from its JSDoc.
+  { name: "create-pracht", project: "packages/start" },
 ];
 
 const args = new Set(process.argv.slice(2));

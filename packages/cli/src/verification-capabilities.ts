@@ -278,6 +278,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   const httpExposedNames: string[] = [];
   const mcpExposed: string[] = [];
   const destructiveMcpExposed: string[] = [];
+  const destructiveServed: string[] = [];
   const projection = readMcpProjectionConfig(manifestSource);
   const appAgentPolicy = readAppAgentPolicyDefault(manifestSource);
   for (const entry of entries) {
@@ -310,6 +311,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
     collectSingleCapabilityChecks(entry.name, entry.path, source, registeredMiddleware, checks, {
       mcpExposed,
       destructiveMcpExposed,
+      destructiveServed,
       projection,
       appAgentPolicy,
     });
@@ -318,6 +320,7 @@ export function collectCapabilityChecks(project: ProjectConfig, checks: Check[])
   collectShadowedNameChecks(httpExposedNames, checks);
   collectMcpProjectionChecks(mcpExposed, projection, checks);
   collectDestructiveMcpChecks(destructiveMcpExposed, projection, project, checks);
+  collectHumanApprovalChecks(destructiveServed, projection, project, checks);
 }
 
 /**
@@ -331,6 +334,10 @@ interface McpProjectionConfigScan {
   configured: boolean;
   /** `destructive: true` appears inside the visible `agents.mcp` config. */
   destructive: boolean;
+  /** `agents.confirmation.mode` is visibly the literal `"human"`. */
+  humanApproval: boolean;
+  /** An `auth` key appears inside the visible `agents.mcp` config. */
+  mcpAuth: boolean;
 }
 
 function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigScan {
@@ -338,16 +345,62 @@ function readMcpProjectionConfig(manifestSource: string): McpProjectionConfigSca
   const agentsBody = readInlineObjectBody(
     appBody ? scanTopLevelProperties(appBody).get("agents") : undefined,
   );
-  if (agentsBody === null) return { configured: false, destructive: false };
+  if (agentsBody === null) {
+    return { configured: false, destructive: false, humanApproval: false, mcpAuth: false };
+  }
 
-  const mcp = scanTopLevelProperties(agentsBody).get("mcp");
-  if (mcp === undefined) return { configured: false, destructive: false };
+  const agents = scanTopLevelProperties(agentsBody);
+  const confirmationBody = readInlineObjectBody(agents.get("confirmation"));
+  const humanApproval =
+    confirmationBody !== null &&
+    evaluateLiteral(scanTopLevelProperties(confirmationBody).get("mode") ?? "") === "human";
+  const mcp = agents.get("mcp");
+  if (mcp === undefined) {
+    return { configured: false, destructive: false, humanApproval, mcpAuth: false };
+  }
 
   const mcpBody = readInlineObjectBody(mcp);
-  const destructive =
-    mcpBody !== null &&
-    evaluateLiteral(scanTopLevelProperties(mcpBody).get("destructive") ?? "") === true;
-  return { configured: true, destructive };
+  const mcpProperties = mcpBody === null ? null : scanTopLevelProperties(mcpBody);
+  const destructive = evaluateLiteral(mcpProperties?.get("destructive") ?? "") === true;
+  // An unreadable `mcp` value may still carry `auth`, so only a visible object
+  // without one (or with a falsy literal) proves its absence.
+  const auth = mcpProperties?.get("auth")?.trim();
+  const mcpAuth =
+    mcpProperties === null ||
+    (auth !== undefined && !["undefined", "null", "false"].includes(auth));
+  return { configured: true, destructive, humanApproval, mcpAuth };
+}
+
+/**
+ * Human approval must name the end user: a principal resolver or the OAuth
+ * subject behind `agents.mcp.auth`. The runtime refuses every destructive call
+ * without one; this reports it before deploy. A warning, like the store scan
+ * below, because a resolver registered in a workspace package is invisible here.
+ */
+function collectHumanApprovalChecks(
+  destructiveServed: string[],
+  projection: McpProjectionConfigScan,
+  project: ProjectConfig,
+  checks: Check[],
+): void {
+  if (destructiveServed.length === 0 || !projection.humanApproval) return;
+  const scan = scanForSourceCall(
+    project,
+    /\bsetCapabilityApprovalPrincipalResolver\s*(?:<[^()]*>\s*)?\(/,
+  );
+  if (scan.found) return;
+  checks.push(
+    createCheck(
+      "warning",
+      'agents.confirmation.mode is "human", but no `setCapabilityApprovalPrincipalResolver(` ' +
+        `call was found in ${scan.searched.join(", ")}. Calls to ` +
+        `${destructiveServed.map((name) => JSON.stringify(name)).join(", ")} that carry no ` +
+        "agents.mcp.auth token will be " +
+        "refused with confirmation_unavailable: human approval needs the end user's identity, " +
+        "and a Web Bot Auth key names only the agent. Register a resolver from a server-only " +
+        "module. Ignore this if the registration lives outside those directories.",
+    ),
+  );
 }
 
 function readInlineObjectBody(value: string | undefined): string | null {
@@ -392,7 +445,7 @@ function collectDestructiveMcpChecks(
     return;
   }
 
-  const scan = scanForApprovalStore(project);
+  const scan = scanForSourceCall(project, /\bsetCapabilityApprovalStore\s*\(/);
   if (!scan.found) {
     checks.push(
       createCheck(
@@ -419,13 +472,16 @@ function collectDestructiveMcpChecks(
 }
 
 /**
- * Conservative source scan for a store registration, over the directories the
+ * Conservative source scan for a registration call, over the directories the
  * project actually configures. It ignores comments and literals, but cannot
  * prove the module is imported — only that source contains a call-shaped
  * registration — which is why its absence is a warning and the runtime fails
  * closed regardless.
  */
-function scanForApprovalStore(project: ProjectConfig): { found: boolean; searched: string[] } {
+function scanForSourceCall(
+  project: ProjectConfig,
+  call: RegExp,
+): { found: boolean; searched: string[] } {
   // Deduplicated because the defaults nest (`/src/server` under `/src`) and a
   // project may point several of these at one directory.
   const configured = [project.serverDir, project.capabilitiesDir, dirname(project.appFile)];
@@ -443,7 +499,7 @@ function scanForApprovalStore(project: ProjectConfig): { found: boolean; searche
       if (!/\.(ts|tsx|js|jsx|mts|mjs)$/.test(entry)) continue;
       try {
         const source = maskCommentsAndStrings(readFileSync(resolve(root, entry), "utf-8"));
-        if (/\bsetCapabilityApprovalStore\s*\(/.test(source)) {
+        if (call.test(source)) {
           return { found: true, searched };
         }
       } catch {
@@ -1032,11 +1088,13 @@ function collectSingleCapabilityChecks(
   graph: {
     mcpExposed: string[];
     destructiveMcpExposed: string[];
+    destructiveServed: string[];
     projection: McpProjectionConfigScan;
     appAgentPolicy: AppAgentPolicyDefault;
   },
 ): void {
-  const { mcpExposed, destructiveMcpExposed, projection, appAgentPolicy } = graph;
+  const { mcpExposed, destructiveMcpExposed, destructiveServed, projection, appAgentPolicy } =
+    graph;
   const label = `Capability ${JSON.stringify(name)} (${displayPath})`;
   const args = extractDefineCapabilityArgs(source);
   if (!args) {
@@ -1197,6 +1255,11 @@ function collectSingleCapabilityChecks(
 
     if (effectValue === "destructive") {
       if (hasMcp) destructiveMcpExposed.push(name);
+      // `agents.mcp.auth` names the end user on remote MCP only; HTTP callers
+      // still need a principal resolver.
+      if (!hasWebmcp && (hasHttp || (hasMcp && projection.destructive && !projection.mcpAuth))) {
+        destructiveServed.push(name);
+      }
       if (hasWebmcp) {
         problems.push(
           "is destructive and exposed as a WebMCP page tool — a browser host's approval UX is " +

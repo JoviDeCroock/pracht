@@ -21,7 +21,7 @@ allowed-tools:
 # Pracht Configure ISG
 
 ISG renders at build time and regenerates after a time window or an
-authenticated webhook (`docs/RENDERING_MODES.md`, `docs/ADAPTERS.md`). The
+authenticated webhook (<https://pracht.resynapse.dev/docs/rendering#isg--incremental-static-generation>, <https://pracht.resynapse.dev/docs/adapters>). The
 mechanics differ per adapter, and a route with `render: "isg"` but **no
 `revalidate` policy never regenerates** — the prerenderer only writes an ISG
 manifest entry when a policy exists. This skill wires the policy, the
@@ -29,7 +29,7 @@ webhook, and the adapter-specific cache correctly.
 
 ## Step 1: Identify adapter and candidate routes
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/`verify` tools over
 shelling out.
 
@@ -101,7 +101,10 @@ they identify manifest routes rather than public deployment URLs.
   `revalidated` / `skipped` / `failed` arrays plus a `details` array naming why
   each path was skipped (`not_a_route`, `not_isg`, `not_prerendered`,
   `no_webhook_policy`) or failed — check `details` first when a webhook appears
-  to do nothing. Failed paths keep serving the previous copy. Regeneration is
+  to do nothing. `scope` says how far a refresh reached: `instance` (Node:
+  that server only), `colo` (Cloudflare Cache API: that data center only), or
+  `global` (Netlify, Vercel, Cloudflare routes purged via `cache: true`).
+  Failed paths keep serving the previous copy. Regeneration is
   single-flighted per path and never replays the caller's cookies/auth headers.
 
 ## Step 4: Adapter mechanics
@@ -109,11 +112,11 @@ they identify manifest routes rather than public deployment URLs.
 | Adapter | Time revalidation | Webhook revalidation |
 | ------- | ----------------- | -------------------- |
 | Node | File mtime vs window, per server; serves stale, refreshes in background | Regenerates the on-disk HTML synchronously on the **receiving replica only** — serve ISG routes from a single instance |
-| Cloudflare (default) | Worker-managed Cache API timestamp, `env.ASSETS` fallback — **per colo** | Overwrites the Cache API entry in the receiving colo only |
+| Cloudflare (default) | Worker-managed Cache API timestamp, `env.ASSETS` fallback — **per colo** | Overwrites the Cache API entry in the receiving colo only (`scope: "colo"`); a colo with no cached copy serves the build snapshot as `stale` and re-renders, a colo holding a copy keeps it until eviction |
 | Cloudflare (`cache: true`) | Edge-tier Workers Caching in front of the Worker for time-revalidated routes | Webhook-only routes keep the worker-managed path; time+webhook routes also get their edge entry purged |
 | Vercel | Build Output prerender functions: `.prerender-config.json` with `expiration` from the time policy and build HTML as fallback, next to a Node Serverless Function per ISG route (Vercel rejects ISR on an Edge Function) | For webhook revalidation, `x-vercel-cache` verifies the bypass; `PRACHT_REVALIDATE_TOKEN` becomes the `bypassToken` and **must be set at build time** (runtime-only setting → webhook paths report `failed` until you rebuild). Time-only ISR does not require the token. |
 
-Cloudflare specifics (`docs/ADAPTERS.md#isg-via-workers-caching-cache`):
+Cloudflare specifics (<https://pracht.resynapse.dev/docs/adapters#isg-and-workers-caching>):
 
 - The default per-colo path needs **no extra config**. The `cache: true`
   upgrade needs both `cloudflareAdapter({ cache: true })` in vite config
@@ -131,7 +134,7 @@ Cloudflare specifics (`docs/ADAPTERS.md#isg-via-workers-caching-cache`):
 
 ## Step 5: Cache-key cardinality caveats
 
-See `docs/ADAPTERS.md#cache-key-cardinality`. Node and worker-managed
+See <https://pracht.resynapse.dev/docs/adapters#isg-and-workers-caching>. Node and worker-managed
 Cloudflare ISG key generated pages by **pathname**. Workers Caching keys by
 exact path **plus query string** (param order and trailing slash included), so
 `/pricing?ref=a` and `/pricing?ref=b` are independent entries with independent
@@ -183,8 +186,10 @@ pracht typegen   # if src/routes.ts changed
    one the route silently behaves like SSG.
 4. On Vercel, set `PRACHT_REVALIDATE_TOKEN` in the build environment, not
    just at runtime.
-5. Cloudflare webhook invalidation on the default path is per-colo, not a
-   global purge — use shorter time windows (or `cache: true` + purge) when
-   global freshness matters.
+5. Webhook invalidation is per-colo on Cloudflare's default path and
+   per-instance on Node (the response's `scope` says which); `pracht build`
+   warns about Cloudflare webhook routes. A webhook-only route never goes stale
+   by time, so pair it with `timeRevalidate()` to bound the lag, plus
+   `cache: true` on Cloudflare so the webhook purges every colo.
 
 $ARGUMENTS

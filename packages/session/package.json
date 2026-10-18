@@ -40,7 +40,10 @@
     "build": "tsdown",
     "prepublishOnly": "npm run build"
   },
-  "dependencies": {
+  "peerDependencies": {
+    "@pracht/core": "workspace:^"
+  },
+  "devDependencies": {
     "@pracht/core": "workspace:^"
   }
 }
