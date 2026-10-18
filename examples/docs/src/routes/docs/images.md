@@ -265,7 +265,7 @@ export const HEAD = imageHandler;
 
 Every redirect destination is checked against the same allowlist. The endpoint serves only the default breakpoint widths and drops the query string from local image files (`/hero.png?bust=1` is fetched as `/hero.png`), so callers cannot mint unlimited variants of your images. Pass `allowedWidths` when you customize breakpoints with `configureImage()`, and `sourceQueryParams: ["v"]` to keep a cache-busting parameter.
 
-The endpoint keeps recent results in memory, so a repeated URL is not encoded again, and optimizes at most four images at once. Further requests wait, and a `503` with `Retry-After` answers once 64 are waiting. Tune these with `cache: { maxBytes, maxAge }` (or `cache: false`) and `maxConcurrency`.
+The endpoint keeps recent results in memory and lets simultaneous requests for one image share a single encode, and it optimizes at most four images at once. The memory cache is off when you pass your own `fetchImage`, since its results would be shared by every visitor. Further requests wait, and a `503` with `Retry-After` answers once 64 are waiting. Tune these with `cache: { maxBytes, maxAge }` (or `cache: false`) and `maxConcurrency`.
 
 ---
 

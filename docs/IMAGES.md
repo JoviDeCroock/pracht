@@ -297,15 +297,23 @@ configuration is needed.
   in `sourceQueryParams` (default none) before it is fetched or used as a
   cache key — a static file ignores its query, so the bytes are the same.
   Extensionless relative sources (an API route drawing an image) and remote
-  sources keep their query. Together with the width allowlist and the 1–100
-  quality range, this bounds the variants a caller can mint per local file.
+  sources keep their query. Every source also loses its fragment, and
+  percent-escaped unreserved characters in its path are decoded (`/h%65ro.png`
+  is `/hero.png`), so equivalent spellings share one fetch and cache entry.
+  Together with the width allowlist and the 1–100 quality range, this bounds
+  the variants a caller can mint per local image file.
 - **Work bounds.** At most `maxConcurrency` (default 4) requests fetch and
   encode at once; up to 64 more wait, and the rest get `503` with
   `Retry-After: 1`. Successful results are kept in an in-process LRU (`cache`,
   default 50 MiB for 3600 s, keyed on source URL + width + quality +
-  negotiated format), so repeated URLs skip the fetch and the encode. The
-  cache is off when `cacheControl` contains `private`, `no-store`, or
-  `no-cache`, because it is shared by every caller.
+  negotiated format), so repeated URLs skip the fetch and the encode, and
+  identical concurrent misses share one in-flight fetch and encode (it is
+  aborted only once every waiting request has aborted). Each entry is charged
+  its body plus its key and 1 KiB of overhead. A request aborted while queued
+  leaves the queue. The cache is shared by every caller, so it is off when
+  `cacheControl` contains `private`, `no-store`, or `no-cache`, and off by
+  default when a custom `fetchImage` is passed (set `cache` to opt back in).
+  `cache.maxBytes` and `cache.maxAge` must be finite and non-negative.
 - Source responses must be `image/*` and are capped at 25 MiB
   (`maxSourceBytes`).
 

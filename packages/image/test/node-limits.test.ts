@@ -41,18 +41,20 @@ function harness(options: CreateImageHandlerOptions = {}, encodeDelay?: () => Pr
     loadSharp: async () => fakeSharp,
     fetchImage: async (url) => {
       fetched.push(url.href);
+      if (url.pathname.startsWith("/missing")) return new Response("gone", { status: 404 });
       return new Response(new Uint8Array(10), { headers: { "content-type": "image/png" } });
     },
+    // A custom fetchImage turns the cache off unless it is set explicitly.
+    cache: {},
     ...options,
   });
-  const get = (source: string, query = "w=640") =>
+  const get = (source: string, query = "w=640", init: RequestInit = {}, signal?: AbortSignal) =>
     handler({
       request: new Request(
         `${ORIGIN}/api/_pracht/image?url=${encodeURIComponent(source)}&${query}`,
-        {
-          headers: { accept: "image/webp" },
-        },
+        { headers: { accept: "image/webp" }, ...init },
       ),
+      signal,
     });
   return {
     get,
@@ -153,5 +155,88 @@ describe("createImageHandler work bounds", () => {
 
   it("rejects an invalid maxConcurrency", () => {
     expect(() => createImageHandler({ maxConcurrency: 0 })).toThrow(/maxConcurrency/);
+  });
+
+  it("treats a fragment, an escaped letter and a bare ? as the same file", async () => {
+    const h = harness();
+    for (const source of ["/hero.png", "/hero.png#a", "/hero.png#b", "/h%65ro.png", "/hero.png?"]) {
+      expect((await h.get(source)).status).toBe(200);
+    }
+    expect(h.fetched).toEqual([`${ORIGIN}/hero.png`]);
+    expect(h.encodes).toBe(1);
+  });
+
+  it("shares one fetch and encode between identical concurrent requests", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const h = harness({ maxConcurrency: 1 }, () => gate);
+    const pending = Array.from({ length: 100 }, () => h.get("/hero.png"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    const responses = await Promise.all(pending);
+    expect(responses.map((response) => response.status)).toEqual(Array(100).fill(200));
+    expect(h.encodes).toBe(1);
+  });
+
+  it("keeps the cache off for a custom fetchImage unless cache is set", async () => {
+    const h = harness({ cache: undefined });
+    await h.get("/hero.png");
+    await h.get("/hero.png");
+    expect(h.encodes).toBe(2);
+  });
+
+  it("re-encodes an entry once maxAge has passed", async () => {
+    const h = harness({ cache: { maxAge: 0 } });
+    await h.get("/hero.png");
+    await h.get("/hero.png");
+    expect(h.encodes).toBe(2);
+  });
+
+  it("evicts the least recently used entry beyond maxBytes", async () => {
+    // Each entry costs its body, its key and a fixed overhead: two fit, three do not.
+    const h = harness({ cache: { maxBytes: 2300 } });
+    await h.get("/a.png");
+    await h.get("/b.png");
+    await h.get("/a.png");
+    await h.get("/c.png");
+    expect(h.encodes).toBe(3);
+    await h.get("/a.png");
+    expect(h.encodes).toBe(3);
+    await h.get("/b.png");
+    expect(h.encodes).toBe(4);
+  });
+
+  it("answers HEAD from the cache without a body", async () => {
+    const h = harness();
+    await h.get("/hero.png");
+    const head = await h.get("/hero.png", "w=640", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-type")).toBe("image/webp");
+    expect((await head.arrayBuffer()).byteLength).toBe(0);
+    expect(h.encodes).toBe(1);
+  });
+
+  it("frees the slot after an error and drops an aborted waiter from the queue", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const h = harness({ cache: false, maxConcurrency: 1 }, () => gate);
+    expect((await h.get("/missing.png")).status).toBe(502);
+    const holding = h.get("/hero.png");
+    const controller = new AbortController();
+    const queued = h.get("/queued.png", "w=640", {}, controller.signal);
+    controller.abort();
+    expect((await queued).status).toBe(503);
+    release();
+    expect((await holding).status).toBe(200);
+    expect(h.fetched).not.toContain(`${ORIGIN}/queued.png`);
+  });
+
+  it("rejects invalid cache bounds", () => {
+    expect(() => createImageHandler({ cache: { maxAge: Number.NaN } })).toThrow(/maxAge/);
+    expect(() => createImageHandler({ cache: { maxBytes: -1 } })).toThrow(/maxBytes/);
   });
 });

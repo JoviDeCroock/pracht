@@ -182,7 +182,8 @@ source, passes SVG/GIF through, and answers
 It drops the query string from relative image files (`/hero.png?v=2` →
 `/hero.png`), so if the app cache-busts with a query parameter, keep it with
 `sourceQueryParams: ["v"]`. It also caches results in memory and encodes at
-most four at once (`cache`, `maxConcurrency`).
+most four at once (`cache`, `maxConcurrency`); a custom `fetchImage` turns
+the shared cache off unless `cache` is set.
 
 ## Step 7: Verify
 

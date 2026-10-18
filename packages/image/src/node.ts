@@ -50,7 +50,9 @@ export interface CreateImageHandlerOptions {
   /**
    * Override how source images are fetched (useful for tests/CDNs). Redirect
    * responses must be returned without following them; the handler validates
-   * each Location before making the next request.
+   * each Location before making the next request. Passing one turns the
+   * in-process `cache` off unless you set `cache` yourself, because its
+   * results are shared by every caller.
    */
   fetchImage?: (url: URL, request: Request, signal?: AbortSignal) => Promise<Response>;
   /** Override how sharp is imported (useful for tests). */
@@ -68,7 +70,8 @@ export interface CreateImageHandlerOptions {
    * quality and output format, so a repeated request skips the fetch and the
    * encode. Defaults to `{ maxBytes: 50 MiB, maxAge: 3600 }` (seconds);
    * `false` turns it off, and so does a `cacheControl` with `private`,
-   * `no-store` or `no-cache`.
+   * `no-store` or `no-cache`. A cached result is served to every caller,
+   * and concurrent requests for the same image share one fetch and encode.
    */
   cache?: { maxBytes?: number; maxAge?: number } | false;
   /**
@@ -99,7 +102,11 @@ interface CachedImage {
   body: Uint8Array;
   headers: Record<string, string>;
   expiresAt: number;
+  size: number;
 }
+
+/** Bytes charged per cache entry on top of its body: key, headers and bookkeeping. */
+const CACHE_ENTRY_OVERHEAD = 1024;
 
 /** Least-recently-used byte-bounded cache; `Map` keeps insertion order. */
 function createImageCache(maxBytes: number, maxAgeMs: number) {
@@ -108,7 +115,7 @@ function createImageCache(maxBytes: number, maxAgeMs: number) {
 
   function remove(key: string, entry: CachedImage): void {
     entries.delete(key);
-    bytes -= entry.body.byteLength;
+    bytes -= entry.size;
   }
 
   return {
@@ -118,15 +125,16 @@ function createImageCache(maxBytes: number, maxAgeMs: number) {
       remove(key, entry);
       if (entry.expiresAt <= Date.now()) return undefined;
       entries.set(key, entry);
-      bytes += entry.body.byteLength;
+      bytes += entry.size;
       return entry;
     },
     set(key: string, body: Uint8Array, headers: Record<string, string>): void {
-      if (body.byteLength > maxBytes) return;
+      const size = body.byteLength + key.length + CACHE_ENTRY_OVERHEAD;
+      if (size > maxBytes) return;
       const existing = entries.get(key);
       if (existing) remove(key, existing);
-      entries.set(key, { body, headers, expiresAt: Date.now() + maxAgeMs });
-      bytes += body.byteLength;
+      entries.set(key, { body, headers, expiresAt: Date.now() + maxAgeMs, size });
+      bytes += size;
       for (const [oldestKey, oldest] of entries) {
         if (bytes <= maxBytes) break;
         remove(oldestKey, oldest);
@@ -140,15 +148,29 @@ function createLimiter(max: number) {
   let active = 0;
   const waiting: Array<() => void> = [];
   return {
-    /** Resolves `true` once a slot is held, or `false` when the queue is full. */
-    acquire(): Promise<boolean> {
+    /**
+     * Resolves `"held"` once a slot is held, `"busy"` when the queue is full,
+     * or `"aborted"` when `signal` aborts while waiting (no slot is held).
+     */
+    acquire(signal?: AbortSignal): Promise<"held" | "busy" | "aborted"> {
+      if (signal?.aborted) return Promise.resolve("aborted");
       if (active < max) {
         active += 1;
-        return Promise.resolve(true);
+        return Promise.resolve("held");
       }
-      if (waiting.length >= MAX_QUEUED) return Promise.resolve(false);
+      if (waiting.length >= MAX_QUEUED) return Promise.resolve("busy");
       return new Promise((resolve) => {
-        waiting.push(() => resolve(true));
+        const grant = () => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve("held");
+        };
+        const onAbort = () => {
+          const index = waiting.indexOf(grant);
+          if (index !== -1) waiting.splice(index, 1);
+          resolve("aborted");
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        waiting.push(grant);
       });
     },
     release(): void {
@@ -161,11 +183,24 @@ function createLimiter(max: number) {
 }
 
 /**
+ * Rewrite equivalent spellings of a source to one URL: the fragment never
+ * reaches the server, and a percent-escaped unreserved character (`%65`) is
+ * the character itself (RFC 3986 section 6.2.2.2).
+ */
+function canonicalizeSource(target: URL): void {
+  target.hash = "";
+  target.pathname = target.pathname.replace(/%[0-9a-f]{2}/gi, (escape) => {
+    const char = String.fromCharCode(parseInt(escape.slice(1), 16));
+    return /[\w.~-]/.test(char) ? char : escape.toUpperCase();
+  });
+}
+
+/**
  * Drop every query parameter not in `keep` from a relative image-file source.
  * A static file ignores its query, so the result fetches the same bytes.
  */
 function normalizeLocalSource(target: URL, keep: ReadonlySet<string>): void {
-  if (!target.search || !IMAGE_FILE_PATTERN.test(target.pathname)) return;
+  if (!IMAGE_FILE_PATTERN.test(target.pathname)) return;
   const kept = new URLSearchParams();
   for (const [name, value] of target.searchParams) {
     if (keep.has(name)) kept.append(name, value);
@@ -216,14 +251,24 @@ function createSharpImporter(load: () => Promise<unknown>): () => Promise<SharpF
   };
 }
 
+const ERROR_HEADERS: Record<string, string> = {
+  "content-type": "text/plain; charset=utf-8",
+  "cache-control": "no-store",
+};
+
 function errorResponse(status: number, message: string): Response {
-  return new Response(message, {
-    status,
-    headers: {
-      "content-type": "text/plain; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
+  return new Response(message, { status, headers: ERROR_HEADERS });
+}
+
+type Optimized = { body: Uint8Array; headers: Record<string, string> };
+/** An optimized image, or an error kept as plain data so several requests can share it. */
+type SharedResult = Optimized | { status: number; text: string; headers: Record<string, string> };
+
+function toResponse(request: Request, result: SharedResult): Response {
+  if ("status" in result) {
+    return new Response(result.text, { status: result.status, headers: result.headers });
+  }
+  return new Response(imageResponseBody(request, result.body), { headers: result.headers });
 }
 
 function matchesHostname(hostname: string, pattern: string): boolean {
@@ -385,13 +430,26 @@ export function createImageHandler(
   // A response the endpoint itself marks private must not be replayed from a
   // cache shared by every caller (a custom `fetchImage` may forward cookies).
   const shareable = !/\b(?:private|no-store|no-cache)\b/i.test(cacheControl);
+  const cacheOptions =
+    options.cache === undefined ? (options.fetchImage ? false : {}) : options.cache;
+  const cacheMaxBytes = cacheOptions ? (cacheOptions.maxBytes ?? DEFAULT_CACHE_MAX_BYTES) : 0;
+  const cacheMaxAge = cacheOptions ? (cacheOptions.maxAge ?? DEFAULT_CACHE_MAX_AGE) : 0;
+  if (!Number.isFinite(cacheMaxBytes) || cacheMaxBytes < 0) {
+    throw new Error("createImageHandler({ cache: { maxBytes } }) expects a non-negative number.");
+  }
+  if (!Number.isFinite(cacheMaxAge) || cacheMaxAge < 0) {
+    throw new Error("createImageHandler({ cache: { maxAge } }) expects a non-negative number.");
+  }
   const cache =
-    options.cache === false || !shareable
+    cacheOptions === false || !shareable
       ? null
-      : createImageCache(
-          options.cache?.maxBytes ?? DEFAULT_CACHE_MAX_BYTES,
-          (options.cache?.maxAge ?? DEFAULT_CACHE_MAX_AGE) * 1000,
-        );
+      : createImageCache(cacheMaxBytes, cacheMaxAge * 1000);
+  // Identical concurrent misses share one fetch and encode. The work aborts
+  // only once every request waiting on it has aborted.
+  const inFlight = new Map<
+    string,
+    { result: Promise<SharedResult>; controller: AbortController; waiters: number }
+  >();
   const maxConcurrency = options.maxConcurrency ?? DEFAULT_MAX_CONCURRENCY;
   if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1) {
     throw new Error("createImageHandler({ maxConcurrency }) expects a positive integer.");
@@ -425,6 +483,7 @@ export function createImageHandler(
       if (target.username || target.password) {
         return errorResponse(400, 'The "url" parameter may not contain credentials.');
       }
+      canonicalizeSource(target);
       if (!matchesRemotePatterns(target, remotePatterns)) {
         return errorResponse(
           403,
@@ -446,6 +505,7 @@ export function createImageHandler(
           'Relative "url" values must remain on the configured localOrigin.',
         );
       }
+      canonicalizeSource(target);
       normalizeLocalSource(target, sourceQueryParams);
     } else {
       return errorResponse(
@@ -489,22 +549,73 @@ export function createImageHandler(
       return new Response(imageResponseBody(request, cached.body), { headers: cached.headers });
     }
 
-    if (!(await limiter.acquire())) {
-      return new Response("The image endpoint is busy. Retry shortly.", {
+    if (!cache) {
+      return toResponse(
+        request,
+        await run(request, signal, source, target, width, quality, format),
+      );
+    }
+
+    let shared = inFlight.get(cacheKey);
+    if (!shared) {
+      const controller = new AbortController();
+      const created = {
+        controller,
+        waiters: 0,
+        result: run(request, controller.signal, source, target, width, quality, format)
+          .then((result) => {
+            if (!("status" in result)) cache.set(cacheKey, result.body, result.headers);
+            return result;
+          })
+          .finally(() => inFlight.delete(cacheKey)),
+      };
+      inFlight.set(cacheKey, created);
+      shared = created;
+    }
+    const entry = shared;
+    entry.waiters += 1;
+    const onAbort = () => {
+      entry.waiters -= 1;
+      if (entry.waiters === 0) entry.controller.abort();
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    try {
+      return toResponse(request, await entry.result);
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
+  }
+
+  /** Wait for a slot, then fetch and optimize; every failure becomes a plain error. */
+  async function run(
+    request: Request,
+    signal: AbortSignal | undefined,
+    source: string,
+    target: URL,
+    width: number,
+    quality: number,
+    format: "image/avif" | "image/webp" | null,
+  ): Promise<SharedResult> {
+    const slot = await limiter.acquire(signal);
+    if (slot === "busy") {
+      return {
         status: 503,
-        headers: {
-          "content-type": "text/plain; charset=utf-8",
-          "cache-control": "no-store",
-          "retry-after": "1",
-        },
-      });
+        text: "The image endpoint is busy. Retry shortly.",
+        headers: { ...ERROR_HEADERS, "retry-after": "1" },
+      };
+    }
+    if (slot === "aborted") {
+      return { status: 503, text: "The image request was aborted.", headers: ERROR_HEADERS };
     }
     try {
-      if (signal?.aborted) return errorResponse(503, "The image request was aborted.");
       const result = await optimize(request, signal, source, target, width, quality, format);
-      if (result instanceof Response) return result;
-      cache?.set(cacheKey, result.body, result.headers);
-      return new Response(imageResponseBody(request, result.body), { headers: result.headers });
+      if (!(result instanceof Response)) return result;
+      return {
+        status: result.status,
+        text: await result.text(),
+        headers: Object.fromEntries(result.headers),
+      };
     } finally {
       limiter.release();
     }
@@ -518,7 +629,7 @@ export function createImageHandler(
     width: number,
     quality: number,
     format: "image/avif" | "image/webp" | null,
-  ): Promise<Response | { body: Uint8Array; headers: Record<string, string> }> {
+  ): Promise<Response | Optimized> {
     let upstream: Response;
     let currentTarget = target;
     let redirectCount = 0;
