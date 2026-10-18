@@ -42,10 +42,11 @@ versions with `npm view <pkg> version`.
 
 ## Step 2: Understand the versioning model
 
-Pracht packages are **independently versioned** (the repo's changesets config
-has empty `fixed`/`linked` groups) — `@pracht/core` can be at 0.9.x while
-`@pracht/cli` is at 1.6.x. There is no "one framework version". Two
-consequences:
+`@pracht/core`, `@pracht/capabilities` and `@pracht/vite-plugin` always
+release together at one version (a Changesets `fixed` group): upgrade them to
+the same version. Every other package is **independently versioned** —
+`@pracht/cli` is on 1.x while core is on 0.x — so there is no "one framework
+version". Two consequences:
 
 1. **Internal dependencies are pinned exact.** Published packages depend on
    their siblings at exact versions (e.g. `@pracht/vite-plugin@0.5.0` depends
