@@ -79,7 +79,8 @@ step (`--port <n>`, `--skip-build` to reuse a build).
   connections and waits for in-flight requests and `args.waitUntil()` work up
   to `nodeAdapter({ shutdownTimeoutMs })` (default 10s). Keep it below the
   process manager's kill grace period. A custom `createNodeRequestHandler()`
-  server calls `await handler.drain(ms)` after `server.close()` instead.
+  server calls `await handler.closeEventStreams(ms)` then
+  `await handler.drain(ms)` after `server.close()` instead.
 - Background work after the response is `args.waitUntil(promise)` on every
   adapter — do not wire `executionContext.waitUntil` (Cloudflare) or the
   platform context yourself.
