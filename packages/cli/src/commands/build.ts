@@ -24,7 +24,11 @@ import {
   findUnresolvedManifestModules,
   formatUnresolvedManifestModules,
 } from "../manifest-modules.js";
-import { resolveVercelRuntimeRoutes, writeVercelBuildOutput } from "../build-shared.js";
+import {
+  describeVercelRouteBudget,
+  resolveVercelRuntimeRoutes,
+  writeVercelBuildOutput,
+} from "../build-shared.js";
 import {
   decodeStaticOutputPath,
   describeInlineCssOpportunity,
@@ -371,6 +375,27 @@ export function assertNoPublicContentMetadataCollisions(
   );
 }
 
+/**
+ * Server adapters cache `/assets/*` as immutable for a year because Vite
+ * writes content-hashed build files there. A `public/assets/` folder lands on
+ * the same path with names that never change, so an edited file would stay
+ * stale in browsers.
+ */
+export function getPublicAssetsCacheWarning(
+  publicDir: string,
+  publicDirLabel = "public",
+): string | null {
+  const assetsDir = join(publicDir, "assets");
+  if (!existsSync(assetsDir) || !statSync(assetsDir).isDirectory()) return null;
+  return (
+    `\n  Warning: ${publicDirLabel}/assets/ is served under /assets/, which pracht's server ` +
+    "adapters send with `Cache-Control: public, max-age=31536000, immutable` because Vite " +
+    `writes hashed build files there. An edited file in ${publicDirLabel}/assets/ stays ` +
+    "cached in browsers for a year; move it to another public folder or put a content hash " +
+    "in its name.\n"
+  );
+}
+
 export function assertNoPublicContentArtifactCollisions(
   contentArtifactHeaders: Record<string, Record<string, string>>,
   publicDir: string,
@@ -661,6 +686,11 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       // build errors (with every offender listed at once).
       await validateStaticExport(serverMod);
     }
+    const publicAssetsWarning =
+      !isStaticExport && publicDir && existsSync(publicDir)
+        ? getPublicAssetsCacheWarning(publicDir, publicDirLabel)
+        : null;
+    if (publicAssetsWarning) reportBuildWarning(publicAssetsWarning, analyzeJson);
     if (isStaticExport && buildTrailingSlash === "never") {
       reportBuildWarning(
         '\n  Warning: trailingSlash: "never" with a static export. Each page is written as ' +
@@ -1173,7 +1203,7 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
         );
       }
 
-      const outputPath = writeVercelBuildOutput({
+      const { outputPath, routeCount } = writeVercelBuildOutput({
         base: buildBase,
         functionName: serverMod.vercelFunctionName,
         isgManifest,
@@ -1201,6 +1231,8 @@ export async function runBuild(root: string, options: BuildOptions = {}): Promis
       });
 
       log(`\n  Vercel build output → ${outputPath}\n`);
+      const routeBudget = describeVercelRouteBudget(routeCount);
+      if (routeBudget) reportBuildWarning(`\n  Warning: ${routeBudget}\n`, analyzeJson);
     }
 
     if (typeof serverMod.finalizePrachtBuild === "function") {

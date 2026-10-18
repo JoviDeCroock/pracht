@@ -369,11 +369,16 @@ runtime-page.ts writes it), and every head node the server renders carries
   the order the server matches: API routes, then page routes, each prefixed
   `+` when a page there can be swapped in (`islands`/`none`, not `spa`) or `-`
   otherwise. A `-` entry is kept only when some URL could match it and a later
-  `+` entry (`patternsOverlap()`), so the table never lists more of the app —
-  API paths included — than it needs to (`islandsNavigationRoutes()` in
-  islands-server.ts). Prerendering receives the app's `apiRoutes` so SSG
-  documents carry the same table as SSR ones. It is about 150 bytes gzip for
-  20 routes and grows with the route count.
+  `+` entry, so the table never lists more of the app — API paths included —
+  than it needs to (`islandsNavigationRoutes()` in islands-server.ts). It is
+  built once per app by walking the entries backwards into a segment trie of
+  the `+` patterns seen so far, so each `-` entry costs one trie query rather
+  than a comparison with every later entry (`patternsOverlap()` is the pairwise
+  definition the tests check it against). Prerendering receives the app's
+  `apiRoutes` so SSG documents carry the same table as SSR ones. It is about
+  150 bytes gzip for 20 routes and 2.3 KB gzip for 1,000 (500 entries); it
+  grows with the number of islands routes. Front-coding the entries was
+  measured and saves under 2% after gzip, so the table stays a plain list.
 - `p` is `policyFingerprint()` — FNV-1a over the document-policy headers
   (`content-security-policy`, `-report-only`, `x-frame-options`, COOP, COEP,
   `permissions-policy`, `referrer-policy`, `document-policy`,

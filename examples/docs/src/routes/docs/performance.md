@@ -29,7 +29,7 @@ These are the client JavaScript totals for the *same page*, rendering the
 
 Gzip is a cold load: the route's chunks plus the chunk the router imports
 after hydration. Raw is the route's chunks only. Both come from
-`bench/baseline.json`, measured with Preact `11.0.0-rc.1` and
+`bench/baseline.json`, measured with Preact `11.0.1` and
 render-to-string `6.7.0`. Your application code sits on top of these.
 
 What to read off the table:

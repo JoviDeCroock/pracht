@@ -15,6 +15,7 @@ import {
   collectUnroutedContentDocuments,
   expandContentArtifactHeaders,
   formatUnroutedContentDocuments,
+  getPublicAssetsCacheWarning,
   readContentBuildManifest,
   reportBuildWarning,
   resolveGeneratedArtifactOutputPath,
@@ -610,5 +611,26 @@ describe("collectUnroutedContentDocuments", () => {
 
     expect(report).toContain("1 content document generates a route no app route serves:");
     expect(report).toContain('/docs/orphan (collection "docs", orphan.md)');
+  });
+});
+
+describe("getPublicAssetsCacheWarning", () => {
+  it("warns when public/assets/ would be cached as immutable", () => {
+    const publicDir = mkdtempSync(join(tmpdir(), "pracht-public-assets-"));
+    try {
+      expect(getPublicAssetsCacheWarning(publicDir)).toBeNull();
+
+      writeFileSync(resolve(publicDir, "assets"), "not a folder");
+      expect(getPublicAssetsCacheWarning(publicDir)).toBeNull();
+      rmSync(resolve(publicDir, "assets"));
+
+      mkdirSync(resolve(publicDir, "assets"));
+      writeFileSync(resolve(publicDir, "assets/logo.png"), "png");
+      expect(getPublicAssetsCacheWarning(publicDir, "static")).toMatch(
+        /static\/assets\/ is served under \/assets\/.*immutable/s,
+      );
+    } finally {
+      rmSync(publicDir, { force: true, recursive: true });
+    }
   });
 });

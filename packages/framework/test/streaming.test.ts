@@ -106,6 +106,56 @@ describe("streaming SSR documents", () => {
     expect(first).not.toContain("review-7");
   });
 
+  it("keeps streaming a document that middleware re-wrapped", async () => {
+    const route_ = streamingRoute(40);
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        middleware: { rewrap: "./middleware/rewrap.ts" },
+        routes: [
+          route("/product", "./routes/product.tsx", {
+            render: "ssr",
+            streaming: true,
+            middleware: ["rewrap"],
+          }),
+        ],
+      }),
+      registry: {
+        middlewareModules: {
+          "./middleware/rewrap.ts": async () => ({
+            middleware: async (_args: unknown, next: () => Promise<Response>) => {
+              const rendered = await next();
+              return new Response(rendered.body, {
+                status: rendered.status,
+                headers: rendered.headers,
+              });
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/product.tsx": async () => {
+            const module = await route_();
+            return {
+              ...module,
+              // Reading the signal starts the request budget's timer.
+              loader: ({ signal }: { signal: AbortSignal }) => {
+                signal.throwIfAborted();
+                return module.loader();
+              },
+            };
+          },
+        },
+      },
+      request: new Request("http://localhost/product"),
+    });
+
+    expect(isStreamingHtmlResponse(response)).toBe(true);
+    const reader = response.body!.getReader();
+    const first = new TextDecoder().decode((await reader.read()).value);
+    await reader.cancel();
+    expect(first).toContain("<head>");
+    expect(first).not.toContain("review-7");
+  });
+
   it("runs deferred beforeHydration scripts before starting the client", async () => {
     const response = await handlePrachtRequest({
       app: streamingApp(),

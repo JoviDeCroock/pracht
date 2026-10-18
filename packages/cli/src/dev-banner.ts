@@ -39,7 +39,15 @@ export interface DevBannerOptions {
   networkUrls?: string[];
   notFound?: DevBannerRoute | null;
   routes: DevBannerRoute[];
+  /** Rows printed per route table before the rest is summarized. */
+  rowLimit?: number;
 }
+
+/**
+ * Enough rows to see an app's shape at a glance. A 1,000-route app would
+ * otherwise push the local URL out of the terminal's scrollback.
+ */
+export const DEV_BANNER_ROW_LIMIT = 25;
 
 const ANSI = {
   bold: "1",
@@ -82,6 +90,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
     networkUrls = [],
     notFound,
     routes,
+    rowLimit = DEV_BANNER_ROW_LIMIT,
   } = options;
   const mcpRuntimeStatus =
     configuredMcpRuntimeStatus ??
@@ -112,7 +121,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
   } else {
     // The not-found page is listed after the routes it can never shadow: its
     // "path" is a label, not a pattern, so it is excluded from the count.
-    const allRoutes = [...routes, ...(notFound ? [notFound] : [])];
+    const allRoutes = [...routes.slice(0, rowLimit), ...(notFound ? [notFound] : [])];
     // Only worth a column when some route actually opts out of full hydration:
     // otherwise `/islands` and `/static` are indistinguishable from every other
     // route in the table that tells you what runs where.
@@ -140,6 +149,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
       });
       lines.push(`    ${cells.join("  ")}`.trimEnd());
     }
+    pushOmittedRows(lines, routes.length - rowLimit, "routes", paint);
   }
   lines.push("");
 
@@ -147,16 +157,16 @@ export function formatDevBanner(options: DevBannerOptions): string {
   if (apiRoutes.length === 0) {
     lines.push("    (none)");
   } else {
-    const rows = apiRoutes.map((route) => [
-      route.path,
-      route.methods.length > 0 ? route.methods.join(", ") : "-",
-    ]);
+    const rows = apiRoutes
+      .slice(0, rowLimit)
+      .map((route) => [route.path, route.methods.length > 0 ? route.methods.join(", ") : "-"]);
     const header = ["ROUTE", "METHODS"];
     const widths = columnWidths([header, ...rows]);
     lines.push(`    ${paint(formatRow(header, widths), ANSI.dim)}`);
     for (const row of rows) {
       lines.push(`    ${formatRow(row, widths)}`);
     }
+    pushOmittedRows(lines, apiRoutes.length - rowLimit, "api", paint);
   }
   lines.push("");
 
@@ -254,6 +264,18 @@ export function supportsColor(
     return true;
   }
   return isTTY;
+}
+
+function pushOmittedRows(
+  lines: string[],
+  omitted: number,
+  inspectTarget: "api" | "routes",
+  paint: (text: string, code: string) => string,
+): void {
+  if (omitted <= 0) return;
+  lines.push(
+    `    ${paint(`… and ${omitted} more (pracht inspect ${inspectTarget} lists them all)`, ANSI.dim)}`,
+  );
 }
 
 function columnWidths(rows: string[][]): number[] {

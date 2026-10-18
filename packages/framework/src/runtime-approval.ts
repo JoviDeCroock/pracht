@@ -26,8 +26,8 @@ export {
 
 /**
  * Register a server-only resolver for the application-authenticated identity
- * bound to approval proposals. Human approval without either this identity or
- * a verified agent identity fails closed.
+ * bound to approval proposals. Human approval without this identity (or a
+ * verified OAuth subject on remote MCP) fails closed.
  *
  * The implementation lives in `@pracht/capabilities/server/internal`, where the
  * context type defaults to `unknown`; this re-declaration restores the
