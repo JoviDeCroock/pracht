@@ -47,6 +47,10 @@ export interface BuildAdapter {
  * The Cloudflare and Vercel deploy steps for adapter releases that predate
  * `finalizeBuild`. Newer releases run their own copy, so this is removable
  * once the CLI requires them.
+ *
+ * TODO(next major): delete this module, `cloudflare-asset-headers.ts`, and the
+ * Vercel helpers in `build-shared.ts` it alone uses, and require adapters that
+ * implement `finalizeBuild` (owner decision, council #2).
  */
 export async function finalizeLegacyAdapterBuild(
   buildTarget: "cloudflare" | "vercel",
