@@ -22,6 +22,7 @@
  */
 
 import { CONFIRMATION_HEADER, CONFIRMATION_SECRET_ENV } from "../protocol.ts";
+import { base64UrlEncode } from "./base64url.ts";
 import { resolveServerEnvSource } from "./env.ts";
 import { globalSlot } from "./global-state.ts";
 
@@ -278,12 +279,6 @@ function timingSafeEqual(a: string, b: string): boolean {
     mismatch |= a.charCodeAt(index) ^ b.charCodeAt(index);
   }
   return mismatch === 0;
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function base64UrlDecode(value: string): Uint8Array {

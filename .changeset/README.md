@@ -23,6 +23,9 @@ Write the entry for someone scanning a release, not someone reviewing the PR.
 
 If an entry needs headings, bullets, or multiple paragraphs, it is too long.
 
+A diff in `packages/framework/api-report.api.md` (regenerate with `pnpm api:update`)
+is a change to `@pracht/core`'s public API; pick the bump for it on purpose.
+
 `privatePackages.version` is `false`, so the private apps under `examples/*` are
 never bumped and carry no changelog. Before this, every release PR also rewrote 8
 example `package.json` files and 8 example `CHANGELOG.md` files — pure noise, since

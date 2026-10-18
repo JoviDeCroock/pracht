@@ -352,8 +352,7 @@ pracht({ adapter: vercelAdapter() })
 ```
 
 With `vercelAdapter({ regions: "all" })`, the Edge Function stays global and ISG
-functions run in the project's default Serverless region, because Serverless
-functions need concrete region ids.
+functions use the project's default Serverless region.
 
 For webhook revalidation, `PRACHT_REVALIDATE_TOKEN` must be set **at build
 time**: Vercel embeds it in each ISG route's prerender config, so a token set
@@ -380,15 +379,16 @@ pracht build
 npx vercel deploy --prebuilt
 ```
 
+Each SSG or ISG page adds one of the 2,048 routes Vercel allows per Hobby or
+Pro deployment; `pracht build` warns near that limit.
+
 ### Preview and generated functions
 
-Vercel has no faithful local production runtime, so `pracht preview` exits with
-guidance instead. Use `vercel build` to reproduce production output and
-`vercel dev` for local development.
+`pracht preview` cannot emulate Vercel and exits with guidance: use
+`vercel build` and `vercel dev` instead.
 
-The Edge Function is named `render` by default. Use
-`vercelAdapter({ functionName: "app" })` if an ISG route would collide with
-that name. A custom Vercel server entry must export `nodeListener`, built with
+The Edge Function is named `render`; set
+`vercelAdapter({ functionName: "app" })` if an ISG route collides with it. A custom Vercel server entry must export `nodeListener`, built with
 `createVercelNodeListener(handle)`, so the ISG functions can run the same
 handler.
 
@@ -461,9 +461,8 @@ then use `netlify dev` for a platform-shaped local runtime.
 
 ## Node.js
 
-Run pracht as a standard Node.js HTTP server. The adapter handles static file
-serving, ISG stale-while-revalidate, and request translation, and the generated
-`dist/server/server.js` entry boots the production server directly.
+Run pracht as a standard Node.js HTTP server. The adapter serves static files
+and ISG pages, and the generated `dist/server/server.js` entry boots it directly.
 
 ### Setup
 
@@ -500,9 +499,7 @@ If the proxy also strips Vite's deploy base from the path, set
 ### Response compression
 
 Responses are compressed by default, negotiated from `Accept-Encoding` with
-brotli preferred. Streamed responses such as SSE are flushed chunk by chunk, so
-they still arrive incrementally. Static files are compressed once and served
-from memory.
+brotli preferred. Streamed responses such as SSE still arrive incrementally.
 
 Already-encoded responses, `Cache-Control: no-transform`, range requests,
 binary media, and bodies under 1 KiB are sent as-is. If a reverse proxy or CDN
@@ -519,6 +516,10 @@ pracht build
 node dist/server/server.js
 // Server listening on http://localhost:3000
 ```
+
+Each server keeps ISG pages in its own `dist/client`, so
+`POST /__pracht/revalidate` reaches one replica only. Serve ISG routes from a
+single instance; replicas behind a load balancer drift apart.
 
 ### Graceful shutdown
 
@@ -537,10 +538,9 @@ A custom server built on `createNodeRequestHandler()` calls
 
 ### WebSockets
 
-Node delivers upgrade requests to the server's `upgrade` event, not to the
-request handler, so they never reach pracht. Attach a WebSocket server to the
-same HTTP server instead. The generated entry exports `handler`, and only
-starts its own server when run as the process entrypoint:
+Upgrade requests go to the server's `upgrade` event and never reach pracht, so
+attach a WebSocket server to the same HTTP server. The generated entry exports
+`handler`, and only starts its own server when run as the process entrypoint:
 
 ```js
 import { createServer } from "node:http";
@@ -699,6 +699,7 @@ export function createContext({ request }: { request: Request }) {
   };
 }
 
+// Node also receives { req, res }, without visitor headers on ISG pages.
 // Cloudflare receives { request, env, executionContext }.
 // Vercel Edge receives { request, context }. Node ISG provides a
 // waitUntil-compatible context, without other Edge-only fields.
