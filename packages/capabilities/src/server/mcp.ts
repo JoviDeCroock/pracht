@@ -37,6 +37,7 @@ import {
   handleCapabilityRequest,
   setActiveCapabilityHost,
   type CapabilityHostApp,
+  type CapabilityRequestBudget,
   type ResolvedCapability,
 } from "./capabilities.ts";
 import { hasWebBotAuthIdentitySource } from "./agent-auth.ts";
@@ -141,8 +142,8 @@ export interface HandleMcpRequestOptions<TContext> {
   apiMiddlewareFiles?: string[];
   onAudit?: CapabilityAuditHook;
   /** The host's request budget, handed to each `tools/call` dispatch. */
-  signal?: AbortSignal;
-  /** Budget, in milliseconds, of the signal each `tools/call` creates when `signal` is omitted (default 30000). */
+  budget?: CapabilityRequestBudget;
+  /** Budget, in milliseconds, of the signal each `tools/call` creates when `budget` is omitted (default 30000). */
   timeoutMs?: number;
   /** Registry resolution failure captured by the outer application runtime. */
   resolutionError?: unknown;
@@ -718,7 +719,7 @@ async function handleToolsCall<TContext>(
       transport: "mcp",
       tokenPrincipal: options.tokenPrincipal,
       onAudit: options.onAudit,
-      signal: options.signal,
+      budget: options.budget,
       timeoutMs: options.timeoutMs,
     });
   } finally {

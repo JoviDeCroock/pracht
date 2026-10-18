@@ -211,4 +211,100 @@ describe("capability abort signal", () => {
 
     expect(probe.aborted).toBe(false);
   });
+
+  it("keeps a standalone dispatch's budget while its waitUntil() work runs", async () => {
+    const probe: Probe = { aborted: false };
+    const capability = defineCapability({
+      title: "Background",
+      description: "Leaves signal-bound work behind.",
+      effect: "read",
+      input: { type: "object", properties: {}, additionalProperties: false },
+      output: { type: "object", properties: {} },
+      expose: { http: true },
+      async run({ signal, waitUntil }) {
+        signal.addEventListener("abort", () => {
+          probe.aborted = true;
+        });
+        waitUntil(settle(200));
+        return {};
+      },
+    });
+    const app = { capabilities: { "x.bg": "./bg.ts" } };
+    const registry = { capabilityModules: { "./bg.ts": async () => ({ default: capability }) } };
+    const [match] = await resolveAppCapabilities(app, registry);
+    const url = new URL("http://localhost/api/capabilities/x/bg");
+
+    const response = await handleCapabilityRequest({
+      match: match!,
+      context: {},
+      registry,
+      request: new Request(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+      url,
+      exposeErrors: true,
+      timeoutMs: 50,
+    });
+    expect(response.status).toBe(200);
+    await settle(150);
+
+    expect(probe.aborted).toBe(true);
+  });
+
+  it("keeps the request budget for leftover work after a failed remote MCP tool call", async () => {
+    const probe: Probe = { aborted: false };
+    const failing = defineCapability({
+      title: "Failing",
+      description: "Starts signal-bound work, then fails.",
+      effect: "read",
+      input: { type: "object", properties: {}, additionalProperties: false },
+      output: { type: "object", properties: {} },
+      expose: { http: true, mcp: true },
+      async run({ signal }) {
+        signal.addEventListener("abort", () => {
+          probe.aborted = true;
+        });
+        throw new Error("sibling keeps running");
+      },
+    });
+    const app = defineApp({
+      loaderTimeoutMs: 50,
+      agents: { mcp: {} },
+      capabilities: { "x.failing": "./capabilities/failing.ts" },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./capabilities/failing.ts": (async () => ({
+          default: failing,
+        })) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+
+    const response = await handlePrachtRequest({
+      app,
+      registry,
+      request: new Request("http://localhost/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "x_failing", arguments: {} },
+        }),
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("isError");
+    await settle(120);
+
+    expect(probe.aborted).toBe(true);
+  });
 });

@@ -72,47 +72,93 @@ export { CAPABILITY_HTTP_PREFIX, capabilityHttpPath };
 const CAPABILITY_TIMEOUT_MS = 30_000;
 
 /**
- * The signal for a dispatch whose host passed none (a standalone host, or a
- * direct invocation without `signal`): it aborts after `timeoutMs` or when the
- * caller goes away, whichever comes first, so work an agent abandoned stops
- * holding connections instead of running to the timeout. `release()` clears
- * the timer once the dispatch has answered; a pending timer would keep the
- * signal, and everything its listeners close over, alive for the whole budget.
- * The framework passes its request budget's signal instead.
+ * The part of a host's request budget a capability dispatch uses: the signal
+ * middleware and `run()` receive, and a hold that keeps its timer running
+ * while work can still read that signal.
  */
-function createDispatchSignal(
+export interface CapabilityRequestBudget {
+  readonly signal: AbortSignal;
+  /** Keep the budget's timer running until the returned function is called. */
+  hold(): () => void;
+}
+
+/**
+ * The budget for a dispatch whose host passed none (a standalone host, or a
+ * direct invocation without `signal`): its signal aborts after `timeoutMs` or
+ * when the caller goes away, whichever comes first, so work an agent abandoned
+ * stops holding connections instead of running to the timeout. The dispatch
+ * holds it until `release()`, and each `waitUntil()` task until it settles;
+ * the last release clears the timer, since a pending timer keeps the signal,
+ * and everything its listeners close over, alive for the whole budget. The
+ * framework passes its request budget instead.
+ */
+function createDispatchBudget(
   request: Request,
   timeoutMs: number = CAPABILITY_TIMEOUT_MS,
-): { signal: AbortSignal; release(): void } {
+): CapabilityRequestBudget & { release(): void } {
   const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The dispatch's own hold, released through `release()`.
+  let holds = 1;
+  const clear = () => {
+    clearTimeout(timer);
+    timer = undefined;
+  };
+  const once = () => {
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      if (holds > 0 && --holds === 0) clear();
+    };
+  };
+  const budget = {
+    signal: controller.signal,
+    hold() {
+      if (holds === 0) return () => {};
+      holds++;
+      return once();
+    },
+    release: once(),
+  };
+
   const clientSignal = request.signal as AbortSignal | undefined;
   if (clientSignal?.aborted) {
     controller.abort(clientSignal.reason);
-    return { signal: controller.signal, release: () => {} };
+    return budget;
   }
-  const timer = setTimeout(() => {
+  timer = setTimeout(() => {
     controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
   }, timeoutMs);
   // A budget must not keep a process alive on its own.
   (timer as { unref?: () => void }).unref?.();
-  const release = () => clearTimeout(timer);
   if (clientSignal) {
     const onClientAbort = () => controller.abort(clientSignal.reason);
     clientSignal.addEventListener("abort", onClientAbort, { once: true });
     controller.signal.addEventListener(
       "abort",
       () => {
-        release();
+        clear();
         clientSignal.removeEventListener("abort", onClientAbort);
       },
       { once: true },
     );
   }
-  return { signal: controller.signal, release };
+  return budget;
+}
+
+/** `waitUntil` that keeps `budget` running until each task settles. */
+function holdingWaitUntil(budget: CapabilityRequestBudget, waitUntil: WaitUntil): WaitUntil {
+  return (promise) => {
+    const release = budget.hold();
+    waitUntil(promise);
+    void Promise.resolve(promise).then(release, release);
+  };
 }
 
 type DispatchOptions<TContext> = HandleCapabilityRequestOptions<TContext> & {
   signal: AbortSignal;
+  waitUntil: WaitUntil;
 };
 
 /** Names must be URL-safe: dot-separated segments of [a-z0-9_-]. */
@@ -657,12 +703,13 @@ export interface HandleCapabilityRequestOptions<TContext> {
   tokenPrincipal?: McpTokenPrincipal;
   onAudit?: CapabilityAuditHook;
   /**
-   * The signal middleware and `run()` receive: the host's request budget.
-   * When omitted, the dispatch gets its own, which aborts after `timeoutMs`
-   * or when `request.signal` does, and stops timing once it has answered.
+   * The host's request budget: middleware and `run()` receive its signal,
+   * and `waitUntil()` work and a failed dispatch hold it. When omitted, the
+   * dispatch gets its own, which aborts after `timeoutMs` or when
+   * `request.signal` does.
    */
-  signal?: AbortSignal;
-  /** Budget, in milliseconds, of the signal created when `signal` is omitted (default 30000). */
+  budget?: CapabilityRequestBudget;
+  /** Budget, in milliseconds, of the one created when `budget` is omitted (default 30000). */
   timeoutMs?: number;
 }
 
@@ -675,13 +722,26 @@ export interface HandleCapabilityRequestOptions<TContext> {
 export async function handleCapabilityRequest<TContext>(
   options: HandleCapabilityRequestOptions<TContext>,
 ): Promise<Response> {
-  if (options.signal) return dispatchCapabilityRequest(options as DispatchOptions<TContext>);
-  const own = createDispatchSignal(options.request, options.timeoutMs);
+  const own = options.budget ? undefined : createDispatchBudget(options.request, options.timeoutMs);
+  const budget = options.budget ?? own!;
+  let response: Response;
   try {
-    return await dispatchCapabilityRequest({ ...options, signal: own.signal });
-  } finally {
-    own.release();
+    response = await dispatchCapabilityRequest({
+      ...options,
+      signal: budget.signal,
+      waitUntil: holdingWaitUntil(budget, requestWaitUntil(options.request)),
+    });
+  } catch (error: unknown) {
+    own?.release();
+    throw error;
   }
+  // A failed dispatch may have left work running against the signal, such as
+  // a sibling of the call that threw, so its budget keeps timing until it
+  // fires. Remote MCP answers tool errors with HTTP 200, so only this layer
+  // can tell.
+  if (response.status >= 400) budget.hold();
+  own?.release();
+  return response;
 }
 
 async function dispatchCapabilityRequest<TContext>(
@@ -809,7 +869,7 @@ async function dispatchCapabilityHttpWithApiMiddleware<TContext>(
       route: capabilityMiddlewareRoute(options.match),
       signal: options.signal,
       url: options.url,
-      waitUntil: requestWaitUntil(options.request),
+      waitUntil: options.waitUntil,
       terminal: async () => {
         holder.dispatched = await dispatchCapabilityHttp(options);
         return holder.dispatched.response;
@@ -982,7 +1042,7 @@ async function dispatchCapabilityHttp<TContext>(
       url: options.url,
       pathname: options.pathname,
       exposeErrors: options.exposeErrors,
-      waitUntil: requestWaitUntil(options.request),
+      waitUntil: options.waitUntil,
       beforeRun,
     });
 
@@ -1620,7 +1680,12 @@ export async function invokeCapabilityOnHost<T = unknown>(
   const started = performance.now();
   let context: unknown = ctx.context ?? {};
   let outcome: CapabilityPipelineOutcome;
-  const own = ctx.signal ? undefined : createDispatchSignal(ctx.request);
+  // Without a caller's signal the invocation runs on its own budget, held by
+  // its `waitUntil()` work and, when it fails, until the timer fires.
+  const own = ctx.signal ? undefined : createDispatchBudget(ctx.request);
+  const waitUntil = own
+    ? holdingWaitUntil(own, host.waitUntil ?? detachedWaitUntil)
+    : (host.waitUntil ?? detachedWaitUntil);
   try {
     context = capabilityPipelineContext(host, ctx.context);
     outcome =
@@ -1635,7 +1700,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
         url: new URL(ctx.request.url),
         // Direct invocation stays server-side, so real error messages are safe.
         exposeErrors: true,
-        waitUntil: host.waitUntil ?? detachedWaitUntil,
+        waitUntil,
       }));
   } catch (error: unknown) {
     // Middleware resolution/execution can throw (bad module, a middleware that
@@ -1662,8 +1727,6 @@ export async function invokeCapabilityOnHost<T = unknown>(
       host.waitUntil ?? detachedWaitUntil,
     );
     return envelope as CapabilityEnvelope<T>;
-  } finally {
-    own?.release();
   }
 
   // Direct invocation audits like HTTP dispatch does, marked as the "server"
@@ -1672,6 +1735,7 @@ export async function invokeCapabilityOnHost<T = unknown>(
   // Bot Auth is enabled.
   const agent = capabilityHostAgent(host, context);
   const status = outcome.kind === "envelope" ? outcome.status : outcome.response.status;
+  if (status < 400) own?.release();
   const auditOutcome =
     outcome.kind === "envelope" ? envelopeOutcome(outcome.envelope) : `middleware_${status}`;
   emitCapabilityAudit(

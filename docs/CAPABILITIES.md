@@ -187,13 +187,15 @@ When you want to state it explicitly, pass both
 
 `signal` aborts when the caller disconnects — HTTP or the remote MCP
 transport request — or when the request budget runs out. Under
-`handlePrachtRequest` it is the request's own budget signal (the one API routes
-get, `defineApp({ loaderTimeoutMs })`, 30 s by default), passed in as
-`handleCapabilityRequest({ signal })` / `handleMcpRequest({ signal })`, so its
-timer stops with the request's (see the request budget in
-[DATA_LOADING.md](DATA_LOADING.md)). A host that passes no `signal` (the
-standalone host, `invokeCapability()` without one) gets a per-dispatch signal of
-`timeoutMs` (30 s) whose timer is cleared once the dispatch answers. The
+`handlePrachtRequest` it is the request's own budget (the one API routes get,
+`defineApp({ loaderTimeoutMs })`, 30 s by default), passed in as
+`handleCapabilityRequest({ budget })` / `handleMcpRequest({ budget })` (see the
+request budget in [DATA_LOADING.md](DATA_LOADING.md)). The dispatch holds it
+while `waitUntil()` work runs, and a failed dispatch (status 400 and up, before
+MCP turns it into a 200 tool error) keeps it until the timer fires. A host that
+passes no budget (the standalone host, `invokeCapability()` without a
+`signal`) gets a per-dispatch one of `timeoutMs` (30 s) with the same holds,
+cleared once the dispatch answers and its work settles. The
 `api.middleware` chain and capability middleware receive the same signal.
 
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the

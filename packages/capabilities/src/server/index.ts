@@ -45,6 +45,7 @@ export {
   setCapabilityAuditHook,
   type CapabilityHost,
   type CapabilityHostApp,
+  type CapabilityRequestBudget,
   type HandleCapabilityRequestOptions,
   type InvokeCapabilityContext,
   type ResolvedCapability,
