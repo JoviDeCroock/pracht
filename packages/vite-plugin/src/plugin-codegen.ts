@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, join, posix, resolve } from "node:path";
 import { parseAst } from "vite";
 import { getRolldownLang, PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import {
@@ -1538,7 +1538,12 @@ function createClientRouteHintTable(
   const keys = new Set([...Object.keys(hints.loader), ...Object.keys(hints.head)]);
   for (const key of keys) {
     if (!key.startsWith("/")) continue;
-    table[key] =
+    // The entry canonicalizes every ref before the lookup (`..` and `.`
+    // segments collapse), so a configured directory like
+    // `/src/other/../routes` must produce the same key.
+    const canonical = posix.normalize(key);
+    table[canonical] =
+      (table[canonical] ?? 0) |
       (hints.loader[key] === true ? HINT_LOADER : 0) |
       (hints.head[key] === true ? HINT_HEAD : 0) |
       (staticPaths && hints.staticPaths[key] === true ? HINT_STATIC_PATHS : 0);

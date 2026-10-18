@@ -1040,6 +1040,24 @@ describe("client route module build", () => {
     expect(data.hasStaticPaths).toBeUndefined();
   });
 
+  it("keys the client hints the way the entry canonicalizes refs", () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "routes"), { recursive: true });
+    writeFileSync(join(root, "src", "routes.ts"), "export const app = {};\n");
+    writeFileSync(
+      join(root, "src", "routes", "data.tsx"),
+      "export async function loader() { return {}; }\nexport default function Data() {}\n",
+    );
+
+    const source = createPrachtClientModuleSource(
+      { appFile: "/src/routes.ts", routesDir: "/src/other/../routes" },
+      { root },
+    );
+    expect(clientRouteHints(source)["/src/routes/data.tsx"]).toBe(1);
+    const [data] = applyClientRouteHints(source, [{ file: "./routes/data.tsx" }]);
+    expect(data!.hasLoader).toBe(true);
+  });
+
   it("ships getStaticPaths() hints to the client only for static-export builds", () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "routes"), { recursive: true });

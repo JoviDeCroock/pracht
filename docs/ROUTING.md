@@ -969,9 +969,10 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   defines it `false` for a build in which no shell (manifest shells directory,
   pages `_app` files) exports a `loader`, fail-closed on an incomplete scan, and
   `true` in dev. With `false` the router, route-state fetch, prefetch and
-  revalidation fold their shell branches away and the client entry leaves the
-  shell rows out of its loader hint table, so such an app ships exactly what it
-  shipped before shell loaders existed (`bench:check` holds it to that).
+  revalidation fold their shell branches away and the client entry's
+  `applyRouteHints` drops its `hasShellLoader` line, so such an app ships no
+  shell-data code (`bench:check` holds it to that). Shell rows stay in the
+  hint table for their head bit.
 - The router records the committed shell and its data (`committedShell`,
   `committedShellState`), provides it through `ShellDataContext`, and
   publishes the held shell name through `setHeldShell()`. A navigation to a
@@ -992,8 +993,8 @@ Client side (`router.ts`, `runtime-shell-data.ts`):
   does not evict prefetched entries (route data has the same 30 s window), so
   re-entering a shell soon after a revalidation can show the prefetched shell
   data; a `<Form>` submission clears the prefetch cache.
-- `hasShellLoader` is a build-time route hint (shell loader presence from the
-  loader hint table, which scans shells and pages `_app` files too). A
+- `hasShellLoader` is a build-time route hint (the loader bit of the shell's
+  row in the client hint table, which scans shells and pages `_app` files too). A
   loaderless, headless, middleware-free route skips the route-state request
   only when its shell has no loader or the client already holds its data. The
   static export and `pracht verify` reject SPA routes whose shell has a loader.
