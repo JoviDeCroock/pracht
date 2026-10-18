@@ -81,12 +81,7 @@ import {
   wrapWithRoot,
   type RequestRoot,
 } from "./runtime-root.ts";
-import {
-  composeRequestSignal,
-  combineRequestSignals,
-  isClientDisconnect,
-  type PrachtRequestContext,
-} from "./runtime-request.ts";
+import { isClientDisconnect, type PrachtRequestContext } from "./runtime-request.ts";
 import {
   applyRouteSearch,
   createPageRouteArgs,
@@ -316,7 +311,6 @@ export interface PageRenderOptions {
  */
 interface PageRenderJob<TContext> {
   ctx: PrachtRequestContext<TContext>;
-  abortController?: AbortController;
   willStream: boolean;
   match: RouteMatch;
   pageOptions: PageRenderOptions;
@@ -818,37 +812,46 @@ async function renderServerDocument<TContext>(
       viewTransitions: ctx.resolvedApp.viewTransitions === true,
     });
 
-    return await streamingHtmlResponse({
-      tree,
-      prefix,
-      afterShell,
-      suffix,
-      status: pageOptions.status,
-      headers: documentHeaders,
-      signal: job.routeArgs.signal,
-      pending,
-      nonce: head.scriptNonce,
-      exposeErrorDetails: ctx.exposeDiagnostics,
-      onError: (error) => {
-        // Past the first flush there is no error document to send, so the
-        // only remaining job is to make the failure visible server-side.
-        reportRequestError(ctx.options.onRouteError, error, ctx.requestPath, {
-          phase: "render",
-          routeFile: match.route.file,
-          routeId: match.route.id,
-          routePath: match.route.path,
-          shellFile: match.route.shellFile,
-          loaderFile: job.loaderFile,
-          middlewareFiles: [...(match.route.middlewareFiles ?? [])],
-        });
-        console.error("[pracht] streaming render failed after the first flush:", error);
-      },
-      onCancel: () => {
-        job.abortController?.abort(
-          new DOMException("The streaming response consumer disconnected.", "AbortError"),
-        );
-      },
-    });
+    // The streamed body keeps rendering after this returns, so it holds the
+    // request budget until it ends.
+    const releaseBudget = ctx.budget.hold();
+    try {
+      return await streamingHtmlResponse({
+        tree,
+        prefix,
+        afterShell,
+        suffix,
+        status: pageOptions.status,
+        headers: documentHeaders,
+        signal: job.routeArgs.signal,
+        pending,
+        nonce: head.scriptNonce,
+        exposeErrorDetails: ctx.exposeDiagnostics,
+        onError: (error) => {
+          // Past the first flush there is no error document to send, so the
+          // only remaining job is to make the failure visible server-side.
+          reportRequestError(ctx.options.onRouteError, error, ctx.requestPath, {
+            phase: "render",
+            routeFile: match.route.file,
+            routeId: match.route.id,
+            routePath: match.route.path,
+            shellFile: match.route.shellFile,
+            loaderFile: job.loaderFile,
+            middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+          });
+          console.error("[pracht] streaming render failed after the first flush:", error);
+        },
+        onCancel: () => {
+          ctx.budget.abort(
+            new DOMException("The streaming response consumer disconnected.", "AbortError"),
+          );
+        },
+        onSettled: releaseBudget,
+      });
+    } catch (error) {
+      releaseBudget();
+      throw error;
+    }
   }
 
   const renderToString = await getRenderToStringAsync();
@@ -1024,18 +1027,16 @@ async function runPageTerminal<TContext>(job: PageRenderJob<TContext>): Promise<
 /**
  * Render one page match through the middleware → loader → render pipeline.
  *
- * `inheritedSignal` is passed by the not-found re-render below so a loader that
- * spent 29 of 30 seconds before throwing `notFound()` cannot buy the 404 page a
- * fresh 30 on top.
+ * The signal comes from the request's one budget, so the not-found re-render
+ * below cannot buy the 404 page a fresh budget on top of a loader that spent
+ * 29 of 30 seconds before throwing `notFound()`.
  */
 export async function renderPage<TContext>(
   ctx: PrachtRequestContext<TContext>,
   match: RouteMatch,
   pageOptions: PageRenderOptions,
-  inheritedSignal?: AbortSignal,
 ): Promise<Response> {
   const { options, registry, request } = ctx;
-  // One budget per request.
   const willStream =
     match.route.streaming === true &&
     (match.route.render ?? "ssr") === "ssr" &&
@@ -1043,23 +1044,18 @@ export async function renderPage<TContext>(
     request.method === "GET" &&
     !ctx.isRouteStateRequest &&
     !prefersMarkdown(request.headers.get("accept"));
-  const abortController = willStream ? new AbortController() : undefined;
-  const budgetSignal = inheritedSignal ?? composeRequestSignal(request, ctx.loaderTimeoutMs);
-  const requestSignal = abortController
-    ? combineRequestSignals(budgetSignal, abortController.signal)
-    : budgetSignal;
   const pageContext = ctx.context;
   const routeArgs: LoaderArgs<TContext> = createPageRouteArgs(options, match, {
     request,
     url: ctx.url,
     context: pageContext,
-    signal: requestSignal,
+    budget: ctx.budget,
     requestPath: ctx.requestPath,
   });
+  const requestSignal = routeArgs.signal;
   const timings = options.timings;
   const job: PageRenderJob<TContext> = {
     ctx,
-    abortController,
     willStream,
     match,
     pageOptions,
@@ -1205,12 +1201,7 @@ export async function renderPage<TContext>(
       if (notFoundMatch) {
         const module = job.routeModule ?? (await job.routeModulePromise?.catch(() => undefined));
         if (!module?.ErrorBoundary) {
-          return renderPage(
-            ctx,
-            notFoundMatch,
-            { isNotFoundPage: true, status: 404 },
-            requestSignal,
-          );
+          return renderPage(ctx, notFoundMatch, { isNotFoundPage: true, status: 404 });
         }
       }
     }
