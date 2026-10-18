@@ -133,10 +133,6 @@ export function getIslandsClientEntryUrl(): string | undefined {
   return islandsClientEntryUrl;
 }
 
-export function hasRegisteredIslands(): boolean {
-  return islandRegistry.size > 0;
-}
-
 /** @internal Reset module state for tests. */
 export function _resetIslandsForTesting(): void {
   islandRegistry.clear();
