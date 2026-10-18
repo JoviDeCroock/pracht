@@ -69,6 +69,7 @@ import {
   writeNodeResponseHeaders,
   writeWebResponse,
 } from "./node-request.ts";
+import type { SharedHeadersManifest } from "@pracht/core/server";
 import {
   applyHeadersManifest,
   resolveStaticFile,
@@ -103,7 +104,7 @@ export interface NodeAdapterOptions<TContext = unknown> {
   cssManifest?: Record<string, string[]>;
   cssContentManifest?: Record<string, string>;
   jsManifest?: Record<string, string[]>;
-  headersManifest?: HeadersManifest;
+  headersManifest?: HeadersManifest | SharedHeadersManifest;
   /** Exact Markdown-capable routes. Omit to preserve negotiation for legacy/custom entries. */
   markdownManifest?: MarkdownManifest;
   createContext?: (args: NodeAdapterContextArgs) => TContext | Promise<TContext>;
@@ -574,7 +575,7 @@ async function serveStaticFile(
   request: Request,
   res: ServerResponse,
   staticResult: { filePath: string; contentType: string; cacheControl: string },
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   isgManifest: Record<string, ISGManifestEntry>,
   pathname: string,
   compression: CompressionState | undefined,
@@ -820,7 +821,7 @@ async function serveISGEntry<TContext>(
   staticDir: string,
   pathname: string,
   entry: ISGManifestEntry,
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   compression: CompressionState | undefined,
   waitUntil: (promise: Promise<unknown>) => void,
   writeGuard: ISGSnapshotWriteGuard,
@@ -1033,7 +1034,7 @@ function resolveContainedPath(staticDir: string, pathname: string): string | nul
 function applySnapshotOrManifestHeaders(
   headers: Headers,
   snapshotHeaders: Record<string, string> | null,
-  headersManifest: HeadersManifest,
+  headersManifest: HeadersManifest | SharedHeadersManifest,
   pathname: string,
 ): void {
   if (!snapshotHeaders) {

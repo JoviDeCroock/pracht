@@ -191,7 +191,13 @@ legitimate route whose base-free path is `/my-project`.
 max-age=31536000, immutable`; HTML and other files get `public, max-age=0,
 must-revalidate`. Clean URLs (e.g. `/about`) resolve to `about/index.html`.
 Prerendered HTML receives route and shell document headers from
-`dist/server/headers-manifest.json`. Node, Cloudflare, and Netlify look recorded
+`dist/server/headers-manifest.json`. When the generated entry exports
+`headersManifestFormat = 2` (Node, Netlify, and Cloudflare entries do), the
+build writes it in the shared form `{ version: 2, sets, paths }`: each distinct
+header set once, and every path naming its set by index, so the file grows with
+the page count rather than with every page's headers. Static exports, Vercel,
+and custom entries keep the flat `{ "<path>": { ...headers } }` map. Core's
+`getManifestHeaders()` reads either form. Node, Cloudflare, and Netlify look recorded
 headers up by the exact pathname, then without a trailing slash, then without
 `/index.html`. Exact routes with raw Markdown
 representations are recorded separately in `dist/server/markdown-manifest.json`.

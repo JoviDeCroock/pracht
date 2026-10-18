@@ -673,6 +673,56 @@ export function describeInlineCssOpportunity(options: {
   );
 }
 
+/**
+ * The files `public/` or Vite already put where a page's route-state JSON
+ * would go, by route path. Run once, before the first page is written, so
+ * each scan sees only those files and not the state files the build writes.
+ */
+export function findStaticRouteStateConflicts(
+  clientDir: string,
+  paths: ReadonlyArray<{ path: string }>,
+): Map<string, string> {
+  const conflicts = new Map<string, string>();
+  for (const { path } of paths) {
+    const existingPath = findPortableOutputConflict(
+      clientDir,
+      resolveRouteStateOutputPath(clientDir, path),
+    );
+    if (existingPath) conflicts.set(path, existingPath);
+  }
+  return conflicts;
+}
+
+/**
+ * Write one page's route-state JSON as soon as the page renders, refusing to
+ * replace a file `public/` or Vite put in the reserved namespace
+ * (`existingPath`, from {@link findStaticRouteStateConflicts}).
+ */
+export function writeStaticRouteState(
+  clientDir: string,
+  routePath: string,
+  routeState: string,
+  existingPath: string | undefined,
+): void {
+  const filePath = resolveRouteStateOutputPath(clientDir, routePath);
+  assertNoStateOutputConflicts(existingPath ? [{ existingPath, routePath }] : []);
+  mkdirSync(dirname(filePath), { recursive: true });
+  writeFileSync(filePath, routeState, "utf-8");
+}
+
+function assertNoStateOutputConflicts(
+  conflicts: Array<{ existingPath: string; routePath: string }>,
+): void {
+  if (conflicts.length === 0) return;
+  throw new Error(
+    "Static export route-state output conflicts with existing files copied from public/ or emitted by Vite:\n" +
+      conflicts
+        .map(({ existingPath, routePath }) => `    - ${routePath} would overwrite ${existingPath}`)
+        .join("\n") +
+      "\nRemove the conflicting files from the reserved public/_pracht/state/ namespace.",
+  );
+}
+
 export interface StaticArtifactsResult {
   stateFileCount: number;
   wrote404: boolean;
@@ -742,7 +792,7 @@ function hasUnshadowedClientRoutableSpaCatchAll(routes: StaticRouteView[]): bool
 }
 
 function assertNoFixedArtifactRouteCollisions(
-  pages: Array<{ path: string }>,
+  pages: ReadonlyArray<{ path: string }>,
   fixedFiles: string[],
 ): void {
   const collisions: string[] = [];
@@ -769,7 +819,7 @@ function assertNoFixedArtifactRouteCollisions(
   }
 }
 
-function assertNoPrerenderedPageOutputCollisions(pages: Array<{ path: string }>): void {
+function assertNoPrerenderedPageOutputCollisions(pages: ReadonlyArray<{ path: string }>): void {
   const virtualClientDir = resolve(sep, "__pracht_static_output__");
   const outputs = pages.map((page) => {
     const outputPath = resolveStaticExportOutputPath(virtualClientDir, page.path);
@@ -870,7 +920,7 @@ function normalizePortableOutputPart(part: string, pagePath: string): string {
  * manifest, so they must be checked at this boundary as well.
  */
 export function validateStaticExportOutputPaths(
-  pages: Array<{ path: string }>,
+  pages: ReadonlyArray<{ path: string }>,
   serverMod: StaticServerModuleView,
 ): void {
   const reservedPaths = pages.filter((page) => isReservedStaticOutputPath(page.path));
@@ -902,6 +952,8 @@ export async function writeStaticExportArtifacts(options: {
   pages: Array<{ path: string; routeState?: string }>;
   serverMod: StaticServerModuleView;
   log: (message: string) => void;
+  /** Route-state files already written with {@link writeStaticRouteState}. */
+  writtenStateFileCount?: number;
 }): Promise<StaticArtifactsResult> {
   const { clientDir, pages, serverMod, log } = options;
   const configuredFallback = serverMod.staticExportConfig?.fallback ?? null;
@@ -989,23 +1041,14 @@ export async function writeStaticExportArtifacts(options: {
         ]
       : [],
   );
-  const existingStateOutputs = stateOutputs.flatMap(({ filePath, routePath }) => {
-    const existingPath = findPortableOutputConflict(clientDir, filePath);
-    return existingPath ? [{ existingPath, routePath }] : [];
-  });
-  if (existingStateOutputs.length > 0) {
-    throw new Error(
-      "Static export route-state output conflicts with existing files copied from public/ or emitted by Vite:\n" +
-        existingStateOutputs
-          .map(
-            ({ existingPath, routePath }) => `    - ${routePath} would overwrite ${existingPath}`,
-          )
-          .join("\n") +
-        "\nRemove the conflicting files from the reserved public/_pracht/state/ namespace.",
-    );
-  }
+  assertNoStateOutputConflicts(
+    stateOutputs.flatMap(({ filePath, routePath }) => {
+      const existingPath = findPortableOutputConflict(clientDir, filePath);
+      return existingPath ? [{ existingPath, routePath }] : [];
+    }),
+  );
 
-  let stateFileCount = 0;
+  let stateFileCount = options.writtenStateFileCount ?? 0;
   for (const { filePath, routeState } of stateOutputs) {
     mkdirSync(dirname(filePath), { recursive: true });
     writeFileSync(filePath, routeState, "utf-8");

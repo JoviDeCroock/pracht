@@ -221,8 +221,10 @@ test("prerendered SSG pages include client JS and working framework context", as
     expect(existsSync(htmlPath)).toBe(true);
     expect(existsSync(headersPath)).toBe(true);
     const html = readFileSync(htmlPath, "utf-8");
+    // The worker reads the shared form: each header set once, paths by index.
     const headers = JSON.parse(readFileSync(headersPath, "utf-8"));
-    expect(headers["/"]["x-pracht-shell"]).toBe("public");
+    expect(headers.version).toBe(2);
+    expect(headers.sets[headers.paths["/"]]["x-pracht-shell"]).toBe("public");
 
     // Must include the client entry script for hydration
     expect(html).toMatch(/<script type="module" src="\/assets\/client-[^"]+\.js"><\/script>/);
