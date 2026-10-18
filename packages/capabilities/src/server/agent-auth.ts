@@ -24,6 +24,7 @@
 
 import type { PrachtAgentIdentity } from "../protocol.ts";
 import type { WebBotAuthConfig, WebBotAuthStaticKey } from "./types.ts";
+import { base64UrlEncode } from "./base64url.ts";
 import { decodeBody, readBoundedBody } from "./body.ts";
 
 export const SIGNATURE_AGENT_DIRECTORY_PATH = "/.well-known/http-message-signatures-directory";
@@ -287,12 +288,6 @@ function base64Decode(value: string): Uint8Array {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
-}
-
-function base64UrlEncode(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /**
