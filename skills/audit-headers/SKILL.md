@@ -103,15 +103,14 @@ permanently and submit to the preload list.
 
 ## Step 4: Content-Security-Policy
 
-Start from the canonical starter policy in <https://pracht.resynapse.dev/docs/recipes/csp> — it includes
-`'inline-speculation-rules'` in `script-src`, required for routes that opt
-into `speculation` (they emit an inline
-`<script type="speculationrules">`). Then add observed origins:
+Start from the starter policy in <https://pracht.resynapse.dev/docs/recipes/csp>,
+then adjust it for speculation and add observed origins:
 
 1. Check which routes use `speculation`: read the `speculation` field from
    `pracht inspect routes --json` (requires a current `@pracht/cli`; on older
-   CLIs, grep the manifest for `speculation:` instead). If none do,
-   `'inline-speculation-rules'` can be dropped.
+   CLIs, grep the manifest for `speculation:` instead). Those routes emit an
+   inline `<script type="speculationrules">`, so add
+   `'inline-speculation-rules'` to `script-src` unless you use a nonce.
 2. Grep the app for fetch URLs, image URLs, CSS `@import`, `<script src>`,
    `<link href>`, font URLs, iframe sources.
 3. Group by directive: `default-src`, `script-src`, `style-src`, `img-src`,
