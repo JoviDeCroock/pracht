@@ -166,8 +166,10 @@ Work in order; stop at the root cause.
   `virtual:pracht/islands-client` (islands hydration).
 - HMR only watches `src/routes/`, `src/shells/`, `src/middleware/`,
   `src/api/`, `src/server/`, `src/islands/`.
-- What each change does: editing `src/routes.ts` restarts the dev server
-  (`server.restart()`, not a browser reload). Route, shell, and island
+- What each change does: editing `src/routes.ts`, or a module it imports
+  routes from, applies the new routes in place, reprints the dev banner, and
+  reloads the page (an adapter that runs its own dev server, like Cloudflare,
+  restarts it instead). Route, shell, and island
   components use Preact Fast Refresh; route/shell edits and client-reachable
   loader dependencies also re-fetch active route data, with rapid saves
   coalesced so the newest result settles last and a failed latest refresh

@@ -18,7 +18,7 @@ import {
 afterEach(cleanupTempDirs);
 
 describe("@pracht/cli dev banner", () => {
-  it("pracht dev prints the banner again after a manifest edit restarts the server", async () => {
+  it("pracht dev prints the banner again after a manifest edit", async () => {
     const appDir = createRepoTempDir("pracht-cli-dev-banner-restart-");
     writeTypedManifestApp(appDir);
     const manifestPath = join(appDir, "src/routes.ts");
@@ -66,6 +66,8 @@ describe("@pracht/cli dev banner", () => {
 
       expect(routeCount(plain()).at(-1)).toBe(String(Number(initial) + 1));
       expect(plain().split("Routes (").at(-1)).toContain("/added");
+      // The edit is applied in place, so this banner is not a restart's.
+      expect(plain()).not.toContain("server restarted");
     } finally {
       await stopChild(child);
     }

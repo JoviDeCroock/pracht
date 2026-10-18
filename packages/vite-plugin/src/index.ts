@@ -236,6 +236,8 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       llmsTxtEnabled: Boolean(resolved.llmsTxt),
       pracht: {
         staticTarget: resolved.adapter.staticTarget === true,
+        // Dev applies a manifest edit in place instead of restarting the server.
+        manifestHotUpdate: resolved.adapter.ownsDevServer !== true,
       },
     },
 

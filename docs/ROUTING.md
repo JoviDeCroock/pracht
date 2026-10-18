@@ -1653,7 +1653,9 @@ reservation even after route files move elsewhere.
 ### Startup Banner
 
 `pracht dev` prints a route table when the server starts, and again after
-every dev-server restart (a `routes.ts` edit restarts it): the local (and
+every edit to the manifest or a module it imports (the `pracht:cli-dev`
+plugin's `handleHotUpdate`, gated on the pracht plugin's
+`api.pracht.manifestHotUpdate`) and after every dev-server restart: the local (and
 network) URL, page routes with their render mode, shell, and middleware, plus
 API routes with their exported HTTP methods. Each table lists its first 25
 rows (`DEV_BANNER_ROW_LIMIT`) and ends with `… and N more (pracht inspect
