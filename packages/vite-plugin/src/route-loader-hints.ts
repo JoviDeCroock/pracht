@@ -592,13 +592,6 @@ export function createRouteLoaderHints(
   return createRouteHints(routesDir, options).loader;
 }
 
-export function createRouteHeadHints(
-  routesDir: string,
-  options: RouteHintOptions = {},
-): Record<string, boolean> {
-  return createRouteHints(routesDir, options).head;
-}
-
 export function createRouteHeadersHints(
   routesDir: string,
   options: RouteHintOptions = {},
