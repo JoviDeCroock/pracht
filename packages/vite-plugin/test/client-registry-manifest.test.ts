@@ -541,6 +541,16 @@ export const app = defineApp({ routes: [${routes}] });
         ),
         "src/opts.ts": "export const options = { streaming: true };\n",
       },
+      // An arrow-wrapped `import()` is a lazy ref only where a ref is written,
+      // not behind a helper the manifest awaits.
+      {
+        "src/routes.ts": manifest(
+          'route("/", "./routes/home.tsx", (await loadOptions()).options)',
+          'import { loadOptions } from "./load.ts";',
+        ),
+        "src/load.ts": 'export const loadOptions = () => import("./opts.ts");\n',
+        "src/opts.ts": "export const options = { streaming: true };\n",
+      },
     ];
     for (const files of cases) {
       const root = project({ ...files, "src/routes/home.tsx": COMPONENT });
