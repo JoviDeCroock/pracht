@@ -687,8 +687,38 @@ Resolves to:
 }
 ```
 
-Runtime matching is a linear scan over this flat array. For typical app sizes
-(tens to low hundreds of routes) this is effectively instant.
+The first route in this flat array whose pattern matches wins: declaration
+order is the precedence rule for the manifest (the pages router sorts by
+specificity before it emits one). The client router finds it with a linear
+scan (`matchResolvedRoute`), and so does the public `matchAppRoute`, which is
+also exported to the browser. The request pipeline (`runtime.ts`, the server
+island endpoint) calls `matchIndexedResolvedRoute` in `route-matching.ts`; it is
+a separate export, not a flag, so client bundles never contain it
+(`package-tree-shaking.test.ts` checks a browser `matchAppRoute` import). That
+builds an index per
+route table on first use: a map of fully static paths, plus the dynamic routes
+bucketed by static first segment and a list of those starting with a parameter
+or catch-all. It tries the dynamic candidates in declaration order and stops at
+the static hit's position, so the result is the scan's. At 1,000 routes a late
+match or a miss drops from tens of microseconds to about one.
+
+Because order is the rule, `resolveApp` warns (dev server and plain Node only,
+never in the browser or a production bundle, so `pracht build` does not print
+it) about what order makes silent:
+
+- a route no URL can reach because an earlier route matches every URL it does
+  (`/blog/:slug` above `/blog/new`, a repeated path, a catch-all or a
+  `/:locale` group declared first). Partial overlaps are legitimate and stay
+  quiet;
+- two routes sharing an id, where `href()` and `<Link route>` take the first.
+
+Both are warnings, not errors: neither fails at runtime today, and turning them
+into build failures would break apps that work. Each message prints once per
+process. A fully static route only covers its own path, so static routes are
+looked up by path; routes with a parameter or catch-all are bucketed by first
+segment, so the check stays close to linear even for thousands of static
+routes. A parameter or catch-all does not cover a static segment that fails to
+percent-decode (`/download/100%`), because matching rejects it there.
 
 ### What reaches the client bundle
 
@@ -1618,9 +1648,12 @@ reservation even after route files move elsewhere.
 
 ### Startup Banner
 
-`pracht dev` prints a route table when the server starts: the local (and
-network) URL, every page route with its render mode, shell, and middleware,
-plus API routes with their exported HTTP methods.
+`pracht dev` prints a route table when the server starts, and again after
+every dev-server restart (a `routes.ts` edit restarts it): the local (and
+network) URL, page routes with their render mode, shell, and middleware, plus
+API routes with their exported HTTP methods. Each table lists its first 25
+rows (`DEV_BANNER_ROW_LIMIT`) and ends with `… and N more (pracht inspect
+routes lists them all)` when there are more.
 
 ```
   pracht dev

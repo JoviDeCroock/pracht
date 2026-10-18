@@ -12,10 +12,10 @@ next:
 
 ## Install
 
-`@pracht/query` connects [`@tanstack/preact-query`](https://tanstack.com/query) to pracht. It creates one `QueryClient` per server request and fills the browser's cache with what the server fetched before the page hydrates. It needs Preact 10, the version `@tanstack/preact-query` supports.
+`@pracht/query` connects [`@tanstack/preact-query`](https://tanstack.com/query) to pracht. It creates one `QueryClient` per server request and fills the browser's cache with what the server fetched before the page hydrates. It needs Preact 10, the version `@tanstack/preact-query` supports. New projects start on Preact 11, so install Preact 10 alongside it:
 
 ```bash
-npm install @pracht/query @tanstack/preact-query
+npm install @pracht/query @tanstack/preact-query preact@^10
 ```
 
 ## 1. Register the app root

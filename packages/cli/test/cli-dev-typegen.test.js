@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -295,7 +296,8 @@ export const routes = [
 
     const child = spawn(process.execPath, [cliPath, "dev", "--port", "5610"], {
       cwd: appDir,
-      env: process.env,
+      // Vite's HMR debug log names every file event its watcher delivers.
+      env: { ...process.env, DEBUG: "vite:hmr" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -308,6 +310,35 @@ export const routes = [
       output += chunk;
     });
     const declaration = () => readFileSync(join(appDir, "src/pracht.d.ts"), "utf-8");
+    // Vite announces "server restarted" before the replacement watcher has
+    // attached to the whole project, and chokidar's `ready` fires early when a
+    // watched path (Vite's .env files) does not exist, so nothing marks the
+    // end of that window. A save inside it is never reported. Save again until
+    // the watcher reports the file, as a developer would; the route-type
+    // assertions below still depend on the current server's watcher.
+    const saveUntilObserved = async (relativePath, contents) => {
+      // A retried new file is re-created, so the watcher sees an add again.
+      const isNewFile = !existsSync(join(appDir, relativePath));
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline) {
+        const mark = output.length;
+        if (isNewFile) rmSync(join(appDir, relativePath), { force: true });
+        writeProjectFile(appDir, relativePath, contents);
+        try {
+          await waitFor(
+            () =>
+              stripVTControlCharacters(output.slice(mark)).includes(
+                `[file change] ${relativePath}`,
+              ),
+            2_000,
+          );
+          return;
+        } catch {
+          // Not reported: the save landed before the watcher attached.
+        }
+      }
+      throw new Error(`The dev server never reported ${relativePath}.\n${output}`);
+    };
 
     try {
       await waitFor(
@@ -318,7 +349,7 @@ export const routes = [
 
       for (const id of ["first-edit", "second-edit", "third-edit"]) {
         const restarts = output.split("server restarted").length;
-        writeProjectFile(appDir, "src/routes.ts", addRoute(id));
+        await saveUntilObserved("src/routes.ts", addRoute(id));
         await waitFor(
           () => declaration().includes(`"${id}"`),
           30_000,
@@ -334,8 +365,7 @@ export const routes = [
       }
 
       // Adding a route source file after the restarts is still observed.
-      writeProjectFile(
-        appDir,
+      await saveUntilObserved(
         "src/api/after-restart.ts",
         "export function GET() {\n  return Response.json({ ok: true });\n}\n",
       );
