@@ -538,7 +538,7 @@ nodeAdapter({
 ```
 
 Custom servers built on `createNodeRequestHandler()` call
-`await handler.closeEventStreams()` then `await handler.drain(timeoutMs)` after
+`await handler.closeEventStreams(timeoutMs)` then `await handler.drain(timeoutMs)` after
 `server.close()`.
 
 ### WebSockets

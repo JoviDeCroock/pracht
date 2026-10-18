@@ -420,9 +420,11 @@ so the exit status is the default one. Edges of that shape:
   responses are destroyed right after `server.close()` via
   `handler.closeEventStreams()` (request `signal` aborts, body stream is
   cancelled; `EventSource` clients reconnect elsewhere), including ones not yet
-  flushed; a 100ms sweep then closes event streams that in-flight requests open
-  later, and the entry awaits the closed streams' handlers before draining so
-  abort-time `waitUntil()` work is kept. Upgraded WebSockets and
+  flushed. From then on a request that answers with an event stream is closed
+  as soon as its headers are staged (`whenResponseHeadersStaged()` in
+  `node-request.ts`), and `closeEventStreams()` resolves only once every request
+  in flight has answered and the closed streams' handlers have returned, so the
+  drain after it keeps their abort-time `waitUntil()` work. Upgraded WebSockets and
   other long streaming responses still hold it until the deadline. The
   `waitUntil()` drain shares that deadline, so work still pending when it
   expires is cut off.

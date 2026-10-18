@@ -234,6 +234,73 @@ describe("closeEventStreams", () => {
     expect(await handler.drain(2_000)).toBe(true);
     expect(work).toEqual(["quiet", "late"]);
   });
+
+  it("waits for a request still answering when called, then drains its stream's work", async () => {
+    const work: string[] = [];
+    const entered = deferred();
+    const answer = deferred();
+    const handler = createNodeRequestHandler({
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/slow.ts"]),
+      canonicalOrigin: "http://localhost",
+      compression: false,
+      registry: {
+        apiModules: {
+          "/src/api/slow.ts": async () => ({
+            GET: async ({
+              request,
+              waitUntil,
+            }: {
+              request: Request;
+              waitUntil(promise: Promise<unknown>): void;
+            }) => {
+              request.signal.addEventListener("abort", () =>
+                waitUntil(new Promise((r) => setTimeout(r, 20)).then(() => work.push("slow"))),
+              );
+              entered.resolve();
+              await answer.promise;
+              return new Response(new ReadableStream(), {
+                headers: { "content-type": "text/event-stream" },
+              });
+            },
+          }),
+        },
+      },
+    });
+    const port = await listen(handler);
+    const req = httpRequest({ hostname: "127.0.0.1", port, path: "/api/slow" });
+    const hungUp = new Promise<void>((resolveHangUp) => {
+      req.on("error", () => resolveHangUp());
+      req.on("close", () => resolveHangUp());
+    });
+    req.end();
+
+    await entered.promise;
+    const closed = handler.closeEventStreams();
+    setTimeout(() => answer.resolve(), 20);
+    await closed;
+    expect(await handler.drain(2_000)).toBe(true);
+    expect(work).toEqual(["slow"]);
+    await hungUp;
+  });
+
+  it("stops waiting for unanswered requests at its timeout", async () => {
+    const entered = deferred();
+    const answer = deferred();
+    const handler = apiHandler(() => {
+      entered.resolve();
+      return answer.promise.then(() => new Response("late")) as unknown as Response;
+    });
+    const port = await listen(handler);
+    const response = get(port, "/api/work");
+
+    await entered.promise;
+    const started = Date.now();
+    await handler.closeEventStreams(50);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    answer.resolve();
+    expect((await response).body).toBe("late");
+  });
 });
 
 describe("server timeouts of the generated Node entry", () => {
