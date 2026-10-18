@@ -284,9 +284,8 @@ the calling agent can hand the token back to itself, and without Web Bot Auth
 or `setCapabilityApprovalPrincipalResolver()` both phases run as `"anonymous"`.
 Register a `CapabilityApprovalStore` for exactly-once commits, and
 `confirmation: { mode: "human" }` for a real human decision — that mode fails
-closed without both a store and an end-user identity: a principal resolver, or
-`agents.mcp.auth` on remote MCP. A Web Bot Auth key alone is refused, because it
-names the agent that all of its users share.
+closed without both a store and an end-user identity (a principal resolver, or
+`agents.mcp.auth` on remote MCP); a Web Bot Auth key alone is refused.
 
 `createSqlApprovalStore({ execute })` from `@pracht/core/server` is the
 first-party durable store — one implementation for Postgres, Cloudflare D1, and

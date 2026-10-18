@@ -373,15 +373,16 @@ function collectHumanApprovalChecks(
   project: ProjectConfig,
   checks: Check[],
 ): void {
-  if (destructiveServed.length === 0 || !projection.humanApproval || projection.mcpAuth) return;
+  if (destructiveServed.length === 0 || !projection.humanApproval) return;
   const scan = scanForSourceCall(project, /\bsetCapabilityApprovalPrincipalResolver\s*\(/);
   if (scan.found) return;
   checks.push(
     createCheck(
       "warning",
       'agents.confirmation.mode is "human", but no `setCapabilityApprovalPrincipalResolver(` ' +
-        `call was found in ${scan.searched.join(", ")} and agents.mcp.auth is not set. Every ` +
-        `call to ${destructiveServed.map((name) => JSON.stringify(name)).join(", ")} will be ` +
+        `call was found in ${scan.searched.join(", ")}. Calls to ` +
+        `${destructiveServed.map((name) => JSON.stringify(name)).join(", ")} that carry no ` +
+        "agents.mcp.auth token will be " +
         "refused with confirmation_unavailable: human approval needs the end user's identity, " +
         "and a Web Bot Auth key names only the agent. Register a resolver from a server-only " +
         "module. Ignore this if the registration lives outside those directories.",
@@ -1241,7 +1242,9 @@ function collectSingleCapabilityChecks(
 
     if (effectValue === "destructive") {
       if (hasMcp) destructiveMcpExposed.push(name);
-      if (!hasWebmcp && (hasHttp || (hasMcp && projection.destructive))) {
+      // `agents.mcp.auth` names the end user on remote MCP only; HTTP callers
+      // still need a principal resolver.
+      if (!hasWebmcp && (hasHttp || (hasMcp && projection.destructive && !projection.mcpAuth))) {
         destructiveServed.push(name);
       }
       if (hasWebmcp) {

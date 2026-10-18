@@ -730,6 +730,27 @@ describe("collectCapabilityChecks", () => {
         expect(warningsOf(checks)).not.toContainEqual(expect.stringContaining(RESOLVER_WARNING));
       });
 
+      it("still warns for HTTP exposure when only agents.mcp.auth is set", () => {
+        const previous = process.env.PRACHT_CONFIRMATION_SECRET;
+        process.env.PRACHT_CONFIRMATION_SECRET = "verify-test-secret";
+        try {
+          const checks: Check[] = [];
+          collectCapabilityChecks(
+            createProject({
+              capability: DESTRUCTIVE_MCP.replace("expose: { mcp: true }", "expose: { http: true }"),
+              appBlock:
+                '  agents: { confirmation: { mode: "human" }, mcp: { destructive: true, auth: AUTH } },',
+              extraFiles: { "server/approvals.ts": STORE_MODULE },
+            }),
+            checks,
+          );
+          expect(warningsOf(checks)).toContainEqual(expect.stringContaining(RESOLVER_WARNING));
+        } finally {
+          if (previous === undefined) delete process.env.PRACHT_CONFIRMATION_SECRET;
+          else process.env.PRACHT_CONFIRMATION_SECRET = previous;
+        }
+      });
+
       it("stays quiet in token mode", () => {
         const checks = checksFor({
           appBlock: "  agents: { mcp: { destructive: true } },",
