@@ -55,5 +55,13 @@
     "citty": "^0.1.6",
     "playwright-core": "^1.59.1",
     "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "vite": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   }
 }

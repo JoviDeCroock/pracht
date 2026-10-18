@@ -71,6 +71,9 @@ Work in order; stop at the root cause.
   relative paths like `"./routes/home.tsx"` — check for typos.
 - Dynamic segments: `route("/users/:id", ...)` in the manifest, `[id].ts` in
   filenames.
+- Wrong page renders: manifest routes match in declaration order, first match
+  wins. Look for the dev-server warning `Route "..." can never match: the
+  earlier route "..." matches every URL it does` and move the specific route up.
 - If needed, grep the route path across the manifest and check
   `matchAppRoute()`.
 

@@ -12,7 +12,11 @@
 import { parseRouteSearch } from "./api-validation.ts";
 import type { RouteErrorContext, SerializedRouteError } from "./runtime-errors.ts";
 import { runMiddlewareChain } from "./runtime-middleware.ts";
-import { createRequestWaitUntil, type HandlePrachtRequestOptions } from "./runtime-request.ts";
+import {
+  createRequestWaitUntil,
+  type HandlePrachtRequestOptions,
+  type RequestBudget,
+} from "./runtime-request.ts";
 import type { BaseRouteArgs, LoaderArgs, ModuleRegistry, RouteMatch } from "./types.ts";
 
 export interface PageRouteArgsInit<TContext> {
@@ -20,7 +24,8 @@ export interface PageRouteArgsInit<TContext> {
   request: Request;
   url: URL;
   context: TContext;
-  signal: AbortSignal;
+  /** The request's budget: `signal` comes from it, and `waitUntil` holds it. */
+  budget: RequestBudget;
   /** Path `waitUntil` failures are reported under. */
   requestPath: string;
   /** Extra attribution for `waitUntil` failures (e.g. the server island). */
@@ -41,19 +46,25 @@ export function createPageRouteArgs<TContext>(
     request: init.request,
     params: match.params,
     context: init.context,
-    signal: init.signal,
+    signal: init.budget.signal,
     url: init.url,
     route: match.route,
     pathname: match.pathname,
-    waitUntil: createRequestWaitUntil(options, init.requestPath, options.onRouteError, {
-      loaderFile: match.route.loaderFile,
-      middlewareFiles: [...(match.route.middlewareFiles ?? [])],
-      routeFile: match.route.file,
-      routeId: match.route.id,
-      routePath: match.route.path,
-      shellFile: match.route.shellFile,
-      ...init.errorContext,
-    }),
+    waitUntil: createRequestWaitUntil(
+      options,
+      init.requestPath,
+      options.onRouteError,
+      {
+        loaderFile: match.route.loaderFile,
+        middlewareFiles: [...(match.route.middlewareFiles ?? [])],
+        routeFile: match.route.file,
+        routeId: match.route.id,
+        routePath: match.route.path,
+        shellFile: match.route.shellFile,
+        ...init.errorContext,
+      },
+      init.budget,
+    ),
   };
 }
 

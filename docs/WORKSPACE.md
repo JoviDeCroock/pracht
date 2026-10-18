@@ -7,8 +7,15 @@ described in `VISION_MVP.md`.
 
 | Pin | Where | Value |
 | --- | --- | --- |
-| Package manager | root `package.json#packageManager`, both workflows | `pnpm@11.3.0` |
+| Package manager | root `package.json#packageManager`, every workflow that installs pnpm | `pnpm@11.3.0` |
 | Node | root `package.json#engines.node`, `.nvmrc`, `.node-version` | `>=22.18` / `22.22.3` |
+| Preact | every workspace `package.json`, the `create-pracht` scaffold | `11.0.1` / `^11.0.1` |
+
+The published peer ranges accept Preact 10 and 11. The workspace develops on 11,
+the version new projects get, and `.github/workflows/preact-10.yml` reruns the
+unit suite and the `basic` e2e project with `preact` overridden to 10.x. Keep the
+workspace pin, the scaffold's range, and `bench/baseline.json` moving together:
+the published bundle sizes are measured on the workspace pin.
 
 Every published package carries `engines.node: ">=22.18"` too, so an install on
 an older runtime warns instead of failing halfway through a build.
@@ -312,7 +319,9 @@ together, and finishes with E2E — printing output only for the steps that fail
 
 `--check` exists for the places where a rewritten file is a failure rather than
 a fixup — a pre-push hook, or a CI job reusing this script. It changes only the
-two mutating steps; the build still writes `packages/*/dist`.
+two mutating steps; the build still writes `packages/*/dist`. CI's unit job runs
+the same read-only lint (`oxlint` without `--fix`) and the same generated-type
+check, so a change that passes `verify` cannot fail CI on either.
 
 `bench:check` (`node bench/run.mjs --bytes-only --check`) is the client-byte
 gate CI runs as its own job. Client bytes are deterministic, so a drift is
@@ -321,6 +330,19 @@ cheap enough to sit beside the unit tests rather than be discovered on CI. When
 the drift is intended, run `node bench/run.mjs --bytes-only --update`, commit
 `bench/baseline.json`, and update the published table in
 `examples/docs/src/routes/docs/performance.md`.
+
+`packages/framework/api-report.api.md` is the `@pracht/core` API report: every
+name each `package.json` `exports` subpath exposes, with its kind (`function`,
+`const`, `interface`, …), sorted, one per line. It lists every subpath,
+including the ones only generated code imports (`islands-client`,
+`devtools`, …), because those ship and must stay compatible across
+vite-plugin/core version pairs; exports tagged `@internal` are listed with that
+tag instead of being hidden. `packages/framework/test/api-report.test.ts`
+regenerates it from the sources tsdown compiles (no build needed, about two
+seconds) and fails naming each added or removed export, so it runs in
+`pnpm test`, `verify`, and CI. When the surface change is intended, run
+`pnpm api:update`, commit the report, and give the change a changeset with a
+deliberate bump; a removal or rename breaks apps and needs a migration note.
 
 The individual scripts (`pnpm run build|format|lint|typecheck|test|e2e`) still
 work on their own; `verify` only changes how they are scheduled.
@@ -388,6 +410,11 @@ to regress:
   `node_modules/.vite` directory. Build specs that mutate `dist/`, `.vercel/`,
   or fixture source must copy the example into a per-test `.tmp` project first
   and remove it in `finally`; production-server specs ask the OS for a port.
+- **Every E2E spec belongs to exactly one project.** A Playwright project
+  picks its specs by name, and a spec no project names would never run.
+  `e2e/projects.ts` lists each project's specs, and `playwright.config.ts`
+  refuses to start when a spec in `e2e/` is in no list, in two, or listed but
+  deleted. Add a new spec to the list for the dev server it needs.
 - **E2E timeouts bound hangs, not latency.** The per-test and dev-server-boot
   budgets are deliberately generous. Timing-sensitive specs (pending navigation
   state, hover prefetch) assert on ordering and request counts, so a tight
@@ -396,6 +423,49 @@ to regress:
   the same reason local runs retry once and CI does not: several agent
   workspaces routinely run this suite at once, and re-running one spec is far
   cheaper than re-running `verify`. A real regression fails both attempts.
+
+## Registry-install smoke
+
+Every app in the repo resolves `@pracht/*` through workspace links and the root
+tsconfig `paths`, so a published file that imports a package it never declared
+still works here. The `Package install` workflow runs `pnpm pack:smoke`
+(`scripts/pack-smoke.mjs`; run `pnpm build` first) to install the packages the
+way npm users get them:
+
+- `pnpm pack` every public package under `packages/`, so `workspace:` ranges
+  are rewritten as on publish.
+- Scaffold one app per adapter with the packed `create-pracht`, in a temp
+  directory outside the workspace, and point every `@pracht/*` dependency,
+  direct or transitive (pnpm `overrides`), at the tarballs.
+- Install with `hoist: false` and the virtual store outside the app's
+  `node_modules` — the layout of pnpm's global virtual store. Walking up from a
+  package's real path then never reaches the app's own dependencies, so a
+  package resolves only what its `package.json` declares, as under Yarn PnP.
+- Run the app's `typecheck`, then `pracht build`. Between them a probe file
+  fails if the adapter factory's published return type collapsed to `any`, or
+  if declaration emit cannot name the type of an exported, unannotated adapter.
+- For the Node adapter, serve `/` from the build, then again from an
+  `npm install --omit=dev` copy, which must not contain `vite`,
+  `@pracht/vite-plugin` or `@pracht/cli`.
+
+`--adapter=node` (repeatable or comma-separated) limits the run; `--keep` keeps
+the temp directory. The scaffold's deploy-only CLIs (`vercel`, `netlify-cli`)
+are dropped from the smoke apps because `pracht build` never calls them.
+
+Two consequences for package authors. A runtime package must not take a
+dependency edge — not even an optional peer — on build tooling: npm keeps an
+optional peer that the app has as a devDependency in `--omit=dev` installs, and
+pnpm `--prod` installs its dependencies, which puts Vite in every production
+image. That is why the adapters' published types inline the `PrachtAdapter`
+contract from `packages/vite-plugin/src/plugin-adapter.ts` (their tsdown
+configs do not mark `@pracht/vite-plugin` external, and `scripts/build.mjs`
+lists that file as an adapter build input) instead of importing
+`@pracht/vite-plugin`. Each adapter also re-exports the type as
+`PrachtAdapter`, so declaration emit can name an unannotated
+`export const adapter = nodeAdapter()`. The inlined contract still names `vite`'s `Plugin`
+type, which is present in any app that runs pracht's Vite plugin and degrades
+only `vitePlugins()`' element type where it cannot resolve. Dev-only packages
+such as `@pracht/cli` declare what they import (`vite`, as an optional peer).
 
 ## Later (Phase 2 remaining)
 

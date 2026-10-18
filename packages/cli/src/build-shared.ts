@@ -97,7 +97,7 @@ export function writeVercelBuildOutput({
   staticRoutes,
   trailingSlash = "ignore",
   pageRoutes = [],
-}: VercelBuildOutputOptions): string {
+}: VercelBuildOutputOptions): { outputPath: string; routeCount: number } {
   const deployBase = resolveVercelDeployBase(base);
   const outputDir = join(root, ".vercel/output");
   const staticDir = join(outputDir, "static");
@@ -134,31 +134,24 @@ export function writeVercelBuildOutput({
     deployBase,
   });
 
-  writeFileSync(
-    join(outputDir, "config.json"),
-    `${JSON.stringify(
-      createVercelOutputConfig({
-        functionName,
-        headersManifest,
-        markdownRoutes,
-        runtimeRoutes,
-        staticAssetRoutes,
-        staticRoutes,
-        isgRoutes: Object.keys(isgManifest),
-        deployBase,
-        trailingSlash,
-        pageRoutes,
-        markdownFiles: markdownFiles.map((file) =>
-          relative(staticDir, join(staticDeployDir, file)).split(sep).join("/"),
-        ),
-      }),
-      null,
-      2,
-    )}\n`,
-    "utf-8",
-  );
+  const config = createVercelOutputConfig({
+    functionName,
+    headersManifest,
+    markdownRoutes,
+    runtimeRoutes,
+    staticAssetRoutes,
+    staticRoutes,
+    isgRoutes: Object.keys(isgManifest),
+    deployBase,
+    trailingSlash,
+    pageRoutes,
+    markdownFiles: markdownFiles.map((file) =>
+      relative(staticDir, join(staticDeployDir, file)).split(sep).join("/"),
+    ),
+  });
+  writeFileSync(join(outputDir, "config.json"), `${JSON.stringify(config, null, 2)}\n`, "utf-8");
 
-  return ".vercel/output";
+  return { outputPath: ".vercel/output", routeCount: config.routes.length };
 }
 
 function assertNoVercelPrerenderFunctionCollisions({
@@ -301,6 +294,21 @@ function linkVercelPrerenderFunction({
   }
 }
 
+/** Security headers the catch-all first route sets on every response. */
+const VERCEL_DEFAULT_HEADERS: Readonly<Record<string, string>> = {
+  "permissions-policy":
+    "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "SAMEORIGIN",
+};
+
+/**
+ * Upper bound for a merged route's `src`. Vercel documents 2,048 characters
+ * as the limit for a route source, so merged patterns stay under it.
+ */
+const VERCEL_ROUTE_SRC_MAX_LENGTH = 2000;
+
 // `has.value` is compiled without the `i` flag, so case-insensitivity has to be
 // written out. Media types are case-insensitive per RFC 9110, and the runtime's
 // own negotiation lowercases before comparing — a client sending
@@ -332,18 +340,12 @@ function createVercelOutputConfig({
   staticAssetRoutes: string[];
   isgRoutes: string[];
   staticRoutes: string[];
-}): Record<string, unknown> {
+}): { routes: Record<string, unknown>[] } & Record<string, unknown> {
   const target = `/${functionName || "render"}`;
   const routes: Record<string, unknown>[] = [
     {
       continue: true,
-      headers: {
-        "permissions-policy":
-          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
-        "referrer-policy": "strict-origin-when-cross-origin",
-        "x-content-type-options": "nosniff",
-        "x-frame-options": "SAMEORIGIN",
-      },
+      headers: { ...VERCEL_DEFAULT_HEADERS },
       src: "^/(.*)$",
     },
     {
@@ -388,18 +390,34 @@ function createVercelOutputConfig({
     });
   }
 
+  // Pages share a handful of header sets, so pages with the same set share
+  // routes instead of costing one each against Vercel's per-deployment route
+  // limit. Headers the catch-all route above already sets to the same value
+  // are left out, and a page left with none needs no route at all.
   const staticAssetRouteSet = new Set(staticAssetRoutes);
+  const headerGroups = new Map<string, { headers: Record<string, string>; paths: string[] }>();
   for (const route of sortStaticRoutes([...staticRoutes, ...staticAssetRoutes])) {
     const routeHeaders = headersManifest[route];
     if (!routeHeaders) continue;
+    const headers = withoutVercelDefaultHeaders(routeHeaders);
+    if (Object.keys(headers).length === 0) continue;
+    const key = JSON.stringify(Object.entries(headers).sort(([a], [b]) => (a < b ? -1 : 1)));
+    let group = headerGroups.get(key);
+    if (!group) {
+      group = { headers, paths: [] };
+      headerGroups.set(key, group);
+    }
     const publicRoute = withVercelDeployBase(route, deployBase);
-    routes.push({
-      continue: true,
-      headers: routeHeaders,
-      src: staticAssetRouteSet.has(route)
-        ? routeToStaticAssetExpression(publicRoute)
-        : routeToRouteExpression(publicRoute),
-    });
+    group.paths.push(
+      staticAssetRouteSet.has(route)
+        ? escapeRegex(publicRoute)
+        : routeToRouteAlternative(publicRoute),
+    );
+  }
+  for (const { headers, paths } of headerGroups.values()) {
+    for (const src of joinRouteAlternatives(paths)) {
+      routes.push({ continue: true, headers, src });
+    }
   }
 
   // Routes that export `markdown` answer `Accept: text/markdown` with their
@@ -418,34 +436,45 @@ function createVercelOutputConfig({
   // invocation by sending the header, even with `q=0`. It is bounded to routes
   // that declare a Markdown representation — every other prerendered page
   // keeps its static fast path whatever the client asks for.
+  //
+  // ISG markdown routes go to the render function too, not to their prerender
+  // function: that one re-renders on a sanitized `Accept: text/html` to keep
+  // the shared cache entry correct, so it can only ever produce HTML.
   const markdownRouteSet = new Set(markdownRoutes);
-  const markdownRouteEntry = (route: string) => ({
-    dest: target,
-    has: [{ type: "header", key: "accept", value: ACCEPT_MARKDOWN_PATTERN }],
-    src: routeToRouteExpression(withVercelDeployBase(route, deployBase)),
-  });
 
   // The non-canonical spelling of a prerendered page reaches the function,
   // whose runtime answers it with a query-preserving 308. Only pages: content
   // artifacts and generated files keep answering both spellings.
   const pageRouteSet = new Set(pageRoutes);
-  const pushNonCanonicalEntry = (route: string) => {
-    if (trailingSlash === "ignore" || !pageRouteSet.has(route)) return;
-    const canonical = applyTrailingSlashPolicy(
-      withVercelDeployBase(route, deployBase),
-      deployBase,
-      trailingSlash,
-    );
-    if (canonical === null) return;
+  const nonCanonicalPaths: string[] = [];
+  const markdownPaths: string[] = [];
+  for (const route of [...sortStaticRoutes(staticRoutes), ...isgRoutes]) {
+    const publicRoute = withVercelDeployBase(route, deployBase);
+    if (trailingSlash !== "ignore" && pageRouteSet.has(route)) {
+      const canonical = applyTrailingSlashPolicy(publicRoute, deployBase, trailingSlash);
+      if (canonical !== null) {
+        nonCanonicalPaths.push(
+          escapeRegex(canonical.endsWith("/") ? canonical.slice(0, -1) : `${canonical}/`),
+        );
+      }
+    }
+    if (markdownRouteSet.has(route)) markdownPaths.push(routeToRouteAlternative(publicRoute));
+  }
+  // Both go to the function, so pages share these routes. Each pattern
+  // matches only its own pages' URLs, so all of them can sit ahead of the
+  // per-page rewrites below.
+  for (const src of joinRouteAlternatives(nonCanonicalPaths)) {
+    routes.push({ dest: target, src });
+  }
+  for (const src of joinRouteAlternatives(markdownPaths)) {
     routes.push({
       dest: target,
-      src: `^${escapeRegex(canonical.endsWith("/") ? canonical.slice(0, -1) : `${canonical}/`)}$`,
+      has: [{ type: "header", key: "accept", value: ACCEPT_MARKDOWN_PATTERN }],
+      src,
     });
-  };
+  }
 
   for (const route of sortStaticRoutes(staticRoutes)) {
-    pushNonCanonicalEntry(route);
-    if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
     routes.push({
       dest: withVercelDeployBase(routeToStaticHtmlPath(route), deployBase),
       src: routeToRouteExpression(withVercelDeployBase(route, deployBase)),
@@ -453,11 +482,6 @@ function createVercelOutputConfig({
   }
 
   for (const route of isgRoutes) {
-    // ISG markdown routes go to the render function, not to their prerender
-    // function: that one re-renders on a sanitized `Accept: text/html` to keep
-    // the shared cache entry correct, so it can only ever produce HTML.
-    pushNonCanonicalEntry(route);
-    if (markdownRouteSet.has(route)) routes.push(markdownRouteEntry(route));
     const publicRoute = withVercelDeployBase(route, deployBase);
     routes.push({
       dest: publicRoute,
@@ -629,8 +653,62 @@ function basename(value: string): string {
   return segments[segments.length - 1] || "index";
 }
 
-function routeToStaticAssetExpression(route: string): string {
-  return `^${escapeRegex(route)}$`;
+/** One page's `src` alternative: the exact path, with an optional trailing slash. */
+function routeToRouteAlternative(route: string): string {
+  return route === "/" ? "/" : `${escapeRegex(route)}/?`;
+}
+
+/**
+ * Join exact-path alternatives into as few anchored `src` patterns as fit
+ * {@link VERCEL_ROUTE_SRC_MAX_LENGTH}. A single path keeps the plain `^…$`
+ * spelling a per-page route would have.
+ */
+function joinRouteAlternatives(alternatives: readonly string[]): string[] {
+  const sources: string[] = [];
+  let chunk: string[] = [];
+  let length = 0;
+  const flush = () => {
+    if (chunk.length === 0) return;
+    sources.push(chunk.length === 1 ? `^${chunk[0]}$` : `^(?:${chunk.join("|")})$`);
+    chunk = [];
+    length = 0;
+  };
+  for (const alternative of alternatives) {
+    if (chunk.length > 0 && length + alternative.length + 1 > VERCEL_ROUTE_SRC_MAX_LENGTH) {
+      flush();
+    }
+    chunk.push(alternative);
+    length += alternative.length + 1;
+  }
+  flush();
+  return sources;
+}
+
+function withoutVercelDefaultHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([name, value]) => VERCEL_DEFAULT_HEADERS[name.toLowerCase()] !== value,
+    ),
+  );
+}
+
+/**
+ * Vercel's "Routes created per Deployment" limit on Hobby and Pro plans. A
+ * deployment whose Build Output config lists more routes is rejected.
+ */
+export const VERCEL_ROUTE_LIMIT = 2048;
+
+/** A build warning once the routing table nears {@link VERCEL_ROUTE_LIMIT}, else `null`. */
+export function describeVercelRouteBudget(routeCount: number): string | null {
+  if (routeCount < VERCEL_ROUTE_LIMIT * 0.8) return null;
+  const state =
+    routeCount > VERCEL_ROUTE_LIMIT
+      ? `more than Vercel allows per deployment on Hobby and Pro plans (${VERCEL_ROUTE_LIMIT}), so the deploy will be rejected`
+      : `close to Vercel's limit of ${VERCEL_ROUTE_LIMIT} per deployment on Hobby and Pro plans`;
+  return (
+    `.vercel/output/config.json lists ${routeCount} routes, ${state}. ` +
+    "Each prerendered page adds one route: serve rarely visited pages with SSR instead, or ask Vercel to raise the limit."
+  );
 }
 
 function escapeRegex(value: string): string {
