@@ -29,9 +29,9 @@
       "rung": "hydration: full",
       "hydration": "full",
       "bytes": 44980,
-      "gzipBytes": 17082,
-      "lazyGzipBytes": 1126,
-      "coldGzipBytes": 18208
+      "gzipBytes": 17083,
+      "lazyGzipBytes": 1282,
+      "coldGzipBytes": 18365
     },
     {
       "rung": "hydration: full, prefetch off",
@@ -45,25 +45,25 @@
       "rung": "hydration: full, navigation guards off",
       "hydration": "full",
       "bytes": 44079,
-      "gzipBytes": 16838,
-      "lazyGzipBytes": 1129,
-      "coldGzipBytes": 17967
+      "gzipBytes": 16836,
+      "lazyGzipBytes": 1281,
+      "coldGzipBytes": 18117
     },
     {
       "rung": "hydration: full, rich data on",
       "hydration": "full",
       "bytes": 45665,
-      "gzipBytes": 17352,
-      "lazyGzipBytes": 1129,
-      "coldGzipBytes": 18481
+      "gzipBytes": 17351,
+      "lazyGzipBytes": 1283,
+      "coldGzipBytes": 18634
     },
     {
       "rung": "hydration: full + preact/compat",
       "hydration": "full",
       "bytes": 47136,
       "gzipBytes": 17795,
-      "lazyGzipBytes": 1129,
-      "coldGzipBytes": 18924
+      "lazyGzipBytes": 1282,
+      "coldGzipBytes": 19077
     }
   ],
   "routeScale": [
@@ -73,8 +73,8 @@
       "hydration": "full",
       "bytes": 59318,
       "gzipBytes": 19249,
-      "lazyGzipBytes": 1130,
-      "coldGzipBytes": 20379
+      "lazyGzipBytes": 1283,
+      "coldGzipBytes": 20532
     },
     {
       "routes": 500,
@@ -82,8 +82,8 @@
       "hydration": "full",
       "bytes": 206928,
       "gzipBytes": 41239,
-      "lazyGzipBytes": 1129,
-      "coldGzipBytes": 42368
+      "lazyGzipBytes": 1281,
+      "coldGzipBytes": 42520
     }
   ]
 }
