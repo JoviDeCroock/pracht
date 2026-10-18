@@ -73,6 +73,18 @@ function scanFiles(dir: string, files: string[], extensions: Set<string>): void 
   }
 }
 
+/** Per page file, by stamp: whether its source declares non-full hydration. */
+const pageNonFullHydrationCache = new Map<string, { stamp: FileStamp; nonFull: boolean }>();
+
+function pageDeclaresNonFullHydration(file: string): boolean {
+  const stamp = fileStamp(statSync(file));
+  const cached = pageNonFullHydrationCache.get(file);
+  if (cached && sameFileStamp(cached.stamp, stamp)) return cached.nonFull;
+  const nonFull = PAGES_NON_FULL_HYDRATION_RE.test(readFileSync(file, "utf-8"));
+  pageNonFullHydrationCache.set(file, { stamp, nonFull });
+  return nonFull;
+}
+
 function createNonFullHydrationExcludes(
   resolved: ResolvedPrachtPluginOptions,
   root: string = process.cwd(),
@@ -88,7 +100,7 @@ function createNonFullHydrationExcludes(
     );
     for (const file of files) {
       try {
-        if (PAGES_NON_FULL_HYDRATION_RE.test(readFileSync(file, "utf-8"))) {
+        if (pageDeclaresNonFullHydration(file)) {
           excludes.add(
             `!/${toPosixPath(file).replace(toPosixPath(root).replace(/\/$/, "") + "/", "")}`,
           );
@@ -490,8 +502,13 @@ const manifestModuleFactsCache = new Map<
 
 /** Forget cached manifest facts for `file`, or for every file. */
 export function invalidateManifestModuleFacts(file?: string): void {
-  if (file === undefined) manifestModuleFactsCache.clear();
-  else manifestModuleFactsCache.delete(file);
+  if (file === undefined) {
+    manifestModuleFactsCache.clear();
+    pageNonFullHydrationCache.clear();
+  } else {
+    manifestModuleFactsCache.delete(file);
+    pageNonFullHydrationCache.delete(file);
+  }
 }
 
 function readManifestModuleFacts(file: string): ManifestModuleFacts | null {

@@ -72,6 +72,7 @@ import {
   invalidateManifestModuleFacts,
   isEjectedPagesLayout,
 } from "./plugin-codegen.ts";
+import { invalidatePageFacts } from "./pages-router.ts";
 import {
   createDevCssInjectionMiddleware,
   createOwnedDevEntryMiddleware,
@@ -687,6 +688,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // saved file as well covers filesystems with coarse timestamps.
       invalidateRouteFileAnalysis(file);
       invalidateManifestModuleFacts(file);
+      invalidatePageFacts(file);
       const serverRoot = toPosixPath(server.config.root);
       const normalizedFile = toPosixPath(file);
       const relative = normalizedFile.startsWith(serverRoot)

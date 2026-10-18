@@ -24,7 +24,14 @@ import { basename, dirname, extname, join, relative, resolve } from "node:path";
 
 import { parseAst } from "vite";
 import { getRolldownLang } from "./client-module-query.ts";
-import { detectHeadExport, detectHeadersExport, detectLoaderExport } from "./route-loader-hints.ts";
+import {
+  detectHeadExport,
+  detectHeadersExport,
+  detectLoaderExport,
+  fileStamp,
+  sameFileStamp,
+  type FileStamp,
+} from "./route-loader-hints.ts";
 import {
   DEFAULT_ROUTE_EXTENSIONS,
   DEFAULT_SHELL_EXTENSIONS,
@@ -482,30 +489,15 @@ function scan(
 
     const rel = relative(root, abs);
     const routePath = filePathToRoutePath(rel);
-    const source = readFileSync(abs, "utf-8");
-    const analysisSource = maskMarkdownFences(source, rel);
-    const renderMode = extractQuotedPageExport(analysisSource, "RENDER_MODE", rel);
-    const hydrationMode = extractQuotedPageExport(analysisSource, "HYDRATION", rel);
-    const streaming = readPageStreaming(analysisSource);
-    if (streaming === "invalid")
-      throw new Error(
-        `[pracht] Pages module ${JSON.stringify(rel)} must export STREAMING once as a boolean literal.`,
-      );
+    const { renderMode, hydrationMode, streaming, capabilities, revalidate, ...exported } =
+      readPageFacts(abs, rel, stat);
     if (streaming !== undefined && (isRootApp || routePath === "/404"))
       throw new Error(`[pracht] STREAMING belongs on a pages route, not ${JSON.stringify(rel)}.`);
-    const capabilities = extractPageCapabilities(analysisSource, rel);
-    const revalidate = extractRevalidateSeconds(analysisSource, rel);
-    const hasLoader = detectLoaderExport(analysisSource);
+    const hasLoader = exported.hasLoader;
     const hasHead =
-      ext === ".md" ||
-      ext === ".mdx" ||
-      additionalExtensions.has(ext) ||
-      detectHeadExport(analysisSource);
+      ext === ".md" || ext === ".mdx" || additionalExtensions.has(ext) || exported.hasHead;
     const hasHeaders =
-      ext === ".md" ||
-      ext === ".mdx" ||
-      additionalExtensions.has(ext) ||
-      detectHeadersExport(analysisSource);
+      ext === ".md" || ext === ".mdx" || additionalExtensions.has(ext) || exported.hasHeaders;
 
     pages.push({
       absolutePath: abs,
@@ -525,6 +517,62 @@ function scan(
       hasHeaders,
     });
   }
+}
+
+/** What one page module's source declares, independent of where it sits. */
+interface PageFacts {
+  renderMode: ReturnType<typeof extractQuotedPageExport>;
+  hydrationMode: ReturnType<typeof extractQuotedPageExport>;
+  streaming: boolean | undefined;
+  capabilities: string[];
+  revalidate: ReturnType<typeof extractRevalidateSeconds>;
+  hasLoader: boolean;
+  hasHead: boolean;
+  hasHeaders: boolean;
+}
+
+/**
+ * Page facts per file, checked against the file's stamp: the dev server
+ * rescans the pages tree for every virtual module it regenerates, and an
+ * unchanged page is parsed once. A page whose exports are invalid throws and
+ * is never cached, so the error repeats until the file is fixed.
+ */
+const pageFactsCache = new Map<string, { rel: string; stamp: FileStamp; facts: PageFacts }>();
+
+/** Forget cached page facts for `file`, or for every file. */
+export function invalidatePageFacts(file?: string): void {
+  if (file === undefined) pageFactsCache.clear();
+  else pageFactsCache.delete(file);
+}
+
+function readPageFacts(
+  abs: string,
+  rel: string,
+  stat: { mtimeMs: number; ctimeMs: number; size: number },
+): PageFacts {
+  const stamp = fileStamp(stat);
+  const cached = pageFactsCache.get(abs);
+  if (cached && cached.rel === rel && sameFileStamp(cached.stamp, stamp)) return cached.facts;
+  pageFactsCache.delete(abs);
+
+  const analysisSource = maskMarkdownFences(readFileSync(abs, "utf-8"), rel);
+  const streaming = readPageStreaming(analysisSource);
+  if (streaming === "invalid")
+    throw new Error(
+      `[pracht] Pages module ${JSON.stringify(rel)} must export STREAMING once as a boolean literal.`,
+    );
+  const facts: PageFacts = {
+    renderMode: extractQuotedPageExport(analysisSource, "RENDER_MODE", rel),
+    hydrationMode: extractQuotedPageExport(analysisSource, "HYDRATION", rel),
+    streaming,
+    capabilities: extractPageCapabilities(analysisSource, rel),
+    revalidate: extractRevalidateSeconds(analysisSource, rel),
+    hasLoader: detectLoaderExport(analysisSource),
+    hasHead: detectHeadExport(analysisSource),
+    hasHeaders: detectHeadersExport(analysisSource),
+  };
+  pageFactsCache.set(abs, { rel, stamp, facts });
+  return facts;
 }
 
 function extractPageCapabilities(source: string, relativePath: string): string[] {

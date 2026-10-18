@@ -9,8 +9,11 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
 });
 
-const { collectManifestModuleRefs, createRouteHintsForVirtualModules } =
-  await import("../src/plugin-codegen.ts");
+const {
+  collectManifestModuleRefs,
+  createPrachtClientModuleSource,
+  createRouteHintsForVirtualModules,
+} = await import("../src/plugin-codegen.ts");
 const { resolveOptions } = await import("../src/plugin-options.ts");
 
 const roots: string[] = [];
@@ -72,6 +75,33 @@ describe("per-file analysis cache", () => {
     );
     expect(readsOf("/src/routes/home.tsx")).toBe(2);
     expect(readsOf("/src/routes/about.tsx")).toBe(1);
+  });
+
+  it("parses an unchanged page once across pages-router regenerations", () => {
+    const root = project({
+      "src/pages/index.tsx": "export function Component() { return null; }\n",
+      "src/pages/about.tsx": "export function Component() { return null; }\n",
+    });
+    const options = resolveOptions({ pagesDir: "/src/pages" });
+
+    for (let i = 0; i < 3; i++) {
+      createRouteHintsForVirtualModules(options, root);
+      createPrachtClientModuleSource({ pagesDir: "/src/pages" }, { root });
+    }
+    const before = readsOf("/src/pages/about.tsx");
+    for (let i = 0; i < 3; i++) {
+      createRouteHintsForVirtualModules(options, root);
+      createPrachtClientModuleSource({ pagesDir: "/src/pages" }, { root });
+    }
+    expect(readsOf("/src/pages/about.tsx")).toBe(before);
+
+    fs.writeFileSync(
+      join(root, "src/pages/about.tsx"),
+      "export async function loader() { return {}; }\nexport function Component() { return null; }\n",
+    );
+    expect(createRouteHintsForVirtualModules(options, root).loader["/src/pages/about.tsx"]).toBe(
+      true,
+    );
   });
 
   it("parses an unchanged manifest module once and sees an edit to it", () => {
