@@ -6,5 +6,13 @@ export default defineConfig({
   // it to `module.register()` as a standalone file.
   entry: ["src/index.ts", "src/prerender-module-hooks.ts"],
   format: "esm",
-  external: [/^@pracht\//, /^@modelcontextprotocol\//, /^node:/, "vite", "citty", "zod"],
+  external: [
+    /^@pracht\//,
+    /^@modelcontextprotocol\//,
+    /^node:/,
+    "vite",
+    "citty",
+    "zod",
+    "playwright-core",
+  ],
 });
