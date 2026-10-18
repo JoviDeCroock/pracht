@@ -72,7 +72,7 @@ export interface OpenApiResponseObject {
 
 export interface OpenApiParameterObject {
   name: string;
-  in: "path" | "query";
+  in: "path" | "query" | "header";
   required?: boolean;
   description?: string;
   schema: OpenApiSchema;
@@ -93,6 +93,8 @@ export interface OpenApiOperationObject {
   parameters?: OpenApiParameterObject[];
   requestBody?: OpenApiRequestBodyObject;
   responses: Record<string, OpenApiResponseObject>;
+  /** Specification extensions, such as `x-pracht-effect` on capability operations. */
+  [extension: `x-${string}`]: unknown;
 }
 
 export interface OpenApiPathItemObject {
@@ -138,6 +140,9 @@ export interface OpenApiOperationDescriptor {
 }
 
 export type OpenApiWarningCode =
+  | "capability_load_failed"
+  | "capability_operation_id_conflict"
+  | "capability_path_conflict"
   | "catch_all_path"
   | "default_handler_omitted"
   | "invalid_schema_shape"

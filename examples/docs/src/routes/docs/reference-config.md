@@ -132,6 +132,7 @@ export const app = defineApp({
 | `constraints` | RouteConstraint[] | Declarative invariants over the resolved graph, enforced by `pracht verify`. See [Coding Agents](/docs/coding-agents#constraints) |
 | `viewTransitions` | boolean | Animate client navigations with the View Transitions API, and full page loads (islands and `hydration: "none"` routes) as cross-document transitions. See [View Transitions](/docs/recipes/view-transitions) |
 | `loaderTimeoutMs` | number | Per-request budget in milliseconds for the `signal` passed to middleware, loaders, API handlers, and capabilities; it also aborts when the client disconnects. Default `30000`. Applies to SSG/ISG prerendering too, so a short budget can fail the build. See [Data Loading](/docs/data-loading#signal) |
+| `enforceLoaderTimeout` | boolean | Answer with the timeout error when `loaderTimeoutMs` runs out, even if a loader, middleware, or API handler ignores `signal`. Default `false`: the response waits for them. See [Data Loading](/docs/data-loading#signal) |
 
 ### `api`
 

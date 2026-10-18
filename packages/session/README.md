@@ -93,7 +93,9 @@ export const sessions = createSessionStorage({
     },
     async set(id, data, expiresAt) {
       await env.SESSIONS.put(`session:${id}`, JSON.stringify(data), {
-        expiration: Math.floor(expiresAt / 1000),
+        // KV needs an expiration at least 60 s out; the sealed cookie still
+        // ends the session at `expiresAt`.
+        expiration: Math.max(Math.floor(expiresAt / 1000), Math.ceil(Date.now() / 1000) + 60),
       });
     },
     async delete(id) {
@@ -114,7 +116,8 @@ servers. It is not a production store: the sessions die with the process.
 - **Expiry that the client cannot extend.** The lifetime is inside the sealed
   payload, not only in `Max-Age`. It is absolute from the last write, and the
   middleware commits only when the session changed; `rolling: true` re-commits
-  every request to give an idle timeout instead.
+  every request to give an idle timeout instead, and `absoluteMaxAge` caps the
+  total lifetime however often it is re-committed.
 - **Rotation without logging anyone out.** The first secret seals; every
   secret opens.
 - **Cookie hygiene by default.** `HttpOnly`, `SameSite=Lax`, `Path=/`, and

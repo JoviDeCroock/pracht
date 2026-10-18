@@ -30,7 +30,7 @@ Four layers, each opt-in:
 4. **Agent traffic** — one structured audit event per capability dispatch.
    Only relevant when the app registers capabilities; skip it otherwise.
 
-MCP: when the pracht MCP server is registered (docs/MCP.md), prefer its
+MCP: when the pracht MCP server is registered (`pracht dev-mcp`), prefer its
 `inspect_agents`/`inspect_routes`/`inspect_api`/`inspect_build`/`doctor`/
 `verify`/`generate_*` tools over shelling out. `pracht inspect` needs the pracht
 plugin in the vite config.
@@ -75,7 +75,7 @@ export function initObservability() {
   if (initialized) return;
   initialized = true;
   // serverEnv is read INSIDE this function, not at module scope — module-level
-  // env reads break on runtimes where env arrives per request (docs/ENV.md).
+  // env reads break on runtimes where env arrives per request (https://pracht.resynapse.dev/docs/env).
   Sentry.init({
     dsn: serverEnv.SENTRY_DSN,
     tracesSampleRate: Number(serverEnv.SENTRY_TRACES_SAMPLE_RATE ?? 0.1),

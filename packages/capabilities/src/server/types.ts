@@ -91,7 +91,7 @@ export interface CapabilityConfirmationConfig {
    *   person approves the proposal out of band. Requires an approval store and
    *   an end-user principal from `setCapabilityApprovalPrincipalResolver()` or
    *   a verified OAuth subject (`agents.mcp.auth`); without both, destructive
-   *   calls fail closed. A Web Bot Auth key alone is not enough: it identifies
+   *   calls fail closed. A Web Bot Auth key alone is refused: it identifies
    *   the agent, which all of its users share.
    */
   mode?: "token" | "human";
