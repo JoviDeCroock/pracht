@@ -911,7 +911,7 @@ function createPackageJson({ adapter, projectName, tailwind, versions }) {
   const devDependencies = {
     "@pracht/cli": versions["@pracht/cli"],
     "@pracht/vite-plugin": versions["@pracht/vite-plugin"],
-    preact: "^10.26.9",
+    preact: "^11.0.1",
     // At least @pracht/core's peer floor, or the first install warns.
     "preact-render-to-string": "^6.7.0",
     typescript: versions["typescript"],

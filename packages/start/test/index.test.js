@@ -1500,6 +1500,28 @@ describe("create-pracht", () => {
     );
   });
 
+  it("scaffolds the Preact release the workspace tests and benchmarks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pracht-start-preact-"));
+    const targetDir = join(root, "my-preact-app");
+    await scaffoldProject({
+      adapter: NODE_ADAPTER,
+      agentTools: false,
+      packageManager: "pnpm",
+      resolveRemoteVersions: false,
+      targetDir,
+    });
+
+    const workspace = JSON.parse(
+      readFileSync(fileURLToPath(new URL("../../../package.json", import.meta.url)), "utf-8"),
+    );
+    const workspacePreact = workspace.devDependencies.preact;
+    // An exact, stable release: a pre-release pin would test a version that a
+    // caret range in a new project never installs.
+    expect(workspacePreact).toMatch(/^\d+\.\d+\.\d+$/);
+    const packageJson = JSON.parse(await readFile(join(targetDir, "package.json"), "utf-8"));
+    expect(packageJson.devDependencies.preact).toBe(`^${workspacePreact}`);
+  });
+
   it("parseArgs handles --no-git flag", () => {
     expect(parseArgs([]).git).toBe(true);
     expect(parseArgs(["--no-git"]).git).toBe(false);
