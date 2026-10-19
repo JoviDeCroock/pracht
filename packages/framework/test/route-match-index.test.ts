@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { defineApp, resolveApp, route } from "../src/index.ts";
+import {
+  defineApp,
+  matchApiRoute,
+  matchAppRoute,
+  resolveApiRoutes,
+  resolveApp,
+  route,
+} from "../src/index.ts";
 import { matchIndexedResolvedRoute } from "../src/route-matching.ts";
 import type { ResolvedPrachtApp } from "../src/types.ts";
 
@@ -45,5 +52,16 @@ describe("percent-escape case on the server", () => {
     }
     expect(matchIndexedResolvedRoute(app, "/cafe")).toBeUndefined();
     expect(matchIndexedResolvedRoute(appOf(["/caf%C3%A9"]), "/caf%c3%a9")?.route.id).toBe("r0");
+  });
+
+  it("matches either case in the linear page and API scans too", () => {
+    const app = appOf(["/about", "/caf%c3%a9", "/posts/:slug"]);
+    for (const pathname of ["/caf%c3%a9", "/caf%C3%A9"]) {
+      expect(matchAppRoute(app, pathname)?.route.id).toBe("r1");
+    }
+    expect(matchAppRoute(app, "/cafe")).toBeUndefined();
+    const api = resolveApiRoutes(["/src/api/caf%C3%A9.ts", "/src/api/plain.ts"]);
+    expect(matchApiRoute(api, "/api/caf%c3%a9")?.route.file).toBe("/src/api/caf%C3%A9.ts");
+    expect(matchApiRoute(api, "/api/plain")?.route.file).toBe("/src/api/plain.ts");
   });
 });
