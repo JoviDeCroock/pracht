@@ -48,7 +48,7 @@ describe("CapabilityDescriptor keys", () => {
     title: "Search notes",
     description: "Find notes.",
     effect: "read",
-    expose: { http: true, mcp: true, webmcp: true },
+    expose: { http: true, mcp: true, webmcp: true } as const,
   };
 
   it("every producer emits every key", () => {
