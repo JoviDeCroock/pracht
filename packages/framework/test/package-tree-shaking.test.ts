@@ -270,13 +270,12 @@ describe("published package tree shaking", () => {
     // the entry, a static fallback never reloads into itself) about 15; and
     // rechecking a mutation before a redirect is followed and when a view
     // transition commits, plus a traversal's redirect replacing its entry,
-    // about 55; putting the server markup back when hydration throws about
-    // 25; and matching a static segment in either percent-escape case, as the
-    // server does, about 70. These ceilings measure the router with Preact external.
-    it("keeps the router runtime below 11,140 gzip bytes", async () => {
+    // about 55; and putting the server markup back when hydration throws
+    // about 25. These ceilings measure the router with Preact external.
+    it("keeps the router runtime below 11,070 gzip bytes", async () => {
       const { gzipBytes } = await bundleExport("initClientRouter", production);
 
-      expect(gzipBytes).toBeLessThanOrEqual(11_140);
+      expect(gzipBytes).toBeLessThanOrEqual(11_070);
     });
 
     it("drops compat Suspense when the app renders no Suspense boundary", async () => {
@@ -471,7 +470,7 @@ describe("published package tree shaking", () => {
       // for the feature, including the index stamped on every history entry.
       const { gzipBytes } = await routerBundle({ __PRACHT_CLIENT_BLOCKER__: "false" });
 
-      expect(gzipBytes).toBeLessThanOrEqual(10_850);
+      expect(gzipBytes).toBeLessThanOrEqual(10_780);
     });
 
     it("keeps guards when the feature is enabled", async () => {
@@ -564,7 +563,7 @@ describe("published package tree shaking", () => {
       const { code, gzipBytes } = await routerBundle({ __PRACHT_SHELL_LOADERS__: "true" });
 
       expect(code).toContain("x-pracht-shell-data");
-      expect(gzipBytes).toBeLessThanOrEqual(11_550);
+      expect(gzipBytes).toBeLessThanOrEqual(11_490);
     });
 
     // Both opt-in router features at once: a route with a `search` schema
@@ -575,7 +574,7 @@ describe("published package tree shaking", () => {
         __PRACHT_SHELL_LOADERS__: "true",
       });
 
-      expect(gzipBytes).toBeLessThanOrEqual(11_650);
+      expect(gzipBytes).toBeLessThanOrEqual(11_590);
     });
   });
 
