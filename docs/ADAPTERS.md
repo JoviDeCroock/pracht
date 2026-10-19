@@ -2104,6 +2104,40 @@ the edge function.
 
 ---
 
+## Conformance suite
+
+`packages/adapter-conformance` (private, test-only) mounts one fixture app and
+one static output directory on every request handler — Node, Cloudflare (a mock
+`caches.default` and `ASSETS` binding), Netlify, Vercel Edge, the Vercel ISG
+Node function, the static preview server — and on the dev middleware, behind
+one `fetch(path, init)` interface. Node-shaped targets run behind a real
+`node:http` server, so body limits and client disconnects are real. It runs in
+`pnpm test`.
+
+Rows cover encoded static paths (including the #471 escape case), media types,
+byte ranges, 413 with the default headers, the client disconnect signal in
+loaders and capabilities, replayed ISG snapshot headers (identical across
+adapters, secret-shaped `x-*-token` stripped, `Cache-Control` kept, cookie and
+private renders refused, the `index.html` alias), a rolling deploy where an
+older build regenerates into a shared store, and the revalidation report.
+
+Each row declares a cell for every target (`test/matrix.ts`; a new target does
+not type-check until every row places it):
+
+- `run` — the target must behave as the row says.
+- `fails(step, why)` — diverges today. The row still runs and must keep
+  failing, so the change that converges it has to flip the cell to `run`.
+- `todo(step, why)` — diverges but cannot run here (the escape-case row needs a
+  case-sensitive filesystem; it runs as `fails` on Linux).
+- `na(why)` — the platform owns the behaviour (a CDN serves static files) or
+  the target has no such path.
+
+Divergent cells carry a `// seams step <C|D>` comment naming the rewrite step
+expected to converge them. The `baseline` test pins their count (20 when the
+suite landed: 10 ISG-snapshot cells for step C, 10 static/MIME/Range/413 cells
+for step D); lower it in the change that converges a cell. A new divergence is
+fixed, not recorded.
+
 ## Writing a Custom Adapter
 
 A custom adapter exports a factory function that returns a `PrachtAdapter` object:

@@ -65,6 +65,7 @@ constraint; the CLI test is.
 | `packages/capabilities`       | `@pracht/capabilities`       | Capability primitive plus standalone server host and WebMCP registrar: contracts, validation, trust policy, HTTP/MCP dispatch, and the shared envelope/error protocol |
 | `packages/cli`                | `@pracht/cli`                | `pracht dev`, `build`, `verify`, the `generate` subcommands, `doctor`, `docs` (the site pages, bundled at build time), and the `pracht dev-mcp` authoring server |
 | `packages/start`              | `create-pracht`              | Project scaffolder: router choice, adapter choice, agent tooling (`.mcp.json`, skills, `AGENTS.md`)         |
+| `packages/adapter-conformance` | private                     | Test-only: one request matrix run against every adapter's handler and the dev middleware (see `docs/ADAPTERS.md`, "Conformance suite") |
 | `examples/basic`              | `@pracht/example-basic`      | The reference app: all four render modes, loaders, API routes, `@pracht/session` auth, capabilities, forms. Builds for four adapters from one source tree |
 | `examples/showcase`           | `@pracht/example-showcase`   | *Launchpad* — the whole capability graph and agent trust layer in one app: six operations projected to browser, forms, WebMCP, signed remote callers, and `/mcp` |
 | `examples/islands`            | `@pracht/example-islands`    | Partial hydration: an island beside a server component whose handlers never hydrate; server islands   |
@@ -480,6 +481,28 @@ edge either: the contract's declarations name `vite`'s `Plugin` type, which is
 present in any app that runs pracht's Vite plugin and degrades only
 `vitePlugins()`' element type where it cannot resolve. Dev-only packages
 such as `@pracht/cli` declare what they import (`vite`, as an optional peer).
+
+## Upgrade smoke
+
+`pnpm pack:upgrade` (`scripts/pack-upgrade.mjs`; run `pnpm build` first, needs
+the npm registry) is the second job of the `Package install` workflow. It
+proves an app built on the published packages survives the upgrade to this
+checkout's:
+
+- Scaffold one app per adapter with the published `create-pracht`
+  (`--from=<version>`, default `latest`), install the published `@pracht/*`
+  packages in pnpm's default layout, and build. The Node app is started and
+  answers a page, `/api/health`, and the route-state fetch for `/`.
+- Point every `@pracht/*` dependency at the packed tarballs (pnpm `overrides`),
+  reinstall in place, run the published scaffold's `typecheck`, rebuild, and
+  smoke-test the new build the same way.
+- Node only: start the build the *published* version wrote on the *upgraded*
+  `node_modules`. The generated server entry imports `@pracht/*` at runtime, so
+  this is where a changed entry shape, manifest, or prerender format must keep
+  a legacy read path. The other adapters bundle the runtime into their output.
+
+`--adapter` and `--keep` work as for `pack:smoke`. The helpers both scripts
+share live in `scripts/pack-shared.mjs`.
 
 ## Later (Phase 2 remaining)
 
