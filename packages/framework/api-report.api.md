@@ -1148,6 +1148,7 @@ isProtocolSwitchResponse: function
 isStreamingHtmlResponse: function
 isUpgradeRequest: function
 isgCacheKeyPath: function
+isgPathKey: function
 json: function
 jsonResponse: function
 loadMcpTokenVerifier: function

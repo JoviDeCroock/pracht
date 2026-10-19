@@ -465,6 +465,8 @@ export async function startNode(fixture: Fixture, output: StaticOutput): Promise
     apiRoutes: fixture.apiRoutes,
     staticDir: output.clientDir,
     isgManifest: fixture.isgManifest,
+    // What a generated server entry hands the handler: one id per build.
+    buildId: fixture.build,
     canonicalOrigin: "http://localhost",
     maxBodySize: MAX_BODY_SIZE,
   });
@@ -561,6 +563,7 @@ export async function startCloudflare(
     registry: fixture.registry,
     apiRoutes: fixture.apiRoutes,
     isgManifest: fixture.isgManifest,
+    buildId: fixture.build,
   });
   const env = {
     ASSETS: createMockAssets(output.clientDir),

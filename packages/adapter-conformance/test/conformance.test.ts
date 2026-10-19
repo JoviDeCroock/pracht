@@ -374,8 +374,6 @@ row(
   "replays the same document headers for one ISG render",
   {
     ...ISG_CELLS,
-    // seams step C
-    cloudflare: fails("C", "replays x-api-token and its own x-pracht-isg-generated-at"),
     netlify: na("Netlify's CDN headers are platform policy"),
   },
   async (target) => {
@@ -388,20 +386,12 @@ row(
   },
 );
 
-row(
-  "strips secret-shaped headers from a replayed ISG render",
-  {
-    ...ISG_CELLS,
-    // seams step C
-    cloudflare: fails("C", "stores the render's headers without stripping"),
-  },
-  async (target) => {
-    const replayed = await replayedRender(target, ISG_PATHS.page);
-    expect(replayed).not.toBeNull();
-    expect(replayed!.headers.get("x-api-token")).toBeNull();
-    expect(replayed!.headers.get("x-custom")).toBe(ISG_RENDER_HEADERS["x-custom"]);
-  },
-);
+row("strips secret-shaped headers from a replayed ISG render", ISG_CELLS, async (target) => {
+  const replayed = await replayedRender(target, ISG_PATHS.page);
+  expect(replayed).not.toBeNull();
+  expect(replayed!.headers.get("x-api-token")).toBeNull();
+  expect(replayed!.headers.get("x-custom")).toBe(ISG_RENDER_HEADERS["x-custom"]);
+});
 
 row("keeps the render's Cache-Control on a replayed ISG render", ISG_CELLS, async (target) => {
   const replayed = await replayedRender(target, ISG_PATHS.page);
@@ -413,10 +403,9 @@ row(
   "answers an ISG page's index.html spelling with the same snapshot",
   {
     ...ISG_CELLS,
-    // seams step C
-    node: fails("C", "serves index.html as a static file, without the snapshot's headers"),
     cloudflare: na("the assets binding's html_handling redirects index.html to the page"),
-    // seams step C
+    // seams step C: Netlify builds emit no ISG HTML, so this file exists only
+    // in the shared fixture output; its static path rule is step D's.
     netlify: fails("C", "serves the build's prerendered file, not the cached render"),
     "vercel-node": na("Vercel routes the prerender function by the page path"),
   },
@@ -438,9 +427,8 @@ row(
   "refuses to store an ISG render that sets a cookie",
   {
     ...ISG_CELLS,
-    // seams step C
-    netlify: fails("C", "strips the cookie and stores the render"),
-    // seams step C
+    // seams step C: Vercel's prerender cache stores any 200 the function
+    // answers; refusing needs a platform decision, not a header.
     "vercel-node": fails("C", "strips the cookie and stores the render"),
   },
   async (target) => {
@@ -452,7 +440,7 @@ row(
   "refuses to store a private ISG render",
   {
     ...ISG_CELLS,
-    // seams step C
+    // seams step C: as above, Vercel stores any 200.
     "vercel-node": fails("C", "warns and lets the prerender cache store it"),
   },
   async (target) => {
@@ -467,8 +455,7 @@ row(
 row(
   "never serves ISG HTML an older build rendered",
   {
-    // seams step C
-    node: fails("C", "a snapshot carries no build id, so any process sharing the directory wins"),
+    node: run,
     cloudflare: run,
     netlify: na("Netlify's durable cache is per deploy"),
     "vercel-edge": na("Vercel's prerender cache is per deployment"),
@@ -569,23 +556,13 @@ row(
   },
 );
 
-row(
-  "revalidates a page named with a trailing slash",
-  {
-    ...REVALIDATION_CELLS,
-    // seams step C
-    node: fails("C", "looks the path up in the manifest verbatim and skips it"),
-    // seams step C
-    cloudflare: fails("C", "looks the path up in the manifest verbatim and skips it"),
-  },
-  async (target) => {
-    const session = await start(target);
-    stubVercelSelfFetch(target);
-    const response = await revalidate(session, [`${ISG_PATHS.page}/`]);
-    const report = (await response.json()) as { revalidated: string[] };
-    expect(report.revalidated).toEqual([`${ISG_PATHS.page}/`]);
-  },
-);
+row("revalidates a page named with a trailing slash", REVALIDATION_CELLS, async (target) => {
+  const session = await start(target);
+  stubVercelSelfFetch(target);
+  const response = await revalidate(session, [`${ISG_PATHS.page}/`]);
+  const report = (await response.json()) as { revalidated: string[] };
+  expect(report.revalidated).toEqual([`${ISG_PATHS.page}/`]);
+});
 
 row("rejects a revalidation request with a wrong token", REVALIDATION_CELLS, async (target) => {
   const session = await start(target);
@@ -603,8 +580,9 @@ row("rejects a revalidation request with a wrong token", REVALIDATION_CELLS, asy
  * means flipping it to `run` and lowering this number in the same change; a
  * new divergence is fixed, not recorded. 20 when the suite landed: 10 for
  * step C (ISG snapshots), 10 for step D (static paths, MIME, Range, 413).
+ * Step C converged 7, leaving 3 of its own.
  */
-const BASELINE = 20;
+const BASELINE = 13;
 
 describe("baseline", () => {
   it(`records exactly ${BASELINE} divergent cells`, () => {

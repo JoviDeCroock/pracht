@@ -14,6 +14,7 @@ import {
   type HandlePrachtRequestOptions,
   type ISGManifestEntry,
   isgCacheKeyPath,
+  isgPathKey,
   isISGSnapshotRejection,
   isMcpResourceMetadataPath,
   jsonResponse,
@@ -414,7 +415,7 @@ async function maybeServeISG<TEnv extends Record<string, unknown>>(
 
   const url = new URL(request.url);
   // Keyed by route path: `/about/` is the same page, and the same cache entry.
-  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, "") || "/" : url.pathname;
+  const pathname = isgPathKey(url.pathname);
   const entry = isgManifest[pathname];
   if (!entry) return null;
 
@@ -515,7 +516,9 @@ async function handleCloudflareRevalidationEndpoint(
 
   const report = new RevalidationReport("colo");
 
-  for (const pathname of parsed.paths) {
+  for (const requestedPath of parsed.paths) {
+    // Reported as asked, looked up as the page: `/about/` is `/about`.
+    const pathname = isgPathKey(requestedPath);
     try {
       const entry = isgManifest[pathname];
       const skip = classifyRevalidationSkip(
@@ -524,7 +527,7 @@ async function handleCloudflareRevalidationEndpoint(
         matchAppRoute(app, pathname)?.route ?? null,
       );
       if (skip) {
-        report.skipped(pathname, skip);
+        report.skipped(requestedPath, skip);
         continue;
       }
 
@@ -547,19 +550,19 @@ async function handleCloudflareRevalidationEndpoint(
         // changes what visitors get. A rejected purge leaves them the old
         // page until its time window, so the path is reported as failed.
         if (edgeCacheEnabled && getTimeRevalidateSeconds(entry.revalidate) !== null) {
-          if (await purgeEdgeCopy(pathname)) report.revalidated(pathname, "global");
-          else report.failed(pathname, "edge_purge_failed");
+          if (await purgeEdgeCopy(pathname)) report.revalidated(requestedPath, "global");
+          else report.failed(requestedPath, "edge_purge_failed");
         } else {
           // The Cache API copy is current only in the data center that ran
           // this request.
-          report.revalidated(pathname, "colo");
+          report.revalidated(requestedPath, "colo");
         }
       } else {
-        report.failed(pathname, "regeneration_failed");
+        report.failed(requestedPath, "regeneration_failed");
       }
     } catch (err) {
       console.error(`ISG webhook revalidation failed for ${pathname}:`, err);
-      report.failed(pathname, "regeneration_error");
+      report.failed(requestedPath, "regeneration_error");
     }
   }
 

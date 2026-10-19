@@ -851,9 +851,15 @@ function applyNetlifyISGCacheHeaders(
   cache: Required<NetlifyCacheOptions>,
 ): Response {
   if (response.status !== 200) return response;
+  // A render that sets a cookie or marks itself private is the visitor's own:
+  // it is answered as is and kept out of the shared cache.
+  if (!isCacheableISGResponse(response)) {
+    const headers = new Headers(response.headers);
+    headers.set("netlify-cdn-cache-control", "private");
+    return cloneResponse(response, headers);
+  }
 
   let prepared = stripDangerousSharedCacheHeaders(response, pathname);
-  if (!isCacheableISGResponse(prepared)) return prepared;
 
   const seconds = getTimeRevalidateSeconds(route.revalidate) ?? cache.staticMaxAge;
   const headers = new Headers(prepared.headers);

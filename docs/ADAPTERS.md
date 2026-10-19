@@ -1294,6 +1294,9 @@ separators and traversal segments before filesystem resolution.
   metadata and `waitUntil()` remain available. Their Pracht time policy becomes
   the durable CDN `max-age`; stale-while-revalidate is configurable with
   `staleWhileRevalidate`. A cacheable custom policy remains authoritative.
+  A render that sets a cookie or marks itself private is answered as is with
+  `Netlify-CDN-Cache-Control: private`, so the CDN never stores it; a stored
+  render has its credential-shaped headers stripped (`stripISGSecretHeaders()`).
   ISG routes get no build-time snapshot on Netlify — the handler always renders
   them through the durable cache, so a snapshot would only be reachable at its
   literal `/index.html` URL where it would never revalidate. The first request
@@ -1461,9 +1464,12 @@ cache.
   regeneration paths use — `GET`, `Accept: text/html`, path only. The triggering
   visitor's `Cookie`/`Authorization` headers, query string, and body never reach
   loaders, middleware, or `createContext`, so a cache miss cannot materialize a
-  personalized page into shared cache. On the way out, credential headers
-  (`Set-Cookie`, `Authorization`, `WWW-Authenticate`, `Proxy-Authenticate`,
-  secret-shaped `x-*`) are stripped with a logged error — the same set
+  personalized page into shared cache. On the way out, a cacheable `200` is
+  answered as its ISG snapshot (`captureISGSnapshot()` then
+  `serveISGSnapshot()`), so it carries the same document headers Node and
+  Cloudflare replay. Credential headers (`Set-Cookie`, `Authorization`,
+  `WWW-Authenticate`, `Proxy-Authenticate`, secret-shaped `x-*`) are stripped
+  with a logged error — the same set
   build-time prerendering refuses outright — and a response that marks itself
   uncacheable (`Cache-Control: private`/`no-store`, `Vary: Cookie`/
   `Authorization`) is logged as a warning, because Vercel's prerender cache
@@ -2135,8 +2141,8 @@ not type-check until every row places it):
 Divergent cells carry a `// seams step <C|D>` comment naming the rewrite step
 expected to converge them. The `baseline` test pins their count (20 when the
 suite landed: 10 ISG-snapshot cells for step C, 10 static/MIME/Range/413 cells
-for step D); lower it in the change that converges a cell. A new divergence is
-fixed, not recorded.
+for step D; step C converged 7 of its 10); lower it in the change that
+converges a cell. A new divergence is fixed, not recorded.
 
 ## Writing a Custom Adapter
 

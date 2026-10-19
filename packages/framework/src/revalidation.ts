@@ -426,6 +426,16 @@ export function decodeISGSnapshot(text: string): ISGSnapshot | null {
 }
 
 /**
+ * The key an ISG page has in the ISG manifest, for a URL path or a webhook
+ * path: `/about/` and `/about` are one page, recorded without the slash.
+ */
+export function isgPathKey(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith("/")
+    ? pathname.replace(/\/+$/, "") || "/"
+    : pathname;
+}
+
+/**
  * The cache key path of an ISG page for one build. The build sits in the
  * path, not the query, because a cache key may ignore query strings. Without
  * a build the key is the bare path, shared by every build.

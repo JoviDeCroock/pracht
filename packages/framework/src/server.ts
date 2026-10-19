@@ -190,6 +190,7 @@ export {
   decodeISGSnapshot,
   encodeISGSnapshot,
   isgCacheKeyPath,
+  isgPathKey,
   isISGSnapshotRejection,
   serveISGSnapshot,
   stripISGSecretHeaders,

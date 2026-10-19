@@ -5,6 +5,7 @@ import {
   decodeISGSnapshot,
   encodeISGSnapshot,
   isgCacheKeyPath,
+  isgPathKey,
   isISGSnapshotRejection,
   serveISGSnapshot,
   type ISGSnapshot,
@@ -88,5 +89,11 @@ describe("ISG snapshots", () => {
   it("puts the build in the cache key path", () => {
     expect(isgCacheKeyPath("/pricing", "b/1")).toBe("/__pracht/isg-build/b%2F1/pricing");
     expect(isgCacheKeyPath("/pricing", undefined)).toBe("/pricing");
+  });
+
+  it("names a page by its path without a trailing slash", () => {
+    expect(isgPathKey("/pricing/")).toBe("/pricing");
+    expect(isgPathKey("/pricing")).toBe("/pricing");
+    expect(isgPathKey("/")).toBe("/");
   });
 });

@@ -15,6 +15,7 @@ import {
   type ISGManifestEntry,
   captureISGSnapshot,
   isCacheableISGResponse,
+  isgPathKey,
   isISGSnapshotRejection,
   isMcpResourceMetadataPath,
   jsonResponse,
@@ -74,12 +75,7 @@ import {
   writeWebResponse,
 } from "./node-request.ts";
 import type { SharedHeadersManifest } from "@pracht/core/server";
-import {
-  applyHeadersManifest,
-  resolveStaticFile,
-  toRouteKey,
-  type HeadersManifest,
-} from "./node-static.ts";
+import { applyHeadersManifest, resolveStaticFile, type HeadersManifest } from "./node-static.ts";
 
 const ROUTE_STATE_REQUEST_HEADER = "x-pracht-route-state-request";
 // What browsers see on an ISG page whose render set no Cache-Control: always
@@ -288,7 +284,7 @@ export function createNodeRequestHandler<TContext = unknown>(
     // TODO(integrator): look the key and snapshot up through
     // `staticPathCandidates()` from seams/step-d, so a lower-case-escaped ISG
     // URL finds its page the way a static file does.
-    const isgKey = routePathname === null ? null : toRouteKey(routePathname);
+    const isgKey = routePathname === null ? null : isgPathKey(routePathname);
     const isTransportRouteStateRequest = isRouteStateRequest(url, request.headers);
     // Only routes that can actually answer with markdown skip the static and
     // ISG fast paths: the client has to prefer markdown over HTML (a browser's
@@ -325,7 +321,7 @@ export function createNodeRequestHandler<TContext = unknown>(
       // `/page/index.html` names an ISG page's file: answer it as that page,
       // so it serves the current snapshot rather than the build's HTML.
       const isgAliasKey = routePathname.endsWith("/index.html")
-        ? toRouteKey(routePathname.slice(0, -"index.html".length))
+        ? isgPathKey(routePathname.slice(0, -"index.html".length))
         : null;
       if (isgAliasKey !== null && isgAliasKey in isgManifest) {
         const served = await serveISGEntry(
@@ -1065,12 +1061,14 @@ async function handleRevalidationEndpoint<TContext>(
 
   for (const pathname of parsed.paths) {
     try {
-      const entry = isgManifest[pathname];
-      const htmlPath = resolveContainedPath(staticDir, pathname);
+      // Reported as asked, looked up as the page: `/about/` is `/about`.
+      const key = isgPathKey(pathname);
+      const entry = isgManifest[key];
+      const htmlPath = resolveContainedPath(staticDir, key);
       const skip = classifyRevalidationSkip(
         entry && { render: "isg", revalidate: entry.revalidate },
         htmlPath !== null,
-        matchAppRoute(options.app, pathname)?.route ?? null,
+        matchAppRoute(options.app, key)?.route ?? null,
       );
       if (skip) {
         report.skipped(pathname, skip);
@@ -1082,7 +1080,7 @@ async function handleRevalidationEndpoint<TContext>(
       if (
         await regenerateISGPageAndInvalidateCache(
           options,
-          pathname,
+          key,
           htmlPath!,
           request,
           compression,
