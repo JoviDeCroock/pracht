@@ -1,3 +1,4 @@
+import { releaseBudgetWith } from "@pracht/capabilities/server/internal";
 import { matchIndexedResolvedRoute } from "./route-matching.ts";
 import { getServerIslandsRuntime } from "./server-islands-runtime.ts";
 import { PRACHT_SERVER_ISLAND_ENDPOINT } from "./server-islands-shared.ts";
@@ -22,8 +23,8 @@ import {
   type HandlePrachtRequestOptions,
   discardLate,
   isClientDisconnect,
+  isFrameworkBody,
   type PrachtRequestContext,
-  releaseBudgetWith,
 } from "./runtime-request.ts";
 
 export type { HandlePrachtRequestOptions };
@@ -74,7 +75,7 @@ async function handlePrachtRequestPipeline<TContext>(
   }
   // The response exists. Its unread body, `waitUntil` work, and a failed
   // request's leftovers may still keep the request budget running.
-  return releaseBudgetWith(ctx.budget, response);
+  return releaseBudgetWith(ctx.budget, response, isFrameworkBody);
 }
 
 /** Longest the error path may take once an enforced budget has run out. */

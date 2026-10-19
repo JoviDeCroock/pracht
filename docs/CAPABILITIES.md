@@ -191,12 +191,15 @@ transport request — or when the request budget runs out. Under
 `defineApp({ loaderTimeoutMs })`, 30 s by default), passed in as
 `handleCapabilityRequest({ budget })` / `handleMcpRequest({ budget })` (see the
 request budget in [DATA_LOADING.md](DATA_LOADING.md)). The dispatch holds it
-while `waitUntil()` work runs, and a failed dispatch (status 400 and up, before
-MCP turns it into a 200 tool error) keeps it until the timer fires. A host that
-passes no budget (the standalone host, `invokeCapability()` without a
-`signal`) gets a per-dispatch one of `timeoutMs` (30 s) with the same holds,
-cleared once the dispatch answers and its work settles. The
-`api.middleware` chain and capability middleware receive the same signal.
+while `waitUntil()` work runs, and a failed dispatch (status 500 and up, before
+MCP turns it into a 200 tool error) keeps it until the timer fires; a rejected
+call (bad input, wrong method) releases it. `createCapabilityHost` makes one
+budget per request it owns (30 s), shared by the MCP or HTTP dispatch, composed
+invocations, and `waitUntil()` work. A direct `handleCapabilityRequest()` call
+without `budget`, and `invokeCapability()` without a `signal`, get their own of
+`timeoutMs` (30 s) with the same holds. All of them are `createRequestBudget`;
+there is no second implementation. The `api.middleware` chain and capability
+middleware receive the same signal.
 
 `context` defaults to `CapabilityContext`: `context.agent` is typed as the
 verified Web Bot Auth identity (`PrachtAgentIdentity | null`, absent when

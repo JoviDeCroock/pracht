@@ -161,10 +161,10 @@ export function use<T>(value: T): UsedValue<T> {
  * case allocates nothing. Deferred values found at any depth are awaited
  * concurrently — one slow field does not serialize behind another.
  */
-export async function resolveDeferredData<T>(data: T): Promise<T> {
+export async function resolveDeferredData<T>(data: T, hold?: () => () => void): Promise<T> {
   if (!anyDeferredCreated) return data;
   if (!containsDeferred(data)) return data;
-  return (await resolveValue(data, new Map())) as T;
+  return (await resolveValue(data, new Map(), hold)) as T;
 }
 
 /** @internal Reset the `defer()` latch for tests. */
@@ -241,9 +241,19 @@ function containsDeferred(value: unknown, seen = new Set<object>()): boolean {
   return false;
 }
 
-async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise<unknown> {
+/**
+ * `hold` keeps the request budget running while one deferred value is
+ * pending, so a sibling still running after another field rejected the
+ * response keeps its timeout instead of outliving the request.
+ */
+async function resolveValue(
+  value: unknown,
+  seen: Map<object, unknown>,
+  hold?: () => () => void,
+): Promise<unknown> {
   if (isDeferred(value)) {
     let resolved: unknown;
+    const release = hold?.();
     try {
       resolved = await (value as unknown as DeferredBox<unknown>).promise();
     } catch (error: unknown) {
@@ -251,9 +261,11 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
         throw deferredResponseError();
       }
       throw error;
+    } finally {
+      release?.();
     }
     if (resolved instanceof Response) throw deferredResponseError();
-    return await resolveValue(resolved, seen);
+    return await resolveValue(resolved, seen, hold);
   }
   if (typeof value !== "object" || value === null) return value;
 
@@ -271,7 +283,7 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
     const resolved = await Promise.all(
       entries.map(([key, descriptor]) =>
         isArrayIndexKey(key) && "value" in descriptor
-          ? resolveValue(descriptor.value, seen)
+          ? resolveValue(descriptor.value, seen, hold)
           : undefined,
       ),
     );
@@ -303,7 +315,7 @@ async function resolveValue(value: unknown, seen: Map<object, unknown>): Promise
   const resolved = await Promise.all(
     entries.map(([, descriptor]) =>
       descriptor.enumerable && "value" in descriptor
-        ? resolveValue(descriptor.value, seen)
+        ? resolveValue(descriptor.value, seen, hold)
         : undefined,
     ),
   );

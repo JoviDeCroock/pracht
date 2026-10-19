@@ -6,3 +6,11 @@
  * supported `@pracht/capabilities/server` API.
  */
 export * from "./server/index.ts";
+export {
+  createRequestBudget,
+  failureKeepsBudget,
+  holdingWaitUntil,
+  holdUntilBodySettles,
+  releaseBudgetWith,
+  type RequestBudget,
+} from "./server/request-budget.ts";

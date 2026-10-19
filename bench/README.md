@@ -79,6 +79,15 @@ request and a 404. The heap figure includes the probe's own client and is a
 trend line, not an absolute: a jump between two commits means some per-request
 state now outlives its response. Neither number is gated.
 
+`budget-probe.mjs` targets the request budget alone. After `pnpm build`, run
+`node --expose-gc bench/budget-probe.mjs [requests]` (100,000 by default). It
+serves requests in-process through the built `handlePrachtRequest`, each with
+its own client signal and a handler that adds an abort listener, and reports
+the heap retained per request for an API route streaming its own body, a
+capability POST, and a capability POST rejected before `run()`. The default
+30 s budget outlasts each row, so a budget a finished request left running
+shows up here; every row should stay under 200 B.
+
 ## What `+ lazy` counts
 
 `pracht build --analyze` reports the chunks a route loads *to hydrate*. The

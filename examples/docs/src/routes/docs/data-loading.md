@@ -113,9 +113,9 @@ The budget defaults to 30 seconds; set it app-wide with
 
 One budget covers the whole request: middleware, the loader, the not-found page
 after `notFound()`, any response body still streaming, and `waitUntil` work.
-When a successful request finishes all of it, the budget stops and `signal`
-aborts only on a client disconnect. After an error response, the budget still
-runs out and aborts leftover loader work.
+When a request answers with a success or a 4xx and finishes all of it, the
+budget stops and `signal` aborts only on a client disconnect. After a 5xx
+response, the budget still runs out and aborts leftover work.
 
 - **A loader that ignores `signal` still holds the response** until it
   finishes. Set `defineApp({ enforceLoaderTimeout: true })` to answer with the

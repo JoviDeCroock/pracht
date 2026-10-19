@@ -4,7 +4,9 @@ import { runInNewContext } from "node:vm";
 import { h } from "preact";
 import { describe, expect, it } from "vitest";
 
+import { defineCapability } from "../../capabilities/src/index.ts";
 import { defer, defineApp, handlePrachtRequest, resolveApiRoutes, route } from "../src/index.ts";
+import type { ModuleRegistry } from "../src/index.ts";
 
 setFlagsFromString("--expose-gc");
 const gc = runInNewContext("gc") as () => void;
@@ -279,5 +281,121 @@ describe("the request budget ends with the request's work", () => {
     await sleep(50);
 
     expect(loaderSignal!.aborted).toBe(false);
+  });
+
+  it("lets a rejected API request's signal be collected inside the budget", async () => {
+    let ref: WeakRef<AbortSignal> | undefined;
+
+    await serve({
+      app: defineApp({ routes: [] }),
+      apiRoutes: resolveApiRoutes(["/src/api/ping.ts"]),
+      registry: {
+        apiModules: {
+          "/src/api/ping.ts": async () => ({
+            GET: ({ signal }: { signal: AbortSignal }) => {
+              ref = new WeakRef(signal);
+              signal.addEventListener("abort", () => {});
+              return new Response("missing", { status: 404 });
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/api/ping"),
+    });
+
+    expect(await collected(ref!)).toBe(true);
+  });
+
+  it("lets a capability call rejected before run() be collected inside the budget", async () => {
+    let ref: WeakRef<AbortSignal> | undefined;
+    let ran = false;
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      middlewareModules: {
+        "./middleware/observe.ts": async () => ({
+          middleware: async (args: { signal: AbortSignal }, next: () => Promise<Response>) => {
+            ref = new WeakRef(args.signal);
+            args.signal.addEventListener("abort", () => {});
+            return next();
+          },
+        }),
+      },
+      capabilityModules: {
+        "./capabilities/echo.ts": (async () => ({
+          default: defineCapability({
+            title: "Echo",
+            description: "Never reached.",
+            effect: "read",
+            input: { type: "object", properties: {}, additionalProperties: false },
+            output: { type: "object", properties: {} },
+            expose: { http: true },
+            async run() {
+              ran = true;
+              return {};
+            },
+          }),
+        })) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        api: { middleware: ["observe"] },
+        middleware: { observe: "./middleware/observe.ts" },
+        capabilities: { "x.echo": "./capabilities/echo.ts" },
+        routes: [route("/", "./routes/home.tsx")],
+      }),
+      registry,
+      request: new Request("http://localhost/api/capabilities/x/echo", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{not json",
+      }),
+    });
+    expect(response.status).toBe(400);
+    await response.text();
+
+    expect(ran).toBe(false);
+    expect(await collected(ref!)).toBe(true);
+  });
+
+  it("keeps the budget for a deferred sibling after middleware rewrites the failure", async () => {
+    let loaderSignal: AbortSignal | undefined;
+
+    const response = await handlePrachtRequest({
+      app: defineApp({
+        loaderTimeoutMs: 20,
+        middleware: { soften: "./middleware/soften.ts" },
+        routes: [route("/", "./routes/home.tsx", { middleware: ["soften"] })],
+      }),
+      registry: {
+        middlewareModules: {
+          "./middleware/soften.ts": async () => ({
+            middleware: async (_args: unknown, next: () => Promise<Response>) => {
+              await next().catch(() => undefined);
+              return new Response("fallback");
+            },
+          }),
+        },
+        routeModules: {
+          "./routes/home.tsx": async () => ({
+            Component: () => h("p", null, "home"),
+            loader: ({ signal }: { signal: AbortSignal }) => {
+              loaderSignal = signal;
+              return {
+                broken: defer(sleep(2).then(() => Promise.reject(new Error("upstream down")))),
+                sibling: defer(new Promise((resolve) => signal.addEventListener("abort", resolve))),
+              };
+            },
+          }),
+        },
+      },
+      request: new Request("http://localhost/"),
+    });
+    expect(response.status).toBe(200);
+    await response.text();
+    await sleep(60);
+
+    expect(loaderSignal!.aborted).toBe(true);
   });
 });
