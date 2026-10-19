@@ -241,18 +241,61 @@ function withoutLoadError(capability: AppGraphCapability): AppGraphCapability {
   return rest;
 }
 
+/**
+ * The key order a capability entry is written in: the order every snapshot
+ * committed so far uses. Staleness compares serialized text, so entry keys are
+ * put in one fixed order rather than whatever order a producer built them in —
+ * otherwise reordering the producer marks every committed snapshot stale.
+ * Keys not listed here follow in alphabetical order.
+ */
+const CAPABILITY_KEY_ORDER = [
+  "agentPolicy",
+  "description",
+  "effect",
+  "error",
+  "unverifiedContract",
+  "hasUi",
+  "httpPath",
+  "input",
+  "middleware",
+  "name",
+  "output",
+  "source",
+  "title",
+  "transports",
+  "mcpScopes",
+  "webmcpRoutes",
+];
+
+function withKeyOrder<T extends object>(entry: T, order: readonly string[] = []): T {
+  const rank = (key: string) => {
+    const index = order.indexOf(key);
+    return index === -1 ? order.length : index;
+  };
+  const keys = Object.keys(entry).sort(
+    (left, right) => rank(left) - rank(right) || (left < right ? -1 : left > right ? 1 : 0),
+  );
+  return Object.fromEntries(
+    keys.map((key) => [key, (entry as Record<string, unknown>)[key]]),
+  ) as T;
+}
+
 /** Stable ordering + JSON round-trip so snapshots diff cleanly in git. */
 export function normalizeGraphSnapshot(snapshot: GraphSnapshot): GraphSnapshot {
   const normalized: GraphSnapshot = {
     prachtGraphVersion: snapshot.prachtGraphVersion,
     mode: snapshot.mode,
+    // Snapshots written before `streaming` existed omit it; reading the absent
+    // field as `null` keeps them current after an upgrade.
     routes: snapshot.routes
-      .map((route) => ({ ...route, streaming: route.streaming ?? null }))
+      .map((route) => withKeyOrder({ ...route, streaming: route.streaming ?? null }))
       .sort((left, right) => left.path.localeCompare(right.path)),
-    api: [...snapshot.api].sort((left, right) => left.path.localeCompare(right.path)),
-    capabilities: [...(snapshot.capabilities ?? [])].sort((left, right) =>
-      left.name.localeCompare(right.name),
-    ),
+    api: snapshot.api
+      .map((route) => withKeyOrder(route))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    capabilities: (snapshot.capabilities ?? [])
+      .map((capability) => withKeyOrder(capability, CAPABILITY_KEY_ORDER))
+      .sort((left, right) => left.name.localeCompare(right.name)),
     mcpEndpoint: snapshot.mcpEndpoint ?? null,
     ...(snapshot.mcpDestructive === true ? { mcpDestructive: true } : {}),
     mcpAuthenticated: snapshot.mcpAuthenticated ?? false,

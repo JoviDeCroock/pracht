@@ -1,3 +1,10 @@
+import { defineCapability } from "@pracht/capabilities";
+import {
+  serializeAppRoutes,
+  serializeCapabilities,
+  withWebmcpRoutes,
+  type ResolvedRoute,
+} from "@pracht/core";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -83,6 +90,106 @@ describe("normalizeGraphSnapshot", () => {
     const snapshot = normalizeGraphSnapshot(makeSnapshot({ routes: [route] }));
 
     expect(snapshot.routes[0].streaming).toBeNull();
+  });
+
+  it("keeps a snapshot committed by @pracht/cli 1.16 current after an upgrade", async () => {
+    // Written by the published 1.16.1 CLI: no `streaming` on routes, and
+    // capability keys in that release's order.
+    const published = `{
+  "prachtGraphVersion": 2,
+  "mode": "manifest",
+  "routes": [
+    {
+      "file": "./routes/notes.tsx",
+      "hydration": null,
+      "id": "notes",
+      "loaderCache": null,
+      "loaderFile": null,
+      "middleware": [],
+      "path": "/notes",
+      "prefetch": null,
+      "render": "ssr",
+      "revalidate": null,
+      "shell": null,
+      "shellFile": null,
+      "speculation": null
+    }
+  ],
+  "api": [],
+  "capabilities": [
+    {
+      "agentPolicy": null,
+      "description": "Search notes.",
+      "effect": "read",
+      "hasUi": false,
+      "httpPath": "/api/capabilities/notes/search",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "middleware": [],
+      "name": "notes.search",
+      "output": {
+        "type": "object"
+      },
+      "source": "./capabilities/notes-search.ts",
+      "title": "Search notes",
+      "transports": [
+        "http",
+        "mcp",
+        "webmcp"
+      ],
+      "mcpScopes": [
+        "notes:read"
+      ],
+      "webmcpRoutes": [
+        "/notes"
+      ]
+    }
+  ],
+  "mcpEndpoint": "/mcp",
+  "mcpAuthenticated": false,
+  "mcpAuth": null,
+  "constraints": []
+}
+`;
+    const routes = [
+      { path: "/notes", id: "notes", file: "./routes/notes.tsx", middleware: [], render: "ssr" },
+    ] as unknown as ResolvedRoute[];
+    const capabilities = withWebmcpRoutes(
+      await serializeCapabilities(
+        { "notes.search": "./capabilities/notes-search.ts" },
+        {
+          loadModule: async () => ({
+            default: defineCapability({
+              title: "Search notes",
+              description: "Search notes.",
+              effect: "read",
+              input: { type: "object", properties: {}, additionalProperties: false },
+              output: { type: "object" },
+              expose: { http: true, mcp: { scopes: ["notes:read"] }, webmcp: true },
+              run: () => ({}),
+            }),
+          }),
+          readSource: () => "",
+        },
+        { strict: true },
+      ),
+      [{ ...routes[0], capabilities: ["notes.search"] }],
+    );
+    const live = makeSnapshot({
+      routes: serializeAppRoutes(routes),
+      capabilities,
+      mcpEndpoint: "/mcp",
+    });
+
+    const committed = JSON.parse(published) as GraphSnapshot;
+    expect(serializeGraphSnapshot(committed)).toBe(serializeGraphSnapshot(live));
+    // Rewriting it changes nothing but the new `streaming` field.
+    expect(serializeGraphSnapshot(live).replaceAll(',\n      "streaming": null', "")).toBe(
+      published,
+    );
   });
 });
 
