@@ -99,6 +99,47 @@ describe("createWebRequest", () => {
     expect(raw.toLowerCase()).toContain("x-content-type-options: nosniff");
   });
 
+  it.each([
+    ["GET / HTTP/1.1", "user:pw@host"],
+    ["GET / HTTP/1.1", "@evil"],
+    ["GET / HTTP/1.1", "a/b"],
+    ["GET / HTTP/1.1", "a?b"],
+    ["GET / HTTP/1.1", "a#b"],
+    ["GET / HTTP/1.1", "a\\b"],
+    ["GET / HTTP/1.1", "ev\til"],
+    ["GET http://u:p@x/ HTTP/1.1", "localhost"],
+  ])("answers %s with Host %j as 400, logging nothing", async (requestLine, host) => {
+    const errors: unknown[][] = [];
+    const consoleError = console.error;
+    console.error = (...args: unknown[]) => void errors.push(args);
+    cleanups.push(() => (console.error = consoleError));
+    const handler = createNodeRequestHandler({ app: defineApp({ routes: [] }) });
+    const port = await listen(handler);
+
+    const raw = await rawRequest(port, [requestLine, `Host: ${host}`, "Connection: close"]);
+
+    expect(raw.startsWith("HTTP/1.1 400")).toBe(true);
+    expect(raw.toLowerCase()).toContain("x-content-type-options: nosniff");
+    expect(errors).toEqual([]);
+  });
+
+  it("keeps a Host with a port or an IPv6 literal", async () => {
+    const port = await listen(async (req, res) => {
+      const request = await createWebRequest(req, res);
+      if (request instanceof Response) return writeWebResponse(res, request);
+      res.end(request.url);
+    });
+
+    for (const [host, url] of [
+      ["Example.com:8080", "http://example.com:8080/x"],
+      ["[::1]:3000", "http://[::1]:3000/x"],
+    ]) {
+      const raw = await rawRequest(port, ["GET /x HTTP/1.1", `Host: ${host}`, "Connection: close"]);
+      expect(raw.startsWith("HTTP/1.1 200")).toBe(true);
+      expect(raw.endsWith(url)).toBe(true);
+    }
+  });
+
   // R476-1: Node closes the request stream once a complete upload is consumed,
   // while the app is still answering. Only a disconnect before the response
   // finished may abort the signal.

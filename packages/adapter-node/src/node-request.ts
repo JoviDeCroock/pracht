@@ -218,8 +218,10 @@ export interface NodeBridgeOptions {
 /**
  * Turn a `node:http` request into a Web `Request`, or into the `Response` that
  * answers it: 413 for a body over `maxBodySize` (checked against a declared
- * `Content-Length` before any byte is read) and 400 for a request target or
- * `Host` that does not form a URL. Both carry the default security headers.
+ * `Content-Length` before any byte is read) and 400 for anything that does not
+ * form a `Request`: a request target or `Host` that is no URL, a `Host` with
+ * userinfo or URL delimiters in it, a target with credentials, or a method a
+ * `Request` cannot carry. Both carry the default security headers.
  *
  * `request.signal` aborts when the client disconnects before `res` finished.
  * It is the client's signal only; the framework adds its own deadlines.
@@ -234,17 +236,21 @@ export async function createWebRequest(
   const signal = createClientDisconnectSignal(req, res);
   const method = req.method ?? "GET";
 
+  // A request the client malformed is answered here, before any body is read,
+  // and never reaches the server's error log.
   let url: URL;
+  const init: RequestInit = { headers: createHeaders(req.headers), method, signal };
   try {
     url = new URL(
       restoreBase(normalizeRequestTarget(req.url, options), options.base),
       resolveRequestBase(req, options),
     );
+    // `new Request()` refuses a URL with credentials (`GET http://u:p@x/`).
+    if (url.username || url.password) throw new TypeError("Credentials in the request target");
   } catch {
     return createBridgeErrorResponse(400, "Bad Request");
   }
 
-  const init: RequestInit = { headers: createHeaders(req.headers), method, signal };
   if (!BODYLESS_METHODS.has(method.toUpperCase())) {
     const body = await readRequestBody(req, options.maxBodySize ?? DEFAULT_MAX_BODY_SIZE);
     // The rest of the body is never read, so the connection cannot be reused.
@@ -252,7 +258,11 @@ export async function createWebRequest(
     if (body.byteLength > 0) init.body = body;
   }
 
-  return new Request(url, init);
+  try {
+    return new Request(url, init);
+  } catch {
+    return createBridgeErrorResponse(400, "Bad Request");
+  }
 }
 
 function createBridgeErrorResponse(status: number, body: string, close = false): Response {
@@ -498,8 +508,15 @@ function resolveRequestBase(
   }
 
   const { protocol, host } = resolveOrigin(req, options.trustProxy ?? false);
+  // `new URL()` reads userinfo, a path, a query, or a fragment out of a host
+  // (`user:pw@host`, `a/b`, `evil?x`) and drops tabs, so the origin would not
+  // be the one the client sent. Such a host is no host.
+  if (!host || INVALID_HOST_RE.test(host)) throw new TypeError(`Invalid Host: ${host}`);
   return new URL(`${protocol}://${host}`);
 }
+
+/** Characters no `host[:port]` holds: whitespace, controls, `/ ? # @ \`. */
+const INVALID_HOST_RE = /[\s\x00-\x1f\x7f/?#@\\]/;
 
 function resolveOrigin(
   req: IncomingMessage,
