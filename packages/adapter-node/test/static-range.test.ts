@@ -133,4 +133,13 @@ describe("static byte ranges", () => {
 
     expect(response.status).toBe(200);
   });
+
+  it("sends the file's length on GET and HEAD", async () => {
+    const head = await get({}, "HEAD");
+    const full = await get({});
+
+    expect(head.response.headers.get("content-length")).toBe(String(FILE_SIZE));
+    expect(full.response.headers.get("content-length")).toBe(String(FILE_SIZE));
+    expect(full.body.equals(fileBytes)).toBe(true);
+  });
 });

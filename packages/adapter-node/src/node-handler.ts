@@ -636,6 +636,8 @@ async function serveStaticFile(
     }
 
     res.statusCode = 200;
+    // The identity body is the file: GET and HEAD both say how long it is.
+    if (encoding === null) headers.set("content-length", String(fileStat.size));
     writeNodeHeaders(res, headers);
     if (request.method === "HEAD") {
       await writeFileHead(
