@@ -791,8 +791,13 @@ render or layout-effect error thrown while a client navigation commits
 (`afterCommitCallback` still pending): it reports the error with
 `reportError()`, renders nothing for that route version, and reloads the
 document, which the server renders or answers with its error page. Errors
-during hydration or any later update propagate as before, so the reload cannot
-loop. A static host's SPA-fallback boot is excluded (a reload would serve the
+during any later update propagate as before, so the reload cannot loop. One
+that escapes the initial `hydrate()` call (synchronously, so a Suspense
+boundary resolving later is not covered) would leave `#pracht-root` empty,
+because Preact removes the DOM it had not claimed yet: `initClientRouter`
+snapshots `root.innerHTML` before hydrating, puts it back, reports the error
+(`reportError()`, plus an explanatory `console.error` in dev) and returns
+without installing the router, so links and forms work as plain HTML. A static host's SPA-fallback boot is excluded (a reload would serve the
 same fallback), and the wrapper is unkeyed and clears on the next route version
 (a cancelled `beforeunload` leaves the page usable).
 

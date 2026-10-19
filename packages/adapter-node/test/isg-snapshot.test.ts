@@ -1,11 +1,11 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ISGSnapshot } from "@pracht/core/server";
 
-import { readISGSnapshot, writeISGSnapshot } from "../src/node-isg.ts";
+import { RETIRED_ISG_SNAPSHOT_AGE_MS, readISGSnapshot, writeISGSnapshot } from "../src/node-isg.ts";
 
 const tempDirs: string[] = [];
 
@@ -66,7 +66,7 @@ describe("Node ISG snapshots", () => {
     }
     // One file beside the HTML, and no leftover temporaries.
     expect(readdirSync(join(htmlPath, "..")).sort()).toEqual([
-      ".index.html.pracht-isg.json",
+      ".index.html.build-1.pracht-isg.json",
       "index.html",
     ]);
   });
@@ -79,10 +79,65 @@ describe("Node ISG snapshots", () => {
     await expect(readISGSnapshot(htmlPath, "build-1")).resolves.toMatchObject({
       snapshot: snapshotOf(1, "build-1"),
     });
-    // A handler that does not know its build serves whatever is there.
+    // A handler that does not know its build reads only the unscoped file.
+    await expect(readISGSnapshot(htmlPath, undefined)).resolves.toBeNull();
+    await writeISGSnapshot(htmlPath, snapshotOf(2, null));
     await expect(readISGSnapshot(htmlPath, undefined)).resolves.toMatchObject({
+      snapshot: snapshotOf(2, null),
+    });
+  });
+
+  it("keeps two builds serving one directory from overwriting each other's pages", async () => {
+    const htmlPath = makeHtmlPath();
+    await writeISGSnapshot(htmlPath, snapshotOf(1, "build-1"));
+    await writeISGSnapshot(htmlPath, snapshotOf(2, "build-2"));
+    await writeISGSnapshot(htmlPath, snapshotOf(3, "build-1"));
+
+    await expect(readISGSnapshot(htmlPath, "build-1")).resolves.toMatchObject({
+      snapshot: snapshotOf(3, "build-1"),
+    });
+    await expect(readISGSnapshot(htmlPath, "build-2")).resolves.toMatchObject({
+      snapshot: snapshotOf(2, "build-2"),
+    });
+  });
+
+  it("removes another build's snapshot once nobody wrote it for an hour", async () => {
+    const htmlPath = makeHtmlPath();
+    const dir = join(htmlPath, "..");
+    await writeISGSnapshot(htmlPath, snapshotOf(1, "build-1"));
+    // An id that is not a safe file name is stored under a digest of it.
+    await writeISGSnapshot(htmlPath, snapshotOf(2, "a/b c"));
+    writeFileSync(join(dir, ".index.html.pracht-isg.json"), "{}", "utf-8");
+    writeFileSync(join(dir, ".other.html.build-1.pracht-isg.json"), "{}", "utf-8");
+    const old = (Date.now() - RETIRED_ISG_SNAPSHOT_AGE_MS - 60_000) / 1000;
+    for (const entry of readdirSync(dir)) {
+      if (!entry.startsWith(".index.html.build-1")) {
+        utimesSync(join(dir, entry), old, old);
+      }
+    }
+
+    await writeISGSnapshot(htmlPath, snapshotOf(3, "build-3"));
+
+    expect(readdirSync(dir).sort()).toEqual([
+      ".index.html.build-1.pracht-isg.json",
+      ".index.html.build-3.pracht-isg.json",
+      ".other.html.build-1.pracht-isg.json",
+    ]);
+  });
+
+  it("reads a snapshot an older release wrote under the shared name for the same build", async () => {
+    const htmlPath = makeHtmlPath();
+    const { encodeISGSnapshot } = await import("@pracht/core/server");
+    writeFileSync(
+      join(htmlPath, "..", ".index.html.pracht-isg.json"),
+      encodeISGSnapshot(snapshotOf(1, "build-1")),
+      "utf-8",
+    );
+
+    await expect(readISGSnapshot(htmlPath, "build-1")).resolves.toMatchObject({
       snapshot: snapshotOf(1, "build-1"),
     });
+    await expect(readISGSnapshot(htmlPath, "build-2")).resolves.toBeNull();
   });
 
   it("treats an unreadable snapshot file as no snapshot", async () => {

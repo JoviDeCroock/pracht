@@ -1551,7 +1551,24 @@ export async function initClientRouter(options: InitClientRouterOptions): Promis
           // tracker can wrap it instead of being hidden behind it later.
           if (import.meta.env?.DEV || HYDRATION_WARNINGS_FORCED) installHydrationMismatchWarning();
           markHydrating();
-          hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
+          // A render error no app ErrorBoundary catches escapes `hydrate()`
+          // after Preact dropped every node it had not claimed yet. Put the
+          // server markup back: the page stays readable, links and forms work
+          // as plain HTML, and the router stays out of a half-mounted tree.
+          const markup = root.innerHTML;
+          try {
+            hydrate(h(RouterRoot, { initialState: initialRouteState }), root);
+          } catch (error) {
+            root.innerHTML = markup;
+            if (import.meta.env?.DEV) {
+              console.error(
+                "[pracht] Hydration failed with a render error no ErrorBoundary caught. The " +
+                  "server-rendered page stays, but is not interactive.",
+              );
+            }
+            window.reportError?.(error);
+            return;
+          }
           onHydrationComplete(async () => {
             // Serialized route-state URLs are browser URLs (base included),
             // matching what a client-side navigation commits. `404.html`

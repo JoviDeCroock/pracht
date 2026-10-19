@@ -579,7 +579,9 @@ Pracht uses Vite's multi-environment build:
 1. **client** — browser JavaScript + CSS
    - Entry: `virtual:pracht/client`
    - Output: `dist/client/assets/` (hashed filenames)
-   - Produces: `.vite/manifest.json` for asset injection
+   - Produces: `.vite/manifest.json` for asset injection; `pracht build` moves it
+     to `dist/server/.vite/client-manifest.json` once read, so no deploy target
+     serves the module graph
 
 2. **ssr** — server bundle
    - Entry: `virtual:pracht/server`
@@ -597,11 +599,11 @@ Pracht uses Vite's multi-environment build:
 dist/
   client/
     assets/                    # Hashed JS/CSS chunks
-    .vite/manifest.json        # Client asset manifest
     index.html                 # SSG-generated pages...
     about/index.html
     blog/hello/index.html
   server/
+    .vite/client-manifest.json  # Client asset manifest (moved out of client/)
     headers-manifest.json       # Prerendered document headers
     markdown-manifest.json      # Routes with raw Markdown representations
     isg-manifest.json           # ISG revalidation config

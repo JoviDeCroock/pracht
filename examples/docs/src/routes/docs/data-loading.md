@@ -304,7 +304,7 @@ export function ErrorBoundary({ error }: ErrorBoundaryProps) {
 }
 ```
 
-A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler. If a component throws while a client navigation renders and no boundary catches it, the router reloads the page so the server renders it, or its error page, instead of leaving the page blank.
+A route boundary catches that route's errors, a shell boundary catches errors from any route in the shell, and anything else reaches the global handler. If a component throws while a client navigation renders and no boundary catches it, the router reloads the page so the server renders it, or its error page, instead of leaving the page blank. If one throws while the first page hydrates, the server-rendered page stays on screen without interactivity, and the error is reported to the console.
 
 #### Scoping a boundary to a subtree
 

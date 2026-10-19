@@ -743,10 +743,21 @@ export async function dispatchApi<TContext>(
   const apiMiddlewareFiles = resolveApiMiddlewareFiles(options.app);
   let currentPhase: PrachtRuntimeDiagnosticPhase = "middleware";
 
+  // `OPTIONS` changes no state: a route that exports its own handler (a CORS
+  // preflight answer, usually) runs it for any origin. A `default` export
+  // stays behind the gate, since it answers every method alike.
   if (
     ctx.requireSameOrigin &&
     !SAFE_METHODS.has(request.method) &&
-    !isSameOriginRequest(request, url)
+    !isSameOriginRequest(request, url) &&
+    !(
+      request.method === "OPTIONS" &&
+      typeof (
+        await resolveRegistryModule<ApiRouteModule>(registry.apiModules, apiMatch.route.file).catch(
+          () => undefined,
+        )
+      )?.OPTIONS === "function"
+    )
   ) {
     return plainTextResponse("Cross-origin request blocked", 403);
   }

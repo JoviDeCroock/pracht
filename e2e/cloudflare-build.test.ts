@@ -233,7 +233,9 @@ test("prerendered SSG pages include client JS and working framework context", as
     expect(html).toContain('<script id="pracht-state" type="application/json">');
 
     // Client assets must live directly in dist/client/assets/ (not nested deeper)
-    const manifestPath = resolve(distDir, "client/.vite/manifest.json");
+    // The build moves the manifest out of the uploaded assets directory.
+    expect(existsSync(resolve(distDir, "client/.vite/manifest.json"))).toBe(false);
+    const manifestPath = resolve(distDir, "server/.vite/client-manifest.json");
     expect(existsSync(manifestPath)).toBe(true);
     const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
     const clientEntry = manifest["virtual:pracht/client"];

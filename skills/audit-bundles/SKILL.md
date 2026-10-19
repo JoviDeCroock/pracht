@@ -52,12 +52,12 @@ pracht inspect build --json
 ```
 
 Captures the resolved adapter, client entry URL, and CSS/JS manifest. Cross
-reference with `dist/client/.vite/manifest.json` for chunk metadata
+reference with `dist/server/.vite/client-manifest.json` for chunk metadata
 (file, imports, dynamicImports, css, isEntry) — needed for vendor fan-in
 analysis (Step 4) and CSS sizing, which the analyze report does not cover.
 
 Size CSS from the `cssManifest` this command reports, never from
-`dist/client/.vite/manifest.json`. A `hydration: "none"` or `"islands"` route is
+`dist/server/.vite/client-manifest.json`. A `hydration: "none"` or `"islands"` route is
 absent from the client manifest by construction, so reading it directly reports
 no CSS for a page whose document links a stylesheet — under-reporting exactly
 the routes pracht recommends. `inspect` merges `dist/server/css-manifest.json`,

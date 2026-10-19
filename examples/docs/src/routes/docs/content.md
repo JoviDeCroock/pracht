@@ -212,8 +212,9 @@ The build also fails when an artifact path collides with a file in `public/`, a
 prerendered page, or a request-time page or API route. The error names the
 collision.
 
-The Node, Cloudflare, Netlify, and Vercel adapters serve artifacts with the
-`contentType` you set.
+The Node, Cloudflare, Netlify, and Vercel adapters serve an artifact with its
+`contentType`. Leave it out and the artifact gets the type a static file with
+the same extension gets, in dev and production alike.
 
 `@pracht/content/capabilities` exports `createContentPageCapability()` and
 `createContentSearchCapability()`. They return `input`, `output`, and `run`

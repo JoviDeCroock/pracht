@@ -37,6 +37,7 @@ import {
   createVercelNodeListener,
   type VercelExecutionContext,
 } from "../../adapter-vercel/src/index.ts";
+import { relocateClientManifest } from "../../cli/src/build-metadata.ts";
 import { PRACHT_SERVER_MODULE_ID } from "../../vite-plugin/src/plugin-assets.ts";
 import { createDevSSRMiddleware } from "../../vite-plugin/src/plugin-dev-ssr.ts";
 
@@ -116,6 +117,9 @@ function waitForAbort(signal: AbortSignal): Promise<boolean> {
     });
   });
 }
+
+/** The other origin `/api/cors` grants in its own `OPTIONS` answer. */
+export const CORS_ORIGIN = "https://other.example";
 
 /** The document headers every ISG render of `/isg` produces. */
 export const ISG_RENDER_HEADERS = {
@@ -241,6 +245,18 @@ export function createFixture(options: { build?: string; generatedAt?: number } 
         POST: async ({ request }: { request: Request }) =>
           new Response(await request.text(), { headers: { "content-type": "text/plain" } }),
       }),
+      // Answers its own CORS preflight.
+      "/src/api/cors.ts": async () => ({
+        OPTIONS: async () =>
+          new Response(null, {
+            status: 204,
+            headers: {
+              "access-control-allow-origin": CORS_ORIGIN,
+              "access-control-allow-methods": "POST",
+            },
+          }),
+        POST: async () => new Response("posted"),
+      }),
     },
     capabilityModules: {
       "./capabilities/slow.ts": (async () => ({ default: slowCapability })) as NonNullable<
@@ -253,7 +269,7 @@ export function createFixture(options: { build?: string; generatedAt?: number } 
     build,
     app,
     registry,
-    apiRoutes: resolveApiRoutes(["/src/api/echo.ts"]),
+    apiRoutes: resolveApiRoutes(["/src/api/echo.ts", "/src/api/cors.ts"]),
     isgManifest: {
       [ISG_PATHS.page]: { revalidate: [timeRevalidate(60), webhookRevalidate()], generatedAt },
       [ISG_PATHS.cookie]: { revalidate: timeRevalidate(60), generatedAt },
@@ -296,6 +312,9 @@ export const STATIC_FILES: Record<string, string | Buffer> = {
   "posts/caf%C3%A9/index.html": "<!doctype html><p>café</p>",
 };
 
+/** Where Vite writes the client build's manifest, relative to the client directory. */
+export const CLIENT_VITE_MANIFEST = ".vite/manifest.json";
+
 export interface StaticOutput {
   root: string;
   clientDir: string;
@@ -318,6 +337,11 @@ export function createStaticOutput(
   }
   const secretPath = join(root, "secret.txt");
   writeFileSync(secretPath, "top-secret");
+  // Vite writes the client manifest into the client directory; `pracht build`
+  // moves it out once it has read it.
+  mkdirSync(join(clientDir, ".vite"));
+  writeFileSync(join(clientDir, CLIENT_VITE_MANIFEST), JSON.stringify({ "src/x.tsx": {} }));
+  relocateClientManifest(root, clientDir);
 
   const writePrerenderedISG = (path: string, html: string, mtimeMs: number) => {
     // `pracht build` writes the encoded spelling for Node, and the decoded one

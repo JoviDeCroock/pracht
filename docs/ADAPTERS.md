@@ -224,13 +224,20 @@ that manifest.
   A regenerated page is one ISG snapshot (core `captureISGSnapshot()`: the
   HTML, the render's document headers minus transfer and credential-shaped
   ones, its own Cache-Control, the `buildId`, and the render time) published
-  to `.index.html.pracht-isg.json` beside the build's HTML by one atomic
-  rename, so a reader in any process sees one render's HTML with that
+  to `.index.html.<buildId>.pracht-isg.json` beside the build's HTML by one
+  atomic rename, so a reader in any process sees one render's HTML with that
   render's headers. The build's `index.html` is never rewritten. A snapshot
   is served (through `serveISGSnapshot()`, also for the `/page/index.html`
-  alias) with its own headers in place of the `headers-manifest.json` entry;
-  one stamped with another `buildId` is ignored, so a redeploy into the same
-  directory starts from its own HTML and headers. Neither the snapshot nor
+  alias) with its own headers in place of the `headers-manifest.json` entry.
+  A handler reads only its own build's file, so a redeploy into the same
+  directory starts from its own HTML and headers, and two builds serving one
+  directory during a rollover never overwrite each other's pages. A build id
+  that is not a safe file name segment is replaced by a digest of it; a
+  handler without a build id uses the unscoped `.index.html.pracht-isg.json`
+  older releases wrote, which a handler with one still reads when the snapshot
+  inside carries its id. Each write removes the page's snapshots of other
+  builds not written for `RETIRED_ISG_SNAPSHOT_AGE_MS` (one hour); a process
+  still serving such a build only renders the page again. Neither the snapshot nor
   the `.pracht-headers.json` file older releases wrote is ever served as a
   static file.
   ISG state is the local `staticDir` of one process: the webhook regenerates
@@ -244,8 +251,9 @@ that manifest.
   streamed, and static responses support `ETag` / `Last-Modified` conditional
   revalidation and single byte ranges (`206`, `416`, `If-Range` by date;
   multi-range requests get the whole file).
-- **Vite manifest**: reads `.vite/manifest.json` to inject correct `<script>` and
-  `<link>` tags into server-rendered HTML.
+- **Vite manifest**: the server bundle embeds the asset URLs it needs at build
+  time; `pracht build` then moves the client manifest to
+  `dist/server/.vite/client-manifest.json`, so no adapter serves it.
 - **Response headers**: preserves multiple `Set-Cookie` headers from framework
   responses by writing them as an array to Node's `ServerResponse`.
 - **Response compression**: brotli/gzip content negotiation on every response
@@ -446,10 +454,13 @@ so the exit status is the default one. Edges of that shape:
   sockets are closed up front, but a socket whose request finishes during the
   drain stays open for Node's `keepAliveTimeout` (5s, or `keepAliveTimeoutMs`),
   and longer while a client keeps sending on it. Open `text/event-stream`
-  responses are destroyed right after `server.close()` via
-  `handler.closeEventStreams()` (request `signal` aborts, body stream is
-  cancelled; `EventSource` clients reconnect elsewhere), including ones not yet
-  flushed. From then on a request that answers with an event stream is closed
+  responses are ended right after `server.close()` via
+  `handler.closeEventStreams()`: `endEventStream()` in `node-request.ts` aborts
+  the request `signal`, cancels the body stream and finishes the response (the
+  terminating chunk, and the compressor's trailer when compressed), so an
+  `EventSource` sees a clean end and reconnects elsewhere. Event-stream bodies
+  are read through `createEndableSource()` instead of `Readable.fromWeb()` for
+  that; a stream whose body is not piping yet is destroyed instead. From then on a request that answers with an event stream is closed
   as soon as its headers are staged (`whenResponseHeadersStaged()` in
   `node-request.ts`), and `closeEventStreams()` resolves only once every request
   in flight has answered and the closed streams' handlers have returned, so the
@@ -1426,7 +1437,9 @@ cache.
   Node (`nodejs22.x`) while the main handler stays on the edge. Both load the
   same server bundle: it is built against Web APIs only, which Node provides
   natively. The first ISG route materializes the function directory and the
-  rest are symlinks to it, so N ISG paths don't duplicate the bundle. Time
+  rest are symlinks to it, so N ISG paths don't duplicate the bundle. Its
+  `.vc-config.json` sets `supportsResponseStreaming: true`, so a regeneration
+  streams to the client instead of being buffered whole. Time
   policies become Vercel
   `expiration` values, build-time HTML becomes the prerender fallback, and
   `PRACHT_REVALIDATE_TOKEN` is used as the `bypassToken` when present at build
@@ -1884,13 +1897,13 @@ encoded one only for a path that has none. `getManifestHeaders()` applies
 the same upper-casing so the recorded headers follow. `decodeStaticPath()`
 reports why a path has no decoded spelling (`malformed`, `separator`,
 `relative`) for the build's error messages, and `staticContentType()` is the
-single MIME table (Node, Netlify, the preview server, and the dev server's
-asset-extension check). `packages/framework/test/static-path.test.ts` is the
+single MIME table (Node, Netlify, the preview server, the dev server's
+asset-extension check, and `@pracht/content`'s default for an artifact without
+a `contentType`). `packages/framework/test/static-path.test.ts` is the
 seam guard: it fails on a `decodeURIComponent` in `packages/adapter-*/src` or
 `packages/cli/src/build-*.ts`, on a second content-type table (two
-extension-to-type pairs in one file of an adapter, the CLI, the Vite plugin or
-core, as an object literal, a Map or a `switch`), and on a `bytes=` parser in
-an adapter.
+extension-to-type pairs in one file under any `packages/*/src`, as an object
+literal, a Map or a `switch`), and on a `bytes=` parser in an adapter.
 
 **`staticByteRange(requestHeaders, responseHeaders, size)`** is the one
 single-range rule (`206`, `416`, `If-Range` against the response's strong

@@ -44,7 +44,8 @@ in the `plugins` array of `vite.config.ts` — and every target builds with
 `pracht build`, which emits `dist/client/` (assets + prerendered HTML),
 `dist/server/` (server entry and build tooling),
 `dist/server/isg-manifest.json` when ISG routes exist, and
-`dist/client/.vite/manifest.json`.
+`dist/server/.vite/client-manifest.json` (the client manifest, moved out of
+`dist/client/` so no host serves it).
 
 ---
 

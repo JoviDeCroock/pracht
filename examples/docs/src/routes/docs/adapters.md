@@ -533,7 +533,7 @@ single instance; replicas behind a load balancer drift apart.
 ### Graceful shutdown
 
 On `SIGTERM` or `SIGINT`, the generated server stops accepting connections,
-closes SSE streams, lets in-flight requests and
+ends SSE streams cleanly (clients reconnect without a network error), lets in-flight requests and
 [`waitUntil()`](/docs/data-loading#waituntil) work finish, then exits.
 WebSockets hold it until the limit; a second signal exits at once. Keep the
 limit below your platform's kill grace period:

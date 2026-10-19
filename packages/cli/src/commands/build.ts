@@ -31,7 +31,11 @@ import {
 } from "@pracht/core/adapter";
 import { shareHeadersManifest } from "@pracht/core/server";
 
-import { readBuildTrailingSlash, readClientBuildAssets } from "../build-metadata.js";
+import {
+  readBuildTrailingSlash,
+  readClientBuildAssets,
+  relocateClientManifest,
+} from "../build-metadata.js";
 import { VERSION } from "../constants.js";
 import {
   finalizeLegacyAdapterBuild,
@@ -1211,6 +1215,10 @@ async function runBuildSteps(
           "(dist/server/ is build tooling only).\n",
       );
     }
+
+    // Every read of the client manifest is done: take it out of dist/client
+    // before any adapter publishes that directory.
+    relocateClientManifest(root, clientDir);
 
     // The adapter turns dist/ into its platform's deploy layout. Adapter
     // releases without `finalizeBuild` get the CLI's own copy of that step.

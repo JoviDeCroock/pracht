@@ -7,6 +7,8 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CLIENT_VITE_MANIFEST,
+  CORS_ORIGIN,
   createFixture,
   createMockCache,
   createStaticOutput,
@@ -126,6 +128,22 @@ row("never serves a file outside the static directory", STATIC_CELLS, async (tar
   }
 });
 
+// Vercel publishes dist/client as its static output, the static export ships
+// it and Cloudflare uploads it: the build moving the manifest out is what
+// keeps it private there, and the mocked assets binding serves the result.
+row(
+  "never serves the client build's Vite manifest",
+  { ...STATIC_CELLS, cloudflare: run },
+  async (target) => {
+    const session = await start(target);
+    for (const path of [`/${CLIENT_VITE_MANIFEST}`, "/.vite/", "/.vite"]) {
+      const response = await session.fetch(path);
+      expect(response.status, path).not.toBe(200);
+      expect(await response.text(), path).not.toContain("src/x.tsx");
+    }
+  },
+);
+
 /** Content-Type per extension; the media type (before `;`) must match. */
 const MEDIA_TYPES: Record<string, string> = {
   "/assets/app-abc123.js": "application/javascript",
@@ -230,6 +248,39 @@ row(
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
     expect(response.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
     expect(response.headers.get("permissions-policy")).toBeTruthy();
+  },
+);
+
+row(
+  "lets an API route's own OPTIONS export answer a cross-origin preflight",
+  {
+    node: run,
+    cloudflare: run,
+    netlify: run,
+    "vercel-edge": run,
+    "vercel-node": ISG_ONLY,
+    "static-preview": NO_APP,
+    dev: run,
+  },
+  async (target) => {
+    const session = await start(target);
+    const crossOrigin = { origin: CORS_ORIGIN, "sec-fetch-site": "cross-site" };
+    const preflight = await session.fetch("/api/cors", {
+      method: "OPTIONS",
+      headers: { ...crossOrigin, "access-control-request-method": "POST" },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(CORS_ORIGIN);
+    // The state-changing request itself, and OPTIONS to a route without its
+    // own handler, still meet the same-origin gate.
+    for (const [path, method] of [
+      ["/api/cors", "POST"],
+      ["/api/echo", "OPTIONS"],
+    ]) {
+      const response = await session.fetch(path, { method, headers: crossOrigin });
+      await response.text();
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
   },
 );
 
@@ -467,6 +518,43 @@ row(
       headers: { accept: "text/html" },
     });
     expect(await response.text()).not.toContain("render-of:A");
+  },
+);
+
+row(
+  "keeps each build's regenerated ISG page while two builds share the store",
+  {
+    node: run,
+    cloudflare: run,
+    netlify: na("Netlify's durable cache is per deploy"),
+    "vercel-edge": na("Vercel's prerender cache is per deployment"),
+    "vercel-node": na("Vercel's prerender cache is per deployment"),
+    "static-preview": NO_APP,
+    dev: na("dev has no ISG store"),
+  },
+  async (target) => {
+    const sharedCache = createMockCache();
+    const builds = [createFixture({ build: "A" }), createFixture({ build: "B" })];
+    const sessions: Session[] = [];
+    for (const build of builds) {
+      const session =
+        target === "cloudflare"
+          ? await startCloudflare(build, output, sharedCache)
+          : await start(target, build);
+      if (target === "cloudflare") open.push(session);
+      sessions.push(session);
+    }
+    // Both regenerate the stale page, A then B, then each is asked again.
+    for (const session of sessions) {
+      await (await session.fetch(ISG_PATHS.page, { headers: { accept: "text/html" } })).text();
+      await session.settle();
+    }
+    for (const [index, session] of sessions.entries()) {
+      const response = await session.fetch(ISG_PATHS.page, { headers: { accept: "text/html" } });
+      expect(await response.text()).toContain(`render-of:${builds[index]!.build}`);
+    }
+    // Neither had to render again to get its page back.
+    expect(builds.map((build) => build.renders.get(ISG_PATHS.page))).toEqual([1, 1]);
   },
 );
 

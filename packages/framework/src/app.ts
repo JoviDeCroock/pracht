@@ -737,9 +737,10 @@ export function matchApiRoute(
 ): ApiRouteMatch | undefined {
   const normalizedPathname = normalizeRoutePath(pathname);
   const targetSegments = splitPathSegments(normalizedPathname);
+  const escapes = normalizedPathname.includes("%");
 
   for (const route of apiRoutes) {
-    const params = matchRouteSegments(route.segments, targetSegments);
+    const params = matchRouteSegments(route.segments, targetSegments, escapes);
     if (params) {
       return {
         route,

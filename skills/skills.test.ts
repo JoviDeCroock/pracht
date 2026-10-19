@@ -65,8 +65,9 @@ const GLOBAL_CLI_FLAGS = new Set(["help", "version"]);
 //   "_pracht/headers.json" and "_pracht/isg.json" under the client dir
 //   ("dist/client") only for targets that consume them there; static exports
 //   keep the canonical server manifests private to build tooling
-// - Vite client manifest: build.ts / build-metadata.ts read
-//   "dist/client/.vite/manifest.json"
+// - Vite client manifest: Vite writes "dist/client/.vite/manifest.json";
+//   build.ts moves it to "dist/server/.vite/client-manifest.json"
+//   (relocateClientManifest in build-metadata.ts) so no host serves it
 // - Generated llms.txt: build.ts writes "dist/client/llms.txt" when the plugin's
 //   llmsTxt option is enabled (docs/LLMS_TXT.md)
 // - OpenAPI companion output: @pracht/openapi's vite plugin emits its document
@@ -87,7 +88,7 @@ const BUILD_OUTPUT_PATTERNS: RegExp[] = [
   /^dist\/server\/(?:server\.js|worker\.js|wrangler\.json|isg-manifest\.json|headers-manifest\.json|budget-report\.json|css-manifest\.json|routing\.json)$/,
   /^dist\/client\/_pracht\/?$/,
   /^dist\/client\/_pracht\/(?:headers\.json|isg\.json)$/,
-  /^dist\/client\/\.vite\/manifest\.json$/,
+  /^dist\/server\/\.vite\/client-manifest\.json$/,
   /^dist\/client\/(?:llms\.txt|openapi\.json)$/,
   // Cloudflare target: the static-assets layer's header rules for /assets/*.
   /^dist\/client\/_headers$/,

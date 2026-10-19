@@ -1,11 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
 
+import * as framework from "@pracht/core/server";
+
 import { createDevMcpPreflightMiddleware } from "../src/plugin-dev-ssr.ts";
 
-function setup(options: { base?: string; mcp?: Record<string, unknown> } = {}) {
+function setup(
+  options: {
+    base?: string;
+    mcp?: Record<string, unknown>;
+    apiModules?: Record<string, Record<string, unknown>>;
+  } = {},
+) {
+  const apiFiles = Object.keys(options.apiModules ?? {});
+  const serverMod = {
+    resolvedApp: { agents: { mcp: options.mcp } },
+    apiRoutes: framework.resolveApiRoutes(apiFiles),
+    registry: {
+      apiModules: Object.fromEntries(
+        Object.entries(options.apiModules ?? {}).map(([file, mod]) => [file, async () => mod]),
+      ),
+    },
+  };
   const server = {
     config: { base: options.base ?? "/" },
-    ssrLoadModule: vi.fn(async () => ({ resolvedApp: { agents: { mcp: options.mcp } } })),
+    ssrLoadModule: vi.fn(async (id: string) =>
+      id === "@pracht/core/server" ? framework : serverMod,
+    ),
   };
   const handler = vi.fn((_req: unknown, _res: unknown, _next: unknown): void => {});
   const middleware = createDevMcpPreflightMiddleware(server as never, handler as never);
@@ -35,8 +55,12 @@ describe("createDevMcpPreflightMiddleware", () => {
     expect((await run("OPTIONS", "/src/main.ts", "https://inspector.example")).handled).toBe(false);
     expect((await run("POST", "/mcp", "https://inspector.example")).handled).toBe(false);
     expect((await run("OPTIONS", "/mcp")).handled).toBe(false);
-    // Only preflights with an Origin load the app at all.
-    expect(server.ssrLoadModule).toHaveBeenCalledTimes(2);
+    // Vite's own paths never load the app.
+    server.ssrLoadModule.mockClear();
+    expect((await run("OPTIONS", "/@vite/client", "https://inspector.example")).handled).toBe(
+      false,
+    );
+    expect(server.ssrLoadModule).not.toHaveBeenCalled();
     const unconfigured = setup({});
     expect((await unconfigured.run("OPTIONS", "/mcp", "https://inspector.example")).handled).toBe(
       false,
@@ -58,5 +82,27 @@ describe("createDevMcpPreflightMiddleware", () => {
       handled: false,
       url: "/app/api/upload",
     });
+  });
+
+  it("hands OPTIONS to an API route that exports an OPTIONS handler, as production does", async () => {
+    const OPTIONS = () => new Response(null, { status: 204 });
+    const { run } = setup({
+      base: "/app/",
+      apiModules: {
+        "/src/api/upload.ts": { OPTIONS, POST: () => new Response("ok") },
+        "/src/api/plain.ts": { POST: () => new Response("ok") },
+        "/src/api/any.ts": { default: () => new Response("ok") },
+      },
+    });
+    expect(await run("OPTIONS", "/app/api/upload", "https://other.example")).toEqual({
+      handled: true,
+      url: "/api/upload",
+    });
+    // Without an Origin as well: the export answers every OPTIONS request.
+    expect((await run("OPTIONS", "/app/api/upload")).handled).toBe(true);
+    // No OPTIONS export, or only a catch-all `default`: Vite answers as before.
+    expect((await run("OPTIONS", "/app/api/plain", "https://other.example")).handled).toBe(false);
+    expect((await run("OPTIONS", "/app/api/any", "https://other.example")).handled).toBe(false);
+    expect((await run("OPTIONS", "/app/api/nope", "https://other.example")).handled).toBe(false);
   });
 });

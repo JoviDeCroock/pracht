@@ -111,11 +111,15 @@ export function createOwnedDevEntryMiddleware(server: ViteDevServer): Connect.Ne
 }
 
 /**
- * Vite's own CORS middleware answers every `OPTIONS` preflight before plugin
- * middleware runs, without the headers a remote MCP endpoint grants its
- * `agents.mcp.allowedOrigins`. Registered ahead of Vite's internals, this
- * hands exactly those preflights — `OPTIONS` to the MCP endpoint from a listed
- * origin — to the pracht handler, and leaves every other request to Vite.
+ * Vite's own CORS middleware answers every `OPTIONS` request before plugin
+ * middleware runs. Registered ahead of Vite's internals, this hands pracht the
+ * `OPTIONS` requests production answers itself, and leaves every other request
+ * (Vite's own paths included) to Vite:
+ *
+ * - a preflight to the remote MCP endpoint from one of its
+ *   `agents.mcp.allowedOrigins`, which needs the headers the endpoint grants;
+ * - `OPTIONS` to an API route whose module exports an `OPTIONS` handler, so the
+ *   app's own CORS answer runs in dev as it does in production.
  */
 export function createDevMcpPreflightMiddleware(
   server: ViteDevServer,
@@ -123,30 +127,64 @@ export function createDevMcpPreflightMiddleware(
 ): Connect.NextHandleFunction {
   const devBase = server.config.base || "/";
   return (req, res, next) => {
-    const origin = req.headers.origin;
-    if (req.method !== "OPTIONS" || typeof origin !== "string") return next();
+    if (req.method !== "OPTIONS") return next();
     void (async () => {
-      const serverMod = await server.ssrLoadModule(PRACHT_SERVER_MODULE_ID);
-      const mcp = (serverMod.resolvedApp as ResolvedPrachtApp).agents?.mcp;
-      if (!mcp?.allowedOrigins?.includes(origin)) return next();
-      const configured = mcp.path ?? "/mcp";
-      const endpoint =
-        configured.length > 1 && configured.endsWith("/") ? configured.slice(0, -1) : configured;
       let pathname = new URL(req.url ?? "/", "http://localhost").pathname;
       // This runs before Vite strips the base, so strip it the same way.
       if (devBase !== "/") {
         if (!pathname.startsWith(devBase)) return next();
         pathname = `/${pathname.slice(devBase.length)}`;
       }
-      const normalized =
-        pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-      if (normalized !== endpoint) return next();
+      if (isReservedDevPath(pathname)) return next();
+      const serverMod = await server.ssrLoadModule(PRACHT_SERVER_MODULE_ID);
+      if (
+        !isListedMcpPreflight(serverMod.resolvedApp as ResolvedPrachtApp, req, pathname) &&
+        !(await hasApiOptionsExport(server, serverMod, pathname))
+      ) {
+        return next();
+      }
       // Only the request pracht answers loses its base; any other request
       // reaches Vite's base middleware with its URL untouched.
       if (devBase !== "/") req.url = `/${(req.url ?? "/").slice(devBase.length)}`;
       await handler(req, res, next);
     })().catch(next);
   };
+}
+
+function isListedMcpPreflight(
+  app: ResolvedPrachtApp,
+  req: IncomingMessage,
+  pathname: string,
+): boolean {
+  const origin = req.headers.origin;
+  const mcp = app.agents?.mcp;
+  if (typeof origin !== "string" || !mcp?.allowedOrigins?.includes(origin)) return false;
+  const configured = mcp.path ?? "/mcp";
+  const endpoint =
+    configured.length > 1 && configured.endsWith("/") ? configured.slice(0, -1) : configured;
+  const normalized =
+    pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  return normalized === endpoint;
+}
+
+async function hasApiOptionsExport(
+  server: ViteDevServer,
+  serverMod: Record<string, unknown>,
+  pathname: string,
+): Promise<boolean> {
+  const apiRoutes = serverMod.apiRoutes as ResolvedApiRoute[] | undefined;
+  if (!apiRoutes?.length) return false;
+  const framework = await server.ssrLoadModule("@pracht/core/server");
+  const match = framework.matchApiRoute(apiRoutes, pathname) as
+    | { route: ResolvedApiRoute }
+    | undefined;
+  if (!match) return false;
+  const registry = serverMod.registry as ModuleRegistry;
+  const apiModule = (await framework.resolveRegistryModule(
+    registry.apiModules,
+    match.route.file,
+  )) as { OPTIONS?: unknown } | undefined;
+  return typeof apiModule?.OPTIONS === "function";
 }
 
 export function createDevSSRMiddleware(

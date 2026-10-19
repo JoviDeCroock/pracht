@@ -722,10 +722,14 @@ a separate export, not a flag, so client bundles never contain it
 (`package-tree-shaking.test.ts` checks a browser `matchAppRoute` import). It
 builds an `indexSegments()` index per route table on first use and tries only
 the candidates it returns, in declaration order, with `matchRouteSegments`, so
-the result is the scan's. On the server (`import.meta.env.SSR`, folded away in
-client builds) a static segment matches in either percent-escape case, and the
-index keys static values in upper case, so an ISG page regenerated under its
-canonical `/caf%C3%A9` key still matches a route written `/caf%c3%a9`.
+the result is the scan's. Every matcher, the client router's included, matches
+a static segment in either percent-escape case, and the index keys static
+values in upper case, so an ISG page regenerated under its canonical
+`/caf%C3%A9` key still matches a route written `/caf%c3%a9`, and a client
+navigation to either spelling stays on the client.
+Every matcher checks the path for a `%` once and passes the answer to
+`matchRouteSegments`, so a path without one never pays for that comparison
+(a 1,000-route `matchAppRoute` miss went from about 14 to about 8 ns per route).
 
 `route-matching.ts` holds the route-pattern algebra the server-side consumers
 share, all over parsed segments and all following `matchRouteSegments` exactly

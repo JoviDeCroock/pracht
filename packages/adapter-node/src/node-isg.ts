@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { IncomingMessage, ServerResponse } from "node:http";
 import { Socket } from "node:net";
 import { Duplex } from "node:stream";
@@ -124,9 +124,58 @@ export interface StoredISGSnapshot {
   etag: string;
 }
 
-/** The file a page's regenerated snapshot is published to, beside its build HTML. */
-export function getISGSnapshotPath(htmlPath: string): string {
-  return join(dirname(htmlPath), `.${basename(htmlPath)}${ISG_SNAPSHOT_SUFFIX}`);
+/**
+ * The file a page's regenerated snapshot is published to, beside its build
+ * HTML. Each build has its own (`.index.html.<buildId>.pracht-isg.json`), so
+ * two builds serving one directory during a rollover never overwrite each
+ * other's pages. Without a build id it is the one name older releases used.
+ */
+export function getISGSnapshotPath(htmlPath: string, buildId?: string | null): string {
+  const name = basename(htmlPath);
+  return join(
+    dirname(htmlPath),
+    buildId
+      ? `.${name}.${buildIdFileSegment(buildId)}${ISG_SNAPSHOT_SUFFIX}`
+      : `.${name}${ISG_SNAPSHOT_SUFFIX}`,
+  );
+}
+
+/** A build id as a file name segment: itself when that is safe, else a digest. */
+function buildIdFileSegment(buildId: string): string {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(buildId)
+    ? buildId
+    : createHash("sha256").update(buildId).digest("base64url").slice(0, 22);
+}
+
+/**
+ * How long another build's snapshot is left alone after its last write. Its
+ * process may still be serving during a rollover; once the file is older
+ * than this, the next write beside it removes it. A process that loses its
+ * snapshot only renders the page again.
+ */
+export const RETIRED_ISG_SNAPSHOT_AGE_MS = 60 * 60 * 1000;
+
+/** Remove other builds' snapshots of the page at `htmlPath` that nobody wrote recently. */
+async function removeRetiredSnapshots(htmlPath: string, keep: string): Promise<void> {
+  const directory = dirname(htmlPath);
+  const name = basename(htmlPath);
+  const prefix = `.${name}.`;
+  const legacy = `.${name}${ISG_SNAPSHOT_SUFFIX}`;
+  const cutoff = Date.now() - RETIRED_ISG_SNAPSHOT_AGE_MS;
+  const entries = await readdir(directory).catch(() => [] as string[]);
+  await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(directory, entry);
+      if (path === keep) return;
+      if (entry !== legacy && !(entry.startsWith(prefix) && entry.endsWith(ISG_SNAPSHOT_SUFFIX))) {
+        return;
+      }
+      const fileStat = await stat(path).catch(() => null);
+      if (!fileStat?.isFile() || fileStat.mtimeMs >= cutoff) return;
+      forgetSnapshot(path);
+      await rm(path, { force: true }).catch(() => undefined);
+    }),
+  );
 }
 
 function getFileVersion(fileStat: { dev: number; ino: number; size: number; mtimeMs: number }) {
@@ -172,24 +221,37 @@ function storeSnapshot(path: string, version: string, snapshot: ISGSnapshot): St
  * from one render with headers from another.
  */
 export async function writeISGSnapshot(htmlPath: string, snapshot: ISGSnapshot): Promise<void> {
-  const path = getISGSnapshotPath(htmlPath);
+  const path = getISGSnapshotPath(htmlPath, snapshot.buildId);
   await writeISGFile(path, encodeISGSnapshot(snapshot), async (temporaryPath) => {
     // A rename keeps the device, inode, size, and mtime.
     storeSnapshot(path, getFileVersion(await stat(temporaryPath)), snapshot);
   });
+  await removeRetiredSnapshots(htmlPath, path);
 }
 
 /**
  * The regenerated snapshot of the page whose build HTML is `htmlPath`, or
- * `null` when it has none. With `buildId`, a snapshot another build rendered
- * is ignored, so a redeploy into the same static directory starts from its
- * own HTML.
+ * `null` when it has none. With `buildId`, only that build's snapshot is
+ * read, so a redeploy into the same static directory starts from its own HTML
+ * and a build still serving beside it keeps its own pages. A snapshot an
+ * older release wrote under the shared name counts when that same build
+ * rendered it.
  */
 export async function readISGSnapshot(
   htmlPath: string,
   buildId: string | undefined,
 ): Promise<StoredISGSnapshot | null> {
-  const path = getISGSnapshotPath(htmlPath);
+  if (buildId === undefined) return readSnapshotFile(getISGSnapshotPath(htmlPath), undefined);
+  return (
+    (await readSnapshotFile(getISGSnapshotPath(htmlPath, buildId), buildId)) ??
+    readSnapshotFile(getISGSnapshotPath(htmlPath), buildId)
+  );
+}
+
+async function readSnapshotFile(
+  path: string,
+  buildId: string | undefined,
+): Promise<StoredISGSnapshot | null> {
   const file = await open(path, "r").catch(() => null);
   if (!file) return null;
   let stored: StoredISGSnapshot | null;

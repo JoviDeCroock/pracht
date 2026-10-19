@@ -77,7 +77,7 @@ For a PR deploy, `pracht report --base origin/main` produces a markdown summary
 
 ### Node (`@pracht/adapter-node`)
 
-- `dist/server/server.js`, `dist/client/.vite/manifest.json`, and — if any
+- `dist/server/server.js`, `dist/server/.vite/client-manifest.json`, and — if any
   route is `render: "isg"` — `dist/server/isg-manifest.json` all exist.
 - `pracht preview --skip-build` (or `node dist/server/server.js`) boots and
   `curl localhost:3000` returns 200.
