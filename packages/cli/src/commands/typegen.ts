@@ -5,7 +5,7 @@ import { defineCommand } from "citty";
 
 import { displayPath, readProjectConfig, resolveProjectPath } from "../project.js";
 import { schemaToTypeText } from "@pracht/capabilities";
-import type { AppGraphCapability } from "@pracht/core";
+import { parseRouteSegments, type AppGraphCapability } from "@pracht/core";
 import { assertCapabilityProjectionsAgree } from "../capability-consistency.js";
 import { generatedSourceMatches } from "../generated-source.js";
 import { ensureTrailingNewline, handleCliError } from "../utils.js";
@@ -583,14 +583,9 @@ function inferRouteParams(path: string): string[] {
   const params: string[] = [];
   const seen = new Set<string>();
 
-  for (const segment of path.split("/").filter(Boolean)) {
-    let name: string | null = null;
-    if (segment === "*") {
-      name = "*";
-    } else if (segment.startsWith(":")) {
-      name = segment.endsWith("*") ? segment.slice(1, -1) || "*" : segment.slice(1);
-    }
-
+  for (const segment of parseRouteSegments(path)) {
+    if (segment.type === "static") continue;
+    const name = segment.name;
     if (!name) continue;
     if (seen.has(name)) {
       throw new Error(`Route ${path} declares duplicate param "${name}".`);

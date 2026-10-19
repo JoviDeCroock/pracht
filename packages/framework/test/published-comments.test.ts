@@ -28,6 +28,17 @@ const TOOL_PACKAGES = ["cli", "preact-ssr-precompile", "test", "vite-plugin"];
 
 /** A doc comment opening a line; glob strings such as `${dir}/**` do not count. */
 const DOC_COMMENT = /^\s*\/\*\*/m;
+const DOC_COMMENTS = /^\s*\/\*\*[\s\S]*?\*\//gm;
+/** What the bundler keeps as a legal comment, which a stripped package may still ship. */
+const LEGAL_COMMENT = /@license\b|@preserve\b/;
+
+// Doc comments in `source` other than legal ones. A `/*!` legal comment never
+// opens with `/**`, so only the `@license` and `@preserve` forms need letting through.
+function strayDocComments(source: string): string[] {
+  return [...source.matchAll(DOC_COMMENTS)]
+    .map(([comment]) => comment.trim())
+    .filter((comment) => !LEGAL_COMMENT.test(comment));
+}
 
 const packagesRoot = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -49,10 +60,27 @@ describe("published package comments", () => {
   });
 
   it.each(RUNTIME_PACKAGES)("ships %s without doc comments in its JavaScript", (pkg) => {
-    const withDocComments = distFiles(pkg, ".mjs").filter((file) =>
-      DOC_COMMENT.test(readFileSync(file, "utf-8")),
+    const withDocComments = distFiles(pkg, ".mjs").filter(
+      (file) => strayDocComments(readFileSync(file, "utf-8")).length > 0,
     );
     expect(withDocComments).toEqual([]);
+  });
+
+  it("allows the legal comments the bundler keeps", () => {
+    const source = [
+      "/*! Copyright pracht */",
+      "/** @license MIT */",
+      "/**",
+      " * Bundled helper.",
+      " * @preserve",
+      " */",
+      'const glob = `${dir}/**`; // "/** inside a string does not open a line"',
+      "export {};",
+    ].join("\n");
+    expect(strayDocComments(source)).toEqual([]);
+    expect(strayDocComments(`${source}\n/** Resolves a route. */\nexport const x = 1;`)).toEqual([
+      "/** Resolves a route. */",
+    ]);
   });
 
   it("keeps doc comments in the declarations and annotations in the JavaScript", () => {

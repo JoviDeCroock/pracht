@@ -39,6 +39,7 @@ export {
   buildHref,
   buildPathFromSegments,
   matchRoutePath,
+  parseRouteSegments,
   routePathIsDynamic,
 } from "./route-matching.ts";
 

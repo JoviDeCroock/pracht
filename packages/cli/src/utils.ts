@@ -1,3 +1,5 @@
+import { stripAnsi } from "@pracht/core/error-overlay";
+
 import { HTTP_METHODS, type HttpMethod } from "./constants.js";
 
 export function quote(value: string): string {
@@ -60,14 +62,34 @@ export function requirePositiveInteger(
   return parsed;
 }
 
+/** Whether `stream` gets ANSI colour: a terminal, with `NO_COLOR` unset. */
+export function colorEnabled(stream: { isTTY?: boolean } = process.stdout): boolean {
+  if (process.env.NO_COLOR) return false;
+  return Boolean(stream.isTTY);
+}
+
+/**
+ * `text` as `stream` should print it. Errors from Vite and the bundler arrive
+ * with their code frames already coloured; a pipe, a log file, or `NO_COLOR`
+ * gets them without the escape sequences.
+ */
+export function terminalText(text: string, stream: { isTTY?: boolean } = process.stderr): string {
+  return colorEnabled(stream) ? text : stripAnsi(text);
+}
+
+/**
+ * Report a failed command and exit 1. With `json`, the whole report is one
+ * `{ ok: false, error }` object (never colour, never a stack); otherwise the
+ * message alone, and the stack only under `DEBUG`.
+ */
 export function handleCliError(error: unknown, { json }: { json: boolean }): never {
   const message = error instanceof Error ? error.message : String(error);
   if (json) {
-    console.error(JSON.stringify({ ok: false, error: message }, null, 2));
+    console.error(JSON.stringify({ ok: false, error: stripAnsi(message) }, null, 2));
   } else {
-    console.error(message);
+    console.error(terminalText(message));
     if (error instanceof Error && error.stack && process.env.DEBUG) {
-      console.error(error.stack);
+      console.error(terminalText(error.stack));
     }
   }
   process.exit(1);

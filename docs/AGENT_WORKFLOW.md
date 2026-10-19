@@ -198,6 +198,11 @@ The point: every LLM-authored route arrives with a falsifiable claim attached.
   capability name instead of degrading to inferred or `null` metadata.
   Capability typegen loads contracts the same way; API typegen reads route paths
   without executing API modules.
+- **A failed command reports through `handleCliError`** (`utils.ts`): with
+  `--json` it prints one `{ ok: false, error }` object, otherwise the message
+  alone (the stack only under `DEBUG`). Errors quoted from Vite keep their
+  colour only on a terminal without `NO_COLOR` (`terminalText`), and every
+  verify/doctor check message is stored without escape codes (`createCheck`).
 - **Weakening a constraint is a policy change.** The authoring guide instructs
   agents to never delete or loosen a constraint to make verification pass;
   constraint edits surface as their own plan lines for the reviewer.

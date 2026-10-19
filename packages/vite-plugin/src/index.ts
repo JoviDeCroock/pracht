@@ -3,7 +3,7 @@ import preact from "@preact/preset-vite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { resolve } from "node:path";
-import { loadEnv, type Plugin, type UserConfig } from "vite";
+import { loadEnv, rolldownVersion, type Plugin, type UserConfig } from "vite";
 import {
   isPrachtClientModuleId,
   stripServerOnlyExportsForClient,
@@ -15,7 +15,11 @@ import {
   PRACHT_GRAPH_ONLY_ENV,
   type WaitUntilTracker,
 } from "@pracht/core/server";
-import { frameworkChunkConfig, islandChunkConfig } from "./chunk-groups.ts";
+import {
+  frameworkChunkConfig,
+  islandChunkConfig,
+  supportsChunkGroupDebugName,
+} from "./chunk-groups.ts";
 import { createEnvSafetyPlugin, PUBLIC_ENV_PREFIX, SERVER_ENV_MODULE_ID } from "./env-safety.ts";
 import { createServerCssAssetsPlugin } from "./plugin-server-css.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
@@ -385,6 +389,7 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
             {
               edge: isEdge,
               serverIslandsDirectory: resolveConfigPath(configRoot, resolved.serverIslandsDir),
+              groupDebugName: supportsChunkGroupDebugName(rolldownVersion),
             },
           )
         : {};
@@ -660,17 +665,20 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       // `_app.config.ts` is the pages router's manifest for `agents`, whose
       // `mcp.auth.verify` is a module ref like any other.
       const isPagesAppConfig = isPagesMode && isPagesAppConfigModule(normalizedId, root, resolved);
-      if (normalizedId !== appFileAbs && !isPagesAppConfig) return null;
+      const isAppFile = normalizedId === appFileAbs;
+      // A local module the manifest imports (a shared `agents` constant, a
+      // route list) declares refs too, and they resolve against the manifest's
+      // directory exactly like its string refs do.
+      const isManifestModule = !isAppFile && !isPagesMode && manifestModuleFiles.has(normalizedId);
+      if (!isAppFile && !isPagesAppConfig && !isManifestModule) return null;
 
-      const withStringModuleRefs = code.replace(
-        /\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g,
-        "$1$2$1",
-      );
+      const withStringModuleRefs = code.replace(LAZY_MODULE_REF_PATTERN, "$1$2$1");
       // Only the app manifest is narrowed to `@pracht/core/manifest`; the config
-      // file is ordinary application code and may import whatever it needs.
-      const transformed = isPagesAppConfig
-        ? withStringModuleRefs
-        : rewriteManifestCoreImports(withStringModuleRefs);
+      // file and the manifest's own imports are ordinary application code and
+      // may import whatever they need.
+      const transformed = isAppFile
+        ? rewriteManifestCoreImports(withStringModuleRefs)
+        : withStringModuleRefs;
       if (transformed === code) return null;
       return { code: transformed, map: null };
     },
@@ -902,12 +910,14 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
         // reloads against the new route table. A module that gained or lost a
         // route or capability role is transformed differently now, so its
         // cached transform is dropped too.
-        const previousRoles = [externalRouteFiles, capabilityModulePaths];
+        const previousRoles = [externalRouteFiles, capabilityModulePaths, manifestModuleFiles];
         const previousAppRoot = appRootFile;
         refreshManifestState();
-        const changedRoles = [externalRouteFiles, capabilityModulePaths].flatMap((next, index) =>
-          symmetricDifference(previousRoles[index]!, next),
-        );
+        const changedRoles = [
+          externalRouteFiles,
+          capabilityModulePaths,
+          manifestModuleFiles,
+        ].flatMap((next, index) => symmetricDifference(previousRoles[index]!, next));
         if (previousAppRoot !== appRootFile) {
           for (const appRoot of [previousAppRoot, appRootFile]) {
             if (appRoot !== null) changedRoles.push(appRoot);
@@ -1608,6 +1618,9 @@ function invalidateManifestDependents(server: import("vite").ViteDevServer, file
     queue.push(...mod.importers);
   }
 }
+
+/** An inline lazy module ref, `() => import("./x")`, as the manifest transform rewrites it. */
+const LAZY_MODULE_REF_PATTERN = /\(\)\s*=>\s*import\(\s*(['"])([^'"]+)\1\s*\)/g;
 
 function symmetricDifference(previous: Set<string>, next: Set<string>): string[] {
   return [

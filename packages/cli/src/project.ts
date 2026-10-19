@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { maskCommentsAndStrings } from "@pracht/capabilities/static";
+import { parseRouteSegments } from "@pracht/core";
 
 import { ensureTrailingNewline } from "./utils.js";
 import { PROJECT_DEFAULTS } from "./constants.js";
@@ -299,19 +300,17 @@ function normalizeConfigPath(value: string): string {
 }
 
 function segmentsFromPath(path: string): string[] {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => {
-      assertSafePathSegment(segment);
-      if (segment.startsWith(":")) {
-        const name = segment.endsWith("*") ? segment.slice(1, -1) : segment.slice(1);
-        assertSafePathSegment(name);
-        return segment.endsWith("*") ? `[...${name || "slug"}]` : `[${name}]`;
-      }
-      if (segment === "*") return "[...slug]";
-      return segment;
-    });
+  for (const segment of path.split("/").filter(Boolean)) assertSafePathSegment(segment);
+  return parseRouteSegments(path).map((segment) => {
+    if (segment.type === "static") return segment.value;
+    if (segment.type === "param") {
+      assertSafePathSegment(segment.name);
+      return `[${segment.name}]`;
+    }
+    const name = segment.name === "*" ? "" : segment.name;
+    if (name) assertSafePathSegment(name);
+    return `[...${name || "slug"}]`;
+  });
 }
 
 function assertSafePathSegment(segment: string): void {

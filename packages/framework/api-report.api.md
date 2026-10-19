@@ -253,6 +253,7 @@ RouteSearchFor: type
 RouteSearchInput: type
 RouteSearchOutput: type
 RouteSearchOutputFor: type
+RouteSegment: type
 RouteStateResult: type
 RouteTarget: type
 RouteTreeNode: type
@@ -370,6 +371,7 @@ mcpResourceMetadataUrl: function
 normalizeResponseHeaders: function
 normalizeRouteRevalidate: function
 notFound: function
+parseRouteSegments: function
 planMarkdownFiles: function
 prefetch: const
 prerenderApp: function
@@ -608,6 +610,7 @@ RouteSearchFor: type
 RouteSearchInput: type
 RouteSearchOutput: type
 RouteSearchOutputFor: type
+RouteSegment: type
 RouteStateResult: type
 RouteTarget: type
 RouteTreeNode: type
@@ -679,6 +682,7 @@ matchAppRoute: function
 matchRoutePath: function
 matchRoutePattern: function
 notFound: function
+parseRouteSegments: function
 parseSafeNavigationUrl: function
 prefetch: const
 publicEnv: const
@@ -1059,6 +1063,7 @@ RouteSearchFor: type
 RouteSearchInput: type
 RouteSearchOutput: type
 RouteSearchOutputFor: type
+RouteSegment: type
 RouteTarget: type
 RouteTreeNode: type
 STATIC_STATE_PREFIX: const
@@ -1167,6 +1172,7 @@ mcpResourceMetadataPath: function
 normalizeResponseHeaders: function
 normalizeRouteRevalidate: function
 notFound: function
+parseRouteSegments: function
 prefersMarkdown: function
 prerenderApp: function
 prerenderMarkdown: function

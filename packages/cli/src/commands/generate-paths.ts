@@ -1,3 +1,5 @@
+import { parseRouteSegments, routePathIsDynamic } from "@pracht/core";
+
 export function normalizeRoutePathString(value: string): string {
   if (!value || value === "/") return "/";
   const normalized = `/${value}`.replace(/\/+/g, "/");
@@ -10,19 +12,15 @@ export function normalizeApiPath(value: string): string {
 }
 
 export function hasDynamicSegments(routePath: string): boolean {
-  return routePath.split("/").some((segment) => segment.startsWith(":") || segment === "*");
+  return routePathIsDynamic(routePath);
 }
 
+/** The `params` keys a generated `getStaticPaths()` stub fills; a bare `*` is named `slug`. */
 export function dynamicParamNames(routePath: string): string[] {
-  return routePath
-    .split("/")
-    .filter(Boolean)
-    .map((segment) => {
-      if (segment.startsWith(":")) return segment.slice(1);
-      if (segment === "*") return "slug";
-      return null;
-    })
-    .filter((s): s is string => s !== null);
+  return parseRouteSegments(routePath).flatMap((segment) => {
+    if (segment.type === "static") return [];
+    return [segment.type === "catchall" && segment.name === "*" ? "slug" : segment.name];
+  });
 }
 
 export function routeIdFromPath(routePath: string): string {
