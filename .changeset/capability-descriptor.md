@@ -4,4 +4,4 @@
 "@pracht/cli": patch
 ---
 
-`defineCapability()`, the build, and `pracht verify` now apply one set of capability contract rules with the same error messages, and `pracht typegen` also fails when MCP exposure, MCP scopes, `agentPolicy`, or `middleware` differ between the executed module and the source.
+Malformed capability `expose` values and invalid OAuth scopes now fail at definition and build time instead of being ignored. `pracht typegen` also fails when a capability's MCP exposure, scopes, `agentPolicy`, or `middleware` differ between the executed module and its source.

@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { describeCapability } from "@pracht/capabilities/static";
 import {
   buildStaticRouteStateUrl,
   decodeStaticPath,
@@ -62,9 +63,7 @@ export function isStaticExportBuild(serverMod: { staticTarget?: unknown }): bool
 }
 
 interface CapabilityModuleView {
-  default?: {
-    expose?: { http?: unknown; mcp?: boolean; webmcp?: boolean } | null;
-  };
+  default?: Parameters<typeof describeCapability>[0];
 }
 
 const SERVERFUL_ADAPTERS =
@@ -398,13 +397,10 @@ export async function validateStaticExport(serverMod: StaticServerModuleView): P
       invalidCapabilities.push(`    - ${name} (${file}): module has no default capability export`);
       continue;
     }
-    const expose = capabilityModule?.default?.expose;
-    if (expose && (expose.http || expose.mcp || expose.webmcp)) {
-      const surfaces = [
-        expose.http ? "http" : null,
-        expose.mcp ? "mcp" : null,
-        expose.webmcp ? "webmcp" : null,
-      ]
+    // What the runtime would serve, read the way every other consumer reads it.
+    const { http, mcp, webmcp } = describeCapability(capabilityModule.default, name);
+    if (http || mcp || webmcp) {
+      const surfaces = [http ? "http" : null, mcp ? "mcp" : null, webmcp ? "webmcp" : null]
         .filter(Boolean)
         .join(", ");
       exposedCapabilities.push(`    - ${name} (${file}; expose: ${surfaces})`);
