@@ -15,7 +15,7 @@ import {
   normalizeAdditionalExtensions,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
-import { fileModuleId } from "./module-id.ts";
+import { fileModuleId, toPosixPath } from "./module-id.ts";
 import { isNonModuleDirectoryName, isNonModuleFile } from "./source-files.ts";
 
 initSync();
@@ -183,23 +183,10 @@ function exportSpecifiersInclude(specifiers: string, exportName: string): boolea
 }
 
 /**
- * Whether `source` exports `exportName`, via a declaration, an export block,
- * or an `export *` re-export (which could expose anything, so it counts).
- *
- * Ordinary TS/JS is parsed exactly, including string-literal export names.
- * Custom syntaxes fall back to masked lexical detection so prose or a string
- * literal mentioning the name cannot produce a false positive.
- */
-function detectNamedExport(source: string, exportName: string, declarationRe: RegExp): boolean {
-  const parsedResult = inspectParsedModule(source, exportName);
-  if (parsedResult !== undefined) return parsedResult;
-
-  return detectNamedExportInMasked(maskCommentsAndStrings(source), exportName, declarationRe);
-}
-
-/**
- * The lexical half of `detectNamedExport()`, over already-masked source. Every
- * hint table falls back for the same file, so the mask is computed once.
+ * Whether masked source exports `exportName`, via a declaration, an export
+ * block, or an `export *` re-export (which could expose anything, so it
+ * counts). The lexical reader for a module no standard parser accepts; the
+ * mask keeps prose or a string literal mentioning the name from counting.
  */
 function detectNamedExportInMasked(
   analysisSource: string,
@@ -216,30 +203,6 @@ function detectNamedExportInMasked(
     if (exportSpecifiersInclude(match[1], exportName)) return true;
   }
   return EXPORT_ALL_RE.test(analysisSource);
-}
-
-export function detectHeadExport(source: string): boolean {
-  // Markdown and MDX transforms can synthesize a head export from frontmatter.
-  // Keep them conservative even when the raw source has no JS declaration.
-  return detectNamedExport(source, "head", HEAD_DECLARATION_RE);
-}
-
-/** Whether the route or shell module exports document response headers. */
-export function detectHeadersExport(source: string): boolean {
-  return detectNamedExport(source, "headers", HEADERS_DECLARATION_RE);
-}
-
-/**
- * Whether the route module exports `getStaticPaths()`.
- *
- * Only a static export consumes this: it decides whether a dynamic route has
- * any prerendered path at all, and therefore whether the client should ever
- * request a route-state file for it. Unknown answers must stay `true` — the
- * cost of a wrong `true` is the request the client already makes today, while
- * a wrong `false` would drop state the build did write.
- */
-export function detectStaticPathsExport(source: string): boolean {
-  return detectNamedExport(source, "getStaticPaths", STATIC_PATHS_DECLARATION_RE);
 }
 
 interface SyntaxNode {
@@ -285,18 +248,7 @@ function exportedNameMatches(node: unknown, exportName: string): boolean {
   return false;
 }
 
-/**
- * Which of `exportNames` the module exports, or `undefined` when no parser
- * accepted the source (a custom route syntax such as TSRX).
- *
- * Every hint table asks the same question of the same file, so they share one
- * parse: four separate `inspectParsedModule()` calls used to parse each route
- * module four times, once per table.
- */
 type ParserPlugins = readonly ("typescript" | "jsx")[];
-
-/** Every syntax a route module may be written in, tried in order. */
-const ANY_SCRIPT_PLUGINS: readonly ParserPlugins[] = [["typescript", "jsx"], ["typescript"]];
 
 /**
  * The one parser configuration a file's extension calls for, or none for a
@@ -310,10 +262,14 @@ function parserPluginsFor(file: string): readonly ParserPlugins[] {
   return [];
 }
 
+/**
+ * Which of `exportNames` the module exports, or `undefined` when no parser
+ * accepted the source (a custom route syntax such as TSRX).
+ */
 function inspectParsedModuleExports(
   source: string,
   exportNames: readonly string[],
-  attempts: readonly ParserPlugins[] = ANY_SCRIPT_PLUGINS,
+  attempts: readonly ParserPlugins[],
 ): Record<string, boolean> | undefined {
   for (const plugins of attempts) {
     let body: SyntaxNode[];
@@ -382,19 +338,6 @@ function inspectParsedModuleExports(
   return undefined;
 }
 
-function inspectParsedModule(source: string, exportName: string): boolean | undefined {
-  return inspectParsedModuleExports(source, [exportName])?.[exportName];
-}
-
-export function detectLoaderExport(source: string): boolean {
-  // Parse ordinary TS/TSX exactly so type-only exports and identifiers in
-  // generic types are not mistaken for runtime loader bindings.
-  const parsedResult = inspectParsedModule(source, "loader");
-  if (parsedResult !== undefined) return parsedResult;
-
-  return detectLoaderExportWithoutParser(source);
-}
-
 /** The `loader` detection that applies once no standard parser accepted the source. */
 function detectLoaderExportWithoutParser(source: string): boolean {
   try {
@@ -437,6 +380,13 @@ function isMissingDirectory(error: unknown): boolean {
   return code === "ENOENT" || code === "ENOTDIR";
 }
 
+/** The route module files under `dir`, as the hint tables list them. */
+export function listRouteFiles(dir: string, extensions: Set<string>): string[] {
+  const scan: RouteFileScan = { files: [], stats: new Map(), incomplete: false };
+  scanRouteFiles(dir, extensions, scan);
+  return scan.files;
+}
+
 function scanRouteFiles(dir: string, extensions: Set<string>, scan: RouteFileScan): void {
   let entries: string[];
   try {
@@ -473,10 +423,6 @@ function scanRouteFiles(dir: string, extensions: Set<string>, scan: RouteFileSca
   }
 }
 
-function toPosixPath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
 export interface RouteHintOptions {
   additionalExtensions?: readonly string[];
   appFileDir?: string;
@@ -510,7 +456,14 @@ export interface RouteHints {
 
 const ROUTE_HINT_EXPORTS = ["loader", "head", "headers", "getStaticPaths", "search"] as const;
 
-function analyzeRouteExports(source: string, file: string): Record<string, boolean> {
+/**
+ * Which route hint exports (`loader`, `head`, `headers`, `getStaticPaths`,
+ * `search`) a module may have: one parse with the parser its extension calls
+ * for, or the conservative lexical reader for a syntax no parser accepts.
+ * Answers stay `true` when unknown: a wrong `true` costs a request the client
+ * already makes, a wrong `false` drops one it needs.
+ */
+export function analyzeRouteExports(source: string, file: string): Record<string, boolean> {
   const parsed = inspectParsedModuleExports(source, ROUTE_HINT_EXPORTS, parserPluginsFor(file));
   if (parsed) return parsed;
 

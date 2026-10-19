@@ -20,7 +20,13 @@ import { extractDefineAppObjectBody, maskCommentsAndStrings } from "@pracht/capa
 import { parseAst } from "vite";
 
 import { getRolldownLang } from "./client-module-query.ts";
-import { canonicalModuleId, fileModuleId, moduleIdPath, type ModuleId } from "./module-id.ts";
+import {
+  canonicalModuleId,
+  fileModuleId,
+  moduleIdPath,
+  toPosixPath,
+  type ModuleId,
+} from "./module-id.ts";
 import {
   findPagesRootFile,
   GENERATED_PAGES_LAYOUT_EXPORT,
@@ -825,10 +831,6 @@ type StaticNode = {
   type: string;
   [key: string]: unknown;
 };
-
-function toPosixPath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
 
 function asStaticNode(value: unknown): StaticNode | null {
   if (!value || typeof value !== "object" || !("type" in value)) return null;

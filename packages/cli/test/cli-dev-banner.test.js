@@ -111,6 +111,13 @@ describe("@pracht/cli dev banner", () => {
         () => output,
       );
       expect(output).not.toContain("Routes (");
+      // The failure is named, with the route count read statically.
+      await waitFor(
+        () => /The app manifest defines \d+ routes?\./.test(output),
+        30_000,
+        () => output,
+      );
+      expect(output).toContain("Could not resolve the app graph: broken manifest");
 
       writeProjectFile(appDir, "src/routes.ts", manifest);
       await waitFor(

@@ -18,9 +18,15 @@ function filesMatching(pattern: RegExp): string[] {
 describe("one source-analysis reader", () => {
   it("parses route modules for their exports in one place", () => {
     expect(filesMatching(/from "@babel\/parser"/)).toEqual(["route-loader-hints.ts"]);
-    expect(filesMatching(/\bdetect(?:Loader|Head|Headers|StaticPaths)Export\(/)).toEqual([
-      "route-loader-hints.ts",
-    ]);
+    // Route exports are answered for all hint tables at once, never per export.
+    expect(filesMatching(/\bdetect(?:Loader|Head|Headers|StaticPaths)Export\(/)).toEqual([]);
+    expect(filesMatching(/\binspectParsedModuleExports\(/)).toEqual(["route-loader-hints.ts"]);
+  });
+
+  it("spells module identity in one place", () => {
+    expect(
+      filesMatching(/\bfunction (?:canonicalModuleId|fileModuleId|toPosixPath|scanFiles)\b/),
+    ).toEqual(["module-id.ts"]);
   });
 
   it("reads the app manifest in one place", () => {

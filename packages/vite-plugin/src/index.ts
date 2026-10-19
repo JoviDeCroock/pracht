@@ -96,6 +96,7 @@ import {
 } from "./route-extensions.ts";
 import type { PrachtAdapter } from "./plugin-adapter.ts";
 import { getAnalysisSession } from "./analysis.ts";
+import { toPosixPath } from "./module-id.ts";
 import type { RouteHints } from "./route-loader-hints.ts";
 import { isNonModuleFile, moduleGlob } from "./source-files.ts";
 
@@ -237,6 +238,9 @@ export function pracht(options: PrachtPluginOptions = {}): Plugin[] {
       adapter: resolved.adapter,
       // Manifest edits dev applied in place, without restarting the server.
       manifestUpdates: 0,
+      // What the app manifest says, read statically: `pracht verify` and the
+      // dev banner fall back to it when the app graph cannot be resolved.
+      manifestFacts: () => getAnalysisSession(resolved, root).manifest(),
     },
   };
   const prachtPlugin: Plugin = {
@@ -1762,10 +1766,6 @@ function resolveConfigPath(root: string, configPath: string): string {
     return `${normalizedRoot}/${relativePath}`;
   }
   return toPosixPath(resolve(root, relativePath));
-}
-
-function toPosixPath(p: string): string {
-  return p.replace(/\\/g, "/");
 }
 
 function withTrailingSep(p: string): string {

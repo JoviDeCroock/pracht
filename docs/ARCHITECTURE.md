@@ -521,8 +521,10 @@ manifest module is parsed once per file stamp with Vite's `parseAst`. Registry
 codegen (external keyed imports), the non-full-hydration exclusion, the
 unreferenced-module exclusion, external feature hints, the client transform's
 external-route identity and `findAppRootModule()` all read these facts, and
-`test/analysis-seam.test.ts` fails when another module parses the manifest or
-re-derives route exports.
+`test/analysis-seam.test.ts` fails when another module parses the manifest,
+re-derives route exports, or spells module identity itself. The plugin hands
+the same facts to the CLI as `api.pracht.manifestFacts()`, which `pracht
+verify` and the dev banner read when the app graph cannot be resolved.
 
 ### Route hint tables
 

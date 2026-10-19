@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { PRACHT_CLIENT_MODULE_QUERY } from "./client-module-query.ts";
 import { generatePagesManifestSource, scanPagesDirectory } from "./pages-router.ts";
@@ -14,8 +14,14 @@ import {
   type PrachtPluginOptions,
   type ResolvedPrachtPluginOptions,
 } from "./plugin-options.ts";
-import { createRouteHints, createRouteLoaderHints, type RouteHints } from "./route-loader-hints.ts";
+import {
+  createRouteHints,
+  createRouteLoaderHints,
+  listRouteFiles,
+  type RouteHints,
+} from "./route-loader-hints.ts";
 import { fileModuleId, getAnalysisSession, isWithinRoot, moduleIdPath } from "./analysis.ts";
+import { toPosixPath } from "./module-id.ts";
 import { findAppRootModule } from "./plugin-app-root.ts";
 import { createWebmcpBootstrapSource, hasWebmcpCapabilities } from "./plugin-capabilities.ts";
 import {
@@ -25,40 +31,7 @@ import {
   extensionGlob,
   withAdditionalExtensions,
 } from "./route-extensions.ts";
-import {
-  isNonModuleDirectoryName,
-  isNonModuleFile,
-  moduleGlob,
-  nonModuleExcludes,
-} from "./source-files.ts";
-
-function toPosixPath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-function scanFiles(dir: string, files: string[], extensions: Set<string>): void {
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    const abs = join(dir, entry);
-    let stat;
-    try {
-      stat = statSync(abs);
-    } catch {
-      continue;
-    }
-    if (stat.isDirectory()) {
-      if (!isNonModuleDirectoryName(entry)) scanFiles(abs, files, extensions);
-    } else if (extensions.has(extname(entry)) && !isNonModuleFile(entry)) {
-      files.push(abs);
-    }
-  }
-}
+import { moduleGlob, nonModuleExcludes } from "./source-files.ts";
 
 /**
  * Route modules left out of the client registry: a module whose every ref
@@ -249,9 +222,7 @@ function createUnreferencedModuleExcludes(
   const rootPrefix = `${toPosixPath(root).replace(/\/$/, "")}/`;
 
   for (const directory of directories) {
-    const files: string[] = [];
-    scanFiles(resolve(root, directory.replace(/^\//, "")), files, extensions);
-    for (const file of files) {
+    for (const file of listRouteFiles(resolve(root, directory.replace(/^\//, "")), extensions)) {
       const posix = toPosixPath(file);
       if (refs.files.has(posix)) continue;
       excludes.push(`!/${posix.replace(rootPrefix, "")}`);

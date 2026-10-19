@@ -45,3 +45,8 @@ export function moduleIdPath(root: string, id: ModuleId): string {
 export function isWithinRoot(id: ModuleId): boolean {
   return id !== "/.." && !id.startsWith("/../");
 }
+
+/** `path` with POSIX separators. */
+export function toPosixPath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
