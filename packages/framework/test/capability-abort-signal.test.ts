@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { defineCapability } from "../../capabilities/src/index.ts";
 import {
@@ -149,6 +149,52 @@ describe("capability abort signal", () => {
     expect((probe.reason as Error).name).toBe("TimeoutError");
     expect(performance.now() - started).toBeLessThan(1_500);
     expect(probe.runSignal).toBe(probe.middlewareSignal);
+  });
+
+  it("logs on the server when the request budget ends a capability's run", async () => {
+    const app = defineApp({
+      loaderTimeoutMs: 50,
+      capabilities: { "x.slow": "./capabilities/slow.ts" },
+      routes: [route("/", "./routes/home.tsx")],
+    });
+    const registry: ModuleRegistry = {
+      routeModules: { "./routes/home.tsx": async () => ({ Component: () => null }) },
+      capabilityModules: {
+        "./capabilities/slow.ts": (async () => ({
+          default: defineCapability({
+            title: "Slow",
+            description: "Rejects with the abort reason.",
+            effect: "read",
+            input: { type: "object", properties: {}, additionalProperties: false },
+            output: { type: "object", properties: {} },
+            expose: { http: true },
+            run: ({ signal }) =>
+              new Promise((_resolve, reject) => {
+                signal.addEventListener("abort", () => reject(signal.reason));
+              }),
+          }),
+        })) as NonNullable<ModuleRegistry["capabilityModules"]>[string],
+      },
+    };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await handlePrachtRequest({
+        app,
+        registry,
+        request: new Request("http://localhost/api/capabilities/x/slow", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(logged.mock.calls.map(([message]) => String(message))).toContainEqual(
+        expect.stringContaining('Capability "x.slow" was aborted because the request ran past'),
+      );
+    } finally {
+      logged.mockRestore();
+    }
   });
 
   it("hands capabilities the request budget, which stops timing once the response is read", async () => {

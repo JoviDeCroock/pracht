@@ -726,7 +726,7 @@ pracht eval --start "pracht preview"    # add --json for machine-readable CI out
 pracht eval --url http://localhost:3000
 ```
 
-Set `"transport": "mcp"` to run the steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), or `"transport": "webmcp"` plus `"webmcpRoute"` to call the page tool in Chrome (with `playwright-core` installed). A step's `cancelAfterMs` tests cancellation.
+Set `"transport": "mcp"` to run the steps against your app's [remote MCP endpoint](/docs/capabilities#remote-mcp-tools-for-agents-without-a-browser), or `"transport": "webmcp"` plus `"webmcpRoute"` to call the page tool in Chrome (with `playwright-core` installed). In a WebMCP scenario, a step's `cancelAfterMs` tests cancellation.
 
 See [Agent Trust](/docs/agent-trust) for the scenario format, and the framework repository's `examples/basic` for unit, E2E, and eval coverage over HTTP, remote MCP, and WebMCP.
 

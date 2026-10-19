@@ -21,6 +21,8 @@ export interface DevBannerCapability extends Pick<
 
 export interface DevBannerOptions {
   apiRoutes: DevBannerApiRoute[];
+  /** Vite's `base`; the MCP endpoint is served under it. */
+  base?: string;
   capabilities?: DevBannerCapability[];
   color?: boolean;
   localUrls: string[];
@@ -78,9 +80,16 @@ const EFFECT_COLORS: Record<string, string> = {
  * Format the `pracht dev` startup banner: local URL(s) plus an aligned table
  * of page routes (pattern, render mode, shell, middleware) and API routes.
  */
+/** `path` as a client requests it under a deployment `base` such as `/app/`. */
+function withBase(base: string, path: string): string {
+  if (!base.startsWith("/") || base === "/") return path;
+  return `${base.replace(/\/+$/, "")}${path}`;
+}
+
 export function formatDevBanner(options: DevBannerOptions): string {
   const {
     apiRoutes,
+    base = "/",
     capabilities = [],
     color = false,
     localUrls,
@@ -179,7 +188,7 @@ export function formatDevBanner(options: DevBannerOptions): string {
     lines.push(
       mcpEndpoint
         ? `  ${paint(heading, ANSI.bold)}  ${paint(
-            `MCP endpoint ${mcpEndpoint}${mcpAuthenticated ? " (oauth)" : ""}`,
+            `MCP endpoint ${withBase(base, mcpEndpoint)}${mcpAuthenticated ? " (oauth)" : ""}`,
             ANSI.dim,
           )}`
         : `  ${paint(heading, ANSI.bold)}`,
