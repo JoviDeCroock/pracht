@@ -497,6 +497,12 @@ a custom entry can instead pass `trustProxy: true` to
 If the proxy also strips Vite's deploy base from the path, set
 `nodeAdapter({ basePathStripped: true })`.
 
+A custom `node:http` server with its own Web handler can reuse this request
+handling from `@pracht/adapter-node/bridge`. `createWebRequest(req, res, { maxBodySize, trustProxy, canonicalOrigin })`
+resolves to a `Request` whose `signal` aborts when the client disconnects, or
+to the 413 or 400 `Response` to send instead. `writeWebResponse(res, response)`
+streams the answer.
+
 ### Response compression
 
 Responses are compressed by default, negotiated from `Accept-Encoding` with

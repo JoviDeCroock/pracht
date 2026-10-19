@@ -429,12 +429,13 @@ production requests skip all timing work.
 
 ### Writing the response
 
-The dev middleware hands the runtime's `Response` to Node the same way the
-production Node adapter does (`writeNodeResponseHeaders` in
-`packages/adapter-node/src/node-request.ts`), and for the same reason: a
-difference here only shows up after deploy.
+The dev middleware reads the request and writes the runtime's `Response`
+through the production Node adapter's bridge (`@pracht/adapter-node/bridge`),
+for the same reason: a difference here only shows up after deploy. The bridge
+answers an oversized body with the adapter's 413, gives `request.signal` the
+client-disconnect signal, and streams bodies with backpressure.
 
-- Headers are copied with `writeDevResponseHeaders()`, which reads `set-cookie`
+- Headers are copied with `writeNodeResponseHeaders()`, which reads `set-cookie`
   through `getSetCookie()`. `Headers.forEach()` yields that one header
   comma-joined and `res.setHeader()` replaces rather than appends, so a loader
   or API route setting two cookies would otherwise emit one broken header.
