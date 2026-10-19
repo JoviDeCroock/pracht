@@ -277,8 +277,18 @@ function readNodeHeader(req: VercelNodeRequest, name: string): string | undefine
  */
 async function prepareVercelISGResponse(request: Request, response: Response): Promise<Response> {
   const pathname = new URL(request.url).pathname;
-  const snapshot = await captureISGSnapshot(response, { pathname });
-  if (!isISGSnapshotRejection(snapshot)) return serveISGSnapshot(snapshot);
+  // The snapshot decides the headers; the body keeps streaming to Vercel, which
+  // stores it, with backpressure and cancellation intact.
+  const snapshot = await captureISGSnapshot(
+    new Response(null, { status: response.status, headers: response.headers }),
+    { pathname },
+  );
+  if (!isISGSnapshotRejection(snapshot)) {
+    return new Response(response.body, {
+      headers: serveISGSnapshot(snapshot).headers,
+      status: 200,
+    });
+  }
 
   if (snapshot.reason === "uncacheable") {
     console.warn(
