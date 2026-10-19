@@ -520,6 +520,18 @@ export function resolveStaticExportOutputPath(clientDir: string, routePath: stri
   return resolvePrerenderOutputPath(clientDir, decodeStaticOutputPath(routePath));
 }
 
+/**
+ * Cloudflare variant of `resolvePrerenderOutputPath`. The Workers assets
+ * binding decodes the request path before it looks a file up, so a page is
+ * written at its decoded spelling (`posts/café/index.html`), the first of
+ * core's `staticPathCandidates()`. A path with no decoded spelling (an encoded
+ * separator) keeps the encoded one; the Worker renders it.
+ */
+export function resolveCloudflarePrerenderOutputPath(clientDir: string, routePath: string): string {
+  const decoded = decodeStaticPath(routePath);
+  return resolvePrerenderOutputPath(clientDir, decoded.ok ? decoded.path : routePath);
+}
+
 export function resolvePrerenderOutputPath(clientDir: string, routePath: string): string {
   if (routePath.includes("\0")) {
     throw new Error(`Refusing to write prerendered route "${routePath}" with a NUL byte.`);

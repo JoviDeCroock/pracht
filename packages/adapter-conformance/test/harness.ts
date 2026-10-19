@@ -320,11 +320,16 @@ export function createStaticOutput(
   writeFileSync(secretPath, "top-secret");
 
   const writePrerenderedISG = (path: string, html: string, mtimeMs: number) => {
-    const file = join(clientDir, `.${path}`, "index.html");
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, html);
-    const seconds = mtimeMs / 1000;
-    utimesSync(file, seconds, seconds);
+    // `pracht build` writes the encoded spelling for Node, and the decoded one
+    // for Cloudflare, whose assets binding decodes the URL.
+    const decoded = frameworkServer.decodeStaticPath(path);
+    for (const spelling of new Set([path, decoded.ok ? decoded.path : path])) {
+      const file = join(clientDir, `.${spelling}`, "index.html");
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, html);
+      const seconds = mtimeMs / 1000;
+      utimesSync(file, seconds, seconds);
+    }
   };
   const build = options.build ?? "A";
   const generatedAt = options.generatedAt ?? Date.now() - 3_600_000;
@@ -514,16 +519,18 @@ const ASSET_CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
- * The Workers static assets binding: exact files, then `<path>/index.html`,
- * single byte ranges, 404 otherwise. Only the parts of the platform the
- * adapter's wrapper can disturb are modelled.
+ * The Workers static assets binding: the decoded path's exact file, then its
+ * `<path>/index.html`, single byte ranges, 404 otherwise. Only the parts of
+ * the platform the adapter's wrapper can disturb are modelled.
  */
 function createMockAssets(clientDir: string): { fetch(request: Request): Promise<Response> } {
   return {
     async fetch(request) {
       const { readFile, stat } = await import("node:fs/promises");
       const { extname } = await import("node:path");
-      const pathname = new URL(request.url).pathname;
+      const decoded = frameworkServer.decodeStaticPath(new URL(request.url).pathname);
+      if (!decoded.ok) return new Response("not found", { status: 404 });
+      const pathname = decoded.path;
       for (const candidate of [pathname, `${pathname.replace(/\/$/, "")}/index.html`]) {
         const file = join(clientDir, `.${candidate}`);
         if (!file.startsWith(clientDir)) break;

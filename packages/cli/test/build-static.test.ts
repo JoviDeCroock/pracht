@@ -7,6 +7,7 @@ import {
   describeInlineCssOpportunity,
   findStaticRouteStateConflicts,
   isStaticExportBuild,
+  resolveCloudflarePrerenderOutputPath,
   resolvePrerenderOutputPath,
   resolveRouteStateOutputPath,
   resolveStaticExportOutputPath,
@@ -633,6 +634,22 @@ describe("resolveStaticExportOutputPath", () => {
   it("does not change the serverful adapters, whose static lookup matches the raw pathname", () => {
     expect(resolvePrerenderOutputPath(clientDir, "/posts/caf%C3%A9")).toBe(
       resolve(clientDir, "posts/caf%C3%A9/index.html"),
+    );
+  });
+
+  it("writes Cloudflare pages where the assets binding, which decodes the URL, looks", () => {
+    expect(resolveCloudflarePrerenderOutputPath(clientDir, "/posts/caf%C3%A9")).toBe(
+      resolve(clientDir, "posts/café/index.html"),
+    );
+    expect(resolveCloudflarePrerenderOutputPath(clientDir, "/posts/a%20b")).toBe(
+      resolve(clientDir, "posts/a b/index.html"),
+    );
+    // No decoded spelling: the encoded one, which the Worker renders.
+    expect(resolveCloudflarePrerenderOutputPath(clientDir, "/posts/a%2Fb")).toBe(
+      resolve(clientDir, "posts/a%2Fb/index.html"),
+    );
+    expect(() => resolveCloudflarePrerenderOutputPath(clientDir, "/posts/%2e%2e")).toThrow(
+      /outside dist\/client/,
     );
   });
 
