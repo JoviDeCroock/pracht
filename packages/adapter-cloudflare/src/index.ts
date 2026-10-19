@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import type { PrachtAdapter } from "@pracht/vite-plugin";
 import type { Plugin } from "vite";
 import { cloudflare, type PluginConfig } from "@cloudflare/vite-plugin";
+import { finalizeCloudflareBuild } from "./build.ts";
 import { resolveWorkersCacheOptions, type CloudflareWorkersCacheOption } from "./cache.ts";
 import { cloudflareEdgeNodeBuiltins } from "./node-builtins.ts";
 
@@ -539,6 +540,9 @@ export function cloudflareAdapter(options: CloudflareViteAdapterOptions = {}): P
     },
     edgeNodeBuiltins(root) {
       return cloudflareEdgeNodeBuiltins(root, options.configPath);
+    },
+    finalizeBuild(context) {
+      return finalizeCloudflareBuild(context);
     },
     graphVitePlugins(): Plugin[] {
       return [cloudflareGraphRuntimeStubs()];

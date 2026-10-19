@@ -15,10 +15,17 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   describeVercelRouteBudget,
+  finalizeVercelBuild,
   resolveVercelRuntimeRoutes,
   VERCEL_ROUTE_LIMIT,
-  writeVercelBuildOutput,
-} from "../src/build-shared.ts";
+  writeVercelBuildOutput as writeBuildOutput,
+  type VercelBuildOutputOptions,
+} from "../src/build-output.ts";
+import type { PrachtAdapterBuildContext } from "@pracht/vite-plugin";
+
+function writeVercelBuildOutput(options: Omit<VercelBuildOutputOptions, "frameworkVersion">) {
+  return writeBuildOutput({ frameworkVersion: "0.0.0-test", ...options });
+}
 
 interface VercelRoute {
   continue?: boolean;
@@ -723,5 +730,71 @@ describe("writeVercelBuildOutput", () => {
       routes: { dest?: string; src?: string }[];
     };
     expect(config.routes.some((entry) => entry.src === "^/guide$")).toBe(false);
+  });
+
+  function buildContext(
+    root: string,
+    overrides: Partial<PrachtAdapterBuildContext> = {},
+  ): PrachtAdapterBuildContext & { logs: string[]; warnings: string[] } {
+    const logs: string[] = [];
+    const warnings: string[] = [];
+    return {
+      root,
+      clientDir: join(root, "dist/client"),
+      publicDir: join(root, "public"),
+      publicDirLabel: "public",
+      base: "/",
+      trailingSlash: "ignore",
+      frameworkVersion: "9.9.9",
+      serverEntry: {},
+      pages: ["/", "/guide"],
+      onDemandPages: [],
+      isgManifest: {},
+      headersManifest: {},
+      markdownRoutes: ["/guide"],
+      markdownFiles: [{ path: "/guide.md", outputPath: "guide.md" }],
+      contentArtifacts: [],
+      staticRoutes: ["/openapi"],
+      log: (message) => logs.push(message),
+      warn: (message) => warnings.push(message),
+      logs,
+      warnings,
+      ...overrides,
+    };
+  }
+
+  it("writes the Build Output from the adapter's finalizeBuild context", () => {
+    const fromContext = createBuildRoot();
+    const direct = createBuildRoot();
+    const context = buildContext(fromContext);
+
+    finalizeVercelBuild(context, { functionName: "render" });
+    writeBuildOutput({
+      frameworkVersion: "9.9.9",
+      functionName: "render",
+      isgManifest: {},
+      markdownFiles: ["guide.md"],
+      markdownRoutes: ["/guide"],
+      root: direct,
+      staticAssetRoutes: ["/guide.md"],
+      staticRoutes: ["/", "/guide", "/openapi"],
+      pageRoutes: ["/", "/guide"],
+    });
+
+    const read = (dir: string) => readFileSync(join(dir, ".vercel/output/config.json"), "utf-8");
+    expect(read(fromContext)).toBe(read(direct));
+    expect(JSON.parse(read(fromContext)).framework).toEqual({ version: "9.9.9" });
+    expect(context.logs).toEqual(["\n  Vercel build output → .vercel/output\n"]);
+    expect(context.warnings).toEqual([]);
+  });
+
+  it("refuses ISG routes when the server entry has no nodeListener", () => {
+    const root = createBuildRoot();
+    const context = buildContext(root, {
+      isgManifest: { "/live": { revalidate: { kind: "time", seconds: 60 } } },
+      pages: ["/live"],
+    });
+
+    expect(() => finalizeVercelBuild(context, {})).toThrow(/does not export `nodeListener`/);
   });
 });

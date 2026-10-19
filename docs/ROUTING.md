@@ -923,7 +923,7 @@ route paths and URL paths alike:
   `"always"`, and `/feed.xml/` redirects to `/feed.xml`.
 - Repeated trailing slashes collapse (`/about//` → `/about/` or `/about`).
 
-The CLI (`build-shared.ts`) and the static preview server carry small copies of
+The Vercel build output writer (`adapter-vercel/src/build-output.ts`, with a legacy copy in the CLI) and the static preview server carry small copies of
 the same rules because they run outside the bundles that receive the define.
 
 ### Where it applies

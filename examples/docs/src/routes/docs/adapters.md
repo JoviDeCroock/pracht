@@ -747,23 +747,27 @@ export default async function handle(request) {
     graphVitePlugins() {
       return myPlatformGraphStubs();
     },
+    async finalizeBuild(context) {
+      await writeMyPlatformOutput(context);
+    },
   };
 }
 ```
 
-`pracht inspect`, `plan`, `verify`, `report`, `doctor`, and `typegen` never load
-an adapter's `vitePlugins()`. They call `graphVitePlugins()` instead, or load no
-adapter plugins when it is omitted.
+Graph commands (`pracht inspect`, `plan`, `verify`, `report`, `doctor`, `typegen`)
+call `graphVitePlugins()` instead of `vitePlugins()`, or load no adapter plugins
+without it.
+
+`finalizeBuild(context)` writes your deploy layout, as the Vercel adapter does for `.vercel/output`. The context holds the build paths, prerendered `pages`, manifests, and `log`/`warn`.
 
 At the runtime level, an adapter also typically needs to:
 
 1. Accept a platform request and convert it to a Web `Request`
-2. Check for static assets -- serve files from `dist/client/` with appropriate headers
-3. Check for prerendered pages -- serve SSG/ISG HTML (with staleness checking for ISG when the platform supports it)
-4. Delegate dynamic requests to `handlePrachtRequest()`, passing the platform's `waitUntil`. It resolves each `app` object once, so pass a new `defineApp()` result to change routes at runtime
+2. Serve static files from `dist/client/` with their headers
+3. Serve prerendered SSG/ISG HTML, checking ISG staleness where the platform can
+4. Delegate dynamic requests to `handlePrachtRequest()` from `pracht`, passing the platform's `waitUntil`. It resolves each `app` object once, so pass a new `defineApp()` result to change routes at runtime
 5. Convert the Web `Response` back to the platform's response format
 6. Provide a context factory for platform-specific values
-7. Export an entry module generator for the Vite plugin
 
 A static-export adapter sets `staticTarget: true` and builds its entry with
 `createStaticServerEntryModule()` from `@pracht/adapter-static` for `404.html`

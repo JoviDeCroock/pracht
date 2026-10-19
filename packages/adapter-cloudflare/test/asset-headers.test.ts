@@ -4,10 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  createCloudflareAssetHeadersFile,
-  writeCloudflareAssetHeaders,
-} from "../src/cloudflare-asset-headers.ts";
+import { createCloudflareAssetHeadersFile, writeCloudflareAssetHeaders } from "../src/build.ts";
 
 const tempDirs: string[] = [];
 
